@@ -23,6 +23,10 @@ public enum APIError: LocalizedError, Sendable {
     }
 }
 
+public struct EmptyResponse: Codable, Sendable {
+    public init() {}
+}
+
 public struct GatewayStatusResponse: Codable, Sendable {
     public let status: String
     public let upstream: UpstreamInfo?
@@ -119,6 +123,16 @@ public final class APIClient: Sendable {
         guard (200...299).contains(httpResp.statusCode) else {
             let errorMsg = String(data: data, encoding: .utf8) ?? httpResp.description
             throw APIError.serverError(statusCode: httpResp.statusCode, message: errorMsg)
+        }
+        
+        // Handle void/empty responses safely (ConnectRPC void methods like SendUserCascadeMessage)
+        if Resp.self == EmptyResponse.self {
+            return EmptyResponse() as! Resp
+        }
+        if data.isEmpty {
+            if let empty = EmptyResponse() as? Resp {
+                return empty
+            }
         }
         
         do {
@@ -349,7 +363,6 @@ public final class APIClient: Sendable {
     
     // Send a message to cascade
     public func sendMessage(cascadeId: String, text: String, cascadeConfigRaw: String? = nil, baseURL: URL) async throws {
-        struct EmptyResponse: Decodable {}
         let req = SendUserCascadeMessageRequest(cascadeId: cascadeId, text: text, cascadeConfigRaw: cascadeConfigRaw)
         let _: EmptyResponse = try await rpc(
             method: "SendUserCascadeMessage",
@@ -360,7 +373,6 @@ public final class APIClient: Sendable {
     
     // Cancel task execution
     public func cancelTask(cascadeId: String, baseURL: URL) async throws {
-        struct EmptyResponse: Decodable {}
         let req = CancelCascadeInvocationRequest(cascadeId: cascadeId)
         let _: EmptyResponse = try await rpc(
             method: "CancelCascadeInvocation",

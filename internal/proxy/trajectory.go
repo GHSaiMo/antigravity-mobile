@@ -396,7 +396,17 @@ func ClearTrajectoryCache(cascadeID string) {
 }
 
 func (p *Proxy) fetchUpstreamTrajectory(cascadeID string, port int, token string) (*upstreamTrajectoryResp, error) {
-	return p.fetchUpstreamTrajectoryWithMaxAge(cascadeID, port, token, 800*time.Millisecond)
+	// Status-aware TTL: completed sessions rarely change, so cache them much longer
+	// to avoid redundant upstream requests and speed up client rendering.
+	maxAge := 800 * time.Millisecond
+	trajCacheMu.Lock()
+	if cached, ok := trajCache[cascadeID]; ok {
+		if cached.data.Status != "" && cached.data.Status != "CASCADE_RUN_STATUS_RUNNING" {
+			maxAge = 60 * time.Second
+		}
+	}
+	trajCacheMu.Unlock()
+	return p.fetchUpstreamTrajectoryWithMaxAge(cascadeID, port, token, maxAge)
 }
 
 func (p *Proxy) fetchUpstreamTrajectoryWithMaxAge(cascadeID string, port int, token string, maxAge time.Duration) (*upstreamTrajectoryResp, error) {

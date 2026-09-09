@@ -147,6 +147,35 @@ public struct ChatView: View {
                 }
             }
             
+            // Error banner for active chats
+            if let err = viewModel.errorMessage, !viewModel.messages.isEmpty {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                        .font(.system(size: 14))
+                    Text(err)
+                        .font(.system(size: 12.5, weight: .medium))
+                        .foregroundColor(.primary)
+                        .lineLimit(2)
+                    Spacer()
+                    Button(action: {
+                        viewModel.errorMessage = nil
+                    }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(.secondary)
+                            .font(.system(size: 14))
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(Color(uiColor: .secondarySystemBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .padding(.horizontal, 16)
+                .padding(.bottom, 6)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+            
             // Bottom input bar
             inputBar
         }

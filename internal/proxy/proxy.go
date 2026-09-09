@@ -196,6 +196,7 @@ func (p *Proxy) handleRpcProxy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	reqPath := strings.TrimPrefix(r.URL.Path, "/api")
+	log.Printf("[Proxy] RPC: %s %s", r.Method, reqPath)
 	if strings.HasSuffix(reqPath, "/SendUserCascadeMessage") && r.Method == http.MethodPost {
 		p.handleSendUserCascadeMessage(w, r, rp, reqPath, port, token)
 		return
@@ -206,6 +207,24 @@ func (p *Proxy) handleRpcProxy(w http.ResponseWriter, r *http.Request) {
 	rp.ServeHTTP(w, r)
 }
 
+type responseObserver struct {
+	http.ResponseWriter
+	statusCode int
+	body       bytes.Buffer
+}
+
+func (ro *responseObserver) WriteHeader(statusCode int) {
+	ro.statusCode = statusCode
+	ro.ResponseWriter.WriteHeader(statusCode)
+}
+
+func (ro *responseObserver) Write(b []byte) (int, error) {
+	if ro.statusCode >= 400 && ro.body.Len() < 2048 {
+		ro.body.Write(b)
+	}
+	return ro.ResponseWriter.Write(b)
+}
+
 func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Request, rp http.Handler, reqPath string, port int, token string) {
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -214,8 +233,9 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 	}
 
 	var rawMap map[string]interface{}
+	cascadeID := ""
 	if err := json.Unmarshal(bodyBytes, &rawMap); err == nil {
-		cascadeID, _ := rawMap["cascadeId"].(string)
+		cascadeID, _ = rawMap["cascadeId"].(string)
 
 		var configToUse json.RawMessage
 		// 1. Check if cascadeConfig already exists in payload
@@ -256,11 +276,24 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
+	log.Printf("[Proxy] SendUserCascadeMessage: cascadeId=%s payloadLen=%d", cascadeID, len(bodyBytes))
+
 	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+	r.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(bodyBytes)), nil
+	}
 	r.ContentLength = int64(len(bodyBytes))
 	r.Header.Set("Content-Length", strconv.Itoa(len(bodyBytes)))
 	r.URL.Path = reqPath
-	rp.ServeHTTP(w, r)
+
+	obs := &responseObserver{ResponseWriter: w, statusCode: http.StatusOK}
+	rp.ServeHTTP(obs, r)
+
+	if obs.statusCode >= 400 {
+		log.Printf("[Proxy] SendUserCascadeMessage upstream error: status=%d body=%s", obs.statusCode, obs.body.String())
+	} else {
+		log.Printf("[Proxy] SendUserCascadeMessage upstream success: status=%d", obs.statusCode)
+	}
 }
 
 func (p *Proxy) handleArtifactProxy(w http.ResponseWriter, r *http.Request) {

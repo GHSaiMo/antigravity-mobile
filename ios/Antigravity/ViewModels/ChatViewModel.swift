@@ -129,7 +129,11 @@ public final class ChatViewModel {
             ))
             
             let previouslyRunning = self.isRunning
-            self.isRunning = (status == "CASCADE_RUN_STATUS_RUNNING")
+            if status == "CASCADE_RUN_STATUS_RUNNING" {
+                self.isRunning = true
+            } else if !self.isAwaitingResponse {
+                self.isRunning = false
+            }
             
             // If awaiting response, check if agent has completed response
             if self.isAwaitingResponse {
@@ -149,7 +153,7 @@ public final class ChatViewModel {
                     } else if !self.isRunning && previouslyRunning {
                         if let since = awaitingResponseSince {
                             let elapsed = Date().timeIntervalSince(since)
-                            if elapsed > 6.0 {
+                            if elapsed > 15.0 {
                                 self.isAwaitingResponse = false
                                 self.awaitingResponseSince = nil
                             }
@@ -293,10 +297,12 @@ public final class ChatViewModel {
         
         do {
             try await apiClient.sendMessage(cascadeId: cascadeId, text: text, cascadeConfigRaw: cascadeConfigRaw, baseURL: url)
-            // Immediately trigger an eager background poll
+            // Allow upstream 250ms to register task and update state before first eager poll
+            try? await Task.sleep(nanoseconds: 250_000_000)
             await self.loadMessages(isBackgroundPoll: true)
         } catch {
-            errorMessage = "发送失败: \(error.localizedDescription)"
+            print("❌ sendMessage error: \(error)")
+            errorMessage = error.localizedDescription
             isRunning = false
             isAwaitingResponse = false
             awaitingResponseSince = nil
