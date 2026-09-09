@@ -9,6 +9,7 @@ public nonisolated struct CachedChatSession: Codable, Sendable {
     public let hasMore: Bool
     public let nextOffset: Int
     public let messages: [ChatMessage]
+    public let cascadeConfigRaw: String?
     public let savedAt: Date
     
     public init(
@@ -20,6 +21,7 @@ public nonisolated struct CachedChatSession: Codable, Sendable {
         hasMore: Bool,
         nextOffset: Int,
         messages: [ChatMessage],
+        cascadeConfigRaw: String? = nil,
         savedAt: Date = Date()
     ) {
         self.cascadeId = cascadeId
@@ -30,6 +32,7 @@ public nonisolated struct CachedChatSession: Codable, Sendable {
         self.hasMore = hasMore
         self.nextOffset = nextOffset
         self.messages = messages
+        self.cascadeConfigRaw = cascadeConfigRaw
         self.savedAt = savedAt
     }
 }
