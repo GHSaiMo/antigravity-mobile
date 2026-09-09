@@ -1,0 +1,70 @@
+# ====================================================================
+# Antigravity Mobile - Comprehensive Git Ignore
+# Covers Go Gateway, iOS SwiftUI App, Web/PWA, and Security Secrets
+# ====================================================================
+
+# --- Go Binaries & Build Artifacts ---
+bin/
+dist/
+build/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+
+# --- Logs & Runtime Output ---
+logs/*.log
+*.log
+!logs/.gitkeep
+
+# --- OS Specific Files ---
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# --- Xcode & iOS Development Artifacts ---
+xcuserdata/
+*.xcuserdatad
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+DerivedData/
+*.ipa
+*.app
+*.dSYM.zip
+*.dSYM
+profile/
+*.mobileprovision
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots
+fastlane/test_output
+
+# --- Secrets, Credentials & Environment ---
+.env
+.env.*
+*.key
+*.pem
+*.p12
+*.p8
+*.cer
+*.crt
+credentials.json
+client_secret*.json
+
+# --- Temporary & Swap Files ---
+tmp/
+temp/
+*.tmp
+*.swp
+*.swo
+*~
+*.bak
