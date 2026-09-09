@@ -39,6 +39,7 @@ public final class ChatViewModel {
     private var pendingOptimisticMessageId: String? = nil
     private var knownServerMessageIds: Set<String> = []
     private var pollTask: Task<Void, Never>?
+    public private(set) var streamClient: StreamWebSocketClient
     private let apiClient: APIClient
     private let settings: AppSettings
     private let activityManager: ActivityManager
@@ -60,6 +61,9 @@ public final class ChatViewModel {
         self.settings = settings ?? .shared
         self.activityManager = ActivityManager.shared
         self.cacheManager = cacheManager ?? .shared
+        self.streamClient = StreamWebSocketClient()
+        
+        self.setupStreamClient()
         
         // Instant restore from local cache
         if let cached = self.cacheManager.loadSession(for: cascadeId) {
@@ -219,12 +223,15 @@ public final class ChatViewModel {
                 }
             }
             
-            // Manage background polling: poll while running or awaiting agent response
-            let shouldPoll = self.isRunning || self.isAwaitingResponse
+            // Connect to WebSocket stream for real-time updates
+            connectStream()
+            
+            // Manage background polling fallback: only poll if WS is not actively connected
+            let shouldPoll = (self.isRunning || self.isAwaitingResponse) && streamClient.status != .connected
             if shouldPoll && pollTask == nil {
-                startPolling()
+                startPollingFallback()
             } else if !shouldPoll && pollTask != nil {
-                stopPolling()
+                stopPollingFallback()
             }
         } catch {
             if !isBackgroundPoll && messages.isEmpty {
@@ -350,14 +357,6 @@ public final class ChatViewModel {
             self.isNewConversation = false
         }
         
-        // If current title is still placeholder / project name, preview with first prompt text
-        if self.currentTitle == self.initialTitle {
-            let preview = text.count > 24 ? String(text.prefix(24)) + "..." : text
-            withAnimation(.easeInOut(duration: 0.2)) {
-                self.currentTitle = preview
-            }
-        }
-        
         // Optimistic update
         let optId = "optimistic-\(UUID().uuidString)"
         messages.append(ChatMessage(id: optId, sender: .user, content: text))
@@ -372,12 +371,17 @@ public final class ChatViewModel {
             activityManager.startActivity(title: currentTitle, cascadeId: cascadeId)
         }
         
-        // Start active polling immediately
-        startPolling()
+        // Ensure WebSocket stream is connected for immediate streaming
+        connectStream()
+        
+        // If stream is not actively connected, use fallback polling
+        if streamClient.status != .connected {
+            startPollingFallback()
+        }
         
         do {
             try await apiClient.sendMessage(cascadeId: cascadeId, text: text, cascadeConfigRaw: cascadeConfigRaw, baseURL: url)
-            // Allow upstream 250ms to register task and update state before first eager poll
+            // Allow upstream 250ms to register task and update state before first eager sync
             try? await Task.sleep(nanoseconds: 250_000_000)
             await self.loadMessages(isBackgroundPoll: true)
         } catch {
@@ -392,7 +396,7 @@ public final class ChatViewModel {
             }
             // Restore text so user does not lose their input
             inputText = text
-            stopPolling()
+            stopPollingFallback()
         }
     }
     
@@ -420,7 +424,7 @@ public final class ChatViewModel {
         isAwaitingResponse = false
         awaitingResponseSince = nil
         isRunning = false
-        stopPolling()
+        stopPollingFallback()
         
         do {
             try await apiClient.cancelTask(cascadeId: cascadeId, baseURL: url)
@@ -433,18 +437,167 @@ public final class ChatViewModel {
         }
     }
     
-    private func startPolling() {
-        pollTask?.cancel()
+    // MARK: - WebSocket Stream Integration
+    
+    private func setupStreamClient() {
+        streamClient.onUpdate = { [weak self] payload in
+            guard let self else { return }
+            self.handleStreamPayload(payload)
+        }
+        
+        streamClient.onStatusChange = { [weak self] status in
+            guard let self else { return }
+            self.handleStreamStatusChange(status)
+        }
+    }
+    
+    private func handleStreamStatusChange(_ status: StreamConnectionStatus) {
+        switch status {
+        case .connected:
+            stopPollingFallback()
+        case .failed, .disconnected:
+            let shouldPoll = self.isRunning || self.isAwaitingResponse
+            if shouldPoll && pollTask == nil {
+                startPollingFallback()
+            }
+        default:
+            break
+        }
+    }
+    
+    private func handleStreamPayload(_ payload: StreamUpdatePayload) {
+        if let steps = payload.totalSteps {
+            self.stepCount = steps
+        }
+        if let tools = payload.totalTools {
+            self.totalTools = tools
+        }
+        if let dur = payload.duration {
+            self.duration = dur
+        }
+        if let cfg = payload.cascadeConfigRaw, !cfg.isEmpty {
+            self.cascadeConfigRaw = cfg
+        }
+        
+        if let title = payload.title?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !title.isEmpty, title != "未命名会话" {
+            if self.currentTitle != title {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    self.currentTitle = title
+                }
+                self.cacheManager.updateConversationTitle(cascadeId: self.cascadeId, newTitle: title)
+            }
+        }
+        
+        if let rawMessages = payload.messages {
+            let parsedMessages = rawMessages.map { item -> ChatMessage in
+                let sender: ChatMessage.MessageSender = {
+                    switch item.type {
+                    case "user": return .user
+                    case "agent": return .agent
+                    default: return .toolBatch(count: item.toolCount ?? 1, tools: item.toolNames ?? [])
+                    }
+                }()
+                let imgDataList = (item.media ?? []).compactMap { Data(base64Encoded: $0) }
+                return ChatMessage(
+                    id: item.id,
+                    sender: sender,
+                    content: item.text,
+                    toolCount: item.toolCount ?? 0,
+                    toolNames: item.toolNames ?? [],
+                    imageDataList: imgDataList,
+                    imageUrls: item.imageUrls ?? []
+                )
+            }
+            self.mergeIncomingMessages(parsedMessages)
+        }
+        
+        let previouslyRunning = self.isRunning
+        let statusString = payload.status ?? (previouslyRunning ? "CASCADE_RUN_STATUS_RUNNING" : "CASCADE_RUN_STATUS_DONE")
+        if statusString == "CASCADE_RUN_STATUS_RUNNING" {
+            self.isRunning = true
+        } else if !self.isAwaitingResponse {
+            self.isRunning = false
+        }
+        
+        if self.isAwaitingResponse {
+            if self.pendingOptimisticMessageId != nil {
+                // Keep awaiting until server acknowledges the user message
+            } else if let lastUserIdx = self.messages.lastIndex(where: { $0.sender == .user }) {
+                let subsequent = self.messages.suffix(from: lastUserIdx + 1)
+                let hasAgentResponse = subsequent.contains(where: { $0.sender == .agent })
+                if hasAgentResponse {
+                    self.isAwaitingResponse = false
+                    self.awaitingResponseSince = nil
+                    self.scrollToTurnStartTrigger += 1
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                } else if !self.isRunning && previouslyRunning {
+                    if let since = awaitingResponseSince {
+                        let elapsed = Date().timeIntervalSince(since)
+                        if elapsed > 15.0 {
+                            self.isAwaitingResponse = false
+                            self.awaitingResponseSince = nil
+                        }
+                    }
+                }
+            }
+        }
+        
+        if settings.enableLiveActivities {
+            if isRunning && !previouslyRunning {
+                activityManager.startActivity(title: currentTitle, cascadeId: cascadeId)
+            } else if isRunning {
+                let latestAction = self.messages.last?.content ?? "正在执行..."
+                activityManager.updateActivity(status: "RUNNING", stepCount: self.stepCount, latestAction: latestAction)
+            } else if !isRunning && previouslyRunning {
+                activityManager.endActivity(finalStatus: "COMPLETED")
+            }
+        }
+        
+        let toCache = self.messages.filter { $0.id != self.pendingOptimisticMessageId && !$0.id.hasPrefix("optimistic-") }
+        cacheManager.saveSession(CachedChatSession(
+            cascadeId: cascadeId,
+            status: statusString,
+            duration: self.duration,
+            stepCount: self.stepCount,
+            totalTools: self.totalTools,
+            hasMore: self.hasMore,
+            nextOffset: self.nextOffset,
+            messages: toCache,
+            title: self.currentTitle,
+            cascadeConfigRaw: self.cascadeConfigRaw
+        ))
+        if self.pendingOptimisticMessageId == nil {
+            self.knownServerMessageIds = Set(toCache.map(\.id))
+        }
+    }
+    
+    public func connectStream() {
+        guard let url = settings.serverURL else { return }
+        streamClient.connect(baseURL: url, cascadeId: cascadeId)
+    }
+    
+    public func disconnectStream() {
+        streamClient.disconnect(intentional: true)
+        stopPollingFallback()
+    }
+    
+    public func stopPolling() {
+        disconnectStream()
+    }
+    
+    private func startPollingFallback() {
+        guard pollTask == nil else { return }
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
                 guard let self else { break }
                 await self.loadMessages(isBackgroundPoll: true)
             }
         }
     }
     
-    public func stopPolling() {
+    private func stopPollingFallback() {
         pollTask?.cancel()
         pollTask = nil
     }
