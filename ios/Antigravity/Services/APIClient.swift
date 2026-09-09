@@ -411,4 +411,94 @@ public final class APIClient: Sendable {
         
         return try JSONDecoder().decode(GatewayStatusResponse.self, from: data)
     }
+    
+    // Fetch discovered upstream projects
+    public func fetchProjects(baseURL: URL) async throws -> [ProjectItem] {
+        let endpoint = baseURL.appendingPathComponent("gateway/projects")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 10
+        
+        let settings = AppSettings.shared
+        if !settings.cfAccessClientId.isEmpty {
+            request.setValue(settings.cfAccessClientId, forHTTPHeaderField: "CF-Access-Client-Id")
+        }
+        if !settings.cfAccessClientSecret.isEmpty {
+            request.setValue(settings.cfAccessClientSecret, forHTTPHeaderField: "CF-Access-Client-Secret")
+        }
+        
+        let (data, response) = try await session.data(for: request)
+        guard let httpResp = response as? HTTPURLResponse else {
+            throw APIError.networkError("Invalid response type")
+        }
+        
+        let contentType = httpResp.value(forHTTPHeaderField: "Content-Type") ?? ""
+        if contentType.contains("text/html") || httpResp.statusCode == 403 || httpResp.statusCode == 302 {
+            throw APIError.cloudflareAuthRequired
+        }
+        
+        guard (200...299).contains(httpResp.statusCode) else {
+            throw APIError.serverError(statusCode: httpResp.statusCode, message: String(data: data, encoding: .utf8) ?? "")
+        }
+        
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            let dateStr = try container.decode(String.self)
+            let isoFormatter = ISO8601DateFormatter()
+            isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let date = isoFormatter.date(from: dateStr) {
+                return date
+            }
+            let stdFormatter = ISO8601DateFormatter()
+            if let date = stdFormatter.date(from: dateStr) {
+                return date
+            }
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Invalid date: \(dateStr)")
+        }
+        
+        return try decoder.decode([ProjectItem].self, from: data)
+    }
+    
+    // Create a new cascade and optionally send initial prompt
+    public func createCascade(workspaceUri: String, prompt: String, model: String? = nil, baseURL: URL) async throws -> String {
+        let endpoint = baseURL.appendingPathComponent("gateway/cascade/new")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 15
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let settings = AppSettings.shared
+        if !settings.cfAccessClientId.isEmpty {
+            request.setValue(settings.cfAccessClientId, forHTTPHeaderField: "CF-Access-Client-Id")
+        }
+        if !settings.cfAccessClientSecret.isEmpty {
+            request.setValue(settings.cfAccessClientSecret, forHTTPHeaderField: "CF-Access-Client-Secret")
+        }
+        
+        struct Payload: Encodable {
+            let workspaceUri: String
+            let prompt: String
+            let model: String?
+        }
+        
+        request.httpBody = try JSONEncoder().encode(Payload(workspaceUri: workspaceUri, prompt: prompt, model: model))
+        
+        let (data, response) = try await session.data(for: request)
+        guard let httpResp = response as? HTTPURLResponse else {
+            throw APIError.networkError("Invalid response type")
+        }
+        
+        guard (200...299).contains(httpResp.statusCode) else {
+            let msg = String(data: data, encoding: .utf8) ?? "HTTP \(httpResp.statusCode)"
+            throw APIError.serverError(statusCode: httpResp.statusCode, message: msg)
+        }
+        
+        let res = try JSONDecoder().decode(CreateCascadeResponsePayload.self, from: data)
+        guard let cascadeId = res.cascadeId, !cascadeId.isEmpty else {
+            throw APIError.serverError(statusCode: httpResp.statusCode, message: res.error ?? "未能成功生成会话 ID")
+        }
+        
+        return cascadeId
+    }
 }
