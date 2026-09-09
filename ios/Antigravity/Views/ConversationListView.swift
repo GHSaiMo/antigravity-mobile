@@ -38,7 +38,7 @@ public struct ConversationListView: View {
                 } else {
                     List {
                         ForEach(viewModel.filteredConversations) { item in
-                            NavigationLink(destination: ChatView(conversation: item)) {
+                            NavigationLink(destination: ChatView(conversation: item, isNewConversation: item.stepCount == 0)) {
                                 conversationCard(for: item)
                             }
                             .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
@@ -79,7 +79,12 @@ public struct ConversationListView: View {
                 }
             }
             .navigationDestination(item: $newlyCreatedConversation) { item in
-                ChatView(conversation: item)
+                ChatView(conversation: item, isNewConversation: true)
+            }
+            .onAppear {
+                Task {
+                    await viewModel.fetchConversations()
+                }
             }
             .task {
                 await viewModel.fetchConversations()

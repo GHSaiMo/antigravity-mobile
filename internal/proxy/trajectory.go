@@ -48,6 +48,9 @@ type trajectoryCacheEntry struct {
 var (
 	trajCache              = make(map[string]*trajectoryCacheEntry)
 	trajCacheMu            sync.Mutex
+	cascadeTitlesCache     = make(map[string]string)
+	cascadeTitlesCacheMu   sync.RWMutex
+	lastCascadeTitlesFetch time.Time
 	lastKnownCascadeConfig json.RawMessage
 	lastKnownConfigMu      sync.RWMutex
 	imgRegex               = regexp.MustCompile(`!\[.*?\]\((https?://[^\s\)]+|/static/[^\s\)]+)\)`)
@@ -143,6 +146,11 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	details := p.ParseTrajectoryDetails(rawResp)
+	if details.Title == "" || details.Title == "未命名会话" {
+		if t := p.lookupCascadeTitle(cascadeID, port, token); t != "" {
+			details.Title = t
+		}
+	}
 	totalMsgs := len(details.AllMessages)
 	var sliced []CascadeMessageItem
 	hasMore := false
@@ -412,20 +420,121 @@ func ClearTrajectoryCache(cascadeID string) {
 	trajCacheMu.Lock()
 	delete(trajCache, cascadeID)
 	trajCacheMu.Unlock()
+
+	cascadeTitlesCacheMu.Lock()
+	delete(cascadeTitlesCache, cascadeID)
+	lastCascadeTitlesFetch = time.Time{}
+	cascadeTitlesCacheMu.Unlock()
 }
 
 func (p *Proxy) fetchUpstreamTrajectory(cascadeID string, port int, token string) (*upstreamTrajectoryResp, error) {
-	// Status-aware TTL: completed sessions rarely change, so cache them much longer
-	// to avoid redundant upstream requests and speed up client rendering.
+	// Status-aware TTL: completed sessions rarely change, so cache them longer.
+	// But if title is missing or session has few/no steps, keep TTL short (1.5s)
+	// so newly generated titles/summaries are quickly discovered.
 	maxAge := 800 * time.Millisecond
 	trajCacheMu.Lock()
 	if cached, ok := trajCache[cascadeID]; ok {
 		if cached.data.Status != "" && cached.data.Status != "CASCADE_RUN_STATUS_RUNNING" {
-			maxAge = 60 * time.Second
+			hasTitle := (cached.data.Trajectory.Annotations != nil && cached.data.Trajectory.Annotations.Title != "") ||
+				cached.data.Trajectory.Summary != ""
+			if hasTitle && len(cached.data.Trajectory.Steps) > 0 {
+				maxAge = 30 * time.Second
+			} else {
+				maxAge = 1500 * time.Millisecond
+			}
 		}
 	}
 	trajCacheMu.Unlock()
 	return p.fetchUpstreamTrajectoryWithMaxAge(cascadeID, port, token, maxAge)
+}
+
+func (p *Proxy) lookupCascadeTitle(cascadeID string, port int, token string) string {
+	if cascadeID == "" || port == 0 {
+		return ""
+	}
+
+	cascadeTitlesCacheMu.RLock()
+	cachedTitle, ok := cascadeTitlesCache[cascadeID]
+	cacheFresh := time.Since(lastCascadeTitlesFetch) < 3*time.Second
+	cascadeTitlesCacheMu.RUnlock()
+
+	if ok && cachedTitle != "" && cacheFresh {
+		return cachedTitle
+	}
+
+	if !cacheFresh {
+		summaries, err := p.fetchTrajectoriesSummaryWithTitles(port, token)
+		if err == nil && len(summaries) > 0 {
+			cascadeTitlesCacheMu.Lock()
+			lastCascadeTitlesFetch = time.Now()
+			for cid, t := range summaries {
+				if t != "" {
+					cascadeTitlesCache[cid] = t
+				}
+			}
+			newTitle := cascadeTitlesCache[cascadeID]
+			cascadeTitlesCacheMu.Unlock()
+			return newTitle
+		}
+	}
+
+	return cachedTitle
+}
+
+func (p *Proxy) fetchTrajectoriesSummaryWithTitles(port int, token string) (map[string]string, error) {
+	url := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories", port)
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader([]byte("{}")))
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Connect-Protocol-Version", "1")
+	if token != "" {
+		req.Header.Set("x-codeium-csrf-token", token)
+	}
+
+	client := &http.Client{
+		Timeout:   3 * time.Second,
+		Transport: p.transport,
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("upstream returned status %d", resp.StatusCode)
+	}
+
+	var data struct {
+		TrajectorySummaries map[string]struct {
+			Summary     string `json:"summary"`
+			Annotations *struct {
+				Title string `json:"title"`
+			} `json:"annotations"`
+		} `json:"trajectorySummaries"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, err
+	}
+
+	result := make(map[string]string)
+	for id, sum := range data.TrajectorySummaries {
+		t := ""
+		if sum.Annotations != nil && sum.Annotations.Title != "" {
+			t = sum.Annotations.Title
+		} else if sum.Summary != "" {
+			t = sum.Summary
+		}
+		if t != "" {
+			result[id] = t
+		}
+	}
+	return result, nil
 }
 
 func (p *Proxy) fetchUpstreamTrajectoryWithMaxAge(cascadeID string, port int, token string, maxAge time.Duration) (*upstreamTrajectoryResp, error) {
