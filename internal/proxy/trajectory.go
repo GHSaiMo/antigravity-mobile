@@ -51,33 +51,36 @@ var (
 	imgRegex               = regexp.MustCompile(`!\[.*?\]\((https?://[^\s\)]+|/static/[^\s\)]+)\)`)
 )
 
+type TrajectoryStep struct {
+	Type     string `json:"type"`
+	Status   string `json:"status"`
+	Metadata struct {
+		CreatedAt string `json:"createdAt"`
+	} `json:"metadata"`
+	UserInput *struct {
+		UserResponse string `json:"userResponse"`
+		Items        []struct {
+			Text string `json:"text"`
+		} `json:"items"`
+		Media []struct {
+			MimeType    string `json:"mimeType"`
+			Description string `json:"description"`
+			Thumbnail   string `json:"thumbnail"`
+			InlineData  string `json:"inlineData"`
+		} `json:"media"`
+	} `json:"userInput"`
+	PlannerResponse *struct {
+		Response string `json:"response"`
+		Thinking string `json:"thinking"`
+	} `json:"plannerResponse"`
+}
+
 type upstreamTrajectoryResp struct {
 	Trajectory struct {
-		TrajectoryID string `json:"trajectoryId"`
-		CascadeID    string `json:"cascadeId"`
-		Steps        []struct {
-			Type     string `json:"type"`
-			Status   string `json:"status"`
-			Metadata struct {
-				CreatedAt string `json:"createdAt"`
-			} `json:"metadata"`
-			UserInput *struct {
-				UserResponse string `json:"userResponse"`
-				Items        []struct {
-					Text string `json:"text"`
-				} `json:"items"`
-				Media []struct {
-					MimeType    string `json:"mimeType"`
-					Description string `json:"description"`
-					Thumbnail   string `json:"thumbnail"`
-					InlineData  string `json:"inlineData"`
-				} `json:"media"`
-			} `json:"userInput"`
-			PlannerResponse *struct {
-				Response string `json:"response"`
-				Thinking string `json:"thinking"`
-			} `json:"plannerResponse"`
-		} `json:"steps"`
+		TrajectoryID  string           `json:"trajectoryId"`
+		CascadeID     string           `json:"cascadeId"`
+		WorkspaceUris []string         `json:"workspaceUris"`
+		Steps         []TrajectoryStep `json:"steps"`
 		ExecutorMetadatas []struct {
 			CascadeConfig json.RawMessage `json:"cascadeConfig"`
 		} `json:"executorMetadatas"`
@@ -130,10 +133,71 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	details := p.ParseTrajectoryDetails(rawResp)
+	totalMsgs := len(details.AllMessages)
+	var sliced []CascadeMessageItem
+	hasMore := false
+	nextOffset := 0
+
+	if offset < 0 {
+		// Initial fetch: return latest 'limit' messages
+		start := totalMsgs - limit
+		if start < 0 {
+			start = 0
+		}
+		sliced = details.AllMessages[start:totalMsgs]
+		hasMore = (start > 0)
+		nextOffset = start
+	} else {
+		// Paging back: return 'limit' messages before 'offset'
+		targetEnd := offset
+		if targetEnd > totalMsgs {
+			targetEnd = totalMsgs
+		}
+		targetStart := targetEnd - limit
+		if targetStart < 0 {
+			targetStart = 0
+		}
+		sliced = details.AllMessages[targetStart:targetEnd]
+		hasMore = (targetStart > 0)
+		nextOffset = targetStart
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(CascadeMessagesResponse{
+		CascadeID:        cascadeID,
+		Status:           details.Status,
+		Duration:         details.Duration,
+		TotalSteps:       details.TotalSteps,
+		TotalTools:       details.TotalTools,
+		TotalMessages:    totalMsgs,
+		HasMore:          hasMore,
+		NextOffset:       nextOffset,
+		Messages:         sliced,
+		CascadeConfig:    details.CascadeConfig,
+		CascadeConfigRaw: details.CascadeConfigRaw,
+	})
+}
+
+// TrajectoryDetails represents parsed and processed trajectory information.
+type TrajectoryDetails struct {
+	CascadeID        string               `json:"cascadeId"`
+	Status           string               `json:"status"`
+	Duration         string               `json:"duration"`
+	TotalSteps       int                  `json:"totalSteps"`
+	TotalTools       int                  `json:"totalTools"`
+	WorkspaceURI     string               `json:"workspaceUri"`
+	Steps            []TrajectoryStep     `json:"steps"`
+	AllMessages      []CascadeMessageItem `json:"allMessages"`
+	CascadeConfig    json.RawMessage      `json:"cascadeConfig,omitempty"`
+	CascadeConfigRaw string               `json:"cascadeConfigRaw,omitempty"`
+}
+
+// ParseTrajectoryDetails extracts messages, tools count, duration and metadata from raw response.
+func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) TrajectoryDetails {
 	steps := rawResp.Trajectory.Steps
 	totalSteps := len(steps)
 
-	// Streamline messages & calculate total tools
 	var allMessages []CascadeMessageItem
 	pendingTools := 0
 	toolNamesMap := make(map[string]bool)
@@ -256,37 +320,6 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Slice messages for pagination
-	totalMsgs := len(allMessages)
-	var sliced []CascadeMessageItem
-	hasMore := false
-	nextOffset := 0
-
-	if offset < 0 {
-		// Initial fetch: return latest 'limit' messages
-		start := totalMsgs - limit
-		if start < 0 {
-			start = 0
-		}
-		sliced = allMessages[start:totalMsgs]
-		hasMore = (start > 0)
-		nextOffset = start
-	} else {
-		// Paging back: return 'limit' messages before 'offset'
-		targetEnd := offset
-		if targetEnd > totalMsgs {
-			targetEnd = totalMsgs
-		}
-		targetStart := targetEnd - limit
-		if targetStart < 0 {
-			targetStart = 0
-		}
-		sliced = allMessages[targetStart:targetEnd]
-		hasMore = (targetStart > 0)
-		nextOffset = targetStart
-	}
-
-	// Extract active cascade config if available
 	var activeConfig json.RawMessage
 	for i := len(rawResp.Trajectory.ExecutorMetadatas) - 1; i >= 0; i-- {
 		cfg := rawResp.Trajectory.ExecutorMetadatas[i].CascadeConfig
@@ -301,20 +334,23 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 		activeConfigStr = string(activeConfig)
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(CascadeMessagesResponse{
-		CascadeID:        cascadeID,
+	wsURI := ""
+	if len(rawResp.Trajectory.WorkspaceUris) > 0 {
+		wsURI = rawResp.Trajectory.WorkspaceUris[0]
+	}
+
+	return TrajectoryDetails{
+		CascadeID:        rawResp.Trajectory.CascadeID,
 		Status:           rawResp.Status,
 		Duration:         duration,
 		TotalSteps:       totalSteps,
 		TotalTools:       totalToolsCount,
-		TotalMessages:    totalMsgs,
-		HasMore:          hasMore,
-		NextOffset:       nextOffset,
-		Messages:         sliced,
+		WorkspaceURI:     wsURI,
+		Steps:            steps,
+		AllMessages:      allMessages,
 		CascadeConfig:    activeConfig,
 		CascadeConfigRaw: activeConfigStr,
-	})
+	}
 }
 
 // SetLastKnownCascadeConfig caches the latest known valid cascade config.
@@ -360,9 +396,13 @@ func ClearTrajectoryCache(cascadeID string) {
 }
 
 func (p *Proxy) fetchUpstreamTrajectory(cascadeID string, port int, token string) (*upstreamTrajectoryResp, error) {
+	return p.fetchUpstreamTrajectoryWithMaxAge(cascadeID, port, token, 800*time.Millisecond)
+}
+
+func (p *Proxy) fetchUpstreamTrajectoryWithMaxAge(cascadeID string, port int, token string, maxAge time.Duration) (*upstreamTrajectoryResp, error) {
 	trajCacheMu.Lock()
 	if cached, ok := trajCache[cascadeID]; ok {
-		if time.Since(cached.fetchedAt) < 800*time.Millisecond {
+		if time.Since(cached.fetchedAt) < maxAge {
 			trajCacheMu.Unlock()
 			return cached.data, nil
 		}
