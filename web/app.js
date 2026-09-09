@@ -88,7 +88,10 @@ function renderRoute() {
   }
 
   if (hash.startsWith("#c=")) {
-    activeCascadeId = hash.slice(3);
+    const newCascadeId = hash.slice(3);
+    const changed = activeCascadeId !== newCascadeId;
+    activeCascadeId = newCascadeId;
+
     convView.classList.remove("active");
     chatView.classList.add("active");
     backBtn.classList.remove("hidden");
@@ -96,9 +99,26 @@ function renderRoute() {
     title.textContent = "会话详情";
     if (subtitle) subtitle.textContent = activeCascadeId.slice(0, 8);
 
-    loadChat(activeCascadeId);
+    if (changed) {
+      hasInitiallyAligned = false;
+      prevWasRunning = false;
+      const streamEl = document.getElementById("messages-stream");
+      if (streamEl) {
+        streamEl.innerHTML = `
+          <div class="loading-state">
+            <div class="spinner"></div>
+            <p>正在同步会话历史与步骤...</p>
+          </div>
+        `;
+      }
+    }
+
+    // Connect real-time WebSocket stream (WS delivers snapshot directly)
+    connectStreamWs(activeCascadeId);
   } else {
     activeCascadeId = null;
+    closeActiveWs();
+
     chatView.classList.remove("active");
     convView.classList.add("active");
     backBtn.classList.add("hidden");
@@ -183,19 +203,164 @@ function renderConversationList(summaries) {
     .join("");
 }
 
-// --- Chat View ---
+// --- Chat View & Real-Time Stream ---
+
+let activeWs = null;
+let wsReconnectTimer = null;
+let userIsNearBottom = true;
+let hasInitiallyAligned = false;
+let prevWasRunning = false;
+
+function initScrollListener() {
+  const streamEl = document.getElementById("messages-stream");
+  if (!streamEl || streamEl.dataset.hasScrollListener) return;
+  streamEl.dataset.hasScrollListener = "true";
+  streamEl.addEventListener("scroll", () => {
+    const dist = streamEl.scrollHeight - streamEl.scrollTop - streamEl.clientHeight;
+    userIsNearBottom = dist <= 90;
+  }, { passive: true });
+}
+
+function closeActiveWs() {
+  if (wsReconnectTimer) {
+    clearTimeout(wsReconnectTimer);
+    wsReconnectTimer = null;
+  }
+  if (activeWs) {
+    activeWs.onopen = null;
+    activeWs.onmessage = null;
+    activeWs.onerror = null;
+    activeWs.onclose = null;
+    activeWs.close();
+    activeWs = null;
+  }
+}
+
+function updateChatControls(isRunning, wsUri) {
+  const statusBadge = document.getElementById("chat-status-badge");
+  const cancelBtn = document.getElementById("btn-cancel-task");
+  const sendBtn = document.getElementById("btn-send");
+  const wsTag = document.getElementById("chat-workspace-name");
+
+  if (wsUri && wsTag) {
+    const wsName = wsUri.split("/").filter(Boolean).pop() || "workspace";
+    wsTag.textContent = "📁 " + wsName;
+  }
+
+  if (isRunning) {
+    if (statusBadge) {
+      statusBadge.className = "badge-running";
+      statusBadge.textContent = "RUNNING";
+    }
+    if (cancelBtn) cancelBtn.classList.remove("hidden");
+    if (sendBtn) {
+      sendBtn.classList.add("btn-stop");
+      sendBtn.title = "停止任务";
+      sendBtn.setAttribute("aria-label", "停止任务");
+      sendBtn.innerHTML = `
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+          <rect width="12" height="12" rx="2" fill="#ef4444" />
+        </svg>
+      `;
+    }
+  } else {
+    if (statusBadge) {
+      statusBadge.className = "badge-idle";
+      statusBadge.textContent = "IDLE";
+    }
+    if (cancelBtn) cancelBtn.classList.add("hidden");
+    if (sendBtn) {
+      sendBtn.classList.remove("btn-stop");
+      sendBtn.title = "发送";
+      sendBtn.setAttribute("aria-label", "发送");
+      sendBtn.innerHTML = `
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="22" y1="2" x2="11" y2="13"></line>
+          <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+        </svg>
+      `;
+    }
+  }
+}
+
+function connectStreamWs(cascadeId) {
+  closeActiveWs();
+
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  const wsUrl = `${proto}//${location.host}/gateway/cascade/stream?cascadeId=${encodeURIComponent(cascadeId)}`;
+  
+  try {
+    const ws = new WebSocket(wsUrl);
+    activeWs = ws;
+
+    ws.onopen = () => {
+      // WS successfully established: stop HTTP polling fallback
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+    };
+
+    ws.onmessage = (event) => {
+      if (activeCascadeId !== cascadeId) return;
+      try {
+        const data = JSON.parse(event.data);
+        if (data.cascadeId !== cascadeId) return;
+
+        const isRunning = data.status === "CASCADE_RUN_STATUS_RUNNING";
+        updateChatControls(isRunning, data.workspaceUri);
+
+        if (currentTrajectories[cascadeId]) {
+          currentTrajectories[cascadeId].status = data.status;
+          currentTrajectories[cascadeId].stepCount = data.totalSteps;
+        }
+
+        if (data.steps) {
+          renderMessages(data.steps, isRunning);
+        }
+      } catch (err) {
+        console.warn("[WS] Error parsing stream message:", err);
+      }
+    };
+
+    ws.onerror = () => {
+      fallbackToHttpPolling(cascadeId);
+    };
+
+    ws.onclose = () => {
+      if (activeCascadeId === cascadeId) {
+        fallbackToHttpPolling(cascadeId);
+        wsReconnectTimer = setTimeout(() => {
+          if (activeCascadeId === cascadeId) {
+            connectStreamWs(cascadeId);
+          }
+        }, 2500);
+      }
+    };
+  } catch (e) {
+    fallbackToHttpPolling(cascadeId);
+  }
+}
+
+function fallbackToHttpPolling(cascadeId) {
+  if (activeCascadeId === cascadeId && !pollTimer) {
+    pollTimer = setInterval(() => {
+      if (activeCascadeId === cascadeId) {
+        loadChat(cascadeId, true);
+      }
+    }, 1500);
+  }
+}
 
 async function loadChat(cascadeId, isBackgroundPoll = false) {
   const streamEl = document.getElementById("messages-stream");
-  const statusBadge = document.getElementById("chat-status-badge");
-  const cancelBtn = document.getElementById("btn-cancel-task");
-  const wsTag = document.getElementById("chat-workspace-name");
+  initScrollListener();
 
-  if (!isBackgroundPoll) {
+  if (!isBackgroundPoll && (!streamEl.children.length || streamEl.querySelector(".loading-state"))) {
     streamEl.innerHTML = `
       <div class="loading-state">
         <div class="spinner"></div>
-        <p>正在拉取历史步骤...</p>
+        <p>正在同步会话历史与步骤...</p>
       </div>
     `;
   }
@@ -205,68 +370,25 @@ async function loadChat(cascadeId, isBackgroundPoll = false) {
     const traj = data.trajectory || {};
     const steps = traj.steps || [];
 
-    // Update status
     const summary = currentTrajectories[cascadeId];
     const isRunning = summary?.status === "CASCADE_RUN_STATUS_RUNNING";
-
-    const sendBtn = document.getElementById("btn-send");
-    if (isRunning) {
-      if (statusBadge) {
-        statusBadge.className = "badge-running";
-        statusBadge.textContent = "RUNNING";
-      }
-      if (cancelBtn) cancelBtn.classList.remove("hidden");
-      if (sendBtn) {
-        sendBtn.classList.add("btn-stop");
-        sendBtn.title = "停止任务";
-        sendBtn.setAttribute("aria-label", "停止任务");
-        sendBtn.innerHTML = `
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-            <rect width="12" height="12" rx="2" fill="#ef4444" />
-          </svg>
-        `;
-      }
-    } else {
-      if (statusBadge) {
-        statusBadge.className = "badge-idle";
-        statusBadge.textContent = "IDLE";
-      }
-      if (cancelBtn) cancelBtn.classList.add("hidden");
-      if (sendBtn) {
-        sendBtn.classList.remove("btn-stop");
-        sendBtn.title = "发送";
-        sendBtn.setAttribute("aria-label", "发送");
-        sendBtn.innerHTML = `
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="22" y1="2" x2="11" y2="13"></line>
-            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-          </svg>
-        `;
-      }
-    }
-
     const wsUri = traj.workspaceUris?.[0] || "";
-    wsTag.textContent = wsUri ? "📁 " + wsUri.split("/").filter(Boolean).pop() : "📁 workspace";
 
-    renderMessages(steps);
+    updateChatControls(isRunning, wsUri);
+    renderMessages(steps, isRunning);
 
-    // If running, poll every 1.5s
-    if (isRunning && !pollTimer) {
-      pollTimer = setInterval(async () => {
+    if (isRunning && (!activeWs || activeWs.readyState !== WebSocket.OPEN) && !pollTimer) {
+      pollTimer = setInterval(() => {
         if (activeCascadeId === cascadeId) {
-          const all = await rpc("GetAllCascadeTrajectories").catch(() => null);
-          if (all?.trajectorySummaries) {
-            currentTrajectories = all.trajectorySummaries;
-          }
           loadChat(cascadeId, true);
         }
       }, 1500);
-    } else if (!isRunning && pollTimer) {
+    } else if (!isRunning && pollTimer && activeWs && activeWs.readyState === WebSocket.OPEN) {
       clearInterval(pollTimer);
       pollTimer = null;
     }
   } catch (err) {
-    if (!isBackgroundPoll) {
+    if (!isBackgroundPoll && (!streamEl.children.length || streamEl.querySelector(".loading-state"))) {
       streamEl.innerHTML = `
         <div class="loading-state">
           <p style="color: var(--status-error);">加载会话失败: ${escapeHtml(err.message)}</p>
@@ -276,82 +398,166 @@ async function loadChat(cascadeId, isBackgroundPoll = false) {
   }
 }
 
-function renderMessages(steps) {
+function getStepFingerprint(step) {
+  if (!step) return "";
+  const type = step.type || "";
+  if (type === "CORTEX_STEP_TYPE_USER_INPUT") {
+    const userText = step.userInput?.userResponse || step.userInput?.items?.[0]?.text || "";
+    return `u:${userText.length}:${userText.slice(-10)}`;
+  } else if (type === "CORTEX_STEP_TYPE_PLANNER_RESPONSE") {
+    const p = step.plannerResponse || {};
+    const thinkLen = (p.thinking || "").length;
+    const respLen = (p.response || "").length;
+    const lastChars = (p.response || "").slice(-12);
+    return `p:${thinkLen}:${respLen}:${lastChars}`;
+  } else {
+    return `t:${type}:${step.status || ""}`;
+  }
+}
+
+function generateStepHtml(step, i) {
+  const type = step.type;
+
+  if (type === "CORTEX_STEP_TYPE_USER_INPUT") {
+    const userText = step.userInput?.userResponse || step.userInput?.items?.[0]?.text || "";
+    return `<div class="bubble">${escapeHtml(userText)}</div>`;
+  } else if (type === "CORTEX_STEP_TYPE_PLANNER_RESPONSE") {
+    const p = step.plannerResponse || {};
+    const thinking = p.thinking || "";
+    const text = p.response || "";
+
+    let thoughtHtml = "";
+    if (thinking.trim()) {
+      thoughtHtml = `
+        <details class="thought-box">
+          <summary>🧠 Agent 思考过程 (${thinking.length} 字符)</summary>
+          <div class="thought-content">${escapeHtml(thinking)}</div>
+        </details>
+      `;
+    }
+
+    const bodyHtml = text ? getCachedMarkdown(text) : '<span style="color:var(--text-muted);">执行中...</span>';
+
+    return `
+      <div class="bubble markdown-body">
+        ${thoughtHtml}
+        <div>${bodyHtml}</div>
+      </div>
+    `;
+  } else if (type && type.startsWith("CORTEX_STEP_TYPE_")) {
+    const toolName = type.replace("CORTEX_STEP_TYPE_", "").toLowerCase();
+    const status = step.status || "DONE";
+    return `
+      <details class="tool-box" style="width: 100%;">
+        <summary>⚡ 工具调用: <strong>${escapeHtml(toolName)}</strong> <span style="font-size:11px;color:var(--text-muted);">(${escapeHtml(status)})</span></summary>
+        <div class="tool-content">${escapeHtml(JSON.stringify(step, null, 2))}</div>
+      </details>
+    `;
+  }
+  return "";
+}
+
+function renderMessages(steps, isRunning = false) {
   const streamEl = document.getElementById("messages-stream");
-  const rendered = [];
+  if (!streamEl) return;
+  initScrollListener();
+
+  const loadingEl = streamEl.querySelector(".loading-state");
+  if (loadingEl) {
+    loadingEl.remove();
+  }
+
+  if (!steps || steps.length === 0) {
+    streamEl.innerHTML = '<div class="loading-state"><p>暂无消息</p></div>';
+    return;
+  }
+
+  // Remove any obsolete nodes if steps count decreased
+  while (streamEl.children.length > steps.length) {
+    streamEl.removeChild(streamEl.lastChild);
+  }
+
+  let hasDOMChanges = false;
 
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i];
     const type = step.type;
+    const fp = getStepFingerprint(step);
+    const rowClass = type === "CORTEX_STEP_TYPE_USER_INPUT" ? "message-row user" : "message-row agent";
 
-    if (type === "CORTEX_STEP_TYPE_USER_INPUT") {
-      const userText = step.userInput?.userResponse || step.userInput?.items?.[0]?.text || "";
-      rendered.push(`
-        <div id="step-item-${i}" class="message-row user">
-          <div class="bubble">${escapeHtml(userText)}</div>
-        </div>
-      `);
-    } else if (type === "CORTEX_STEP_TYPE_PLANNER_RESPONSE") {
-      const p = step.plannerResponse || {};
-      const thinking = p.thinking || "";
-      const text = p.response || "";
-
-      let thoughtHtml = "";
-      if (thinking.trim()) {
-        thoughtHtml = `
-          <details class="thought-box">
-            <summary>🧠 Agent 思考过程 (${thinking.length} 字符)</summary>
-            <div class="thought-content">${escapeHtml(thinking)}</div>
-          </details>
-        `;
+    let existingEl = document.getElementById(`step-item-${i}`);
+    if (existingEl) {
+      if (existingEl.getAttribute("data-fp") === fp) {
+        // Unchanged: preserve DOM node completely
+        continue;
       }
-
-      const bodyHtml = text ? renderMarkdown(text) : '<span style="color:var(--text-muted);">执行中...</span>';
-
-      rendered.push(`
-        <div id="step-item-${i}" class="message-row agent">
-          <div class="bubble markdown-body">
-            ${thoughtHtml}
-            <div>${bodyHtml}</div>
-          </div>
-        </div>
-      `);
-    } else if (type && type.startsWith("CORTEX_STEP_TYPE_")) {
-      const toolName = type.replace("CORTEX_STEP_TYPE_", "").toLowerCase();
-      const status = step.status || "DONE";
-      rendered.push(`
-        <div id="step-item-${i}" class="message-row agent">
-          <details class="tool-box" style="width: 100%;">
-            <summary>⚡ 工具调用: <strong>${escapeHtml(toolName)}</strong> <span style="font-size:11px;color:var(--text-muted);">(${escapeHtml(status)})</span></summary>
-            <div class="tool-content">${escapeHtml(JSON.stringify(step, null, 2))}</div>
-          </details>
-        </div>
-      `);
+      // Content updated: patch in place
+      existingEl.setAttribute("data-fp", fp);
+      existingEl.className = rowClass;
+      existingEl.innerHTML = generateStepHtml(step, i);
+      hasDOMChanges = true;
+    } else {
+      // New step: create and append
+      const newEl = document.createElement("div");
+      newEl.id = `step-item-${i}`;
+      newEl.className = rowClass;
+      newEl.setAttribute("data-fp", fp);
+      newEl.innerHTML = generateStepHtml(step, i);
+      streamEl.appendChild(newEl);
+      hasDOMChanges = true;
     }
   }
 
-  streamEl.innerHTML = rendered.join("");
-  
-  // Align to start of latest turn if final text has arrived
-  let alignedToTurn = false;
-  const lastStep = steps[steps.length - 1];
-  if (lastStep && lastStep.type === "CORTEX_STEP_TYPE_PLANNER_RESPONSE") {
-    let lastUserIdx = -1;
-    for (let i = steps.length - 1; i >= 0; i--) {
-      if (steps[i].type === "CORTEX_STEP_TYPE_USER_INPUT") {
-        lastUserIdx = i;
-        break;
+  // 1. First-time render on entering a conversation: align INSTANTLY with zero jitter
+  if (!hasInitiallyAligned) {
+    hasInitiallyAligned = true;
+    prevWasRunning = isRunning;
+
+    const lastStep = steps[steps.length - 1];
+    if (!isRunning && lastStep && lastStep.type === "CORTEX_STEP_TYPE_PLANNER_RESPONSE") {
+      let lastUserIdx = -1;
+      for (let i = steps.length - 1; i >= 0; i--) {
+        if (steps[i].type === "CORTEX_STEP_TYPE_USER_INPUT") {
+          lastUserIdx = i;
+          break;
+        }
+      }
+      const turnStartIdx = lastUserIdx !== -1 ? lastUserIdx + 1 : 0;
+      const turnStartEl = document.getElementById(`step-item-${turnStartIdx}`);
+      if (turnStartEl) {
+        turnStartEl.scrollIntoView({ behavior: "instant", block: "start" });
+        return;
       }
     }
-    const turnStartIdx = lastUserIdx !== -1 ? lastUserIdx + 1 : 0;
-    const turnStartEl = document.getElementById(`step-item-${turnStartIdx}`);
-    if (turnStartEl) {
-      turnStartEl.scrollIntoView({ behavior: "smooth", block: "start" });
-      alignedToTurn = true;
+    streamEl.scrollTop = streamEl.scrollHeight;
+    return;
+  }
+
+  // 2. Active task finished: smooth scroll to turn start ONCE
+  const justFinished = (prevWasRunning && !isRunning);
+  prevWasRunning = isRunning;
+
+  if (justFinished) {
+    const lastStep = steps[steps.length - 1];
+    if (lastStep && lastStep.type === "CORTEX_STEP_TYPE_PLANNER_RESPONSE") {
+      let lastUserIdx = -1;
+      for (let i = steps.length - 1; i >= 0; i--) {
+        if (steps[i].type === "CORTEX_STEP_TYPE_USER_INPUT") {
+          lastUserIdx = i;
+          break;
+        }
+      }
+      const turnStartIdx = lastUserIdx !== -1 ? lastUserIdx + 1 : 0;
+      const turnStartEl = document.getElementById(`step-item-${turnStartIdx}`);
+      if (turnStartEl && userIsNearBottom) {
+        turnStartEl.scrollIntoView({ behavior: "smooth", block: "start" });
+        return;
+      }
     }
   }
-  
-  if (!alignedToTurn) {
+
+  // 3. Live streaming while running: pin to bottom
+  if (isRunning && hasDOMChanges && userIsNearBottom) {
     streamEl.scrollTop = streamEl.scrollHeight;
   }
 }
@@ -369,25 +575,34 @@ async function sendMessage() {
   inputEl.style.height = "auto";
 
   const streamEl = document.getElementById("messages-stream");
+  const tempId = `temp-user-${Date.now()}`;
   streamEl.insertAdjacentHTML("beforeend", `
-    <div class="message-row user">
+    <div id="${tempId}" class="message-row user">
       <div class="bubble">${escapeHtml(text)}</div>
     </div>
   `);
+  userIsNearBottom = true;
   streamEl.scrollTop = streamEl.scrollHeight;
 
   try {
+    if (currentTrajectories[activeCascadeId]) {
+      currentTrajectories[activeCascadeId].status = "CASCADE_RUN_STATUS_RUNNING";
+    }
+    updateChatControls(true);
+
     await rpc("SendUserCascadeMessage", {
       cascadeId: activeCascadeId,
       items: [{ text }]
     });
 
-    if (currentTrajectories[activeCascadeId]) {
-      currentTrajectories[activeCascadeId].status = "CASCADE_RUN_STATUS_RUNNING";
+    // Ensure WebSocket stream is actively connected
+    if (!activeWs || activeWs.readyState !== WebSocket.OPEN) {
+      connectStreamWs(activeCascadeId);
     }
-    loadChat(activeCascadeId, true);
   } catch (err) {
     alert("发送失败: " + err.message);
+    const tempEl = document.getElementById(tempId);
+    if (tempEl) tempEl.remove();
   }
 }
 
@@ -400,7 +615,7 @@ async function cancelCurrentTask() {
     if (currentTrajectories[activeCascadeId]) {
       currentTrajectories[activeCascadeId].status = "CASCADE_RUN_STATUS_IDLE";
     }
-    loadChat(activeCascadeId, true);
+    updateChatControls(false);
   } catch (err) {
     alert("取消任务失败: " + err.message);
   }
@@ -677,6 +892,24 @@ function renderMarkdown(md) {
   return html;
 }
 
+// Markdown & LaTeX Parsing Memory Cache (LRU)
+const markdownCache = new Map();
+function getCachedMarkdown(md) {
+  if (!md) return "";
+  const len = md.length;
+  const key = len + ":" + (len > 50 ? md.slice(0, 25) + ":" + md.slice(-25) : md);
+  if (markdownCache.has(key)) {
+    return markdownCache.get(key);
+  }
+  const html = renderMarkdown(md);
+  if (markdownCache.size > 250) {
+    const firstKey = markdownCache.keys().next().value;
+    markdownCache.delete(firstKey);
+  }
+  markdownCache.set(key, html);
+  return html;
+}
+
 // --- Initialization ---
 
 window.addEventListener("DOMContentLoaded", () => {
@@ -720,6 +953,14 @@ window.addEventListener("DOMContentLoaded", () => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       sendMessage();
+    }
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && activeCascadeId) {
+      if (!activeWs || activeWs.readyState !== WebSocket.OPEN) {
+        connectStreamWs(activeCascadeId);
+      }
     }
   });
 

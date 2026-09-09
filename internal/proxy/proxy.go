@@ -122,6 +122,10 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		p.handleCascadeMessages(w, r)
 		return
 	}
+	if r.URL.Path == "/gateway/cascade/stream" {
+		p.HandleCascadeStream(w, r)
+		return
+	}
 
 	// WebSocket upgrade route
 	if r.URL.Path == "/connect-websocket" {
