@@ -20,13 +20,38 @@ public enum MarkdownBlock: Identifiable {
     }
 }
 
+private final class MarkdownBlockCache: @unchecked Sendable {
+    static let shared = MarkdownBlockCache()
+    private let lock = NSLock()
+    private var storage: [Int: [MarkdownBlock]] = [:]
+    
+    func blocks(for text: String) -> [MarkdownBlock] {
+        let hash = text.hashValue
+        lock.lock()
+        if let cached = storage[hash] {
+            lock.unlock()
+            return cached
+        }
+        lock.unlock()
+        
+        let parsed = MarkdownParser.parse(text)
+        lock.lock()
+        if storage.count > 150 {
+            storage.removeAll(keepingCapacity: true)
+        }
+        storage[hash] = parsed
+        lock.unlock()
+        return parsed
+    }
+}
+
 public struct MarkdownContentView: View {
     public let content: String
     private let blocks: [MarkdownBlock]
     
     public init(content: String) {
         self.content = content
-        self.blocks = MarkdownParser.parse(content)
+        self.blocks = MarkdownBlockCache.shared.blocks(for: content)
     }
     
     public var body: some View {

@@ -3,6 +3,7 @@ import SwiftUI
 public struct ChatView: View {
     @State private var viewModel: ChatViewModel
     @FocusState private var isInputFocused: Bool
+    @State private var hasInitiallyAligned = false
     
     public init(conversation: ConversationItem) {
         _viewModel = State(initialValue: ChatViewModel(
@@ -110,11 +111,15 @@ public struct ChatView: View {
                         await viewModel.loadMessages()
                     }
                     .onAppear {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                            smartScroll(proxy: proxy, animated: false)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                            initialAlignmentIfNeeded(proxy: proxy)
                         }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                            smartScroll(proxy: proxy, animated: false)
+                    }
+                    .onChange(of: viewModel.isLoading) { _, loading in
+                        if !loading {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                                initialAlignmentIfNeeded(proxy: proxy)
+                            }
                         }
                     }
                     .onChange(of: viewModel.scrollToTurnStartTrigger) { _, _ in
@@ -122,18 +127,20 @@ public struct ChatView: View {
                     }
                     .onChange(of: viewModel.messages.last?.id) { _, lastId in
                         guard lastId != nil else { return }
+                        if !hasInitiallyAligned {
+                            initialAlignmentIfNeeded(proxy: proxy)
+                            return
+                        }
                         if viewModel.messages.last?.sender == .user {
-                            scrollToBottom(proxy: proxy)
+                            scrollToBottom(proxy: proxy, animated: true)
                         } else if viewModel.isAwaitingResponse || viewModel.isRunning {
-                            scrollToBottom(proxy: proxy)
-                        } else if viewModel.messages.last?.sender == .agent {
-                            scrollToTurnStart(proxy: proxy, animated: true)
+                            scrollToBottom(proxy: proxy, animated: true)
                         }
                     }
                     .onChange(of: isInputFocused) { _, focused in
                         if focused {
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                scrollToBottom(proxy: proxy)
+                                scrollToBottom(proxy: proxy, animated: true)
                             }
                         }
                     }
@@ -274,6 +281,12 @@ public struct ChatView: View {
         isInputFocused = true
     }
     
+    private func initialAlignmentIfNeeded(proxy: ScrollViewProxy) {
+        guard !hasInitiallyAligned, !viewModel.messages.isEmpty else { return }
+        hasInitiallyAligned = true
+        smartScroll(proxy: proxy, animated: false)
+    }
+    
     private func smartScroll(proxy: ScrollViewProxy, animated: Bool = false) {
         if (viewModel.isAwaitingResponse || viewModel.isRunning) && viewModel.messages.last?.sender == .user {
             scrollToBottom(proxy: proxy, animated: animated)
@@ -290,24 +303,12 @@ public struct ChatView: View {
             return
         }
         
-        let performScroll = {
-            if animated {
-                withAnimation(.easeOut(duration: 0.28)) {
-                    proxy.scrollTo(targetId, anchor: .top)
-                }
-            } else {
+        if animated {
+            withAnimation(.easeOut(duration: 0.28)) {
                 proxy.scrollTo(targetId, anchor: .top)
             }
-        }
-        
-        performScroll()
-        
-        // Multi-pass to guarantee alignment after Markdown layout settles
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            performScroll()
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-            performScroll()
+        } else {
+            proxy.scrollTo(targetId, anchor: .top)
         }
     }
     
