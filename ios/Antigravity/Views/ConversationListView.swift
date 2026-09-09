@@ -3,6 +3,8 @@ import SwiftUI
 public struct ConversationListView: View {
     @State private var viewModel = ConversationListViewModel()
     @State private var showSettings = false
+    @State private var showNewConversation = false
+    @State private var newlyCreatedConversation: ConversationItem?
     
     public init() {}
     
@@ -52,14 +54,32 @@ public struct ConversationListView: View {
             .navigationTitle("Antigravity")
             .searchable(text: $viewModel.searchQuery, prompt: "搜索会话或工作区...")
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .topBarLeading) {
                     Button(action: { showSettings = true }) {
                         Image(systemName: "gearshape")
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(action: { showNewConversation = true }) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 16, weight: .semibold))
                     }
                 }
             }
             .sheet(isPresented: $showSettings) {
                 SettingsSheet()
+            }
+            .sheet(isPresented: $showNewConversation) {
+                NewConversationSheet { cascadeId, item in
+                    Task {
+                        await viewModel.fetchConversations()
+                        try? await Task.sleep(nanoseconds: 300_000_000)
+                        newlyCreatedConversation = item
+                    }
+                }
+            }
+            .navigationDestination(item: $newlyCreatedConversation) { item in
+                ChatView(conversation: item)
             }
             .task {
                 await viewModel.fetchConversations()

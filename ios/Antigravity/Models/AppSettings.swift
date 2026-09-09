@@ -43,6 +43,10 @@ public final class AppSettings {
         return URL(string: clean)
     }
     
+    public var gatewayURL: URL? {
+        serverURL
+    }
+    
     public init() {
         let savedURL = UserDefaults.standard.string(forKey: serverURLKey) ?? "http://127.0.0.1:58900"
         let savedLive = UserDefaults.standard.object(forKey: enableLiveActivityKey) as? Bool ?? false

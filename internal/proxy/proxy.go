@@ -126,6 +126,14 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		p.HandleCascadeStream(w, r)
 		return
 	}
+	if r.URL.Path == "/gateway/projects" {
+		p.HandleProjects(w, r)
+		return
+	}
+	if r.URL.Path == "/gateway/cascade/new" {
+		p.HandleCreateCascade(w, r)
+		return
+	}
 
 	// WebSocket upgrade route
 	if r.URL.Path == "/connect-websocket" {
@@ -199,6 +207,10 @@ func (p *Proxy) handleRpcProxy(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[Proxy] RPC: %s %s", r.Method, reqPath)
 	if strings.HasSuffix(reqPath, "/SendUserCascadeMessage") && r.Method == http.MethodPost {
 		p.handleSendUserCascadeMessage(w, r, rp, reqPath, port, token)
+		return
+	}
+	if strings.HasSuffix(reqPath, "/StartCascade") && r.Method == http.MethodPost {
+		p.handleStartCascadeProxy(w, r, rp, reqPath)
 		return
 	}
 
@@ -339,6 +351,34 @@ func (p *Proxy) handleArtifactProxy(w http.ResponseWriter, r *http.Request) {
 		q.Set("csrf", token)
 		r.URL.RawQuery = q.Encode()
 	}
+
+	rp.ServeHTTP(w, r)
+}
+
+func (p *Proxy) handleStartCascadeProxy(w http.ResponseWriter, r *http.Request, rp http.Handler, reqPath string) {
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+
+	var rawMap map[string]interface{}
+	if err := json.Unmarshal(bodyBytes, &rawMap); err == nil {
+		if src, ok := rawMap["source"].(string); !ok || src == "" || src == "CORTEX_TRAJECTORY_SOURCE_UNSPECIFIED" {
+			rawMap["source"] = "CORTEX_TRAJECTORY_SOURCE_INTERACTIVE_CASCADE"
+		}
+		if modifiedBytes, err := json.Marshal(rawMap); err == nil {
+			bodyBytes = modifiedBytes
+		}
+	}
+
+	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+	r.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(bodyBytes)), nil
+	}
+	r.ContentLength = int64(len(bodyBytes))
+	r.Header.Set("Content-Length", strconv.Itoa(len(bodyBytes)))
+	r.URL.Path = reqPath
 
 	rp.ServeHTTP(w, r)
 }
