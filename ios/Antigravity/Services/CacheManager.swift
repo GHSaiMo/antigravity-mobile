@@ -9,6 +9,7 @@ public nonisolated struct CachedChatSession: Codable, Sendable {
     public let hasMore: Bool
     public let nextOffset: Int
     public let messages: [ChatMessage]
+    public let title: String?
     public let cascadeConfigRaw: String?
     public let savedAt: Date
     
@@ -21,6 +22,7 @@ public nonisolated struct CachedChatSession: Codable, Sendable {
         hasMore: Bool,
         nextOffset: Int,
         messages: [ChatMessage],
+        title: String? = nil,
         cascadeConfigRaw: String? = nil,
         savedAt: Date = Date()
     ) {
@@ -32,6 +34,7 @@ public nonisolated struct CachedChatSession: Codable, Sendable {
         self.hasMore = hasMore
         self.nextOffset = nextOffset
         self.messages = messages
+        self.title = title
         self.cascadeConfigRaw = cascadeConfigRaw
         self.savedAt = savedAt
     }
@@ -87,6 +90,40 @@ public final class CacheManager: @unchecked Sendable {
         memConversations = items
         lock.unlock()
         return items
+    }
+    
+    public func updateConversationTitle(cascadeId: String, newTitle: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !newTitle.isEmpty, newTitle != "未命名会话" else { return }
+        
+        var items = memConversations ?? []
+        if items.isEmpty {
+            let fileURL = cacheDir.appendingPathComponent("conversations.json")
+            if let data = try? Data(contentsOf: fileURL),
+               let loaded = try? JSONDecoder().decode([ConversationItem].self, from: data) {
+                items = loaded
+            }
+        }
+        
+        if let idx = items.firstIndex(where: { $0.id == cascadeId }) {
+            let old = items[idx]
+            items[idx] = ConversationItem(
+                id: old.id,
+                title: newTitle,
+                status: old.status,
+                stepCount: old.stepCount,
+                workspaceName: old.workspaceName,
+                lastModified: old.lastModified
+            )
+            memConversations = items
+            if let data = try? JSONEncoder().encode(items) {
+                let fileURL = cacheDir.appendingPathComponent("conversations.json")
+                ioQueue.async {
+                    try? data.write(to: fileURL, options: .atomic)
+                }
+            }
+        }
     }
     
     // MARK: - Chat Session Cache

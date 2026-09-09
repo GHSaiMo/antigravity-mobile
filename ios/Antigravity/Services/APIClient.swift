@@ -161,6 +161,26 @@ public final class APIClient: Sendable {
         }
     }
     
+    // Direct title lookup from GetAllCascadeTrajectories
+    public func fetchConversationTitle(cascadeId: String, baseURL: URL) async throws -> String? {
+        struct EmptyBody: Encodable {}
+        let resp: GetAllCascadeTrajectoriesResponse = try await rpc(
+            method: "GetAllCascadeTrajectories",
+            body: EmptyBody(),
+            baseURL: baseURL
+        )
+        guard let summaries = resp.trajectorySummaries, let summary = summaries[cascadeId] else {
+            return nil
+        }
+        if let t = summary.annotations?.title?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty {
+            return t
+        }
+        if let s = summary.summary?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty {
+            return s
+        }
+        return nil
+    }
+    
     // Fast lightweight paginated messages endpoint served by Go gateway
     public func fetchMessages(
         cascadeId: String,
