@@ -50,6 +50,9 @@ public struct PaginatedMessagesResponse: Codable, Sendable {
     public let nextOffset: Int
     public let messages: [GatewayMessageItem]
     public let cascadeConfigRaw: String?
+    public let canProceed: Bool?
+    public let proceedArtifactUri: String?
+    public let pendingInteraction: PendingInteraction?
     
     public struct GatewayMessageItem: Codable, Sendable {
         public let id: String
@@ -60,6 +63,21 @@ public struct PaginatedMessagesResponse: Codable, Sendable {
         public let media: [String]?
         public let imageUrls: [String]?
     }
+}
+
+public struct FetchMessagesResult: Sendable {
+    public let status: String
+    public let messages: [ChatMessage]
+    public let totalSteps: Int
+    public let totalTools: Int
+    public let duration: String
+    public let hasMore: Bool
+    public let nextOffset: Int
+    public let cascadeConfigRaw: String?
+    public let title: String?
+    public let canProceed: Bool
+    public let proceedArtifactUri: String?
+    public let pendingInteraction: PendingInteraction?
 }
 
 public final class APIClient: Sendable {
@@ -187,7 +205,7 @@ public final class APIClient: Sendable {
         limit: Int = 10,
         offset: Int? = nil,
         baseURL: URL
-    ) async throws -> (status: String, messages: [ChatMessage], totalSteps: Int, totalTools: Int, duration: String, hasMore: Bool, nextOffset: Int, cascadeConfigRaw: String?, title: String?) {
+    ) async throws -> FetchMessagesResult {
         var comps = URLComponents(url: baseURL.appendingPathComponent("gateway/cascade/messages"), resolvingAgainstBaseURL: true)
         var queryItems = [
             URLQueryItem(name: "cascadeId", value: cascadeId),
@@ -235,16 +253,19 @@ public final class APIClient: Sendable {
                     )
                 }
                 
-                return (
-                    decoded.status,
-                    chatMessages,
-                    decoded.totalSteps,
-                    decoded.totalTools,
-                    decoded.duration,
-                    decoded.hasMore,
-                    decoded.nextOffset,
-                    decoded.cascadeConfigRaw,
-                    decoded.title
+                return FetchMessagesResult(
+                    status: decoded.status,
+                    messages: chatMessages,
+                    totalSteps: decoded.totalSteps,
+                    totalTools: decoded.totalTools,
+                    duration: decoded.duration,
+                    hasMore: decoded.hasMore,
+                    nextOffset: decoded.nextOffset,
+                    cascadeConfigRaw: decoded.cascadeConfigRaw,
+                    title: decoded.title,
+                    canProceed: decoded.canProceed ?? false,
+                    proceedArtifactUri: decoded.proceedArtifactUri,
+                    pendingInteraction: decoded.pendingInteraction
                 )
             }
         } catch {
@@ -252,7 +273,20 @@ public final class APIClient: Sendable {
         }
         
         let (status, msgs, steps, tools, dur, title) = try await fetchTrajectory(cascadeId: cascadeId, baseURL: baseURL)
-        return (status, msgs, steps, tools, dur, false, 0, nil, title)
+        return FetchMessagesResult(
+            status: status,
+            messages: msgs,
+            totalSteps: steps,
+            totalTools: tools,
+            duration: dur,
+            hasMore: false,
+            nextOffset: 0,
+            cascadeConfigRaw: nil,
+            title: title,
+            canProceed: false,
+            proceedArtifactUri: nil,
+            pendingInteraction: nil
+        )
     }
     
     // Fetch trajectory steps and parse into streamlined ChatMessage array
@@ -394,6 +428,73 @@ public final class APIClient: Sendable {
         )
     }
     
+    // Proceed with an artifact review/plan
+    public func proceedArtifact(cascadeId: String, artifactUri: String, cascadeConfigRaw: String? = nil, baseURL: URL) async throws {
+        let comment = ArtifactCommentPayload(artifactUri: artifactUri, approvalStatus: 1, comment: "")
+        let req = SendUserCascadeMessageRequest(
+            cascadeId: cascadeId,
+            items: [],
+            cascadeConfigRaw: cascadeConfigRaw,
+            artifactComments: [comment]
+        )
+        let _: EmptyResponse = try await rpc(
+            method: "SendUserCascadeMessage",
+            body: req,
+            baseURL: baseURL
+        )
+    }
+    
+    // Submit user decision on a pending interaction
+    public func submitInteraction(
+        cascadeId: String,
+        trajectoryId: String,
+        stepIndex: Int,
+        type: String,
+        optionId: String,
+        scope: Int = 1,
+        allow: Bool = true,
+        writeInResponse: String = "",
+        skipped: Bool = false,
+        target: String? = nil,
+        baseURL: URL
+    ) async throws {
+        let endpoint = baseURL.appendingPathComponent("gateway/cascade/interaction")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 10
+        
+        let settings = AppSettings.shared
+        if !settings.cfAccessClientId.isEmpty && !settings.cfAccessClientSecret.isEmpty {
+            request.setValue(settings.cfAccessClientId, forHTTPHeaderField: "CF-Access-Client-Id")
+            request.setValue(settings.cfAccessClientSecret, forHTTPHeaderField: "CF-Access-Client-Secret")
+        }
+        
+        let payload = InteractionSubmitRequest(
+            cascadeId: cascadeId,
+            trajectoryId: trajectoryId,
+            stepIndex: stepIndex,
+            type: type,
+            optionId: optionId,
+            scope: scope,
+            allow: allow,
+            writeInResponse: writeInResponse,
+            skipped: skipped,
+            target: target
+        )
+        
+        request.httpBody = try JSONEncoder().encode(payload)
+        
+        let (data, response) = try await session.data(for: request)
+        guard let httpResp = response as? HTTPURLResponse else {
+            throw APIError.networkError("Invalid HTTP response")
+        }
+        guard httpResp.statusCode == 200 else {
+            let msg = String(data: data, encoding: .utf8) ?? "HTTP \(httpResp.statusCode)"
+            throw APIError.networkError("提交选项失败: \(msg)")
+        }
+    }
+    
     // Cancel task execution
     public func cancelTask(cascadeId: String, baseURL: URL) async throws {
         let req = CancelCascadeInvocationRequest(cascadeId: cascadeId)
@@ -484,7 +585,13 @@ public final class APIClient: Sendable {
     }
     
     // Create a new cascade and optionally send initial prompt
-    public func createCascade(workspaceUri: String, prompt: String, model: String? = nil, baseURL: URL) async throws -> String {
+    public func createCascade(
+        workspaceUri: String,
+        prompt: String,
+        model: String? = nil,
+        projectId: String? = nil,
+        baseURL: URL
+    ) async throws -> String {
         let endpoint = baseURL.appendingPathComponent("gateway/cascade/new")
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
@@ -503,9 +610,15 @@ public final class APIClient: Sendable {
             let workspaceUri: String
             let prompt: String
             let model: String?
+            let projectId: String?
         }
         
-        request.httpBody = try JSONEncoder().encode(Payload(workspaceUri: workspaceUri, prompt: prompt, model: model))
+        request.httpBody = try JSONEncoder().encode(Payload(
+            workspaceUri: workspaceUri,
+            prompt: prompt,
+            model: model,
+            projectId: projectId
+        ))
         
         let (data, response) = try await session.data(for: request)
         guard let httpResp = response as? HTTPURLResponse else {

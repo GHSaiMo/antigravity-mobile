@@ -18,7 +18,11 @@ public struct StreamUpdatePayload: Decodable, Sendable {
     public let totalTools: Int?
     public let workspaceUri: String?
     public let messages: [PaginatedMessagesResponse.GatewayMessageItem]?
+    public let isFullSnapshot: Bool?
     public let cascadeConfigRaw: String?
+    public let canProceed: Bool?
+    public let proceedArtifactUri: String?
+    public let pendingInteraction: PendingInteraction?
 }
 
 @Observable

@@ -11,6 +11,9 @@ public nonisolated struct CachedChatSession: Codable, Sendable {
     public let messages: [ChatMessage]
     public let title: String?
     public let cascadeConfigRaw: String?
+    public let canProceed: Bool?
+    public let proceedArtifactUri: String?
+    public let pendingInteraction: PendingInteraction?
     public let savedAt: Date
     
     public init(
@@ -24,6 +27,9 @@ public nonisolated struct CachedChatSession: Codable, Sendable {
         messages: [ChatMessage],
         title: String? = nil,
         cascadeConfigRaw: String? = nil,
+        canProceed: Bool? = nil,
+        proceedArtifactUri: String? = nil,
+        pendingInteraction: PendingInteraction? = nil,
         savedAt: Date = Date()
     ) {
         self.cascadeId = cascadeId
@@ -36,6 +42,9 @@ public nonisolated struct CachedChatSession: Codable, Sendable {
         self.messages = messages
         self.title = title
         self.cascadeConfigRaw = cascadeConfigRaw
+        self.canProceed = canProceed
+        self.proceedArtifactUri = proceedArtifactUri
+        self.pendingInteraction = pendingInteraction
         self.savedAt = savedAt
     }
 }

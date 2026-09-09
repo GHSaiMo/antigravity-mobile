@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -25,19 +26,45 @@ type CascadeMessageItem struct {
 	ImageURLs []string `json:"imageUrls,omitempty"` // Markdown image URLs
 }
 
+type InteractionOption struct {
+	ID     string `json:"id"`
+	Text   string `json:"text"`
+	Scope  int    `json:"scope,omitempty"`
+	IsDeny bool   `json:"isDeny,omitempty"`
+}
+
+type PendingInteraction struct {
+	Type               string              `json:"type"` // "permission", "ask_question", "file_permission", "run_command"
+	TrajectoryID       string              `json:"trajectoryId"`
+	StepIndex          int                 `json:"stepIndex"`
+	Title              string              `json:"title"`
+	Target             string              `json:"target,omitempty"`
+	Action             string              `json:"action,omitempty"`
+	Description        string              `json:"description,omitempty"`
+	Options            []InteractionOption `json:"options"`
+	IsMultiSelect      bool                `json:"isMultiSelect,omitempty"`
+	DefaultOptionID    string              `json:"defaultOptionId,omitempty"`
+	HasWriteIn         bool                `json:"hasWriteIn"`
+	WriteInLabel       string              `json:"writeInLabel,omitempty"`
+	WriteInPlaceholder string              `json:"writeInPlaceholder,omitempty"`
+}
+
 type CascadeMessagesResponse struct {
-	CascadeID        string               `json:"cascadeId"`
-	Title            string               `json:"title,omitempty"`
-	Status           string               `json:"status"`
-	Duration         string               `json:"duration"`
-	TotalSteps       int                  `json:"totalSteps"`
-	TotalTools       int                  `json:"totalTools"`
-	TotalMessages    int                  `json:"totalMessages"`
-	HasMore          bool                 `json:"hasMore"`
-	NextOffset       int                  `json:"nextOffset"`
-	Messages         []CascadeMessageItem `json:"messages"`
-	CascadeConfig    json.RawMessage      `json:"cascadeConfig,omitempty"`
-	CascadeConfigRaw string               `json:"cascadeConfigRaw,omitempty"`
+	CascadeID          string               `json:"cascadeId"`
+	Title              string               `json:"title,omitempty"`
+	Status             string               `json:"status"`
+	Duration           string               `json:"duration"`
+	TotalSteps         int                  `json:"totalSteps"`
+	TotalTools         int                  `json:"totalTools"`
+	TotalMessages      int                  `json:"totalMessages"`
+	HasMore            bool                 `json:"hasMore"`
+	NextOffset         int                  `json:"nextOffset"`
+	Messages           []CascadeMessageItem `json:"messages"`
+	CascadeConfig      json.RawMessage      `json:"cascadeConfig,omitempty"`
+	CascadeConfigRaw   string               `json:"cascadeConfigRaw,omitempty"`
+	CanProceed         bool                 `json:"canProceed"`
+	ProceedArtifactURI string               `json:"proceedArtifactUri,omitempty"`
+	PendingInteraction *PendingInteraction  `json:"pendingInteraction,omitempty"`
 }
 
 type trajectoryCacheEntry struct {
@@ -78,6 +105,53 @@ type TrajectoryStep struct {
 		Response string `json:"response"`
 		Thinking string `json:"thinking"`
 	} `json:"plannerResponse"`
+	CodeAction *struct {
+		IsArtifactFile   bool `json:"isArtifactFile"`
+		ArtifactMetadata *struct {
+			Summary         string `json:"summary"`
+			RequestFeedback bool   `json:"requestFeedback"`
+			UserFacing      bool   `json:"userFacing"`
+		} `json:"artifactMetadata"`
+		ActionResult *struct {
+			Edit *struct {
+				AbsoluteURI string `json:"absoluteUri"`
+				CreateFile  bool   `json:"createFile"`
+			} `json:"edit"`
+			AbsoluteURI string `json:"absoluteUri"`
+		} `json:"actionResult"`
+		ActionSpec *struct {
+			CreateFile *struct {
+				Path *struct {
+					AbsoluteURI string `json:"absoluteUri"`
+				} `json:"path"`
+			} `json:"createFile"`
+		} `json:"actionSpec"`
+	} `json:"codeAction"`
+	RequestedInteraction *struct {
+		Permission *struct {
+			Resource struct {
+				Action string `json:"action"`
+				Target string `json:"target"`
+			} `json:"resource"`
+			ActionDescription string `json:"actionDescription"`
+		} `json:"permission"`
+		AskQuestion *struct {
+			Questions []struct {
+				Question      string `json:"question"`
+				IsMultiSelect bool   `json:"isMultiSelect"`
+				Options       []struct {
+					ID   string `json:"id"`
+					Text string `json:"text"`
+				} `json:"options"`
+			} `json:"questions"`
+		} `json:"askQuestion"`
+		RunCommand *struct {
+			CommandLine string `json:"commandLine"`
+		} `json:"runCommand"`
+		FilePermission *struct {
+			AbsolutePathURI string `json:"absolutePathUri"`
+		} `json:"filePermission"`
+	} `json:"requestedInteraction"`
 }
 
 type upstreamTrajectoryResp struct {
@@ -182,34 +256,40 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(CascadeMessagesResponse{
-		CascadeID:        cascadeID,
-		Title:            details.Title,
-		Status:           details.Status,
-		Duration:         details.Duration,
-		TotalSteps:       details.TotalSteps,
-		TotalTools:       details.TotalTools,
-		TotalMessages:    totalMsgs,
-		HasMore:          hasMore,
-		NextOffset:       nextOffset,
-		Messages:         sliced,
-		CascadeConfig:    details.CascadeConfig,
-		CascadeConfigRaw: details.CascadeConfigRaw,
+		CascadeID:          cascadeID,
+		Title:              details.Title,
+		Status:             details.Status,
+		Duration:           details.Duration,
+		TotalSteps:         details.TotalSteps,
+		TotalTools:         details.TotalTools,
+		TotalMessages:      totalMsgs,
+		HasMore:            hasMore,
+		NextOffset:         nextOffset,
+		Messages:           sliced,
+		CascadeConfig:      details.CascadeConfig,
+		CascadeConfigRaw:   details.CascadeConfigRaw,
+		CanProceed:         details.CanProceed,
+		ProceedArtifactURI: details.ProceedArtifactURI,
+		PendingInteraction: details.PendingInteraction,
 	})
 }
 
 // TrajectoryDetails represents parsed and processed trajectory information.
 type TrajectoryDetails struct {
-	CascadeID        string               `json:"cascadeId"`
-	Title            string               `json:"title,omitempty"`
-	Status           string               `json:"status"`
-	Duration         string               `json:"duration"`
-	TotalSteps       int                  `json:"totalSteps"`
-	TotalTools       int                  `json:"totalTools"`
-	WorkspaceURI     string               `json:"workspaceUri"`
-	Steps            []TrajectoryStep     `json:"steps"`
-	AllMessages      []CascadeMessageItem `json:"allMessages"`
-	CascadeConfig    json.RawMessage      `json:"cascadeConfig,omitempty"`
-	CascadeConfigRaw string               `json:"cascadeConfigRaw,omitempty"`
+	CascadeID          string               `json:"cascadeId"`
+	Title              string               `json:"title,omitempty"`
+	Status             string               `json:"status"`
+	Duration           string               `json:"duration"`
+	TotalSteps         int                  `json:"totalSteps"`
+	TotalTools         int                  `json:"totalTools"`
+	WorkspaceURI       string               `json:"workspaceUri"`
+	Steps              []TrajectoryStep     `json:"steps"`
+	AllMessages        []CascadeMessageItem `json:"allMessages"`
+	CascadeConfig      json.RawMessage      `json:"cascadeConfig,omitempty"`
+	CascadeConfigRaw   string               `json:"cascadeConfigRaw,omitempty"`
+	CanProceed         bool                 `json:"canProceed"`
+	ProceedArtifactURI string               `json:"proceedArtifactUri,omitempty"`
+	PendingInteraction *PendingInteraction  `json:"pendingInteraction,omitempty"`
 }
 
 // ParseTrajectoryDetails extracts messages, tools count, duration and metadata from raw response.
@@ -365,18 +445,181 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 		title = rawResp.Trajectory.Summary
 	}
 
+	// Detect if latest turn contains an artifact pending user feedback (Proceed)
+	// Desktop Antigravity (Bjb) parity:
+	// 1. Must be in the latest turn (after last CORTEX_STEP_TYPE_USER_INPUT).
+	// 2. Status must not be RUNNING.
+	// 3. No non-artifact code files have been modified in this turn.
+	// 4. An artifact in this turn has requestFeedback == true.
+	canProceed := false
+	proceedArtifactURI := ""
+	hasModifiedNonArtifactFiles := false
+
+	lastUserInputIdx := -1
+	for i := len(steps) - 1; i >= 0; i-- {
+		if steps[i].Type == "CORTEX_STEP_TYPE_USER_INPUT" {
+			lastUserInputIdx = i
+			break
+		}
+	}
+
+	for i := lastUserInputIdx + 1; i < len(steps); i++ {
+		s := steps[i]
+		if s.Type == "CORTEX_STEP_TYPE_CODE_ACTION" {
+			if s.CodeAction != nil {
+				ca := s.CodeAction
+				if ca.IsArtifactFile {
+					reqFeedback := false
+					if ca.ArtifactMetadata != nil && ca.ArtifactMetadata.RequestFeedback {
+						reqFeedback = true
+					}
+					uri := ""
+					if ca.ActionResult != nil {
+						if ca.ActionResult.Edit != nil && ca.ActionResult.Edit.AbsoluteURI != "" {
+							uri = ca.ActionResult.Edit.AbsoluteURI
+						} else if ca.ActionResult.AbsoluteURI != "" {
+							uri = ca.ActionResult.AbsoluteURI
+						}
+					}
+					if uri == "" && ca.ActionSpec != nil && ca.ActionSpec.CreateFile != nil && ca.ActionSpec.CreateFile.Path != nil {
+						uri = ca.ActionSpec.CreateFile.Path.AbsoluteURI
+					}
+					// If step metadata was missing but this is an artifact step in the current turn, check its specific metadata file
+					if !reqFeedback && ca.ArtifactMetadata == nil && uri != "" && strings.HasPrefix(uri, "file://") {
+						filePath := strings.TrimPrefix(uri, "file://")
+						if metaData, err := os.ReadFile(filePath + ".metadata.json"); err == nil {
+							var meta struct {
+								RequestFeedback bool `json:"requestFeedback"`
+							}
+							if err := json.Unmarshal(metaData, &meta); err == nil && meta.RequestFeedback {
+								reqFeedback = true
+							}
+						}
+					}
+					if reqFeedback && uri != "" {
+						canProceed = true
+						proceedArtifactURI = uri
+					}
+				} else {
+					hasModifiedNonArtifactFiles = true
+				}
+			}
+		}
+	}
+
+	// Desktop parity: if non-artifact files were modified in this turn, or if agent is actively running, do not show proceed
+	if hasModifiedNonArtifactFiles || rawResp.Status == "CASCADE_RUN_STATUS_RUNNING" {
+		canProceed = false
+		proceedArtifactURI = ""
+	}
+
+	var pendingInteraction *PendingInteraction
+	for idx := len(steps) - 1; idx >= 0; idx-- {
+		s := steps[idx]
+		if s.Status == "CORTEX_STEP_STATUS_WAITING" && s.RequestedInteraction != nil {
+			pi := &PendingInteraction{
+				TrajectoryID: rawResp.Trajectory.TrajectoryID,
+				StepIndex:    idx,
+			}
+			req := s.RequestedInteraction
+			if req.Permission != nil {
+				pi.Type = "permission"
+				pi.Action = req.Permission.Resource.Action
+				pi.Target = req.Permission.Resource.Target
+				pi.Description = req.Permission.ActionDescription
+
+				actionLower := strings.ToLower(pi.Action)
+				if strings.Contains(actionLower, "read") {
+					pi.Title = "Allow read access to this path?"
+				} else if strings.Contains(actionLower, "command") {
+					pi.Title = "Allow executing this command?"
+				} else if strings.Contains(actionLower, "write") || strings.Contains(actionLower, "edit") {
+					pi.Title = "Allow write access to this path?"
+				} else if pi.Description != "" {
+					pi.Title = "Allow: " + pi.Description + "?"
+				} else {
+					pi.Title = fmt.Sprintf("Allow %s access?", pi.Action)
+				}
+
+				pi.Options = []InteractionOption{
+					{ID: "1", Text: "Yes, allow this time", Scope: 1},
+					{ID: "2", Text: "Yes, and always allow in this conversation", Scope: 2},
+					{ID: "3", Text: "Yes, and always allow in this project", Scope: 3},
+					{ID: "4", Text: "Yes, and always allow", Scope: 4},
+					{ID: "5", Text: "No", IsDeny: true},
+				}
+				pi.DefaultOptionID = "1"
+				pi.HasWriteIn = true
+				pi.WriteInLabel = "No"
+				pi.WriteInPlaceholder = "(tell the agent what to do instead)"
+			} else if req.AskQuestion != nil && len(req.AskQuestion.Questions) > 0 {
+				pi.Type = "ask_question"
+				q := req.AskQuestion.Questions[0]
+				pi.Title = q.Question
+				pi.IsMultiSelect = q.IsMultiSelect
+				for _, opt := range q.Options {
+					pi.Options = append(pi.Options, InteractionOption{
+						ID:   opt.ID,
+						Text: opt.Text,
+					})
+				}
+				if len(pi.Options) > 0 {
+					pi.DefaultOptionID = pi.Options[0].ID
+				}
+				pi.HasWriteIn = true
+				pi.WriteInLabel = "Other"
+				pi.WriteInPlaceholder = "(write in your response)"
+			} else if req.FilePermission != nil {
+				pi.Type = "file_permission"
+				pi.Target = req.FilePermission.AbsolutePathURI
+				pi.Title = "Allow access to this file outside workspace?"
+				pi.Options = []InteractionOption{
+					{ID: "1", Text: "Yes, allow this time", Scope: 1},
+					{ID: "2", Text: "Yes, and always allow in this conversation", Scope: 2},
+					{ID: "3", Text: "Yes, and always allow in this project", Scope: 3},
+					{ID: "4", Text: "Yes, and always allow", Scope: 4},
+					{ID: "5", Text: "No", IsDeny: true},
+				}
+				pi.DefaultOptionID = "1"
+				pi.HasWriteIn = true
+				pi.WriteInLabel = "No"
+				pi.WriteInPlaceholder = "(tell the agent what to do instead)"
+			} else if req.RunCommand != nil {
+				pi.Type = "run_command"
+				pi.Target = req.RunCommand.CommandLine
+				pi.Title = "Confirm command execution"
+				pi.Options = []InteractionOption{
+					{ID: "1", Text: "Yes, run command", Scope: 1},
+					{ID: "2", Text: "No", IsDeny: true},
+				}
+				pi.DefaultOptionID = "1"
+				pi.HasWriteIn = true
+				pi.WriteInLabel = "No"
+				pi.WriteInPlaceholder = "(tell the agent what to do instead)"
+			}
+			pendingInteraction = pi
+			break
+		}
+	}
+	if rawResp.Status != "CASCADE_RUN_STATUS_RUNNING" {
+		pendingInteraction = nil
+	}
+
 	return TrajectoryDetails{
-		CascadeID:        rawResp.Trajectory.CascadeID,
-		Title:            title,
-		Status:           rawResp.Status,
-		Duration:         duration,
-		TotalSteps:       totalSteps,
-		TotalTools:       totalToolsCount,
-		WorkspaceURI:     wsURI,
-		Steps:            steps,
-		AllMessages:      allMessages,
-		CascadeConfig:    activeConfig,
-		CascadeConfigRaw: activeConfigStr,
+		CascadeID:          rawResp.Trajectory.CascadeID,
+		Title:              title,
+		Status:             rawResp.Status,
+		Duration:           duration,
+		TotalSteps:         totalSteps,
+		TotalTools:         totalToolsCount,
+		WorkspaceURI:       wsURI,
+		Steps:              steps,
+		AllMessages:        allMessages,
+		CascadeConfig:      activeConfig,
+		CascadeConfigRaw:   activeConfigStr,
+		CanProceed:         canProceed,
+		ProceedArtifactURI: proceedArtifactURI,
+		PendingInteraction: pendingInteraction,
 	}
 }
 

@@ -213,9 +213,11 @@ public struct NewConversationSheet: View {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         
         do {
+            let pid = project.rawId ?? (project.id != project.uri ? project.id : nil)
             let cascadeId = try await APIClient.shared.createCascade(
                 workspaceUri: project.uri,
                 prompt: "",
+                projectId: pid,
                 baseURL: url
             )
             

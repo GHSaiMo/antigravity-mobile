@@ -13,6 +13,7 @@ public struct TrajectorySummary: Codable, Sendable {
     public let workspaces: [WorkspaceItem]?
     public let annotations: Annotations?
     public let trajectoryMetadata: TrajectoryMetadata?
+    public let needsInput: Bool?
 }
 
 public struct WorkspaceItem: Codable, Sendable {
@@ -40,11 +41,16 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
     
     public enum ConversationStatus: String, Sendable, Codable {
         case running = "RUNNING"
+        case action = "ACTION"
         case idle = "IDLE"
         case unknown = "UNKNOWN"
         
         public var isRunning: Bool {
             self == .running
+        }
+        
+        public var needsAction: Bool {
+            self == .action
         }
     }
     
@@ -59,7 +65,9 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
             self.title = "未命名会话"
         }
         
-        if summary.status == "CASCADE_RUN_STATUS_RUNNING" {
+        if summary.needsInput == true {
+            self.status = .action
+        } else if summary.status == "CASCADE_RUN_STATUS_RUNNING" {
             self.status = .running
         } else if summary.status == "CASCADE_RUN_STATUS_IDLE" {
             self.status = .idle

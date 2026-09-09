@@ -57,16 +57,137 @@ public struct PlannerResponsePayload: Codable, Sendable {
     public let thinking: String?
 }
 
+public struct ArtifactCommentPayload: Codable, Sendable {
+    public let artifactUri: String
+    public let fullFile: [String: String]
+    public let approvalStatus: Int
+    public let comment: String
+    
+    public init(artifactUri: String, approvalStatus: Int = 1, comment: String = "") {
+        self.artifactUri = artifactUri
+        self.fullFile = [:]
+        self.approvalStatus = approvalStatus
+        self.comment = comment
+    }
+}
+
+public struct InteractionOption: Codable, Sendable, Identifiable, Hashable {
+    public let id: String
+    public let text: String
+    public let scope: Int?
+    public let isDeny: Bool?
+    
+    public init(id: String, text: String, scope: Int? = nil, isDeny: Bool? = nil) {
+        self.id = id
+        self.text = text
+        self.scope = scope
+        self.isDeny = isDeny
+    }
+}
+
+public struct PendingInteraction: Codable, Sendable, Identifiable, Hashable {
+    public var id: String { "\(trajectoryId):\(stepIndex)" }
+    public let type: String
+    public let trajectoryId: String
+    public let stepIndex: Int
+    public let title: String
+    public let target: String?
+    public let action: String?
+    public let description: String?
+    public let options: [InteractionOption]
+    public let isMultiSelect: Bool?
+    public let defaultOptionId: String?
+    public let hasWriteIn: Bool?
+    public let writeInLabel: String?
+    public let writeInPlaceholder: String?
+    
+    public init(
+        type: String,
+        trajectoryId: String,
+        stepIndex: Int,
+        title: String,
+        target: String? = nil,
+        action: String? = nil,
+        description: String? = nil,
+        options: [InteractionOption] = [],
+        isMultiSelect: Bool? = nil,
+        defaultOptionId: String? = nil,
+        hasWriteIn: Bool? = nil,
+        writeInLabel: String? = nil,
+        writeInPlaceholder: String? = nil
+    ) {
+        self.type = type
+        self.trajectoryId = trajectoryId
+        self.stepIndex = stepIndex
+        self.title = title
+        self.target = target
+        self.action = action
+        self.description = description
+        self.options = options
+        self.isMultiSelect = isMultiSelect
+        self.defaultOptionId = defaultOptionId
+        self.hasWriteIn = hasWriteIn
+        self.writeInLabel = writeInLabel
+        self.writeInPlaceholder = writeInPlaceholder
+    }
+}
+
+public struct InteractionSubmitRequest: Codable, Sendable {
+    public let cascadeId: String
+    public let trajectoryId: String
+    public let stepIndex: Int
+    public let type: String
+    public let optionId: String
+    public let scope: Int
+    public let allow: Bool
+    public let writeInResponse: String
+    public let skipped: Bool
+    public let target: String?
+    
+    public init(
+        cascadeId: String,
+        trajectoryId: String,
+        stepIndex: Int,
+        type: String,
+        optionId: String,
+        scope: Int = 1,
+        allow: Bool = true,
+        writeInResponse: String = "",
+        skipped: Bool = false,
+        target: String? = nil
+    ) {
+        self.cascadeId = cascadeId
+        self.trajectoryId = trajectoryId
+        self.stepIndex = stepIndex
+        self.type = type
+        self.optionId = optionId
+        self.scope = scope
+        self.allow = allow
+        self.writeInResponse = writeInResponse
+        self.skipped = skipped
+        self.target = target
+    }
+}
+
 // Request to send a message
 public struct SendUserCascadeMessageRequest: Codable, Sendable {
     public let cascadeId: String
     public let items: [TextItem]
     public let cascadeConfigRaw: String?
+    public let artifactComments: [ArtifactCommentPayload]?
     
     public init(cascadeId: String, text: String, cascadeConfigRaw: String? = nil) {
         self.cascadeId = cascadeId
         self.items = [TextItem(text: text)]
         self.cascadeConfigRaw = cascadeConfigRaw
+        self.artifactComments = nil
+    }
+    
+    public init(cascadeId: String, items: [TextItem] = [], cascadeConfigRaw: String? = nil, artifactComments: [ArtifactCommentPayload]? = nil) {
+        self.cascadeId = cascadeId
+        self.items = items
+        self.cascadeConfigRaw = cascadeConfigRaw
+        self.artifactComments = artifactComments
     }
 }
 
