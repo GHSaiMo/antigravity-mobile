@@ -176,8 +176,9 @@ function renderConversationList(summaries) {
   listEl.innerHTML = items
     .map((item) => {
       const isRunning = item.status === "CASCADE_RUN_STATUS_RUNNING";
-      const badgeClass = isRunning ? "badge-running" : "badge-idle";
-      const badgeText = isRunning ? "RUNNING" : "IDLE";
+      const badgeHtml = isRunning
+        ? `<span class="badge badge-running">RUNNING</span>`
+        : "";
       const title = item.annotations?.title || item.summary || "未命名会话";
       const wsUri = item.workspaceUris?.[0] || item.workspaces?.[0]?.workspaceFolderAbsoluteUri || "";
       const wsName = wsUri.split("/").filter(Boolean).pop() || "workspace";
@@ -187,7 +188,7 @@ function renderConversationList(summaries) {
         <div class="conv-card" onclick="navigateTo('#c=${item.id}')">
           <div class="conv-card-top">
             <div class="conv-title">${escapeHtml(title)}</div>
-            <span class="badge ${badgeClass}">${badgeText}</span>
+            ${badgeHtml}
           </div>
           <div class="conv-card-bottom">
             <div class="conv-meta">

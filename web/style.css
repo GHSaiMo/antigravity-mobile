@@ -21,7 +21,7 @@
   --agent-bubble-bg: #151d30;
   --tool-bg: #0f172a;
   
-  --status-running: #a855f7;
+  --status-running: #22c55e;
   --status-idle: #3b82f6;
   --status-error: #ef4444;
 
@@ -308,9 +308,9 @@ html, body {
 }
 
 .badge-running {
-  background-color: rgba(168, 85, 247, 0.2);
+  background-color: rgba(34, 197, 94, 0.15);
   color: var(--status-running);
-  border: 1px solid rgba(168, 85, 247, 0.4);
+  border: 1px solid rgba(34, 197, 94, 0.3);
   animation: pulse 1.5s infinite;
 }
 

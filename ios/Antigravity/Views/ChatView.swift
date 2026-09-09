@@ -4,12 +4,18 @@ public struct ChatView: View {
     @State private var viewModel: ChatViewModel
     @FocusState private var isInputFocused: Bool
     @State private var hasInitiallyAligned = false
+    private let shouldAutoFocus: Bool
+    @State private var hasAutoFocused = false
+    @State private var isViewAppeared = false
+    @State private var autoFocusTask: Task<Void, Never>? = nil
     
     public init(conversation: ConversationItem, isNewConversation: Bool = false) {
+        let isNewOrEmpty = isNewConversation || conversation.stepCount == 0
+        self.shouldAutoFocus = isNewOrEmpty
         _viewModel = State(initialValue: ChatViewModel(
             cascadeId: conversation.id,
             initialTitle: conversation.title,
-            isNewConversation: isNewConversation || conversation.stepCount == 0
+            isNewConversation: isNewOrEmpty
         ))
     }
     
@@ -125,6 +131,9 @@ public struct ChatView: View {
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                                 initialAlignmentIfNeeded(proxy: proxy)
                             }
+                            if !hasAutoFocused && autoFocusTask == nil && (shouldAutoFocus || (viewModel.messages.isEmpty && viewModel.stepCount == 0)) {
+                                scheduleAutoFocus(delay: 0.2)
+                            }
                         }
                     }
                     .onChange(of: viewModel.scrollToTurnStartTrigger) { _, _ in
@@ -186,11 +195,21 @@ public struct ChatView: View {
         }
         .navigationTitle(viewModel.currentTitle)
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            isViewAppeared = true
+            if shouldAutoFocus {
+                scheduleAutoFocus(delay: 0.45)
+            }
+        }
         .task {
             await viewModel.loadMessages()
+            viewModel.connectStream()
         }
         .onDisappear {
-            viewModel.stopPolling()
+            isViewAppeared = false
+            autoFocusTask?.cancel()
+            autoFocusTask = nil
+            viewModel.disconnectStream()
         }
     }
     
@@ -313,6 +332,19 @@ public struct ChatView: View {
             viewModel.inputText += "\n" + toAppend
         }
         isInputFocused = true
+    }
+    
+    private func scheduleAutoFocus(delay: Double = 0.45) {
+        guard !hasAutoFocused else { return }
+        autoFocusTask?.cancel()
+        autoFocusTask = Task { @MainActor in
+            if delay > 0 {
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            }
+            guard !Task.isCancelled, isViewAppeared, !hasAutoFocused, viewModel.messages.isEmpty else { return }
+            hasAutoFocused = true
+            isInputFocused = true
+        }
     }
     
     private func initialAlignmentIfNeeded(proxy: ScrollViewProxy) {

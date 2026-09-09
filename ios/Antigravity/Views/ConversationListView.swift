@@ -105,13 +105,15 @@ public struct ConversationListView: View {
                 
                 Spacer()
                 
-                Text(item.status.rawValue)
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundColor(item.status.isRunning ? .green : .blue)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
-                    .background(item.status.isRunning ? Color.green.opacity(0.15) : Color.blue.opacity(0.15))
-                    .cornerRadius(6)
+                if item.status.isRunning {
+                    Text(item.status.rawValue)
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(.green)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(Color.green.opacity(0.15))
+                        .cornerRadius(6)
+                }
             }
             
             HStack {
