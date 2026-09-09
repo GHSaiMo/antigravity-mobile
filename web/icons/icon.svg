@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e1b4b" />
+      <stop offset="50%" stop-color="#312e81" />
+      <stop offset="100%" stop-color="#4c1d95" />
+    </linearGradient>
+    <linearGradient id="orb" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#818cf8" />
+    </linearGradient>
+    <linearGradient id="ring" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#c084fc" />
+      <stop offset="100%" stop-color="#60a5fa" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)" />
+  <!-- Orbital Rings -->
+  <ellipse cx="256" cy="256" rx="180" ry="60" fill="none" stroke="url(#ring)" stroke-width="12" transform="rotate(-30 256 256)" stroke-dasharray="10 14" opacity="0.85"/>
+  <ellipse cx="256" cy="256" rx="180" ry="60" fill="none" stroke="url(#ring)" stroke-width="12" transform="rotate(30 256 256)" stroke-dasharray="14 10" opacity="0.75"/>
+  <!-- Central Core -->
+  <circle cx="256" cy="256" r="64" fill="url(#orb)" filter="drop-shadow(0 0 24px rgba(56, 189, 248, 0.7))"/>
+  <circle cx="236" cy="236" r="16" fill="#ffffff" opacity="0.6"/>
+  <!-- Antigravity Sparks -->
+  <circle cx="370" cy="190" r="8" fill="#38bdf8" />
+  <circle cx="140" cy="320" r="6" fill="#c084fc" />
+  <circle cx="340" cy="350" r="5" fill="#818cf8" />
+</svg>

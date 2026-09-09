@@ -1,0 +1,136 @@
+import Foundation
+
+public nonisolated struct CachedChatSession: Codable, Sendable {
+    public let cascadeId: String
+    public let status: String
+    public let duration: String
+    public let stepCount: Int
+    public let totalTools: Int
+    public let hasMore: Bool
+    public let nextOffset: Int
+    public let messages: [ChatMessage]
+    public let savedAt: Date
+    
+    public init(
+        cascadeId: String,
+        status: String,
+        duration: String,
+        stepCount: Int,
+        totalTools: Int,
+        hasMore: Bool,
+        nextOffset: Int,
+        messages: [ChatMessage],
+        savedAt: Date = Date()
+    ) {
+        self.cascadeId = cascadeId
+        self.status = status
+        self.duration = duration
+        self.stepCount = stepCount
+        self.totalTools = totalTools
+        self.hasMore = hasMore
+        self.nextOffset = nextOffset
+        self.messages = messages
+        self.savedAt = savedAt
+    }
+}
+
+public final class CacheManager: @unchecked Sendable {
+    public static let shared = CacheManager()
+    
+    private let cacheDir: URL
+    private let lock = NSLock()
+    private let ioQueue = DispatchQueue(label: "com.antigravity.mobile.cache.io", qos: .utility)
+    
+    private var memConversations: [ConversationItem]?
+    private var memSessions: [String: CachedChatSession] = [:]
+    
+    private init() {
+        let fm = FileManager.default
+        let base = fm.urls(for: .cachesDirectory, in: .userDomainMask).first ?? fm.temporaryDirectory
+        let dir = base.appendingPathComponent("AntigravityCache", isDirectory: true)
+        self.cacheDir = dir
+        try? fm.createDirectory(at: dir.appendingPathComponent("sessions", isDirectory: true), withIntermediateDirectories: true)
+    }
+    
+    // MARK: - Conversations List Cache
+    
+    public func saveConversations(_ items: [ConversationItem]) {
+        lock.lock()
+        memConversations = items
+        lock.unlock()
+        
+        guard let data = try? JSONEncoder().encode(items) else { return }
+        let fileURL = cacheDir.appendingPathComponent("conversations.json")
+        ioQueue.async {
+            try? data.write(to: fileURL, options: .atomic)
+        }
+    }
+    
+    public func loadConversations() -> [ConversationItem] {
+        lock.lock()
+        if let mem = memConversations {
+            lock.unlock()
+            return mem
+        }
+        lock.unlock()
+        
+        let fileURL = cacheDir.appendingPathComponent("conversations.json")
+        guard let data = try? Data(contentsOf: fileURL),
+              let items = try? JSONDecoder().decode([ConversationItem].self, from: data) else {
+            return []
+        }
+        
+        lock.lock()
+        memConversations = items
+        lock.unlock()
+        return items
+    }
+    
+    // MARK: - Chat Session Cache
+    
+    public func saveSession(_ session: CachedChatSession) {
+        lock.lock()
+        memSessions[session.cascadeId] = session
+        lock.unlock()
+        
+        guard let data = try? JSONEncoder().encode(session) else { return }
+        let fileURL = cacheDir.appendingPathComponent("sessions/\(session.cascadeId).json")
+        ioQueue.async {
+            try? data.write(to: fileURL, options: .atomic)
+        }
+    }
+    
+    public func loadSession(for cascadeId: String) -> CachedChatSession? {
+        lock.lock()
+        if let mem = memSessions[cascadeId] {
+            lock.unlock()
+            return mem
+        }
+        lock.unlock()
+        
+        let fileURL = cacheDir.appendingPathComponent("sessions/\(cascadeId).json")
+        guard let data = try? Data(contentsOf: fileURL),
+              let session = try? JSONDecoder().decode(CachedChatSession.self, from: data) else {
+            return nil
+        }
+        
+        lock.lock()
+        memSessions[cascadeId] = session
+        lock.unlock()
+        return session
+    }
+    
+    public func clearCache() {
+        lock.lock()
+        memConversations = nil
+        memSessions.removeAll()
+        lock.unlock()
+        
+        let targetDir = cacheDir
+        ioQueue.async {
+            let fm = FileManager.default
+            try? fm.removeItem(at: targetDir)
+            try? fm.createDirectory(at: targetDir.appendingPathComponent("sessions", isDirectory: true), withIntermediateDirectories: true)
+        }
+    }
+}
