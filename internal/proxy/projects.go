@@ -554,10 +554,38 @@ func (p *Proxy) HandleCreateCascade(w http.ResponseWriter, r *http.Request) {
 		wsURI = "file://" + filepath.Clean(wsURI)
 	}
 
+	// Determine projectId: prefer explicitly provided projectId, otherwise match against known projects
+	projectID := strings.TrimSpace(req.ProjectID)
+	if projectID == "" && wsURI != "" {
+		if projects, err := p.GetProjects(); err == nil {
+			targetNorm := normalizeURI(wsURI)
+			targetPath := uriToPath(targetNorm)
+			for _, prj := range projects {
+				if prj.ID == "" {
+					continue
+				}
+				if normalizeURI(prj.URI) == targetNorm || uriToPath(prj.URI) == targetPath || filepath.Clean(prj.Path) == filepath.Clean(targetPath) {
+					projectID = prj.ID
+					break
+				}
+			}
+		}
+	}
+
 	// 1. Call StartCascade RPC upstream
-	startPayload := map[string]interface{}{
-		"workspaceUris": []string{wsURI},
-		"source":        "CORTEX_TRAJECTORY_SOURCE_INTERACTIVE_CASCADE",
+	startPayload := map[string]interface{}{}
+	if projectID != "" {
+		// When project environment config is provided, language_server strictly requires
+		// workspaceUris to be empty ([]), otherwise it errors with invalid_argument.
+		startPayload["source"] = "CORTEX_TRAJECTORY_SOURCE_CASCADE_CLIENT"
+		startPayload["workspaceUris"] = []string{}
+		startPayload["projectEnvConfig"] = map[string]interface{}{
+			"projectId":                 projectID,
+			"defaultProjectEnvironment": map[string]interface{}{},
+		}
+	} else {
+		startPayload["source"] = "CORTEX_TRAJECTORY_SOURCE_INTERACTIVE_CASCADE"
+		startPayload["workspaceUris"] = []string{wsURI}
 	}
 
 	if req.Model != "" {
@@ -623,7 +651,28 @@ func (p *Proxy) HandleCreateCascade(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cascadeID := startResult.CascadeID
-	log.Printf("[Proxy] Created new cascade: %s for workspace: %s", cascadeID, wsURI)
+	log.Printf("[Proxy] Created new cascade: %s (projectId: %s) for workspace: %s", cascadeID, projectID, wsURI)
+
+	// Update lastUserViewTime annotation upstream so desktop client recognizes it immediately
+	annPayload := map[string]interface{}{
+		"cascadeId": cascadeID,
+		"annotations": map[string]interface{}{
+			"lastUserViewTime": time.Now().UTC().Format("2006-01-02T15:04:05.999Z"),
+		},
+	}
+	if annBytes, err := json.Marshal(annPayload); err == nil {
+		annURL := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/UpdateConversationAnnotations", port)
+		if annReq, err := http.NewRequest(http.MethodPost, annURL, bytes.NewReader(annBytes)); err == nil {
+			annReq.Header.Set("Content-Type", "application/json")
+			annReq.Header.Set("Connect-Protocol-Version", "1")
+			if token != "" {
+				annReq.Header.Set("x-codeium-csrf-token", token)
+			}
+			if annResp, err := client.Do(annReq); err == nil {
+				annResp.Body.Close()
+			}
+		}
+	}
 
 	// 2. If prompt is provided, dispatch the initial user message. If empty, simply return cascadeId.
 	if prompt := strings.TrimSpace(req.Prompt); prompt != "" {

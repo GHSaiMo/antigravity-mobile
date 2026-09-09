@@ -320,6 +320,13 @@ html, body {
   border: 1px solid rgba(59, 130, 246, 0.3);
 }
 
+.badge-action {
+  background-color: rgba(59, 130, 246, 0.15);
+  color: var(--status-idle);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  animation: pulse 1.5s infinite;
+}
+
 .conv-card-bottom {
   display: flex;
   justify-content: space-between;
@@ -534,8 +541,46 @@ details[open] summary {
 .chat-input-bar {
   background-color: var(--bg-card);
   border-top: 1px solid var(--border-color);
-  padding: 12px 16px calc(14px + var(--safe-bottom));
+  padding: 10px 16px calc(14px + var(--safe-bottom));
   flex-shrink: 0;
+}
+
+.quick-actions-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.chip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background-color: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.chip-btn:hover {
+  background-color: var(--bg-card-hover);
+}
+
+.chip-proceed {
+  background-color: #2563eb;
+  color: #ffffff;
+  border-color: #2563eb;
+  font-weight: 600;
+  box-shadow: 0 2px 4px rgba(37, 99, 235, 0.3);
+}
+
+.chip-proceed:hover {
+  background-color: #1d4ed8;
 }
 
 .input-wrapper {
@@ -712,4 +757,245 @@ details[open] summary {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+/* Floating Interaction Card */
+.interaction-card-container {
+  padding: 8px 16px;
+  background: transparent;
+  flex-shrink: 0;
+  z-index: 10;
+}
+
+.interaction-card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  padding: 14px 16px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: slideUpFade 0.25s ease-out;
+}
+
+@keyframes slideUpFade {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.interaction-card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.interaction-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.interaction-title-group {
+  flex: 1;
+}
+
+.interaction-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.35;
+}
+
+.interaction-subtitle {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.interaction-target-box {
+  background-color: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  color: var(--text-secondary);
+  word-break: break-all;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.interaction-target-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+}
+
+.interaction-options-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.interaction-option-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  background-color: var(--bg-input);
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.interaction-option-item:hover {
+  background-color: var(--bg-card-hover);
+}
+
+.interaction-option-item.selected {
+  background-color: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+.interaction-option-radio {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1.5px solid var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: border-color 0.15s ease;
+}
+
+.interaction-option-item.selected .interaction-option-radio {
+  border-color: #3b82f6;
+}
+
+.interaction-radio-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: transparent;
+  transition: background-color 0.15s ease;
+}
+
+.interaction-option-item.selected .interaction-radio-dot {
+  background-color: #3b82f6;
+}
+
+.interaction-option-badge {
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 600;
+  color: var(--text-muted);
+  min-width: 22px;
+}
+
+.interaction-option-item.selected .interaction-option-badge {
+  color: #3b82f6;
+}
+
+.interaction-option-label {
+  font-size: 13px;
+  color: var(--text-primary);
+  line-height: 1.3;
+  flex: 1;
+}
+
+.interaction-write-in-wrap {
+  margin-top: 2px;
+}
+
+.interaction-write-in-input {
+  width: 100%;
+  box-sizing: border-box;
+  background-color: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text-primary);
+  outline: none;
+  font-family: inherit;
+  transition: border-color 0.15s ease;
+}
+
+.interaction-write-in-input:focus {
+  border-color: #3b82f6;
+}
+
+.interaction-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.btn-interaction-skip {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-interaction-skip:hover {
+  background-color: var(--bg-input);
+  color: var(--text-primary);
+}
+
+.btn-interaction-submit {
+  background-color: #2563eb;
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.35);
+  transition: all 0.15s ease;
+}
+
+.btn-interaction-submit:hover {
+  background-color: #1d4ed8;
+}
+
+.btn-interaction-submit:disabled,
+.btn-interaction-skip:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.interaction-submit-key {
+  font-size: 13px;
+  opacity: 0.85;
 }

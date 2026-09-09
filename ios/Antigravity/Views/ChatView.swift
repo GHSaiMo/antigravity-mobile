@@ -187,6 +187,24 @@ public struct ChatView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .padding(.horizontal, 16)
                 .padding(.bottom, 6)
+            }
+            
+            // Floating Interaction Card (Permissions / Prompts / Decision)
+            if let interaction = viewModel.pendingInteraction {
+                InteractionCardView(
+                    interaction: interaction,
+                    isSubmitting: viewModel.isSubmittingInteraction,
+                    onSubmit: { optionId, writeInText, target in
+                        Task {
+                            await viewModel.submitInteraction(optionId: optionId, writeInText: writeInText, target: target)
+                        }
+                    },
+                    onSkip: {
+                        Task {
+                            await viewModel.skipInteraction()
+                        }
+                    }
+                )
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
             
@@ -215,8 +233,8 @@ public struct ChatView: View {
     
     private var inputBar: some View {
         VStack(alignment: .leading, spacing: 10) {
-            // Quick action chip at top-left of input box
-            HStack {
+            // Quick action chips at top of input box
+            HStack(spacing: 8) {
                 Button(action: insertCommitAndPush) {
                     HStack(spacing: 6) {
                         Image(systemName: "arrow.triangle.branch")
@@ -237,8 +255,29 @@ public struct ChatView: View {
                 }
                 .buttonStyle(.plain)
                 
+                if viewModel.canProceed {
+                    Button(action: handleProceed) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(.white)
+                            Text("Proceed")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(.white)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(Color.blue)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .shadow(color: Color.blue.opacity(0.35), radius: 4, x: 0, y: 2)
+                    }
+                    .buttonStyle(.plain)
+                    .transition(.scale(scale: 0.9).combined(with: .opacity))
+                }
+                
                 Spacer()
             }
+            .animation(.easeInOut(duration: 0.2), value: viewModel.canProceed)
             .padding(.horizontal, 16)
             .padding(.top, 8)
             
@@ -332,6 +371,13 @@ public struct ChatView: View {
             viewModel.inputText += "\n" + toAppend
         }
         isInputFocused = true
+    }
+    
+    private func handleProceed() {
+        isInputFocused = false
+        Task {
+            await viewModel.proceedArtifact()
+        }
     }
     
     private func scheduleAutoFocus(delay: Double = 0.45) {

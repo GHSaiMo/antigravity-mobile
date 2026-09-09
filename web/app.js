@@ -102,6 +102,7 @@ function renderRoute() {
     if (changed) {
       hasInitiallyAligned = false;
       prevWasRunning = false;
+      updatePendingInteraction(null, false);
       const streamEl = document.getElementById("messages-stream");
       if (streamEl) {
         streamEl.innerHTML = `
@@ -118,6 +119,7 @@ function renderRoute() {
   } else {
     activeCascadeId = null;
     closeActiveWs();
+    updatePendingInteraction(null, false);
 
     chatView.classList.remove("active");
     convView.classList.add("active");
@@ -175,10 +177,11 @@ function renderConversationList(summaries) {
 
   listEl.innerHTML = items
     .map((item) => {
-      const isRunning = item.status === "CASCADE_RUN_STATUS_RUNNING";
-      const badgeHtml = isRunning
-        ? `<span class="badge badge-running">RUNNING</span>`
-        : "";
+      const hasAction = !!item.needsInput;
+      const isRunning = item.status === "CASCADE_RUN_STATUS_RUNNING" && !hasAction;
+      const badgeHtml = hasAction
+        ? `<span class="badge badge-action">ACTION</span>`
+        : (isRunning ? `<span class="badge badge-running">RUNNING</span>` : "");
       const title = item.annotations?.title || item.summary || "未命名会话";
       const wsUri = item.workspaceUris?.[0] || item.workspaces?.[0]?.workspaceFolderAbsoluteUri || "";
       const wsName = wsUri.split("/").filter(Boolean).pop() || "workspace";
@@ -211,6 +214,191 @@ let wsReconnectTimer = null;
 let userIsNearBottom = true;
 let hasInitiallyAligned = false;
 let prevWasRunning = false;
+let currentCanProceed = false;
+let currentProceedArtifactUri = null;
+
+function updateProceedButton(canProceed) {
+  const proceedBtn = document.getElementById("btn-proceed");
+  if (!proceedBtn) return;
+  if (canProceed) {
+    proceedBtn.classList.remove("hidden");
+  } else {
+    proceedBtn.classList.add("hidden");
+  }
+}
+
+// --- Floating Interaction Card Management ---
+let currentPendingInteraction = null;
+let selectedInteractionOptionId = null;
+let isSubmittingInteraction = false;
+
+function updatePendingInteraction(interaction, isRunning) {
+  const container = document.getElementById("interaction-card-container");
+  if (!container) return;
+
+  if (!isRunning || !interaction || !interaction.options || interaction.options.length === 0) {
+    currentPendingInteraction = null;
+    selectedInteractionOptionId = null;
+    container.innerHTML = "";
+    container.classList.add("hidden");
+    return;
+  }
+
+  const isDifferent = !currentPendingInteraction ||
+    currentPendingInteraction.stepIndex !== interaction.stepIndex ||
+    currentPendingInteraction.type !== interaction.type;
+
+  currentPendingInteraction = interaction;
+  if (isDifferent || !selectedInteractionOptionId) {
+    selectedInteractionOptionId = interaction.options[0]?.id || "";
+  }
+
+  renderInteractionCard();
+}
+
+function renderInteractionCard() {
+  const container = document.getElementById("interaction-card-container");
+  if (!container || !currentPendingInteraction) return;
+
+  const interaction = currentPendingInteraction;
+  const isPermission = interaction.type === "permission";
+  const selectedOpt = interaction.options.find(o => o.id === selectedInteractionOptionId) || interaction.options[0];
+  const isDenyOrWriteIn = selectedOpt?.isDeny || selectedOpt?.id === "no" || selectedOpt?.id?.toLowerCase().includes("deny");
+
+  const iconSvg = isPermission
+    ? `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>`
+    : `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>`;
+
+  container.innerHTML = `
+    <div class="interaction-card">
+      <div class="interaction-card-header">
+        <div class="interaction-icon">${iconSvg}</div>
+        <div class="interaction-title-group">
+          <div class="interaction-title">${escapeHtml(interaction.title || "需要确认或授权")}</div>
+          <div class="interaction-subtitle">${escapeHtml(interaction.subtitle || "等待决策响应")}</div>
+        </div>
+      </div>
+
+      ${interaction.target ? `
+        <div class="interaction-target-box">
+          <span class="interaction-target-label">Target</span>
+          <span class="interaction-target-path">${escapeHtml(interaction.target)}</span>
+        </div>
+      ` : ''}
+
+      <div class="interaction-options-list">
+        ${interaction.options.map((opt, idx) => {
+          const isSelected = opt.id === selectedInteractionOptionId;
+          return `
+            <div class="interaction-option-item ${isSelected ? 'selected' : ''}" data-opt-id="${escapeHtml(opt.id)}">
+              <span class="interaction-option-radio">
+                <span class="interaction-radio-dot"></span>
+              </span>
+              <span class="interaction-option-badge">[${idx + 1}]</span>
+              <span class="interaction-option-label">${escapeHtml(opt.label)}</span>
+            </div>
+          `;
+        }).join('')}
+      </div>
+
+      <div id="interaction-write-in-wrap" class="interaction-write-in-wrap ${isDenyOrWriteIn ? '' : 'hidden'}">
+        <input type="text" id="interaction-write-in-input" class="interaction-write-in-input" placeholder="输入说明或拒绝原因..." />
+      </div>
+
+      <div class="interaction-card-actions">
+        <button type="button" id="btn-interaction-skip" class="btn-interaction-skip" ${isSubmittingInteraction ? 'disabled' : ''}>Skip</button>
+        <button type="button" id="btn-interaction-submit" class="btn-interaction-submit" ${isSubmittingInteraction ? 'disabled' : ''}>
+          <span>${isSubmittingInteraction ? '提交中...' : 'Submit'}</span>
+          <span class="interaction-submit-key">↵</span>
+        </button>
+      </div>
+    </div>
+  `;
+
+  container.classList.remove("hidden");
+
+  // Add click handlers on option items
+  container.querySelectorAll(".interaction-option-item").forEach(item => {
+    item.addEventListener("click", () => {
+      const optId = item.dataset.optId;
+      if (optId && optId !== selectedInteractionOptionId) {
+        selectedInteractionOptionId = optId;
+        renderInteractionCard();
+      }
+    });
+  });
+
+  const writeInInput = container.querySelector("#interaction-write-in-input");
+  if (writeInInput) {
+    writeInInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        handleInteractionSubmit(false);
+      }
+    });
+  }
+
+  const skipBtn = container.querySelector("#btn-interaction-skip");
+  if (skipBtn) {
+    skipBtn.addEventListener("click", () => handleInteractionSubmit(true));
+  }
+
+  const submitBtn = container.querySelector("#btn-interaction-submit");
+  if (submitBtn) {
+    submitBtn.addEventListener("click", () => handleInteractionSubmit(false));
+  }
+}
+
+async function handleInteractionSubmit(isSkip) {
+  if (isSubmittingInteraction || !currentPendingInteraction || !activeCascadeId) return;
+
+  isSubmittingInteraction = true;
+  renderInteractionCard();
+
+  try {
+    const writeInInput = document.getElementById("interaction-write-in-input");
+    const writeInText = writeInInput ? writeInInput.value.trim() : "";
+
+    const payload = {
+      cascadeId: activeCascadeId,
+      stepIndex: currentPendingInteraction.stepIndex,
+      substepIndex: currentPendingInteraction.substepIndex || 0,
+      type: currentPendingInteraction.type,
+      optionId: isSkip ? "" : (selectedInteractionOptionId || ""),
+      writeInText: isSkip ? "" : writeInText,
+      skipped: isSkip
+    };
+
+    const res = await fetch("/gateway/cascade/interaction", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await res.json();
+    if (!res.ok || data.status === "error") {
+      throw new Error(data.error || "提交交互选择失败");
+    }
+
+    // Success: clear pending interaction
+    updatePendingInteraction(null, false);
+    if (activeCascadeId && currentTrajectories[activeCascadeId]) {
+      currentTrajectories[activeCascadeId].needsInput = false;
+    }
+
+    // Prompt stream/chat refresh
+    if (activeCascadeId) {
+      loadChat(activeCascadeId, true);
+    }
+  } catch (err) {
+    alert("提交失败: " + err.message);
+  } finally {
+    isSubmittingInteraction = false;
+    if (currentPendingInteraction) {
+      renderInteractionCard();
+    }
+  }
+}
 
 function initScrollListener() {
   const streamEl = document.getElementById("messages-stream");
@@ -237,7 +425,7 @@ function closeActiveWs() {
   }
 }
 
-function updateChatControls(isRunning, wsUri) {
+function updateChatControls(isRunning, wsUri, hasAction = false) {
   const statusBadge = document.getElementById("chat-status-badge");
   const cancelBtn = document.getElementById("btn-cancel-task");
   const sendBtn = document.getElementById("btn-send");
@@ -248,7 +436,24 @@ function updateChatControls(isRunning, wsUri) {
     wsTag.textContent = "📁 " + wsName;
   }
 
-  if (isRunning) {
+  if (hasAction) {
+    if (statusBadge) {
+      statusBadge.className = "badge-action";
+      statusBadge.textContent = "ACTION";
+    }
+    if (cancelBtn) cancelBtn.classList.add("hidden");
+    if (sendBtn) {
+      sendBtn.classList.remove("btn-stop");
+      sendBtn.title = "发送";
+      sendBtn.setAttribute("aria-label", "发送");
+      sendBtn.innerHTML = `
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="22" y1="2" x2="11" y2="13"></line>
+          <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+        </svg>
+      `;
+    }
+  } else if (isRunning) {
     if (statusBadge) {
       statusBadge.className = "badge-running";
       statusBadge.textContent = "RUNNING";
@@ -309,7 +514,24 @@ function connectStreamWs(cascadeId) {
         if (data.cascadeId !== cascadeId) return;
 
         const isRunning = data.status === "CASCADE_RUN_STATUS_RUNNING";
-        updateChatControls(isRunning, data.workspaceUri);
+
+        if (typeof data.canProceed === "boolean") {
+          currentCanProceed = data.canProceed && !isRunning;
+          currentProceedArtifactUri = data.proceedArtifactUri || null;
+          updateProceedButton(currentCanProceed);
+        } else if (isRunning) {
+          currentCanProceed = false;
+          updateProceedButton(false);
+        }
+
+        if (data.pendingInteraction) {
+          updatePendingInteraction(data.pendingInteraction, isRunning);
+        } else {
+          updatePendingInteraction(null, isRunning);
+        }
+
+        const hasAction = !!(data.pendingInteraction || currentCanProceed);
+        updateChatControls(isRunning, data.workspaceUri, hasAction);
 
         if (data.title && document.getElementById("header-title")) {
           document.getElementById("header-title").textContent = data.title;
@@ -318,6 +540,7 @@ function connectStreamWs(cascadeId) {
         if (currentTrajectories[cascadeId]) {
           currentTrajectories[cascadeId].status = data.status;
           currentTrajectories[cascadeId].stepCount = data.totalSteps;
+          currentTrajectories[cascadeId].needsInput = hasAction;
         }
 
         if (data.steps) {
@@ -386,6 +609,23 @@ async function loadChat(cascadeId, isBackgroundPoll = false) {
 
     updateChatControls(isRunning, wsUri);
     renderMessages(steps, isRunning);
+
+    fetch(`/gateway/cascade/messages?cascadeId=${encodeURIComponent(cascadeId)}&limit=1`)
+      .then(res => res.json())
+      .then(info => {
+        if (activeCascadeId === cascadeId) {
+          currentCanProceed = !!info.canProceed && !isRunning;
+          currentProceedArtifactUri = info.proceedArtifactUri || null;
+          updateProceedButton(currentCanProceed);
+          updatePendingInteraction(info.pendingInteraction || null, isRunning);
+          const hasAction = !!(info.pendingInteraction || currentCanProceed);
+          updateChatControls(isRunning, wsUri, hasAction);
+          if (currentTrajectories[cascadeId]) {
+            currentTrajectories[cascadeId].needsInput = hasAction;
+          }
+        }
+      })
+      .catch(() => {});
 
     if (isRunning && (!activeWs || activeWs.readyState !== WebSocket.OPEN) && !pollTimer) {
       pollTimer = setInterval(() => {
@@ -583,6 +823,8 @@ async function sendMessage() {
 
   inputEl.value = "";
   inputEl.style.height = "auto";
+  currentCanProceed = false;
+  updateProceedButton(false);
 
   const streamEl = document.getElementById("messages-stream");
   const tempId = `temp-user-${Date.now()}`;
@@ -597,8 +839,9 @@ async function sendMessage() {
   try {
     if (currentTrajectories[activeCascadeId]) {
       currentTrajectories[activeCascadeId].status = "CASCADE_RUN_STATUS_RUNNING";
+      currentTrajectories[activeCascadeId].needsInput = false;
     }
-    updateChatControls(true);
+    updateChatControls(true, null, false);
 
     await rpc("SendUserCascadeMessage", {
       cascadeId: activeCascadeId,
@@ -616,9 +859,60 @@ async function sendMessage() {
   }
 }
 
+async function handleProceed() {
+  if (!currentCanProceed || !currentProceedArtifactUri || !activeCascadeId) return;
+  const artifactUri = currentProceedArtifactUri;
+  updateProceedButton(false);
+  currentCanProceed = false;
+
+  const streamEl = document.getElementById("messages-stream");
+  const tempId = `temp-user-${Date.now()}`;
+  streamEl.insertAdjacentHTML("beforeend", `
+    <div id="${tempId}" class="message-row user">
+      <div class="bubble">Proceed</div>
+    </div>
+  `);
+  userIsNearBottom = true;
+  streamEl.scrollTop = streamEl.scrollHeight;
+
+  try {
+    if (currentTrajectories[activeCascadeId]) {
+      currentTrajectories[activeCascadeId].status = "CASCADE_RUN_STATUS_RUNNING";
+      currentTrajectories[activeCascadeId].needsInput = false;
+    }
+    updateChatControls(true, null, false);
+
+    await rpc("SendUserCascadeMessage", {
+      cascadeId: activeCascadeId,
+      items: [],
+      artifactComments: [
+        {
+          artifactUri: artifactUri,
+          scope: { case: "fullFile", value: {} },
+          approvalStatus: 1,
+          comment: ""
+        }
+      ]
+    });
+
+    if (!activeWs || activeWs.readyState !== WebSocket.OPEN) {
+      connectStreamWs(activeCascadeId);
+    }
+  } catch (err) {
+    alert("确认方案失败: " + err.message);
+    const tempEl = document.getElementById(tempId);
+    if (tempEl) tempEl.remove();
+    updateProceedButton(true);
+    currentCanProceed = true;
+  }
+}
+
 async function cancelCurrentTask() {
   if (!activeCascadeId) return;
   if (!confirm("确定要终止当前 Agent 任务吗？")) return;
+  currentCanProceed = false;
+  updateProceedButton(false);
+  updatePendingInteraction(null, false);
 
   try {
     await rpc("CancelCascadeInvocation", { cascadeId: activeCascadeId });
@@ -997,6 +1291,20 @@ window.addEventListener("DOMContentLoaded", () => {
       sendMessage();
     }
   });
+
+  document.getElementById("btn-commit-push")?.addEventListener("click", () => {
+    const input = document.getElementById("chat-input");
+    if (!input) return;
+    const toAppend = "Commit and Push";
+    if (!input.value.trim()) {
+      input.value = toAppend;
+    } else {
+      input.value += "\n" + toAppend;
+    }
+    input.focus();
+  });
+
+  document.getElementById("btn-proceed")?.addEventListener("click", handleProceed);
 
   const searchInput = document.getElementById("conv-search");
   searchInput.addEventListener("input", () => renderConversationList(currentTrajectories));
