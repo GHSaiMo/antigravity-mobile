@@ -5,17 +5,18 @@ public struct ChatView: View {
     @FocusState private var isInputFocused: Bool
     @State private var hasInitiallyAligned = false
     
-    public init(conversation: ConversationItem) {
+    public init(conversation: ConversationItem, isNewConversation: Bool = false) {
         _viewModel = State(initialValue: ChatViewModel(
             cascadeId: conversation.id,
-            initialTitle: conversation.title
+            initialTitle: conversation.title,
+            isNewConversation: isNewConversation || conversation.stepCount == 0
         ))
     }
     
     public var body: some View {
         VStack(spacing: 0) {
             // Content area
-            if viewModel.isLoading && viewModel.messages.isEmpty {
+            if viewModel.isLoading && viewModel.messages.isEmpty && !viewModel.isNewConversation {
                 VStack(spacing: 14) {
                     ProgressView()
                         .scaleEffect(1.2)
@@ -24,7 +25,7 @@ public struct ChatView: View {
                         .foregroundColor(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let err = viewModel.errorMessage, viewModel.messages.isEmpty {
+            } else if let err = viewModel.errorMessage, viewModel.messages.isEmpty && !viewModel.isNewConversation {
                 VStack(spacing: 14) {
                     Image(systemName: "exclamationmark.triangle")
                         .font(.system(size: 36))
@@ -72,6 +73,10 @@ public struct ChatView: View {
                                     }
                                 }
                                 .buttonStyle(.plain)
+                            }
+                            
+                            if viewModel.messages.isEmpty {
+                                emptyStateView
                             }
                             
                             ForEach(Array(viewModel.messages.enumerated()), id: \.element.id) { index, message in
@@ -351,6 +356,36 @@ public struct ChatView: View {
         } else {
             proxy.scrollTo(target, anchor: .bottom)
         }
+    }
+    
+    private var emptyStateView: some View {
+        VStack(spacing: 16) {
+            Spacer(minLength: 60)
+            
+            ZStack {
+                Circle()
+                    .fill(Color.accentColor.opacity(0.12))
+                    .frame(width: 58, height: 58)
+                Image(systemName: "sparkles")
+                    .font(.system(size: 24, weight: .medium))
+                    .foregroundColor(.accentColor)
+            }
+            
+            VStack(spacing: 6) {
+                Text(viewModel.currentTitle)
+                    .font(.system(size: 16.5, weight: .semibold))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                
+                Text("已连接工作区，在下方输入指令开启对话")
+                    .font(.system(size: 13))
+                    .foregroundColor(.secondary)
+            }
+            
+            Spacer(minLength: 60)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 32)
     }
 }
 

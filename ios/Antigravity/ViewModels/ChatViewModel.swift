@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import UIKit
+import SwiftUI
 
 @Observable
 @MainActor
@@ -8,6 +9,7 @@ public final class ChatViewModel {
     public let cascadeId: String
     public let initialTitle: String
     public var currentTitle: String
+    public var isNewConversation: Bool
     
     public var messages: [ChatMessage] = []
     public var inputText: String = ""
@@ -45,6 +47,7 @@ public final class ChatViewModel {
     public init(
         cascadeId: String,
         initialTitle: String,
+        isNewConversation: Bool = false,
         apiClient: APIClient? = nil,
         settings: AppSettings? = nil,
         cacheManager: CacheManager? = nil
@@ -52,6 +55,7 @@ public final class ChatViewModel {
         self.cascadeId = cascadeId
         self.initialTitle = initialTitle
         self.currentTitle = initialTitle
+        self.isNewConversation = isNewConversation
         self.apiClient = apiClient ?? .shared
         self.settings = settings ?? .shared
         self.activityManager = ActivityManager.shared
@@ -68,6 +72,9 @@ public final class ChatViewModel {
             self.isRunning = (cached.status == "CASCADE_RUN_STATUS_RUNNING")
             self.cascadeConfigRaw = cached.cascadeConfigRaw
             self.knownServerMessageIds = Set(cached.messages.map(\.id))
+            if let cachedTitle = cached.title, !cachedTitle.isEmpty, cachedTitle != "未命名会话" {
+                self.currentTitle = cachedTitle
+            }
         }
     }
     
@@ -93,7 +100,7 @@ public final class ChatViewModel {
             return
         }
         
-        if !isBackgroundPoll && messages.isEmpty {
+        if !isBackgroundPoll && messages.isEmpty && !isNewConversation {
             isLoading = true
         }
         errorMessage = nil
@@ -111,7 +118,10 @@ public final class ChatViewModel {
             
             if let title = serverTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty, title != "未命名会话" {
                 if self.currentTitle != title {
-                    self.currentTitle = title
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        self.currentTitle = title
+                    }
+                    self.cacheManager.updateConversationTitle(cascadeId: self.cascadeId, newTitle: title)
                 }
             }
             
@@ -132,7 +142,7 @@ public final class ChatViewModel {
             self.isLoading = false
             
             // Persist latest state to cache (excluding temporary optimistic message)
-            let toCache = self.messages.filter { $0.id != self.pendingOptimisticMessageId }
+            let toCache = self.messages.filter { $0.id != self.pendingOptimisticMessageId && !$0.id.hasPrefix("optimistic-") }
             cacheManager.saveSession(CachedChatSession(
                 cascadeId: cascadeId,
                 status: status,
@@ -142,6 +152,7 @@ public final class ChatViewModel {
                 hasMore: self.hasMore,
                 nextOffset: self.nextOffset,
                 messages: toCache,
+                title: self.currentTitle,
                 cascadeConfigRaw: self.cascadeConfigRaw
             ))
             if self.pendingOptimisticMessageId == nil {
@@ -191,6 +202,20 @@ public final class ChatViewModel {
                     activityManager.updateActivity(status: "RUNNING", stepCount: count, latestAction: latestAction)
                 } else if !isRunning && previouslyRunning {
                     activityManager.endActivity(finalStatus: "COMPLETED")
+                }
+            }
+            
+            if !self.isRunning && previouslyRunning {
+                // Agent just finished turn; schedule post-turn title verification tasks
+                Task { [weak self] in
+                    try? await Task.sleep(nanoseconds: 1_200_000_000)
+                    guard let self else { return }
+                    await self.loadMessages(isBackgroundPoll: true)
+                    await self.checkAndRefreshTitle()
+                    
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    await self.loadMessages(isBackgroundPoll: true)
+                    await self.checkAndRefreshTitle()
                 }
             }
             
@@ -255,12 +280,14 @@ public final class ChatViewModel {
         guard !incoming.isEmpty else { return }
         
         // 1. Check if server has incorporated the pending optimistic user message
+        let currentOptId = self.pendingOptimisticMessageId
         var optimisticMessage: ChatMessage? = nil
-        if let optId = pendingOptimisticMessageId {
+        if let optId = currentOptId {
             optimisticMessage = messages.first(where: { $0.id == optId })
-            // Server only incorporates the new turn if incoming contains a user message with a NEW ID not known before sending
+            // Server only incorporates the new turn if incoming contains a user message with a NEW ID not known before sending, or matching text
             let serverHasNewUserMsg = incoming.contains(where: {
-                $0.sender == .user && !knownServerMessageIds.contains($0.id)
+                ($0.sender == .user && !knownServerMessageIds.contains($0.id)) ||
+                ($0.sender == .user && optimisticMessage != nil && $0.content == optimisticMessage?.content)
             })
             if serverHasNewUserMsg {
                 // Server now has incorporated the new turn; clear optimistic tracker
@@ -270,7 +297,15 @@ public final class ChatViewModel {
         }
         
         // 2. Filter out any local optimistic message before merging with server data
-        var base = messages.filter { $0.id != pendingOptimisticMessageId }
+        var base = messages.filter { msg in
+            if let optId = currentOptId, msg.id == optId {
+                return false
+            }
+            if msg.id.hasPrefix("optimistic-") {
+                return false
+            }
+            return true
+        }
         
         if base.isEmpty {
             base = incoming
@@ -294,7 +329,7 @@ public final class ChatViewModel {
         }
         
         self.messages = base
-        if pendingOptimisticMessageId == nil {
+        if self.pendingOptimisticMessageId == nil {
             self.knownServerMessageIds = Set(base.map(\.id))
         }
     }
@@ -307,8 +342,21 @@ public final class ChatViewModel {
         // Haptic feedback
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         
-        // Snapshot known server message IDs before sending
-        self.knownServerMessageIds = Set(messages.filter { $0.id != pendingOptimisticMessageId }.map(\.id))
+        // Snapshot known server message IDs before sending (excluding any optimistic items)
+        self.knownServerMessageIds = Set(messages.filter { $0.id != pendingOptimisticMessageId && !$0.id.hasPrefix("optimistic-") }.map(\.id))
+        
+        // If this was an uninitiated session, clear the flag upon sending first message
+        if self.isNewConversation {
+            self.isNewConversation = false
+        }
+        
+        // If current title is still placeholder / project name, preview with first prompt text
+        if self.currentTitle == self.initialTitle {
+            let preview = text.count > 24 ? String(text.prefix(24)) + "..." : text
+            withAnimation(.easeInOut(duration: 0.2)) {
+                self.currentTitle = preview
+            }
+        }
         
         // Optimistic update
         let optId = "optimistic-\(UUID().uuidString)"
@@ -321,7 +369,7 @@ public final class ChatViewModel {
         errorMessage = nil
         
         if settings.enableLiveActivities {
-            activityManager.startActivity(title: initialTitle, cascadeId: cascadeId)
+            activityManager.startActivity(title: currentTitle, cascadeId: cascadeId)
         }
         
         // Start active polling immediately
@@ -345,6 +393,22 @@ public final class ChatViewModel {
             // Restore text so user does not lose their input
             inputText = text
             stopPolling()
+        }
+    }
+    
+    @MainActor
+    public func checkAndRefreshTitle() async {
+        guard let url = settings.serverURL else { return }
+        do {
+            if let title = try await apiClient.fetchConversationTitle(cascadeId: cascadeId, baseURL: url),
+               !title.isEmpty, title != "未命名会话", title != self.currentTitle {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    self.currentTitle = title
+                }
+                self.cacheManager.updateConversationTitle(cascadeId: self.cascadeId, newTitle: title)
+            }
+        } catch {
+            // Background title poll failure can be silently ignored
         }
     }
     

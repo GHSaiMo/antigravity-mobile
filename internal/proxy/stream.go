@@ -111,6 +111,11 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			}
 
 			details := p.ParseTrajectoryDetails(rawResp)
+			if details.Title == "" || details.Title == "未命名会话" {
+				if t := p.lookupCascadeTitle(cascadeID, port, token); t != "" {
+					details.Title = t
+				}
+			}
 			payload := StreamUpdatePayload{
 				Type:             "update",
 				CascadeID:        details.CascadeID,
