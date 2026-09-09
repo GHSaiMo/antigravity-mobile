@@ -90,9 +90,27 @@
             <p>正在拉取历史步骤...</p>
           </div>
         </div>
+        <div id="interaction-card-container" class="interaction-card-container hidden"></div>
 
         <!-- Sticky Chat Input Bar -->
         <div class="chat-input-bar">
+          <div class="quick-actions-bar" id="quick-actions-bar">
+            <button id="btn-commit-push" class="chip-btn" type="button">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="6" y1="3" x2="6" y2="15"></line>
+                <circle cx="18" cy="6" r="3"></circle>
+                <circle cx="6" cy="18" r="3"></circle>
+                <path d="M18 9a9 9 0 0 1-9 9"></path>
+              </svg>
+              <span>Commit and Push</span>
+            </button>
+            <button id="btn-proceed" class="chip-btn chip-proceed hidden" type="button">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
+                <polygon points="5 3 19 12 5 21 5 3"></polygon>
+              </svg>
+              <span>Proceed</span>
+            </button>
+          </div>
           <div class="input-wrapper">
             <textarea id="chat-input" placeholder="输入对 Agent 的指令..." rows="1"></textarea>
             <button id="btn-send" class="btn-send" aria-label="发送">

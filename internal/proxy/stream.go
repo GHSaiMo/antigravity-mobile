@@ -12,30 +12,38 @@ import (
 
 // StreamUpdatePayload represents a real-time event pushed over WebSocket.
 type StreamUpdatePayload struct {
-	Type             string               `json:"type"` // "init", "update", "error"
-	CascadeID        string               `json:"cascadeId"`
-	Title            string               `json:"title,omitempty"`
-	Status           string               `json:"status"`
-	Duration         string               `json:"duration"`
-	TotalSteps       int                  `json:"totalSteps"`
-	TotalTools       int                  `json:"totalTools"`
-	WorkspaceURI     string               `json:"workspaceUri"`
-	Steps            []TrajectoryStep     `json:"steps"`
-	Messages         []CascadeMessageItem `json:"messages"`
-	CascadeConfigRaw string               `json:"cascadeConfigRaw,omitempty"`
+	Type               string               `json:"type"` // "init", "update", "error"
+	CascadeID          string               `json:"cascadeId"`
+	Title              string               `json:"title,omitempty"`
+	Status             string               `json:"status"`
+	Duration           string               `json:"duration"`
+	TotalSteps         int                  `json:"totalSteps"`
+	TotalTools         int                  `json:"totalTools"`
+	WorkspaceURI       string               `json:"workspaceUri"`
+	Steps              []TrajectoryStep     `json:"steps"`
+	Messages           []CascadeMessageItem `json:"messages"`
+	IsFullSnapshot     bool                 `json:"isFullSnapshot"`
+	CascadeConfigRaw   string               `json:"cascadeConfigRaw,omitempty"`
+	CanProceed         bool                 `json:"canProceed"`
+	ProceedArtifactURI string               `json:"proceedArtifactUri,omitempty"`
+	PendingInteraction *PendingInteraction  `json:"pendingInteraction,omitempty"`
 }
 
 // Fingerprint computes a fast signature to detect changes and prevent redundant pushes.
 func (p *StreamUpdatePayload) Fingerprint() string {
+	piKey := "none"
+	if p.PendingInteraction != nil {
+		piKey = fmt.Sprintf("%s:%d:%s", p.PendingInteraction.Type, p.PendingInteraction.StepIndex, p.PendingInteraction.DefaultOptionID)
+	}
 	if len(p.Steps) == 0 {
-		return fmt.Sprintf("%s:0:0", p.Status)
+		return fmt.Sprintf("%s:0:0:%t:%s", p.Status, p.CanProceed, piKey)
 	}
 	last := p.Steps[len(p.Steps)-1]
 	lastLen := 0
 	if last.PlannerResponse != nil {
 		lastLen = len(last.PlannerResponse.Response) + len(last.PlannerResponse.Thinking)
 	}
-	return fmt.Sprintf("%s:%d:%d:%s:%s:%d", p.Status, p.TotalSteps, p.TotalTools, last.Type, last.Status, lastLen)
+	return fmt.Sprintf("%s:%d:%d:%s:%s:%d:%t:%s", p.Status, p.TotalSteps, p.TotalTools, last.Type, last.Status, lastLen, p.CanProceed, piKey)
 }
 
 // HandleCascadeStream serves a WebSocket connection for continuous real-time trajectory updates.
@@ -117,17 +125,21 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			payload := StreamUpdatePayload{
-				Type:             "update",
-				CascadeID:        details.CascadeID,
-				Title:            details.Title,
-				Status:           details.Status,
-				Duration:         details.Duration,
-				TotalSteps:       details.TotalSteps,
-				TotalTools:       details.TotalTools,
-				WorkspaceURI:     details.WorkspaceURI,
-				Steps:            details.Steps,
-				Messages:         details.AllMessages,
-				CascadeConfigRaw: details.CascadeConfigRaw,
+				Type:               "update",
+				CascadeID:          details.CascadeID,
+				Title:              details.Title,
+				Status:             details.Status,
+				Duration:           details.Duration,
+				TotalSteps:         details.TotalSteps,
+				TotalTools:         details.TotalTools,
+				WorkspaceURI:       details.WorkspaceURI,
+				Steps:              details.Steps,
+				Messages:           details.AllMessages,
+				IsFullSnapshot:     true,
+				CascadeConfigRaw:   details.CascadeConfigRaw,
+				CanProceed:         details.CanProceed,
+				ProceedArtifactURI: details.ProceedArtifactURI,
+				PendingInteraction: details.PendingInteraction,
 			}
 
 			if firstPush {

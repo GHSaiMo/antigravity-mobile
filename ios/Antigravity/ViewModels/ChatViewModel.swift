@@ -25,6 +25,10 @@ public final class ChatViewModel {
     public var cascadeConfigRaw: String? = nil
     public var isAwaitingResponse: Bool = false
     public var scrollToTurnStartTrigger: Int = 0
+    public var canProceed: Bool = false
+    public var proceedArtifactUri: String? = nil
+    public var pendingInteraction: PendingInteraction? = nil
+    public var isSubmittingInteraction: Bool = false
     
     /// ID of the first message of the latest response turn (e.g., tool batch or agent response following the last user message)
     public var latestTurnStartMessageId: String? {
@@ -67,7 +71,8 @@ public final class ChatViewModel {
         
         // Instant restore from local cache
         if let cached = self.cacheManager.loadSession(for: cascadeId) {
-            self.messages = cached.messages
+            let healed = self.sanitizeMessageOrder(cached.messages)
+            self.messages = healed
             self.duration = cached.duration
             self.stepCount = cached.stepCount
             self.totalTools = cached.totalTools
@@ -75,7 +80,10 @@ public final class ChatViewModel {
             self.nextOffset = cached.nextOffset
             self.isRunning = (cached.status == "CASCADE_RUN_STATUS_RUNNING")
             self.cascadeConfigRaw = cached.cascadeConfigRaw
-            self.knownServerMessageIds = Set(cached.messages.map(\.id))
+            self.canProceed = false
+            self.proceedArtifactUri = nil
+            self.pendingInteraction = cached.pendingInteraction
+            self.knownServerMessageIds = Set(healed.map(\.id))
             if let cachedTitle = cached.title, !cachedTitle.isEmpty, cachedTitle != "未命名会话" {
                 self.currentTitle = cachedTitle
             }
@@ -86,7 +94,8 @@ public final class ChatViewModel {
     public func loadMessages(isBackgroundPoll: Bool = false) async {
         // Fallback to cache if messages empty
         if messages.isEmpty, let cached = cacheManager.loadSession(for: cascadeId) {
-            self.messages = cached.messages
+            let healed = self.sanitizeMessageOrder(cached.messages)
+            self.messages = healed
             self.duration = cached.duration
             self.stepCount = cached.stepCount
             self.totalTools = cached.totalTools
@@ -94,7 +103,10 @@ public final class ChatViewModel {
             self.nextOffset = cached.nextOffset
             self.isRunning = (cached.status == "CASCADE_RUN_STATUS_RUNNING")
             self.cascadeConfigRaw = cached.cascadeConfigRaw
-            self.knownServerMessageIds = Set(cached.messages.map(\.id))
+            self.canProceed = false
+            self.proceedArtifactUri = nil
+            self.pendingInteraction = cached.pendingInteraction
+            self.knownServerMessageIds = Set(healed.map(\.id))
         }
         
         guard let url = settings.serverURL else {
@@ -110,17 +122,17 @@ public final class ChatViewModel {
         errorMessage = nil
         
         do {
-            let (status, parsedMessages, count, toolCount, duration, hasMoreRemaining, nextOff, configRaw, serverTitle) = try await apiClient.fetchMessages(
+            let result = try await apiClient.fetchMessages(
                 cascadeId: cascadeId,
                 limit: 10,
                 offset: nil,
                 baseURL: url
             )
-            if let configRaw, !configRaw.isEmpty {
+            if let configRaw = result.cascadeConfigRaw, !configRaw.isEmpty {
                 self.cascadeConfigRaw = configRaw
             }
             
-            if let title = serverTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty, title != "未命名会话" {
+            if let title = result.title?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines), !title.isEmpty, title != "未命名会话" {
                 if self.currentTitle != title {
                     withAnimation(.easeInOut(duration: 0.25)) {
                         self.currentTitle = title
@@ -130,44 +142,64 @@ public final class ChatViewModel {
             }
             
             if (isBackgroundPoll || self.pendingOptimisticMessageId != nil) && !self.messages.isEmpty {
-                self.mergeIncomingMessages(parsedMessages)
+                self.mergeIncomingMessages(result.messages)
+            } else if !self.messages.isEmpty && self.messages.count > result.messages.count {
+                // Preserves cached/expanded history rather than truncating all older messages
+                self.mergeIncomingMessages(result.messages)
             } else {
-                self.messages = parsedMessages
-                self.hasMore = hasMoreRemaining
-                self.nextOffset = nextOff
+                let healed = self.sanitizeMessageOrder(result.messages)
+                self.messages = healed
+                self.hasMore = result.hasMore
+                self.nextOffset = result.nextOffset
                 if self.pendingOptimisticMessageId == nil {
-                    self.knownServerMessageIds = Set(parsedMessages.map(\.id))
+                    self.knownServerMessageIds = Set(healed.map(\.id))
                 }
             }
             
-            self.stepCount = count
-            self.totalTools = toolCount
-            self.duration = duration
+            self.stepCount = result.totalSteps
+            self.totalTools = result.totalTools
+            self.duration = result.duration
             self.isLoading = false
+            
+            let previouslyRunning = self.isRunning
+            if result.status == "CASCADE_RUN_STATUS_RUNNING" {
+                self.isRunning = true
+            } else if !self.isAwaitingResponse {
+                self.isRunning = false
+            }
+            
+            if !self.isRunning && !self.isAwaitingResponse {
+                self.canProceed = result.canProceed
+                self.proceedArtifactUri = result.proceedArtifactUri
+            } else {
+                self.canProceed = false
+            }
+            
+            if self.isRunning {
+                self.pendingInteraction = result.pendingInteraction
+            } else {
+                self.pendingInteraction = nil
+            }
             
             // Persist latest state to cache (excluding temporary optimistic message)
             let toCache = self.messages.filter { $0.id != self.pendingOptimisticMessageId && !$0.id.hasPrefix("optimistic-") }
             cacheManager.saveSession(CachedChatSession(
                 cascadeId: cascadeId,
-                status: status,
-                duration: duration,
-                stepCount: count,
-                totalTools: toolCount,
+                status: result.status,
+                duration: result.duration,
+                stepCount: result.totalSteps,
+                totalTools: result.totalTools,
                 hasMore: self.hasMore,
                 nextOffset: self.nextOffset,
                 messages: toCache,
                 title: self.currentTitle,
-                cascadeConfigRaw: self.cascadeConfigRaw
+                cascadeConfigRaw: self.cascadeConfigRaw,
+                canProceed: self.canProceed,
+                proceedArtifactUri: self.proceedArtifactUri,
+                pendingInteraction: self.pendingInteraction
             ))
             if self.pendingOptimisticMessageId == nil {
                 self.knownServerMessageIds = Set(toCache.map(\.id))
-            }
-            
-            let previouslyRunning = self.isRunning
-            if status == "CASCADE_RUN_STATUS_RUNNING" {
-                self.isRunning = true
-            } else if !self.isAwaitingResponse {
-                self.isRunning = false
             }
             
             // If awaiting response, check if agent has completed response
@@ -202,8 +234,8 @@ public final class ChatViewModel {
                 if isRunning && !previouslyRunning {
                     activityManager.startActivity(title: currentTitle, cascadeId: cascadeId)
                 } else if isRunning {
-                    let latestAction = parsedMessages.last?.content ?? "正在执行..."
-                    activityManager.updateActivity(status: "RUNNING", stepCount: count, latestAction: latestAction)
+                    let latestAction = result.messages.last?.content ?? "正在执行..."
+                    activityManager.updateActivity(status: "RUNNING", stepCount: result.totalSteps, latestAction: latestAction)
                 } else if !isRunning && previouslyRunning {
                     activityManager.endActivity(finalStatus: "COMPLETED")
                 }
@@ -246,40 +278,121 @@ public final class ChatViewModel {
         guard hasMore, !isLoadingOlder, let url = settings.serverURL else { return }
         isLoadingOlder = true
         do {
-            let (status, olderMessages, count, toolCount, duration, hasMoreRemaining, nextOff, configRaw, serverTitle) = try await apiClient.fetchMessages(
+            let result = try await apiClient.fetchMessages(
                 cascadeId: cascadeId,
                 limit: 10,
                 offset: nextOffset,
                 baseURL: url
             )
-            if let configRaw, !configRaw.isEmpty {
+            if let configRaw = result.cascadeConfigRaw, !configRaw.isEmpty {
                 self.cascadeConfigRaw = configRaw
             }
-            if let title = serverTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty, title != "未命名会话" {
+            if let title = result.title?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines), !title.isEmpty, title != "未命名会话" {
                 if self.currentTitle != title {
                     self.currentTitle = title
                 }
             }
-            self.messages = olderMessages + self.messages
-            self.hasMore = hasMoreRemaining
-            self.nextOffset = nextOff
+            self.messages = result.messages + self.messages
+            self.hasMore = result.hasMore
+            self.nextOffset = result.nextOffset
             self.isLoadingOlder = false
             
             // Persist expanded message stream to cache
             cacheManager.saveSession(CachedChatSession(
                 cascadeId: cascadeId,
-                status: status,
-                duration: duration,
-                stepCount: count,
-                totalTools: toolCount,
+                status: result.status,
+                duration: result.duration,
+                stepCount: result.totalSteps,
+                totalTools: result.totalTools,
                 hasMore: self.hasMore,
                 nextOffset: self.nextOffset,
-                messages: self.messages
+                messages: self.messages,
+                title: self.currentTitle,
+                cascadeConfigRaw: self.cascadeConfigRaw,
+                canProceed: self.canProceed,
+                proceedArtifactUri: self.proceedArtifactUri,
+                pendingInteraction: self.pendingInteraction
             ))
             
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
         } catch {
             self.isLoadingOlder = false
+        }
+    }
+    
+    // MARK: - Message Sequencing and Self-Healing
+    
+    /// Extracts a numeric step index from a message ID (e.g. "step-12" -> 12).
+    private func extractStepIndex(from id: String) -> Int? {
+        if id.hasPrefix("step-"), let val = Int(id.dropFirst(5)) {
+            return val
+        }
+        return nil
+    }
+    
+    /// Detects and self-heals inversion anomalies (e.g. latest turn appearing before earliest turn).
+    private func sanitizeMessageOrder(_ list: [ChatMessage]) -> [ChatMessage] {
+        guard list.count >= 2 else { return list }
+        
+        // Find if there is a severe step drop point (e.g. index 10 has step-25 and index 11 has step-0)
+        var dropIndex: Int? = nil
+        var prevStep = -1
+        
+        for (i, msg) in list.enumerated() {
+            if let step = extractStepIndex(from: msg.id) {
+                if prevStep != -1 && step < prevStep && (prevStep - step) >= 2 {
+                    // Sudden backwards jump in step index detected!
+                    dropIndex = i
+                    break
+                }
+                prevStep = step
+            }
+        }
+        
+        if let drop = dropIndex {
+            // Segment 1 (0..<drop) was placed at top (latest messages)
+            // Segment 2 (drop..<count) was appended at bottom (earliest messages)
+            let head = Array(list[0..<drop])
+            let tail = Array(list[drop...])
+            
+            // Re-swap: earlier messages should come first
+            let healed = tail + head
+            return healed
+        }
+        
+        return list
+    }
+    
+    /// Applies a full trajectory snapshot directly without destructive slicing or reverse appends.
+    @MainActor
+    private func applySnapshotMessages(_ incoming: [ChatMessage]) {
+        guard !incoming.isEmpty else { return }
+        
+        // 1. Check if server has incorporated the pending optimistic user message
+        let currentOptId = self.pendingOptimisticMessageId
+        var optimisticMessage: ChatMessage? = nil
+        if let optId = currentOptId {
+            optimisticMessage = messages.first(where: { $0.id == optId })
+            let serverHasNewUserMsg = incoming.contains(where: {
+                ($0.sender == .user && !knownServerMessageIds.contains($0.id)) ||
+                ($0.sender == .user && optimisticMessage != nil && $0.content == optimisticMessage?.content)
+            })
+            if serverHasNewUserMsg {
+                self.pendingOptimisticMessageId = nil
+                optimisticMessage = nil
+            }
+        }
+        
+        var fullList = sanitizeMessageOrder(incoming)
+        if let opt = optimisticMessage {
+            fullList.append(opt)
+        }
+        
+        self.messages = fullList
+        self.hasMore = false
+        self.nextOffset = 0
+        if self.pendingOptimisticMessageId == nil {
+            self.knownServerMessageIds = Set(fullList.map(\.id))
         }
     }
     
@@ -316,24 +429,46 @@ public final class ChatViewModel {
         
         if base.isEmpty {
             base = incoming
-        } else if let firstIncoming = incoming.first, let matchIdx = base.firstIndex(where: { $0.id == firstIncoming.id }) {
-            base = Array(base[0..<matchIdx]) + incoming
         } else {
-            var updated = base
-            for inc in incoming {
-                if let idx = updated.firstIndex(where: { $0.id == inc.id }) {
-                    updated[idx] = inc
-                } else {
-                    updated.append(inc)
+            // Find overlap between incoming and base
+            var firstBaseMatchIdx: Int? = nil
+            var incomingMatchIdxForFirstBaseMatch: Int? = nil
+            
+            for (baseIdx, baseMsg) in base.enumerated() {
+                if let incIdx = incoming.firstIndex(where: { $0.id == baseMsg.id }) {
+                    firstBaseMatchIdx = baseIdx
+                    incomingMatchIdxForFirstBaseMatch = incIdx
+                    break
                 }
             }
-            base = updated
+            
+            if let bIdx = firstBaseMatchIdx, let iIdx = incomingMatchIdxForFirstBaseMatch {
+                let prefix = Array(base[0..<bIdx])
+                let incomingPrefix = Array(incoming[0..<iIdx])
+                let incomingTail = Array(incoming[iIdx...])
+                base = prefix + incomingPrefix + incomingTail
+            } else {
+                // No overlapping ID found. Determine ordering based on step indexes
+                let baseStep = base.compactMap { extractStepIndex(from: $0.id) }.first
+                let incomingStep = incoming.compactMap { extractStepIndex(from: $0.id) }.first
+                
+                if let bStep = baseStep, let iStep = incomingStep, iStep < bStep {
+                    // incoming contains earlier steps than base
+                    base = incoming + base
+                } else {
+                    // incoming contains later steps than base
+                    base = base + incoming
+                }
+            }
         }
         
         // 3. If server has NOT yet acknowledged the user message, KEEP IT AT THE END!
         if let opt = optimisticMessage {
             base.append(opt)
         }
+        
+        // 4. Sanitize ordering in case of anomalies
+        base = sanitizeMessageOrder(base)
         
         self.messages = base
         if self.pendingOptimisticMessageId == nil {
@@ -364,6 +499,7 @@ public final class ChatViewModel {
         self.isAwaitingResponse = true
         self.awaitingResponseSince = Date()
         self.isRunning = true
+        self.canProceed = false
         inputText = ""
         errorMessage = nil
         
@@ -401,6 +537,62 @@ public final class ChatViewModel {
     }
     
     @MainActor
+    public func proceedArtifact() async {
+        guard canProceed, let artifactUri = proceedArtifactUri, let url = settings.serverURL else { return }
+        
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        
+        canProceed = false
+        let optimisticId = "optimistic-proceed-\(UUID().uuidString)"
+        let optimisticMessage = ChatMessage(
+            id: optimisticId,
+            sender: .user,
+            content: "Proceed",
+            toolCount: 0,
+            toolNames: []
+        )
+        
+        self.messages.append(optimisticMessage)
+        self.pendingOptimisticMessageId = optimisticId
+        self.isAwaitingResponse = true
+        self.awaitingResponseSince = Date()
+        self.isRunning = true
+        errorMessage = nil
+        
+        if settings.enableLiveActivities {
+            activityManager.startActivity(title: currentTitle, cascadeId: cascadeId)
+        }
+        
+        connectStream()
+        if streamClient.status != .connected {
+            startPollingFallback()
+        }
+        
+        do {
+            try await apiClient.proceedArtifact(
+                cascadeId: cascadeId,
+                artifactUri: artifactUri,
+                cascadeConfigRaw: cascadeConfigRaw,
+                baseURL: url
+            )
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            await self.loadMessages(isBackgroundPoll: true)
+        } catch {
+            print("❌ proceedArtifact error: \(error)")
+            errorMessage = "确认方案失败: \(error.localizedDescription)"
+            isRunning = false
+            isAwaitingResponse = false
+            awaitingResponseSince = nil
+            if let optId = pendingOptimisticMessageId {
+                messages.removeAll(where: { $0.id == optId })
+                self.pendingOptimisticMessageId = nil
+            }
+            self.canProceed = true
+            stopPollingFallback()
+        }
+    }
+    
+    @MainActor
     public func checkAndRefreshTitle() async {
         guard let url = settings.serverURL else { return }
         do {
@@ -424,6 +616,7 @@ public final class ChatViewModel {
         isAwaitingResponse = false
         awaitingResponseSince = nil
         isRunning = false
+        canProceed = false
         stopPollingFallback()
         
         do {
@@ -509,7 +702,11 @@ public final class ChatViewModel {
                     imageUrls: item.imageUrls ?? []
                 )
             }
-            self.mergeIncomingMessages(parsedMessages)
+            if payload.isFullSnapshot == true || payload.type == "init" || (!parsedMessages.isEmpty && parsedMessages.count >= self.messages.count) {
+                self.applySnapshotMessages(parsedMessages)
+            } else {
+                self.mergeIncomingMessages(parsedMessages)
+            }
         }
         
         let previouslyRunning = self.isRunning
@@ -518,6 +715,15 @@ public final class ChatViewModel {
             self.isRunning = true
         } else if !self.isAwaitingResponse {
             self.isRunning = false
+        }
+        
+        if let cp = payload.canProceed {
+            if !self.isRunning && !self.isAwaitingResponse {
+                self.canProceed = cp
+                self.proceedArtifactUri = payload.proceedArtifactUri
+            } else {
+                self.canProceed = false
+            }
         }
         
         if self.isAwaitingResponse {
@@ -554,6 +760,14 @@ public final class ChatViewModel {
             }
         }
         
+        if self.isRunning {
+            if let pi = payload.pendingInteraction {
+                self.pendingInteraction = pi
+            }
+        } else {
+            self.pendingInteraction = nil
+        }
+        
         let toCache = self.messages.filter { $0.id != self.pendingOptimisticMessageId && !$0.id.hasPrefix("optimistic-") }
         cacheManager.saveSession(CachedChatSession(
             cascadeId: cascadeId,
@@ -565,10 +779,93 @@ public final class ChatViewModel {
             nextOffset: self.nextOffset,
             messages: toCache,
             title: self.currentTitle,
-            cascadeConfigRaw: self.cascadeConfigRaw
+            cascadeConfigRaw: self.cascadeConfigRaw,
+            canProceed: self.canProceed,
+            proceedArtifactUri: self.proceedArtifactUri,
+            pendingInteraction: self.pendingInteraction
         ))
         if self.pendingOptimisticMessageId == nil {
             self.knownServerMessageIds = Set(toCache.map(\.id))
+        }
+    }
+    
+    // Submit user decision on a pending interaction
+    @MainActor
+    public func submitInteraction(optionId: String, writeInText: String? = nil, target: String? = nil) async {
+        guard let interaction = pendingInteraction, let url = settings.serverURL else { return }
+        
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        isSubmittingInteraction = true
+        errorMessage = nil
+        
+        let selectedOpt = interaction.options.first(where: { $0.id == optionId })
+        let scope = selectedOpt?.scope ?? 1
+        let isDeny = selectedOpt?.isDeny ?? (optionId == "5" || optionId == "__write_in__")
+        let allow = !isDeny
+        let writeIn = writeInText?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) ?? ""
+        
+        do {
+            try await apiClient.submitInteraction(
+                cascadeId: cascadeId,
+                trajectoryId: interaction.trajectoryId,
+                stepIndex: interaction.stepIndex,
+                type: interaction.type,
+                optionId: optionId,
+                scope: scope,
+                allow: allow,
+                writeInResponse: writeIn,
+                skipped: false,
+                target: target ?? interaction.target,
+                baseURL: url
+            )
+            
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                self.pendingInteraction = nil
+            }
+            self.isSubmittingInteraction = false
+            
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            await self.loadMessages(isBackgroundPoll: true)
+        } catch {
+            isSubmittingInteraction = false
+            errorMessage = "提交失败: \(error.localizedDescription)"
+        }
+    }
+    
+    // Skip the current interaction
+    @MainActor
+    public func skipInteraction() async {
+        guard let interaction = pendingInteraction, let url = settings.serverURL else { return }
+        
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        isSubmittingInteraction = true
+        errorMessage = nil
+        
+        do {
+            try await apiClient.submitInteraction(
+                cascadeId: cascadeId,
+                trajectoryId: interaction.trajectoryId,
+                stepIndex: interaction.stepIndex,
+                type: interaction.type,
+                optionId: "",
+                scope: 1,
+                allow: false,
+                writeInResponse: "",
+                skipped: true,
+                target: interaction.target,
+                baseURL: url
+            )
+            
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                self.pendingInteraction = nil
+            }
+            self.isSubmittingInteraction = false
+            
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            await self.loadMessages(isBackgroundPoll: true)
+        } catch {
+            isSubmittingInteraction = false
+            errorMessage = "跳过失败: \(error.localizedDescription)"
         }
     }
     
