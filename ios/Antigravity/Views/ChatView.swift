@@ -179,7 +179,7 @@ public struct ChatView: View {
             // Bottom input bar
             inputBar
         }
-        .navigationTitle(viewModel.initialTitle)
+        .navigationTitle(viewModel.currentTitle)
         .navigationBarTitleDisplayMode(.inline)
         .task {
             await viewModel.loadMessages()

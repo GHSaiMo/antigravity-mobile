@@ -310,6 +310,10 @@ function connectStreamWs(cascadeId) {
         const isRunning = data.status === "CASCADE_RUN_STATUS_RUNNING";
         updateChatControls(isRunning, data.workspaceUri);
 
+        if (data.title && document.getElementById("header-title")) {
+          document.getElementById("header-title").textContent = data.title;
+        }
+
         if (currentTrajectories[cascadeId]) {
           currentTrajectories[cascadeId].status = data.status;
           currentTrajectories[cascadeId].stepCount = data.totalSteps;
@@ -373,6 +377,11 @@ async function loadChat(cascadeId, isBackgroundPoll = false) {
     const summary = currentTrajectories[cascadeId];
     const isRunning = summary?.status === "CASCADE_RUN_STATUS_RUNNING";
     const wsUri = traj.workspaceUris?.[0] || "";
+
+    const dynamicTitle = traj.annotations?.title || traj.summary;
+    if (dynamicTitle && document.getElementById("header-title")) {
+      document.getElementById("header-title").textContent = dynamicTitle;
+    }
 
     updateChatControls(isRunning, wsUri);
     renderMessages(steps, isRunning);

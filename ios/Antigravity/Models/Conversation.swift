@@ -84,6 +84,22 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         }
     }
     
+    public init(
+        id: String,
+        title: String,
+        status: ConversationStatus = .idle,
+        stepCount: Int = 0,
+        workspaceName: String = "workspace",
+        lastModified: Date? = Date()
+    ) {
+        self.id = id
+        self.title = title
+        self.status = status
+        self.stepCount = stepCount
+        self.workspaceName = workspaceName
+        self.lastModified = lastModified
+    }
+    
     public var relativeTimeString: String {
         guard let date = lastModified else { return "" }
         let diff = Date().timeIntervalSince(date)

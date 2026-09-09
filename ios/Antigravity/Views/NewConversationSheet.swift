@@ -5,138 +5,94 @@ public struct NewConversationSheet: View {
     
     public var onCreated: ((String, ConversationItem) -> Void)?
     
-    @State private var projects: [ProjectItem] = []
-    @State private var selectedProject: ProjectItem?
-    @State private var promptText: String = ""
-    @State private var searchQuery: String = ""
-    @State private var isLoadingProjects = true
-    @State private var isSubmitting = false
-    @State private var errorMessage: String?
+    @State private var projects: [ProjectItem]
+    @State private var isLoading: Bool
+    @State private var isStartingProjectUri: String? = nil
+    @State private var errorMessage: String? = nil
     
     public init(onCreated: ((String, ConversationItem) -> Void)? = nil) {
         self.onCreated = onCreated
-    }
-    
-    private var filteredProjects: [ProjectItem] {
-        let q = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if q.isEmpty {
-            return projects
-        }
-        return projects.filter {
-            $0.name.lowercased().contains(q) || $0.path.lowercased().contains(q)
-        }
+        let cached = ProjectCacheManager.shared.loadProjects()
+        _projects = State(initialValue: cached)
+        _isLoading = State(initialValue: cached.isEmpty)
     }
     
     public var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                if isLoadingProjects {
-                    VStack(spacing: 12) {
+            Group {
+                if isLoading && projects.isEmpty {
+                    VStack(spacing: 14) {
                         Spacer()
                         ProgressView()
-                        Text("正在嗅探上游项目列表...")
-                            .font(.system(size: 14))
+                            .scaleEffect(1.1)
+                        Text("正在拉取上游项目列表...")
+                            .font(.system(size: 13.5))
                             .foregroundColor(.secondary)
                         Spacer()
                     }
                 } else if let err = errorMessage, projects.isEmpty {
-                    VStack(spacing: 12) {
+                    VStack(spacing: 14) {
                         Spacer()
                         Image(systemName: "exclamationmark.triangle")
                             .font(.system(size: 36))
                             .foregroundColor(.orange)
                         Text(err)
-                            .font(.system(size: 14))
+                            .font(.system(size: 13.5))
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
-                            .padding(.horizontal)
-                        Button("重新探测") {
-                            Task { await loadProjects() }
+                            .padding(.horizontal, 24)
+                        Button("重新拉取") {
+                            Task { await refreshProjectsInBackground() }
                         }
                         .buttonStyle(.bordered)
                         Spacer()
                     }
                 } else {
-                    VStack(alignment: .leading, spacing: 14) {
-                        // Section Header: Project Selection
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                Text("选择目标项目")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundColor(.secondary)
-                                Spacer()
-                                Text("已发现 \(projects.count) 个项目")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.secondary)
-                            }
-                            
-                            // Search bar for projects
-                            HStack {
-                                Image(systemName: "magnifyingglass")
+                    VStack(spacing: 0) {
+                        // Header description
+                        HStack {
+                            Text("选择项目发起新会话")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Text("\(projects.count) 个项目")
+                                .font(.system(size: 12))
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.top, 14)
+                        .padding(.bottom, 8)
+                        
+                        if let err = errorMessage {
+                            HStack(spacing: 8) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundColor(.orange)
                                     .font(.system(size: 13))
-                                    .foregroundColor(.secondary)
-                                TextField("搜索项目名称或路径...", text: $searchQuery)
-                                    .font(.system(size: 13.5))
-                            }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 7)
-                            .background(Color(uiColor: .secondarySystemBackground))
-                            .cornerRadius(10)
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.top, 8)
-                        
-                        // Horizontal scroll or list of project chips
-                        ScrollView(.vertical, showsIndicators: true) {
-                            LazyVStack(spacing: 8) {
-                                ForEach(filteredProjects) { project in
-                                    projectRow(project)
-                                }
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.bottom, 8)
-                        }
-                        .frame(maxHeight: 240)
-                        
-                        Divider()
-                            .padding(.horizontal, 16)
-                        
-                        // Section: Initial Prompt Input
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                Text("首条指令 / 任务目标")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundColor(.secondary)
+                                Text(err)
+                                    .font(.system(size: 12.5))
+                                    .foregroundColor(.primary)
+                                    .lineLimit(2)
                                 Spacer()
-                                if let selected = selectedProject {
-                                    Text("将在 \(selected.name) 中运行")
-                                        .font(.system(size: 11, design: .monospaced))
-                                        .foregroundColor(.accentColor)
-                                        .lineLimit(1)
-                                }
                             }
-                            
-                            ZStack(alignment: .topLeading) {
-                                TextEditor(text: $promptText)
-                                    .font(.system(size: 15))
-                                    .padding(8)
-                                    .background(Color(uiColor: .secondarySystemBackground))
-                                    .cornerRadius(12)
-                                    .frame(minHeight: 110, maxHeight: 160)
-                                
-                                if promptText.isEmpty {
-                                    Text("例如：检查当前 git 状态，并分析最新的架构重构建议...")
-                                        .font(.system(size: 15))
-                                        .foregroundColor(Color(uiColor: .placeholderText))
-                                        .padding(.horizontal, 13)
-                                        .padding(.vertical, 16)
-                                        .allowsHitTesting(false)
-                                }
-                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(Color.orange.opacity(0.12))
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 6)
                         }
-                        .padding(.horizontal, 16)
                         
-                        Spacer()
+                        // Vertical project cards list
+                        ScrollView(.vertical, showsIndicators: true) {
+                            LazyVStack(spacing: 9) {
+                                ForEach(projects) { project in
+                                    projectCard(for: project)
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.top, 4)
+                            .padding(.bottom, 24)
+                        }
                     }
                 }
             }
@@ -147,59 +103,46 @@ public struct NewConversationSheet: View {
                     Button("取消") {
                         dismiss()
                     }
-                    .disabled(isSubmitting)
-                }
-                
-                ToolbarItem(placement: .confirmationAction) {
-                    Button {
-                        Task { await startNewConversation() }
-                    } label: {
-                        if isSubmitting {
-                            ProgressView()
-                        } else {
-                            Text("开始执行")
-                                .fontWeight(.semibold)
-                        }
-                    }
-                    .disabled(isSubmitting || selectedProject == nil || promptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(isStartingProjectUri != nil)
                 }
             }
             .task {
-                await loadProjects()
+                await refreshProjectsInBackground()
             }
         }
     }
     
-    private func projectRow(_ project: ProjectItem) -> some View {
-        let isSelected = selectedProject?.uri == project.uri
+    private func projectCard(for project: ProjectItem) -> some View {
+        let isStartingThis = (isStartingProjectUri == project.uri)
+        
         return Button {
-            selectedProject = project
+            Task { await startSession(for: project) }
         } label: {
-            HStack(spacing: 12) {
+            HStack(spacing: 14) {
                 ZStack {
                     Circle()
-                        .fill(isSelected ? Color.accentColor.opacity(0.2) : Color.secondary.opacity(0.12))
-                        .frame(width: 36, height: 36)
+                        .fill(Color.accentColor.opacity(0.12))
+                        .frame(width: 42, height: 42)
                     Image(systemName: project.isWorkspace ? "briefcase.fill" : "folder.fill")
-                        .font(.system(size: 16))
-                        .foregroundColor(isSelected ? .accentColor : .secondary)
+                        .font(.system(size: 17))
+                        .foregroundColor(.accentColor)
                 }
                 
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
                         Text(project.name)
-                            .font(.system(size: 15, weight: isSelected ? .bold : .medium))
+                            .font(.system(size: 15.5, weight: .semibold))
                             .foregroundColor(.primary)
                             .lineLimit(1)
                         
                         if project.sessionCount > 0 {
-                            Text("\(project.sessionCount) 个历史会话")
-                                .font(.system(size: 10, weight: .semibold))
+                            Text("\(project.sessionCount) 会话")
+                                .font(.system(size: 10.5, weight: .semibold))
                                 .foregroundColor(.secondary)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
                                 .background(Color.secondary.opacity(0.12))
-                                .cornerRadius(4)
+                                .clipShape(Capsule())
                         }
                     }
                     
@@ -211,77 +154,86 @@ public struct NewConversationSheet: View {
                 
                 Spacer()
                 
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.accentColor)
-                        .font(.system(size: 20))
+                if isStartingThis {
+                    ProgressView()
+                        .scaleEffect(0.85)
+                } else {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundColor(Color(uiColor: .tertiaryLabel))
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(isSelected ? Color.accentColor.opacity(0.08) : Color(uiColor: .secondarySystemBackground))
-            .cornerRadius(12)
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 1.5)
-            )
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(Color(uiColor: .secondarySystemBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(.plain)
+        .disabled(isStartingProjectUri != nil)
     }
     
-    private func loadProjects() async {
+    /// Asynchronously refreshes the project list in background without blocking the UI
+    private func refreshProjectsInBackground() async {
         guard let url = AppSettings.shared.gatewayURL else {
-            errorMessage = "请先在设置中配置有效网关地址"
-            isLoadingProjects = false
+            if projects.isEmpty {
+                errorMessage = "请先在设置中配置有效网关地址"
+                isLoading = false
+            }
             return
         }
         
-        isLoadingProjects = true
-        errorMessage = nil
         do {
             let fetched = try await APIClient.shared.fetchProjects(baseURL: url)
-            projects = fetched
-            if selectedProject == nil, let first = fetched.first {
-                selectedProject = first
+            if !fetched.isEmpty {
+                if fetched != projects {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        self.projects = fetched
+                    }
+                }
+                ProjectCacheManager.shared.saveProjects(fetched)
             }
+            isLoading = false
+            errorMessage = nil
         } catch {
-            errorMessage = "嗅探项目列表失败: \(error.localizedDescription)"
+            if projects.isEmpty {
+                errorMessage = "拉取项目列表失败: \(error.localizedDescription)"
+            }
+            isLoading = false
         }
-        isLoadingProjects = false
     }
     
-    private func startNewConversation() async {
-        guard let project = selectedProject else { return }
-        let prompt = promptText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !prompt.isEmpty else { return }
-        guard let url = AppSettings.shared.gatewayURL else { return }
+    private func startSession(for project: ProjectItem) async {
+        guard let url = AppSettings.shared.gatewayURL else {
+            errorMessage = "请先在设置中配置有效网关地址"
+            return
+        }
         
-        isSubmitting = true
+        isStartingProjectUri = project.uri
+        errorMessage = nil
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        
         do {
             let cascadeId = try await APIClient.shared.createCascade(
                 workspaceUri: project.uri,
-                prompt: prompt,
+                prompt: "",
                 baseURL: url
             )
             
-            // Construct a lightweight ConversationItem for instant UI transition
-            let summary = TrajectorySummary(
-                summary: prompt,
-                stepCount: 1,
-                lastModifiedTime: ISO8601DateFormatter().string(from: Date()),
-                trajectoryId: cascadeId,
-                status: "CASCADE_RUN_STATUS_RUNNING",
-                workspaces: [WorkspaceItem(workspaceFolderAbsoluteUri: project.uri)],
-                annotations: Annotations(title: prompt, lastUserViewTime: nil),
-                trajectoryMetadata: TrajectoryMetadata(workspaceUris: [project.uri], projectId: nil, createdAt: ISO8601DateFormatter().string(from: Date()))
+            // Construct conversation item with project name as initial title
+            let convItem = ConversationItem(
+                id: cascadeId,
+                title: project.name,
+                status: .idle,
+                stepCount: 0,
+                workspaceName: project.name,
+                lastModified: Date()
             )
-            let convItem = ConversationItem(id: cascadeId, summary: summary)
             
             dismiss()
             onCreated?(cascadeId, convItem)
         } catch {
             errorMessage = "创建会话失败: \(error.localizedDescription)"
+            isStartingProjectUri = nil
         }
-        isSubmitting = false
     }
 }

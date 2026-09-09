@@ -19,6 +19,7 @@ import (
 
 // ProjectItem represents a discovered upstream project or workspace.
 type ProjectItem struct {
+	ID           string     `json:"id,omitempty"`
 	Name         string     `json:"name"`
 	URI          string     `json:"uri"`
 	Path         string     `json:"path"`
@@ -40,16 +41,14 @@ type vscdbHistory struct {
 }
 
 // GetProjects discovers all projects from local IDE database and trajectory history.
+// Prioritizes official Projects order from app_storage.json and ReadProjects RPC.
 func (p *Proxy) GetProjects() ([]ProjectItem, error) {
 	p.mu.RLock()
 	port := p.activePort
 	token := p.activeToken
 	p.mu.RUnlock()
 
-	// 1. Fetch from IDE state database
-	dbProjects := fetchProjectsFromStateDB()
-
-	// 2. Fetch active/historical sessions statistics if upstream is connected
+	// 1. Fetch active/historical sessions statistics if upstream is connected
 	sessionStats := make(map[string]struct {
 		count      int
 		lastActive time.Time
@@ -93,7 +92,13 @@ func (p *Proxy) GetProjects() ([]ProjectItem, error) {
 		}
 	}
 
-	// 3. Merge sources and de-duplicate
+	// 2. Try fetching official ordered Projects from app_storage.json + ReadProjects RPC
+	if officialProjects, err := p.fetchOfficialProjects(port, token, sessionStats); err == nil && len(officialProjects) > 0 {
+		return officialProjects, nil
+	}
+
+	// 3. Fallback: discover from workspace file or state.vscdb
+	dbProjects := fetchProjectsFromStateDB()
 	projectMap := make(map[string]*ProjectItem)
 
 	for _, prj := range dbProjects {
@@ -109,14 +114,12 @@ func (p *Proxy) GetProjects() ([]ProjectItem, error) {
 		projectMap[norm] = &itemCopy
 	}
 
-	// Add projects from trajectory sessions that might not be in recently opened DB
 	for norm, stat := range sessionStats {
 		if _, exists := projectMap[norm]; !exists {
 			parsedPath := uriToPath(norm)
 			if parsedPath == "" {
 				continue
 			}
-			// Only include if path exists on disk
 			if _, err := os.Stat(parsedPath); err != nil {
 				continue
 			}
@@ -144,14 +147,12 @@ func (p *Proxy) GetProjects() ([]ProjectItem, error) {
 		}
 	}
 
-	// 4. Convert to slice and sort
 	var result []ProjectItem
 	for _, prj := range projectMap {
 		result = append(result, *prj)
 	}
 
 	sort.Slice(result, func(i, j int) bool {
-		// Items with LastActive come first, ordered descending
 		if result[i].LastActive != nil && result[j].LastActive != nil {
 			return result[i].LastActive.After(*result[j].LastActive)
 		}
@@ -161,7 +162,6 @@ func (p *Proxy) GetProjects() ([]ProjectItem, error) {
 		if result[j].LastActive != nil {
 			return false
 		}
-		// Then by SessionCount
 		if result[i].SessionCount != result[j].SessionCount {
 			return result[i].SessionCount > result[j].SessionCount
 		}
@@ -169,6 +169,190 @@ func (p *Proxy) GetProjects() ([]ProjectItem, error) {
 	})
 
 	return result, nil
+}
+
+// fetchOfficialProjects loads projectsOrder and calls upstream ReadProjects to get the exact 21 projects in order.
+func (p *Proxy) fetchOfficialProjects(port int, token string, sessionStats map[string]struct {
+	count      int
+	lastActive time.Time
+}) ([]ProjectItem, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+
+	appStoragePath := filepath.Join(home, "Library", "Application Support", "Antigravity", "app_storage.json")
+	storageBytes, err := os.ReadFile(appStoragePath)
+	if err != nil {
+		return nil, err
+	}
+
+	var storageMap map[string]interface{}
+	if err := json.Unmarshal(storageBytes, &storageMap); err != nil {
+		return nil, err
+	}
+
+	rawOrder, ok := storageMap["projectsOrder"].(string)
+	if !ok || rawOrder == "" {
+		return nil, fmt.Errorf("projectsOrder not found in app_storage.json")
+	}
+
+	var order []string
+	if err := json.Unmarshal([]byte(rawOrder), &order); err != nil || len(order) == 0 {
+		return nil, fmt.Errorf("invalid projectsOrder json")
+	}
+
+	// If upstream connected, call ReadProjects RPC
+	if port > 0 {
+		readURL := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/ReadProjects", port)
+		reqBody, _ := json.Marshal(map[string]interface{}{"ids": order})
+		req, err := http.NewRequest(http.MethodPost, readURL, bytes.NewReader(reqBody))
+		if err == nil {
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Connect-Protocol-Version", "1")
+			if token != "" {
+				req.Header.Set("x-codeium-csrf-token", token)
+			}
+			client := &http.Client{Timeout: 5 * time.Second, Transport: p.transport}
+			resp, err := client.Do(req)
+			if err == nil && resp.StatusCode == http.StatusOK {
+				defer resp.Body.Close()
+				var reader io.Reader = resp.Body
+				if strings.EqualFold(resp.Header.Get("Content-Encoding"), "gzip") {
+					if gz, err := gzip.NewReader(resp.Body); err == nil {
+						defer gz.Close()
+						reader = gz
+					}
+				}
+
+				var readResp struct {
+					Projects []struct {
+						ID               string `json:"id"`
+						Name             string `json:"name"`
+						IsWorkspaceOnly  bool   `json:"isWorkspaceOnly"`
+						ProjectResources *struct {
+							Resources []struct {
+								FolderURI string `json:"folderUri"`
+								GitFolder *struct {
+									FolderURI string `json:"folderUri"`
+								} `json:"gitFolder"`
+							} `json:"resources"`
+						} `json:"projectResources"`
+					} `json:"projects"`
+				}
+
+				if err := json.NewDecoder(reader).Decode(&readResp); err == nil && len(readResp.Projects) > 0 {
+					projMap := make(map[string]struct {
+						id   string
+						name string
+						uri  string
+						isWs bool
+					})
+
+					for _, prj := range readResp.Projects {
+						uri := ""
+						if prj.ProjectResources != nil {
+							for _, r := range prj.ProjectResources.Resources {
+								if r.FolderURI != "" {
+									uri = r.FolderURI
+									break
+								}
+								if r.GitFolder != nil && r.GitFolder.FolderURI != "" {
+									uri = r.GitFolder.FolderURI
+									break
+								}
+							}
+						}
+						projMap[prj.ID] = struct {
+							id   string
+							name string
+							uri  string
+							isWs bool
+						}{
+							id:   prj.ID,
+							name: prj.Name,
+							uri:  uri,
+							isWs: prj.IsWorkspaceOnly,
+						}
+					}
+
+					var orderedItems []ProjectItem
+					for _, id := range order {
+						if pInfo, exists := projMap[id]; exists {
+							norm := normalizeURI(pInfo.uri)
+							path := uriToPath(norm)
+							var lastActive *time.Time
+							sessionCount := 0
+							if stat, ok := sessionStats[norm]; ok {
+								sessionCount = stat.count
+								if !stat.lastActive.IsZero() {
+									t := stat.lastActive
+									lastActive = &t
+								}
+							}
+
+							orderedItems = append(orderedItems, ProjectItem{
+								ID:           pInfo.id,
+								Name:         pInfo.name,
+								URI:          norm,
+								Path:         path,
+								IsWorkspace:  pInfo.isWs,
+								SessionCount: sessionCount,
+								LastActive:   lastActive,
+							})
+						}
+					}
+
+					if len(orderedItems) > 0 {
+						return orderedItems, nil
+					}
+				}
+			}
+		}
+	}
+
+	// Fallback to mac-workspace.code-workspace folders
+	wsFile := filepath.Join(home, "Projects", "mac-workspace.code-workspace")
+	if wsBytes, err := os.ReadFile(wsFile); err == nil {
+		var wsData struct {
+			Folders []struct {
+				Name string `json:"name"`
+				Path string `json:"path"`
+			} `json:"folders"`
+		}
+		if err := json.Unmarshal(wsBytes, &wsData); err == nil && len(wsData.Folders) > 0 {
+			var fallbackItems []ProjectItem
+			baseDir := filepath.Dir(wsFile)
+			for _, f := range wsData.Folders {
+				absPath := f.Path
+				if !filepath.IsAbs(absPath) {
+					absPath = filepath.Clean(filepath.Join(baseDir, absPath))
+				}
+				uri := "file://" + absPath
+				norm := normalizeURI(uri)
+				var lastActive *time.Time
+				sessionCount := 0
+				if stat, ok := sessionStats[norm]; ok {
+					sessionCount = stat.count
+					if !stat.lastActive.IsZero() {
+						t := stat.lastActive
+						lastActive = &t
+					}
+				}
+				fallbackItems = append(fallbackItems, ProjectItem{
+					Name:         f.Name,
+					URI:          norm,
+					Path:         absPath,
+					IsWorkspace:  false,
+					SessionCount: sessionCount,
+					LastActive:   lastActive,
+				})
+			}
+			return fallbackItems, nil
+		}
+	}
+
+	return nil, fmt.Errorf("could not fetch official projects")
 }
 
 // fetchProjectsFromStateDB queries recentlyOpenedPathsList from Antigravity's state.vscdb.
@@ -216,7 +400,6 @@ func fetchProjectsFromStateDB() []ProjectItem {
 			continue
 		}
 
-		// Only include existing directories or workspace files
 		if fi, err := os.Stat(path); err != nil {
 			continue
 		} else if !isWorkspace && !fi.IsDir() {
@@ -328,6 +511,7 @@ type CreateCascadeRequest struct {
 	WorkspaceURI string `json:"workspaceUri"`
 	Prompt       string `json:"prompt"`
 	Model        string `json:"model,omitempty"`
+	ProjectID    string `json:"projectId,omitempty"`
 }
 
 // CreateCascadeResponse represents result of starting a new cascade.
@@ -441,7 +625,7 @@ func (p *Proxy) HandleCreateCascade(w http.ResponseWriter, r *http.Request) {
 	cascadeID := startResult.CascadeID
 	log.Printf("[Proxy] Created new cascade: %s for workspace: %s", cascadeID, wsURI)
 
-	// 2. If prompt is provided, dispatch the initial user message
+	// 2. If prompt is provided, dispatch the initial user message. If empty, simply return cascadeId.
 	if prompt := strings.TrimSpace(req.Prompt); prompt != "" {
 		msgPayload := map[string]interface{}{
 			"cascadeId": cascadeID,
@@ -450,7 +634,6 @@ func (p *Proxy) HandleCreateCascade(w http.ResponseWriter, r *http.Request) {
 			},
 		}
 
-		// Inject known cascadeConfig if present
 		if cfg := p.GetCascadeConfig(cascadeID, port, token); len(cfg) > 0 {
 			var cfgObj interface{}
 			if err := json.Unmarshal(cfg, &cfgObj); err == nil {

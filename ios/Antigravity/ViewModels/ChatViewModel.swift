@@ -7,6 +7,7 @@ import UIKit
 public final class ChatViewModel {
     public let cascadeId: String
     public let initialTitle: String
+    public var currentTitle: String
     
     public var messages: [ChatMessage] = []
     public var inputText: String = ""
@@ -50,6 +51,7 @@ public final class ChatViewModel {
     ) {
         self.cascadeId = cascadeId
         self.initialTitle = initialTitle
+        self.currentTitle = initialTitle
         self.apiClient = apiClient ?? .shared
         self.settings = settings ?? .shared
         self.activityManager = ActivityManager.shared
@@ -97,7 +99,7 @@ public final class ChatViewModel {
         errorMessage = nil
         
         do {
-            let (status, parsedMessages, count, toolCount, duration, hasMoreRemaining, nextOff, configRaw) = try await apiClient.fetchMessages(
+            let (status, parsedMessages, count, toolCount, duration, hasMoreRemaining, nextOff, configRaw, serverTitle) = try await apiClient.fetchMessages(
                 cascadeId: cascadeId,
                 limit: 10,
                 offset: nil,
@@ -105,6 +107,12 @@ public final class ChatViewModel {
             )
             if let configRaw, !configRaw.isEmpty {
                 self.cascadeConfigRaw = configRaw
+            }
+            
+            if let title = serverTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty, title != "未命名会话" {
+                if self.currentTitle != title {
+                    self.currentTitle = title
+                }
             }
             
             if (isBackgroundPoll || self.pendingOptimisticMessageId != nil) && !self.messages.isEmpty {
@@ -177,7 +185,7 @@ public final class ChatViewModel {
             // Manage Live Activity
             if settings.enableLiveActivities {
                 if isRunning && !previouslyRunning {
-                    activityManager.startActivity(title: initialTitle, cascadeId: cascadeId)
+                    activityManager.startActivity(title: currentTitle, cascadeId: cascadeId)
                 } else if isRunning {
                     let latestAction = parsedMessages.last?.content ?? "正在执行..."
                     activityManager.updateActivity(status: "RUNNING", stepCount: count, latestAction: latestAction)
@@ -206,7 +214,7 @@ public final class ChatViewModel {
         guard hasMore, !isLoadingOlder, let url = settings.serverURL else { return }
         isLoadingOlder = true
         do {
-            let (status, olderMessages, count, toolCount, duration, hasMoreRemaining, nextOff, configRaw) = try await apiClient.fetchMessages(
+            let (status, olderMessages, count, toolCount, duration, hasMoreRemaining, nextOff, configRaw, serverTitle) = try await apiClient.fetchMessages(
                 cascadeId: cascadeId,
                 limit: 10,
                 offset: nextOffset,
@@ -214,6 +222,11 @@ public final class ChatViewModel {
             )
             if let configRaw, !configRaw.isEmpty {
                 self.cascadeConfigRaw = configRaw
+            }
+            if let title = serverTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty, title != "未命名会话" {
+                if self.currentTitle != title {
+                    self.currentTitle = title
+                }
             }
             self.messages = olderMessages + self.messages
             self.hasMore = hasMoreRemaining

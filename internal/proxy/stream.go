@@ -14,6 +14,7 @@ import (
 type StreamUpdatePayload struct {
 	Type             string               `json:"type"` // "init", "update", "error"
 	CascadeID        string               `json:"cascadeId"`
+	Title            string               `json:"title,omitempty"`
 	Status           string               `json:"status"`
 	Duration         string               `json:"duration"`
 	TotalSteps       int                  `json:"totalSteps"`
@@ -113,6 +114,7 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			payload := StreamUpdatePayload{
 				Type:             "update",
 				CascadeID:        details.CascadeID,
+				Title:            details.Title,
 				Status:           details.Status,
 				Duration:         details.Duration,
 				TotalSteps:       details.TotalSteps,
