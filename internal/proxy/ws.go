@@ -1,10 +1,13 @@
 package proxy
 
 import (
+	"crypto/rand"
 	"crypto/tls"
+	"encoding/base64"
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,11 +15,83 @@ import (
 )
 
 var upgrader = websocket.Upgrader{
-	ReadBufferSize:   32768,
-	WriteBufferSize:  32768,
+	ReadBufferSize:  32768,
+	WriteBufferSize: 32768,
 	CheckOrigin: func(r *http.Request) bool {
 		return true // Allow mobile browsers & tunnel origins
 	},
+}
+
+// sanitizeWebSocketHeaders normalizes HTTP headers required for WebSocket upgrade.
+// Reverse proxies (e.g. Cloudflare Tunnel, Nginx, ALB) or HTTP/2 gateways often:
+// 1. Join duplicate Sec-WebSocket-Key headers into a comma-separated list (e.g. "key1, key2")
+// 2. Omit or strip Sec-WebSocket-Key when converting from HTTP/2 Extended CONNECT (RFC 8441)
+// 3. Add surrounding quotes or spaces
+// This function ensures RFC 6455 compliance before passing the request to Gorilla WebSocket.
+func sanitizeWebSocketHeaders(r *http.Request) {
+	// 1. Normalize 'Connection' header to ensure it contains 'upgrade'
+	conn := r.Header.Get("Connection")
+	if !strings.Contains(strings.ToLower(conn), "upgrade") {
+		r.Header.Set("Connection", "Upgrade")
+	}
+
+	// 2. Normalize 'Upgrade' header to ensure it contains 'websocket'
+	up := r.Header.Get("Upgrade")
+	if !strings.Contains(strings.ToLower(up), "websocket") {
+		r.Header.Set("Upgrade", "websocket")
+	}
+
+	// 3. Normalize 'Sec-WebSocket-Version'
+	if r.Header.Get("Sec-Websocket-Version") == "" {
+		r.Header.Set("Sec-Websocket-Version", "13")
+	}
+
+	// 4. Normalize 'Sec-WebSocket-Key'
+	// Extract candidate keys from all header entries and comma-separated tokens
+	var validKey string
+	for k, vv := range r.Header {
+		if strings.EqualFold(k, "Sec-WebSocket-Key") {
+			for _, rawHeader := range vv {
+				for _, part := range strings.Split(rawHeader, ",") {
+					candidate := strings.TrimSpace(part)
+					candidate = strings.Trim(candidate, "\"")
+					if decoded, err := base64.StdEncoding.DecodeString(candidate); err == nil && len(decoded) == 16 {
+						validKey = candidate
+						break
+					}
+				}
+				if validKey != "" {
+					break
+				}
+			}
+		}
+		if validKey != "" {
+			break
+		}
+	}
+
+	// If no valid 16-byte base64 key was found (e.g. stripped by an HTTP/2 proxy),
+	// generate a compliant RFC 6455 16-byte nonce so the handshake completes cleanly.
+	if validKey == "" {
+		nonce := make([]byte, 16)
+		if _, err := rand.Read(nonce); err == nil {
+			validKey = base64.StdEncoding.EncodeToString(nonce)
+		} else {
+			validKey = "dGhlIHNhbXBsZSBub25jZQ==" // fallback RFC 6455 example nonce
+		}
+	}
+
+	// Remove any duplicate or unconventional cased keys and set standard canonical key
+	var toDelete []string
+	for k := range r.Header {
+		if strings.EqualFold(k, "Sec-WebSocket-Key") {
+			toDelete = append(toDelete, k)
+		}
+	}
+	for _, k := range toDelete {
+		delete(r.Header, k)
+	}
+	r.Header.Set("Sec-Websocket-Key", validKey)
 }
 
 // HandleWebSocket handles client WebSocket connections and proxies to upstream language_server.
@@ -26,6 +101,8 @@ func (p *Proxy) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Antigravity language_server unavailable", http.StatusServiceUnavailable)
 		return
 	}
+
+	sanitizeWebSocketHeaders(r)
 
 	// Upgrade client connection
 	clientConn, err := upgrader.Upgrade(w, r, nil)
