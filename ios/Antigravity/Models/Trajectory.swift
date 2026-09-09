@@ -18,6 +18,8 @@ public struct TrajectoryDetails: Codable, Sendable {
     public let cascadeId: String?
     public let steps: [CortexStep]?
     public let workspaceUris: [String]?
+    public let annotations: Annotations?
+    public let summary: String?
 }
 
 public struct CortexStep: Codable, Sendable {
