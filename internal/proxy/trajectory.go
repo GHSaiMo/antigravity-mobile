@@ -27,6 +27,7 @@ type CascadeMessageItem struct {
 
 type CascadeMessagesResponse struct {
 	CascadeID        string               `json:"cascadeId"`
+	Title            string               `json:"title,omitempty"`
 	Status           string               `json:"status"`
 	Duration         string               `json:"duration"`
 	TotalSteps       int                  `json:"totalSteps"`
@@ -82,6 +83,11 @@ type upstreamTrajectoryResp struct {
 		CascadeID     string           `json:"cascadeId"`
 		WorkspaceUris []string         `json:"workspaceUris"`
 		Steps         []TrajectoryStep `json:"steps"`
+		Annotations   *struct {
+			Title            string `json:"title"`
+			LastUserViewTime string `json:"lastUserViewTime"`
+		} `json:"annotations"`
+		Summary           string `json:"summary"`
 		ExecutorMetadatas []struct {
 			CascadeConfig json.RawMessage `json:"cascadeConfig"`
 		} `json:"executorMetadatas"`
@@ -169,6 +175,7 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(CascadeMessagesResponse{
 		CascadeID:        cascadeID,
+		Title:            details.Title,
 		Status:           details.Status,
 		Duration:         details.Duration,
 		TotalSteps:       details.TotalSteps,
@@ -185,6 +192,7 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 // TrajectoryDetails represents parsed and processed trajectory information.
 type TrajectoryDetails struct {
 	CascadeID        string               `json:"cascadeId"`
+	Title            string               `json:"title,omitempty"`
 	Status           string               `json:"status"`
 	Duration         string               `json:"duration"`
 	TotalSteps       int                  `json:"totalSteps"`
@@ -342,8 +350,16 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 		wsURI = rawResp.Trajectory.WorkspaceUris[0]
 	}
 
+	title := ""
+	if rawResp.Trajectory.Annotations != nil && rawResp.Trajectory.Annotations.Title != "" {
+		title = rawResp.Trajectory.Annotations.Title
+	} else if rawResp.Trajectory.Summary != "" {
+		title = rawResp.Trajectory.Summary
+	}
+
 	return TrajectoryDetails{
 		CascadeID:        rawResp.Trajectory.CascadeID,
+		Title:            title,
 		Status:           rawResp.Status,
 		Duration:         duration,
 		TotalSteps:       totalSteps,

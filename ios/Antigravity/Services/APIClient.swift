@@ -40,6 +40,7 @@ public struct GatewayStatusResponse: Codable, Sendable {
 
 public struct PaginatedMessagesResponse: Codable, Sendable {
     public let cascadeId: String
+    public let title: String?
     public let status: String
     public let duration: String
     public let totalSteps: Int
@@ -166,7 +167,7 @@ public final class APIClient: Sendable {
         limit: Int = 10,
         offset: Int? = nil,
         baseURL: URL
-    ) async throws -> (status: String, messages: [ChatMessage], totalSteps: Int, totalTools: Int, duration: String, hasMore: Bool, nextOffset: Int, cascadeConfigRaw: String?) {
+    ) async throws -> (status: String, messages: [ChatMessage], totalSteps: Int, totalTools: Int, duration: String, hasMore: Bool, nextOffset: Int, cascadeConfigRaw: String?, title: String?) {
         var comps = URLComponents(url: baseURL.appendingPathComponent("gateway/cascade/messages"), resolvingAgainstBaseURL: true)
         var queryItems = [
             URLQueryItem(name: "cascadeId", value: cascadeId),
@@ -222,19 +223,20 @@ public final class APIClient: Sendable {
                     decoded.duration,
                     decoded.hasMore,
                     decoded.nextOffset,
-                    decoded.cascadeConfigRaw
+                    decoded.cascadeConfigRaw,
+                    decoded.title
                 )
             }
         } catch {
             // Fallback to full trajectory fetch if gateway custom endpoint fails
         }
         
-        let (status, msgs, steps, tools, dur) = try await fetchTrajectory(cascadeId: cascadeId, baseURL: baseURL)
-        return (status, msgs, steps, tools, dur, false, 0, nil)
+        let (status, msgs, steps, tools, dur, title) = try await fetchTrajectory(cascadeId: cascadeId, baseURL: baseURL)
+        return (status, msgs, steps, tools, dur, false, 0, nil, title)
     }
     
     // Fetch trajectory steps and parse into streamlined ChatMessage array
-    public func fetchTrajectory(cascadeId: String, baseURL: URL) async throws -> (status: String, messages: [ChatMessage], totalSteps: Int, totalTools: Int, duration: String) {
+    public func fetchTrajectory(cascadeId: String, baseURL: URL) async throws -> (status: String, messages: [ChatMessage], totalSteps: Int, totalTools: Int, duration: String, title: String?) {
         let req = GetCascadeTrajectoryRequest(cascadeId: cascadeId)
         let resp: GetCascadeTrajectoryResponse = try await rpc(
             method: "GetCascadeTrajectory",
@@ -243,7 +245,7 @@ public final class APIClient: Sendable {
         )
         
         guard let traj = resp.trajectory, let steps = traj.steps else {
-            return ("UNKNOWN", [], 0, 0, "0秒")
+            return ("UNKNOWN", [], 0, 0, "0秒", nil)
         }
         
         var messages: [ChatMessage] = []
@@ -358,7 +360,8 @@ public final class APIClient: Sendable {
         }
         
         let runStatus = resp.status ?? "DONE"
-        return (runStatus, messages, steps.count, totalToolsCount, durationString)
+        let title = traj.annotations?.title ?? traj.summary
+        return (runStatus, messages, steps.count, totalToolsCount, durationString, title)
     }
     
     // Send a message to cascade

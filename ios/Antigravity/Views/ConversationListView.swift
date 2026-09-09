@@ -71,10 +71,10 @@ public struct ConversationListView: View {
             }
             .sheet(isPresented: $showNewConversation) {
                 NewConversationSheet { cascadeId, item in
-                    Task {
-                        await viewModel.fetchConversations()
-                        try? await Task.sleep(nanoseconds: 300_000_000)
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 200_000_000)
                         newlyCreatedConversation = item
+                        await viewModel.fetchConversations()
                     }
                 }
             }
@@ -83,6 +83,9 @@ public struct ConversationListView: View {
             }
             .task {
                 await viewModel.fetchConversations()
+            }
+            .task {
+                await ProjectCacheManager.shared.fetchAndCacheProjects()
             }
         }
     }

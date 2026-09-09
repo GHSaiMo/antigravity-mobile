@@ -1,7 +1,11 @@
 import Foundation
 
 public struct ProjectItem: Identifiable, Hashable, Codable, Sendable {
-    public var id: String { uri }
+    public var id: String {
+        if let rawId, !rawId.isEmpty { return rawId }
+        return uri
+    }
+    public let rawId: String?
     public let name: String
     public let uri: String
     public let path: String
@@ -9,7 +13,21 @@ public struct ProjectItem: Identifiable, Hashable, Codable, Sendable {
     public let sessionCount: Int
     public let lastActive: Date?
     
-    public init(name: String, uri: String, path: String, isWorkspace: Bool, sessionCount: Int, lastActive: Date? = nil) {
+    enum CodingKeys: String, CodingKey {
+        case rawId = "id"
+        case name, uri, path, isWorkspace, sessionCount, lastActive
+    }
+    
+    public init(
+        rawId: String? = nil,
+        name: String,
+        uri: String,
+        path: String,
+        isWorkspace: Bool,
+        sessionCount: Int = 0,
+        lastActive: Date? = nil
+    ) {
+        self.rawId = rawId
         self.name = name
         self.uri = uri
         self.path = path
