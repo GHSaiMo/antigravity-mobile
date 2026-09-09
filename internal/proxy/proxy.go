@@ -207,22 +207,29 @@ func (p *Proxy) handleRpcProxy(w http.ResponseWriter, r *http.Request) {
 	rp.ServeHTTP(w, r)
 }
 
-type responseObserver struct {
-	http.ResponseWriter
-	statusCode int
+type bufferedResponseWriter struct {
+	header     http.Header
 	body       bytes.Buffer
+	statusCode int
 }
 
-func (ro *responseObserver) WriteHeader(statusCode int) {
-	ro.statusCode = statusCode
-	ro.ResponseWriter.WriteHeader(statusCode)
-}
-
-func (ro *responseObserver) Write(b []byte) (int, error) {
-	if ro.statusCode >= 400 && ro.body.Len() < 2048 {
-		ro.body.Write(b)
+func newBufferedResponseWriter() *bufferedResponseWriter {
+	return &bufferedResponseWriter{
+		header:     make(http.Header),
+		statusCode: http.StatusOK,
 	}
-	return ro.ResponseWriter.Write(b)
+}
+
+func (b *bufferedResponseWriter) Header() http.Header {
+	return b.header
+}
+
+func (b *bufferedResponseWriter) WriteHeader(code int) {
+	b.statusCode = code
+}
+
+func (b *bufferedResponseWriter) Write(p []byte) (int, error) {
+	return b.body.Write(p)
 }
 
 func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Request, rp http.Handler, reqPath string, port int, token string) {
@@ -286,13 +293,32 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 	r.Header.Set("Content-Length", strconv.Itoa(len(bodyBytes)))
 	r.URL.Path = reqPath
 
-	obs := &responseObserver{ResponseWriter: w, statusCode: http.StatusOK}
-	rp.ServeHTTP(obs, r)
+	rw := newBufferedResponseWriter()
+	rp.ServeHTTP(rw, r)
 
-	if obs.statusCode >= 400 {
-		log.Printf("[Proxy] SendUserCascadeMessage upstream error: status=%d body=%s", obs.statusCode, obs.body.String())
+	// Copy headers from upstream
+	for k, vv := range rw.header {
+		for _, v := range vv {
+			w.Header().Add(k, v)
+		}
+	}
+
+	respBody := rw.body.Bytes()
+	if rw.statusCode >= 200 && rw.statusCode < 300 {
+		// Ensure ConnectRPC empty responses always return valid JSON "{}"
+		// to prevent any client JSONDecoder from crashing on 0-byte data
+		if len(bytes.TrimSpace(respBody)) == 0 {
+			respBody = []byte("{}")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Length", strconv.Itoa(len(respBody)))
+		w.WriteHeader(rw.statusCode)
+		w.Write(respBody)
+		log.Printf("[Proxy] SendUserCascadeMessage upstream success: status=%d bodyLen=%d", rw.statusCode, len(respBody))
 	} else {
-		log.Printf("[Proxy] SendUserCascadeMessage upstream success: status=%d", obs.statusCode)
+		w.WriteHeader(rw.statusCode)
+		w.Write(respBody)
+		log.Printf("[Proxy] SendUserCascadeMessage upstream error: status=%d body=%s", rw.statusCode, string(respBody))
 	}
 }
 

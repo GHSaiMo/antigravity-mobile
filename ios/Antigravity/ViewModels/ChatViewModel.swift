@@ -34,6 +34,7 @@ public final class ChatViewModel {
     
     private var awaitingResponseSince: Date? = nil
     private var pendingOptimisticMessageId: String? = nil
+    private var knownServerMessageIds: Set<String> = []
     private var pollTask: Task<Void, Never>?
     private let apiClient: APIClient
     private let settings: AppSettings
@@ -63,6 +64,8 @@ public final class ChatViewModel {
             self.hasMore = cached.hasMore
             self.nextOffset = cached.nextOffset
             self.isRunning = (cached.status == "CASCADE_RUN_STATUS_RUNNING")
+            self.cascadeConfigRaw = cached.cascadeConfigRaw
+            self.knownServerMessageIds = Set(cached.messages.map(\.id))
         }
     }
     
@@ -77,6 +80,8 @@ public final class ChatViewModel {
             self.hasMore = cached.hasMore
             self.nextOffset = cached.nextOffset
             self.isRunning = (cached.status == "CASCADE_RUN_STATUS_RUNNING")
+            self.cascadeConfigRaw = cached.cascadeConfigRaw
+            self.knownServerMessageIds = Set(cached.messages.map(\.id))
         }
         
         guard let url = settings.serverURL else {
@@ -108,6 +113,9 @@ public final class ChatViewModel {
                 self.messages = parsedMessages
                 self.hasMore = hasMoreRemaining
                 self.nextOffset = nextOff
+                if self.pendingOptimisticMessageId == nil {
+                    self.knownServerMessageIds = Set(parsedMessages.map(\.id))
+                }
             }
             
             self.stepCount = count
@@ -125,8 +133,12 @@ public final class ChatViewModel {
                 totalTools: toolCount,
                 hasMore: self.hasMore,
                 nextOffset: self.nextOffset,
-                messages: toCache
+                messages: toCache,
+                cascadeConfigRaw: self.cascadeConfigRaw
             ))
+            if self.pendingOptimisticMessageId == nil {
+                self.knownServerMessageIds = Set(toCache.map(\.id))
+            }
             
             let previouslyRunning = self.isRunning
             if status == "CASCADE_RUN_STATUS_RUNNING" {
@@ -233,11 +245,12 @@ public final class ChatViewModel {
         var optimisticMessage: ChatMessage? = nil
         if let optId = pendingOptimisticMessageId {
             optimisticMessage = messages.first(where: { $0.id == optId })
-            let serverHasUserMsg = incoming.contains(where: {
-                $0.sender == .user && ($0.content == optimisticMessage?.content || optimisticMessage == nil)
+            // Server only incorporates the new turn if incoming contains a user message with a NEW ID not known before sending
+            let serverHasNewUserMsg = incoming.contains(where: {
+                $0.sender == .user && !knownServerMessageIds.contains($0.id)
             })
-            if serverHasUserMsg {
-                // Server now has it; clear optimistic tracker
+            if serverHasNewUserMsg {
+                // Server now has incorporated the new turn; clear optimistic tracker
                 self.pendingOptimisticMessageId = nil
                 optimisticMessage = nil
             }
@@ -268,6 +281,9 @@ public final class ChatViewModel {
         }
         
         self.messages = base
+        if pendingOptimisticMessageId == nil {
+            self.knownServerMessageIds = Set(base.map(\.id))
+        }
     }
     
     @MainActor
@@ -277,6 +293,9 @@ public final class ChatViewModel {
         
         // Haptic feedback
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        
+        // Snapshot known server message IDs before sending
+        self.knownServerMessageIds = Set(messages.filter { $0.id != pendingOptimisticMessageId }.map(\.id))
         
         // Optimistic update
         let optId = "optimistic-\(UUID().uuidString)"

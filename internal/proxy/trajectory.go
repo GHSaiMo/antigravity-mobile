@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -111,6 +112,8 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 			offset = val
 		}
 	}
+
+	log.Printf("[Proxy] CascadeMessages: cascadeId=%s limit=%d offset=%d", cascadeID, limit, offset)
 
 	p.mu.RLock()
 	port := p.activePort

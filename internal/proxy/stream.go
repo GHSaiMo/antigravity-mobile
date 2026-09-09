@@ -45,6 +45,8 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	sanitizeWebSocketHeaders(r)
+
 	clientConn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("[Stream] WS upgrade failed: %v", err)
