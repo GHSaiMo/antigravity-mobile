@@ -120,8 +120,11 @@
         </div>
         <div class="modal-body">
           <div class="form-group">
-            <label for="new-workspace">工作区目录</label>
-            <input type="text" id="new-workspace" placeholder="选填，例如: /path/to/workspace" />
+            <label for="new-workspace-select">目标项目 / 工作区</label>
+            <select id="new-workspace-select">
+              <option value="">正在嗅探上游项目...</option>
+            </select>
+            <input type="text" id="new-workspace" placeholder="或输入自定义工作区绝对路径..." style="margin-top: 6px; font-size: 13px;" />
           </div>
           <div class="form-group">
             <label for="new-model">选择模型</label>

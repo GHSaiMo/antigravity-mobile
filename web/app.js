@@ -623,10 +623,48 @@ async function cancelCurrentTask() {
 
 // --- New Conversation Modal ---
 
+let discoveredProjects = [];
+
 async function openNewModal() {
   const modal = document.getElementById("modal-new");
   modal.classList.remove("hidden");
 
+  // 1. Fetch discovered upstream projects
+  const wsSelect = document.getElementById("new-workspace-select");
+  const wsInput = document.getElementById("new-workspace");
+
+  try {
+    const res = await fetch("/gateway/projects");
+    if (res.ok) {
+      discoveredProjects = await res.json();
+      if (discoveredProjects && discoveredProjects.length > 0) {
+        wsSelect.innerHTML = `<option value="">-- 请选择目标项目 (${discoveredProjects.length} 个可用) --</option>` +
+          discoveredProjects.map(p => {
+            const countStr = p.sessionCount > 0 ? ` (${p.sessionCount}个会话)` : "";
+            const wsTag = p.isWorkspace ? " [工作区]" : "";
+            return `<option value="${escapeHtml(p.path)}">${escapeHtml(p.name)}${wsTag}${countStr}</option>`;
+          }).join("");
+        
+        // Auto-select first project if input is empty
+        if (!wsInput.value && discoveredProjects[0]) {
+          wsSelect.value = discoveredProjects[0].path;
+          wsInput.value = discoveredProjects[0].path;
+        }
+      } else {
+        wsSelect.innerHTML = `<option value="">(未探测到项目，请在下方手动输入)</option>`;
+      }
+    }
+  } catch (_) {
+    wsSelect.innerHTML = `<option value="">(无法获取项目列表，可手动输入)</option>`;
+  }
+
+  wsSelect.onchange = () => {
+    if (wsSelect.value) {
+      wsInput.value = wsSelect.value;
+    }
+  };
+
+  // 2. Fetch available models
   const modelSelect = document.getElementById("new-model");
   if (availableModels.length === 0) {
     try {
@@ -652,6 +690,11 @@ async function createConversation() {
   const model = document.getElementById("new-model").value;
   const prompt = document.getElementById("new-prompt").value.trim();
 
+  if (!ws) {
+    alert("请选择或输入目标工作区路径");
+    return;
+  }
+
   if (!prompt) {
     alert("请输入首条指令");
     return;
@@ -662,22 +705,26 @@ async function createConversation() {
   createBtn.disabled = true;
 
   try {
-    const startResp = await rpc("StartCascade", {
-      workspaceUris: ws ? [ws.startsWith("file://") ? ws : "file://" + ws] : [],
-      requestedModel: model || undefined
+    const res = await fetch("/gateway/cascade/new", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        workspaceUri: ws,
+        prompt: prompt,
+        model: model || undefined
+      })
     });
 
-    const cascadeId = startResp.cascadeId;
-    if (!cascadeId) throw new Error("未返回新会话 ID");
+    const data = await res.json();
+    if (!res.ok || data.status === "error" || !data.cascadeId) {
+      throw new Error(data.error || "创建会话失败");
+    }
 
-    await rpc("SendUserCascadeMessage", {
-      cascadeId: cascadeId,
-      items: [{ text: prompt }]
-    });
-
+    const cascadeId = data.cascadeId;
     closeNewModal();
     document.getElementById("new-prompt").value = "";
     navigateTo("#c=" + cascadeId);
+    await loadConversations();
   } catch (err) {
     alert("创建会话失败: " + err.message);
   } finally {

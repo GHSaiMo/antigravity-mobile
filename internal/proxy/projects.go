@@ -1,0 +1,511 @@
+package proxy
+
+import (
+	"bytes"
+	"compress/gzip"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"net/url"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+)
+
+// ProjectItem represents a discovered upstream project or workspace.
+type ProjectItem struct {
+	Name         string     `json:"name"`
+	URI          string     `json:"uri"`
+	Path         string     `json:"path"`
+	IsWorkspace  bool       `json:"isWorkspace"`
+	SessionCount int        `json:"sessionCount"`
+	LastActive   *time.Time `json:"lastActive,omitempty"`
+}
+
+type vscdbHistoryEntry struct {
+	FolderURI string `json:"folderUri"`
+	Workspace *struct {
+		ConfigPath string `json:"configPath"`
+	} `json:"workspace"`
+	FileURI string `json:"fileUri"`
+}
+
+type vscdbHistory struct {
+	Entries []vscdbHistoryEntry `json:"entries"`
+}
+
+// GetProjects discovers all projects from local IDE database and trajectory history.
+func (p *Proxy) GetProjects() ([]ProjectItem, error) {
+	p.mu.RLock()
+	port := p.activePort
+	token := p.activeToken
+	p.mu.RUnlock()
+
+	// 1. Fetch from IDE state database
+	dbProjects := fetchProjectsFromStateDB()
+
+	// 2. Fetch active/historical sessions statistics if upstream is connected
+	sessionStats := make(map[string]struct {
+		count      int
+		lastActive time.Time
+	})
+
+	if port > 0 {
+		trajectories, err := p.fetchTrajectoriesSummary(port, token)
+		if err == nil {
+			for _, sum := range trajectories {
+				var uris []string
+				if sum.TrajectoryMetadata != nil && len(sum.TrajectoryMetadata.WorkspaceUris) > 0 {
+					uris = sum.TrajectoryMetadata.WorkspaceUris
+				} else if len(sum.Workspaces) > 0 {
+					for _, w := range sum.Workspaces {
+						if w.WorkspaceFolderAbsoluteUri != "" {
+							uris = append(uris, w.WorkspaceFolderAbsoluteUri)
+						}
+					}
+				}
+
+				var activeTime time.Time
+				if sum.LastModifiedTime != "" {
+					if t, err := parseTime(sum.LastModifiedTime); err == nil {
+						activeTime = t
+					}
+				}
+
+				for _, u := range uris {
+					normalized := normalizeURI(u)
+					if normalized == "" {
+						continue
+					}
+					stat := sessionStats[normalized]
+					stat.count++
+					if activeTime.After(stat.lastActive) {
+						stat.lastActive = activeTime
+					}
+					sessionStats[normalized] = stat
+				}
+			}
+		}
+	}
+
+	// 3. Merge sources and de-duplicate
+	projectMap := make(map[string]*ProjectItem)
+
+	for _, prj := range dbProjects {
+		norm := normalizeURI(prj.URI)
+		if stat, ok := sessionStats[norm]; ok {
+			prj.SessionCount = stat.count
+			if !stat.lastActive.IsZero() {
+				t := stat.lastActive
+				prj.LastActive = &t
+			}
+		}
+		itemCopy := prj
+		projectMap[norm] = &itemCopy
+	}
+
+	// Add projects from trajectory sessions that might not be in recently opened DB
+	for norm, stat := range sessionStats {
+		if _, exists := projectMap[norm]; !exists {
+			parsedPath := uriToPath(norm)
+			if parsedPath == "" {
+				continue
+			}
+			// Only include if path exists on disk
+			if _, err := os.Stat(parsedPath); err != nil {
+				continue
+			}
+
+			isWs := strings.HasSuffix(parsedPath, ".code-workspace")
+			name := filepath.Base(parsedPath)
+			if isWs {
+				name = strings.TrimSuffix(name, ".code-workspace")
+			}
+
+			var lastActive *time.Time
+			if !stat.lastActive.IsZero() {
+				t := stat.lastActive
+				lastActive = &t
+			}
+
+			projectMap[norm] = &ProjectItem{
+				Name:         name,
+				URI:          norm,
+				Path:         parsedPath,
+				IsWorkspace:  isWs,
+				SessionCount: stat.count,
+				LastActive:   lastActive,
+			}
+		}
+	}
+
+	// 4. Convert to slice and sort
+	var result []ProjectItem
+	for _, prj := range projectMap {
+		result = append(result, *prj)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		// Items with LastActive come first, ordered descending
+		if result[i].LastActive != nil && result[j].LastActive != nil {
+			return result[i].LastActive.After(*result[j].LastActive)
+		}
+		if result[i].LastActive != nil {
+			return true
+		}
+		if result[j].LastActive != nil {
+			return false
+		}
+		// Then by SessionCount
+		if result[i].SessionCount != result[j].SessionCount {
+			return result[i].SessionCount > result[j].SessionCount
+		}
+		return strings.ToLower(result[i].Name) < strings.ToLower(result[i].Name)
+	})
+
+	return result, nil
+}
+
+// fetchProjectsFromStateDB queries recentlyOpenedPathsList from Antigravity's state.vscdb.
+func fetchProjectsFromStateDB() []ProjectItem {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+
+	dbPath := filepath.Join(home, "Library", "Application Support", "Antigravity", "User", "globalStorage", "state.vscdb")
+	if _, err := os.Stat(dbPath); err != nil {
+		return nil
+	}
+
+	cmd := exec.Command("sqlite3", dbPath, "SELECT value FROM ItemTable WHERE key = 'history.recentlyOpenedPathsList';")
+	out, err := cmd.Output()
+	if err != nil {
+		log.Printf("[Projects] Warning: failed to read state.vscdb: %v", err)
+		return nil
+	}
+
+	var hist vscdbHistory
+	if err := json.Unmarshal(out, &hist); err != nil {
+		return nil
+	}
+
+	var items []ProjectItem
+	for _, entry := range hist.Entries {
+		rawURI := ""
+		isWorkspace := false
+
+		if entry.FolderURI != "" {
+			rawURI = entry.FolderURI
+		} else if entry.Workspace != nil && entry.Workspace.ConfigPath != "" {
+			rawURI = entry.Workspace.ConfigPath
+			isWorkspace = true
+		}
+
+		if rawURI == "" {
+			continue
+		}
+
+		path := uriToPath(rawURI)
+		if path == "" {
+			continue
+		}
+
+		// Only include existing directories or workspace files
+		if fi, err := os.Stat(path); err != nil {
+			continue
+		} else if !isWorkspace && !fi.IsDir() {
+			continue
+		}
+
+		name := filepath.Base(path)
+		if isWorkspace {
+			name = strings.TrimSuffix(name, ".code-workspace")
+		}
+
+		items = append(items, ProjectItem{
+			Name:        name,
+			URI:         rawURI,
+			Path:        path,
+			IsWorkspace: isWorkspace,
+		})
+	}
+
+	return items
+}
+
+type upstreamTrajectoriesResp struct {
+	TrajectorySummaries map[string]struct {
+		LastModifiedTime   string `json:"lastModifiedTime"`
+		TrajectoryMetadata *struct {
+			WorkspaceUris []string `json:"workspaceUris"`
+		} `json:"trajectoryMetadata"`
+		Workspaces []struct {
+			WorkspaceFolderAbsoluteUri string `json:"workspaceFolderAbsoluteUri"`
+		} `json:"workspaces"`
+	} `json:"trajectorySummaries"`
+}
+
+func (p *Proxy) fetchTrajectoriesSummary(port int, token string) (map[string]struct {
+	LastModifiedTime   string `json:"lastModifiedTime"`
+	TrajectoryMetadata *struct {
+		WorkspaceUris []string `json:"workspaceUris"`
+	} `json:"trajectoryMetadata"`
+	Workspaces []struct {
+		WorkspaceFolderAbsoluteUri string `json:"workspaceFolderAbsoluteUri"`
+	} `json:"workspaces"`
+}, error) {
+	url := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories", port)
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader([]byte("{}")))
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Connect-Protocol-Version", "1")
+	if token != "" {
+		req.Header.Set("x-codeium-csrf-token", token)
+	}
+
+	client := &http.Client{
+		Timeout:   5 * time.Second,
+		Transport: p.transport,
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("upstream returned status %d", resp.StatusCode)
+	}
+
+	var reader io.Reader = resp.Body
+	if strings.EqualFold(resp.Header.Get("Content-Encoding"), "gzip") {
+		gz, err := gzip.NewReader(resp.Body)
+		if err == nil {
+			defer gz.Close()
+			reader = gz
+		}
+	}
+
+	var data upstreamTrajectoriesResp
+	if err := json.NewDecoder(reader).Decode(&data); err != nil {
+		return nil, err
+	}
+
+	return data.TrajectorySummaries, nil
+}
+
+// HandleProjects handles GET /gateway/projects.
+func (p *Proxy) HandleProjects(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	projects, err := p.GetProjects()
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(projects)
+}
+
+// CreateCascadeRequest represents payload to start a new cascade.
+type CreateCascadeRequest struct {
+	WorkspaceURI string `json:"workspaceUri"`
+	Prompt       string `json:"prompt"`
+	Model        string `json:"model,omitempty"`
+}
+
+// CreateCascadeResponse represents result of starting a new cascade.
+type CreateCascadeResponse struct {
+	CascadeID string `json:"cascadeId"`
+	Status    string `json:"status"`
+	Error     string `json:"error,omitempty"`
+}
+
+// HandleCreateCascade handles POST /gateway/cascade/new.
+func (p *Proxy) HandleCreateCascade(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	p.mu.RLock()
+	port := p.activePort
+	token := p.activeToken
+	p.mu.RUnlock()
+
+	if port == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(CreateCascadeResponse{
+			Status: "error",
+			Error:  "Antigravity language_server not connected",
+		})
+		return
+	}
+
+	var req CreateCascadeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request payload", http.StatusBadRequest)
+		return
+	}
+
+	wsURI := req.WorkspaceURI
+	if wsURI != "" && !strings.HasPrefix(wsURI, "file://") {
+		wsURI = "file://" + filepath.Clean(wsURI)
+	}
+
+	// 1. Call StartCascade RPC upstream
+	startPayload := map[string]interface{}{
+		"workspaceUris": []string{wsURI},
+		"source":        "CORTEX_TRAJECTORY_SOURCE_INTERACTIVE_CASCADE",
+	}
+
+	if req.Model != "" {
+		startPayload["requestedModel"] = map[string]string{
+			"model": req.Model,
+		}
+	}
+
+	startBytes, _ := json.Marshal(startPayload)
+	startURL := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/StartCascade", port)
+
+	httpReq, err := http.NewRequest(http.MethodPost, startURL, bytes.NewReader(startBytes))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Connect-Protocol-Version", "1")
+	if token != "" {
+		httpReq.Header.Set("x-codeium-csrf-token", token)
+	}
+
+	client := &http.Client{
+		Timeout:   10 * time.Second,
+		Transport: p.transport,
+	}
+
+	startResp, err := client.Do(httpReq)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		json.NewEncoder(w).Encode(CreateCascadeResponse{
+			Status: "error",
+			Error:  fmt.Sprintf("Failed to call StartCascade: %v", err),
+		})
+		return
+	}
+	defer startResp.Body.Close()
+
+	if startResp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(startResp.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(startResp.StatusCode)
+		json.NewEncoder(w).Encode(CreateCascadeResponse{
+			Status: "error",
+			Error:  fmt.Sprintf("Upstream StartCascade error (%d): %s", startResp.StatusCode, string(b)),
+		})
+		return
+	}
+
+	var startResult struct {
+		CascadeID string `json:"cascadeId"`
+	}
+	if err := json.NewDecoder(startResp.Body).Decode(&startResult); err != nil || startResult.CascadeID == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		json.NewEncoder(w).Encode(CreateCascadeResponse{
+			Status: "error",
+			Error:  "Upstream StartCascade returned empty cascadeId",
+		})
+		return
+	}
+
+	cascadeID := startResult.CascadeID
+	log.Printf("[Proxy] Created new cascade: %s for workspace: %s", cascadeID, wsURI)
+
+	// 2. If prompt is provided, dispatch the initial user message
+	if prompt := strings.TrimSpace(req.Prompt); prompt != "" {
+		msgPayload := map[string]interface{}{
+			"cascadeId": cascadeID,
+			"items": []map[string]string{
+				{"text": prompt},
+			},
+		}
+
+		// Inject known cascadeConfig if present
+		if cfg := p.GetCascadeConfig(cascadeID, port, token); len(cfg) > 0 {
+			var cfgObj interface{}
+			if err := json.Unmarshal(cfg, &cfgObj); err == nil {
+				msgPayload["cascadeConfig"] = cfgObj
+			}
+		}
+
+		msgBytes, _ := json.Marshal(msgPayload)
+		msgURL := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage", port)
+
+		msgReq, err := http.NewRequest(http.MethodPost, msgURL, bytes.NewReader(msgBytes))
+		if err == nil {
+			msgReq.Header.Set("Content-Type", "application/json")
+			msgReq.Header.Set("Connect-Protocol-Version", "1")
+			if token != "" {
+				msgReq.Header.Set("x-codeium-csrf-token", token)
+			}
+			if msgResp, err := client.Do(msgReq); err == nil {
+				msgResp.Body.Close()
+				log.Printf("[Proxy] Dispatched initial prompt to cascade %s", cascadeID)
+			} else {
+				log.Printf("[Proxy] Warning: failed to dispatch initial prompt: %v", err)
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(CreateCascadeResponse{
+		CascadeID: cascadeID,
+		Status:    "ok",
+	})
+}
+
+func normalizeURI(uri string) string {
+	uri = strings.TrimSpace(uri)
+	if uri == "" {
+		return ""
+	}
+	if !strings.HasPrefix(uri, "file://") && strings.HasPrefix(uri, "/") {
+		uri = "file://" + uri
+	}
+	return strings.TrimSuffix(uri, "/")
+}
+
+func uriToPath(rawURI string) string {
+	if !strings.HasPrefix(rawURI, "file://") {
+		return rawURI
+	}
+	u, err := url.Parse(rawURI)
+	if err != nil {
+		return strings.TrimPrefix(rawURI, "file://")
+	}
+	path, err := url.PathUnescape(u.Path)
+	if err != nil {
+		return u.Path
+	}
+	return path
+}
