@@ -218,6 +218,34 @@ public final class APIClient: Sendable {
         _ = try? await rpc(method: "UpdateConversationAnnotations", body: body, baseURL: baseURL) as EmptyResp
     }
     
+    // Delete conversation from upstream language_server
+    public func deleteConversation(cascadeId: String, baseURL: URL) async throws {
+        struct DeleteReq: Encodable {
+            let cascadeId: String
+        }
+        struct EmptyResp: Decodable {}
+        _ = try await rpc(method: "DeleteCascadeTrajectory", body: DeleteReq(cascadeId: cascadeId), baseURL: baseURL) as EmptyResp
+    }
+    
+    // Rename conversation title in upstream language_server
+    public func renameConversation(cascadeId: String, newTitle: String, baseURL: URL) async throws {
+        struct AnnotationsPayload: Encodable {
+            let title: String
+        }
+        struct UpdateReq: Encodable {
+            let cascadeIds: [String]
+            let annotations: AnnotationsPayload
+            let mergeAnnotations: Bool
+        }
+        let body = UpdateReq(
+            cascadeIds: [cascadeId],
+            annotations: AnnotationsPayload(title: newTitle),
+            mergeAnnotations: true
+        )
+        struct EmptyResp: Decodable {}
+        _ = try await rpc(method: "UpdateConversationAnnotations", body: body, baseURL: baseURL) as EmptyResp
+    }
+    
     // Fast lightweight paginated messages endpoint served by Go gateway
     public func fetchMessages(
         cascadeId: String,

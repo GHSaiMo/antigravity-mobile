@@ -10,6 +10,12 @@ public struct ConversationListView: View {
     @State private var selectedDraftProject: ProjectItem?
     @State private var navigationPath = NavigationPath()
     
+    @State private var conversationToDelete: ConversationItem?
+    @State private var showDeleteConfirm = false
+    @State private var conversationToRename: ConversationItem?
+    @State private var renameText = ""
+    @State private var showRenameAlert = false
+    
     public init() {}
     
     public var body: some View {
@@ -51,6 +57,41 @@ public struct ConversationListView: View {
                         try await viewModel.refreshCockpitQuotas()
                     }
                 )
+            }
+            .confirmationDialog(
+                "确定删除此会话吗？\n此操作将永久删除会话记录且无法撤销。",
+                isPresented: $showDeleteConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("删除", role: .destructive) {
+                    if let item = conversationToDelete {
+                        Task {
+                            await viewModel.deleteConversation(item: item)
+                        }
+                    }
+                }
+                Button("取消", role: .cancel) {}
+            }
+            .alert("重命名会话", isPresented: $showRenameAlert) {
+                TextField("输入新标题", text: $renameText)
+                Button("取消", role: .cancel) {}
+                Button("保存") {
+                    if let item = conversationToRename {
+                        Task {
+                            await viewModel.renameConversation(item: item, newTitle: renameText)
+                        }
+                    }
+                }
+            }
+            .alert("提示", isPresented: Binding(
+                get: { viewModel.errorMessage != nil && !viewModel.conversations.isEmpty },
+                set: { if !$0 { viewModel.errorMessage = nil } }
+            )) {
+                Button("确定") { viewModel.errorMessage = nil }
+            } message: {
+                if let msg = viewModel.errorMessage {
+                    Text(msg)
+                }
             }
             .navigationDestination(for: ConversationItem.self) { item in
                 ChatView(conversation: item, isNewConversation: item.stepCount == 0)
@@ -221,6 +262,22 @@ public struct ConversationListView: View {
                 }
                 .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                 .listRowSeparator(.hidden)
+                .simultaneousGesture(
+                    LongPressGesture(minimumDuration: 0.45).onEnded { _ in
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        conversationToRename = item
+                        renameText = item.title
+                        showRenameAlert = true
+                    }
+                )
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                    Button(role: .destructive) {
+                        conversationToDelete = item
+                        showDeleteConfirm = true
+                    } label: {
+                        Label("删除", systemImage: "trash")
+                    }
+                }
             }
         }
         .listStyle(.plain)
