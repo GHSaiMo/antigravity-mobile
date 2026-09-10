@@ -98,6 +98,7 @@ public final class APIClient: Sendable {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("1", forHTTPHeaderField: "Connect-Protocol-Version")
         request.httpBody = try JSONEncoder().encode(body)
+        request.timeoutInterval = 15.0
         
         let data: Data
         let response: URLResponse
@@ -514,20 +515,29 @@ public final class APIClient: Sendable {
         let endpoint = baseURL.appendingPathComponent("gateway/status")
         var request = URLRequest(url: endpoint)
         request.httpMethod = "GET"
+        request.timeoutInterval = 5.0
         
-        let (data, response) = try await transport.send(
-            request: request,
-            preferCellular: AppSettings.shared.preferCellularNetwork
-        )
-        guard let httpResp = response as? HTTPURLResponse else {
-            throw APIError.networkError("Invalid response type")
+        do {
+            let (data, response) = try await transport.send(
+                request: request,
+                preferCellular: AppSettings.shared.preferCellularNetwork
+            )
+            guard let httpResp = response as? HTTPURLResponse else {
+                throw APIError.networkError("Invalid response type")
+            }
+            
+            guard httpResp.statusCode == 200 else {
+                throw APIError.networkError("网关未返回 200 (HTTP \(httpResp.statusCode))")
+            }
+            
+            return try JSONDecoder().decode(GatewayStatusResponse.self, from: data)
+        } catch {
+            let desc = error.localizedDescription
+            if desc.contains("SSL") || desc.contains("certificate") || desc.contains("TLS") || desc.contains("secure connection") {
+                throw APIError.networkError("SSL握手失败。网关默认运行在 HTTP 协议，请检查地址是否误填了 https://")
+            }
+            throw error
         }
-        
-        guard httpResp.statusCode == 200 else {
-            throw APIError.networkError("网关未返回 200 (HTTP \(httpResp.statusCode))")
-        }
-        
-        return try JSONDecoder().decode(GatewayStatusResponse.self, from: data)
     }
     
     // Fetch discovered upstream projects

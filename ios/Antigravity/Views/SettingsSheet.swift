@@ -11,7 +11,7 @@ public struct SettingsSheet: View {
     public var body: some View {
         NavigationStack {
             Form {
-                Section(header: Text("服务器连接配置"), footer: Text("支持输入 IPv6 DDNS 域名（如 https://mac.yourdomain.com:58900）、公网 IPv6 地址或 Tailscale 虚拟 IP。")) {
+                Section(header: Text("服务器连接配置"), footer: Text("支持输入局域网/DDNS 地址（如 http://mac.yourdomain.com:58900）、IPv6 地址（如 [240e:...]:58900）或 Tailscale 虚拟 IP。注意：网关默认采用 http 协议。")) {
                     TextField("网关地址", text: $settings.rawServerURL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
@@ -79,14 +79,14 @@ public struct SettingsSheet: View {
     
     private func testConnection() {
         guard let url = settings.serverURL else {
-            testStatus = "地址格式无效"
+            testStatus = "地址格式无效，请检查输入"
             return
         }
         
         isTesting = true
         testStatus = nil
         
-        Task {
+        Task { @MainActor in
             do {
                 let status = try await APIClient.shared.testConnection(baseURL: url)
                 if status.status == "connected", let upstream = status.upstream {
