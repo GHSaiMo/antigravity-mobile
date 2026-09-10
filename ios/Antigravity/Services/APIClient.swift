@@ -116,6 +116,9 @@ public final class APIClient: Sendable {
         }
         
         guard (200...299).contains(httpResp.statusCode) else {
+            if httpResp.statusCode == 401 {
+                NotificationCenter.default.post(name: .deviceTokenRevoked, object: nil)
+            }
             let errorMsg = String(data: data, encoding: .utf8) ?? httpResp.description
             throw APIError.serverError(statusCode: httpResp.statusCode, message: errorMsg)
         }

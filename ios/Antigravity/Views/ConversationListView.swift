@@ -4,6 +4,7 @@ public struct ConversationListView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var viewModel = ConversationListViewModel()
     @State private var showSettings = false
+    @State private var showQRScanner = false
     @State private var showNewConversation = false
     @State private var selectedDraftProject: ProjectItem?
     @State private var navigationPath = NavigationPath()
@@ -12,79 +13,8 @@ public struct ConversationListView: View {
     
     public var body: some View {
         NavigationStack(path: $navigationPath) {
-            Group {
-                if viewModel.isLoading && viewModel.conversations.isEmpty {
-                    VStack(spacing: 16) {
-                        ProgressView()
-                            .scaleEffect(1.2)
-                        Text("正在连接 Agent...")
-                            .font(.system(size: 15))
-                            .foregroundColor(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if let err = viewModel.errorMessage, viewModel.conversations.isEmpty {
-                    VStack(spacing: 14) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 44))
-                            .foregroundColor(.orange)
-                        Text("无法连接网关")
-                            .font(.system(size: 17, weight: .semibold))
-                        Text(err)
-                            .font(.system(size: 13))
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 32)
-                        HStack(spacing: 12) {
-                            Button("重试") {
-                                Task {
-                                    await viewModel.fetchConversations()
-                                }
-                            }
-                            .buttonStyle(.bordered)
-                            
-                            Button("打开设置") {
-                                showSettings = true
-                            }
-                            .buttonStyle(.borderedProminent)
-                        }
-                        .padding(.top, 4)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if viewModel.filteredConversations.isEmpty {
-                    ContentUnavailableView {
-                        Label(
-                            viewModel.searchQuery.isEmpty ? "暂无会话" : "未找到匹配会话",
-                            systemImage: viewModel.searchQuery.isEmpty ? "bubble.left.and.bubble.right" : "magnifyingglass"
-                        )
-                    } description: {
-                        Text(viewModel.searchQuery.isEmpty ? "可点击右上角 + 开启新会话，或下拉刷新同步" : "请尝试其他关键词搜索")
-                    } actions: {
-                        if viewModel.searchQuery.isEmpty {
-                            Button("刷新列表") {
-                                Task {
-                                    await viewModel.fetchConversations()
-                                }
-                            }
-                            .buttonStyle(.bordered)
-                        }
-                    }
-                } else {
-                    List {
-                        ForEach(viewModel.filteredConversations) { item in
-                            NavigationLink(value: item) {
-                                conversationCard(for: item)
-                            }
-                            .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                            .listRowSeparator(.hidden)
-                        }
-                    }
-                    .listStyle(.plain)
-                    .refreshable {
-                        await viewModel.fetchConversations()
-                    }
-                }
-            }
-            .navigationTitle("Antigravity")
+            mainBodyView
+                .navigationTitle("Antigravity")
             .searchable(text: $viewModel.searchQuery, prompt: "搜索会话或工作区...")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -139,34 +69,179 @@ public struct ConversationListView: View {
                 viewModel.stopAutoRefresh()
             }
             .onChange(of: scenePhase) { _, newPhase in
-                if newPhase == .active {
-                    viewModel.startAutoRefresh()
-                    Task {
-                        await viewModel.resumeActive()
-                        await ProjectCacheManager.shared.fetchAndCacheProjects()
-                    }
-                } else if newPhase == .background {
-                    viewModel.stopAutoRefresh()
-                }
+                handleScenePhaseChange(newPhase)
             }
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
-                viewModel.startAutoRefresh()
-                Task {
-                    await viewModel.resumeActive()
-                    await ProjectCacheManager.shared.fetchAndCacheProjects()
-                }
+                handleAppDidBecomeActive()
             }
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
                 viewModel.stopAutoRefresh()
             }
+            .onReceive(NotificationCenter.default.publisher(for: .deviceTokenRevoked)) { _ in
+                handleTokenRevoked()
+            }
             .onOpenURL { url in
                 handleDeepLink(url)
+            }
+            .sheet(isPresented: $showQRScanner) {
+                QRScannerView { _ in
+                    Task {
+                        await viewModel.fetchConversations()
+                    }
+                }
             }
         }
     }
     
+    @ViewBuilder
+    private var mainBodyView: some View {
+        if viewModel.isLoading && viewModel.conversations.isEmpty {
+            loadingView
+        } else if let err = viewModel.errorMessage, viewModel.conversations.isEmpty {
+            errorView(err)
+        } else if viewModel.filteredConversations.isEmpty {
+            emptyView
+        } else {
+            listView
+        }
+    }
+    
+    private var loadingView: some View {
+        VStack(spacing: 16) {
+            ProgressView()
+                .scaleEffect(1.2)
+            Text("正在连接 Agent...")
+                .font(.system(size: 15))
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+    
+    private func errorView(_ err: String) -> some View {
+        VStack(spacing: 14) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 44))
+                .foregroundColor(.orange)
+            Text("无法连接网关")
+                .font(.system(size: 17, weight: .semibold))
+            Text(err)
+                .font(.system(size: 13))
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+            HStack(spacing: 12) {
+                if !AppSettings.shared.isPaired {
+                    Button("扫码配对") {
+                        showQRScanner = true
+                    }
+                    .buttonStyle(.borderedProminent)
+                } else {
+                    Button("重试") {
+                        Task {
+                            await viewModel.fetchConversations()
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                }
+                
+                if AppSettings.shared.isPaired {
+                    Button("打开设置") {
+                        showSettings = true
+                    }
+                    .buttonStyle(.borderedProminent)
+                } else {
+                    Button("打开设置") {
+                        showSettings = true
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+            .padding(.top, 4)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+    
+    private var emptyView: some View {
+        ContentUnavailableView {
+            Label(
+                viewModel.searchQuery.isEmpty ? "暂无会话" : "未找到匹配会话",
+                systemImage: viewModel.searchQuery.isEmpty ? "bubble.left.and.bubble.right" : "magnifyingglass"
+            )
+        } description: {
+            Text(viewModel.searchQuery.isEmpty ? "可点击右上角 + 开启新会话，或下拉刷新同步" : "请尝试其他关键词搜索")
+        } actions: {
+            if viewModel.searchQuery.isEmpty {
+                Button("刷新列表") {
+                    Task {
+                        await viewModel.fetchConversations()
+                    }
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+    }
+    
+    private var listView: some View {
+        List {
+            ForEach(viewModel.filteredConversations) { item in
+                NavigationLink(value: item) {
+                    conversationCard(for: item)
+                }
+                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                .listRowSeparator(.hidden)
+            }
+        }
+        .listStyle(.plain)
+        .refreshable {
+            await viewModel.fetchConversations()
+        }
+    }
+    
+    private func handleScenePhaseChange(_ newPhase: ScenePhase) {
+        if newPhase == .active {
+            viewModel.startAutoRefresh()
+            Task {
+                await viewModel.resumeActive()
+                await ProjectCacheManager.shared.fetchAndCacheProjects()
+            }
+        } else if newPhase == .background {
+            viewModel.stopAutoRefresh()
+        }
+    }
+    
+    private func handleAppDidBecomeActive() {
+        viewModel.startAutoRefresh()
+        Task {
+            await viewModel.resumeActive()
+            await ProjectCacheManager.shared.fetchAndCacheProjects()
+        }
+    }
+    
+    private func handleTokenRevoked() {
+        AppSettings.shared.unpair()
+        showQRScanner = true
+    }
+    
     private func handleDeepLink(_ url: URL) {
         guard url.scheme == "antigravity" || url.scheme == "agy" else { return }
+        
+        // Handle agy://pair pairing deep link
+        if url.host == "pair" {
+            switch PairingService.shared.parsePairingURI(url.absoluteString) {
+            case .success(let info):
+                Task {
+                    do {
+                        _ = try await PairingService.shared.pair(with: info)
+                        await viewModel.fetchConversations()
+                    } catch {
+                        // Pairing failed
+                    }
+                }
+            case .failure:
+                break
+            }
+            return
+        }
         
         let cascadeId: String
         if url.host == "cascade" {
