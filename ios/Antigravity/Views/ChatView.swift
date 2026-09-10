@@ -393,7 +393,7 @@ public struct ChatView: View {
     }
     
     private var isSendDisabled: Bool {
-        viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        viewModel.isSending || viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
     
     private func handleCancel() {
@@ -404,6 +404,7 @@ public struct ChatView: View {
     }
     
     private func handleSend() {
+        guard !viewModel.isSending else { return }
         let text = viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         viewModel.inputText = ""

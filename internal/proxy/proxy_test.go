@@ -515,3 +515,74 @@ func TestFilterSubagentTrajectories(t *testing.T) {
 	}
 }
 
+func TestSendUserCascadeMessageDeduplication(t *testing.T) {
+	upstreamCallCount := 0
+	mockUpstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/SendUserCascadeMessage") {
+			upstreamCallCount++
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("{}"))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer mockUpstream.Close()
+
+	insp := inspector.NewInspector(5 * time.Second)
+	p := NewProxy(insp)
+
+	port := mockUpstream.Listener.Addr().(*net.TCPAddr).Port
+	p.updateUpstream(inspector.InstanceInfo{
+		Port:      port,
+		CSRFToken: "test-token",
+		IsHealthy: true,
+	})
+
+	msgPayload := `{"cascadeId":"cascade-dup-test","items":[{"text":"Deploy the fix"}]}`
+
+	// 1. First send -> should reach upstream
+	req1 := httptest.NewRequest(http.MethodPost, "/api/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage", strings.NewReader(msgPayload))
+	req1.Header.Set("Content-Type", "application/json")
+	rec1 := httptest.NewRecorder()
+	p.ServeHTTP(rec1, req1)
+
+	if rec1.Code != http.StatusOK {
+		t.Fatalf("first request expected 200, got %d", rec1.Code)
+	}
+	if upstreamCallCount != 1 {
+		t.Fatalf("expected upstreamCallCount to be 1, got %d", upstreamCallCount)
+	}
+
+	// 2. Immediate second send with same content -> should be deduplicated by gateway
+	req2 := httptest.NewRequest(http.MethodPost, "/api/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage", strings.NewReader(msgPayload))
+	req2.Header.Set("Content-Type", "application/json")
+	rec2 := httptest.NewRecorder()
+	p.ServeHTTP(rec2, req2)
+
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("second duplicate request expected 200, got %d", rec2.Code)
+	}
+	if rec2.Body.String() != "{}" {
+		t.Fatalf("expected response body '{}', got %q", rec2.Body.String())
+	}
+	if upstreamCallCount != 1 {
+		t.Fatalf("expected upstreamCallCount to remain 1 (deduplicated), but got %d", upstreamCallCount)
+	}
+
+	// 3. Different content -> should pass through and reach upstream
+	diffPayload := `{"cascadeId":"cascade-dup-test","items":[{"text":"Different instruction"}]}`
+	req3 := httptest.NewRequest(http.MethodPost, "/api/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage", strings.NewReader(diffPayload))
+	req3.Header.Set("Content-Type", "application/json")
+	rec3 := httptest.NewRecorder()
+	p.ServeHTTP(rec3, req3)
+
+	if rec3.Code != http.StatusOK {
+		t.Fatalf("third request expected 200, got %d", rec3.Code)
+	}
+	if upstreamCallCount != 2 {
+		t.Fatalf("expected upstreamCallCount to be 2 for different text, got %d", upstreamCallCount)
+	}
+}
+
+

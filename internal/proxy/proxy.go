@@ -3,6 +3,7 @@ package proxy
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/sha256"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -45,6 +46,9 @@ type Proxy struct {
 	activePort  int
 	activeToken string
 	notifier    NotificationSink
+
+	msgDedupMu sync.Mutex
+	msgDedup   map[string]time.Time
 }
 
 // SetNotificationSink registers a sink to receive real-time trajectory updates.
@@ -79,6 +83,7 @@ func NewProxy(insp *inspector.Inspector) *Proxy {
 		insp:      insp,
 		transport: tr,
 		startTime: time.Now(),
+		msgDedup:  make(map[string]time.Time),
 	}
 
 	insp.OnUpdate(func(info inspector.InstanceInfo) {
@@ -292,6 +297,30 @@ func (b *bufferedResponseWriter) Write(p []byte) (int, error) {
 	return b.body.Write(p)
 }
 
+func (p *Proxy) checkAndRecordMessageDedup(key string, ttl time.Duration) bool {
+	p.msgDedupMu.Lock()
+	defer p.msgDedupMu.Unlock()
+	if p.msgDedup == nil {
+		p.msgDedup = make(map[string]time.Time)
+	}
+	now := time.Now()
+	// Periodic cleanup of stale entries
+	if len(p.msgDedup) > 64 {
+		for k, t := range p.msgDedup {
+			if now.Sub(t) > 30*time.Second {
+				delete(p.msgDedup, k)
+			}
+		}
+	}
+	if lastTime, exists := p.msgDedup[key]; exists {
+		if now.Sub(lastTime) < ttl {
+			return true // is duplicate within TTL
+		}
+	}
+	p.msgDedup[key] = now
+	return false
+}
+
 func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Request, rp http.Handler, reqPath string, port int, token string) {
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -303,6 +332,39 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 	cascadeID := ""
 	if err := json.Unmarshal(bodyBytes, &rawMap); err == nil {
 		cascadeID, _ = rawMap["cascadeId"].(string)
+
+		// Short-window idempotency check: prevent duplicate triggers within 2.5 seconds
+		var textContent strings.Builder
+		if items, ok := rawMap["items"].([]interface{}); ok {
+			for _, it := range items {
+				if itemMap, ok := it.(map[string]interface{}); ok {
+					if t, ok := itemMap["text"].(string); ok {
+						textContent.WriteString(t)
+					}
+				}
+			}
+		}
+		if comments, ok := rawMap["artifactComments"].([]interface{}); ok {
+			for _, ac := range comments {
+				if acMap, ok := ac.(map[string]interface{}); ok {
+					if uri, ok := acMap["artifactUri"].(string); ok {
+						textContent.WriteString(uri)
+					}
+				}
+			}
+		}
+
+		if cascadeID != "" && textContent.Len() > 0 {
+			dedupKey := fmt.Sprintf("%s:%x", cascadeID, sha256.Sum256([]byte(textContent.String())))
+			if p.checkAndRecordMessageDedup(dedupKey, 2500*time.Millisecond) {
+				log.Printf("[Proxy] Deduplicated repeat SendUserCascadeMessage for cascade %s (textLen=%d)", cascadeID, textContent.Len())
+				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("Content-Length", "2")
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte("{}"))
+				return
+			}
+		}
 
 		var configToUse json.RawMessage
 		// 1. Check if cascadeConfig already exists in payload
