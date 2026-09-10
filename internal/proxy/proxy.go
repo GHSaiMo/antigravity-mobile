@@ -136,7 +136,8 @@ func (p *Proxy) updateUpstream(info inspector.InstanceInfo) {
 	p.activeToken = token
 	log.Printf("[Proxy] Updated upstream proxy to 127.0.0.1:%d", port)
 
-	// Asynchronously sync historical trajectories so upstream GetAllCascadeTrajectories includes all persistent sessions
+	// Reset historical sync state and asynchronously sync historical trajectories
+	ResetHistoricalSyncState()
 	go func(prt int, tok string) {
 		_ = p.SyncHistoricalTrajectories(prt, tok)
 	}(port, token)
@@ -215,6 +216,10 @@ func (p *Proxy) handleRescan(w http.ResponseWriter, r *http.Request) {
 	status := "failed"
 	if info != nil && info.IsHealthy {
 		status = "connected"
+		ResetHistoricalSyncState()
+		go func(prt int, tok string) {
+			_ = p.SyncHistoricalTrajectories(prt, tok)
+		}(info.Port, info.CSRFToken)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -600,11 +605,8 @@ func (p *Proxy) HandleCascadeInteraction(w http.ResponseWriter, r *http.Request)
 }
 
 func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.Request, port int, token string) {
-	// 1. Ensure historical trajectories on disk are loaded into upstream memory
-	hasSyncedHistMu.Lock()
-	synced := hasSyncedHist
-	hasSyncedHistMu.Unlock()
-	if !synced && port > 0 {
+	// 1. Ensure historical trajectories on disk are loaded into upstream memory for this port
+	if port > 0 && !HasSyncedHistoricalTrajectories(port) {
 		_ = p.SyncHistoricalTrajectories(port, token)
 	}
 
@@ -825,11 +827,14 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 		var wg sync.WaitGroup
 		var mu sync.Mutex
 		actionMap := make(map[string]bool)
+		sem := make(chan struct{}, 4) // Limit concurrent upstream RPCs to prevent hammering language_server
 
 		for cid := range candidates {
 			wg.Add(1)
 			go func(cascadeID string) {
 				defer wg.Done()
+				sem <- struct{}{}        // Acquire semaphore slot
+				defer func() { <-sem }() // Release semaphore slot
 				raw, err := p.fetchUpstreamTrajectory(cascadeID, port, token)
 				if err == nil && raw != nil {
 					details := p.ParseTrajectoryDetails(raw)
@@ -865,6 +870,9 @@ func isSubagentTrajectoryMap(s map[string]interface{}, id string) bool {
 	if parent, ok := meta["parentConversationId"].(string); ok && strings.TrimSpace(parent) != "" {
 		return true
 	}
+	if isFork, ok := meta["isBattleModeFork"].(bool); ok && isFork {
+		return true
+	}
 	if spec, ok := meta["subagentSpec"]; ok && spec != nil {
 		return true
 	}
@@ -875,9 +883,6 @@ func isSubagentTrajectoryMap(s map[string]interface{}, id string) bool {
 		return true
 	}
 	if depth, ok := meta["nestingDepth"].(int); ok && depth > 0 {
-		return true
-	}
-	if root, ok := meta["rootConversationId"].(string); ok && strings.TrimSpace(root) != "" && id != "" && root != id {
 		return true
 	}
 
