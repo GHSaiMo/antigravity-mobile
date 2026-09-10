@@ -10,7 +10,9 @@
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)]()
 
 <p align="center">
-  <img src="images/session_list.jpg" alt="Antigravity Mobile 会话监控与配额面板" width="340" />
+  <img src="images/session_list.jpg" alt="Antigravity Mobile 会话列表与配额面板" width="340" />
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="images/native_components.jpg" alt="Antigravity Mobile 原生交互组件与任务监控" width="340" />
 </p>
 
 ---
@@ -121,7 +123,8 @@ antigravity-mobile/
 ├── README.md                   # 全栈开源项目文档
 ├── env.example                 # 环境配置模板 (Bark 推送、端口等)
 ├── images/                     # 项目文档截图与预览图
-│   └── session_list.jpg        # 移动端主界面与配额监控预览图
+│   ├── session_list.jpg        # 移动端主界面与配额监控预览图
+│   └── native_components.jpg   # 原生交互组件与后台任务监控预览图
 ├── go.mod / go.sum             # Go 依赖描述 (Go 1.22+)
 ├── .github/workflows/ci.yml    # CI/CD 自动化工作流
 ├── cmd/
