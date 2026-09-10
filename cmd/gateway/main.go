@@ -158,7 +158,8 @@ func main() {
 		if path == "/api/v1/cockpit/quotas" {
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("Access-Control-Allow-Origin", "*")
-			quotas, err := cockpit.GetQuotas()
+			liveEmail, _, _ := p.GetActiveUserStatus()
+			quotas, err := cockpit.GetQuotas(liveEmail)
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
 				_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
@@ -170,6 +171,11 @@ func main() {
 		if path == "/api/v1/cockpit/refresh" {
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
 			if r.Method != http.MethodPost {
 				w.WriteHeader(http.StatusMethodNotAllowed)
 				return
@@ -181,6 +187,38 @@ func main() {
 				return
 			}
 			_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "message": "refresh triggered"})
+			return
+		}
+		if path == "/api/v1/cockpit/switch" {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+			if r.Method != http.MethodPost {
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
+			var req struct {
+				AccountID string `json:"account_id"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.AccountID) == "" {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "account_id is required"})
+				return
+			}
+			if err := cockpit.SwitchAccount(strings.TrimSpace(req.AccountID)); err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"status":     "ok",
+				"message":    "account switched successfully",
+				"account_id": strings.TrimSpace(req.AccountID),
+			})
 			return
 		}
 

@@ -135,7 +135,8 @@ func makeMetric(fraction *float64, resetTime string) *QuotaMetric {
 }
 
 // GetQuotas reads Cockpit Tools' local storage and cache to construct the full quota snapshot.
-func GetQuotas() (*CockpitQuotaResponse, error) {
+// An optional activeEmail (e.g. from live Language Server) can be passed to prioritize the true runtime account.
+func GetQuotas(activeEmails ...string) (*CockpitQuotaResponse, error) {
 	dataDir, err := GetCockpitDataDir()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cockpit data dir: %w", err)
@@ -150,6 +151,44 @@ func GetQuotas() (*CockpitQuotaResponse, error) {
 	var idx accountsIndex
 	if err := json.Unmarshal(accBytes, &idx); err != nil {
 		return nil, fmt.Errorf("failed to parse accounts.json: %w", err)
+	}
+
+	resolvedCurrentID := ""
+
+	// 1. Live Language Server active email (Priority 1)
+	if len(activeEmails) > 0 && strings.TrimSpace(activeEmails[0]) != "" {
+		targetEmail := strings.ToLower(strings.TrimSpace(activeEmails[0]))
+		for _, acc := range idx.Accounts {
+			if strings.ToLower(strings.TrimSpace(acc.Email)) == targetEmail {
+				resolvedCurrentID = acc.ID
+				break
+			}
+		}
+	}
+
+	// 2. Cockpit Legacy Desktop bound account (Priority 2)
+	if resolvedCurrentID == "" {
+		legacyInstFile := filepath.Join(dataDir, "antigravity_legacy_instances.json")
+		if lBytes, err := os.ReadFile(legacyInstFile); err == nil {
+			var leg struct {
+				DefaultSettings struct {
+					BindAccountId string `json:"bindAccountId"`
+				} `json:"defaultSettings"`
+			}
+			if err := json.Unmarshal(lBytes, &leg); err == nil && leg.DefaultSettings.BindAccountId != "" {
+				for _, acc := range idx.Accounts {
+					if acc.ID == leg.DefaultSettings.BindAccountId {
+						resolvedCurrentID = acc.ID
+						break
+					}
+				}
+			}
+		}
+	}
+
+	// 3. Fallback to accounts.json current_account_id (Priority 3)
+	if resolvedCurrentID == "" {
+		resolvedCurrentID = idx.CurrentAccountID
 	}
 
 	cacheDir := filepath.Join(dataDir, "cache", "quota_api_v1_desktop", "authorized")
@@ -167,7 +206,7 @@ func GetQuotas() (*CockpitQuotaResponse, error) {
 			ID:        acc.ID,
 			Email:     acc.Email,
 			Name:      acc.Name,
-			IsCurrent: acc.ID == idx.CurrentAccountID,
+			IsCurrent: acc.ID == resolvedCurrentID,
 		}
 
 		if cBytes, err := os.ReadFile(cachePath); err == nil {
