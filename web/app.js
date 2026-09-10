@@ -2485,10 +2485,33 @@ function renderQuotaStatusBar(data) {
     fillEl.className = `quota-progress-fill fill-${statusClass}`;
   }
   if (descEl) {
-    const accLabel = current.name || current.email.split("@")[0];
     const resetTxt = current.gemini_5h.reset_friendly || "就绪";
-    descEl.textContent = `${accLabel} · ${resetTxt}`;
+    descEl.textContent = resetTxt;
   }
+}
+
+let isCockpitEmailMasked = localStorage.getItem("cockpit_email_masked") === "true";
+
+function maskEmail(email) {
+  if (!email || typeof email !== "string") return email;
+  const atIdx = email.indexOf("@");
+  if (atIdx <= 0) return email;
+  const local = email.slice(0, atIdx);
+  const domain = email.slice(atIdx + 1);
+
+  const maskPart = (str) => {
+    if (str.length <= 1) return str + "*";
+    if (str.length === 2) return str[0] + "*" + str[1];
+    return str[0] + "*".repeat(str.length - 2) + str[str.length - 1];
+  };
+
+  const dotIdx = domain.lastIndexOf(".");
+  if (dotIdx > 0) {
+    const domainName = domain.slice(0, dotIdx);
+    const domainExt = domain.slice(dotIdx);
+    return `${maskPart(local)}@${maskPart(domainName)}${domainExt}`;
+  }
+  return `${maskPart(local)}@${maskPart(domain)}`;
 }
 
 function buildAccountQuotaCard(acc, isCurrent) {
@@ -2500,17 +2523,18 @@ function buildAccountQuotaCard(acc, isCurrent) {
   const card = document.createElement("div");
   card.className = `quota-account-card ${isCurrent ? "current-account-card" : ""}`;
 
+  const displayEmail = isCockpitEmailMasked ? maskEmail(acc.email) : acc.email;
+
   card.innerHTML = `
     <div class="quota-card-header">
       <div class="quota-card-identity">
-        <span class="quota-account-email" title="${acc.email}">${escapeHtml(acc.email)}</span>
-        ${acc.name ? `<span class="quota-account-name">${escapeHtml(acc.name)}</span>` : ""}
+        <span class="quota-account-email" title="${escapeHtml(acc.email)}">${escapeHtml(displayEmail)}</span>
       </div>
-      ${isCurrent ? `<span class="quota-active-tag">🟢 当前激活</span>` : `<span class="quota-account-name" style="font-size:10px;">备用</span>`}
+      ${isCurrent ? `<span class="quota-active-tag">🟢 使用中</span>` : ``}
     </div>
 
     <div class="quota-metrics-grid">
-      <!-- 1. Claude 5h -->
+      <!-- 1. Left Top: Claude 5h -->
       <div class="metric-box">
         <div class="metric-box-header">
           <span class="metric-box-title claude">🟣 Claude 5h</span>
@@ -2522,19 +2546,7 @@ function buildAccountQuotaCard(acc, isCurrent) {
         <span class="metric-box-reset" title="${c5h.reset_friendly}">${c5h.reset_friendly}</span>
       </div>
 
-      <!-- 2. Claude Weekly -->
-      <div class="metric-box">
-        <div class="metric-box-header">
-          <span class="metric-box-title claude">🟣 Claude 周限</span>
-          <span class="metric-box-value ${getQuotaStatusClass(cWk.remaining_percent)}">${cWk.remaining_percent.toFixed(1)}%</span>
-        </div>
-        <div class="metric-mini-track">
-          <div class="metric-mini-fill ${getQuotaStatusClass(cWk.remaining_percent)}" style="width: ${Math.min(100, Math.max(0, cWk.remaining_percent))}%;"></div>
-        </div>
-        <span class="metric-box-reset" title="${cWk.reset_friendly}">${cWk.reset_friendly}</span>
-      </div>
-
-      <!-- 3. Gemini 5h -->
+      <!-- 2. Right Top: Gemini 5h -->
       <div class="metric-box">
         <div class="metric-box-header">
           <span class="metric-box-title gemini">🔵 Gemini 5h</span>
@@ -2546,10 +2558,22 @@ function buildAccountQuotaCard(acc, isCurrent) {
         <span class="metric-box-reset" title="${g5h.reset_friendly}">${g5h.reset_friendly}</span>
       </div>
 
-      <!-- 4. Gemini Weekly -->
+      <!-- 3. Left Bottom: Claude Weekly -->
       <div class="metric-box">
         <div class="metric-box-header">
-          <span class="metric-box-title gemini">🔵 Gemini 周限</span>
+          <span class="metric-box-title claude">🟣 Claude Weekly</span>
+          <span class="metric-box-value ${getQuotaStatusClass(cWk.remaining_percent)}">${cWk.remaining_percent.toFixed(1)}%</span>
+        </div>
+        <div class="metric-mini-track">
+          <div class="metric-mini-fill ${getQuotaStatusClass(cWk.remaining_percent)}" style="width: ${Math.min(100, Math.max(0, cWk.remaining_percent))}%;"></div>
+        </div>
+        <span class="metric-box-reset" title="${cWk.reset_friendly}">${cWk.reset_friendly}</span>
+      </div>
+
+      <!-- 4. Right Bottom: Gemini Weekly -->
+      <div class="metric-box">
+        <div class="metric-box-header">
+          <span class="metric-box-title gemini">🔵 Gemini Weekly</span>
           <span class="metric-box-value ${getQuotaStatusClass(gWk.remaining_percent)}">${gWk.remaining_percent.toFixed(1)}%</span>
         </div>
         <div class="metric-mini-track">
@@ -2638,6 +2662,21 @@ function initQuotaModule() {
   const refreshBtn = document.getElementById("btn-quota-refresh");
   if (refreshBtn) {
     refreshBtn.addEventListener("click", () => fetchCockpitQuotas(true));
+  }
+
+  const maskBtn = document.getElementById("btn-quota-mask");
+  if (maskBtn) {
+    if (isCockpitEmailMasked) {
+      maskBtn.classList.add("active");
+    }
+    maskBtn.addEventListener("click", () => {
+      isCockpitEmailMasked = !isCockpitEmailMasked;
+      localStorage.setItem("cockpit_email_masked", isCockpitEmailMasked ? "true" : "false");
+      maskBtn.classList.toggle("active", isCockpitEmailMasked);
+      if (currentCockpitQuotas) {
+        renderQuotaSheet(currentCockpitQuotas);
+      }
+    });
   }
 
   // Initial fetch

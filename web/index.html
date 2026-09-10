@@ -63,26 +63,6 @@
           <h1 class="large-title">Antigravity</h1>
         </div>
 
-        <!-- Cockpit Gemini 5h Quota Status Bar -->
-        <div id="quota-status-bar" class="quota-status-bar" role="button" aria-label="查看全账号额度">
-          <div class="quota-status-capsule">
-            <div class="quota-capsule-left">
-              <span class="quota-bolt-icon">⚡</span>
-              <span class="quota-metric-name">Gemini 5h</span>
-              <span id="quota-status-percent" class="quota-status-percent">--%</span>
-            </div>
-            <div class="quota-progress-track">
-              <div id="quota-status-fill" class="quota-progress-fill" style="width: 0%;"></div>
-            </div>
-            <div class="quota-capsule-right">
-              <span id="quota-status-desc" class="quota-status-desc">同步中...</span>
-              <svg class="quota-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="9 18 15 12 9 6"></polyline>
-              </svg>
-            </div>
-          </div>
-        </div>
-
         <!-- iOS .searchable Search Bar -->
         <div class="ios-search-bar">
           <div class="search-capsule">
@@ -98,6 +78,26 @@
                 <line x1="9" y1="9" x2="15" y2="15" stroke="var(--ios-bg)" stroke-width="2" stroke-linecap="round"></line>
               </svg>
             </button>
+          </div>
+        </div>
+
+        <!-- Cockpit Gemini 5h Quota Status Bar -->
+        <div id="quota-status-bar" class="quota-status-bar" role="button" aria-label="查看全账号额度" style="display: none;">
+          <div class="quota-status-capsule">
+            <div class="quota-capsule-left">
+              <span class="quota-bolt-icon">⚡</span>
+              <span class="quota-metric-name">Gemini 5h</span>
+              <span id="quota-status-percent" class="quota-status-percent">--%</span>
+            </div>
+            <div class="quota-progress-track">
+              <div id="quota-status-fill" class="quota-progress-fill" style="width: 0%;"></div>
+            </div>
+            <div class="quota-capsule-right">
+              <span id="quota-status-desc" class="quota-status-desc">同步中...</span>
+              <svg class="quota-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="9 18 15 12 9 6"></polyline>
+              </svg>
+            </div>
           </div>
         </div>
 
@@ -327,10 +327,18 @@
             <span>刷新</span>
           </button>
           <div class="sheet-title-group">
-            <h2 class="sheet-title">Cockpit 账号额度监控</h2>
+            <h2 class="sheet-title">Cockpit 账号配额</h2>
             <span id="quota-last-updated" class="sheet-subtitle">--:--:--</span>
           </div>
-          <button id="btn-quota-close" class="sheet-header-btn primary">完成</button>
+          <div class="sheet-header-right-group">
+            <button id="btn-quota-mask" class="sheet-header-btn quota-mask-btn" title="打码脱敏" aria-label="打码脱敏">
+              <svg class="mask-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                <line x1="1" y1="1" x2="23" y2="23"></line>
+              </svg>
+            </button>
+            <button id="btn-quota-close" class="sheet-header-btn primary">完成</button>
+          </div>
         </div>
         <div class="sheet-body quota-sheet-body">
           <!-- Pinned Current Account -->
