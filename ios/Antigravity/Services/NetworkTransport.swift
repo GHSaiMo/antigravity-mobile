@@ -81,11 +81,16 @@ public final class NetworkTransport: Sendable {
             return try await executeViaCellular(request: req, url: url, host: host)
         } catch let NetworkTransportError.requestAlreadyDispatched(underlying) {
             let method = (req.httpMethod ?? "GET").uppercased()
-            if method == "GET" || method == "HEAD" {
-                print("[NetworkTransport] Cellular direct response read failed after send, retrying idempotent \(method) via standard interface: \(underlying.localizedDescription)")
+            let path = req.url?.path ?? ""
+            // In ConnectRPC, all RPC methods (including read queries like GetAllCascadeTrajectories and GetCascadeTrajectory)
+            // use HTTP POST. Only state-mutating requests like SendUserCascadeMessage create new messages and should suppress retry.
+            // All queries and idempotent operations MUST seamlessly fall back to standard URLSession routing (Wi-Fi).
+            let isNonIdempotentMutation = method == "POST" && path.contains("SendUserCascadeMessage")
+            if !isNonIdempotentMutation {
+                print("[NetworkTransport] Cellular direct response read failed after send, retrying idempotent request (\(path)) via standard interface: \(underlying.localizedDescription)")
                 return try await fallbackSession.data(for: req)
             } else {
-                print("[NetworkTransport] Cellular direct request was already sent to server, but response failed (\(underlying.localizedDescription)). Suppressing fallback retry for non-idempotent \(method) to prevent duplicate execution.")
+                print("[NetworkTransport] Cellular direct request was already sent to server, but response failed (\(underlying.localizedDescription)). Suppressing fallback retry for non-idempotent \(path) to prevent duplicate execution.")
                 throw APIError.networkError("指令已成功送达服务器，但等待响应超时 (\(underlying.localizedDescription))")
             }
         } catch {
@@ -130,8 +135,8 @@ public final class NetworkTransport: Sendable {
         let connection = NWConnection(to: endpoint, using: parameters)
         let method = request.httpMethod ?? "GET"
         let body = request.httpBody
-        // Give cellular adequate time (10s by default) to bring up radio and exchange packets
-        let timeoutInterval: TimeInterval = request.timeoutInterval > 0 ? request.timeoutInterval : 10.0
+        // Cap cellular timeout to 8.0s so that network blocks/drops don't cause prolonged UI freezing before fallback
+        let timeoutInterval: TimeInterval = min(request.timeoutInterval > 0 ? request.timeoutInterval : 8.0, 8.0)
         
         return try await withCheckedThrowingContinuation { continuation in
             final class SyncState: @unchecked Sendable {

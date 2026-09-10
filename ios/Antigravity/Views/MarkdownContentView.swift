@@ -1,10 +1,24 @@
 import SwiftUI
 
+public enum TableColumnAlignment: Sendable, Equatable {
+    case leading
+    case center
+    case trailing
+    
+    public var swiftUIAlignment: Alignment {
+        switch self {
+        case .leading: return .leading
+        case .center: return .center
+        case .trailing: return .trailing
+        }
+    }
+}
+
 public enum MarkdownBlock: Identifiable {
     case heading(id: String, level: Int, text: String)
     case divider(id: String)
     case codeBlock(id: String, lang: String, code: String)
-    case table(id: String, headers: [String], rows: [[String]])
+    case table(id: String, headers: [String], rows: [[String]], alignments: [TableColumnAlignment] = [])
     case list(id: String, items: [String])
     case paragraph(id: String, text: String)
     
@@ -13,7 +27,7 @@ public enum MarkdownBlock: Identifiable {
         case .heading(let id, _, _): return id
         case .divider(let id): return id
         case .codeBlock(let id, _, _): return id
-        case .table(let id, _, _): return id
+        case .table(let id, _, _, _): return id
         case .list(let id, _): return id
         case .paragraph(let id, _): return id
         }
@@ -69,8 +83,8 @@ public struct MarkdownContentView: View {
                 case .codeBlock(_, let lang, let code):
                     codeBlockView(lang: lang, code: code)
                     
-                case .table(_, let headers, let rows):
-                    tableView(headers: headers, rows: rows)
+                case .table(_, let headers, let rows, let alignments):
+                    tableView(headers: headers, rows: rows, alignments: alignments)
                     
                 case .list(_, let items):
                     listView(items: items)
@@ -260,63 +274,84 @@ public struct MarkdownContentView: View {
     }
     
     @ViewBuilder
-    private func tableView(headers: [String], rows: [[String]]) -> some View {
-        ScrollView(.horizontal, showsIndicators: true) {
-            VStack(alignment: .leading, spacing: 0) {
-                // Header row
-                HStack(spacing: 0) {
-                    ForEach(Array(headers.enumerated()), id: \.offset) { colIdx, header in
-                        Self.renderRichText(header, size: 13, weight: .bold)
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundColor(.primary)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .frame(minWidth: 100, alignment: .leading)
-                        
-                        if colIdx < headers.count - 1 {
-                            Divider()
-                                .frame(height: 20)
-                        }
-                    }
-                }
-                .background(Color(uiColor: .tertiarySystemBackground))
-                
-                Divider()
-                
-                // Data rows
-                ForEach(Array(rows.enumerated()), id: \.offset) { rowIdx, row in
-                    HStack(spacing: 0) {
-                        ForEach(Array(headers.indices), id: \.self) { colIdx in
-                            let cellText = colIdx < row.count ? row[colIdx] : ""
-                            Self.renderRichText(cellText, size: 13)
-                                .font(.system(size: 13))
-                                .foregroundColor(.primary.opacity(0.9))
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .frame(minWidth: 100, alignment: .leading)
-                                .textSelection(.enabled)
-                            
-                            if colIdx < headers.count - 1 {
-                                Divider()
-                                .frame(height: 20)
+    private func tableView(headers: [String], rows: [[String]], alignments: [TableColumnAlignment] = []) -> some View {
+        let columnCount = max(headers.count, rows.map(\.count).max() ?? 0)
+        
+        if columnCount > 0 {
+            ScrollView(.horizontal, showsIndicators: true) {
+                Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
+                    // Header row
+                    if !headers.isEmpty {
+                        GridRow {
+                            ForEach(0..<columnCount, id: \.self) { colIdx in
+                                let headerText = colIdx < headers.count ? headers[colIdx] : ""
+                                let align = (colIdx < alignments.count ? alignments[colIdx] : .leading).swiftUIAlignment
+                                
+                                Self.renderRichText(headerText, size: 13, weight: .bold)
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundColor(.primary)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .frame(minWidth: 80, maxWidth: .infinity, maxHeight: .infinity, alignment: align)
+                                    .gridCellUnsizedAxes(.vertical)
+                                    .background(Color(uiColor: .tertiarySystemBackground))
+                                    .overlay(alignment: .trailing) {
+                                        if colIdx < columnCount - 1 {
+                                            Rectangle()
+                                                .fill(Color.secondary.opacity(0.2))
+                                                .frame(width: 0.5)
+                                        }
+                                    }
                             }
                         }
+                        
+                        Rectangle()
+                            .fill(Color.secondary.opacity(0.3))
+                            .frame(height: 0.5)
                     }
-                    .background(rowIdx % 2 == 0 ? Color.clear : Color(uiColor: .tertiarySystemBackground).opacity(0.3))
                     
-                    if rowIdx < rows.count - 1 {
-                        Divider()
-                            .background(Color.secondary.opacity(0.15))
+                    // Data rows
+                    ForEach(Array(rows.enumerated()), id: \.offset) { rowIdx, row in
+                        GridRow {
+                            ForEach(0..<columnCount, id: \.self) { colIdx in
+                                let cellText = colIdx < row.count ? row[colIdx] : ""
+                                let align = (colIdx < alignments.count ? alignments[colIdx] : .leading).swiftUIAlignment
+                                let isEven = rowIdx % 2 == 0
+                                
+                                Self.renderRichText(cellText, size: 13)
+                                    .font(.system(size: 13))
+                                    .foregroundColor(.primary.opacity(0.9))
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .frame(minWidth: 80, maxWidth: .infinity, maxHeight: .infinity, alignment: align)
+                                    .gridCellUnsizedAxes(.vertical)
+                                    .background(isEven ? Color.clear : Color(uiColor: .tertiarySystemBackground).opacity(0.3))
+                                    .overlay(alignment: .trailing) {
+                                        if colIdx < columnCount - 1 {
+                                            Rectangle()
+                                                .fill(Color.secondary.opacity(0.15))
+                                                .frame(width: 0.5)
+                                        }
+                                    }
+                                    .textSelection(.enabled)
+                            }
+                        }
+                        
+                        if rowIdx < rows.count - 1 {
+                            Rectangle()
+                                .fill(Color.secondary.opacity(0.15))
+                                .frame(height: 0.5)
+                        }
                     }
                 }
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+                )
             }
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
-            )
+            .padding(.vertical, 4)
         }
-        .padding(.vertical, 4)
     }
     
     @ViewBuilder
@@ -411,22 +446,54 @@ public enum MarkdownParser {
                 }
                 if tableLines.count >= 2 {
                     let parseRow = { (rowStr: String) -> [String] in
-                        let parts = rowStr.split(separator: "|", omittingEmptySubsequences: false)
+                        let placeholder = "\u{E000}"
+                        let sanitized = rowStr.replacingOccurrences(of: "\\|", with: placeholder)
+                        let parts = sanitized.split(separator: "|", omittingEmptySubsequences: false)
                         guard parts.count >= 2 else { return [] }
                         let inner = parts[1..<(parts.count - 1)]
-                        return inner.map { String($0).trimmingCharacters(in: .whitespaces) }
+                        return inner.map {
+                            String($0)
+                                .replacingOccurrences(of: placeholder, with: "|")
+                                .trimmingCharacters(in: .whitespaces)
+                        }
                     }
+                    let isSeparatorRow = { (cells: [String]) -> Bool in
+                        guard !cells.isEmpty else { return false }
+                        return cells.allSatisfy { cell in
+                            let t = cell.trimmingCharacters(in: .whitespaces)
+                            guard !t.isEmpty else { return false }
+                            return t.allSatisfy { $0 == "-" || $0 == ":" }
+                        }
+                    }
+                    let parseAlignments = { (cells: [String]) -> [TableColumnAlignment] in
+                        return cells.map { cell in
+                            let t = cell.trimmingCharacters(in: .whitespaces)
+                            let hasLeft = t.hasPrefix(":")
+                            let hasRight = t.hasSuffix(":")
+                            if hasLeft && hasRight {
+                                return .center
+                            } else if hasRight {
+                                return .trailing
+                            } else {
+                                return .leading
+                            }
+                        }
+                    }
+                    
                     let headers = parseRow(tableLines[0])
+                    var alignments: [TableColumnAlignment] = []
                     var rows: [[String]] = []
                     for rowIdx in 1..<tableLines.count {
                         let r = parseRow(tableLines[rowIdx])
-                        // Skip separator row (| --- | --- |)
-                        if r.allSatisfy({ $0.allSatisfy({ $0 == "-" || $0 == ":" || $0.isWhitespace }) }) {
+                        if isSeparatorRow(r) {
+                            if alignments.isEmpty {
+                                alignments = parseAlignments(r)
+                            }
                             continue
                         }
                         rows.append(r)
                     }
-                    blocks.append(.table(id: "block-\(blockIdx)", headers: headers, rows: rows))
+                    blocks.append(.table(id: "block-\(blockIdx)", headers: headers, rows: rows, alignments: alignments))
                     blockIdx += 1
                     continue
                 }
