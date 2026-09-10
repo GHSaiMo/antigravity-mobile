@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"encoding/json"
 	"net/http"
 	"os"
 	"os/signal"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"antigravity-mobile/internal/auth"
+	"antigravity-mobile/internal/cockpit"
 	"antigravity-mobile/internal/config"
 	"antigravity-mobile/internal/inspector"
 	"antigravity-mobile/internal/notifier"
@@ -149,6 +151,36 @@ func main() {
 		}
 		if strings.HasPrefix(path, "/api/v1/devices") {
 			authHandler.HandleDevices(w, r)
+			return
+		}
+
+		// Route Cockpit Quota endpoints
+		if path == "/api/v1/cockpit/quotas" {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			quotas, err := cockpit.GetQuotas()
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(quotas)
+			return
+		}
+		if path == "/api/v1/cockpit/refresh" {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			if r.Method != http.MethodPost {
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
+			err := cockpit.TriggerRefresh()
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "message": "refresh triggered"})
 			return
 		}
 

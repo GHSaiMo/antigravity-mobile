@@ -659,4 +659,45 @@ public final class APIClient: Sendable {
         
         return cascadeId
     }
+    
+    // Fetch Cockpit Quotas
+    public func fetchCockpitQuotas(baseURL: URL) async throws -> CockpitQuotaResponse {
+        let endpoint = baseURL.appendingPathComponent("api/v1/cockpit/quotas")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 10
+        
+        let (data, response) = try await transport.send(
+            request: request,
+            preferCellular: AppSettings.shared.preferCellularNetwork
+        )
+        guard let httpResp = response as? HTTPURLResponse else {
+            throw APIError.networkError("Invalid response type")
+        }
+        guard (200...299).contains(httpResp.statusCode) else {
+            let msg = String(data: data, encoding: .utf8) ?? "HTTP \(httpResp.statusCode)"
+            throw APIError.serverError(statusCode: httpResp.statusCode, message: msg)
+        }
+        return try JSONDecoder().decode(CockpitQuotaResponse.self, from: data)
+    }
+    
+    // Trigger Cockpit Quota Refresh
+    public func refreshCockpitQuotas(baseURL: URL) async throws {
+        let endpoint = baseURL.appendingPathComponent("api/v1/cockpit/refresh")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 10
+        
+        let (data, response) = try await transport.send(
+            request: request,
+            preferCellular: AppSettings.shared.preferCellularNetwork
+        )
+        guard let httpResp = response as? HTTPURLResponse else {
+            throw APIError.networkError("Invalid response type")
+        }
+        guard (200...299).contains(httpResp.statusCode) else {
+            let msg = String(data: data, encoding: .utf8) ?? "HTTP \(httpResp.statusCode)"
+            throw APIError.serverError(statusCode: httpResp.statusCode, message: msg)
+        }
+    }
 }

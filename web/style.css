@@ -1667,3 +1667,304 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
   flex-shrink: 0;
 }
 
+/* ==========================================================================
+   Cockpit Quota Status Bar & Quota Sheet Modal
+   ========================================================================== */
+
+.quota-status-bar {
+  margin: 0 16px 10px 16px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.quota-status-capsule {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 38px;
+  padding: 0 12px;
+  border-radius: 19px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 0.5px solid rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  transition: background-color 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform 0.15s ease;
+}
+
+.quota-status-capsule:active {
+  transform: scale(0.985);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.quota-capsule-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.quota-bolt-icon {
+  font-size: 13px;
+  color: #f59e0b;
+}
+
+.quota-metric-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ios-secondary-label);
+  letter-spacing: -0.2px;
+}
+
+.quota-status-percent {
+  font-size: 13px;
+  font-weight: 700;
+  font-family: -apple-system-monospaced, "SF Pro Rounded", ui-monospace, monospace;
+  color: var(--ios-label);
+}
+
+.quota-progress-track {
+  flex: 1;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 2px;
+  margin: 0 10px;
+  overflow: hidden;
+  position: relative;
+}
+
+.quota-progress-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--ios-green);
+  transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.3s ease;
+}
+
+.quota-progress-fill.fill-good {
+  background: #34c759;
+}
+
+.quota-progress-fill.fill-warning {
+  background: #ff9500;
+}
+
+.quota-progress-fill.fill-danger {
+  background: #ff3b30;
+}
+
+.quota-capsule-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.quota-status-desc {
+  font-size: 11px;
+  color: var(--ios-tertiary-label);
+  white-space: nowrap;
+}
+
+.quota-chevron {
+  color: var(--ios-quaternary-label);
+  transition: transform 0.2s ease;
+}
+
+/* --- Quota Sheet Card --- */
+.quota-sheet-card {
+  max-height: 86vh;
+}
+
+.sheet-title-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.sheet-subtitle {
+  font-size: 10px;
+  color: var(--ios-tertiary-label);
+  margin-top: 1px;
+}
+
+.quota-refresh-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 14px;
+}
+
+.quota-refresh-btn .refresh-icon.spinning {
+  animation: quota-spin 0.8s linear infinite;
+}
+
+@keyframes quota-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.quota-sheet-body {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 8px 16px 24px 16px;
+}
+
+.quota-section-header {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--ios-secondary-label);
+  letter-spacing: 0.5px;
+  margin: 12px 2px 6px 2px;
+}
+
+.quota-account-card {
+  background: var(--ios-tertiary-bg);
+  border-radius: 14px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  border: 0.5px solid var(--ios-separator-subtle);
+  transition: transform 0.15s ease;
+}
+
+.quota-account-card.current-account-card {
+  background: linear-gradient(135deg, rgba(52, 199, 89, 0.08) 0%, var(--ios-tertiary-bg) 100%);
+  border: 1px solid rgba(52, 199, 89, 0.35);
+  box-shadow: 0 4px 16px rgba(52, 199, 89, 0.06);
+}
+
+.quota-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.quota-card-identity {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.quota-account-email {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ios-label);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.quota-account-name {
+  font-size: 11px;
+  color: var(--ios-secondary-label);
+  background: rgba(255, 255, 255, 0.08);
+  padding: 1px 6px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.quota-active-tag {
+  font-size: 10px;
+  font-weight: 600;
+  color: #34c759;
+  background: rgba(52, 199, 89, 0.15);
+  padding: 2px 6px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  border: 0.5px solid rgba(52, 199, 89, 0.3);
+}
+
+.quota-metrics-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.metric-box {
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 10px;
+  padding: 8px 10px;
+  border: 0.5px solid rgba(255, 255, 255, 0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.metric-box-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.metric-box-title {
+  font-size: 11px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.metric-box-title.claude {
+  color: #c084fc;
+}
+
+.metric-box-title.gemini {
+  color: #60a5fa;
+}
+
+.metric-box-value {
+  font-size: 12px;
+  font-weight: 700;
+  font-family: -apple-system-monospaced, "SF Pro Rounded", ui-monospace, monospace;
+}
+
+.metric-box-value.good {
+  color: #34c759;
+}
+
+.metric-box-value.warning {
+  color: #ff9500;
+}
+
+.metric-box-value.danger {
+  color: #ff3b30;
+}
+
+.metric-mini-track {
+  height: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 1.5px;
+  overflow: hidden;
+}
+
+.metric-mini-fill {
+  height: 100%;
+  border-radius: 1.5px;
+  transition: width 0.3s ease;
+}
+
+.metric-mini-fill.good {
+  background: #34c759;
+}
+
+.metric-mini-fill.warning {
+  background: #ff9500;
+}
+
+.metric-mini-fill.danger {
+  background: #ff3b30;
+}
+
+.metric-box-reset {
+  font-size: 9.5px;
+  color: var(--ios-tertiary-label);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+

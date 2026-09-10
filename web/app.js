@@ -2416,7 +2416,237 @@ window.addEventListener("DOMContentLoaded", () => {
         connectStreamWs(activeCascadeId);
       }
     }
+    if (document.visibilityState === "visible" && typeof fetchCockpitQuotas === "function") {
+      fetchCockpitQuotas();
+    }
   });
 
   renderRoute();
+  initQuotaModule();
 });
+
+// ==========================================================================
+// Cockpit Quota Monitor Module
+// ==========================================================================
+let currentCockpitQuotas = null;
+
+async function fetchCockpitQuotas(isManual = false) {
+  const refreshBtn = document.getElementById("btn-quota-refresh");
+  const refreshIcon = refreshBtn ? refreshBtn.querySelector(".refresh-icon") : null;
+  if (isManual && refreshIcon) {
+    refreshIcon.classList.add("spinning");
+  }
+
+  try {
+    if (isManual) {
+      await fetch("/api/v1/cockpit/refresh", { method: "POST" }).catch(() => {});
+      await new Promise((r) => setTimeout(r, 600));
+    }
+    const resp = await fetch("/api/v1/cockpit/quotas");
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    const data = await resp.json();
+    currentCockpitQuotas = data;
+    renderQuotaStatusBar(data);
+    renderQuotaSheet(data);
+  } catch (err) {
+    console.warn("[CockpitQuota] Failed to fetch quotas:", err);
+    const statusDesc = document.getElementById("quota-status-desc");
+    if (statusDesc && !currentCockpitQuotas) {
+      statusDesc.textContent = "未能连接 Cockpit";
+    }
+  } finally {
+    if (refreshIcon) {
+      refreshIcon.classList.remove("spinning");
+    }
+  }
+}
+
+function getQuotaStatusClass(percent) {
+  if (percent > 50) return "good";
+  if (percent >= 20) return "warning";
+  return "danger";
+}
+
+function renderQuotaStatusBar(data) {
+  if (!data) return;
+  const current = data.current_account || (data.accounts && data.accounts[0]);
+  if (!current || !current.gemini_5h) return;
+
+  const percentEl = document.getElementById("quota-status-percent");
+  const fillEl = document.getElementById("quota-status-fill");
+  const descEl = document.getElementById("quota-status-desc");
+
+  const pct = current.gemini_5h.remaining_percent;
+  const statusClass = getQuotaStatusClass(pct);
+
+  if (percentEl) percentEl.textContent = `${pct.toFixed(1)}%`;
+  if (fillEl) {
+    fillEl.style.width = `${Math.min(100, Math.max(0, pct))}%`;
+    fillEl.className = `quota-progress-fill fill-${statusClass}`;
+  }
+  if (descEl) {
+    const accLabel = current.name || current.email.split("@")[0];
+    const resetTxt = current.gemini_5h.reset_friendly || "就绪";
+    descEl.textContent = `${accLabel} · ${resetTxt}`;
+  }
+}
+
+function buildAccountQuotaCard(acc, isCurrent) {
+  const g5h = acc.gemini_5h || { remaining_percent: 0, reset_friendly: "未知" };
+  const gWk = acc.gemini_weekly || { remaining_percent: 0, reset_friendly: "未知" };
+  const c5h = acc.claude_5h || { remaining_percent: 0, reset_friendly: "未知" };
+  const cWk = acc.claude_weekly || { remaining_percent: 0, reset_friendly: "未知" };
+
+  const card = document.createElement("div");
+  card.className = `quota-account-card ${isCurrent ? "current-account-card" : ""}`;
+
+  card.innerHTML = `
+    <div class="quota-card-header">
+      <div class="quota-card-identity">
+        <span class="quota-account-email" title="${acc.email}">${escapeHtml(acc.email)}</span>
+        ${acc.name ? `<span class="quota-account-name">${escapeHtml(acc.name)}</span>` : ""}
+      </div>
+      ${isCurrent ? `<span class="quota-active-tag">🟢 当前激活</span>` : `<span class="quota-account-name" style="font-size:10px;">备用</span>`}
+    </div>
+
+    <div class="quota-metrics-grid">
+      <!-- 1. Claude 5h -->
+      <div class="metric-box">
+        <div class="metric-box-header">
+          <span class="metric-box-title claude">🟣 Claude 5h</span>
+          <span class="metric-box-value ${getQuotaStatusClass(c5h.remaining_percent)}">${c5h.remaining_percent.toFixed(1)}%</span>
+        </div>
+        <div class="metric-mini-track">
+          <div class="metric-mini-fill ${getQuotaStatusClass(c5h.remaining_percent)}" style="width: ${Math.min(100, Math.max(0, c5h.remaining_percent))}%;"></div>
+        </div>
+        <span class="metric-box-reset" title="${c5h.reset_friendly}">${c5h.reset_friendly}</span>
+      </div>
+
+      <!-- 2. Claude Weekly -->
+      <div class="metric-box">
+        <div class="metric-box-header">
+          <span class="metric-box-title claude">🟣 Claude 周限</span>
+          <span class="metric-box-value ${getQuotaStatusClass(cWk.remaining_percent)}">${cWk.remaining_percent.toFixed(1)}%</span>
+        </div>
+        <div class="metric-mini-track">
+          <div class="metric-mini-fill ${getQuotaStatusClass(cWk.remaining_percent)}" style="width: ${Math.min(100, Math.max(0, cWk.remaining_percent))}%;"></div>
+        </div>
+        <span class="metric-box-reset" title="${cWk.reset_friendly}">${cWk.reset_friendly}</span>
+      </div>
+
+      <!-- 3. Gemini 5h -->
+      <div class="metric-box">
+        <div class="metric-box-header">
+          <span class="metric-box-title gemini">🔵 Gemini 5h</span>
+          <span class="metric-box-value ${getQuotaStatusClass(g5h.remaining_percent)}">${g5h.remaining_percent.toFixed(1)}%</span>
+        </div>
+        <div class="metric-mini-track">
+          <div class="metric-mini-fill ${getQuotaStatusClass(g5h.remaining_percent)}" style="width: ${Math.min(100, Math.max(0, g5h.remaining_percent))}%;"></div>
+        </div>
+        <span class="metric-box-reset" title="${g5h.reset_friendly}">${g5h.reset_friendly}</span>
+      </div>
+
+      <!-- 4. Gemini Weekly -->
+      <div class="metric-box">
+        <div class="metric-box-header">
+          <span class="metric-box-title gemini">🔵 Gemini 周限</span>
+          <span class="metric-box-value ${getQuotaStatusClass(gWk.remaining_percent)}">${gWk.remaining_percent.toFixed(1)}%</span>
+        </div>
+        <div class="metric-mini-track">
+          <div class="metric-mini-fill ${getQuotaStatusClass(gWk.remaining_percent)}" style="width: ${Math.min(100, Math.max(0, gWk.remaining_percent))}%;"></div>
+        </div>
+        <span class="metric-box-reset" title="${gWk.reset_friendly}">${gWk.reset_friendly}</span>
+      </div>
+    </div>
+  `;
+
+  return card;
+}
+
+function renderQuotaSheet(data) {
+  if (!data) return;
+
+  const lastUpEl = document.getElementById("quota-last-updated");
+  if (lastUpEl && data.updated_at) {
+    const dt = new Date(data.updated_at);
+    lastUpEl.textContent = `更新于 ${dt.toLocaleTimeString()}`;
+  }
+
+  const currentContainer = document.getElementById("quota-current-card");
+  if (currentContainer) {
+    currentContainer.innerHTML = "";
+    if (data.current_account) {
+      currentContainer.appendChild(buildAccountQuotaCard(data.current_account, true));
+    }
+  }
+
+  const otherContainer = document.getElementById("quota-other-list");
+  if (otherContainer) {
+    otherContainer.innerHTML = "";
+    const otherAccounts = (data.accounts || []).filter(
+      (a) => !data.current_account || a.id !== data.current_account.id
+    );
+    if (otherAccounts.length === 0) {
+      otherContainer.innerHTML = `<div style="text-align:center;color:var(--ios-tertiary-label);padding:16px;">无其他备用账号</div>`;
+    } else {
+      otherAccounts.forEach((acc) => {
+        otherContainer.appendChild(buildAccountQuotaCard(acc, false));
+      });
+    }
+  }
+}
+
+function openQuotaSheet() {
+  const sheet = document.getElementById("sheet-quota");
+  if (sheet) {
+    sheet.classList.remove("hidden");
+    if (currentCockpitQuotas) {
+      renderQuotaSheet(currentCockpitQuotas);
+    } else {
+      fetchCockpitQuotas();
+    }
+  }
+}
+
+function closeQuotaSheet() {
+  const sheet = document.getElementById("sheet-quota");
+  if (sheet) {
+    sheet.classList.add("hidden");
+  }
+}
+
+function initQuotaModule() {
+  const statusBar = document.getElementById("quota-status-bar");
+  if (statusBar) {
+    statusBar.addEventListener("click", openQuotaSheet);
+  }
+
+  const closeBtn = document.getElementById("btn-quota-close");
+  if (closeBtn) {
+    closeBtn.addEventListener("click", closeQuotaSheet);
+  }
+
+  const sheet = document.getElementById("sheet-quota");
+  if (sheet) {
+    sheet.addEventListener("click", (e) => {
+      if (e.target === sheet) {
+        closeQuotaSheet();
+      }
+    });
+  }
+
+  const refreshBtn = document.getElementById("btn-quota-refresh");
+  if (refreshBtn) {
+    refreshBtn.addEventListener("click", () => fetchCockpitQuotas(true));
+  }
+
+  // Initial fetch
+  fetchCockpitQuotas();
+
+  // Periodic poll every 45s
+  setInterval(() => {
+    if (document.visibilityState === "visible") {
+      fetchCockpitQuotas();
+    }
+  }, 45000);
+}
