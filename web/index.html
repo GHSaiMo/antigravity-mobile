@@ -63,6 +63,26 @@
           <h1 class="large-title">Antigravity</h1>
         </div>
 
+        <!-- Cockpit Gemini 5h Quota Status Bar -->
+        <div id="quota-status-bar" class="quota-status-bar" role="button" aria-label="查看全账号额度">
+          <div class="quota-status-capsule">
+            <div class="quota-capsule-left">
+              <span class="quota-bolt-icon">⚡</span>
+              <span class="quota-metric-name">Gemini 5h</span>
+              <span id="quota-status-percent" class="quota-status-percent">--%</span>
+            </div>
+            <div class="quota-progress-track">
+              <div id="quota-status-fill" class="quota-progress-fill" style="width: 0%;"></div>
+            </div>
+            <div class="quota-capsule-right">
+              <span id="quota-status-desc" class="quota-status-desc">同步中...</span>
+              <svg class="quota-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="9 18 15 12 9 6"></polyline>
+              </svg>
+            </div>
+          </div>
+        </div>
+
         <!-- iOS .searchable Search Bar -->
         <div class="ios-search-bar">
           <div class="search-capsule">
@@ -294,8 +314,41 @@
         </div>
       </div>
     </div>
+
+    <!-- iOS Bottom Sheet: Cockpit Quota Monitor -->
+    <div id="sheet-quota" class="ios-sheet-overlay hidden">
+      <div class="ios-sheet-card quota-sheet-card">
+        <div class="sheet-grabber"></div>
+        <div class="sheet-header">
+          <button id="btn-quota-refresh" class="sheet-header-btn quota-refresh-btn" title="立即刷新配额">
+            <svg class="refresh-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+            </svg>
+            <span>刷新</span>
+          </button>
+          <div class="sheet-title-group">
+            <h2 class="sheet-title">Cockpit 账号额度监控</h2>
+            <span id="quota-last-updated" class="sheet-subtitle">--:--:--</span>
+          </div>
+          <button id="btn-quota-close" class="sheet-header-btn primary">完成</button>
+        </div>
+        <div class="sheet-body quota-sheet-body">
+          <!-- Pinned Current Account -->
+          <div class="quota-section-header">当前激活账号</div>
+          <div id="quota-current-card" class="quota-account-card current-account-card">
+            <!-- Populated dynamically via JS -->
+          </div>
+
+          <!-- Other Accounts List -->
+          <div class="quota-section-header">备用账号池</div>
+          <div id="quota-other-list" class="quota-accounts-list">
+            <!-- Populated dynamically via JS -->
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
-  <script src="/app.js?v=8"></script>
+  <script src="/app.js?v=9"></script>
 </body>
 </html>

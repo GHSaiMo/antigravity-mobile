@@ -6,6 +6,7 @@ public struct ConversationListView: View {
     @State private var showSettings = false
     @State private var showQRScanner = false
     @State private var showNewConversation = false
+    @State private var showAccountQuota = false
     @State private var selectedDraftProject: ProjectItem?
     @State private var navigationPath = NavigationPath()
     
@@ -39,6 +40,17 @@ public struct ConversationListView: View {
                         selectedDraftProject = project
                     }
                 })
+            }
+            .sheet(isPresented: $showAccountQuota) {
+                AccountQuotaSheet(
+                    quotaResponse: viewModel.quotaResponse,
+                    isRefreshing: viewModel.isRefreshingQuota,
+                    onRefresh: {
+                        Task {
+                            await viewModel.triggerQuotaRefresh()
+                        }
+                    }
+                )
             }
             .navigationDestination(for: ConversationItem.self) { item in
                 ChatView(conversation: item, isNewConversation: item.stepCount == 0)
@@ -193,18 +205,24 @@ public struct ConversationListView: View {
     }
     
     private var listView: some View {
-        List {
-            ForEach(viewModel.filteredConversations) { item in
-                NavigationLink(value: item) {
-                    conversationCard(for: item)
-                }
-                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                .listRowSeparator(.hidden)
+        VStack(spacing: 0) {
+            QuotaStatusBarView(account: viewModel.quotaResponse?.currentAccount) {
+                showAccountQuota = true
             }
-        }
-        .listStyle(.plain)
-        .refreshable {
-            await viewModel.fetchConversations()
+            
+            List {
+                ForEach(viewModel.filteredConversations) { item in
+                    NavigationLink(value: item) {
+                        conversationCard(for: item)
+                    }
+                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                    .listRowSeparator(.hidden)
+                }
+            }
+            .listStyle(.plain)
+            .refreshable {
+                await viewModel.fetchConversations()
+            }
         }
     }
     
