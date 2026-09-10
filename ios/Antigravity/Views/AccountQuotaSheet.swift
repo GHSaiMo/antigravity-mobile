@@ -111,15 +111,15 @@ public struct AccountQuotaSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("完成") {
-                        dismiss()
-                    }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
                     Button(action: { isMasked.toggle() }) {
                         Image(systemName: isMasked ? "eye.slash.fill" : "eye.slash")
                             .font(.system(size: 15, weight: .medium))
                             .foregroundColor(isMasked ? .blue : .secondary)
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("完成") {
+                        dismiss()
                     }
                 }
             }

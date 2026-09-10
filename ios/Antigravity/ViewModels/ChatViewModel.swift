@@ -31,6 +31,7 @@ public final class ChatViewModel {
     public var pendingInteraction: PendingInteraction? = nil
     public var isSubmittingInteraction: Bool = false
     public var queuedMessages: [QueuedMessageItem] = []
+    public var runningTasks: [RunningTaskItem] = []
     public var isSending: Bool = false
     
     /// ID of the first message of the latest response turn (e.g., tool batch or agent response following the last user message)
@@ -132,6 +133,7 @@ public final class ChatViewModel {
             self.proceedArtifactUri = nil
             self.pendingInteraction = cached.pendingInteraction
             self.queuedMessages = cached.queuedMessages ?? []
+            self.runningTasks = cached.runningTasks ?? []
             self.knownServerMessageIds = Set(healed.map(\.id))
         }
         
@@ -213,6 +215,8 @@ public final class ChatViewModel {
                 self.queuedMessages = []
             }
             
+            self.runningTasks = result.runningTasks
+            
             // Persist latest state to cache (excluding temporary optimistic message)
             let toCache = self.messages.filter { $0.id != self.pendingOptimisticMessageId && !$0.id.hasPrefix("optimistic-") }
             cacheManager.saveSession(CachedChatSession(
@@ -229,7 +233,8 @@ public final class ChatViewModel {
                 canProceed: self.canProceed,
                 proceedArtifactUri: self.proceedArtifactUri,
                 pendingInteraction: self.pendingInteraction,
-                queuedMessages: self.queuedMessages
+                queuedMessages: self.queuedMessages,
+                runningTasks: self.runningTasks
             ))
             if self.pendingOptimisticMessageId == nil {
                 self.knownServerMessageIds = Set(toCache.map(\.id))
@@ -362,7 +367,8 @@ public final class ChatViewModel {
                 canProceed: self.canProceed,
                 proceedArtifactUri: self.proceedArtifactUri,
                 pendingInteraction: self.pendingInteraction,
-                queuedMessages: self.queuedMessages
+                queuedMessages: self.queuedMessages,
+                runningTasks: self.runningTasks
             ))
             
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -563,7 +569,8 @@ public final class ChatViewModel {
                 canProceed: self.canProceed,
                 proceedArtifactUri: self.proceedArtifactUri,
                 pendingInteraction: self.pendingInteraction,
-                queuedMessages: self.queuedMessages
+                queuedMessages: self.queuedMessages,
+                runningTasks: self.runningTasks
             ))
             
             // Dispatch to server with deliveryStrategy = 2 (WHEN_IDLE)
@@ -742,6 +749,27 @@ public final class ChatViewModel {
                 guard let self else { return }
                 _ = try? await self.apiClient.deleteAgentMessage(messageId: item.id, cascadeId: self.cascadeId, baseURL: url)
             }
+        }
+    }
+    
+    @MainActor
+    public func stopTask(_ task: RunningTaskItem) async {
+        guard let url = settings.serverURL, !self.cascadeId.isEmpty else { return }
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            self.runningTasks.removeAll(where: { $0.id == task.id && $0.stepIndex == task.stepIndex })
+        }
+        
+        do {
+            try await apiClient.stopTask(
+                cascadeId: self.cascadeId,
+                stepIndex: task.stepIndex,
+                taskId: task.id,
+                baseURL: url
+            )
+        } catch {
+            print("[ChatViewModel] stopTask failed: \(error)")
         }
     }
     
@@ -1006,6 +1034,12 @@ public final class ChatViewModel {
             }
         }
         
+        if let tasks = payload.runningTasks {
+            self.runningTasks = tasks
+        } else if !self.isRunning && !self.isAwaitingResponse {
+            self.runningTasks = []
+        }
+        
         let toCache = self.messages.filter { $0.id != self.pendingOptimisticMessageId && !$0.id.hasPrefix("optimistic-") }
         cacheManager.saveSession(CachedChatSession(
             cascadeId: cascadeId,
@@ -1021,7 +1055,8 @@ public final class ChatViewModel {
             canProceed: self.canProceed,
             proceedArtifactUri: self.proceedArtifactUri,
             pendingInteraction: self.pendingInteraction,
-            queuedMessages: self.queuedMessages
+            queuedMessages: self.queuedMessages,
+            runningTasks: self.runningTasks
         ))
         if self.pendingOptimisticMessageId == nil {
             self.knownServerMessageIds = Set(toCache.map(\.id))
