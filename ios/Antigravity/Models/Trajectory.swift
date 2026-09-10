@@ -38,6 +38,12 @@ public struct UserInputPayload: Codable, Sendable {
     public let items: [TextItem]?
     public let userResponse: String?
     public let media: [UserMediaItem]?
+    public let images: [UserImageItem]?
+}
+
+public struct UserImageItem: Codable, Sendable {
+    public let base64Data: String?
+    public let mimeType: String?
 }
 
 public struct UserMediaItem: Codable, Sendable {
@@ -169,25 +175,38 @@ public struct InteractionSubmitRequest: Codable, Sendable {
     }
 }
 
+public struct ImageDataPayload: Codable, Sendable {
+    public let base64Data: String
+    public let mimeType: String
+    
+    public init(base64Data: String, mimeType: String = "image/jpeg") {
+        self.base64Data = base64Data
+        self.mimeType = mimeType
+    }
+}
+
 // Request to send a message
 public struct SendUserCascadeMessageRequest: Codable, Sendable {
     public let cascadeId: String
     public let items: [TextItem]
+    public let images: [ImageDataPayload]?
     public let cascadeConfigRaw: String?
     public let artifactComments: [ArtifactCommentPayload]?
     public let deliveryStrategy: Int?
     
-    public init(cascadeId: String, text: String, deliveryStrategy: Int? = nil, cascadeConfigRaw: String? = nil) {
+    public init(cascadeId: String, text: String, images: [ImageDataPayload]? = nil, deliveryStrategy: Int? = nil, cascadeConfigRaw: String? = nil) {
         self.cascadeId = cascadeId
-        self.items = [TextItem(text: text)]
+        self.items = text.isEmpty ? [] : [TextItem(text: text)]
+        self.images = images
         self.cascadeConfigRaw = cascadeConfigRaw
         self.artifactComments = nil
         self.deliveryStrategy = deliveryStrategy
     }
     
-    public init(cascadeId: String, items: [TextItem] = [], deliveryStrategy: Int? = nil, cascadeConfigRaw: String? = nil, artifactComments: [ArtifactCommentPayload]? = nil) {
+    public init(cascadeId: String, items: [TextItem] = [], images: [ImageDataPayload]? = nil, deliveryStrategy: Int? = nil, cascadeConfigRaw: String? = nil, artifactComments: [ArtifactCommentPayload]? = nil) {
         self.cascadeId = cascadeId
         self.items = items
+        self.images = images
         self.cascadeConfigRaw = cascadeConfigRaw
         self.artifactComments = artifactComments
         self.deliveryStrategy = deliveryStrategy
@@ -282,5 +301,10 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
         self.toolNames = toolNames
         self.imageDataList = imageDataList
         self.imageUrls = imageUrls
+    }
+    
+    public var isToolBatch: Bool {
+        if case .toolBatch = sender { return true }
+        return false
     }
 }
