@@ -3,6 +3,7 @@ package proxy
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"crypto/tls"
 	"encoding/json"
@@ -40,6 +41,11 @@ type Proxy struct {
 	insp      *inspector.Inspector
 	transport *http.Transport
 	startTime time.Time
+
+	// Pre-built HTTP clients with different timeout tiers to avoid repeated construction (H-6)
+	shortClient  *http.Client // 2-5s timeout, for quick status checks
+	mediumClient *http.Client // 10s timeout, for standard RPC calls
+	longClient   *http.Client // 60s timeout, for large data transfers
 
 	mu          sync.RWMutex
 	activeProxy *httputil.ReverseProxy
@@ -91,12 +97,7 @@ func (p *Proxy) GetActiveUserStatus() (email string, name string, err error) {
 		req.Header.Set("x-codeium-csrf-token", token)
 	}
 
-	client := &http.Client{
-		Timeout:   2 * time.Second,
-		Transport: p.transport,
-	}
-
-	resp, err := client.Do(req)
+	resp, err := p.shortClient.Do(req)
 	if err != nil {
 		return "", "", err
 	}
@@ -131,6 +132,18 @@ func NewProxy(insp *inspector.Inspector) *Proxy {
 		transport: tr,
 		startTime: time.Now(),
 		msgDedup:  make(map[string]time.Time),
+		shortClient: &http.Client{
+			Timeout:   2 * time.Second,
+			Transport: tr,
+		},
+		mediumClient: &http.Client{
+			Timeout:   10 * time.Second,
+			Transport: tr,
+		},
+		longClient: &http.Client{
+			Timeout:   60 * time.Second,
+			Transport: tr,
+		},
 	}
 
 	insp.OnUpdate(func(info inspector.InstanceInfo) {
@@ -260,11 +273,13 @@ func (p *Proxy) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(GatewayStatus{
+	if err := json.NewEncoder(w).Encode(GatewayStatus{
 		Status:    status,
 		Upstream:  cur,
 		Timestamp: time.Now(),
-	})
+	}); err != nil {
+		log.Printf("[Proxy] handleStatus: failed to encode response: %v", err)
+	}
 }
 
 func (p *Proxy) handleRescan(w http.ResponseWriter, r *http.Request) {
@@ -279,11 +294,13 @@ func (p *Proxy) handleRescan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(GatewayStatus{
+	if err := json.NewEncoder(w).Encode(GatewayStatus{
 		Status:    status,
 		Upstream:  info,
 		Timestamp: time.Now(),
-	})
+	}); err != nil {
+		log.Printf("[Proxy] handleRescan: failed to encode response: %v", err)
+	}
 }
 
 func (p *Proxy) handleRpcProxy(w http.ResponseWriter, r *http.Request) {
@@ -296,10 +313,12 @@ func (p *Proxy) handleRpcProxy(w http.ResponseWriter, r *http.Request) {
 	if rp == nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]string{
+		if err := json.NewEncoder(w).Encode(map[string]string{
 			"code":    "unavailable",
 			"message": "Antigravity language_server is not connected",
-		})
+		}); err != nil {
+			log.Printf("[Proxy] handleRpcProxy: failed to encode error response: %v", err)
+		}
 		return
 	}
 
@@ -318,9 +337,10 @@ func (p *Proxy) handleRpcProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Strip /api prefix
-	r.URL.Path = reqPath
-	rp.ServeHTTP(w, r)
+	// Clone the request to avoid mutating the original before forwarding
+	fwdReq := r.Clone(r.Context())
+	fwdReq.URL.Path = reqPath
+	rp.ServeHTTP(w, fwdReq)
 }
 
 type bufferedResponseWriter struct {
@@ -814,14 +834,18 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 	summariesRaw, ok := rawMap["trajectorySummaries"]
 	if !ok {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(rawMap)
+		if err := json.NewEncoder(w).Encode(rawMap); err != nil {
+			log.Printf("[Proxy] GetAllCascadeTrajectories: failed to encode response: %v", err)
+		}
 		return
 	}
 
 	var summaries map[string]map[string]interface{}
 	if err := json.Unmarshal(summariesRaw, &summaries); err != nil {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(rawMap)
+		if err := json.NewEncoder(w).Encode(rawMap); err != nil {
+			log.Printf("[Proxy] GetAllCascadeTrajectories: failed to encode response: %v", err)
+		}
 		return
 	}
 
@@ -968,8 +992,8 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 	}
 
 	// Also check any cascade in trajCache that has PendingInteraction or CanProceed
-	trajCacheMu.Lock()
-	for cid, entry := range trajCache {
+	defaultTrajCache.trajCacheMu.Lock()
+	for cid, entry := range defaultTrajCache.trajCache {
 		if entry != nil && entry.data != nil {
 			details := p.ParseTrajectoryDetails(entry.data)
 			if details.PendingInteraction != nil || details.CanProceed {
@@ -979,20 +1003,28 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 			}
 		}
 	}
-	trajCacheMu.Unlock()
+	defaultTrajCache.trajCacheMu.Unlock()
 
 	if len(candidates) > 0 {
-		var wg sync.WaitGroup
 		var mu sync.Mutex
 		actionMap := make(map[string]bool)
 		sem := make(chan struct{}, 4) // Limit concurrent upstream RPCs to prevent hammering language_server
 
+		// M-5: Add overall timeout to prevent blocking indefinitely on concurrent RPCs
+		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+		defer cancel()
+
+		var wg sync.WaitGroup
 		for cid := range candidates {
 			wg.Add(1)
 			go func(cascadeID string) {
 				defer wg.Done()
-				sem <- struct{}{}        // Acquire semaphore slot
-				defer func() { <-sem }() // Release semaphore slot
+				select {
+				case sem <- struct{}{}: // Acquire semaphore slot
+					defer func() { <-sem }() // Release semaphore slot
+				case <-ctx.Done():
+					return
+				}
 				raw, err := p.fetchUpstreamTrajectory(cascadeID, port, token)
 				if err == nil && raw != nil {
 					details := p.ParseTrajectoryDetails(raw)
@@ -1004,7 +1036,18 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 				}
 			}(cid)
 		}
-		wg.Wait()
+
+		// Wait for completion or timeout, whichever comes first
+		done := make(chan struct{})
+		go func() {
+			wg.Wait()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-ctx.Done():
+			log.Printf("[Proxy] GetAllCascadeTrajectories: timeout after 8s, returning partial results (%d/%d checked)", len(actionMap), len(candidates))
+		}
 
 		for cid, hasAction := range actionMap {
 			if hasAction && summaries[cid] != nil {
@@ -1015,7 +1058,9 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 
 	rawMap["trajectorySummaries"], _ = json.Marshal(summaries)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(rawMap)
+	if err := json.NewEncoder(w).Encode(rawMap); err != nil {
+		log.Printf("[Proxy] GetAllCascadeTrajectories: failed to encode response: %v", err)
+	}
 }
 
 // isSubagentTrajectoryMap checks if a trajectory summary map belongs to an internal subagent.

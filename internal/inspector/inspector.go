@@ -164,8 +164,12 @@ func (i *Inspector) update(newInfo *InstanceInfo) {
 		i.current.Port != newInfo.Port ||
 		i.current.CSRFToken != newInfo.CSRFToken ||
 		!i.current.IsHealthy {
+		csrfPreview := newInfo.CSRFToken
+		if len(csrfPreview) > 8 {
+			csrfPreview = csrfPreview[:8] + "..."
+		}
 		log.Printf("[Inspector] Discovered active Antigravity instance: PID=%d Port=%d CSRF=%s",
-			newInfo.PID, newInfo.Port, newInfo.CSRFToken)
+			newInfo.PID, newInfo.Port, csrfPreview)
 		notify = true
 		listeners = append([]func(InstanceInfo){}, i.listeners...)
 	}
