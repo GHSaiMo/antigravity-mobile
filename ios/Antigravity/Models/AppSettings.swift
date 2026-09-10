@@ -1,17 +1,80 @@
 import Foundation
 import Observation
 
+public struct ServerEndpointItem: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let type: String // "lan", "ipv6", "ddns", "primary", "custom"
+    public let urlString: String
+    
+    public init(type: String, urlString: String) {
+        self.id = "\(type):\(urlString)"
+        self.type = type
+        self.urlString = urlString
+    }
+}
+
+extension Notification.Name {
+    public static let networkRoutingPreferenceChanged = Notification.Name("antigravity.network_routing_preference_changed")
+}
+
 @Observable
 public final class AppSettings {
     public static let shared = AppSettings()
     
     private let serverURLKey = "antigravity.server_url"
+    private let lanServerURLKey = "antigravity.lan_server_url"
+    private let ipv6ServerURLKey = "antigravity.ipv6_server_url"
+    private let customServerURLKey = "antigravity.custom_server_url"
+    private let activeServerURLKey = "antigravity.active_server_url"
     private let enableLiveActivityKey = "antigravity.enable_live_activity"
     private let preferCellularNetworkKey = "antigravity.prefer_cellular_network"
     
     public var rawServerURL: String {
         didSet {
             UserDefaults.standard.set(rawServerURL, forKey: serverURLKey)
+            if activeServerURL != rawServerURL {
+                activeServerURL = rawServerURL
+            }
+        }
+    }
+    
+    public var lanServerURL: String? {
+        didSet {
+            if let val = lanServerURL {
+                UserDefaults.standard.set(val, forKey: lanServerURLKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: lanServerURLKey)
+            }
+        }
+    }
+    
+    public var ipv6ServerURL: String? {
+        didSet {
+            if let val = ipv6ServerURL {
+                UserDefaults.standard.set(val, forKey: ipv6ServerURLKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: ipv6ServerURLKey)
+            }
+        }
+    }
+    
+    public var customServerURL: String? {
+        didSet {
+            if let val = customServerURL {
+                UserDefaults.standard.set(val, forKey: customServerURLKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: customServerURLKey)
+            }
+        }
+    }
+    
+    public var activeServerURL: String? {
+        didSet {
+            if let val = activeServerURL {
+                UserDefaults.standard.set(val, forKey: activeServerURLKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: activeServerURLKey)
+            }
         }
     }
     
@@ -24,11 +87,46 @@ public final class AppSettings {
     public var preferCellularNetwork: Bool {
         didSet {
             UserDefaults.standard.set(preferCellularNetwork, forKey: preferCellularNetworkKey)
+            
+            // Automatically switch activeServerURL and rawServerURL to match the selected route strategy
+            if preferCellularNetwork {
+                if let v6 = ipv6ServerURL, !v6.isEmpty {
+                    self.activeServerURL = v6
+                    self.rawServerURL = v6
+                } else if let custom = customServerURL, !custom.isEmpty {
+                    self.activeServerURL = custom
+                    self.rawServerURL = custom
+                }
+            } else {
+                if let lan = lanServerURL, !lan.isEmpty {
+                    self.activeServerURL = lan
+                    self.rawServerURL = lan
+                }
+            }
+            
+            NotificationCenter.default.post(name: .networkRoutingPreferenceChanged, object: nil)
         }
     }
     
-    public var serverURL: URL? {
-        var clean = rawServerURL.trimmingCharacters(in: .whitespacesAndNewlines)
+    public var candidateEndpoints: [ServerEndpointItem] {
+        var items: [ServerEndpointItem] = []
+        if let lan = lanServerURL, !lan.isEmpty {
+            items.append(ServerEndpointItem(type: "lan", urlString: lan))
+        }
+        if let v6 = ipv6ServerURL, !v6.isEmpty {
+            items.append(ServerEndpointItem(type: "ipv6", urlString: v6))
+        }
+        if let custom = customServerURL, !custom.isEmpty {
+            items.append(ServerEndpointItem(type: "custom", urlString: custom))
+        }
+        if items.isEmpty && !rawServerURL.isEmpty {
+            items.append(ServerEndpointItem(type: "primary", urlString: rawServerURL))
+        }
+        return items
+    }
+    
+    public static func normalize(raw: String) -> URL? {
+        var clean = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if clean.isEmpty { return nil }
         
         // 1. Separate scheme if already provided
@@ -39,7 +137,6 @@ public final class AppSettings {
         }
         
         // 2. Normalize unbracketed IPv6 address
-        // Check if clean has multiple colons and isn't already bracketed
         if !clean.hasPrefix("[") && clean.filter({ $0 == ":" }).count >= 2 {
             if let lastColon = clean.lastIndex(of: ":") {
                 let possiblePort = String(clean[clean.index(after: lastColon)...])
@@ -57,21 +154,61 @@ public final class AppSettings {
         // 3. Determine scheme if not present
         if scheme.isEmpty {
             let lower = clean.lowercased()
-            // If it connects to default gateway port 58900, or is an IP address, default to http://
             if lower.contains(":58900") || lower.hasPrefix("127.0.0.1") || lower.hasPrefix("localhost") ||
                lower.hasPrefix("192.168.") || lower.hasPrefix("10.") || lower.hasPrefix("100.") ||
                lower.hasPrefix("172.") || lower.hasPrefix("[") {
                 scheme = "http://"
             } else if lower.contains(":") {
-                // If specifying a custom port, default to http://
                 scheme = "http://"
             } else {
-                // For standard domain names without port (e.g. agy.mycorp.com), default to https://
                 scheme = "https://"
             }
         }
         
         return URL(string: scheme + clean)
+    }
+    
+    public var serverURL: URL? {
+        if preferCellularNetwork {
+            // When prioritizing cellular (IPv6 direct connection):
+            // 1. If an IPv6 URL is configured, prioritize it
+            if let v6 = ipv6ServerURL, let url = Self.normalize(raw: v6) {
+                return url
+            }
+            // 2. If a custom DDNS URL is configured, use it
+            if let custom = customServerURL, let url = Self.normalize(raw: custom) {
+                return url
+            }
+            // 3. If activeServerURL is configured and NOT a private local host, use it
+            if let active = activeServerURL, let url = Self.normalize(raw: active), !NetworkTransport.isLocalOrPrivateHost(url.host ?? "") {
+                return url
+            }
+            // 4. If rawServerURL is NOT a private local host, use it
+            if let url = Self.normalize(raw: rawServerURL), !NetworkTransport.isLocalOrPrivateHost(url.host ?? "") {
+                return url
+            }
+            // 5. Fallback to activeServerURL or rawServerURL
+            if let active = activeServerURL, let url = Self.normalize(raw: active) {
+                return url
+            }
+            return Self.normalize(raw: rawServerURL)
+        } else {
+            // Normal Wi-Fi / local routing mode:
+            // 1. If LAN URL is configured, prefer LAN
+            if let lan = lanServerURL, let url = Self.normalize(raw: lan) {
+                return url
+            }
+            // 2. If an active server URL is established, use it
+            if let active = activeServerURL, let url = Self.normalize(raw: active) {
+                return url
+            }
+            // 3. If IPv6 URL is configured
+            if let v6 = ipv6ServerURL, let url = Self.normalize(raw: v6) {
+                return url
+            }
+            // 4. Default fallback to rawServerURL
+            return Self.normalize(raw: rawServerURL)
+        }
     }
     
     public var gatewayURL: URL? {
@@ -91,8 +228,28 @@ public final class AppSettings {
         return true
     }
     
+    public func updateEndpoints(lan: String? = nil, ipv6: String? = nil, custom: String? = nil, active: String? = nil) {
+        if let lan = lan, !lan.isEmpty {
+            self.lanServerURL = lan
+        }
+        if let ipv6 = ipv6, !ipv6.isEmpty {
+            self.ipv6ServerURL = ipv6
+        }
+        if let custom = custom, !custom.isEmpty {
+            self.customServerURL = custom
+        }
+        if let active = active, !active.isEmpty {
+            self.activeServerURL = active
+            self.rawServerURL = active
+        }
+    }
+    
     public func unpair() {
         KeychainHelper.shared.clearAll()
+        self.lanServerURL = nil
+        self.ipv6ServerURL = nil
+        self.customServerURL = nil
+        self.activeServerURL = nil
     }
     
     public init() {
@@ -102,10 +259,12 @@ public final class AppSettings {
         UserDefaults.standard.removeObject(forKey: "antigravity.cf_access_client_secret")
         
         let savedURL = UserDefaults.standard.string(forKey: serverURLKey) ?? "http://127.0.0.1:58900"
+        let savedLan = UserDefaults.standard.string(forKey: lanServerURLKey)
+        let savedIPv6 = UserDefaults.standard.string(forKey: ipv6ServerURLKey)
+        let savedCustom = UserDefaults.standard.string(forKey: customServerURLKey)
+        let savedActive = UserDefaults.standard.string(forKey: activeServerURLKey)
         let savedLive = UserDefaults.standard.object(forKey: enableLiveActivityKey) as? Bool ?? false
         
-        // One-time migration: reset preferCellularNetwork to false (default) so that users
-        // on local Wi-Fi don't have their traffic forcibly redirected to cellular.
         let migrationKey = "antigravity.prefer_cellular_v2_migrated"
         let isMigrated = UserDefaults.standard.bool(forKey: migrationKey)
         let savedPreferCellular: Bool
@@ -118,6 +277,10 @@ public final class AppSettings {
         }
         
         self.rawServerURL = savedURL
+        self.lanServerURL = savedLan
+        self.ipv6ServerURL = savedIPv6
+        self.customServerURL = savedCustom
+        self.activeServerURL = savedActive
         self.enableLiveActivities = savedLive
         self.preferCellularNetwork = savedPreferCellular
     }

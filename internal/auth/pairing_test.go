@@ -118,4 +118,65 @@ func TestDetectNetworkAddresses(t *testing.T) {
 	t.Logf("Detected LAN IPv4: %s, Public IPv6: %s", addrs.LANIPv4, addrs.PublicIPv6)
 }
 
+func TestGenerateMultiHostPairingURI(t *testing.T) {
+	uri := GenerateMultiHostPairingURI(MultiHostPairingParams{
+		PrimaryHost: "192.168.1.100",
+		Port:        58900,
+		Code:        "testcode123",
+		SSL:         false,
+		LANHost:     "192.168.1.100",
+		IPv6Host:    "240e:3a1:1c3:4e80::1",
+		DDNSHost:    "mac.example.com",
+	})
 
+	if !strings.HasPrefix(uri, "agy://pair?") {
+		t.Fatalf("expected agy://pair scheme, got %s", uri)
+	}
+	if !strings.Contains(uri, "host=192.168.1.100") {
+		t.Errorf("missing primary host in %s", uri)
+	}
+	if !strings.Contains(uri, "ipv6=240e%3A3a1%3A1c3%3A4e80%3A%3A1") && !strings.Contains(uri, "ipv6=240e:3a1:1c3:4e80::1") {
+		t.Errorf("missing ipv6 in %s", uri)
+	}
+	if !strings.Contains(uri, "ddns=mac.example.com") {
+		t.Errorf("missing ddns in %s", uri)
+	}
+}
+
+func TestAuthHandler_GetEndpoints(t *testing.T) {
+	store, _ := NewAuthStore(t.TempDir() + "/auth.json")
+	pm := NewPairingManager()
+	h := NewAuthHandler(store, pm, "192.168.1.50", 58900, false)
+	h.SetEndpoints("192.168.1.50", "240e:3a1:1c3:4e80::1", "mac.example.com")
+
+	endpoints := h.GetEndpoints()
+	if len(endpoints) < 3 {
+		t.Fatalf("expected at least 3 endpoints, got %d", len(endpoints))
+	}
+
+	foundLAN := false
+	foundV6 := false
+	foundDDNS := false
+
+	for _, ep := range endpoints {
+		if ep.Type == "lan" && strings.Contains(ep.URL, "192.168.1.50:58900") {
+			foundLAN = true
+		}
+		if ep.Type == "ipv6" && strings.Contains(ep.URL, "[240e:3a1:1c3:4e80::1]:58900") {
+			foundV6 = true
+		}
+		if ep.Type == "ddns" && strings.Contains(ep.URL, "mac.example.com:58900") {
+			foundDDNS = true
+		}
+	}
+
+	if !foundLAN {
+		t.Errorf("LAN endpoint missing")
+	}
+	if !foundV6 {
+		t.Errorf("IPv6 endpoint missing")
+	}
+	if !foundDDNS {
+		t.Errorf("DDNS endpoint missing")
+	}
+}

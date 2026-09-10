@@ -2,6 +2,7 @@ package auth
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"strings"
@@ -15,10 +16,17 @@ type PairRequest struct {
 	Platform    string `json:"platform"`
 }
 
+// EndpointInfo represents an accessible network endpoint of the gateway.
+type EndpointInfo struct {
+	Type string `json:"type"` // "lan", "ipv6", "ddns", "primary"
+	URL  string `json:"url"`  // e.g. "http://192.168.1.50:58900"
+}
+
 // PairResponse is the response returned upon successful pairing.
 type PairResponse struct {
-	DeviceID    string `json:"device_id"`
-	DeviceToken string `json:"device_token"`
+	DeviceID    string         `json:"device_id"`
+	DeviceToken string         `json:"device_token"`
+	Endpoints   []EndpointInfo `json:"endpoints,omitempty"`
 }
 
 // AuthHandler handles authentication and device management routes.
@@ -28,6 +36,9 @@ type AuthHandler struct {
 	host       string
 	port       int
 	ssl        bool
+	lanHost    string
+	ipv6Host   string
+	ddnsHost   string
 }
 
 // NewAuthHandler creates a new AuthHandler.
@@ -39,6 +50,72 @@ func NewAuthHandler(store *AuthStore, pairingMgr *PairingManager, host string, p
 		port:       port,
 		ssl:        ssl,
 	}
+}
+
+// SetEndpoints sets discovered network hosts (LAN IPv4, IPv6, DDNS) for pairing responses.
+func (h *AuthHandler) SetEndpoints(lanHost, ipv6Host, ddnsHost string) {
+	h.lanHost = strings.TrimSpace(lanHost)
+	h.ipv6Host = strings.TrimSpace(ipv6Host)
+	h.ddnsHost = strings.TrimSpace(ddnsHost)
+}
+
+// GetEndpoints returns candidate endpoint URLs for clients.
+func (h *AuthHandler) GetEndpoints() []EndpointInfo {
+	var endpoints []EndpointInfo
+	scheme := "http://"
+	if h.ssl {
+		scheme = "https://"
+	}
+
+	// 1. LAN IPv4
+	lan := h.lanHost
+	if lan == "" && !strings.Contains(h.host, ":") && h.host != "" && h.host != "127.0.0.1" && h.host != "localhost" {
+		lan = h.host
+	}
+	if lan != "" {
+		endpoints = append(endpoints, EndpointInfo{
+			Type: "lan",
+			URL:  fmt.Sprintf("%s%s:%d", scheme, lan, h.port),
+		})
+	}
+
+	// 2. Public IPv6
+	ipv6 := h.ipv6Host
+	if ipv6 == "" && strings.Contains(h.host, ":") {
+		ipv6 = h.host
+	}
+	if ipv6 != "" {
+		cleanV6 := strings.Trim(ipv6, "[]")
+		endpoints = append(endpoints, EndpointInfo{
+			Type: "ipv6",
+			URL:  fmt.Sprintf("%s[%s]:%d", scheme, cleanV6, h.port),
+		})
+	}
+
+	// 3. DDNS / Custom Domain
+	if h.ddnsHost != "" {
+		endpoints = append(endpoints, EndpointInfo{
+			Type: "ddns",
+			URL:  fmt.Sprintf("%s%s:%d", scheme, h.ddnsHost, h.port),
+		})
+	}
+
+	// 4. Fallback primary if no other endpoints detected
+	if len(endpoints) == 0 {
+		hStr := h.host
+		if hStr == "" {
+			hStr = "127.0.0.1"
+		}
+		if strings.Contains(hStr, ":") && !strings.HasPrefix(hStr, "[") {
+			hStr = fmt.Sprintf("[%s]", hStr)
+		}
+		endpoints = append(endpoints, EndpointInfo{
+			Type: "primary",
+			URL:  fmt.Sprintf("%s%s:%d", scheme, hStr, h.port),
+		})
+	}
+
+	return endpoints
 }
 
 // SetNetworkInfo updates the host, port, and ssl settings used for QR generation.
@@ -120,6 +197,7 @@ func (h *AuthHandler) HandlePair(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(PairResponse{
 		DeviceID:    deviceID,
 		DeviceToken: deviceToken,
+		Endpoints:   h.GetEndpoints(),
 	})
 }
 
@@ -190,7 +268,15 @@ func (h *AuthHandler) HandleNewPairingSession(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	uri := GeneratePairingURI(h.host, h.port, session.Code, h.ssl)
+	uri := GenerateMultiHostPairingURI(MultiHostPairingParams{
+		PrimaryHost: h.host,
+		Port:        h.port,
+		Code:        session.Code,
+		SSL:         h.ssl,
+		LANHost:     h.lanHost,
+		IPv6Host:    h.ipv6Host,
+		DDNSHost:    h.ddnsHost,
+	})
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{

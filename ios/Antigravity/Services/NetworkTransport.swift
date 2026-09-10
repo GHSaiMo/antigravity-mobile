@@ -69,7 +69,7 @@ public final class NetworkTransport: Sendable {
         do {
             return try await executeViaCellular(request: req, url: url, host: host)
         } catch {
-            // Cellular connection failed, unreachable, or interface unavailable; graceful fallback to default interface
+            print("[NetworkTransport] Cellular direct request failed (\(error.localizedDescription)), falling back to standard interface")
             return try await fallbackSession.data(for: req)
         }
     }
@@ -80,11 +80,12 @@ public final class NetworkTransport: Sendable {
             throw URLError(.badURL)
         }
         
-        let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(host), port: port)
+        let cleanHost = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(cleanHost), port: port)
         let parameters: NWParameters
         if url.scheme?.lowercased() == "https" {
             let tlsOptions = NWProtocolTLS.Options()
-            let hostStr = host.lowercased()
+            let hostStr = cleanHost.lowercased()
             let isLoopback = hostStr == "127.0.0.1" || hostStr == "::1" || hostStr == "localhost"
             sec_protocol_options_set_verify_block(tlsOptions.securityProtocolOptions, { (metadata, trust, completion) in
                 if isLoopback {
@@ -109,13 +110,14 @@ public final class NetworkTransport: Sendable {
         let connection = NWConnection(to: endpoint, using: parameters)
         let method = request.httpMethod ?? "GET"
         let body = request.httpBody
-        // Bound cellular attempt timeout to 3.0s to avoid hanging user requests when cellular cannot reach host
-        let timeoutInterval: TimeInterval = min(request.timeoutInterval > 0 ? request.timeoutInterval : 3.0, 3.0)
+        // Give cellular adequate time (10s by default) to bring up radio and exchange packets
+        let timeoutInterval: TimeInterval = request.timeoutInterval > 0 ? request.timeoutInterval : 10.0
         
         return try await withCheckedThrowingContinuation { continuation in
             final class SyncState: @unchecked Sendable {
                 var isCompleted = false
                 var timeoutWork: DispatchWorkItem?
+                var waitingTimerWork: DispatchWorkItem?
                 var connection: NWConnection?
                 var continuation: CheckedContinuation<(Data, HTTPURLResponse), any Error>?
                 
@@ -125,6 +127,7 @@ public final class NetworkTransport: Sendable {
                     guard !isCompleted else { return }
                     isCompleted = true
                     timeoutWork?.cancel()
+                    waitingTimerWork?.cancel()
                     connection?.cancel()
                     switch result {
                     case .success(let res):
@@ -147,12 +150,15 @@ public final class NetworkTransport: Sendable {
             connection.stateUpdateHandler = { connState in
                 switch connState {
                 case .ready:
+                    state.waitingTimerWork?.cancel()
+                    state.waitingTimerWork = nil
+                    
                     var pathAndQuery = url.path.isEmpty ? "/" : url.path
                     if let query = url.query {
                         pathAndQuery += "?\(query)"
                     }
                     
-                    let formattedHost = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
+                    let formattedHost = cleanHost.contains(":") ? "[\(cleanHost)]" : cleanHost
                     var reqStr = "\(method) \(pathAndQuery) HTTP/1.1\r\n"
                     reqStr += "Host: \(formattedHost):\(portNumber)\r\n"
                     
@@ -219,10 +225,15 @@ public final class NetworkTransport: Sendable {
                     })
                 case .waiting(let err):
                     // When requiredInterfaceType = .cellular, .waiting indicates cellular interface
-                    // cannot route to this destination (e.g. Wi-Fi IPv6 or blocked by carrier).
-                    // Fail fast after a brief delay so fallbackSession can take over without hanging the UI.
-                    DispatchQueue.global().asyncAfter(deadline: .now() + 1.5) {
-                        state.finish(result: .failure(err))
+                    // is bringing up its radio carrier or waiting for DNS resolution.
+                    // Allow up to 6.0s for carrier radio warmup before timing out.
+                    // Stored in state.waitingTimerWork so it gets canceled once .ready is reached.
+                    if state.waitingTimerWork == nil {
+                        let work = DispatchWorkItem { [weak state] in
+                            state?.finish(result: .failure(err))
+                        }
+                        state.waitingTimerWork = work
+                        DispatchQueue.global().asyncAfter(deadline: .now() + 6.0, execute: work)
                     }
                 case .failed(let err):
                     state.finish(result: .failure(err))
@@ -265,6 +276,8 @@ public final class NetworkTransport: Sendable {
         if headers["Transfer-Encoding"]?.lowercased().contains("chunked") == true {
             bodyData = dechunk(data: bodyData)
         }
+        
+        headers["X-Antigravity-Interface"] = "cellular"
         
         guard let response = HTTPURLResponse(
             url: url,

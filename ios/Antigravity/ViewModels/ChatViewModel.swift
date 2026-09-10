@@ -856,6 +856,19 @@ public final class ChatViewModel {
             guard let self else { return }
             self.handleStreamStatusChange(status)
         }
+        
+        NotificationCenter.default.addObserver(
+            forName: .networkRoutingPreferenceChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self = self, !self.cascadeId.isEmpty else { return }
+                print("[ChatViewModel] Network routing preference changed, reconnecting stream...")
+                self.connectStream(force: true)
+                await self.loadMessages(isBackgroundPoll: true)
+            }
+        }
     }
     
     private func handleStreamStatusChange(_ status: StreamConnectionStatus) {

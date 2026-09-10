@@ -90,6 +90,7 @@ func main() {
 
 	pairingMgr := auth.NewPairingManager()
 	authHandler := auth.NewAuthHandler(authStore, pairingMgr, qrHost, *port, *enableSSL)
+	authHandler.SetEndpoints(netAddrs.LANIPv4, netAddrs.PublicIPv6, *ddnsHost)
 
 	// Print initial pairing QR code
 	if initialSession, err := pairingMgr.GenerateSession(5 * time.Minute); err == nil {

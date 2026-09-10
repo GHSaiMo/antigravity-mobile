@@ -95,7 +95,12 @@ public struct ConversationListView: View {
     
     @ViewBuilder
     private var mainBodyView: some View {
-        if viewModel.isLoading && viewModel.conversations.isEmpty {
+        if !AppSettings.shared.isPaired && viewModel.conversations.isEmpty {
+            OnboardingGuideView(
+                onScanTapped: { showQRScanner = true },
+                onManualInputTapped: { showSettings = true }
+            )
+        } else if viewModel.isLoading && viewModel.conversations.isEmpty {
             loadingView
         } else if let err = viewModel.errorMessage, viewModel.conversations.isEmpty {
             errorView(err)
@@ -129,34 +134,40 @@ public struct ConversationListView: View {
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
-            HStack(spacing: 12) {
-                if !AppSettings.shared.isPaired {
-                    Button("扫码配对") {
-                        showQRScanner = true
-                    }
-                    .buttonStyle(.borderedProminent)
-                } else {
-                    Button("重试") {
-                        Task {
-                            await viewModel.fetchConversations()
+            
+            VStack(spacing: 10) {
+                HStack(spacing: 12) {
+                    if !AppSettings.shared.isPaired {
+                        Button("扫码配对") {
+                            showQRScanner = true
                         }
+                        .buttonStyle(.borderedProminent)
+                    } else {
+                        Button("智能重测端点") {
+                            Task {
+                                await ConnectionManager.shared.probeEndpoints()
+                                await viewModel.fetchConversations()
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        
+                        Button("重试") {
+                            Task {
+                                await viewModel.fetchConversations()
+                            }
+                        }
+                        .buttonStyle(.bordered)
                     }
-                    .buttonStyle(.bordered)
                 }
                 
-                if AppSettings.shared.isPaired {
-                    Button("打开设置") {
-                        showSettings = true
-                    }
-                    .buttonStyle(.borderedProminent)
-                } else {
-                    Button("打开设置") {
-                        showSettings = true
-                    }
-                    .buttonStyle(.bordered)
+                Button("打开设置") {
+                    showSettings = true
                 }
+                .font(.system(size: 14))
+                .foregroundColor(.secondary)
+                .padding(.top, 4)
             }
-            .padding(.top, 4)
+            .padding(.top, 6)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
