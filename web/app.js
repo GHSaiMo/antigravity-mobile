@@ -599,7 +599,7 @@ function updateChatControls(isRunning, wsUri, hasAction = false) {
     if (isRunning) {
       if (hasText) {
         sendBtn.className = "btn-action-circle send-mode active";
-        sendBtn.title = "加入待发送队列 (Queue Message)";
+        sendBtn.title = "加入待发送队列";
         sendBtn.setAttribute("aria-label", "加入待发送队列");
         if (iconSend) iconSend.classList.remove("hidden");
         if (iconStop) iconStop.classList.add("hidden");
@@ -1344,18 +1344,18 @@ const LocalQueueManager = {
       <div class="queued-item-row" data-id="${item.id}">
         <span class="queued-item-text">${escapeHtml(item.text)}</span>
         <div class="queued-actions" data-testid="queued-decorators">
-          <button class="queued-icon-btn btn-send-now" onclick="LocalQueueManager.sendNow('${item.id}')" title="Send Now" aria-label="Send Now">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 -960 960 960" fill="currentColor">
+          <button class="queued-icon-btn btn-send-now" onclick="LocalQueueManager.sendNow('${item.id}')" title="立即发送" aria-label="立即发送">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 -960 960 960" fill="currentColor">
               <path d="M665.08-450H180v-60H665.08L437.23-737.85L480-780L780-480L480-180l-42.77-42.15L665.08-450Z"></path>
             </svg>
           </button>
-          <button class="queued-icon-btn btn-edit" onclick="LocalQueueManager.edit('${item.id}')" title="Edit" aria-label="Edit">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 -960 960 960" fill="currentColor">
+          <button class="queued-icon-btn btn-edit" onclick="LocalQueueManager.edit('${item.id}')" title="编辑" aria-label="编辑">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 -960 960 960" fill="currentColor">
               <path d="M200-200h50.46L659.92-609.46l-50.46-50.46L200-250.46V-200Zm-60,60V-275.38L667.62-802.77q9.07-8.24 20.04-12.74T710.65-820t23.31,4.27t19.97,13.58l48.85,49.46q9.31,8.69 13.27,20T820-710.07q0,12.07-4.12,23.03T802.77-667L275.38-140H140ZM760.38-710.15l-50.23-50.23l50.23,50.23Zm-126.13,75.9l-24.79-25.67l50.46,50.46l-25.67-24.79Z"></path>
             </svg>
           </button>
-          <button class="queued-icon-btn btn-delete" onclick="LocalQueueManager.remove('${item.id}')" title="Delete" aria-label="Delete">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 -960 960 960" fill="currentColor">
+          <button class="queued-icon-btn btn-delete" onclick="LocalQueueManager.remove('${item.id}')" title="删除" aria-label="删除">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 -960 960 960" fill="currentColor">
               <path d="M292.31-140q-29.92,0-51.11-21.19T220-212.31V-720H180v-60H360v-35.38H600V-780H780v60H740v507.69Q740-182 719-161t-51.31,21H292.31ZM680-720H280v507.69q0,5.39 3.46,8.85t8.85,3.46H667.69q4.62,0 8.46-3.85t3.85-8.46V-720ZM376.16-280h60V-640h-60v360Zm147.69,0h60V-640h-60v360ZM280-720v507.69q0,5.39 0,8.85t0,3.46q0,0 0-3.46t0-8.85V-720Z"></path>
             </svg>
           </button>
