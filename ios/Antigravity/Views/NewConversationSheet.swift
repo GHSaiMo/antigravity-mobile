@@ -3,14 +3,18 @@ import SwiftUI
 public struct NewConversationSheet: View {
     @Environment(\.dismiss) private var dismiss
     
+    public var onSelectProject: ((ProjectItem) -> Void)?
     public var onCreated: ((String, ConversationItem) -> Void)?
     
     @State private var projects: [ProjectItem]
     @State private var isLoading: Bool
-    @State private var isStartingProjectUri: String? = nil
     @State private var errorMessage: String? = nil
     
-    public init(onCreated: ((String, ConversationItem) -> Void)? = nil) {
+    public init(
+        onSelectProject: ((ProjectItem) -> Void)? = nil,
+        onCreated: ((String, ConversationItem) -> Void)? = nil
+    ) {
+        self.onSelectProject = onSelectProject
         self.onCreated = onCreated
         let cached = ProjectCacheManager.shared.loadProjects()
         _projects = State(initialValue: cached)
@@ -103,7 +107,6 @@ public struct NewConversationSheet: View {
                     Button("取消") {
                         dismiss()
                     }
-                    .disabled(isStartingProjectUri != nil)
                 }
             }
             .task {
@@ -113,10 +116,8 @@ public struct NewConversationSheet: View {
     }
     
     private func projectCard(for project: ProjectItem) -> some View {
-        let isStartingThis = (isStartingProjectUri == project.uri)
-        
-        return Button {
-            Task { await startSession(for: project) }
+        Button {
+            selectProject(for: project)
         } label: {
             HStack(spacing: 14) {
                 ZStack {
@@ -154,14 +155,9 @@ public struct NewConversationSheet: View {
                 
                 Spacer()
                 
-                if isStartingThis {
-                    ProgressView()
-                        .scaleEffect(0.85)
-                } else {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 12.5, weight: .semibold))
-                        .foregroundColor(Color(uiColor: .tertiaryLabel))
-                }
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundColor(Color(uiColor: .tertiaryLabel))
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
@@ -169,7 +165,12 @@ public struct NewConversationSheet: View {
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(.plain)
-        .disabled(isStartingProjectUri != nil)
+    }
+    
+    private func selectProject(for project: ProjectItem) {
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        dismiss()
+        onSelectProject?(project)
     }
     
     /// Asynchronously refreshes the project list in background without blocking the UI
@@ -199,43 +200,6 @@ public struct NewConversationSheet: View {
                 errorMessage = "拉取项目列表失败: \(error.localizedDescription)"
             }
             isLoading = false
-        }
-    }
-    
-    private func startSession(for project: ProjectItem) async {
-        guard let url = AppSettings.shared.gatewayURL else {
-            errorMessage = "请先在设置中配置有效网关地址"
-            return
-        }
-        
-        isStartingProjectUri = project.uri
-        errorMessage = nil
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        
-        do {
-            let pid = project.rawId ?? (project.id != project.uri ? project.id : nil)
-            let cascadeId = try await APIClient.shared.createCascade(
-                workspaceUri: project.uri,
-                prompt: "",
-                projectId: pid,
-                baseURL: url
-            )
-            
-            // Construct conversation item with project name as initial title
-            let convItem = ConversationItem(
-                id: cascadeId,
-                title: project.name,
-                status: .idle,
-                stepCount: 0,
-                workspaceName: project.name,
-                lastModified: Date()
-            )
-            
-            dismiss()
-            onCreated?(cascadeId, convItem)
-        } catch {
-            errorMessage = "创建会话失败: \(error.localizedDescription)"
-            isStartingProjectUri = nil
         }
     }
 }

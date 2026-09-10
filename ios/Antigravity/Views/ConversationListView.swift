@@ -4,7 +4,7 @@ public struct ConversationListView: View {
     @State private var viewModel = ConversationListViewModel()
     @State private var showSettings = false
     @State private var showNewConversation = false
-    @State private var newlyCreatedConversation: ConversationItem?
+    @State private var selectedDraftProject: ProjectItem?
     
     public init() {}
     
@@ -70,16 +70,15 @@ public struct ConversationListView: View {
                 SettingsSheet()
             }
             .sheet(isPresented: $showNewConversation) {
-                NewConversationSheet { cascadeId, item in
+                NewConversationSheet(onSelectProject: { project in
                     Task { @MainActor in
                         try? await Task.sleep(nanoseconds: 200_000_000)
-                        newlyCreatedConversation = item
-                        await viewModel.fetchConversations()
+                        selectedDraftProject = project
                     }
-                }
+                })
             }
-            .navigationDestination(item: $newlyCreatedConversation) { item in
-                ChatView(conversation: item, isNewConversation: true)
+            .navigationDestination(item: $selectedDraftProject) { project in
+                ChatView(draftProject: project)
             }
             .onAppear {
                 Task {

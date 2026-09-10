@@ -19,6 +19,13 @@ public struct ChatView: View {
         ))
     }
     
+    public init(draftProject: ProjectItem) {
+        self.shouldAutoFocus = true
+        _viewModel = State(initialValue: ChatViewModel(
+            draftProject: draftProject
+        ))
+    }
+    
     public var body: some View {
         VStack(spacing: 0) {
             // Content area

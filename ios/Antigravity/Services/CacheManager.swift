@@ -135,6 +135,68 @@ public final class CacheManager: @unchecked Sendable {
         }
     }
     
+    public func updateConversationStatus(cascadeId: String, status: ConversationItem.ConversationStatus) {
+        lock.lock()
+        defer { lock.unlock() }
+        
+        var items = memConversations ?? []
+        if items.isEmpty {
+            let fileURL = cacheDir.appendingPathComponent("conversations.json")
+            if let data = try? Data(contentsOf: fileURL),
+               let loaded = try? JSONDecoder().decode([ConversationItem].self, from: data) {
+                items = loaded
+            }
+        }
+        
+        if let idx = items.firstIndex(where: { $0.id == cascadeId }) {
+            let old = items[idx]
+            if old.status != status {
+                items[idx] = ConversationItem(
+                    id: old.id,
+                    title: old.title,
+                    status: status,
+                    stepCount: old.stepCount,
+                    workspaceName: old.workspaceName,
+                    lastModified: old.lastModified
+                )
+                memConversations = items
+                if let data = try? JSONEncoder().encode(items) {
+                    let fileURL = cacheDir.appendingPathComponent("conversations.json")
+                    ioQueue.async {
+                        try? data.write(to: fileURL, options: .atomic)
+                    }
+                }
+            }
+        }
+    }
+    
+    public func upsertConversation(_ item: ConversationItem) {
+        lock.lock()
+        defer { lock.unlock() }
+        
+        var items = memConversations ?? []
+        if items.isEmpty {
+            let fileURL = cacheDir.appendingPathComponent("conversations.json")
+            if let data = try? Data(contentsOf: fileURL),
+               let loaded = try? JSONDecoder().decode([ConversationItem].self, from: data) {
+                items = loaded
+            }
+        }
+        
+        if let idx = items.firstIndex(where: { $0.id == item.id }) {
+            items[idx] = item
+        } else {
+            items.insert(item, at: 0)
+        }
+        memConversations = items
+        if let data = try? JSONEncoder().encode(items) {
+            let fileURL = cacheDir.appendingPathComponent("conversations.json")
+            ioQueue.async {
+                try? data.write(to: fileURL, options: .atomic)
+            }
+        }
+    }
+    
     // MARK: - Chat Session Cache
     
     public func saveSession(_ session: CachedChatSession) {

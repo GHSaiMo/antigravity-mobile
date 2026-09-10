@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -81,6 +82,11 @@ var (
 	lastKnownCascadeConfig json.RawMessage
 	lastKnownConfigMu      sync.RWMutex
 	imgRegex               = regexp.MustCompile(`!\[.*?\]\((https?://[^\s\)]+|/static/[^\s\)]+)\)`)
+	titleRegex             = regexp.MustCompile(`title:\s*"([^"]+)"`)
+	loadedCascadesMu       sync.Mutex
+	loadedCascades         = make(map[string]bool)
+	hasSyncedHistMu        sync.Mutex
+	hasSyncedHist          bool
 )
 
 type TrajectoryStep struct {
@@ -468,25 +474,36 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 		if s.Type == "CORTEX_STEP_TYPE_CODE_ACTION" {
 			if s.CodeAction != nil {
 				ca := s.CodeAction
-				if ca.IsArtifactFile {
+				uri := ""
+				if ca.ActionResult != nil {
+					if ca.ActionResult.Edit != nil && ca.ActionResult.Edit.AbsoluteURI != "" {
+						uri = ca.ActionResult.Edit.AbsoluteURI
+					} else if ca.ActionResult.AbsoluteURI != "" {
+						uri = ca.ActionResult.AbsoluteURI
+					}
+				}
+				if uri == "" && ca.ActionSpec != nil && ca.ActionSpec.CreateFile != nil && ca.ActionSpec.CreateFile.Path != nil {
+					uri = ca.ActionSpec.CreateFile.Path.AbsoluteURI
+				}
+
+				isArtifact := ca.IsArtifactFile ||
+					strings.Contains(uri, "/brain/") ||
+					strings.Contains(uri, ".gemini/antigravity/brain") ||
+					strings.Contains(uri, "implementation_plan.md")
+
+				if isArtifact {
 					reqFeedback := false
 					if ca.ArtifactMetadata != nil && ca.ArtifactMetadata.RequestFeedback {
 						reqFeedback = true
 					}
-					uri := ""
-					if ca.ActionResult != nil {
-						if ca.ActionResult.Edit != nil && ca.ActionResult.Edit.AbsoluteURI != "" {
-							uri = ca.ActionResult.Edit.AbsoluteURI
-						} else if ca.ActionResult.AbsoluteURI != "" {
-							uri = ca.ActionResult.AbsoluteURI
-						}
+
+					filePath := uri
+					if strings.HasPrefix(filePath, "file://") {
+						filePath = strings.TrimPrefix(filePath, "file://")
 					}
-					if uri == "" && ca.ActionSpec != nil && ca.ActionSpec.CreateFile != nil && ca.ActionSpec.CreateFile.Path != nil {
-						uri = ca.ActionSpec.CreateFile.Path.AbsoluteURI
-					}
+
 					// If step metadata was missing but this is an artifact step in the current turn, check its specific metadata file
-					if !reqFeedback && ca.ArtifactMetadata == nil && uri != "" && strings.HasPrefix(uri, "file://") {
-						filePath := strings.TrimPrefix(uri, "file://")
+					if !reqFeedback && filePath != "" {
 						if metaData, err := os.ReadFile(filePath + ".metadata.json"); err == nil {
 							var meta struct {
 								RequestFeedback bool `json:"requestFeedback"`
@@ -496,6 +513,25 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 							}
 						}
 					}
+
+					// Also fallback check ~/.gemini/antigravity/brain/<cascadeId>/implementation_plan.md.metadata.json
+					if !reqFeedback && rawResp.Trajectory.CascadeID != "" {
+						if home, err := os.UserHomeDir(); err == nil && home != "" {
+							planMetaPath := filepath.Join(home, ".gemini/antigravity/brain", rawResp.Trajectory.CascadeID, "implementation_plan.md.metadata.json")
+							if metaData, err := os.ReadFile(planMetaPath); err == nil {
+								var meta struct {
+									RequestFeedback bool `json:"requestFeedback"`
+								}
+								if err := json.Unmarshal(metaData, &meta); err == nil && meta.RequestFeedback {
+									reqFeedback = true
+									if uri == "" {
+										uri = "file://" + filepath.Join(home, ".gemini/antigravity/brain", rawResp.Trajectory.CascadeID, "implementation_plan.md")
+									}
+								}
+							}
+						}
+					}
+
 					if reqFeedback && uri != "" {
 						canProceed = true
 						proceedArtifactURI = uri
@@ -688,7 +724,40 @@ func (p *Proxy) fetchUpstreamTrajectory(cascadeID string, port int, token string
 		}
 	}
 	trajCacheMu.Unlock()
-	return p.fetchUpstreamTrajectoryWithMaxAge(cascadeID, port, token, maxAge)
+
+	resp, err := p.fetchUpstreamTrajectoryWithMaxAge(cascadeID, port, token, maxAge)
+	// Fallback: If not found or empty steps, try loading from disk via LoadTrajectory and retry once
+	if (err != nil || (resp != nil && len(resp.Trajectory.Steps) == 0)) && port > 0 {
+		if loadErr := p.LoadTrajectory(cascadeID, port, token); loadErr == nil {
+			trajCacheMu.Lock()
+			delete(trajCache, cascadeID)
+			trajCacheMu.Unlock()
+			if retryResp, retryErr := p.fetchUpstreamTrajectoryWithMaxAge(cascadeID, port, token, 0); retryErr == nil && retryResp != nil {
+				return retryResp, nil
+			}
+		}
+	}
+	return resp, err
+}
+
+func readAnnotationTitle(cascadeID string) string {
+	if cascadeID == "" {
+		return ""
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	p := filepath.Join(home, ".gemini", "antigravity", "annotations", cascadeID+".pbtxt")
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return ""
+	}
+	m := titleRegex.FindSubmatch(b)
+	if len(m) > 1 {
+		return string(m[1])
+	}
+	return ""
 }
 
 func (p *Proxy) lookupCascadeTitle(cascadeID string, port int, token string) string {
@@ -701,7 +770,7 @@ func (p *Proxy) lookupCascadeTitle(cascadeID string, port int, token string) str
 	cacheFresh := time.Since(lastCascadeTitlesFetch) < 3*time.Second
 	cascadeTitlesCacheMu.RUnlock()
 
-	if ok && cachedTitle != "" && cacheFresh {
+	if ok && cachedTitle != "" && cachedTitle != "未命名会话" && cacheFresh {
 		return cachedTitle
 	}
 
@@ -717,11 +786,151 @@ func (p *Proxy) lookupCascadeTitle(cascadeID string, port int, token string) str
 			}
 			newTitle := cascadeTitlesCache[cascadeID]
 			cascadeTitlesCacheMu.Unlock()
-			return newTitle
+			if newTitle != "" && newTitle != "未命名会话" {
+				return newTitle
+			}
 		}
 	}
 
+	if t := readAnnotationTitle(cascadeID); t != "" {
+		cascadeTitlesCacheMu.Lock()
+		cascadeTitlesCache[cascadeID] = t
+		cascadeTitlesCacheMu.Unlock()
+		return t
+	}
+
 	return cachedTitle
+}
+
+// LoadTrajectory asks upstream language_server to load a historical cascade into memory.
+func (p *Proxy) LoadTrajectory(cascadeID string, port int, token string) error {
+	if cascadeID == "" || port == 0 {
+		return fmt.Errorf("invalid cascadeId or port")
+	}
+
+	url := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/LoadTrajectory", port)
+	payload, _ := json.Marshal(map[string]string{"cascadeId": cascadeID})
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Connect-Protocol-Version", "1")
+	if token != "" {
+		req.Header.Set("x-codeium-csrf-token", token)
+	}
+
+	client := &http.Client{
+		Timeout:   3 * time.Second,
+		Transport: p.transport,
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("upstream LoadTrajectory returned %d: %s", resp.StatusCode, string(b))
+	}
+
+	return nil
+}
+
+// SyncHistoricalTrajectories scans ~/.gemini/antigravity/conversations for historical session DBs
+// and loads valid sessions into upstream language_server memory so GetAllCascadeTrajectories returns them.
+func (p *Proxy) SyncHistoricalTrajectories(port int, token string) error {
+	if port == 0 {
+		return fmt.Errorf("upstream port not set")
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+
+	convDir := filepath.Join(home, ".gemini", "antigravity", "conversations")
+	entries, err := os.ReadDir(convDir)
+	if err != nil {
+		return err
+	}
+
+	var candidates []string
+	loadedCascadesMu.Lock()
+	for _, entry := range entries {
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".db") {
+			continue
+		}
+		cascadeID := strings.TrimSuffix(name, ".db")
+		if loadedCascades[cascadeID] {
+			continue
+		}
+
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+
+		// Empty session schemas are exactly 48KB (49152 bytes) with 0 steps.
+		// If older than 15 minutes and <= 49152 bytes, skip loading old empty drafts.
+		if info.Size() <= 49152 && time.Since(info.ModTime()) > 15*time.Minute {
+			loadedCascades[cascadeID] = true
+			continue
+		}
+
+		candidates = append(candidates, cascadeID)
+	}
+	loadedCascadesMu.Unlock()
+
+	if len(candidates) == 0 {
+		hasSyncedHistMu.Lock()
+		hasSyncedHist = true
+		hasSyncedHistMu.Unlock()
+		return nil
+	}
+
+	log.Printf("[Proxy] Syncing %d historical trajectories into upstream language_server...", len(candidates))
+
+	concurrency := 8
+	if concurrency > len(candidates) {
+		concurrency = len(candidates)
+	}
+
+	workCh := make(chan string, len(candidates))
+	for _, cid := range candidates {
+		workCh <- cid
+	}
+	close(workCh)
+
+	var wg sync.WaitGroup
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for cid := range workCh {
+				err := p.LoadTrajectory(cid, port, token)
+				if err == nil {
+					loadedCascadesMu.Lock()
+					loadedCascades[cid] = true
+					loadedCascadesMu.Unlock()
+				} else {
+					log.Printf("[Proxy] Failed to load historical trajectory %s: %v", cid, err)
+				}
+			}
+		}()
+	}
+	wg.Wait()
+
+	hasSyncedHistMu.Lock()
+	hasSyncedHist = true
+	hasSyncedHistMu.Unlock()
+
+	log.Printf("[Proxy] Finished syncing historical trajectories")
+	return nil
 }
 
 func (p *Proxy) fetchTrajectoriesSummaryWithTitles(port int, token string) (map[string]string, error) {
