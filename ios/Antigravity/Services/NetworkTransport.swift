@@ -61,26 +61,30 @@ public final class NetworkTransport: Sendable {
             final class SyncState: @unchecked Sendable {
                 var isCompleted = false
                 var timeoutWork: DispatchWorkItem?
-            }
-            let state = SyncState()
-            
-            func finish(result: Result<(Data, HTTPURLResponse), Error>) {
-                objc_sync_enter(state)
-                defer { objc_sync_exit(state) }
-                guard !state.isCompleted else { return }
-                state.isCompleted = true
-                state.timeoutWork?.cancel()
-                connection.cancel()
-                switch result {
-                case .success(let res):
-                    continuation.resume(returning: res)
-                case .failure(let err):
-                    continuation.resume(throwing: err)
+                var connection: NWConnection?
+                var continuation: CheckedContinuation<(Data, HTTPURLResponse), any Error>?
+                
+                func finish(result: Result<(Data, HTTPURLResponse), any Error>) {
+                    objc_sync_enter(self)
+                    defer { objc_sync_exit(self) }
+                    guard !isCompleted else { return }
+                    isCompleted = true
+                    timeoutWork?.cancel()
+                    connection?.cancel()
+                    switch result {
+                    case .success(let res):
+                        continuation?.resume(returning: res)
+                    case .failure(let err):
+                        continuation?.resume(throwing: err)
+                    }
                 }
             }
+            let state = SyncState()
+            state.continuation = continuation
+            state.connection = connection
             
             let timeoutWork = DispatchWorkItem {
-                finish(result: .failure(URLError(.timedOut)))
+                state.finish(result: .failure(URLError(.timedOut)))
             }
             state.timeoutWork = timeoutWork
             DispatchQueue.global().asyncAfter(deadline: .now() + timeoutInterval, execute: timeoutWork)
@@ -118,38 +122,38 @@ public final class NetworkTransport: Sendable {
                     
                     connection.send(content: reqData, completion: .contentProcessed { err in
                         if let err = err {
-                            finish(result: .failure(err))
+                            state.finish(result: .failure(err))
                             return
                         }
                         
                         final class DataBuffer: @unchecked Sendable {
                             var buffer = Data()
-                        }
-                        let dataBuffer = DataBuffer()
-                        
-                        func readNext() {
-                            connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, _, isComplete, err in
-                                if let data = data, !data.isEmpty {
-                                    dataBuffer.buffer.append(data)
-                                }
-                                
-                                if isComplete || err != nil {
-                                    if let (bodyPart, response) = Self.parseHTTPResponse(data: dataBuffer.buffer, url: url) {
-                                        finish(result: .success((bodyPart, response)))
-                                    } else if let err = err {
-                                        finish(result: .failure(err))
-                                    } else {
-                                        finish(result: .failure(URLError(.badServerResponse)))
+                            func readNext(connection: NWConnection, state: SyncState, url: URL) {
+                                connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, err in
+                                    guard let self = self else { return }
+                                    if let data = data, !data.isEmpty {
+                                        self.buffer.append(data)
                                     }
-                                    return
+                                    
+                                    if isComplete || err != nil {
+                                        if let (bodyPart, response) = NetworkTransport.parseHTTPResponse(data: self.buffer, url: url) {
+                                            state.finish(result: .success((bodyPart, response)))
+                                        } else if let err = err {
+                                            state.finish(result: .failure(err))
+                                        } else {
+                                            state.finish(result: .failure(URLError(.badServerResponse)))
+                                        }
+                                        return
+                                    }
+                                    self.readNext(connection: connection, state: state, url: url)
                                 }
-                                readNext()
                             }
                         }
-                        readNext()
+                        let dataBuffer = DataBuffer()
+                        dataBuffer.readNext(connection: connection, state: state, url: url)
                     })
                 case .failed(let err):
-                    finish(result: .failure(err))
+                    state.finish(result: .failure(err))
                 default:
                     break
                 }
@@ -159,7 +163,7 @@ public final class NetworkTransport: Sendable {
         }
     }
     
-    private static func parseHTTPResponse(data: Data, url: URL) -> (Data, HTTPURLResponse)? {
+    nonisolated private static func parseHTTPResponse(data: Data, url: URL) -> (Data, HTTPURLResponse)? {
         guard let separatorRange = data.range(of: Data("\r\n\r\n".utf8)) else {
             return nil
         }
@@ -201,7 +205,7 @@ public final class NetworkTransport: Sendable {
         return (bodyData, response)
     }
     
-    private static func dechunk(data: Data) -> Data {
+    nonisolated private static func dechunk(data: Data) -> Data {
         var result = Data()
         var offset = data.startIndex
         while offset < data.endIndex {

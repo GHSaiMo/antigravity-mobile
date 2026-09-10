@@ -124,6 +124,10 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 					details.Title = t
 				}
 			}
+
+			if sink := p.NotificationSink(); sink != nil {
+				sink.OnTrajectoryUpdate(&details)
+			}
 			payload := StreamUpdatePayload{
 				Type:               "update",
 				CascadeID:          details.CascadeID,

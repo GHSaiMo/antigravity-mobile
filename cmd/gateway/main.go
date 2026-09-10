@@ -12,12 +12,17 @@ import (
 	"syscall"
 	"time"
 
+	"antigravity-mobile/internal/config"
 	"antigravity-mobile/internal/inspector"
+	"antigravity-mobile/internal/notifier"
 	"antigravity-mobile/internal/proxy"
 	"antigravity-mobile/web"
 )
 
 func main() {
+	// 0. Load .env configuration
+	config.LoadDotEnv()
+
 	host := flag.String("host", "", "Host/IP for Mobile Gateway to listen on (default \"\" binds to all IPv4 and IPv6 interfaces)")
 	port := flag.Int("port", 58900, "Port for Mobile Gateway to listen on")
 	pollSec := flag.Int("poll", 5, "Polling interval in seconds for Antigravity instance discovery")
@@ -35,10 +40,30 @@ func main() {
 	// 2. Initialize Reverse Proxy & WebSocket handler
 	p := proxy.NewProxy(insp)
 
-	// 3. Web frontend handler
+	// 3. Initialize Push Notification & Background Watcher
+	notifCfg := config.GetNotificationConfig()
+	watcherCtx, cancelWatcher := context.WithCancel(context.Background())
+	defer cancelWatcher()
+
+	if notifCfg.Enabled {
+		notif := notifier.NewNotifier(notifCfg)
+		p.SetNotificationSink(notif)
+
+		watcher := notifier.NewWatcher(p, notif)
+		watcher.Start(watcherCtx)
+
+		log.Printf("🔔 Bark notifications ENABLED")
+		log.Printf("   🎯 Target: %s", notifCfg.BarkEndpoint)
+		log.Printf("   🎨 Icon:   %s", notifCfg.IconURL)
+		log.Printf("   📁 Group:  %s", notifCfg.Group)
+	} else {
+		log.Printf("ℹ️  Bark notifications disabled (set BARK_URL in .env to enable)")
+	}
+
+	// 4. Web frontend handler
 	webHandler := web.Handler()
 
-	// 4. Combined Root Router
+	// 5. Combined Root Router
 	router := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 

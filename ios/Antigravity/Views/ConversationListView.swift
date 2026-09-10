@@ -6,11 +6,12 @@ public struct ConversationListView: View {
     @State private var showSettings = false
     @State private var showNewConversation = false
     @State private var selectedDraftProject: ProjectItem?
+    @State private var navigationPath = NavigationPath()
     
     public init() {}
     
     public var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navigationPath) {
             Group {
                 if viewModel.isLoading && viewModel.conversations.isEmpty {
                     ProgressView("正在连接 Agent...")
@@ -119,6 +120,40 @@ public struct ConversationListView: View {
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
                 viewModel.stopAutoRefresh()
             }
+            .onOpenURL { url in
+                handleDeepLink(url)
+            }
+        }
+    }
+    
+    private func handleDeepLink(_ url: URL) {
+        guard url.scheme == "antigravity" || url.scheme == "agy" else { return }
+        
+        let cascadeId: String
+        if url.host == "cascade" {
+            cascadeId = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        } else if let host = url.host, !host.isEmpty {
+            cascadeId = host
+        } else {
+            cascadeId = url.lastPathComponent
+        }
+        
+        guard !cascadeId.isEmpty else { return }
+        
+        if let existing = viewModel.conversations.first(where: { $0.id == cascadeId }) {
+            navigationPath.append(existing)
+        } else {
+            let placeholder = ConversationItem(
+                id: cascadeId,
+                title: "会话",
+                status: .running,
+                stepCount: 0,
+                workspaceName: "workspace",
+                lastModified: Date(),
+                isSubagent: false,
+                isUnread: false
+            )
+            navigationPath.append(placeholder)
         }
     }
     
