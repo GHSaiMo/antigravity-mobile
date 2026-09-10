@@ -590,6 +590,10 @@ func (p *Proxy) handleDeleteCascadeTrajectory(w http.ResponseWriter, r *http.Req
 	}
 	_ = json.Unmarshal(bodyBytes, &reqData)
 
+	if reqData.CascadeID != "" {
+		RecordDeletedCascade(reqData.CascadeID)
+	}
+
 	fwdReq := r.Clone(r.Context())
 	fwdReq.URL.Path = reqPath
 	fwdReq.Body = io.NopCloser(bytes.NewReader(bodyBytes))
@@ -599,13 +603,24 @@ func (p *Proxy) handleDeleteCascadeTrajectory(w http.ResponseWriter, r *http.Req
 
 	if rec.statusCode >= 200 && rec.statusCode < 300 {
 		if reqData.CascadeID != "" {
+			RecordDeletedCascade(reqData.CascadeID)
 			ClearTrajectoryCache(reqData.CascadeID)
-			// Clean up leftover .pbtxt annotation file if present
+			// Clean up leftover .pbtxt annotation file and .db files if present
 			if home, err := os.UserHomeDir(); err == nil {
 				annPath := filepath.Join(home, ".gemini", "antigravity", "annotations", reqData.CascadeID+".pbtxt")
 				_ = os.Remove(annPath)
+
+				convDir := filepath.Join(home, ".gemini", "antigravity", "conversations")
+				_ = os.Remove(filepath.Join(convDir, reqData.CascadeID+".db"))
+				_ = os.Remove(filepath.Join(convDir, reqData.CascadeID+".db-wal"))
+				_ = os.Remove(filepath.Join(convDir, reqData.CascadeID+".db-shm"))
 			}
-			log.Printf("[Proxy] Deleted cascade trajectory: %s (cache & annotation cleared)", reqData.CascadeID)
+			log.Printf("[Proxy] Deleted cascade trajectory: %s (cache, tombstone & files cleared)", reqData.CascadeID)
+		}
+	} else if rec.statusCode >= 400 {
+		// Upstream explicitly rejected deletion; release the tombstone
+		if reqData.CascadeID != "" {
+			RemoveDeletedCascadeTombstone(reqData.CascadeID)
 		}
 	}
 
@@ -901,8 +916,14 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	// Enrich missing titles, filter out subagent sessions and stale abandoned drafts
+	// Enrich missing titles, filter out subagent sessions, deleted sessions, and stale abandoned drafts
 	for id, s := range summaries {
+		// Filter out recently deleted sessions (tombstone protection against upstream sync delays)
+		if IsDeletedCascade(id) {
+			delete(summaries, id)
+			continue
+		}
+
 		// Filter out internal subagent sessions completely
 		if isSubagentTrajectoryMap(s, id) {
 			delete(summaries, id)
