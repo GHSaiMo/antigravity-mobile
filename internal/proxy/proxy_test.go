@@ -316,3 +316,202 @@ func TestGetAllCascadeTrajectories_CanProceedNeedsInput(t *testing.T) {
 		t.Errorf("expected traj-done to NOT have needsInput=true, got %+v", doneItem.NeedsInput)
 	}
 }
+
+func TestFilterSubagentTrajectories(t *testing.T) {
+	// 1. Direct unit test of isSubagentTrajectoryMap
+	tests := []struct {
+		name     string
+		id       string
+		summary  map[string]interface{}
+		expected bool
+	}{
+		{
+			name: "Normal user session with matching root ID",
+			id:   "user-session-1",
+			summary: map[string]interface{}{
+				"summary": "Optimize mobile UI",
+				"trajectoryMetadata": map[string]interface{}{
+					"rootConversationId": "user-session-1",
+					"workspaceUris":      []interface{}{"file:///Users/hal9000/Projects/app"},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "Legitimate user session with pure English title (Code Review and Architecture)",
+			id:   "user-session-en-1",
+			summary: map[string]interface{}{
+				"summary": "Code Review and Architecture Analysis",
+				"trajectoryMetadata": map[string]interface{}{
+					"rootConversationId": "user-session-en-1",
+					"workspaceUris":      []interface{}{"file:///Users/hal9000/Projects/app"},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "Legitimate user session with pure English title (Fix crash bug)",
+			id:   "user-session-en-2",
+			summary: map[string]interface{}{
+				"summary": "Fix auth token refresh crash bug",
+				"trajectoryMetadata": map[string]interface{}{
+					"rootConversationId": "user-session-en-2",
+					"workspaceUris":      []interface{}{"file:///Users/hal9000/Projects/app"},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "Subagent with parentConversationId",
+			id:   "sub-1",
+			summary: map[string]interface{}{
+				"summary": "Application Log File Analysis",
+				"trajectoryMetadata": map[string]interface{}{
+					"parentConversationId": "user-session-1",
+					"rootConversationId":   "user-session-1",
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "Subagent with subagentSpec",
+			id:   "sub-2",
+			summary: map[string]interface{}{
+				"summary": "Frontend Codebase Analysis",
+				"trajectoryMetadata": map[string]interface{}{
+					"subagentSpec": map[string]interface{}{
+						"role":     "Frontend Code Researcher",
+						"typeName": "research",
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "Subagent with agentScript",
+			id:   "sub-3",
+			summary: map[string]interface{}{
+				"summary": "Python Backend Code Review",
+				"trajectoryMetadata": map[string]interface{}{
+					"agentScript": map[string]interface{}{
+						"name": "research",
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "Subagent with nestingDepth > 0",
+			id:   "sub-4",
+			summary: map[string]interface{}{
+				"summary": "Runtime LLM Fallback Mechanisms",
+				"trajectoryMetadata": map[string]interface{}{
+					"nestingDepth": float64(1),
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "Subagent with mismatched rootConversationId",
+			id:   "sub-5",
+			summary: map[string]interface{}{
+				"summary": "Persia-Live Web Scraper Analysis",
+				"trajectoryMetadata": map[string]interface{}{
+					"rootConversationId": "other-root-session",
+				},
+			},
+			expected: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := isSubagentTrajectoryMap(tc.summary, tc.id)
+			if got != tc.expected {
+				t.Errorf("%s: expected isSubagent=%v, got %v", tc.name, tc.expected, got)
+			}
+		})
+	}
+
+	// 2. Integration test through proxy /api/.../GetAllCascadeTrajectories
+	mockUpstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/GetAllCascadeTrajectories") {
+			w.Write([]byte(`{
+				"trajectorySummaries": {
+					"real-user-session": {
+						"summary": "真实用户发起的会话",
+						"status": "CASCADE_RUN_STATUS_IDLE",
+						"stepCount": 20,
+						"lastModifiedTime": "2026-09-10T00:00:00Z",
+						"trajectoryMetadata": {
+							"rootConversationId": "real-user-session",
+							"workspaceUris": ["file:///path/to/project"]
+						}
+					},
+					"subagent-with-parent": {
+						"summary": "Application Log File Analysis",
+						"status": "CASCADE_RUN_STATUS_IDLE",
+						"stepCount": 10,
+						"lastModifiedTime": "2026-09-10T00:00:00Z",
+						"trajectoryMetadata": {
+							"parentConversationId": "real-user-session",
+							"rootConversationId": "real-user-session",
+							"nestingDepth": 1
+						}
+					},
+					"subagent-with-spec": {
+						"summary": "Frontend Codebase Analysis",
+						"status": "CASCADE_RUN_STATUS_IDLE",
+						"stepCount": 15,
+						"lastModifiedTime": "2026-09-10T00:00:00Z",
+						"trajectoryMetadata": {
+							"subagentSpec": {
+								"role": "Frontend Code Researcher"
+							}
+						}
+					}
+				}
+			}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer mockUpstream.Close()
+
+	port := mockUpstream.Listener.Addr().(*net.TCPAddr).Port
+	p := NewProxy(inspector.NewInspector(10 * time.Second))
+	p.updateUpstream(inspector.InstanceInfo{
+		PID:       1234,
+		Port:      port,
+		CSRFToken: "test-token",
+		IsHealthy: true,
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories", strings.NewReader("{}"))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	p.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		TrajectorySummaries map[string]interface{} `json:"trajectorySummaries"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode json: %v", err)
+	}
+
+	if _, ok := resp.TrajectorySummaries["real-user-session"]; !ok {
+		t.Errorf("expected real-user-session to be present in summaries")
+	}
+	if _, ok := resp.TrajectorySummaries["subagent-with-parent"]; ok {
+		t.Errorf("expected subagent-with-parent to be filtered out")
+	}
+	if _, ok := resp.TrajectorySummaries["subagent-with-spec"]; ok {
+		t.Errorf("expected subagent-with-spec to be filtered out")
+	}
+}
+
