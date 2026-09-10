@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"antigravity-mobile/internal/auth"
 	"antigravity-mobile/internal/config"
 	"antigravity-mobile/internal/inspector"
 	"antigravity-mobile/internal/notifier"
@@ -38,6 +39,8 @@ func main() {
 	host := flag.String("host", defaultHost, "Host/IP for Mobile Gateway to listen on (default \"\" binds to all IPv4 and IPv6 interfaces)")
 	port := flag.Int("port", defaultPort, "Port for Mobile Gateway to listen on")
 	pollSec := flag.Int("poll", 5, "Polling interval in seconds for Antigravity instance discovery")
+	ddnsHost := flag.String("ddns", os.Getenv("DDNS_HOST"), "Public DDNS domain or IPv6 address for pairing QR code")
+	enableSSL := flag.Bool("ssl", os.Getenv("GATEWAY_SSL") == "1" || os.Getenv("GATEWAY_SSL") == "true", "Indicate SSL mode in pairing QR code")
 	flag.Parse()
 
 	log.Printf("==================================================")
@@ -52,10 +55,65 @@ func main() {
 	// 2. Initialize Reverse Proxy & WebSocket handler
 	p := proxy.NewProxy(insp)
 
-	// 3. Initialize Push Notification & Background Watcher
+	// 3. Initialize Auth Store & Pairing Manager
+	authStorePath := os.Getenv("AUTH_STORE_PATH")
+	authStore, err := auth.NewAuthStore(authStorePath)
+	if err != nil {
+		log.Fatalf("❌ Failed to initialize auth store: %v", err)
+	}
+
+	netAddrs := auth.DetectNetworkAddresses()
+	qrHost := *ddnsHost
+	var extraHosts []string
+
+	if qrHost == "" {
+		if *host != "" && *host != "0.0.0.0" && *host != "::" && *host != "[::]" {
+			qrHost = *host
+		} else if netAddrs.LANIPv4 != "" {
+			qrHost = netAddrs.LANIPv4
+			if netAddrs.PublicIPv6 != "" {
+				extraHosts = append(extraHosts, netAddrs.PublicIPv6)
+			}
+		} else if netAddrs.PublicIPv6 != "" {
+			qrHost = netAddrs.PublicIPv6
+		} else {
+			qrHost = "127.0.0.1"
+		}
+	} else {
+		if netAddrs.LANIPv4 != "" && netAddrs.LANIPv4 != qrHost {
+			extraHosts = append(extraHosts, netAddrs.LANIPv4)
+		}
+		if netAddrs.PublicIPv6 != "" && netAddrs.PublicIPv6 != qrHost {
+			extraHosts = append(extraHosts, netAddrs.PublicIPv6)
+		}
+	}
+
+	pairingMgr := auth.NewPairingManager()
+	authHandler := auth.NewAuthHandler(authStore, pairingMgr, qrHost, *port, *enableSSL)
+
+	// Print initial pairing QR code
+	if initialSession, err := pairingMgr.GenerateSession(5 * time.Minute); err == nil {
+		auth.PrintPairingQRCode(qrHost, *port, initialSession.Code, *enableSSL, extraHosts...)
+	}
+
+	// 4. Initialize Push Notification & Background Watcher
 	notifCfg := config.GetNotificationConfig()
 	watcherCtx, cancelWatcher := context.WithCancel(context.Background())
 	defer cancelWatcher()
+
+	// Periodically cleanup expired pairing sessions
+	go func() {
+		ticker := time.NewTicker(2 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				pairingMgr.CleanupExpired()
+			case <-watcherCtx.Done():
+				return
+			}
+		}
+	}()
 
 	if notifCfg.Enabled {
 		notif := notifier.NewNotifier(notifCfg)
@@ -72,12 +130,26 @@ func main() {
 		log.Printf("ℹ️  Bark notifications disabled (set BARK_URL in .env to enable)")
 	}
 
-	// 4. Web frontend handler
+	// 5. Web frontend handler
 	webHandler := web.Handler()
 
-	// 5. Combined Root Router
-	router := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// 6. Combined Root Router
+	rootMux := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
+
+		// Route auth and device management endpoints
+		if path == "/api/v1/auth/pair" {
+			authHandler.HandlePair(w, r)
+			return
+		}
+		if path == "/api/v1/auth/session" {
+			authHandler.HandleNewPairingSession(w, r)
+			return
+		}
+		if strings.HasPrefix(path, "/api/v1/devices") {
+			authHandler.HandleDevices(w, r)
+			return
+		}
 
 		// Route to proxy for APIs, WebSockets, Artifacts, and Gateway status
 		if strings.HasPrefix(path, "/api/") ||
@@ -91,6 +163,9 @@ func main() {
 		// Route to web frontend for everything else
 		webHandler.ServeHTTP(w, r)
 	})
+
+	// 7. Wrap with AuthMiddleware
+	router := auth.AuthMiddleware(authStore, rootMux)
 
 	server := &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", *host, *port),
@@ -117,7 +192,11 @@ func main() {
 		}
 	}()
 
-	log.Printf("📱 Mobile Web UI ready at: http://127.0.0.1:%d", *port)
+	if qrHost != "127.0.0.1" {
+		log.Printf("📱 Mobile Web UI ready at: http://%s:%d (LAN) | http://127.0.0.1:%d (Local)", qrHost, *port, *port)
+	} else {
+		log.Printf("📱 Mobile Web UI ready at: http://127.0.0.1:%d", *port)
+	}
 
 	<-stopCh
 	log.Println("Shutting down gateway...")
