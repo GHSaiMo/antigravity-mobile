@@ -4,13 +4,21 @@ public struct AccountQuotaSheet: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("cockpit_email_masked") private var isMasked: Bool = false
     @State private var switchingAccountId: String? = nil
+    @State private var isRefreshing: Bool = false
     @State private var errorMessage: String? = nil
-    public let quotaResponse: CockpitQuotaResponse?
+    @State private var alertTitle: String = "操作失败"
+    @Binding public var quotaResponse: CockpitQuotaResponse?
     public let onSwitch: ((String) async throws -> Void)?
+    public let onRefresh: (() async throws -> Void)?
     
-    public init(quotaResponse: CockpitQuotaResponse?, onSwitch: ((String) async throws -> Void)? = nil) {
-        self.quotaResponse = quotaResponse
+    public init(
+        quotaResponse: Binding<CockpitQuotaResponse?>,
+        onSwitch: ((String) async throws -> Void)? = nil,
+        onRefresh: (() async throws -> Void)? = nil
+    ) {
+        self._quotaResponse = quotaResponse
         self.onSwitch = onSwitch
+        self.onRefresh = onRefresh
     }
     
     private var currentAccount: CockpitAccountQuota? {
@@ -118,12 +126,24 @@ public struct AccountQuotaSheet: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("完成") {
-                        dismiss()
+                    Button(action: {
+                        Task {
+                            await performRefresh()
+                        }
+                    }) {
+                        if isRefreshing {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 15, weight: .semibold))
+                        }
                     }
+                    .disabled(isRefreshing || switchingAccountId != nil)
                 }
             }
-            .alert("切换账号失败", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+            .presentationDragIndicator(.visible)
+            .alert(alertTitle, isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
                 Button("好", role: .cancel) { errorMessage = nil }
             } message: {
                 if let msg = errorMessage {
@@ -131,6 +151,23 @@ public struct AccountQuotaSheet: View {
                 }
             }
         }
+    }
+    
+    private func performRefresh() async {
+        guard !isRefreshing else { return }
+        isRefreshing = true
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        do {
+            if let onRefresh = onRefresh {
+                try await onRefresh()
+            }
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+        } catch {
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+            alertTitle = "刷新配额失败"
+            errorMessage = error.localizedDescription
+        }
+        isRefreshing = false
     }
     
     private func performSwitch(to acc: CockpitAccountQuota) async {
@@ -142,6 +179,7 @@ public struct AccountQuotaSheet: View {
             UINotificationFeedbackGenerator().notificationOccurred(.success)
         } catch {
             UINotificationFeedbackGenerator().notificationOccurred(.error)
+            alertTitle = "切换账号失败"
             errorMessage = error.localizedDescription
         }
         switchingAccountId = nil

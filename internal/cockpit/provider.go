@@ -173,8 +173,18 @@ func GetQuotas(activeEmails ...string) (*CockpitQuotaResponse, error) {
 
 	resolvedCurrentID := ""
 
-	// 1. Live Language Server active email (Priority 1)
-	if len(activeEmails) > 0 && strings.TrimSpace(activeEmails[0]) != "" {
+	// 1. Cockpit accounts.json current_account_id (Priority 1: User's explicitly chosen Cockpit active account)
+	if strings.TrimSpace(idx.CurrentAccountID) != "" {
+		for _, acc := range idx.Accounts {
+			if acc.ID == strings.TrimSpace(idx.CurrentAccountID) {
+				resolvedCurrentID = acc.ID
+				break
+			}
+		}
+	}
+
+	// 2. Live Language Server active email (Priority 2 fallback)
+	if resolvedCurrentID == "" && len(activeEmails) > 0 && strings.TrimSpace(activeEmails[0]) != "" {
 		targetEmail := strings.ToLower(strings.TrimSpace(activeEmails[0]))
 		for _, acc := range idx.Accounts {
 			if strings.ToLower(strings.TrimSpace(acc.Email)) == targetEmail {
@@ -184,7 +194,7 @@ func GetQuotas(activeEmails ...string) (*CockpitQuotaResponse, error) {
 		}
 	}
 
-	// 2. Cockpit Legacy Desktop bound account (Priority 2)
+	// 3. Cockpit Legacy Desktop bound account (Priority 3 fallback)
 	if resolvedCurrentID == "" {
 		legacyInstFile := filepath.Join(dataDir, "antigravity_legacy_instances.json")
 		if lBytes, err := os.ReadFile(legacyInstFile); err == nil {
@@ -202,11 +212,6 @@ func GetQuotas(activeEmails ...string) (*CockpitQuotaResponse, error) {
 				}
 			}
 		}
-	}
-
-	// 3. Fallback to accounts.json current_account_id (Priority 3)
-	if resolvedCurrentID == "" {
-		resolvedCurrentID = idx.CurrentAccountID
 	}
 
 	cacheDir := filepath.Join(dataDir, "cache", "quota_api_v1_desktop", "authorized")
