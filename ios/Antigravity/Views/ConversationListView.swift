@@ -42,9 +42,15 @@ public struct ConversationListView: View {
                 })
             }
             .sheet(isPresented: $showAccountQuota) {
-                AccountQuotaSheet(quotaResponse: viewModel.quotaResponse, onSwitch: { id in
-                    try await viewModel.switchCockpitAccount(id: id)
-                })
+                AccountQuotaSheet(
+                    quotaResponse: $viewModel.quotaResponse,
+                    onSwitch: { id in
+                        try await viewModel.switchCockpitAccount(id: id)
+                    },
+                    onRefresh: {
+                        try await viewModel.refreshCockpitQuotas()
+                    }
+                )
             }
             .navigationDestination(for: ConversationItem.self) { item in
                 ChatView(conversation: item, isNewConversation: item.stepCount == 0)
