@@ -27,6 +27,7 @@ public struct EmptyResponse: Codable, Sendable {
 public struct GatewayStatusResponse: Codable, Sendable {
     public let status: String
     public let upstream: UpstreamInfo?
+    public var usedInterface: String?
     
     public struct UpstreamInfo: Codable, Sendable {
         public let pid: Int?
@@ -558,7 +559,11 @@ public final class APIClient: Sendable {
                 throw APIError.networkError("网关未返回 200 (HTTP \(httpResp.statusCode))")
             }
             
-            return try JSONDecoder().decode(GatewayStatusResponse.self, from: data)
+            var decoded = try JSONDecoder().decode(GatewayStatusResponse.self, from: data)
+            let ifaceHeader = (httpResp.allHeaderFields["X-Antigravity-Interface"] as? String) ??
+                              (httpResp.allHeaderFields["x-antigravity-interface"] as? String)
+            decoded.usedInterface = (ifaceHeader == "cellular") ? "cellular" : "wifi"
+            return decoded
         } catch {
             let desc = error.localizedDescription
             if desc.contains("SSL") || desc.contains("certificate") || desc.contains("TLS") || desc.contains("secure connection") {

@@ -31,6 +31,17 @@ public final class ConversationListViewModel {
             self.conversations = cached
             self.cacheManager.prewarmSessions(for: cached.prefix(15).map(\.id))
         }
+        
+        NotificationCenter.default.addObserver(
+            forName: .networkRoutingPreferenceChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self = self else { return }
+            Task { @MainActor in
+                await self.fetchConversations()
+            }
+        }
     }
     
     public var filteredConversations: [ConversationItem] {
