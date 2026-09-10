@@ -3,10 +3,14 @@ import SwiftUI
 public struct AccountQuotaSheet: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("cockpit_email_masked") private var isMasked: Bool = false
+    @State private var switchingAccountId: String? = nil
+    @State private var errorMessage: String? = nil
     public let quotaResponse: CockpitQuotaResponse?
+    public let onSwitch: ((String) async throws -> Void)?
     
-    public init(quotaResponse: CockpitQuotaResponse?) {
+    public init(quotaResponse: CockpitQuotaResponse?, onSwitch: ((String) async throws -> Void)? = nil) {
         self.quotaResponse = quotaResponse
+        self.onSwitch = onSwitch
     }
     
     private var currentAccount: CockpitAccountQuota? {
@@ -119,13 +123,34 @@ public struct AccountQuotaSheet: View {
                     }
                 }
             }
+            .alert("切换账号失败", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+                Button("好", role: .cancel) { errorMessage = nil }
+            } message: {
+                if let msg = errorMessage {
+                    Text(msg)
+                }
+            }
         }
+    }
+    
+    private func performSwitch(to acc: CockpitAccountQuota) async {
+        guard let onSwitch = onSwitch else { return }
+        switchingAccountId = acc.id
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        do {
+            try await onSwitch(acc.id)
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+        } catch {
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+            errorMessage = error.localizedDescription
+        }
+        switchingAccountId = nil
     }
     
     @ViewBuilder
     private func accountCard(for acc: CockpitAccountQuota, isCurrent: Bool) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Header: Email only (no name)
+            // Header: Email only (no name) + Switch button for non-current accounts
             HStack {
                 let displayEmail = isMasked ? maskEmail(acc.email) : acc.email
                 Text(displayEmail)
@@ -133,6 +158,31 @@ public struct AccountQuotaSheet: View {
                     .foregroundColor(.primary)
                     .lineLimit(1)
                 Spacer()
+                
+                if !isCurrent && onSwitch != nil {
+                    Button(action: {
+                        Task {
+                            await performSwitch(to: acc)
+                        }
+                    }) {
+                        if switchingAccountId == acc.id {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle())
+                                .scaleEffect(0.7)
+                                .frame(width: 44, height: 22)
+                        } else {
+                            Text("切换")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 4)
+                                .background(Color.blue)
+                                .clipShape(Capsule())
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(switchingAccountId != nil)
+                }
             }
             
             Divider()
