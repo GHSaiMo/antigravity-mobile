@@ -152,7 +152,7 @@ func (w *Watcher) scanOnce() int {
 
 		prev.lastStatus = status
 		prev.lastSteps = steps
-		if title != "" && title != "未命名会话" {
+		if title != "" && title != MsgUntitledSession {
 			prev.title = title
 		}
 	}

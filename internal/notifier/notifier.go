@@ -47,37 +47,37 @@ func (n *Notifier) NotifyAction(cascadeID, title string, pi *proxy.PendingIntera
 		return nil
 	}
 
-	notifTitle := "⚠️ Antigravity 需要审批"
+	notifTitle := MsgTitleApproval
 	var notifBody string
 
 	switch pi.Type {
 	case "permission":
 		actionLower := strings.ToLower(pi.Action)
 		if strings.Contains(actionLower, "command") || strings.Contains(actionLower, "run") {
-			notifBody = fmt.Sprintf("Agent 申请执行命令: %s", truncateString(pi.Target, 90))
+			notifBody = fmt.Sprintf(MsgBodyCommand, truncateString(pi.Target, 90))
 		} else if strings.Contains(actionLower, "write") || strings.Contains(actionLower, "edit") {
-			notifBody = fmt.Sprintf("Agent 申请修改文件: %s", truncateString(pi.Target, 90))
+			notifBody = fmt.Sprintf(MsgBodyWriteFile, truncateString(pi.Target, 90))
 		} else if strings.Contains(actionLower, "read") {
-			notifBody = fmt.Sprintf("Agent 申请读取外部文件: %s", truncateString(pi.Target, 90))
+			notifBody = fmt.Sprintf(MsgBodyReadFile, truncateString(pi.Target, 90))
 		} else if pi.Description != "" {
-			notifBody = fmt.Sprintf("Agent 请求审批: %s", truncateString(pi.Description, 90))
+			notifBody = fmt.Sprintf(MsgBodyApproval, truncateString(pi.Description, 90))
 		} else {
-			notifBody = fmt.Sprintf("Agent 申请 %s 操作: %s", pi.Action, truncateString(pi.Target, 90))
+			notifBody = fmt.Sprintf(MsgBodyGenericAction, pi.Action, truncateString(pi.Target, 90))
 		}
 	case "ask_question":
-		notifTitle = "❓ Antigravity 提问"
-		notifBody = fmt.Sprintf("Agent 提出了新问题: %s", truncateString(pi.Title, 90))
+		notifTitle = MsgTitleQuestion
+		notifBody = fmt.Sprintf(MsgBodyQuestion, truncateString(pi.Title, 90))
 	case "run_command":
-		notifTitle = "⚠️ 确认执行终端命令"
-		notifBody = fmt.Sprintf("Agent 申请执行命令: %s", truncateString(pi.Target, 90))
+		notifTitle = MsgTitleRunCommand
+		notifBody = fmt.Sprintf(MsgBodyCommand, truncateString(pi.Target, 90))
 	case "file_permission":
-		notifTitle = "⚠️ 跨目录文件访问审批"
-		notifBody = fmt.Sprintf("Agent 申请访问外部文件: %s", truncateString(pi.Target, 90))
+		notifTitle = MsgTitleFileAccess
+		notifBody = fmt.Sprintf(MsgBodyAccessFile, truncateString(pi.Target, 90))
 	default:
-		notifBody = fmt.Sprintf("Agent 正在等待您的操作: %s", truncateString(pi.Title, 90))
+		notifBody = fmt.Sprintf(MsgBodyWaiting, truncateString(pi.Title, 90))
 	}
 
-	if title != "" && title != "未命名会话" {
+	if title != "" && title != MsgUntitledSession {
 		notifBody = fmt.Sprintf("【%s】%s", title, notifBody)
 	}
 
@@ -110,12 +110,12 @@ func (n *Notifier) NotifyProceed(cascadeID, title string, totalSteps int) error 
 		return nil
 	}
 
-	notifTitle := "📋 方案已就绪，等待确认"
+	notifTitle := MsgTitleProceed
 	displayTitle := title
-	if displayTitle == "" || displayTitle == "未命名会话" {
-		displayTitle = "实施方案"
+	if displayTitle == "" || displayTitle == MsgUntitledSession {
+		displayTitle = MsgDefaultPlan
 	}
-	notifBody := fmt.Sprintf("「%s」已完成编写，等待您点击 Proceed 确认以继续执行。", displayTitle)
+	notifBody := fmt.Sprintf(MsgBodyProceed, displayTitle)
 
 	payload := BarkPayload{
 		Title:    notifTitle,
@@ -146,12 +146,12 @@ func (n *Notifier) NotifyCompleted(cascadeID, title string, totalSteps int) erro
 		return nil
 	}
 
-	notifTitle := "🎉 Antigravity 任务已完成"
+	notifTitle := MsgTitleCompleted
 	displayTitle := title
-	if displayTitle == "" || displayTitle == "未命名会话" {
-		displayTitle = "后台任务"
+	if displayTitle == "" || displayTitle == MsgUntitledSession {
+		displayTitle = MsgDefaultTask
 	}
-	notifBody := fmt.Sprintf("「%s」已顺利执行完毕，共执行 %d 个步骤。", displayTitle, totalSteps)
+	notifBody := fmt.Sprintf(MsgBodyCompleted, displayTitle, totalSteps)
 
 	payload := BarkPayload{
 		Title:    notifTitle,
@@ -182,12 +182,12 @@ func (n *Notifier) NotifyFailed(cascadeID, title string, totalSteps int) error {
 		return nil
 	}
 
-	notifTitle := "❌ Antigravity 任务执行失败"
+	notifTitle := MsgTitleFailed
 	displayTitle := title
-	if displayTitle == "" || displayTitle == "未命名会话" {
-		displayTitle = "后台任务"
+	if displayTitle == "" || displayTitle == MsgUntitledSession {
+		displayTitle = MsgDefaultTask
 	}
-	notifBody := fmt.Sprintf("「%s」执行出现异常或已被终止。", displayTitle)
+	notifBody := fmt.Sprintf(MsgBodyFailed, displayTitle)
 
 	payload := BarkPayload{
 		Title:    notifTitle,
