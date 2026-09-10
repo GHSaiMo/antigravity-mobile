@@ -123,11 +123,16 @@ public final class StreamWebSocketClient {
         parameters.defaultProtocolStack.applicationProtocols.insert(wsOptions, at: 0)
         
         if useCellular {
-            let hostStr = (wsURL.host ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
-            let isLocalOrPrivate = hostStr == "127.0.0.1" || hostStr == "::1" || hostStr == "localhost" ||
-                                   hostStr.hasPrefix("192.168.") || hostStr.hasPrefix("10.") || hostStr.hasSuffix(".local")
-            if !isLocalOrPrivate {
+            if let host = wsURL.host, !NetworkTransport.isLocalOrPrivateHost(host) {
                 parameters.requiredInterfaceType = .cellular
+                
+                // Watchdog: if cellular socket cannot connect within 3.0s, gracefully fall back to standard system interface
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
+                    guard let self = self, self.status != .connected, !self.isIntentionallyClosed else { return }
+                    print("[StreamWS] Cellular connection attempt timed out (3.0s), falling back to standard interface")
+                    self.cleanupCurrentSocket()
+                    self.startConnection(useCellular: false)
+                }
             }
         }
         
@@ -149,6 +154,13 @@ public final class StreamWebSocketClient {
         case .ready:
             updateStatus(.connected)
             receiveNextMessage()
+        case .waiting(let error):
+            print("[StreamWS] Connection waiting (cellular=\(usedCellular)): \(error)")
+            if usedCellular && !isIntentionallyClosed {
+                print("[StreamWS] Cellular socket waiting with no route, falling back to standard interface")
+                cleanupCurrentSocket()
+                startConnection(useCellular: false)
+            }
         case .failed(let error):
             print("[StreamWS] Connection failed (cellular=\(usedCellular)): \(error)")
             if usedCellular && !isIntentionallyClosed {
