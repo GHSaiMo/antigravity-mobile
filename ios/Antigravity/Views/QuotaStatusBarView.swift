@@ -71,7 +71,7 @@ public struct QuotaStatusBarView: View {
                         .foregroundColor(.secondary.opacity(0.6))
                 }
                 .padding(.horizontal, 12)
-                .padding(.vertical, 7)
+                .padding(.vertical, 8)
                 .background(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .fill(Color(uiColor: .secondarySystemGroupedBackground))
@@ -83,8 +83,7 @@ public struct QuotaStatusBarView: View {
                 )
             }
             .buttonStyle(.plain)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 4)
+            .frame(maxWidth: .infinity)
         )
     }
 }
