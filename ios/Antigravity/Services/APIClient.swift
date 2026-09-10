@@ -161,7 +161,7 @@ public final class APIClient: Sendable {
         }
     }
     
-    // Fetch all conversations
+    // Fetch all conversations (excluding internal subagents)
     public func fetchConversations(baseURL: URL) async throws -> [ConversationItem] {
         struct EmptyBody: Encodable {}
         let resp: GetAllCascadeTrajectoriesResponse = try await rpc(
@@ -172,8 +172,15 @@ public final class APIClient: Sendable {
         
         guard let summaries = resp.trajectorySummaries else { return [] }
         
-        return summaries.map { id, summary in
-            ConversationItem(id: id, summary: summary)
+        return summaries.compactMap { id, summary in
+            if summary.isSubagent {
+                return nil
+            }
+            let item = ConversationItem(id: id, summary: summary)
+            if item.isSubagent {
+                return nil
+            }
+            return item
         }.sorted { a, b in
             (a.lastModified ?? .distantPast) > (b.lastModified ?? .distantPast)
         }

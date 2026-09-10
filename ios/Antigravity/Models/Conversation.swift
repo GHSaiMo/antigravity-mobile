@@ -14,6 +14,24 @@ public struct TrajectorySummary: Codable, Sendable {
     public let annotations: Annotations?
     public let trajectoryMetadata: TrajectoryMetadata?
     public let needsInput: Bool?
+    
+    public var isSubagent: Bool {
+        if let meta = trajectoryMetadata {
+            if let parent = meta.parentConversationId, !parent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return true
+            }
+            if let depth = meta.nestingDepth, depth > 0 {
+                return true
+            }
+            if meta.hasSubagentSpec == true {
+                return true
+            }
+            if let root = meta.rootConversationId, let tid = trajectoryId, !root.isEmpty, !tid.isEmpty, root != tid {
+                return true
+            }
+        }
+        return false
+    }
 }
 
 public struct WorkspaceItem: Codable, Sendable {
@@ -29,6 +47,63 @@ public struct TrajectoryMetadata: Codable, Sendable {
     public let workspaceUris: [String]?
     public let projectId: String?
     public let createdAt: String?
+    public let parentConversationId: String?
+    public let rootConversationId: String?
+    public let nestingDepth: Int?
+    public let hasSubagentSpec: Bool?
+    
+    enum CodingKeys: String, CodingKey {
+        case workspaceUris
+        case projectId
+        case createdAt
+        case parentConversationId
+        case rootConversationId
+        case nestingDepth
+        case subagentSpec
+        case agentScript
+    }
+    
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.workspaceUris = try container.decodeIfPresent([String].self, forKey: .workspaceUris)
+        self.projectId = try container.decodeIfPresent(String.self, forKey: .projectId)
+        self.createdAt = try container.decodeIfPresent(String.self, forKey: .createdAt)
+        self.parentConversationId = try container.decodeIfPresent(String.self, forKey: .parentConversationId)
+        self.rootConversationId = try container.decodeIfPresent(String.self, forKey: .rootConversationId)
+        self.nestingDepth = try container.decodeIfPresent(Int.self, forKey: .nestingDepth)
+        
+        let hasSpec = container.contains(.subagentSpec)
+        let hasScript = container.contains(.agentScript)
+        self.hasSubagentSpec = hasSpec || hasScript
+    }
+    
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(workspaceUris, forKey: .workspaceUris)
+        try container.encodeIfPresent(projectId, forKey: .projectId)
+        try container.encodeIfPresent(createdAt, forKey: .createdAt)
+        try container.encodeIfPresent(parentConversationId, forKey: .parentConversationId)
+        try container.encodeIfPresent(rootConversationId, forKey: .rootConversationId)
+        try container.encodeIfPresent(nestingDepth, forKey: .nestingDepth)
+    }
+    
+    public init(
+        workspaceUris: [String]? = nil,
+        projectId: String? = nil,
+        createdAt: String? = nil,
+        parentConversationId: String? = nil,
+        rootConversationId: String? = nil,
+        nestingDepth: Int? = nil,
+        hasSubagentSpec: Bool? = nil
+    ) {
+        self.workspaceUris = workspaceUris
+        self.projectId = projectId
+        self.createdAt = createdAt
+        self.parentConversationId = parentConversationId
+        self.rootConversationId = rootConversationId
+        self.nestingDepth = nestingDepth
+        self.hasSubagentSpec = hasSubagentSpec
+    }
 }
 
 public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
@@ -38,6 +113,39 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
     public let stepCount: Int
     public let workspaceName: String
     public let lastModified: Date?
+    public let isSubagent: Bool
+    
+    enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case status
+        case stepCount
+        case workspaceName
+        case lastModified
+        case isSubagent
+    }
+    
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.title = try container.decode(String.self, forKey: .title)
+        self.status = try container.decodeIfPresent(ConversationStatus.self, forKey: .status) ?? .unknown
+        self.stepCount = try container.decodeIfPresent(Int.self, forKey: .stepCount) ?? 0
+        self.workspaceName = try container.decodeIfPresent(String.self, forKey: .workspaceName) ?? "workspace"
+        self.lastModified = try container.decodeIfPresent(Date.self, forKey: .lastModified)
+        self.isSubagent = try container.decodeIfPresent(Bool.self, forKey: .isSubagent) ?? false
+    }
+    
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(title, forKey: .title)
+        try container.encode(status, forKey: .status)
+        try container.encode(stepCount, forKey: .stepCount)
+        try container.encode(workspaceName, forKey: .workspaceName)
+        try container.encodeIfPresent(lastModified, forKey: .lastModified)
+        try container.encode(isSubagent, forKey: .isSubagent)
+    }
     
     public enum ConversationStatus: String, Sendable, Codable {
         case running = "RUNNING"
@@ -90,6 +198,14 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         } else {
             self.lastModified = nil
         }
+        
+        var sub = summary.isSubagent
+        if !sub, let meta = summary.trajectoryMetadata {
+            if let root = meta.rootConversationId, !root.isEmpty, root != id {
+                sub = true
+            }
+        }
+        self.isSubagent = sub
     }
     
     public init(
@@ -98,7 +214,8 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         status: ConversationStatus = .idle,
         stepCount: Int = 0,
         workspaceName: String = "workspace",
-        lastModified: Date? = Date()
+        lastModified: Date? = Date(),
+        isSubagent: Bool = false
     ) {
         self.id = id
         self.title = title
@@ -106,6 +223,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         self.stepCount = stepCount
         self.workspaceName = workspaceName
         self.lastModified = lastModified
+        self.isSubagent = isSubagent
     }
     
     public var relativeTimeString: String {
