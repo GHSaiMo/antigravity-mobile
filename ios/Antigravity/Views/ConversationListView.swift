@@ -436,27 +436,26 @@ public struct ConversationListView: View {
     }
     
     private static let trashActionImage: UIImage = {
-        let circleDiameter: CGFloat = 42
-        let extraTrailingSpace: CGFloat = 14
-        let totalWidth = circleDiameter + extraTrailingSpace
-        let totalHeight = circleDiameter
+        let size: CGFloat = 40
+        let circleDiameter: CGFloat = 38
         
         let format = UIGraphicsImageRendererFormat()
         format.opaque = false
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: totalWidth, height: totalHeight), format: format)
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: size, height: size), format: format)
         
         let img = renderer.image { ctx in
-            // 1. Draw solid red circle
-            let circleRect = CGRect(x: 0, y: 0, width: circleDiameter, height: circleDiameter)
+            // 1. Draw solid red circle centered with 1pt inset for anti-aliasing
+            let circleOffset = (size - circleDiameter) / 2
+            let circleRect = CGRect(x: circleOffset, y: circleOffset, width: circleDiameter, height: circleDiameter)
             UIColor.systemRed.setFill()
             ctx.cgContext.fillEllipse(in: circleRect)
             
-            // 2. Draw white trash icon centered inside the red circle
-            let config = UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold)
+            // 2. Draw white trash icon centered inside the circle
+            let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
             if let baseSymbol = UIImage(systemName: "trash", withConfiguration: config) {
                 let symbol = baseSymbol.withTintColor(.white, renderingMode: .alwaysOriginal)
-                let trashX = (circleDiameter - symbol.size.width) / 2
-                let trashY = (circleDiameter - symbol.size.height) / 2
+                let trashX = (size - symbol.size.width) / 2
+                let trashY = (size - symbol.size.height) / 2
                 symbol.draw(at: CGPoint(x: trashX, y: trashY))
             }
         }

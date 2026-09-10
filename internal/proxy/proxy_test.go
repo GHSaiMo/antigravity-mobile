@@ -624,6 +624,86 @@ func TestDeleteCascadeTrajectoryProxy(t *testing.T) {
 	if receivedCascadeID != "cascade-delete-test-id" {
 		t.Fatalf("expected upstream to receive cascadeId 'cascade-delete-test-id', got %q", receivedCascadeID)
 	}
+	if !IsDeletedCascade("cascade-delete-test-id") {
+		t.Fatalf("expected 'cascade-delete-test-id' to be marked as deleted tombstone")
+	}
 }
+
+func TestDeleteCascadeTrajectoryTombstonePreventsReflow(t *testing.T) {
+	mockUpstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/DeleteCascadeTrajectory") {
+			w.Write([]byte("{}"))
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/GetAllCascadeTrajectories") {
+			// Simulate upstream still returning the deleted session due to delayed purge
+			resp := map[string]interface{}{
+				"trajectorySummaries": map[string]interface{}{
+					"session-to-delete": map[string]interface{}{
+						"status":    "CASCADE_RUN_STATUS_DONE",
+						"stepCount": 5,
+						"summary":   "Deleted conversation",
+					},
+					"session-alive": map[string]interface{}{
+						"status":    "CASCADE_RUN_STATUS_DONE",
+						"stepCount": 3,
+						"summary":   "Active conversation",
+					},
+				},
+			}
+			json.NewEncoder(w).Encode(resp)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer mockUpstream.Close()
+
+	port := mockUpstream.Listener.Addr().(*net.TCPAddr).Port
+	insp := inspector.NewInspector(5 * time.Second)
+	p := NewProxy(insp)
+	p.updateUpstream(inspector.InstanceInfo{
+		PID:       1234,
+		Port:      port,
+		CSRFToken: "test-token",
+		IsHealthy: true,
+	})
+
+	// 1. Delete session-to-delete
+	deleteReq := `{"cascadeId":"session-to-delete"}`
+	delReq := httptest.NewRequest(http.MethodPost, "/api/exa.language_server_pb.LanguageServerService/DeleteCascadeTrajectory", strings.NewReader(deleteReq))
+	delReq.Header.Set("Content-Type", "application/json")
+	delRec := httptest.NewRecorder()
+	p.ServeHTTP(delRec, delReq)
+
+	if delRec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", delRec.Code, delRec.Body.String())
+	}
+
+	// 2. Query GetAllCascadeTrajectories - session-to-delete must be intercepted by tombstone
+	listReq := httptest.NewRequest(http.MethodPost, "/api/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories", strings.NewReader("{}"))
+	listReq.Header.Set("Content-Type", "application/json")
+	listRec := httptest.NewRecorder()
+	p.ServeHTTP(listRec, listReq)
+
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", listRec.Code, listRec.Body.String())
+	}
+
+	var listResp struct {
+		TrajectorySummaries map[string]interface{} `json:"trajectorySummaries"`
+	}
+	if err := json.Unmarshal(listRec.Body.Bytes(), &listResp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if _, exists := listResp.TrajectorySummaries["session-to-delete"]; exists {
+		t.Fatalf("expected 'session-to-delete' to be filtered out by tombstone, but it was returned!")
+	}
+	if _, exists := listResp.TrajectorySummaries["session-alive"]; !exists {
+		t.Fatalf("expected 'session-alive' to be present in response")
+	}
+}
+
 
 
