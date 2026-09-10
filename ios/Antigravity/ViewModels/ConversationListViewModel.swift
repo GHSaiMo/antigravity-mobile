@@ -151,9 +151,19 @@ public final class ConversationListViewModel {
         }
     }
     
+    @MainActor
     public func switchCockpitAccount(id: String) async throws {
         guard let url = settings.serverURL else { return }
         try await apiClient.switchCockpitAccount(baseURL: url, accountId: id)
         await fetchQuotas(force: true)
+    }
+    
+    @MainActor
+    public func refreshCockpitQuotas() async throws {
+        guard let url = settings.serverURL else { return }
+        _ = try? await apiClient.refreshCockpitQuotas(baseURL: url)
+        let res = try await apiClient.fetchCockpitQuotas(baseURL: url)
+        self.quotaResponse = res
+        self.lastQuotaFetchTime = Date()
     }
 }
