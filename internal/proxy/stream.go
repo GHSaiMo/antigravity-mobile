@@ -23,6 +23,7 @@ type StreamUpdatePayload struct {
 	Steps              []TrajectoryStep     `json:"steps"`
 	Messages           []CascadeMessageItem `json:"messages"`
 	QueuedMessages     []QueuedMessageItem  `json:"queuedMessages,omitempty"`
+	RunningTasks       []RunningTaskItem    `json:"runningTasks,omitempty"`
 	IsFullSnapshot     bool                 `json:"isFullSnapshot"`
 	CascadeConfigRaw   string               `json:"cascadeConfigRaw,omitempty"`
 	CanProceed         bool                 `json:"canProceed"`
@@ -40,15 +41,20 @@ func (p *StreamUpdatePayload) Fingerprint() string {
 	if len(p.QueuedMessages) > 0 {
 		queuedKey = fmt.Sprintf("%d:%s", len(p.QueuedMessages), p.QueuedMessages[len(p.QueuedMessages)-1].ID)
 	}
+	tasksKey := fmt.Sprintf("%d", len(p.RunningTasks))
+	if len(p.RunningTasks) > 0 {
+		lastTask := p.RunningTasks[len(p.RunningTasks)-1]
+		tasksKey = fmt.Sprintf("%d:%s:%d", len(p.RunningTasks), lastTask.ID, lastTask.StepIndex)
+	}
 	if len(p.Steps) == 0 {
-		return fmt.Sprintf("%s:0:0:%t:%s:%s", p.Status, p.CanProceed, piKey, queuedKey)
+		return fmt.Sprintf("%s:0:0:%t:%s:%s:%s", p.Status, p.CanProceed, piKey, queuedKey, tasksKey)
 	}
 	last := p.Steps[len(p.Steps)-1]
 	lastLen := 0
 	if last.PlannerResponse != nil {
 		lastLen = len(last.PlannerResponse.Response) + len(last.PlannerResponse.Thinking)
 	}
-	return fmt.Sprintf("%s:%d:%d:%s:%s:%d:%t:%s:%s", p.Status, p.TotalSteps, p.TotalTools, last.Type, last.Status, lastLen, p.CanProceed, piKey, queuedKey)
+	return fmt.Sprintf("%s:%d:%d:%s:%s:%d:%t:%s:%s:%s", p.Status, p.TotalSteps, p.TotalTools, last.Type, last.Status, lastLen, p.CanProceed, piKey, queuedKey, tasksKey)
 }
 
 // HandleCascadeStream serves a WebSocket connection for continuous real-time trajectory updates.
@@ -153,6 +159,7 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 				Steps:              details.Steps,
 				Messages:           details.AllMessages,
 				QueuedMessages:     details.QueuedMessages,
+				RunningTasks:       details.RunningTasks,
 				IsFullSnapshot:     true,
 				CascadeConfigRaw:   details.CascadeConfigRaw,
 				CanProceed:         details.CanProceed,

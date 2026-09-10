@@ -11,7 +11,7 @@
   <link rel="icon" type="image/png" href="/icons/icon-192.png" />
   <link rel="apple-touch-icon" href="/icons/icon-192.png" />
   <link rel="manifest" href="/manifest.json" />
-  <link rel="stylesheet" href="/style.css?v=8" />
+  <link rel="stylesheet" href="/style.css?v=9" />
 </head>
 <body>
   <div id="app">
@@ -121,6 +121,29 @@
 
         <!-- Floating Interaction Card (Permissions / Choices) -->
         <div id="interaction-card-container" class="interaction-card-container hidden"></div>
+
+        <!-- Floating Running Tasks Card (Desktop Antigravity Parity) -->
+        <div id="running-tasks-card" class="running-tasks-card hidden" data-testid="running-tasks-card">
+          <div class="tasks-header">
+            <div class="tasks-header-left">
+              <svg class="tasks-icon-spin" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 -960 960 960" fill="currentColor">
+                <path d="M332.55-129.9q-69.29-29.9-121.02-81.63T129.9-332.55T100-480.35t29.96-147.5t81.58-120.61t121.04-81.58T480-860q12.75,0 21.37,8.63T510-829.99t-8.62,21.37T480-800q-133,0-226.5,93.5T160-480t93.5,226.5T480-160t226.5-93.5T800-480q0-12.77 8.63-21.38T830.01-510t21.37,8.62T860-480q0,77.99-29.96,147.42T748.46-211.54T627.85-129.96T480.35-100t-147.8-29.9Z"></path>
+              </svg>
+              <span id="tasks-header-title" class="tasks-title">1 个任务正在执行</span>
+              <span id="tasks-badge-count" class="tasks-badge">1</span>
+            </div>
+            <div class="tasks-header-right">
+              <button id="btn-tasks-expand" class="tasks-icon-btn" aria-label="折叠/展开任务" title="折叠/展开任务" data-testid="running-tasks-expand-button">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 -960 960 960" fill="currentColor" class="expand-arrow">
+                  <path d="M480-541.85l-184,184L253.85-400L480-626.15L706.15-400L664-357.85l-184-184Z"></path>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div id="tasks-content-wrapper" class="tasks-content-wrapper">
+            <div id="tasks-items-list" class="tasks-items-list"></div>
+          </div>
+        </div>
 
         <!-- Floating Queued Messages Card (Desktop Parity) -->
         <div id="queued-messages-card" class="queued-messages-card hidden" data-testid="queued-messages-card">
@@ -349,6 +372,6 @@
     </div>
   </div>
 
-  <script src="/app.js?v=11"></script>
+  <script src="/app.js?v=12"></script>
 </body>
 </html>

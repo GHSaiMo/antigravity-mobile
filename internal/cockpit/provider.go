@@ -93,26 +93,42 @@ func GetCockpitDataDir() (string, error) {
 	return filepath.Join(home, ".antigravity_cockpit"), nil
 }
 
-// formatResetFriendly converts an ISO timestamp to "HH:MM (约XhYm后)" or "HH:MM (已就绪)".
+// formatResetFriendly converts an ISO timestamp to "3d 11h 34m" (if >24h), "7h 3m" (if <24h), "<1m", or "已就绪".
 func formatResetFriendly(isoStr string) string {
 	if strings.TrimSpace(isoStr) == "" {
 		return "未知"
 	}
-	t, err := time.Parse(time.RFC3339, isoStr)
+	t, err := time.Parse(time.RFC3339Nano, isoStr)
 	if err != nil {
-		return isoStr
-	}
-	local := t.Local()
-	diff := time.Until(local)
-	if diff > 0 {
-		h := int(diff.Hours())
-		m := int(diff.Minutes()) % 60
-		if h > 0 {
-			return fmt.Sprintf("%02d:%02d (约%dh%02dm后)", local.Hour(), local.Minute(), h, m)
+		t, err = time.Parse(time.RFC3339, isoStr)
+		if err != nil {
+			return isoStr
 		}
-		return fmt.Sprintf("%02d:%02d (约%dm后)", local.Hour(), local.Minute(), m)
 	}
-	return fmt.Sprintf("%02d:%02d (已就绪)", local.Hour(), local.Minute())
+	diff := time.Until(t)
+	if diff <= 0 {
+		return "已就绪"
+	}
+
+	totalMinutes := int(diff.Minutes())
+	days := totalMinutes / (24 * 60)
+	hours := (totalMinutes % (24 * 60)) / 60
+	minutes := totalMinutes % 60
+
+	var parts []string
+	if days > 0 {
+		parts = append(parts, fmt.Sprintf("%dd", days))
+	}
+	if hours > 0 {
+		parts = append(parts, fmt.Sprintf("%dh", hours))
+	}
+	if minutes > 0 {
+		parts = append(parts, fmt.Sprintf("%dm", minutes))
+	}
+	if len(parts) == 0 {
+		return "<1m"
+	}
+	return strings.Join(parts, " ")
 }
 
 func makeMetric(fraction *float64, resetTime string) *QuotaMetric {

@@ -52,6 +52,7 @@ public struct PaginatedMessagesResponse: Codable, Sendable {
     public let proceedArtifactUri: String?
     public let pendingInteraction: PendingInteraction?
     public let queuedMessages: [QueuedMessageItem]?
+    public let runningTasks: [RunningTaskItem]?
     
     public struct GatewayMessageItem: Codable, Sendable {
         public let id: String
@@ -78,6 +79,7 @@ public struct FetchMessagesResult: Sendable {
     public let proceedArtifactUri: String?
     public let pendingInteraction: PendingInteraction?
     public let queuedMessages: [QueuedMessageItem]
+    public let runningTasks: [RunningTaskItem]
 }
 
 public final class APIClient: Sendable {
@@ -280,7 +282,8 @@ public final class APIClient: Sendable {
                     canProceed: decoded.canProceed ?? false,
                     proceedArtifactUri: decoded.proceedArtifactUri,
                     pendingInteraction: decoded.pendingInteraction,
-                    queuedMessages: decoded.queuedMessages ?? []
+                    queuedMessages: decoded.queuedMessages ?? [],
+                    runningTasks: decoded.runningTasks ?? []
                 )
             }
         } catch {
@@ -301,7 +304,8 @@ public final class APIClient: Sendable {
             canProceed: false,
             proceedArtifactUri: nil,
             pendingInteraction: nil,
-            queuedMessages: []
+            queuedMessages: [],
+            runningTasks: []
         )
     }
     
@@ -708,6 +712,34 @@ public final class APIClient: Sendable {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: ["account_id": accountId])
+        request.timeoutInterval = 10
+        
+        let (data, response) = try await transport.send(
+            request: request,
+            preferCellular: AppSettings.shared.preferCellularNetwork
+        )
+        guard let httpResp = response as? HTTPURLResponse else {
+            throw APIError.networkError("Invalid response type")
+        }
+        guard (200...299).contains(httpResp.statusCode) else {
+            let msg = String(data: data, encoding: .utf8) ?? "HTTP \(httpResp.statusCode)"
+            throw APIError.serverError(statusCode: httpResp.statusCode, message: msg)
+        }
+    }
+    
+    // Stop / cancel a running background task step
+    public func stopTask(cascadeId: String, stepIndex: Int, taskId: String, baseURL: URL) async throws {
+        let endpoint = baseURL.appendingPathComponent("gateway/cascade/task/stop")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let body: [String: Any] = [
+            "cascadeId": cascadeId,
+            "stepIndex": stepIndex,
+            "taskId": taskId
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
         request.timeoutInterval = 10
         
         let (data, response) = try await transport.send(
