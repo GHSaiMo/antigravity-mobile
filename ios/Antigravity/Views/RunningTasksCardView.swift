@@ -44,7 +44,7 @@ public struct RunningTasksCardView: View {
                         isExpanded.toggle()
                     }
                 }) {
-                    Image(systemName: "chevron.up")
+                    Image(systemName: "chevron.down")
                         .font(.system(size: 13, weight: .bold))
                         .foregroundColor(.secondary)
                         .rotationEffect(.degrees(isExpanded ? 0 : 180))

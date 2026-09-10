@@ -15,6 +15,11 @@ public final class ConversationListViewModel {
     private let settings: AppSettings
     private let cacheManager: CacheManager
     
+    // Tombstones to prevent race conditions & data reflow from polling while deleting
+    private var pendingDeleteCascadeIDs: Set<String> = []
+    private var recentlyDeletedIDs: [String: Date] = [:]
+    private let tombstoneTTL: TimeInterval = 30.0
+    
     private var pollTask: Task<Void, Never>? = nil
     private var lastResumeTime: Date = .distantPast
     
@@ -46,9 +51,18 @@ public final class ConversationListViewModel {
         }
     }
     
+    private func purgeExpiredTombstones() {
+        let now = Date()
+        recentlyDeletedIDs = recentlyDeletedIDs.filter { now.timeIntervalSince($0.value) < tombstoneTTL }
+    }
+    
     public var filteredConversations: [ConversationItem] {
         let q = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let nonSubagents = conversations.filter { !$0.isSubagent }
+        let nonSubagents = conversations.filter { item in
+            !item.isSubagent &&
+            !pendingDeleteCascadeIDs.contains(item.id) &&
+            (recentlyDeletedIDs[item.id] == nil)
+        }
         if q.isEmpty { return nonSubagents }
         return nonSubagents.filter {
             $0.title.lowercased().contains(q) ||
@@ -118,7 +132,12 @@ public final class ConversationListViewModel {
         
         do {
             let items = try await apiClient.fetchConversations(baseURL: url)
-            let cleaned = items.filter { !$0.isSubagent }
+            purgeExpiredTombstones()
+            let cleaned = items.filter { item in
+                !item.isSubagent &&
+                !self.pendingDeleteCascadeIDs.contains(item.id) &&
+                (self.recentlyDeletedIDs[item.id] == nil)
+            }
             self.conversations = cleaned
             cacheManager.saveConversations(cleaned)
             cacheManager.prewarmSessions(for: cleaned.prefix(15).map(\.id))
@@ -174,6 +193,10 @@ public final class ConversationListViewModel {
             return
         }
         
+        // Immediately record tombstone to prevent polling/concurrent responses from reviving it
+        pendingDeleteCascadeIDs.insert(item.id)
+        recentlyDeletedIDs[item.id] = Date()
+        
         let originalConversations = self.conversations
         // Optimistic UI removal
         self.conversations.removeAll(where: { $0.id == item.id })
@@ -181,8 +204,12 @@ public final class ConversationListViewModel {
         
         do {
             try await apiClient.deleteConversation(cascadeId: item.id, baseURL: url)
+            // Succeeded: remove from active pending, but retain in recentlyDeletedIDs for tombstoneTTL
+            self.pendingDeleteCascadeIDs.remove(item.id)
         } catch {
             // Revert on failure
+            self.pendingDeleteCascadeIDs.remove(item.id)
+            self.recentlyDeletedIDs.removeValue(forKey: item.id)
             self.conversations = originalConversations
             self.cacheManager.saveConversations(originalConversations)
             self.errorMessage = "删除会话失败: \(error.localizedDescription)"

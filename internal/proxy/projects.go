@@ -498,6 +498,14 @@ func (p *Proxy) fetchTrajectoriesSummary(port int, token string) (map[string]ups
 		return nil, err
 	}
 
+	if data.TrajectorySummaries != nil {
+		for cid := range data.TrajectorySummaries {
+			if IsDeletedCascade(cid) {
+				delete(data.TrajectorySummaries, cid)
+			}
+		}
+	}
+
 	return data.TrajectorySummaries, nil
 }
 

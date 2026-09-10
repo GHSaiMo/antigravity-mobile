@@ -113,14 +113,18 @@ type TrajectoryCache struct {
 	loadedCascades   map[string]bool
 	loadedCascadesMu sync.Mutex
 	lastSyncedPort   int
+
+	deletedCascades   map[string]time.Time
+	deletedCascadesMu sync.RWMutex
 }
 
 // NewTrajectoryCache creates a new TrajectoryCache with initialized maps.
 func NewTrajectoryCache() *TrajectoryCache {
 	return &TrajectoryCache{
-		trajCache:      make(map[string]*trajectoryCacheEntry),
-		cascadeTitles:  make(map[string]string),
-		loadedCascades: make(map[string]bool),
+		trajCache:       make(map[string]*trajectoryCacheEntry),
+		cascadeTitles:   make(map[string]string),
+		loadedCascades:  make(map[string]bool),
+		deletedCascades: make(map[string]time.Time),
 	}
 }
 
@@ -128,6 +132,47 @@ var (
 	imgRegex   = regexp.MustCompile(`!\[.*?\]\((https?://[^\s\)]+|/static/[^\s\)]+)\)`)
 	titleRegex = regexp.MustCompile(`title:\s*"([^"]+)"`)
 )
+
+// RecordDeletedCascade marks a cascade as recently deleted with a TTL.
+func RecordDeletedCascade(cascadeID string) {
+	if cascadeID == "" {
+		return
+	}
+	defaultTrajCache.deletedCascadesMu.Lock()
+	defer defaultTrajCache.deletedCascadesMu.Unlock()
+	defaultTrajCache.deletedCascades[cascadeID] = time.Now()
+}
+
+// RemoveDeletedCascadeTombstone removes a tombstone if deletion failed upstream.
+func RemoveDeletedCascadeTombstone(cascadeID string) {
+	if cascadeID == "" {
+		return
+	}
+	defaultTrajCache.deletedCascadesMu.Lock()
+	defer defaultTrajCache.deletedCascadesMu.Unlock()
+	delete(defaultTrajCache.deletedCascades, cascadeID)
+}
+
+// IsDeletedCascade returns true if the cascade was recently deleted within tombstone TTL (60s).
+func IsDeletedCascade(cascadeID string) bool {
+	if cascadeID == "" {
+		return false
+	}
+	defaultTrajCache.deletedCascadesMu.RLock()
+	deletedAt, exists := defaultTrajCache.deletedCascades[cascadeID]
+	defaultTrajCache.deletedCascadesMu.RUnlock()
+	if !exists {
+		return false
+	}
+	if time.Since(deletedAt) < 60*time.Second {
+		return true
+	}
+	// Expired tombstone, clean it up
+	defaultTrajCache.deletedCascadesMu.Lock()
+	delete(defaultTrajCache.deletedCascades, cascadeID)
+	defaultTrajCache.deletedCascadesMu.Unlock()
+	return false
+}
 
 // ResetHistoricalSyncState clears the loaded cascades map and resets the last synced port,
 // allowing a fresh sync of all historical sessions from disk.
@@ -971,6 +1016,10 @@ func ClearTrajectoryCache(cascadeID string) {
 	delete(defaultTrajCache.cascadeTitles, cascadeID)
 	defaultTrajCache.lastTitlesFetchTime = time.Time{}
 	defaultTrajCache.cascadeTitlesMu.Unlock()
+
+	defaultTrajCache.loadedCascadesMu.Lock()
+	delete(defaultTrajCache.loadedCascades, cascadeID)
+	defaultTrajCache.loadedCascadesMu.Unlock()
 }
 
 func (p *Proxy) fetchUpstreamTrajectory(cascadeID string, port int, token string) (*upstreamTrajectoryResp, error) {
