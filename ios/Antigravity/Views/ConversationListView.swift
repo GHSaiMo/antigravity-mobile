@@ -266,7 +266,7 @@ public struct ConversationListView: View {
                         } label: {
                             Image(uiImage: Self.trashActionImage)
                         }
-                        .tint(.red)
+                        .tint(.clear)
                     }
                     .confirmationDialog(
                         "确定删除此会话吗？\n此操作将永久删除会话记录且无法撤销。",
@@ -436,14 +436,30 @@ public struct ConversationListView: View {
     }
     
     private static let trashActionImage: UIImage = {
-        let config = UIImage.SymbolConfiguration(pointSize: 18, weight: .regular)
-        let baseSymbol = UIImage(systemName: "trash", withConfiguration: config) ?? UIImage()
-        let symbol = baseSymbol.withTintColor(.white, renderingMode: .alwaysOriginal)
-        let extraTrailingSpace: CGFloat = 20
-        let targetSize = CGSize(width: symbol.size.width + extraTrailingSpace, height: max(symbol.size.height, 1))
-        let renderer = UIGraphicsImageRenderer(size: targetSize)
-        return renderer.image { _ in
-            symbol.draw(at: .zero)
+        let circleDiameter: CGFloat = 42
+        let extraTrailingSpace: CGFloat = 14
+        let totalWidth = circleDiameter + extraTrailingSpace
+        let totalHeight = circleDiameter
+        
+        let format = UIGraphicsImageRendererFormat()
+        format.opaque = false
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: totalWidth, height: totalHeight), format: format)
+        
+        let img = renderer.image { ctx in
+            // 1. Draw solid red circle
+            let circleRect = CGRect(x: 0, y: 0, width: circleDiameter, height: circleDiameter)
+            UIColor.systemRed.setFill()
+            ctx.cgContext.fillEllipse(in: circleRect)
+            
+            // 2. Draw white trash icon centered inside the red circle
+            let config = UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold)
+            if let baseSymbol = UIImage(systemName: "trash", withConfiguration: config) {
+                let symbol = baseSymbol.withTintColor(.white, renderingMode: .alwaysOriginal)
+                let trashX = (circleDiameter - symbol.size.width) / 2
+                let trashY = (circleDiameter - symbol.size.height) / 2
+                symbol.draw(at: CGPoint(x: trashX, y: trashY))
+            }
         }
+        return img.withRenderingMode(.alwaysOriginal)
     }()
 }
