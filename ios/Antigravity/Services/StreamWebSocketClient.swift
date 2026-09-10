@@ -25,6 +25,7 @@ public struct StreamUpdatePayload: Decodable, Sendable {
     public let proceedArtifactUri: String?
     public let pendingInteraction: PendingInteraction?
     public let queuedMessages: [QueuedMessageItem]?
+    public let runningTasks: [RunningTaskItem]?
 }
 
 @Observable

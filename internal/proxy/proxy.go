@@ -226,6 +226,10 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		p.HandleCascadeInteraction(w, r)
 		return
 	}
+	if r.URL.Path == "/gateway/cascade/task/stop" {
+		p.handleCascadeTaskStop(w, r)
+		return
+	}
 
 	// WebSocket upgrade route
 	if r.URL.Path == "/connect-websocket" {
@@ -707,6 +711,51 @@ func (p *Proxy) HandleCascadeInteraction(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Invalidate cache immediately so next poll and stream capture the new active state
+	ClearTrajectoryCache(req.CascadeID)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(`{"success":true}`))
+}
+
+// handleCascadeTaskStop terminates a specific running background step via CancelCascadeSteps.
+func (p *Proxy) handleCascadeTaskStop(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"Method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		CascadeID string `json:"cascadeId"`
+		StepIndex int    `json:"stepIndex"`
+		TaskID    string `json:"taskId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":"invalid request: %s"}`, err.Error()), http.StatusBadRequest)
+		return
+	}
+
+	if req.CascadeID == "" {
+		http.Error(w, `{"error":"missing cascadeId"}`, http.StatusBadRequest)
+		return
+	}
+
+	p.mu.RLock()
+	port := p.activePort
+	token := p.activeToken
+	p.mu.RUnlock()
+
+	if port == 0 {
+		http.Error(w, `{"error":"upstream not connected"}`, http.StatusServiceUnavailable)
+		return
+	}
+
+	if err := p.CancelCascadeStep(req.CascadeID, req.StepIndex, port, token); err != nil {
+		log.Printf("[Proxy] CancelCascadeStep failed (cascade: %s, step: %d): %v", req.CascadeID, req.StepIndex, err)
+		http.Error(w, fmt.Sprintf(`{"error":"cancel step failed: %s"}`, err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	// Immediately invalidate trajectory cache so next stream tick picks up the changed status
 	ClearTrajectoryCache(req.CascadeID)
 
 	w.Header().Set("Content-Type", "application/json")

@@ -34,6 +34,18 @@ type QueuedMessageItem struct {
 	CreatedAt string `json:"createdAt,omitempty"`
 }
 
+// RunningTaskItem represents an asynchronous background task currently running in Antigravity.
+type RunningTaskItem struct {
+	ID          string `json:"id"`
+	StepIndex   int    `json:"stepIndex"`
+	ToolName    string `json:"toolName,omitempty"`
+	CommandLine string `json:"commandLine"`
+	ToolSummary string `json:"toolSummary,omitempty"`
+	ToolAction  string `json:"toolAction,omitempty"`
+	LogURI      string `json:"logUri,omitempty"`
+	StartedAt   string `json:"startedAt,omitempty"`
+}
+
 type InteractionOption struct {
 	ID     string `json:"id"`
 	Text   string `json:"text"`
@@ -69,6 +81,7 @@ type CascadeMessagesResponse struct {
 	NextOffset         int                  `json:"nextOffset"`
 	Messages           []CascadeMessageItem `json:"messages"`
 	QueuedMessages     []QueuedMessageItem  `json:"queuedMessages,omitempty"`
+	RunningTasks       []RunningTaskItem    `json:"runningTasks,omitempty"`
 	CascadeConfig      json.RawMessage      `json:"cascadeConfig,omitempty"`
 	CascadeConfigRaw   string               `json:"cascadeConfigRaw,omitempty"`
 	CanProceed         bool                 `json:"canProceed"`
@@ -140,8 +153,28 @@ type TrajectoryStep struct {
 	Type     string `json:"type"`
 	Status   string `json:"status"`
 	Metadata struct {
-		CreatedAt string `json:"createdAt"`
+		CreatedAt                string `json:"createdAt"`
+		ToolSummary              string `json:"toolSummary,omitempty"`
+		ToolAction               string `json:"toolAction,omitempty"`
+		SourceTrajectoryStepInfo *struct {
+			StepIndex int `json:"stepIndex"`
+		} `json:"sourceTrajectoryStepInfo,omitempty"`
+		ToolCall *struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"toolCall,omitempty"`
 	} `json:"metadata"`
+	TaskDetails *struct {
+		ID          string `json:"id"`
+		LogURI      string `json:"logUri"`
+		Description string `json:"description"`
+	} `json:"taskDetails,omitempty"`
+	RunCommand *struct {
+		CommandLine         string `json:"commandLine"`
+		ProposedCommandLine string `json:"proposedCommandLine"`
+		Cwd                 string `json:"cwd"`
+		WaitMsBeforeAsync   string `json:"waitMsBeforeAsync"`
+	} `json:"runCommand,omitempty"`
 	UserInput *struct {
 		UserResponse string `json:"userResponse"`
 		Items        []struct {
@@ -329,6 +362,7 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 		NextOffset:         nextOffset,
 		Messages:           sliced,
 		QueuedMessages:     details.QueuedMessages,
+		RunningTasks:       details.RunningTasks,
 		CascadeConfig:      details.CascadeConfig,
 		CascadeConfigRaw:   details.CascadeConfigRaw,
 		CanProceed:         details.CanProceed,
@@ -349,6 +383,7 @@ type TrajectoryDetails struct {
 	Steps              []TrajectoryStep     `json:"steps"`
 	AllMessages        []CascadeMessageItem `json:"allMessages"`
 	QueuedMessages     []QueuedMessageItem  `json:"queuedMessages,omitempty"`
+	RunningTasks       []RunningTaskItem    `json:"runningTasks,omitempty"`
 	CascadeConfig      json.RawMessage      `json:"cascadeConfig,omitempty"`
 	CascadeConfigRaw   string               `json:"cascadeConfigRaw,omitempty"`
 	CanProceed         bool                 `json:"canProceed"`
@@ -736,6 +771,56 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 		}
 	}
 
+	var runningTasks []RunningTaskItem
+	for idx, s := range steps {
+		stepIdx := idx
+		if s.Metadata.SourceTrajectoryStepInfo != nil && s.Metadata.SourceTrajectoryStepInfo.StepIndex > 0 {
+			stepIdx = s.Metadata.SourceTrajectoryStepInfo.StepIndex
+		}
+
+		if s.Status == "CORTEX_STEP_STATUS_RUNNING" {
+			cmdLine := ""
+			toolName := "run_command"
+			taskID := fmt.Sprintf("task-%d", stepIdx)
+			logURI := ""
+
+			if s.TaskDetails != nil {
+				if s.TaskDetails.ID != "" {
+					taskID = s.TaskDetails.ID
+				}
+				if s.TaskDetails.Description != "" {
+					cmdLine = s.TaskDetails.Description
+				}
+				if s.TaskDetails.LogURI != "" {
+					logURI = s.TaskDetails.LogURI
+				}
+			}
+			if cmdLine == "" && s.RunCommand != nil {
+				if s.RunCommand.CommandLine != "" {
+					cmdLine = s.RunCommand.CommandLine
+				} else if s.RunCommand.ProposedCommandLine != "" {
+					cmdLine = s.RunCommand.ProposedCommandLine
+				}
+			}
+			if s.Metadata.ToolCall != nil && s.Metadata.ToolCall.Name != "" {
+				toolName = s.Metadata.ToolCall.Name
+			}
+
+			if cmdLine != "" || s.TaskDetails != nil {
+				runningTasks = append(runningTasks, RunningTaskItem{
+					ID:          taskID,
+					StepIndex:   stepIdx,
+					ToolName:    toolName,
+					CommandLine: cmdLine,
+					ToolSummary: s.Metadata.ToolSummary,
+					ToolAction:  s.Metadata.ToolAction,
+					LogURI:      logURI,
+					StartedAt:   s.Metadata.CreatedAt,
+				})
+			}
+		}
+	}
+
 	return TrajectoryDetails{
 		CascadeID:          rawResp.Trajectory.CascadeID,
 		Title:              title,
@@ -747,12 +832,58 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 		Steps:              steps,
 		AllMessages:        allMessages,
 		QueuedMessages:     queuedMessages,
+		RunningTasks:       runningTasks,
 		CascadeConfig:      activeConfig,
 		CascadeConfigRaw:   activeConfigStr,
 		CanProceed:         canProceed,
 		ProceedArtifactURI: proceedArtifactURI,
 		PendingInteraction: pendingInteraction,
 	}
+}
+
+// CancelCascadeStep invokes Antigravity LanguageServer's CancelCascadeSteps RPC to terminate a specific background step.
+func (p *Proxy) CancelCascadeStep(cascadeID string, stepIndex int, port int, token string) error {
+	if port == 0 {
+		return fmt.Errorf("no active Antigravity upstream")
+	}
+
+	bodyData, err := json.Marshal(map[string]interface{}{
+		"cascadeId":   cascadeID,
+		"stepIndices": []int{stepIndex},
+	})
+	if err != nil {
+		return err
+	}
+
+	url := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/CancelCascadeSteps", port)
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(bodyData))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Connect-Protocol-Version", "1")
+	if token != "" {
+		req.Header.Set("x-codeium-csrf-token", token)
+	}
+
+	client := &http.Client{
+		Timeout:   5 * time.Second,
+		Transport: p.transport,
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("CancelCascadeSteps returned status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	return nil
 }
 
 // SetLastKnownCascadeConfig caches the latest known valid cascade config.

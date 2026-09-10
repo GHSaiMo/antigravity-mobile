@@ -261,3 +261,71 @@ func TestActualCascade_d363164b(t *testing.T) {
 		t.Errorf("expected completed cascade d363164b to have empty ProceedArtifactURI, got %q", details.ProceedArtifactURI)
 	}
 }
+
+func TestParseTrajectoryDetails_RunningTasks(t *testing.T) {
+	rawJSON := `{
+		"status": "CASCADE_RUN_STATUS_RUNNING",
+		"trajectory": {
+			"cascadeId": "test-task-cascade",
+			"steps": [
+				{
+					"type": "CORTEX_STEP_TYPE_USER_INPUT",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"userInput": {
+						"userResponse": "Run browser tests"
+					}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_RUN_COMMAND",
+					"status": "CORTEX_STEP_STATUS_RUNNING",
+					"metadata": {
+						"createdAt": "2026-09-10T14:46:24Z",
+						"toolSummary": "Check dashboard in browser",
+						"toolAction": "Inspecting dashboard with browser",
+						"toolCall": {
+							"name": "run_command"
+						},
+						"sourceTrajectoryStepInfo": {
+							"stepIndex": 1
+						}
+					},
+					"taskDetails": {
+						"id": "test-task-cascade/task-148",
+						"logUri": "file:///path/to/task-148.log",
+						"description": "ego-browser nodejs test.js"
+					},
+					"runCommand": {
+						"commandLine": "ego-browser nodejs test.js",
+						"cwd": "/Users/test/workspace"
+					}
+				}
+			]
+		}
+	}`
+
+	var rawResp upstreamTrajectoryResp
+	if err := json.Unmarshal([]byte(rawJSON), &rawResp); err != nil {
+		t.Fatalf("failed to unmarshal test JSON: %v", err)
+	}
+
+	p := &Proxy{}
+	details := p.ParseTrajectoryDetails(&rawResp)
+
+	if len(details.RunningTasks) != 1 {
+		t.Fatalf("expected 1 running task, got %d", len(details.RunningTasks))
+	}
+	task := details.RunningTasks[0]
+	if task.ID != "test-task-cascade/task-148" {
+		t.Errorf("expected task ID 'test-task-cascade/task-148', got %q", task.ID)
+	}
+	if task.StepIndex != 1 {
+		t.Errorf("expected stepIndex 1, got %d", task.StepIndex)
+	}
+	if task.CommandLine != "ego-browser nodejs test.js" {
+		t.Errorf("expected commandLine 'ego-browser nodejs test.js', got %q", task.CommandLine)
+	}
+	if task.ToolSummary != "Check dashboard in browser" {
+		t.Errorf("expected toolSummary 'Check dashboard in browser', got %q", task.ToolSummary)
+	}
+}
+

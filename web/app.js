@@ -698,6 +698,8 @@ function connectStreamWs(cascadeId) {
           LocalQueueManager.syncFromServer(data.queuedMessages);
         }
 
+        RunningTasksManager.syncFromServer(data.runningTasks);
+
         if (data.steps) {
           scheduleRenderMessages(data.steps, isRunning);
         }
@@ -764,6 +766,7 @@ async function loadChat(cascadeId, isBackgroundPoll = false) {
 
     updateChatControls(isRunning, wsUri);
     LocalQueueManager.init(cascadeId);
+    RunningTasksManager.init(cascadeId);
     renderMessages(steps, isRunning);
 
     fetch(`/gateway/cascade/messages?cascadeId=${encodeURIComponent(cascadeId)}&limit=1`)
@@ -773,6 +776,7 @@ async function loadChat(cascadeId, isBackgroundPoll = false) {
           if (info.queuedMessages) {
             LocalQueueManager.syncFromServer(info.queuedMessages);
           }
+          RunningTasksManager.syncFromServer(info.runningTasks);
           currentCanProceed = !!info.canProceed && !isRunning;
           currentProceedArtifactUri = info.proceedArtifactUri || null;
           updateProceedButton(currentCanProceed);
@@ -1200,6 +1204,111 @@ function renderMessages(steps, isRunning = false) {
     streamEl.scrollTop = streamEl.scrollHeight;
   }
 }
+
+// --- Running Background Tasks Manager (Desktop Antigravity Parity) ---
+const RunningTasksManager = {
+  tasks: [],
+  isExpanded: true,
+
+  init(cascadeId) {
+    if (!cascadeId) return;
+    const expandedKey = `running-tasks-card-expanded-${cascadeId}`;
+    const storedExpanded = localStorage.getItem(expandedKey);
+    this.isExpanded = (storedExpanded !== null) ? (storedExpanded === "true") : true;
+    this.render();
+  },
+
+  syncFromServer(serverTasks) {
+    if (!Array.isArray(serverTasks)) {
+      this.tasks = [];
+    } else {
+      this.tasks = serverTasks;
+    }
+    this.render();
+  },
+
+  toggleExpand() {
+    this.isExpanded = !this.isExpanded;
+    if (activeCascadeId) {
+      localStorage.setItem(`running-tasks-card-expanded-${activeCascadeId}`, String(this.isExpanded));
+    }
+    this.render();
+  },
+
+  async stopTask(stepIndex, taskId) {
+    if (!activeCascadeId) return;
+    if (!confirm("确定要终止此后台任务吗？")) return;
+
+    try {
+      const resp = await fetch("/gateway/cascade/task/stop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cascadeId: activeCascadeId,
+          stepIndex: stepIndex,
+          taskId: taskId || `task-${stepIndex}`
+        })
+      });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${resp.status}`);
+      }
+      // Optimistically remove from local tasks list
+      this.tasks = this.tasks.filter(t => t.stepIndex !== stepIndex && t.id !== taskId);
+      this.render();
+    } catch (err) {
+      alert("终止任务失败: " + err.message);
+    }
+  },
+
+  render() {
+    const cardEl = document.getElementById("running-tasks-card");
+    const countEl = document.getElementById("tasks-badge-count");
+    const titleEl = document.getElementById("tasks-header-title");
+    const wrapperEl = document.getElementById("tasks-content-wrapper");
+    const arrowEl = cardEl?.querySelector(".expand-arrow");
+    const listEl = document.getElementById("tasks-items-list");
+    if (!cardEl || !countEl || !wrapperEl || !listEl) return;
+
+    if (this.tasks.length === 0) {
+      cardEl.classList.add("hidden");
+      return;
+    }
+
+    cardEl.classList.remove("hidden");
+    countEl.textContent = this.tasks.length;
+    if (titleEl) {
+      titleEl.textContent = `${this.tasks.length} 个任务正在执行`;
+    }
+
+    if (this.isExpanded) {
+      wrapperEl.classList.remove("collapsed");
+      arrowEl?.classList.remove("collapsed");
+    } else {
+      wrapperEl.classList.add("collapsed");
+      arrowEl?.classList.add("collapsed");
+    }
+
+    listEl.innerHTML = this.tasks.map(task => {
+      const desc = escapeHtml(task.toolSummary || task.toolAction || task.toolName || "后台任务");
+      const cmd = escapeHtml(task.commandLine || "运行中...");
+      const idEsc = escapeHtml(task.id || "");
+      return `
+        <div class="task-item-row" data-id="${idEsc}" data-step="${task.stepIndex}">
+          <div class="task-item-body">
+            <span class="task-item-desc">${desc}</span>
+            <span class="task-item-cmd" title="${cmd}">${cmd}</span>
+          </div>
+          <button class="task-stop-btn" onclick="RunningTasksManager.stopTask(${task.stepIndex}, '${idEsc}')" title="终止任务" aria-label="终止任务">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 -960 960 960" fill="currentColor">
+              <path d="M330-330H630V-630H330v300ZM480.07-100q-78.84,0-148.2-29.92T211.18-211.13T129.93-331.76T100-479.93t29.92-148.2t81.21-120.68t120.63-81.25T479.93-860t148.2,29.92t120.68,81.21t81.25,120.63T860-480.07t-29.92,148.2T748.87-211.18T628.24-129.93T480.07-100ZM480-160q134,0 227-93t93-227T707-707T480-800T253-707T160-480t93,227t227,93Zm0-320Z"></path>
+            </svg>
+          </button>
+        </div>
+      `;
+    }).join("");
+  }
+};
 
 // --- Local Message Queue Manager (Desktop Parity) ---
 const LocalQueueManager = {
@@ -2363,6 +2472,11 @@ window.addEventListener("DOMContentLoaded", () => {
     } else {
       sendMessage();
     }
+  });
+
+  // Expand / Collapse Running Tasks Card
+  document.getElementById("btn-tasks-expand")?.addEventListener("click", () => {
+    RunningTasksManager.toggleExpand();
   });
 
   // Expand / Collapse Queued Messages Card
