@@ -3,6 +3,8 @@ package auth
 import (
 	"context"
 	"encoding/json"
+	"log"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -52,7 +54,7 @@ func IsWhitelistedPath(path string) bool {
 	}
 
 	// Auth and device management endpoints (handled by AuthHandler with its own permission checks)
-	if strings.HasPrefix(path, "/api/v1/auth/") || strings.HasPrefix(path, "/api/v1/devices") || strings.HasPrefix(path, "/api/v1/cockpit/") {
+	if strings.HasPrefix(path, "/api/v1/auth/") || strings.HasPrefix(path, "/api/v1/devices") {
 		return true
 	}
 
@@ -72,11 +74,15 @@ func DeviceFromContext(ctx context.Context) (*PairedDevice, bool) {
 
 // AuthMiddleware creates an HTTP middleware that verifies device authentication.
 func AuthMiddleware(store *AuthStore, next http.Handler) http.Handler {
-	// Allow disabling auth via explicit env var for testing/dev if needed
+	// AUTH_DISABLED only bypasses auth for loopback (localhost) requests.
+	// Remote requests always require authentication regardless of this flag.
 	authDisabled := os.Getenv("AUTH_DISABLED") == "true" || os.Getenv("AUTH_DISABLED") == "1"
+	if authDisabled {
+		log.Println("⚠️⚠️⚠️  WARNING: AUTH_DISABLED is set — authentication is bypassed for LOOPBACK requests only ⚠️⚠️⚠️")
+	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if authDisabled {
+		if authDisabled && isLoopbackAddr(r.RemoteAddr) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -116,4 +122,17 @@ func AuthMiddleware(store *AuthStore, next http.Handler) http.Handler {
 		ctx := context.WithValue(r.Context(), DeviceContextKey, device)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// isLoopbackAddr checks whether a remote address (host:port) is from localhost.
+func isLoopbackAddr(remoteAddr string) bool {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		host = remoteAddr
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	return ip.IsLoopback()
 }
