@@ -2,13 +2,13 @@ import SwiftUI
 
 public struct RunningTasksCardView: View {
     public let items: [RunningTaskItem]
-    public let onStop: @Sendable (RunningTaskItem) -> Void
+    public let onStop: @MainActor @Sendable (RunningTaskItem) -> Void
     
     @State private var isExpanded: Bool = true
     
     public init(
         items: [RunningTaskItem],
-        onStop: @escaping @Sendable (RunningTaskItem) -> Void
+        onStop: @escaping @MainActor @Sendable (RunningTaskItem) -> Void
     ) {
         self.items = items
         self.onStop = onStop

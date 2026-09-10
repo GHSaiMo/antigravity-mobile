@@ -2,17 +2,17 @@ import SwiftUI
 
 public struct QueuedMessagesCardView: View {
     public let items: [QueuedMessageItem]
-    public let onSendNow: @Sendable (QueuedMessageItem) -> Void
-    public let onEdit: @Sendable (QueuedMessageItem) -> Void
-    public let onDelete: @Sendable (QueuedMessageItem) -> Void
+    public let onSendNow: @MainActor @Sendable (QueuedMessageItem) -> Void
+    public let onEdit: @MainActor @Sendable (QueuedMessageItem) -> Void
+    public let onDelete: @MainActor @Sendable (QueuedMessageItem) -> Void
     
     @State private var isExpanded: Bool = true
     
     public init(
         items: [QueuedMessageItem],
-        onSendNow: @escaping @Sendable (QueuedMessageItem) -> Void,
-        onEdit: @escaping @Sendable (QueuedMessageItem) -> Void,
-        onDelete: @escaping @Sendable (QueuedMessageItem) -> Void
+        onSendNow: @escaping @MainActor @Sendable (QueuedMessageItem) -> Void,
+        onEdit: @escaping @MainActor @Sendable (QueuedMessageItem) -> Void,
+        onDelete: @escaping @MainActor @Sendable (QueuedMessageItem) -> Void
     ) {
         self.items = items
         self.onSendNow = onSendNow
