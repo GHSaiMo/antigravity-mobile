@@ -336,6 +336,10 @@ func (p *Proxy) handleRpcProxy(w http.ResponseWriter, r *http.Request) {
 		p.handleGetAllCascadeTrajectories(w, r, port, token)
 		return
 	}
+	if strings.HasSuffix(reqPath, "/DeleteCascadeTrajectory") && r.Method == http.MethodPost {
+		p.handleDeleteCascadeTrajectory(w, r, rp, reqPath)
+		return
+	}
 
 	// Clone the request to avoid mutating the original before forwarding
 	fwdReq := r.Clone(r.Context())
@@ -572,6 +576,44 @@ func (p *Proxy) handleStartCascadeProxy(w http.ResponseWriter, r *http.Request, 
 	r.URL.Path = reqPath
 
 	rp.ServeHTTP(w, r)
+}
+
+func (p *Proxy) handleDeleteCascadeTrajectory(w http.ResponseWriter, r *http.Request, rp http.Handler, reqPath string) {
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+
+	var reqData struct {
+		CascadeID string `json:"cascadeId"`
+	}
+	_ = json.Unmarshal(bodyBytes, &reqData)
+
+	fwdReq := r.Clone(r.Context())
+	fwdReq.URL.Path = reqPath
+	fwdReq.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+
+	rec := newBufferedResponseWriter()
+	rp.ServeHTTP(rec, fwdReq)
+
+	if rec.statusCode >= 200 && rec.statusCode < 300 {
+		if reqData.CascadeID != "" {
+			ClearTrajectoryCache(reqData.CascadeID)
+			// Clean up leftover .pbtxt annotation file if present
+			if home, err := os.UserHomeDir(); err == nil {
+				annPath := filepath.Join(home, ".gemini", "antigravity", "annotations", reqData.CascadeID+".pbtxt")
+				_ = os.Remove(annPath)
+			}
+			log.Printf("[Proxy] Deleted cascade trajectory: %s (cache & annotation cleared)", reqData.CascadeID)
+		}
+	}
+
+	for k, v := range rec.header {
+		w.Header()[k] = v
+	}
+	w.WriteHeader(rec.statusCode)
+	w.Write(rec.body.Bytes())
 }
 
 // InteractionSubmitRequest represents user decision submitted from mobile client.
