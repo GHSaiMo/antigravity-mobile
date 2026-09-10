@@ -29,6 +29,11 @@ type GatewayStatus struct {
 	Timestamp time.Time               `json:"timestamp"`
 }
 
+// NotificationSink receives real-time trajectory status updates.
+type NotificationSink interface {
+	OnTrajectoryUpdate(details *TrajectoryDetails)
+}
+
 // Proxy routes and proxies HTTP/RPC requests to the Antigravity language_server.
 type Proxy struct {
 	insp      *inspector.Inspector
@@ -39,6 +44,28 @@ type Proxy struct {
 	activeProxy *httputil.ReverseProxy
 	activePort  int
 	activeToken string
+	notifier    NotificationSink
+}
+
+// SetNotificationSink registers a sink to receive real-time trajectory updates.
+func (p *Proxy) SetNotificationSink(sink NotificationSink) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.notifier = sink
+}
+
+// NotificationSink returns the registered notification sink, if any.
+func (p *Proxy) NotificationSink() NotificationSink {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.notifier
+}
+
+// ActiveUpstream returns the current active upstream port and CSRF token.
+func (p *Proxy) ActiveUpstream() (int, string) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.activePort, p.activeToken
 }
 
 // NewProxy creates a new reverse proxy backed by the inspector.

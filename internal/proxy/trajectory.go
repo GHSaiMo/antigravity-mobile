@@ -1073,3 +1073,79 @@ func formatDuration(sec int) string {
 	}
 	return fmt.Sprintf("%d秒", seconds)
 }
+
+// FetchTrajectoryDetails fetches and parses full trajectory details for a cascade.
+func (p *Proxy) FetchTrajectoryDetails(cascadeID string, maxAge time.Duration) (*TrajectoryDetails, error) {
+	port, token := p.ActiveUpstream()
+	if port == 0 {
+		return nil, fmt.Errorf("antigravity upstream not connected")
+	}
+	rawResp, err := p.fetchUpstreamTrajectoryWithMaxAge(cascadeID, port, token, maxAge)
+	if err != nil {
+		return nil, err
+	}
+	details := p.ParseTrajectoryDetails(rawResp)
+	if details.Title == "" || details.Title == "未命名会话" {
+		if t := p.lookupCascadeTitle(cascadeID, port, token); t != "" {
+			details.Title = t
+		}
+	}
+	return &details, nil
+}
+
+// FetchRawCascadeSummaries queries upstream GetAllCascadeTrajectories and returns non-subagent summaries.
+func (p *Proxy) FetchRawCascadeSummaries() (map[string]map[string]interface{}, error) {
+	port, token := p.ActiveUpstream()
+	if port == 0 {
+		return nil, fmt.Errorf("antigravity upstream not connected")
+	}
+
+	url := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories", port)
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader([]byte("{}")))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Connect-Protocol-Version", "1")
+	if token != "" {
+		req.Header.Set("x-codeium-csrf-token", token)
+	}
+
+	client := &http.Client{
+		Timeout:   4 * time.Second,
+		Transport: p.transport,
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("upstream status %d", resp.StatusCode)
+	}
+
+	var rawMap map[string]json.RawMessage
+	if err := json.NewDecoder(resp.Body).Decode(&rawMap); err != nil {
+		return nil, err
+	}
+
+	summariesRaw, ok := rawMap["trajectorySummaries"]
+	if !ok {
+		return make(map[string]map[string]interface{}), nil
+	}
+
+	var summaries map[string]map[string]interface{}
+	if err := json.Unmarshal(summariesRaw, &summaries); err != nil {
+		return nil, err
+	}
+
+	// Filter out internal subagent sessions
+	for id, s := range summaries {
+		if isSubagentTrajectoryMap(s, id) {
+			delete(summaries, id)
+		}
+	}
+
+	return summaries, nil
+}

@@ -1,0 +1,227 @@
+package notifier
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	"antigravity-mobile/internal/config"
+	"antigravity-mobile/internal/proxy"
+)
+
+// Notifier dispatches alerts to push notification channels (Bark, etc.)
+type Notifier struct {
+	cfg   config.NotificationConfig
+	bark  *BarkClient
+	dedup *DedupCache
+}
+
+// NewNotifier creates an initialized Notifier instance.
+func NewNotifier(cfg config.NotificationConfig) *Notifier {
+	return &Notifier{
+		cfg:   cfg,
+		bark:  NewBarkClient(cfg),
+		dedup: NewDedupCache(),
+	}
+}
+
+// IsEnabled reports whether notifications are actively configured.
+func (n *Notifier) IsEnabled() bool {
+	return n != nil && n.cfg.Enabled && n.bark != nil && n.cfg.BarkEndpoint != ""
+}
+
+// Dedup returns the deduplication cache.
+func (n *Notifier) Dedup() *DedupCache {
+	return n.dedup
+}
+
+// NotifyAction sends a high-priority alert when the agent requires user permission or answers.
+func (n *Notifier) NotifyAction(cascadeID, title string, pi *proxy.PendingInteraction) error {
+	if !n.IsEnabled() || pi == nil {
+		return nil
+	}
+
+	dedupKey := fmt.Sprintf("action:%s:%d:%s", cascadeID, pi.StepIndex, pi.Type)
+	if !n.dedup.TryNotify(dedupKey, 2*time.Hour) {
+		return nil
+	}
+
+	notifTitle := "⚠️ Antigravity 需要审批"
+	var notifBody string
+
+	switch pi.Type {
+	case "permission":
+		actionLower := strings.ToLower(pi.Action)
+		if strings.Contains(actionLower, "command") || strings.Contains(actionLower, "run") {
+			notifBody = fmt.Sprintf("Agent 申请执行命令: %s", truncateString(pi.Target, 90))
+		} else if strings.Contains(actionLower, "write") || strings.Contains(actionLower, "edit") {
+			notifBody = fmt.Sprintf("Agent 申请修改文件: %s", truncateString(pi.Target, 90))
+		} else if strings.Contains(actionLower, "read") {
+			notifBody = fmt.Sprintf("Agent 申请读取外部文件: %s", truncateString(pi.Target, 90))
+		} else if pi.Description != "" {
+			notifBody = fmt.Sprintf("Agent 请求审批: %s", truncateString(pi.Description, 90))
+		} else {
+			notifBody = fmt.Sprintf("Agent 申请 %s 操作: %s", pi.Action, truncateString(pi.Target, 90))
+		}
+	case "ask_question":
+		notifTitle = "❓ Antigravity 提问"
+		notifBody = fmt.Sprintf("Agent 提出了新问题: %s", truncateString(pi.Title, 90))
+	case "run_command":
+		notifTitle = "⚠️ 确认执行终端命令"
+		notifBody = fmt.Sprintf("Agent 申请执行命令: %s", truncateString(pi.Target, 90))
+	case "file_permission":
+		notifTitle = "⚠️ 跨目录文件访问审批"
+		notifBody = fmt.Sprintf("Agent 申请访问外部文件: %s", truncateString(pi.Target, 90))
+	default:
+		notifBody = fmt.Sprintf("Agent 正在等待您的操作: %s", truncateString(pi.Title, 90))
+	}
+
+	if title != "" && title != "未命名会话" {
+		notifBody = fmt.Sprintf("【%s】%s", title, notifBody)
+	}
+
+	payload := BarkPayload{
+		Title:    notifTitle,
+		Body:     notifBody,
+		Icon:     n.cfg.IconURL,
+		Group:    n.cfg.Group,
+		URL:      fmt.Sprintf("antigravity://cascade/%s?action=review", cascadeID),
+		Level:    "timeSensitive",
+		Sound:    n.cfg.SoundAction,
+		Category: "antigravity_action",
+	}
+
+	return n.bark.Send(context.Background(), payload)
+}
+
+// NotifyProceed sends an alert when an implementation plan has completed and waits for Proceed.
+func (n *Notifier) NotifyProceed(cascadeID, title string, totalSteps int) error {
+	if !n.IsEnabled() {
+		return nil
+	}
+
+	dedupKey := fmt.Sprintf("proceed:%s:%d", cascadeID, totalSteps)
+	if !n.dedup.TryNotify(dedupKey, 2*time.Hour) {
+		return nil
+	}
+
+	notifTitle := "📋 方案已就绪，等待确认"
+	displayTitle := title
+	if displayTitle == "" || displayTitle == "未命名会话" {
+		displayTitle = "实施方案"
+	}
+	notifBody := fmt.Sprintf("「%s」已完成编写，等待您点击 Proceed 确认以继续执行。", displayTitle)
+
+	payload := BarkPayload{
+		Title:    notifTitle,
+		Body:     notifBody,
+		Icon:     n.cfg.IconURL,
+		Group:    n.cfg.Group,
+		URL:      fmt.Sprintf("antigravity://cascade/%s", cascadeID),
+		Level:    "timeSensitive",
+		Sound:    n.cfg.SoundAction,
+		Category: "antigravity_proceed",
+	}
+
+	return n.bark.Send(context.Background(), payload)
+}
+
+// NotifyCompleted sends a notification when a cascade completes all steps successfully.
+func (n *Notifier) NotifyCompleted(cascadeID, title string, totalSteps int) error {
+	if !n.IsEnabled() {
+		return nil
+	}
+
+	dedupKey := fmt.Sprintf("done:%s:%d", cascadeID, totalSteps)
+	if !n.dedup.TryNotify(dedupKey, 2*time.Hour) {
+		return nil
+	}
+
+	notifTitle := "🎉 Antigravity 任务已完成"
+	displayTitle := title
+	if displayTitle == "" || displayTitle == "未命名会话" {
+		displayTitle = "后台任务"
+	}
+	notifBody := fmt.Sprintf("「%s」已顺利执行完毕，共执行 %d 个步骤。", displayTitle, totalSteps)
+
+	payload := BarkPayload{
+		Title:    notifTitle,
+		Body:     notifBody,
+		Icon:     n.cfg.IconURL,
+		Group:    n.cfg.Group,
+		URL:      fmt.Sprintf("antigravity://cascade/%s", cascadeID),
+		Level:    "active",
+		Sound:    n.cfg.SoundComplete,
+		Category: "antigravity_complete",
+	}
+
+	return n.bark.Send(context.Background(), payload)
+}
+
+// NotifyFailed sends a notification when a cascade fails or terminates abnormally.
+func (n *Notifier) NotifyFailed(cascadeID, title string, totalSteps int) error {
+	if !n.IsEnabled() {
+		return nil
+	}
+
+	dedupKey := fmt.Sprintf("fail:%s:%d", cascadeID, totalSteps)
+	if !n.dedup.TryNotify(dedupKey, 2*time.Hour) {
+		return nil
+	}
+
+	notifTitle := "❌ Antigravity 任务执行失败"
+	displayTitle := title
+	if displayTitle == "" || displayTitle == "未命名会话" {
+		displayTitle = "后台任务"
+	}
+	notifBody := fmt.Sprintf("「%s」执行出现异常或已被终止。", displayTitle)
+
+	payload := BarkPayload{
+		Title:    notifTitle,
+		Body:     notifBody,
+		Icon:     n.cfg.IconURL,
+		Group:    n.cfg.Group,
+		URL:      fmt.Sprintf("antigravity://cascade/%s", cascadeID),
+		Level:    "timeSensitive",
+		Sound:    "failure",
+		Category: "antigravity_error",
+	}
+
+	return n.bark.Send(context.Background(), payload)
+}
+
+// OnTrajectoryUpdate handles a real-time trajectory snapshot from WebSocket or polling.
+func (n *Notifier) OnTrajectoryUpdate(details *proxy.TrajectoryDetails) {
+	if !n.IsEnabled() || details == nil || details.CascadeID == "" {
+		return
+	}
+
+	// 1. Check for Pending Interaction
+	if details.PendingInteraction != nil {
+		_ = n.NotifyAction(details.CascadeID, details.Title, details.PendingInteraction)
+		return
+	}
+
+	// 2. Check for Plan Proceed
+	if details.CanProceed {
+		_ = n.NotifyProceed(details.CascadeID, details.Title, details.TotalSteps)
+		return
+	}
+
+	// 3. Check for Terminal Completion
+	if details.Status == "CASCADE_RUN_STATUS_COMPLETED" && details.TotalSteps > 0 {
+		_ = n.NotifyCompleted(details.CascadeID, details.Title, details.TotalSteps)
+	} else if details.Status == "CASCADE_RUN_STATUS_FAILED" && details.TotalSteps > 0 {
+		_ = n.NotifyFailed(details.CascadeID, details.Title, details.TotalSteps)
+	}
+}
+
+func truncateString(s string, maxLen int) string {
+	s = strings.TrimSpace(s)
+	runes := []rune(s)
+	if len(runes) <= maxLen {
+		return s
+	}
+	return string(runes[:maxLen-3]) + "..."
+}
