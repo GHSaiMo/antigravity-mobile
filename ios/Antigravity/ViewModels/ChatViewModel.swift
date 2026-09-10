@@ -31,6 +31,7 @@ public final class ChatViewModel {
     public var pendingInteraction: PendingInteraction? = nil
     public var isSubmittingInteraction: Bool = false
     public var queuedMessages: [QueuedMessageItem] = []
+    public var isSending: Bool = false
     
     /// ID of the first message of the latest response turn (e.g., tool batch or agent response following the last user message)
     public var latestTurnStartMessageId: String? {
@@ -291,15 +292,6 @@ public final class ChatViewModel {
             }
             
             if !self.isRunning && previouslyRunning {
-                if !self.queuedMessages.isEmpty {
-                    let next = self.queuedMessages.removeFirst()
-                    if !self.messages.contains(where: { $0.sender == .user && $0.content == next.text }) {
-                        Task { [weak self] in
-                            guard let self else { return }
-                            await self.sendMessage(text: next.text)
-                        }
-                    }
-                }
                 // Agent just finished turn; schedule post-turn title verification tasks
                 Task { [weak self] in
                     try? await Task.sleep(nanoseconds: 1_200_000_000)
@@ -537,8 +529,12 @@ public final class ChatViewModel {
     
     @MainActor
     public func sendMessage(text customText: String? = nil) async {
+        guard !isSending else { return }
         let text = (customText ?? inputText).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, let url = settings.serverURL else { return }
+        
+        isSending = true
+        defer { isSending = false }
         
         // If agent is currently running and session already exists, queue follow-up message!
         if (self.isRunning || self.isAwaitingResponse) && !self.cascadeId.isEmpty {
@@ -1007,18 +1003,6 @@ public final class ChatViewModel {
                 self.queuedMessages = qm
             } else if !self.isRunning && !self.isAwaitingResponse {
                 self.queuedMessages = []
-            }
-        }
-        
-        if !self.isRunning && previouslyRunning {
-            if !self.queuedMessages.isEmpty {
-                let next = self.queuedMessages.removeFirst()
-                if !self.messages.contains(where: { $0.sender == .user && $0.content == next.text }) {
-                    Task { [weak self] in
-                        guard let self else { return }
-                        await self.sendMessage(text: next.text)
-                    }
-                }
             }
         }
         
