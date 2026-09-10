@@ -16,7 +16,9 @@ public struct ConversationListView: View {
     @State private var renameText = ""
     @State private var showRenameAlert = false
     
-    public init() {}
+    public init() {
+        _ = SwipeActionAdjuster.activateOnce
+    }
     
     public var body: some View {
         NavigationStack(path: $navigationPath) {
@@ -268,6 +270,7 @@ public struct ConversationListView: View {
                         }
                         .tint(.clear)
                     }
+
                     .confirmationDialog(
                         "确定删除此会话吗？\n此操作将永久删除会话记录且无法撤销。",
                         isPresented: Binding(
@@ -462,3 +465,43 @@ public struct ConversationListView: View {
         return img.withRenderingMode(.alwaysOriginal)
     }()
 }
+
+private enum SwipeActionAdjuster {
+    static let activateOnce: Void = {
+        // Center swipe action button in card's vacated area by shifting 16pt left (compensating for 16pt card margin)
+        if let dynamicCls = NSClassFromString("_UISwipeActionDynamicButtonView") {
+            let orig = #selector(UIView.layoutSubviews)
+            let swiz = #selector(UIView.agy_swipeDynamicButtonViewLayoutSubviews)
+            if let m1 = class_getInstanceMethod(dynamicCls, orig),
+               let m2 = class_getInstanceMethod(UIView.self, swiz) {
+                method_exchangeImplementations(m1, m2)
+            }
+        } else if let actionBtnCls = NSClassFromString("UISwipeActionButton") {
+            let orig = #selector(UIView.layoutSubviews)
+            let swiz = #selector(UIView.agy_swipeActionButtonLayoutSubviews)
+            if let m1 = class_getInstanceMethod(actionBtnCls, orig),
+               let m2 = class_getInstanceMethod(UIView.self, swiz) {
+                method_exchangeImplementations(m1, m2)
+            }
+        }
+    }()
+}
+
+private extension UIView {
+    @objc func agy_swipeDynamicButtonViewLayoutSubviews() {
+        agy_swipeDynamicButtonViewLayoutSubviews()
+        let targetTransform = CGAffineTransform(translationX: -16, y: 0)
+        if self.transform != targetTransform {
+            self.transform = targetTransform
+        }
+    }
+    
+    @objc func agy_swipeActionButtonLayoutSubviews() {
+        agy_swipeActionButtonLayoutSubviews()
+        let targetTransform = CGAffineTransform(translationX: -16, y: 0)
+        if self.transform != targetTransform {
+            self.transform = targetTransform
+        }
+    }
+}
+
