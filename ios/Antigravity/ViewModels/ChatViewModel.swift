@@ -30,6 +30,7 @@ public final class ChatViewModel {
     public var proceedArtifactUri: String? = nil
     public var pendingInteraction: PendingInteraction? = nil
     public var isSubmittingInteraction: Bool = false
+    public var queuedMessages: [QueuedMessageItem] = []
     
     /// ID of the first message of the latest response turn (e.g., tool batch or agent response following the last user message)
     public var latestTurnStartMessageId: String? {
@@ -84,6 +85,7 @@ public final class ChatViewModel {
             self.canProceed = false
             self.proceedArtifactUri = nil
             self.pendingInteraction = cached.pendingInteraction
+            self.queuedMessages = cached.queuedMessages ?? []
             self.knownServerMessageIds = Set(healed.map(\.id))
             if let cachedTitle = cached.title, !cachedTitle.isEmpty, cachedTitle != "未命名会话" {
                 self.currentTitle = cachedTitle
@@ -128,6 +130,7 @@ public final class ChatViewModel {
             self.canProceed = false
             self.proceedArtifactUri = nil
             self.pendingInteraction = cached.pendingInteraction
+            self.queuedMessages = cached.queuedMessages ?? []
             self.knownServerMessageIds = Set(healed.map(\.id))
         }
         
@@ -203,6 +206,12 @@ public final class ChatViewModel {
                 self.pendingInteraction = nil
             }
             
+            if !result.queuedMessages.isEmpty {
+                self.queuedMessages = result.queuedMessages
+            } else if !self.isRunning && !self.isAwaitingResponse {
+                self.queuedMessages = []
+            }
+            
             // Persist latest state to cache (excluding temporary optimistic message)
             let toCache = self.messages.filter { $0.id != self.pendingOptimisticMessageId && !$0.id.hasPrefix("optimistic-") }
             cacheManager.saveSession(CachedChatSession(
@@ -218,7 +227,8 @@ public final class ChatViewModel {
                 cascadeConfigRaw: self.cascadeConfigRaw,
                 canProceed: self.canProceed,
                 proceedArtifactUri: self.proceedArtifactUri,
-                pendingInteraction: self.pendingInteraction
+                pendingInteraction: self.pendingInteraction,
+                queuedMessages: self.queuedMessages
             ))
             if self.pendingOptimisticMessageId == nil {
                 self.knownServerMessageIds = Set(toCache.map(\.id))
@@ -281,6 +291,15 @@ public final class ChatViewModel {
             }
             
             if !self.isRunning && previouslyRunning {
+                if !self.queuedMessages.isEmpty {
+                    let next = self.queuedMessages.removeFirst()
+                    if !self.messages.contains(where: { $0.sender == .user && $0.content == next.text }) {
+                        Task { [weak self] in
+                            guard let self else { return }
+                            await self.sendMessage(text: next.text)
+                        }
+                    }
+                }
                 // Agent just finished turn; schedule post-turn title verification tasks
                 Task { [weak self] in
                     try? await Task.sleep(nanoseconds: 1_200_000_000)
@@ -350,7 +369,8 @@ public final class ChatViewModel {
                 cascadeConfigRaw: self.cascadeConfigRaw,
                 canProceed: self.canProceed,
                 proceedArtifactUri: self.proceedArtifactUri,
-                pendingInteraction: self.pendingInteraction
+                pendingInteraction: self.pendingInteraction,
+                queuedMessages: self.queuedMessages
             ))
             
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -520,6 +540,54 @@ public final class ChatViewModel {
         let text = (customText ?? inputText).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, let url = settings.serverURL else { return }
         
+        // If agent is currently running and session already exists, queue follow-up message!
+        if (self.isRunning || self.isAwaitingResponse) && !self.cascadeId.isEmpty {
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            let queueItem = QueuedMessageItem(id: "queue-\(UUID().uuidString)", text: text)
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                self.queuedMessages.append(queueItem)
+            }
+            if customText == nil {
+                self.inputText = ""
+            }
+            
+            // Persist to local cache immediately
+            let toCache = self.messages.filter { $0.id != self.pendingOptimisticMessageId && !$0.id.hasPrefix("optimistic-") }
+            cacheManager.saveSession(CachedChatSession(
+                cascadeId: cascadeId,
+                status: isRunning ? "CASCADE_RUN_STATUS_RUNNING" : "CASCADE_RUN_STATUS_DONE",
+                duration: self.duration,
+                stepCount: self.stepCount,
+                totalTools: self.totalTools,
+                hasMore: self.hasMore,
+                nextOffset: self.nextOffset,
+                messages: toCache,
+                title: self.currentTitle,
+                cascadeConfigRaw: self.cascadeConfigRaw,
+                canProceed: self.canProceed,
+                proceedArtifactUri: self.proceedArtifactUri,
+                pendingInteraction: self.pendingInteraction,
+                queuedMessages: self.queuedMessages
+            ))
+            
+            // Dispatch to server with deliveryStrategy = 2 (WHEN_IDLE)
+            Task { [weak self] in
+                guard let self else { return }
+                do {
+                    try await self.apiClient.sendMessage(
+                        cascadeId: self.cascadeId,
+                        text: text,
+                        deliveryStrategy: 2,
+                        cascadeConfigRaw: self.cascadeConfigRaw,
+                        baseURL: url
+                    )
+                } catch {
+                    print("⚠️ Failed to deliver queued message upstream: \(error)")
+                }
+            }
+            return
+        }
+        
         // Haptic feedback
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         
@@ -615,6 +683,69 @@ public final class ChatViewModel {
             // Restore text so user does not lose their input
             inputText = text
             stopPollingFallback()
+        }
+    }
+    
+    // MARK: - Queued Messages Actions
+    
+    @MainActor
+    public func sendQueuedMessageNow(item: QueuedMessageItem) async {
+        guard let url = settings.serverURL, !cascadeId.isEmpty else { return }
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            self.queuedMessages.removeAll(where: { $0.id == item.id })
+        }
+        
+        // Remove from upstream queue asynchronously
+        Task { [weak self] in
+            guard let self else { return }
+            _ = try? await self.apiClient.deleteAgentMessage(messageId: item.id, cascadeId: self.cascadeId, baseURL: url)
+        }
+        
+        // Dispatch with deliveryStrategy = 1 (NEXT_INVOCATION)
+        do {
+            try await apiClient.sendMessage(
+                cascadeId: cascadeId,
+                text: item.text,
+                deliveryStrategy: 1,
+                cascadeConfigRaw: cascadeConfigRaw,
+                baseURL: url
+            )
+        } catch {
+            errorMessage = "发送失败: \(error.localizedDescription)"
+        }
+    }
+    
+    @MainActor
+    public func editQueuedMessage(item: QueuedMessageItem) {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            self.queuedMessages.removeAll(where: { $0.id == item.id })
+        }
+        
+        if let url = settings.serverURL, !cascadeId.isEmpty {
+            Task { [weak self] in
+                guard let self else { return }
+                _ = try? await self.apiClient.deleteAgentMessage(messageId: item.id, cascadeId: self.cascadeId, baseURL: url)
+            }
+        }
+        
+        self.inputText = item.text
+    }
+    
+    @MainActor
+    public func deleteQueuedMessage(item: QueuedMessageItem) {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            self.queuedMessages.removeAll(where: { $0.id == item.id })
+        }
+        
+        if let url = settings.serverURL, !cascadeId.isEmpty {
+            Task { [weak self] in
+                guard let self else { return }
+                _ = try? await self.apiClient.deleteAgentMessage(messageId: item.id, cascadeId: self.cascadeId, baseURL: url)
+            }
         }
     }
     
@@ -858,6 +989,26 @@ public final class ChatViewModel {
             self.pendingInteraction = nil
         }
         
+        if let qm = payload.queuedMessages {
+            if !qm.isEmpty {
+                self.queuedMessages = qm
+            } else if !self.isRunning && !self.isAwaitingResponse {
+                self.queuedMessages = []
+            }
+        }
+        
+        if !self.isRunning && previouslyRunning {
+            if !self.queuedMessages.isEmpty {
+                let next = self.queuedMessages.removeFirst()
+                if !self.messages.contains(where: { $0.sender == .user && $0.content == next.text }) {
+                    Task { [weak self] in
+                        guard let self else { return }
+                        await self.sendMessage(text: next.text)
+                    }
+                }
+            }
+        }
+        
         let toCache = self.messages.filter { $0.id != self.pendingOptimisticMessageId && !$0.id.hasPrefix("optimistic-") }
         cacheManager.saveSession(CachedChatSession(
             cascadeId: cascadeId,
@@ -872,7 +1023,8 @@ public final class ChatViewModel {
             cascadeConfigRaw: self.cascadeConfigRaw,
             canProceed: self.canProceed,
             proceedArtifactUri: self.proceedArtifactUri,
-            pendingInteraction: self.pendingInteraction
+            pendingInteraction: self.pendingInteraction,
+            queuedMessages: self.queuedMessages
         ))
         if self.pendingOptimisticMessageId == nil {
             self.knownServerMessageIds = Set(toCache.map(\.id))
