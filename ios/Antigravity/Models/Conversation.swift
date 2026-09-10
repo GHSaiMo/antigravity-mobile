@@ -41,6 +41,8 @@ public struct WorkspaceItem: Codable, Sendable {
 public struct Annotations: Codable, Sendable {
     public let title: String?
     public let lastUserViewTime: String?
+    public let markedAsUnread: Bool?
+    public let archived: Bool?
 }
 
 public struct TrajectoryMetadata: Codable, Sendable {
@@ -114,6 +116,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
     public let workspaceName: String
     public let lastModified: Date?
     public let isSubagent: Bool
+    public let isUnread: Bool
     
     enum CodingKeys: String, CodingKey {
         case id
@@ -123,6 +126,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         case workspaceName
         case lastModified
         case isSubagent
+        case isUnread
     }
     
     public init(from decoder: Decoder) throws {
@@ -134,6 +138,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         self.workspaceName = try container.decodeIfPresent(String.self, forKey: .workspaceName) ?? "workspace"
         self.lastModified = try container.decodeIfPresent(Date.self, forKey: .lastModified)
         self.isSubagent = try container.decodeIfPresent(Bool.self, forKey: .isSubagent) ?? false
+        self.isUnread = try container.decodeIfPresent(Bool.self, forKey: .isUnread) ?? false
     }
     
     public func encode(to encoder: Encoder) throws {
@@ -145,6 +150,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         try container.encode(workspaceName, forKey: .workspaceName)
         try container.encodeIfPresent(lastModified, forKey: .lastModified)
         try container.encode(isSubagent, forKey: .isSubagent)
+        try container.encode(isUnread, forKey: .isUnread)
     }
     
     public enum ConversationStatus: String, Sendable, Codable {
@@ -206,6 +212,29 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
             }
         }
         self.isSubagent = sub
+        
+        // 未读状态计算：排除运行中、等待交互及归档会话
+        var unread = false
+        if self.status != .running && self.status != .action && summary.annotations?.archived != true {
+            if summary.annotations?.markedAsUnread == true {
+                unread = true
+            } else if let modDate = self.lastModified {
+                var serverViewDate: Date? = nil
+                if let uvStr = summary.annotations?.lastUserViewTime {
+                    let formatter = ISO8601DateFormatter()
+                    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                    serverViewDate = formatter.date(from: uvStr) ?? ISO8601DateFormatter().date(from: uvStr)
+                }
+                let localViewDate = CacheManager.shared.getLastViewDate(for: id)
+                let effectiveDate = [serverViewDate, localViewDate].compactMap { $0 }.max()
+                if let eff = effectiveDate {
+                    unread = modDate > eff
+                } else {
+                    unread = true
+                }
+            }
+        }
+        self.isUnread = unread
     }
     
     public init(
@@ -215,7 +244,8 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         stepCount: Int = 0,
         workspaceName: String = "workspace",
         lastModified: Date? = Date(),
-        isSubagent: Bool = false
+        isSubagent: Bool = false,
+        isUnread: Bool = false
     ) {
         self.id = id
         self.title = title
@@ -224,6 +254,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         self.workspaceName = workspaceName
         self.lastModified = lastModified
         self.isSubagent = isSubagent
+        self.isUnread = isUnread
     }
     
     public var relativeTimeString: String {
