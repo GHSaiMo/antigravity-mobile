@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import os
 
 extension Notification.Name {
     public static let deviceTokenRevoked = Notification.Name("antigravity.device_token_revoked")
@@ -20,6 +21,18 @@ public final class NetworkTransport: Sendable {
     public static let shared = NetworkTransport()
     
     private let fallbackSession: URLSession
+    private let pathMonitor = NWPathMonitor()
+    private let monitorQueue = DispatchQueue(label: "antigravity.network_transport_monitor", qos: .utility)
+    private let _isCellular = OSAllocatedUnfairLock(initialState: false)
+    private let _isWifi = OSAllocatedUnfairLock(initialState: false)
+    
+    public var isCellular: Bool {
+        _isCellular.withLock { $0 }
+    }
+    
+    public var isWifi: Bool {
+        _isWifi.withLock { $0 }
+    }
     
     public init() {
         let config = URLSessionConfiguration.default
@@ -29,6 +42,35 @@ public final class NetworkTransport: Sendable {
         config.httpCookieAcceptPolicy = .always
         config.httpCookieStorage = HTTPCookieStorage.shared
         self.fallbackSession = URLSession(configuration: config)
+        
+        pathMonitor.pathUpdateHandler = { [weak self] path in
+            guard let self = self else { return }
+            let cellular = path.usesInterfaceType(.cellular) || path.isExpensive
+            let wifi = path.usesInterfaceType(.wifi)
+            self._isCellular.withLock { $0 = cellular }
+            self._isWifi.withLock { $0 = wifi }
+        }
+        pathMonitor.start(queue: monitorQueue)
+    }
+    
+    /// Decorates HTTPURLResponse with X-Antigravity-Interface header to indicate actual interface used
+    private func decorateResponse(_ response: URLResponse, url: URL?, forcedCellular: Bool = false) -> URLResponse {
+        guard let http = response as? HTTPURLResponse, let targetURL = url ?? http.url else {
+            return response
+        }
+        var fields: [String: String] = [:]
+        for (k, v) in http.allHeaderFields {
+            fields["\(k)"] = "\(v)"
+        }
+        // If low-level NWConnection pinned cellular was used, or phone is on cellular network without Wi-Fi
+        let usedCellular = forcedCellular || (isCellular && !isWifi)
+        fields["X-Antigravity-Interface"] = usedCellular ? "cellular" : "wifi"
+        return HTTPURLResponse(
+            url: targetURL,
+            statusCode: http.statusCode,
+            httpVersion: "HTTP/1.1",
+            headerFields: fields
+        ) ?? response
     }
     
     /// Sends a request prioritizing the cellular interface (IPv6 direct) if requested and available,
@@ -70,15 +112,18 @@ public final class NetworkTransport: Sendable {
         }
         
         guard preferCellular, let url = req.url, let host = url.host else {
-            return try await fallbackSession.data(for: req)
+            let (data, response) = try await fallbackSession.data(for: req)
+            return (data, decorateResponse(response, url: req.url))
         }
         
         if Self.isLocalOrPrivateHost(host) {
-            return try await fallbackSession.data(for: req)
+            let (data, response) = try await fallbackSession.data(for: req)
+            return (data, decorateResponse(response, url: req.url))
         }
         
         do {
-            return try await executeViaCellular(request: req, url: url, host: host)
+            let (data, response) = try await executeViaCellular(request: req, url: url, host: host)
+            return (data, decorateResponse(response, url: req.url, forcedCellular: true))
         } catch let NetworkTransportError.requestAlreadyDispatched(underlying) {
             let method = (req.httpMethod ?? "GET").uppercased()
             let path = req.url?.path ?? ""
@@ -88,14 +133,16 @@ public final class NetworkTransport: Sendable {
             let isNonIdempotentMutation = method == "POST" && path.contains("SendUserCascadeMessage")
             if !isNonIdempotentMutation {
                 print("[NetworkTransport] Cellular direct response read failed after send, retrying idempotent request (\(path)) via standard interface: \(underlying.localizedDescription)")
-                return try await fallbackSession.data(for: req)
+                let (data, response) = try await fallbackSession.data(for: req)
+                return (data, decorateResponse(response, url: req.url))
             } else {
                 print("[NetworkTransport] Cellular direct request was already sent to server, but response failed (\(underlying.localizedDescription)). Suppressing fallback retry for non-idempotent \(path) to prevent duplicate execution.")
                 throw APIError.networkError("指令已成功送达服务器，但等待响应超时 (\(underlying.localizedDescription))")
             }
         } catch {
             print("[NetworkTransport] Cellular direct request failed before send (\(error.localizedDescription)), falling back to standard interface")
-            return try await fallbackSession.data(for: req)
+            let (data, response) = try await fallbackSession.data(for: req)
+            return (data, decorateResponse(response, url: req.url))
         }
     }
     

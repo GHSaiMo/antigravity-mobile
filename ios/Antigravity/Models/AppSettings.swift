@@ -99,7 +99,8 @@ public final class AppSettings {
                     self.rawServerURL = custom
                 }
             } else {
-                if let lan = lanServerURL, !lan.isEmpty {
+                // If turning off cellular preference, only revert to LAN if not currently on cellular data
+                if !NetworkTransport.shared.isCellular, let lan = lanServerURL, !lan.isEmpty {
                     self.activeServerURL = lan
                     self.rawServerURL = lan
                 }
@@ -152,6 +153,33 @@ public final class AppSettings {
         return items
     }
     
+    /// Accurately describes the connection channel based on target endpoint and active interface
+    public static func describeEndpoint(url: URL, isCellular: Bool) -> String {
+        guard let host = url.host else {
+            return isCellular ? "蜂窝网络" : "Wi-Fi"
+        }
+        let clean = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
+        
+        // 1. Check if host is IPv6 (contains colons and is not link-local fe80 / ULA fc/fd)
+        let isIPv6 = clean.contains(":") && !clean.hasPrefix("fe80") && !clean.hasPrefix("fc") && !clean.hasPrefix("fd")
+        
+        // 2. Check if host is LAN / private
+        let isLAN = NetworkTransport.isLocalOrPrivateHost(clean)
+        
+        // 3. Check if host is Tailscale CGNAT
+        let isTailscale = clean.hasPrefix("100.") || clean.contains("ts.net")
+        
+        if isIPv6 {
+            return isCellular ? "蜂窝网络 IPv6" : "Wi-Fi IPv6 直连"
+        } else if isLAN {
+            return "Wi-Fi 局域网"
+        } else if isTailscale {
+            return isCellular ? "蜂窝网络 (Tailscale)" : "Wi-Fi (Tailscale)"
+        } else {
+            return isCellular ? "蜂窝网络 (公网域名)" : "Wi-Fi (公网域名)"
+        }
+    }
+    
     public static func normalize(raw: String) -> URL? {
         var clean = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if clean.isEmpty { return nil }
@@ -202,8 +230,9 @@ public final class AppSettings {
             return url
         }
         
-        if preferCellularNetwork {
-            // When prioritizing cellular (IPv6 direct connection) without an active probe result:
+        let shouldUseCellularOrRemote = preferCellularNetwork || NetworkTransport.shared.isCellular
+        if shouldUseCellularOrRemote {
+            // When on cellular or prioritizing cellular (IPv6 direct connection) without an active probe result:
             // 1. If an IPv6 URL is configured, prioritize it
             if let v6 = ipv6ServerURL, let url = Self.normalize(raw: v6) {
                 return url
@@ -227,7 +256,11 @@ public final class AppSettings {
             if let v6 = ipv6ServerURL, let url = Self.normalize(raw: v6) {
                 return url
             }
-            // 3. Default fallback to rawServerURL
+            // 3. If custom DDNS URL is configured
+            if let custom = customServerURL, let url = Self.normalize(raw: custom) {
+                return url
+            }
+            // 4. Default fallback to rawServerURL
             return Self.normalize(raw: rawServerURL)
         }
     }

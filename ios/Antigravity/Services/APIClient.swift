@@ -28,6 +28,7 @@ public struct GatewayStatusResponse: Codable, Sendable {
     public let status: String
     public let upstream: UpstreamInfo?
     public var usedInterface: String?
+    public var connectionDescription: String?
     
     public struct UpstreamInfo: Codable, Sendable {
         public let pid: Int?
@@ -620,7 +621,9 @@ public final class APIClient: Sendable {
             var decoded = try JSONDecoder().decode(GatewayStatusResponse.self, from: data)
             let ifaceHeader = (httpResp.allHeaderFields["X-Antigravity-Interface"] as? String) ??
                               (httpResp.allHeaderFields["x-antigravity-interface"] as? String)
-            decoded.usedInterface = (ifaceHeader == "cellular") ? "cellular" : "wifi"
+            let isCellular = (ifaceHeader == "cellular") || NetworkTransport.shared.isCellular
+            decoded.usedInterface = isCellular ? "cellular" : "wifi"
+            decoded.connectionDescription = AppSettings.describeEndpoint(url: baseURL, isCellular: isCellular)
             return decoded
         } catch {
             let desc = error.localizedDescription

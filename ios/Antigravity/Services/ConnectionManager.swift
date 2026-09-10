@@ -82,20 +82,20 @@ public final class ConnectionManager {
         }
         
         // Election policy:
-        // 1. If currently on Wi-Fi (!isCellular), strongly prefer LAN (lowest latency ~1ms, zero cellular data, bypasses router WAN firewalls).
-        // 2. If currently on Cellular (isCellular) and preferCellularNetwork is active, strongly prioritize IPv6 / public DDNS.
+        // 1. If currently on Wi-Fi without cellular preference (!isCellular && !settings.preferCellularNetwork), strongly prefer LAN (lowest latency ~1ms, zero cellular data, bypasses router WAN firewalls).
+        // 2. If currently on Cellular (isCellular) or preferCellularNetwork is active, strongly prioritize IPv6 / public DDNS.
         // 3. Otherwise pick the reachable endpoint with the lowest latency.
         let reachable = results.filter { $0.isReachable }
         
         var selected: EndpointHealthStatus? = nil
-        if !isCellular {
+        if !isCellular && !settings.preferCellularNetwork {
             if let lanEp = reachable.first(where: { ep in
                 let clean = ep.urlString.lowercased()
                 return clean.contains("192.168.") || clean.contains("10.") || clean.contains("172.")
             }) {
                 selected = lanEp
             }
-        } else if settings.preferCellularNetwork {
+        } else {
             if let v6Ep = reachable.first(where: { ep in
                 let clean = ep.urlString.lowercased()
                 return clean.contains("[") || clean.contains("::") || (!clean.contains("192.168.") && !clean.contains("10.") && !clean.contains("127."))
@@ -112,7 +112,7 @@ public final class ConnectionManager {
             settings.activeServerURL = best.urlString
             settings.rawServerURL = best.urlString
             return best.urlString
-        } else if settings.preferCellularNetwork && isCellular, let v6 = settings.ipv6ServerURL, !v6.isEmpty {
+        } else if isCellular, let v6 = settings.ipv6ServerURL, !v6.isEmpty {
             // If on cellular with radio warming up, ensure IPv6 remains active endpoint
             settings.activeServerURL = v6
             settings.rawServerURL = v6
@@ -143,7 +143,7 @@ public final class ConnectionManager {
         do {
             let (_, response) = try await NetworkTransport.shared.send(
                 request: request,
-                preferCellular: AppSettings.shared.preferCellularNetwork && ConnectionManager.shared.isCellular
+                preferCellular: AppSettings.shared.preferCellularNetwork
             )
             let elapsedMs = (CFAbsoluteTimeGetCurrent() - start) * 1000.0
             

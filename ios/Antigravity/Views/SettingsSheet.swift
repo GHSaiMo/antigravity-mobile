@@ -111,8 +111,15 @@ public struct SettingsSheet: View {
                     
                     if let active = settings.activeServerURL, !active.isEmpty {
                         HStack {
-                            Text("当前活动通道")
-                                .font(.system(size: 13))
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("当前活动通道")
+                                    .font(.system(size: 13))
+                                if let activeURL = URL(string: active) {
+                                    Text(AppSettings.describeEndpoint(url: activeURL, isCellular: NetworkTransport.shared.isCellular))
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundColor(.blue)
+                                }
+                            }
                             Spacer()
                             Text(active)
                                 .font(.system(size: 12, design: .monospaced))
@@ -230,9 +237,19 @@ public struct SettingsSheet: View {
         Task { @MainActor in
             do {
                 let status = try await APIClient.shared.testConnection(baseURL: url)
-                let ifaceDesc = (status.usedInterface == "cellular") ? "蜂窝网络 IPv6" : "Wi-Fi 局域网"
+                let isCellular = (status.usedInterface == "cellular") || NetworkTransport.shared.isCellular
+                let ifaceDesc = status.connectionDescription ?? AppSettings.describeEndpoint(url: url, isCellular: isCellular)
+                
+                // Fetch latency from recent probe if available
+                var latencyPart = ""
+                if let epStatus = ConnectionManager.shared.endpointStatuses[url.absoluteString] ??
+                                  ConnectionManager.shared.endpointStatuses[settings.activeServerURL ?? ""],
+                   epStatus.isReachable {
+                    latencyPart = " · \(Int(epStatus.latencyMs))ms"
+                }
+                
                 if status.status == "connected", let upstream = status.upstream {
-                    testStatus = "连接成功 (PID \(upstream.pid ?? 0) · \(ifaceDesc))"
+                    testStatus = "连接成功 (PID \(upstream.pid ?? 0)\(latencyPart) · \(ifaceDesc))"
                 } else {
                     testStatus = "网关在线，上游未就绪 (\(ifaceDesc))"
                 }
