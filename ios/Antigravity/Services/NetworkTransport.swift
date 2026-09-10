@@ -1,6 +1,10 @@
 import Foundation
 import Network
 
+extension Notification.Name {
+    public static let deviceTokenRevoked = Notification.Name("antigravity.device_token_revoked")
+}
+
 public final class NetworkTransport: Sendable {
     public static let shared = NetworkTransport()
     
@@ -42,24 +46,31 @@ public final class NetworkTransport: Sendable {
             return true
         }
         return false
-    }
+     }
 
     /// Sends a request prioritizing the cellular interface (IPv6 direct) if requested and available,
     /// otherwise seamlessly falls back to standard URLSession routing.
     public func send(request: URLRequest, preferCellular: Bool = false) async throws -> (Data, URLResponse) {
-        guard preferCellular, let url = request.url, let host = url.host else {
-            return try await fallbackSession.data(for: request)
+        var req = request
+        if let token = KeychainHelper.shared.read(key: .deviceToken), !token.isEmpty {
+            if req.value(forHTTPHeaderField: "Authorization") == nil {
+                req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            }
+        }
+        
+        guard preferCellular, let url = req.url, let host = url.host else {
+            return try await fallbackSession.data(for: req)
         }
         
         if Self.isLocalOrPrivateHost(host) {
-            return try await fallbackSession.data(for: request)
+            return try await fallbackSession.data(for: req)
         }
         
         do {
-            return try await executeViaCellular(request: request, url: url, host: host)
+            return try await executeViaCellular(request: req, url: url, host: host)
         } catch {
             // Cellular connection failed, unreachable, or interface unavailable; graceful fallback to default interface
-            return try await fallbackSession.data(for: request)
+            return try await fallbackSession.data(for: req)
         }
     }
     

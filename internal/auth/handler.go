@@ -1,0 +1,225 @@
+package auth
+
+import (
+	"encoding/json"
+	"net"
+	"net/http"
+	"strings"
+	"time"
+)
+
+// PairRequest is the payload sent by clients to pair.
+type PairRequest struct {
+	PairingCode string `json:"pairing_code"`
+	DeviceName  string `json:"device_name"`
+	Platform    string `json:"platform"`
+}
+
+// PairResponse is the response returned upon successful pairing.
+type PairResponse struct {
+	DeviceID    string `json:"device_id"`
+	DeviceToken string `json:"device_token"`
+}
+
+// AuthHandler handles authentication and device management routes.
+type AuthHandler struct {
+	store      *AuthStore
+	pairingMgr *PairingManager
+	host       string
+	port       int
+	ssl        bool
+}
+
+// NewAuthHandler creates a new AuthHandler.
+func NewAuthHandler(store *AuthStore, pairingMgr *PairingManager, host string, port int, ssl bool) *AuthHandler {
+	return &AuthHandler{
+		store:      store,
+		pairingMgr: pairingMgr,
+		host:       host,
+		port:       port,
+		ssl:        ssl,
+	}
+}
+
+// SetNetworkInfo updates the host, port, and ssl settings used for QR generation.
+func (h *AuthHandler) SetNetworkInfo(host string, port int, ssl bool) {
+	h.host = host
+	h.port = port
+	h.ssl = ssl
+}
+
+// HandlePair handles POST /api/v1/auth/pair.
+func (h *AuthHandler) HandlePair(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req PairRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid json body"})
+		return
+	}
+
+	req.PairingCode = strings.TrimSpace(req.PairingCode)
+	if req.PairingCode == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "pairing_code is required"})
+		return
+	}
+
+	// Validate and consume code immediately (prevent replay)
+	if !h.pairingMgr.ValidateAndConsume(req.PairingCode) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid or expired pairing code"})
+		return
+	}
+
+	deviceID, deviceToken, err := GenerateDeviceCredentials()
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to generate credentials"})
+		return
+	}
+
+	deviceName := strings.TrimSpace(req.DeviceName)
+	if deviceName == "" {
+		deviceName = "Mobile Device"
+	}
+	platform := strings.TrimSpace(req.Platform)
+	if platform == "" {
+		platform = "unknown"
+	}
+
+	now := time.Now()
+	cleanIP := CleanIP(r.RemoteAddr)
+	device := PairedDevice{
+		DeviceID:   deviceID,
+		DeviceName: deviceName,
+		Platform:   platform,
+		TokenHash:  HashToken(deviceToken),
+		CreatedAt:  now,
+		LastSeenAt: now,
+		LastSeenIP: cleanIP,
+	}
+
+	if err := h.store.AddDevice(device); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to persist device"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(PairResponse{
+		DeviceID:    deviceID,
+		DeviceToken: deviceToken,
+	})
+}
+
+// HandleDevices handles GET /api/v1/devices and DELETE /api/v1/devices/{id}.
+func (h *AuthHandler) HandleDevices(w http.ResponseWriter, r *http.Request) {
+	if !h.isAuthorizedAdmin(r) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+		return
+	}
+
+	path := r.URL.Path
+	prefix := "/api/v1/devices"
+	subPath := strings.TrimPrefix(path, prefix)
+	subPath = strings.TrimPrefix(subPath, "/")
+
+	switch r.Method {
+	case http.MethodGet:
+		devices := h.store.ListDevices()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(devices)
+
+	case http.MethodDelete:
+		targetID := subPath
+		if targetID == "" {
+			targetID = r.URL.Query().Get("id")
+		}
+		if targetID == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "device_id is required"})
+			return
+		}
+
+		if err := h.store.RemoveDevice(targetID); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"status":    "deleted",
+			"device_id": targetID,
+		})
+
+	default:
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+	}
+}
+
+// HandleNewPairingSession handles POST /api/v1/auth/session to generate a new pairing code.
+func (h *AuthHandler) HandleNewPairingSession(w http.ResponseWriter, r *http.Request) {
+	if !h.isAuthorizedAdmin(r) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+		return
+	}
+
+	session, err := h.pairingMgr.GenerateSession(DefaultPairingTTL)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	uri := GeneratePairingURI(h.host, h.port, session.Code, h.ssl)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"code":       session.Code,
+		"expires_at": session.ExpiresAt,
+		"uri":        uri,
+	})
+}
+
+// isLoopback checks whether the incoming address is from localhost.
+func isLoopback(remoteAddr string) bool {
+	clean := CleanIP(remoteAddr)
+	ip := net.ParseIP(clean)
+	if ip == nil {
+		return false
+	}
+	return ip.IsLoopback()
+}
+
+// isAuthorizedAdmin checks if the request is from localhost or carries a valid device token.
+func (h *AuthHandler) isAuthorizedAdmin(r *http.Request) bool {
+	if isLoopback(r.RemoteAddr) {
+		return true
+	}
+	token := ExtractToken(r)
+	if token != "" {
+		if _, ok := h.store.ValidateToken(token); ok {
+			return true
+		}
+	}
+	return false
+}

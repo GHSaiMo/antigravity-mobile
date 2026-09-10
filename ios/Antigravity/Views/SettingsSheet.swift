@@ -5,12 +5,64 @@ public struct SettingsSheet: View {
     @State private var settings = AppSettings.shared
     @State private var testStatus: String? = nil
     @State private var isTesting: Bool = false
+    @State private var showQRScanner: Bool = false
     
     public init() {}
     
     public var body: some View {
         NavigationStack {
             Form {
+                Section(header: Text("设备扫码配对与鉴权"), footer: Text("扫描 Mac 网关终端显示的配对二维码，自动绑定设备专属凭证并完成长效免密直连。")) {
+                    if settings.isPaired {
+                        HStack {
+                            Image(systemName: "checkmark.seal.fill")
+                                .foregroundColor(.green)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("已完成设备配对鉴权")
+                                    .font(.system(size: 15, weight: .medium))
+                                if let id = settings.deviceID {
+                                    Text("设备 ID: \(id)")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                        }
+                        
+                        Button(action: { showQRScanner = true }) {
+                            HStack {
+                                Image(systemName: "qrcode.viewfinder")
+                                Text("重新扫描配对二维码")
+                            }
+                        }
+                        
+                        Button(role: .destructive, action: {
+                            settings.unpair()
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        }) {
+                            HStack {
+                                Image(systemName: "xmark.circle")
+                                Text("解除此设备配对 (清除凭据)")
+                            }
+                        }
+                    } else {
+                        HStack {
+                            Image(systemName: "exclamationmark.shield")
+                                .foregroundColor(.orange)
+                            Text("未配对设备（受保护接口将被拦截）")
+                                .font(.system(size: 14))
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        Button(action: { showQRScanner = true }) {
+                            HStack {
+                                Image(systemName: "qrcode.viewfinder")
+                                Text("扫描二维码完成配对")
+                            }
+                            .foregroundColor(.indigo)
+                        }
+                    }
+                }
+
                 Section(header: Text("服务器连接配置"), footer: Text("支持输入局域网/DDNS 地址（如 http://mac.yourdomain.com:58900）、IPv6 地址（如 [240e:...]:58900）或 Tailscale 虚拟 IP。注意：网关默认采用 http 协议。")) {
                     TextField("网关地址", text: $settings.rawServerURL)
                         .textInputAutocapitalization(.never)
@@ -73,6 +125,9 @@ public struct SettingsSheet: View {
                         dismiss()
                     }
                 }
+            }
+            .sheet(isPresented: $showQRScanner) {
+                QRScannerView()
             }
         }
     }
