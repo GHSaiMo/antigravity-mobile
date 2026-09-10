@@ -10,7 +10,6 @@ public final class ConversationListViewModel {
     public var errorMessage: String? = nil
     
     public var quotaResponse: CockpitQuotaResponse? = nil
-    public var isRefreshingQuota: Bool = false
     
     private let apiClient: APIClient
     private let settings: AppSettings
@@ -134,27 +133,21 @@ public final class ConversationListViewModel {
         await fetchQuotas()
     }
     
-    @MainActor
-    public func fetchQuotas() async {
-        guard let url = settings.serverURL else { return }
-        do {
-            self.quotaResponse = try await apiClient.fetchCockpitQuotas(baseURL: url)
-        } catch {
-            // Silently ignore quota fetch error to not disturb chat list
-        }
-    }
+    private var lastQuotaFetchTime: Date = .distantPast
+    private let quotaRefreshInterval: TimeInterval = 300 // 5 minutes
     
     @MainActor
-    public func triggerQuotaRefresh() async {
+    public func fetchQuotas(force: Bool = false) async {
+        let now = Date()
+        if !force && now.timeIntervalSince(lastQuotaFetchTime) < quotaRefreshInterval && quotaResponse != nil {
+            return
+        }
         guard let url = settings.serverURL else { return }
-        isRefreshingQuota = true
-        defer { isRefreshingQuota = false }
         do {
-            try await apiClient.refreshCockpitQuotas(baseURL: url)
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
             self.quotaResponse = try await apiClient.fetchCockpitQuotas(baseURL: url)
+            self.lastQuotaFetchTime = now
         } catch {
-            // Keep existing quota state on failure
+            // Silently ignore quota fetch error to not disturb chat list
         }
     }
 }
