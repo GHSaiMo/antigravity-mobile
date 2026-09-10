@@ -20,13 +20,13 @@ public struct TrajectorySummary: Codable, Sendable {
             if let parent = meta.parentConversationId, !parent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 return true
             }
+            if meta.isBattleModeFork == true {
+                return true
+            }
             if let depth = meta.nestingDepth, depth > 0 {
                 return true
             }
             if meta.hasSubagentSpec == true {
-                return true
-            }
-            if let root = meta.rootConversationId, let tid = trajectoryId, !root.isEmpty, !tid.isEmpty, root != tid {
                 return true
             }
         }
@@ -53,6 +53,7 @@ public struct TrajectoryMetadata: Codable, Sendable {
     public let rootConversationId: String?
     public let nestingDepth: Int?
     public let hasSubagentSpec: Bool?
+    public let isBattleModeFork: Bool?
     
     enum CodingKeys: String, CodingKey {
         case workspaceUris
@@ -63,6 +64,7 @@ public struct TrajectoryMetadata: Codable, Sendable {
         case nestingDepth
         case subagentSpec
         case agentScript
+        case isBattleModeFork
     }
     
     public init(from decoder: Decoder) throws {
@@ -73,6 +75,7 @@ public struct TrajectoryMetadata: Codable, Sendable {
         self.parentConversationId = try container.decodeIfPresent(String.self, forKey: .parentConversationId)
         self.rootConversationId = try container.decodeIfPresent(String.self, forKey: .rootConversationId)
         self.nestingDepth = try container.decodeIfPresent(Int.self, forKey: .nestingDepth)
+        self.isBattleModeFork = try container.decodeIfPresent(Bool.self, forKey: .isBattleModeFork)
         
         let hasSpec = container.contains(.subagentSpec)
         let hasScript = container.contains(.agentScript)
@@ -87,6 +90,7 @@ public struct TrajectoryMetadata: Codable, Sendable {
         try container.encodeIfPresent(parentConversationId, forKey: .parentConversationId)
         try container.encodeIfPresent(rootConversationId, forKey: .rootConversationId)
         try container.encodeIfPresent(nestingDepth, forKey: .nestingDepth)
+        try container.encodeIfPresent(isBattleModeFork, forKey: .isBattleModeFork)
     }
     
     public init(
@@ -96,7 +100,8 @@ public struct TrajectoryMetadata: Codable, Sendable {
         parentConversationId: String? = nil,
         rootConversationId: String? = nil,
         nestingDepth: Int? = nil,
-        hasSubagentSpec: Bool? = nil
+        hasSubagentSpec: Bool? = nil,
+        isBattleModeFork: Bool? = nil
     ) {
         self.workspaceUris = workspaceUris
         self.projectId = projectId
@@ -105,6 +110,7 @@ public struct TrajectoryMetadata: Codable, Sendable {
         self.rootConversationId = rootConversationId
         self.nestingDepth = nestingDepth
         self.hasSubagentSpec = hasSubagentSpec
+        self.isBattleModeFork = isBattleModeFork
     }
 }
 
@@ -205,13 +211,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
             self.lastModified = nil
         }
         
-        var sub = summary.isSubagent
-        if !sub, let meta = summary.trajectoryMetadata {
-            if let root = meta.rootConversationId, !root.isEmpty, root != id {
-                sub = true
-            }
-        }
-        self.isSubagent = sub
+        self.isSubagent = summary.isSubagent
         
         // 未读状态计算：排除运行中、等待交互及归档会话
         var unread = false

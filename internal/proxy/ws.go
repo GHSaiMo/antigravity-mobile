@@ -18,7 +18,32 @@ var upgrader = websocket.Upgrader{
 	ReadBufferSize:  32768,
 	WriteBufferSize: 32768,
 	CheckOrigin: func(r *http.Request) bool {
-		return true // Allow mobile browsers & tunnel origins
+		origin := r.Header.Get("Origin")
+		// Allow requests with no Origin header (native apps, curl, same-origin navigations)
+		if origin == "" {
+			return true
+		}
+		// Validate origin against trusted loopback/localhost patterns
+		lower := strings.ToLower(origin)
+		for _, prefix := range []string{
+			"http://127.0.0.1", "https://127.0.0.1",
+			"http://[::1]", "https://[::1]",
+			"http://localhost", "https://localhost",
+		} {
+			if lower == prefix || strings.HasPrefix(lower, prefix+":") {
+				return true
+			}
+		}
+		// Also allow if Origin matches the request's Host (same-origin via tunnel/proxy)
+		if r.Host != "" {
+			for _, scheme := range []string{"http://", "https://"} {
+				if lower == scheme+strings.ToLower(r.Host) {
+					return true
+				}
+			}
+		}
+		log.Printf("[WS] Rejected WebSocket connection from untrusted origin: %s", origin)
+		return false
 	},
 }
 
@@ -137,6 +162,20 @@ func (p *Proxy) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	var wg sync.WaitGroup
 	wg.Add(2)
 
+	const wsTimeout = 60 * time.Second
+
+	// Set up read deadlines and pong handlers for both sides
+	clientConn.SetReadDeadline(time.Now().Add(wsTimeout))
+	clientConn.SetPongHandler(func(string) error {
+		clientConn.SetReadDeadline(time.Now().Add(wsTimeout))
+		return nil
+	})
+	upstreamConn.SetReadDeadline(time.Now().Add(wsTimeout))
+	upstreamConn.SetPongHandler(func(string) error {
+		upstreamConn.SetReadDeadline(time.Now().Add(wsTimeout))
+		return nil
+	})
+
 	// Pump: Client -> Upstream
 	go func() {
 		defer wg.Done()
@@ -146,6 +185,8 @@ func (p *Proxy) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				break
 			}
+			clientConn.SetReadDeadline(time.Now().Add(wsTimeout))
+			upstreamConn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := upstreamConn.WriteMessage(msgType, data); err != nil {
 				break
 			}
@@ -161,6 +202,8 @@ func (p *Proxy) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				break
 			}
+			upstreamConn.SetReadDeadline(time.Now().Add(wsTimeout))
+			clientConn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := clientConn.WriteMessage(msgType, data); err != nil {
 				break
 			}

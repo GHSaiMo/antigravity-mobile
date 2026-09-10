@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -23,8 +24,19 @@ func main() {
 	// 0. Load .env configuration
 	config.LoadDotEnv()
 
-	host := flag.String("host", "", "Host/IP for Mobile Gateway to listen on (default \"\" binds to all IPv4 and IPv6 interfaces)")
-	port := flag.Int("port", 58900, "Port for Mobile Gateway to listen on")
+	// Default to dual-stack socket binding (default "" binds to all IPv4 and IPv6 interfaces); override with -host flag or GATEWAY_HOST env var
+	defaultHost := ""
+	if envHost := os.Getenv("GATEWAY_HOST"); envHost != "" {
+		defaultHost = envHost
+	}
+	defaultPort := 58900
+	if envPort := os.Getenv("GATEWAY_PORT"); envPort != "" {
+		if p, err := strconv.Atoi(envPort); err == nil && p > 0 {
+			defaultPort = p
+		}
+	}
+	host := flag.String("host", defaultHost, "Host/IP for Mobile Gateway to listen on (default \"\" binds to all IPv4 and IPv6 interfaces)")
+	port := flag.Int("port", defaultPort, "Port for Mobile Gateway to listen on")
 	pollSec := flag.Int("poll", 5, "Polling interval in seconds for Antigravity instance discovery")
 	flag.Parse()
 
