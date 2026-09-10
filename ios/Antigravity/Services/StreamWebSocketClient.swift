@@ -86,7 +86,12 @@ public final class StreamWebSocketClient {
         }
         path += "gateway/cascade/stream"
         components.path = path
-        components.queryItems = [URLQueryItem(name: "cascadeId", value: cascadeId)]
+        
+        var queryItems = [URLQueryItem(name: "cascadeId", value: cascadeId)]
+        if let token = KeychainHelper.shared.read(key: .deviceToken), !token.isEmpty {
+            queryItems.append(URLQueryItem(name: "auth_token", value: token))
+        }
+        components.queryItems = queryItems
         
         guard let wsURL = components.url else {
             updateStatus(.failed)

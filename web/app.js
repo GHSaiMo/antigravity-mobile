@@ -1,5 +1,36 @@
 // Antigravity Mobile Gateway - Web & PWA Client
 
+// --- Global Auth Token Interceptor & 401 Handler ---
+const originalFetch = window.fetch;
+window.fetch = async function (url, options = {}) {
+  const token = localStorage.getItem("agy_device_token");
+  if (token) {
+    options = options || {};
+    options.headers = options.headers || {};
+    if (options.headers instanceof Headers) {
+      if (!options.headers.has("Authorization")) {
+        options.headers.set("Authorization", `Bearer ${token}`);
+      }
+    } else {
+      if (!options.headers["Authorization"]) {
+        options.headers["Authorization"] = `Bearer ${token}`;
+      }
+    }
+  }
+
+  const response = await originalFetch(url, options);
+
+  // Auto trigger pairing sheet if 401 Unauthorized encountered on protected API routes
+  if (response.status === 401 && typeof url === "string" && !url.includes("/api/v1/auth/pair")) {
+    console.warn("[Auth] 401 Unauthorized received for:", url);
+    localStorage.removeItem("agy_device_token");
+    if (typeof updateAuthUI === "function") updateAuthUI();
+    if (typeof openPairingSheet === "function") openPairingSheet("设备凭据已失效或被 Mac 网关吊销，请重新配对");
+  }
+
+  return response;
+};
+
 let activeCascadeId = null;
 let pollTimer = null;
 let currentTrajectories = {};
@@ -586,7 +617,11 @@ function connectStreamWs(cascadeId) {
   closeActiveWs();
 
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  const wsUrl = `${proto}//${location.host}/gateway/cascade/stream?cascadeId=${encodeURIComponent(cascadeId)}`;
+  let wsUrl = `${proto}//${location.host}/gateway/cascade/stream?cascadeId=${encodeURIComponent(cascadeId)}`;
+  const token = localStorage.getItem("agy_device_token");
+  if (token) {
+    wsUrl += `&auth_token=${encodeURIComponent(token)}`;
+  }
   
   try {
     const ws = new WebSocket(wsUrl);
@@ -1328,8 +1363,143 @@ function closeNewSheet() {
   if (sheet) sheet.classList.add("hidden");
 }
 
+function updateAuthUI() {
+  const statusEl = document.getElementById("settings-auth-status");
+  const deviceIdRow = document.getElementById("settings-device-id-row");
+  const deviceIdEl = document.getElementById("settings-device-id");
+  const btnUnpair = document.getElementById("btn-unpair-device");
+  const token = localStorage.getItem("agy_device_token");
+  const devId = localStorage.getItem("agy_device_id");
+
+  if (token) {
+    if (statusEl) {
+      statusEl.textContent = "已配对";
+      statusEl.className = "status-badge connected";
+    }
+    if (deviceIdRow) deviceIdRow.classList.remove("hidden");
+    if (deviceIdEl) deviceIdEl.textContent = devId || "已绑定";
+    if (btnUnpair) btnUnpair.classList.remove("hidden");
+  } else {
+    if (statusEl) {
+      statusEl.textContent = "未配对";
+      statusEl.className = "status-badge disconnected";
+    }
+    if (deviceIdRow) deviceIdRow.classList.add("hidden");
+    if (btnUnpair) btnUnpair.classList.add("hidden");
+  }
+}
+
+function parsePairingInput(raw) {
+  raw = (raw || "").trim();
+  if (!raw) return null;
+
+  // Case 1: agy://pair?host=...&port=...&code=...
+  if (raw.startsWith("agy://pair")) {
+    try {
+      const url = new URL(raw.replace("agy://", "http://"));
+      const code = url.searchParams.get("code");
+      if (code) return code;
+    } catch (_) {
+      const match = raw.match(/code=([a-zA-Z0-9]+)/);
+      if (match) return match[1];
+    }
+  }
+
+  return raw;
+}
+
+async function pairWithCode(code) {
+  const resp = await originalFetch("/api/v1/auth/pair", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      pairing_code: code,
+      device_name: `Web Browser (${navigator.userAgent.includes("iPhone") ? "iPhone Safari" : "Desktop/PWA"})`,
+      platform: "pwa"
+    })
+  });
+
+  const data = await resp.json();
+  if (!resp.ok) {
+    throw new Error(data.error || `配对失败 (HTTP ${resp.status})`);
+  }
+
+  localStorage.setItem("agy_device_token", data.device_token);
+  localStorage.setItem("agy_device_id", data.device_id);
+  updateAuthUI();
+  return data;
+}
+
+function openPairingSheet(errorMsg = "") {
+  const sheet = document.getElementById("sheet-pairing");
+  const errEl = document.getElementById("pairing-error-msg");
+  const inputEl = document.getElementById("input-pairing-code");
+  if (errEl) {
+    if (errorMsg) {
+      errEl.textContent = errorMsg;
+      errEl.classList.remove("hidden");
+    } else {
+      errEl.textContent = "";
+      errEl.classList.add("hidden");
+    }
+  }
+  if (inputEl) {
+    inputEl.value = "";
+    setTimeout(() => inputEl.focus(), 150);
+  }
+  if (sheet) sheet.classList.remove("hidden");
+}
+
+function closePairingSheet() {
+  const sheet = document.getElementById("sheet-pairing");
+  if (sheet) sheet.classList.add("hidden");
+}
+
+async function submitPairing() {
+  const inputEl = document.getElementById("input-pairing-code");
+  const errEl = document.getElementById("pairing-error-msg");
+  const submitBtn = document.getElementById("btn-sheet-pairing-submit");
+  const raw = inputEl ? inputEl.value : "";
+  const code = parsePairingInput(raw);
+
+  if (!code) {
+    if (errEl) {
+      errEl.textContent = "请输入有效的配对码或配对链接";
+      errEl.classList.remove("hidden");
+    }
+    return;
+  }
+
+  if (submitBtn) submitBtn.disabled = true;
+  if (errEl) errEl.classList.add("hidden");
+
+  try {
+    await pairWithCode(code);
+    closePairingSheet();
+    loadConversations();
+    checkGatewayStatus();
+  } catch (err) {
+    if (errEl) {
+      errEl.textContent = err.message || "配对失败，请检查配对码是否过期或失效";
+      errEl.classList.remove("hidden");
+    }
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
+  }
+}
+
+function unpairDevice() {
+  if (confirm("确定要解除当前设备的配对绑定吗？")) {
+    localStorage.removeItem("agy_device_token");
+    localStorage.removeItem("agy_device_id");
+    updateAuthUI();
+    loadConversations();
+  }
+}
+
 function openSettingsSheet() {
   checkGatewayStatus();
+  updateAuthUI();
   const sheet = document.getElementById("sheet-settings");
   if (sheet) sheet.classList.remove("hidden");
 }
@@ -1874,10 +2044,37 @@ window.addEventListener("DOMContentLoaded", () => {
   // Settings Sheet
   document.getElementById("btn-sheet-settings-done")?.addEventListener("click", closeSettingsSheet);
   document.getElementById("btn-rescan-gateway")?.addEventListener("click", rescanGateway);
+  document.getElementById("btn-open-pairing")?.addEventListener("click", () => {
+    closeSettingsSheet();
+    openPairingSheet();
+  });
+  document.getElementById("btn-unpair-device")?.addEventListener("click", unpairDevice);
   const sheetSettings = document.getElementById("sheet-settings");
   sheetSettings?.addEventListener("click", (e) => {
     if (e.target === sheetSettings) closeSettingsSheet();
   });
+
+  // Pairing Sheet
+  document.getElementById("btn-sheet-pairing-cancel")?.addEventListener("click", closePairingSheet);
+  document.getElementById("btn-sheet-pairing-submit")?.addEventListener("click", submitPairing);
+  const sheetPairing = document.getElementById("sheet-pairing");
+  sheetPairing?.addEventListener("click", (e) => {
+    if (e.target === sheetPairing) closePairingSheet();
+  });
+
+  // Check URL parameters for auto pairing
+  const urlParams = new URLSearchParams(window.location.search);
+  const autoPairCode = urlParams.get("pair_code") || urlParams.get("code");
+  if (autoPairCode) {
+    pairWithCode(autoPairCode).then(() => {
+      window.history.replaceState({}, document.title, window.location.pathname);
+      loadConversations();
+    }).catch(err => {
+      openPairingSheet(err.message);
+    });
+  }
+
+  updateAuthUI();
 
   // Action Button (Send / Stop Toggle)
   const sendBtn = document.getElementById("btn-send");

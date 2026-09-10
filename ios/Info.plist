@@ -41,6 +41,10 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>Antigravity 需要使用相机扫描 Mac 终端中的配对二维码进行设备直连鉴权</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Antigravity 需要访问局域网以直连 Mac 网关并同步会话</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>UILaunchScreen</key>

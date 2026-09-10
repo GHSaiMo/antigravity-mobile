@@ -78,6 +78,23 @@ public final class AppSettings {
         serverURL
     }
     
+    public var deviceToken: String? {
+        KeychainHelper.shared.read(key: .deviceToken)
+    }
+    
+    public var deviceID: String? {
+        KeychainHelper.shared.read(key: .deviceID)
+    }
+    
+    public var isPaired: Bool {
+        guard let token = deviceToken, !token.isEmpty else { return false }
+        return true
+    }
+    
+    public func unpair() {
+        KeychainHelper.shared.clearAll()
+    }
+    
     public init() {
         // Clean up any legacy Cloudflare credentials from UserDefaults
         UserDefaults.standard.removeObject(forKey: "antigravity.cf_token")

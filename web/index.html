@@ -219,6 +219,26 @@
 
           <div class="ios-grouped-section">
             <div class="ios-cell between">
+              <span class="cell-label">设备配对鉴权</span>
+              <span id="settings-auth-status" class="status-badge disconnected">未配对</span>
+            </div>
+            <div id="settings-device-id-row" class="ios-cell between hidden">
+              <span class="cell-label">设备 ID</span>
+              <span id="settings-device-id" class="cell-value monospaced">-</span>
+            </div>
+          </div>
+
+          <div class="ios-grouped-section">
+            <button id="btn-open-pairing" class="ios-cell-button">
+              <span>输入配对码 / 配对链接</span>
+            </button>
+            <button id="btn-unpair-device" class="ios-cell-button destructive hidden">
+              <span>解除设备配对 (清除凭据)</span>
+            </button>
+          </div>
+
+          <div class="ios-grouped-section">
+            <div class="ios-cell between">
               <span class="cell-label">直连 IPv6</span>
               <span class="cell-value monospaced" style="font-size: 11px;">240e:3a1:1c3:4e80::</span>
             </div>
@@ -230,8 +250,31 @@
         </div>
       </div>
     </div>
+
+    <!-- iOS Bottom Sheet: Device Pairing -->
+    <div id="sheet-pairing" class="ios-sheet-overlay hidden">
+      <div class="ios-sheet-card">
+        <div class="sheet-grabber"></div>
+        <div class="sheet-header">
+          <button id="btn-sheet-pairing-cancel" class="sheet-header-btn">取消</button>
+          <h2 class="sheet-title">设备配对鉴权</h2>
+          <button id="btn-sheet-pairing-submit" class="sheet-header-btn primary">确认配对</button>
+        </div>
+        <div class="sheet-body">
+          <div class="ios-grouped-section">
+            <div class="ios-cell no-padding">
+              <textarea id="input-pairing-code" rows="3" placeholder="输入配对码或粘贴完整配对链接 (如 agy://pair?host=...&code=...)"></textarea>
+            </div>
+          </div>
+          <div id="pairing-error-msg" class="pairing-error-text hidden"></div>
+          <p class="section-footer-note">
+            请查看 Mac 终端网关启动时打印的配对二维码或终端输出的配对 URI。
+          </p>
+        </div>
+      </div>
+    </div>
   </div>
 
-  <script src="/app.js?v=6"></script>
+  <script src="/app.js?v=7"></script>
 </body>
 </html>

@@ -1500,3 +1500,22 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
   cursor: pointer;
 }
 
+.ios-cell-button.destructive {
+  color: var(--ios-red);
+}
+
+.pairing-error-text {
+  color: var(--ios-red);
+  font-size: 13px;
+  padding: 4px 16px 8px 16px;
+  line-height: 1.4;
+}
+
+.section-footer-note {
+  font-size: 12px;
+  color: var(--ios-secondary-label);
+  padding: 8px 16px;
+  line-height: 1.4;
+  margin: 0;
+}
+
