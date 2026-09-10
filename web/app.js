@@ -1311,27 +1311,9 @@ const LocalQueueManager = {
     this.render();
   },
 
-  async onAgentCompleted() {
-    if (this.queue.length === 0 || !activeCascadeId) return;
-    const nextItem = this.queue.shift();
-    this.save();
-
-    try {
-      if (currentTrajectories[activeCascadeId]) {
-        currentTrajectories[activeCascadeId].status = "CASCADE_RUN_STATUS_RUNNING";
-      }
-      updateChatControls(true, null, false);
-      await rpc("SendUserCascadeMessage", {
-        cascadeId: activeCascadeId,
-        items: [{ text: nextItem.text }],
-        deliveryStrategy: 2 // WHEN_IDLE
-      });
-      if (!activeWs || activeWs.readyState !== WebSocket.OPEN) {
-        connectStreamWs(activeCascadeId);
-      }
-    } catch (err) {
-      console.warn("[Queue] Auto dispatch error:", err);
-    }
+  onAgentCompleted() {
+    // Upstream LanguageServer automatically triggers WHEN_IDLE queued messages.
+    // Client-side auto-dispatch is disabled to prevent duplicate triggers.
   },
 
   render() {
@@ -1385,13 +1367,16 @@ const LocalQueueManager = {
 
 // --- Send Message & Actions ---
 
+let isSendingMessage = false;
+
 async function sendMessage() {
-  if (!activeCascadeId) return;
+  if (!activeCascadeId || isSendingMessage) return;
 
   const inputEl = document.getElementById("chat-input");
   const text = inputEl.value.trim();
   if (!text) return;
 
+  isSendingMessage = true;
   const isRunning = currentTrajectories[activeCascadeId]?.status === "CASCADE_RUN_STATUS_RUNNING";
 
   inputEl.value = "";
@@ -1403,13 +1388,17 @@ async function sendMessage() {
     // Enqueue message while agent is running
     LocalQueueManager.enqueue(text);
     updateChatControls(true, null, false);
-    rpc("SendUserCascadeMessage", {
-      cascadeId: activeCascadeId,
-      items: [{ text }],
-      deliveryStrategy: 2 // WHEN_IDLE
-    }).catch(err => {
+    try {
+      await rpc("SendUserCascadeMessage", {
+        cascadeId: activeCascadeId,
+        items: [{ text }],
+        deliveryStrategy: 2 // WHEN_IDLE
+      });
+    } catch (err) {
       console.warn("[Queue] SendUserCascadeMessage with WHEN_IDLE notification:", err);
-    });
+    } finally {
+      isSendingMessage = false;
+    }
     return;
   }
 
@@ -1443,6 +1432,9 @@ async function sendMessage() {
     alert("发送失败: " + err.message);
     const tempEl = document.getElementById(tempId);
     if (tempEl) tempEl.remove();
+    inputEl.value = text;
+  } finally {
+    isSendingMessage = false;
   }
 }
 
