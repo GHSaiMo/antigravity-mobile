@@ -205,24 +205,27 @@ public struct ConversationListView: View {
     }
     
     private var listView: some View {
-        VStack(spacing: 0) {
-            QuotaStatusBarView(account: viewModel.quotaResponse?.currentAccount) {
-                showAccountQuota = true
+        List {
+            if viewModel.quotaResponse?.currentAccount?.gemini5h != nil {
+                QuotaStatusBarView(account: viewModel.quotaResponse?.currentAccount) {
+                    showAccountQuota = true
+                }
+                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 6, trailing: 16))
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
             }
             
-            List {
-                ForEach(viewModel.filteredConversations) { item in
-                    NavigationLink(value: item) {
-                        conversationCard(for: item)
-                    }
-                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                    .listRowSeparator(.hidden)
+            ForEach(viewModel.filteredConversations) { item in
+                NavigationLink(value: item) {
+                    conversationCard(for: item)
                 }
+                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                .listRowSeparator(.hidden)
             }
-            .listStyle(.plain)
-            .refreshable {
-                await viewModel.fetchConversations()
-            }
+        }
+        .listStyle(.plain)
+        .refreshable {
+            await viewModel.fetchConversations()
         }
     }
     

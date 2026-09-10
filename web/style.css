@@ -1788,6 +1788,36 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
   margin-top: 1px;
 }
 
+.sheet-header-right-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.quota-mask-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  color: var(--ios-secondary-label);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.quota-mask-btn:active {
+  transform: scale(0.92);
+}
+
+.quota-mask-btn.active {
+  color: var(--ios-blue);
+  background-color: rgba(0, 122, 255, 0.12);
+}
+
 .quota-refresh-btn {
   display: flex;
   align-items: center;
@@ -1802,6 +1832,17 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
 @keyframes quota-spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+/* Unified conversation list page scrolling */
+#view-conversations {
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch;
+}
+
+#view-conversations .conversations-list {
+  flex: none;
+  overflow-y: visible;
 }
 
 .quota-sheet-body {
