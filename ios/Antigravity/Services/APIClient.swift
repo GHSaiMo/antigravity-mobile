@@ -346,6 +346,8 @@ public final class APIClient: Sendable {
             if type == "CORTEX_STEP_TYPE_USER_INPUT" {
                 flushTools()
                 let text = step.userInput?.userResponse ?? step.userInput?.items?.first?.text ?? ""
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                let isSystemApproval = trimmed.hasPrefix("Comments on artifact URI:") || trimmed.contains("The user has approved this document")
                 
                 var images: [Data] = []
                 if let mediaList = step.userInput?.media {
@@ -357,8 +359,15 @@ public final class APIClient: Sendable {
                         }
                     }
                 }
+                if let imgList = step.userInput?.images {
+                    for img in imgList {
+                        if let b64 = img.base64Data, !b64.isEmpty, let data = Data(base64Encoded: b64) {
+                            images.append(data)
+                        }
+                    }
+                }
                 
-                if !text.isEmpty || !images.isEmpty {
+                if (!trimmed.isEmpty && !isSystemApproval) || !images.isEmpty {
                     messages.append(ChatMessage(
                         sender: .user,
                         content: text,
@@ -442,13 +451,16 @@ public final class APIClient: Sendable {
     public func sendMessage(
         cascadeId: String,
         text: String,
+        images: [Data]? = nil,
         deliveryStrategy: Int? = nil,
         cascadeConfigRaw: String? = nil,
         baseURL: URL
     ) async throws {
+        let imagePayloads = images?.map { ImageDataPayload(base64Data: $0.base64EncodedString()) }
         let req = SendUserCascadeMessageRequest(
             cascadeId: cascadeId,
             text: text,
+            images: imagePayloads,
             deliveryStrategy: deliveryStrategy,
             cascadeConfigRaw: cascadeConfigRaw
         )
@@ -457,6 +469,18 @@ public final class APIClient: Sendable {
             body: req,
             baseURL: baseURL
         )
+    }
+    
+    // Switch active model in upstream Language Server via JetboxWriteState
+    public func switchModel(to modelEnum: String, baseURL: URL) async throws {
+        struct JetboxWriteStateRequest: Encodable {
+            struct AppState: Encodable {
+                let lastSelectedAgentModel: String
+            }
+            let appState: AppState
+        }
+        let req = JetboxWriteStateRequest(appState: .init(lastSelectedAgentModel: modelEnum))
+        let _: EmptyResponse = try await rpc(method: "JetboxWriteState", body: req, baseURL: baseURL)
     }
     
     // Proceed with an artifact review/plan

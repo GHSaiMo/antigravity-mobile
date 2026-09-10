@@ -28,6 +28,7 @@ public final class AppSettings {
     private let activeServerURLKey = "antigravity.active_server_url"
     private let enableLiveActivityKey = "antigravity.enable_live_activity"
     private let preferCellularNetworkKey = "antigravity.prefer_cellular_network"
+    private let activeModelKey = "antigravity.active_model"
     
     public var rawServerURL: String {
         didSet {
@@ -105,6 +106,32 @@ public final class AppSettings {
             }
             
             NotificationCenter.default.post(name: .networkRoutingPreferenceChanged, object: nil)
+        }
+    }
+    
+    public var activeModel: String {
+        didSet {
+            UserDefaults.standard.set(activeModel, forKey: activeModelKey)
+        }
+    }
+    
+    public var activeModelEnum: String {
+        activeModel == "claude-opus-4-6-thinking" ? "MODEL_PLACEHOLDER_M26" : "MODEL_PLACEHOLDER_M318"
+    }
+    
+    public var activeModelDisplayName: String {
+        activeModel == "claude-opus-4-6-thinking" ? "Claude 4.6" : "Gemini 3.8"
+    }
+    
+    public var isClaudeActive: Bool {
+        activeModel == "claude-opus-4-6-thinking"
+    }
+    
+    public func toggleActiveModel() {
+        if activeModel == "gemini-3.8-flash-high" {
+            activeModel = "claude-opus-4-6-thinking"
+        } else {
+            activeModel = "gemini-3.8-flash-high"
         }
     }
     
@@ -283,5 +310,8 @@ public final class AppSettings {
         self.activeServerURL = savedActive
         self.enableLiveActivities = savedLive
         self.preferCellularNetwork = savedPreferCellular
+        
+        let savedModel = UserDefaults.standard.string(forKey: activeModelKey) ?? "gemini-3.8-flash-high"
+        self.activeModel = savedModel
     }
 }

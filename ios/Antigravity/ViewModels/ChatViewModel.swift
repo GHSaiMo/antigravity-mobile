@@ -54,6 +54,14 @@ public final class ChatViewModel {
         return messages.last(where: { $0.sender == .agent })?.id
     }
     
+    public var activeModel: String {
+        settings.activeModel
+    }
+    
+    public var isClaudeActive: Bool {
+        settings.isClaudeActive
+    }
+    
     private var awaitingResponseSince: Date? = nil
     private var pendingOptimisticMessageId: String? = nil
     private var knownServerMessageIds: Set<String> = []
@@ -545,10 +553,23 @@ public final class ChatViewModel {
     }
     
     @MainActor
-    public func sendMessage(text customText: String? = nil) async {
+    public func toggleModel() async {
+        settings.toggleActiveModel()
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        guard let url = settings.serverURL else { return }
+        do {
+            try await apiClient.switchModel(to: settings.activeModelEnum, baseURL: url)
+        } catch {
+            print("⚠️ Failed to switch model upstream: \(error)")
+        }
+    }
+    
+    @MainActor
+    public func sendMessage(text customText: String? = nil, images: [Data]? = nil) async {
         guard !isSending else { return }
         let text = (customText ?? inputText).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, let url = settings.serverURL else { return }
+        let hasImages = (images != nil && !images!.isEmpty)
+        guard (!text.isEmpty || hasImages), let url = settings.serverURL else { return }
         
         isSending = true
         defer { isSending = false }
@@ -591,6 +612,7 @@ public final class ChatViewModel {
                     try await self.apiClient.sendMessage(
                         cascadeId: self.cascadeId,
                         text: text,
+                        images: images,
                         deliveryStrategy: 2,
                         cascadeConfigRaw: self.cascadeConfigRaw,
                         baseURL: url
@@ -615,7 +637,7 @@ public final class ChatViewModel {
         
         // Optimistic update
         let optId = "optimistic-\(UUID().uuidString)"
-        messages.append(ChatMessage(id: optId, sender: .user, content: text))
+        messages.append(ChatMessage(id: optId, sender: .user, content: text, imageDataList: images ?? []))
         self.pendingOptimisticMessageId = optId
         self.isAwaitingResponse = true
         self.awaitingResponseSince = Date()
@@ -641,10 +663,11 @@ public final class ChatViewModel {
         do {
             if cascadeId.isEmpty, let project = draftProject {
                 let pid = project.rawId ?? (project.id != project.uri ? project.id : nil)
+                let initialPrompt = (images == nil || images!.isEmpty) ? text : ""
                 let newCascadeId = try await apiClient.createCascade(
                     workspaceUri: project.uri,
-                    prompt: text,
-                    model: nil,
+                    prompt: initialPrompt,
+                    model: settings.activeModel,
                     projectId: pid,
                     baseURL: url
                 )
@@ -674,12 +697,28 @@ public final class ChatViewModel {
                     startPollingFallback()
                 }
                 
+                if let imgs = images, !imgs.isEmpty {
+                    try await apiClient.sendMessage(
+                        cascadeId: newCascadeId,
+                        text: text,
+                        images: imgs,
+                        cascadeConfigRaw: cascadeConfigRaw,
+                        baseURL: url
+                    )
+                }
+                
                 // Allow upstream 250ms to register task and update state before first eager sync
                 try? await Task.sleep(nanoseconds: 250_000_000)
                 await self.loadMessages(isBackgroundPoll: true)
                 await self.checkAndRefreshTitle()
             } else {
-                try await apiClient.sendMessage(cascadeId: cascadeId, text: text, cascadeConfigRaw: cascadeConfigRaw, baseURL: url)
+                try await apiClient.sendMessage(
+                    cascadeId: cascadeId,
+                    text: text,
+                    images: images,
+                    cascadeConfigRaw: cascadeConfigRaw,
+                    baseURL: url
+                )
                 // Allow upstream 250ms to register task and update state before first eager sync
                 try? await Task.sleep(nanoseconds: 250_000_000)
                 await self.loadMessages(isBackgroundPoll: true)
@@ -791,17 +830,7 @@ public final class ChatViewModel {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         
         canProceed = false
-        let optimisticId = "optimistic-proceed-\(UUID().uuidString)"
-        let optimisticMessage = ChatMessage(
-            id: optimisticId,
-            sender: .user,
-            content: "Proceed",
-            toolCount: 0,
-            toolNames: []
-        )
-        
-        self.messages.append(optimisticMessage)
-        self.pendingOptimisticMessageId = optimisticId
+        proceedArtifactUri = nil
         self.isAwaitingResponse = true
         self.awaitingResponseSince = Date()
         self.isRunning = true
@@ -832,11 +861,8 @@ public final class ChatViewModel {
             isRunning = false
             isAwaitingResponse = false
             awaitingResponseSince = nil
-            if let optId = pendingOptimisticMessageId {
-                messages.removeAll(where: { $0.id == optId })
-                self.pendingOptimisticMessageId = nil
-            }
             self.canProceed = true
+            self.proceedArtifactUri = artifactUri
             stopPollingFallback()
         }
     }
