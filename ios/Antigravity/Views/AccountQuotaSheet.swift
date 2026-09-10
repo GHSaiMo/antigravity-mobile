@@ -4,17 +4,9 @@ public struct AccountQuotaSheet: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("cockpit_email_masked") private var isMasked: Bool = false
     public let quotaResponse: CockpitQuotaResponse?
-    public let isRefreshing: Bool
-    public let onRefresh: () -> Void
     
-    public init(
-        quotaResponse: CockpitQuotaResponse?,
-        isRefreshing: Bool,
-        onRefresh: @escaping () -> Void
-    ) {
+    public init(quotaResponse: CockpitQuotaResponse?) {
         self.quotaResponse = quotaResponse
-        self.isRefreshing = isRefreshing
-        self.onRefresh = onRefresh
     }
     
     private var currentAccount: CockpitAccountQuota? {
@@ -111,7 +103,7 @@ public struct AccountQuotaSheet: View {
                 .padding(16)
             }
             .background(Color(uiColor: .systemGroupedBackground))
-            .navigationTitle("Cockpit 账号配额")
+            .navigationTitle("Cockpit Tools")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -120,20 +112,10 @@ public struct AccountQuotaSheet: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    HStack(spacing: 14) {
-                        Button(action: { isMasked.toggle() }) {
-                            Image(systemName: isMasked ? "eye.slash.fill" : "eye.slash")
-                                .font(.system(size: 15, weight: .medium))
-                                .foregroundColor(isMasked ? .blue : .secondary)
-                        }
-                        
-                        Button(action: onRefresh) {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 14, weight: .medium))
-                                .rotationEffect(.degrees(isRefreshing ? 360 : 0))
-                                .animation(isRefreshing ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: isRefreshing)
-                        }
-                        .disabled(isRefreshing)
+                    Button(action: { isMasked.toggle() }) {
+                        Image(systemName: isMasked ? "eye.slash.fill" : "eye.slash")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(isMasked ? .blue : .secondary)
                     }
                 }
             }
