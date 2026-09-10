@@ -258,11 +258,13 @@ public struct ConversationListView: View {
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                        Button(role: .destructive) {
+                        Button {
                             conversationToDelete = item
-                            showDeleteConfirm = true
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                                showDeleteConfirm = true
+                            }
                         } label: {
-                            Image(systemName: "trash")
+                            Image(uiImage: Self.trashActionImage)
                         }
                         .tint(.red)
                     }
@@ -270,18 +272,24 @@ public struct ConversationListView: View {
                         "确定删除此会话吗？\n此操作将永久删除会话记录且无法撤销。",
                         isPresented: Binding(
                             get: { showDeleteConfirm && conversationToDelete?.id == item.id },
-                            set: { if !$0 { showDeleteConfirm = false } }
+                            set: { if !$0 { 
+                                showDeleteConfirm = false 
+                                conversationToDelete = nil
+                            } }
                         ),
                         titleVisibility: .visible
                     ) {
                         Button("删除", role: .destructive) {
                             showDeleteConfirm = false
+                            let target = conversationToDelete ?? item
+                            conversationToDelete = nil
                             Task {
-                                await viewModel.deleteConversation(item: item)
+                                await viewModel.deleteConversation(item: target)
                             }
                         }
                         Button("取消", role: .cancel) {
                             showDeleteConfirm = false
+                            conversationToDelete = nil
                         }
                     }
             }
@@ -426,4 +434,16 @@ public struct ConversationListView: View {
         .background(Color(uiColor: .secondarySystemBackground))
         .cornerRadius(14)
     }
+    
+    private static let trashActionImage: UIImage = {
+        let config = UIImage.SymbolConfiguration(pointSize: 18, weight: .regular)
+        let baseSymbol = UIImage(systemName: "trash", withConfiguration: config) ?? UIImage()
+        let symbol = baseSymbol.withTintColor(.white, renderingMode: .alwaysOriginal)
+        let extraTrailingSpace: CGFloat = 20
+        let targetSize = CGSize(width: symbol.size.width + extraTrailingSpace, height: max(symbol.size.height, 1))
+        let renderer = UIGraphicsImageRenderer(size: targetSize)
+        return renderer.image { _ in
+            symbol.draw(at: .zero)
+        }
+    }()
 }
