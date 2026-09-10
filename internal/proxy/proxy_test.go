@@ -412,12 +412,12 @@ func TestFilterSubagentTrajectories(t *testing.T) {
 			expected: true,
 		},
 		{
-			name: "Subagent with mismatched rootConversationId",
-			id:   "sub-5",
+			name: "Battle mode fork session",
+			id:   "fork-1",
 			summary: map[string]interface{}{
-				"summary": "Persia-Live Web Scraper Analysis",
+				"summary": "Battle mode fork candidate",
 				"trajectoryMetadata": map[string]interface{}{
-					"rootConversationId": "other-root-session",
+					"isBattleModeFork": true,
 				},
 			},
 			expected: true,

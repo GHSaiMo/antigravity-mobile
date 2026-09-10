@@ -23,6 +23,13 @@ public final class NetworkTransport: Sendable {
             return try await fallbackSession.data(for: request)
         }
         
+        let cleanHost = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
+        let isLocalOrPrivate = cleanHost == "127.0.0.1" || cleanHost == "localhost" || cleanHost == "::1" ||
+                               cleanHost.hasPrefix("192.168.") || cleanHost.hasPrefix("10.") || cleanHost.hasSuffix(".local")
+        if isLocalOrPrivate {
+            return try await fallbackSession.data(for: request)
+        }
+        
         do {
             return try await executeViaCellular(request: request, url: url, host: host)
         } catch {
@@ -41,8 +48,19 @@ public final class NetworkTransport: Sendable {
         let parameters: NWParameters
         if url.scheme?.lowercased() == "https" {
             let tlsOptions = NWProtocolTLS.Options()
-            sec_protocol_options_set_verify_block(tlsOptions.securityProtocolOptions, { (_, _, completion) in
-                completion(true)
+            let hostStr = host.lowercased()
+            let isLoopback = hostStr == "127.0.0.1" || hostStr == "::1" || hostStr == "localhost"
+            sec_protocol_options_set_verify_block(tlsOptions.securityProtocolOptions, { (metadata, trust, completion) in
+                if isLoopback {
+                    // Trust self-signed certificates only for local gateway connections
+                    completion(true)
+                } else {
+                    // Standard X.509 trust evaluation for all remote hosts
+                    let secTrust = sec_trust_copy_ref(trust).takeRetainedValue()
+                    SecTrustEvaluateAsyncWithError(secTrust, DispatchQueue.global()) { _, result, _ in
+                        completion(result)
+                    }
+                }
             }, .global())
             parameters = NWParameters(tls: tlsOptions)
         } else {

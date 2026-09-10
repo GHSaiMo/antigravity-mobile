@@ -102,8 +102,19 @@ public final class StreamWebSocketClient {
         let parameters: NWParameters
         if wsURL.scheme?.lowercased() == "wss" {
             let tlsOptions = NWProtocolTLS.Options()
-            sec_protocol_options_set_verify_block(tlsOptions.securityProtocolOptions, { (_, _, completion) in
-                completion(true)
+            let hostStr = (wsURL.host ?? "").lowercased()
+            let isLoopback = hostStr == "127.0.0.1" || hostStr == "::1" || hostStr == "localhost"
+            sec_protocol_options_set_verify_block(tlsOptions.securityProtocolOptions, { (metadata, trust, completion) in
+                if isLoopback {
+                    // Trust self-signed certificates only for local gateway connections
+                    completion(true)
+                } else {
+                    // Standard X.509 trust evaluation for all remote hosts
+                    let secTrust = sec_trust_copy_ref(trust).takeRetainedValue()
+                    SecTrustEvaluateAsyncWithError(secTrust, DispatchQueue.global()) { _, result, _ in
+                        completion(result)
+                    }
+                }
             }, .global())
             parameters = NWParameters(tls: tlsOptions)
         } else {
@@ -112,7 +123,12 @@ public final class StreamWebSocketClient {
         parameters.defaultProtocolStack.applicationProtocols.insert(wsOptions, at: 0)
         
         if useCellular {
-            parameters.requiredInterfaceType = .cellular
+            let hostStr = (wsURL.host ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
+            let isLocalOrPrivate = hostStr == "127.0.0.1" || hostStr == "::1" || hostStr == "localhost" ||
+                                   hostStr.hasPrefix("192.168.") || hostStr.hasPrefix("10.") || hostStr.hasSuffix(".local")
+            if !isLocalOrPrivate {
+                parameters.requiredInterfaceType = .cellular
+            }
         }
         
         let conn = NWConnection(to: endpoint, using: parameters)
