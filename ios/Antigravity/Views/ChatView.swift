@@ -1,6 +1,7 @@
 import SwiftUI
 
 public struct ChatView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @State private var viewModel: ChatViewModel
     @FocusState private var isInputFocused: Bool
     @State private var hasInitiallyAligned = false
@@ -225,10 +226,32 @@ public struct ChatView: View {
             if shouldAutoFocus {
                 scheduleAutoFocus(delay: 0.45)
             }
+            if !viewModel.messages.isEmpty {
+                Task {
+                    await viewModel.resumeActiveSession()
+                }
+            }
         }
         .task {
             await viewModel.loadMessages()
             viewModel.connectStream()
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active {
+                Task {
+                    await viewModel.resumeActiveSession()
+                }
+            } else if newPhase == .background {
+                viewModel.handleAppBackground()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            Task {
+                await viewModel.resumeActiveSession()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
+            viewModel.handleAppBackground()
         }
         .onDisappear {
             isViewAppeared = false

@@ -1,6 +1,7 @@
 import SwiftUI
 
 public struct ConversationListView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @State private var viewModel = ConversationListViewModel()
     @State private var showSettings = false
     @State private var showNewConversation = false
@@ -92,11 +93,39 @@ public struct ConversationListView: View {
             .navigationDestination(item: $selectedDraftProject) { project in
                 ChatView(draftProject: project)
             }
-            .task {
-                await viewModel.fetchConversations()
+            .onAppear {
+                viewModel.reloadFromCache()
+                viewModel.startAutoRefresh()
+                Task {
+                    await viewModel.fetchConversations(isBackgroundPoll: !viewModel.conversations.isEmpty)
+                }
+                Task {
+                    await ProjectCacheManager.shared.fetchAndCacheProjects()
+                }
             }
-            .task {
-                await ProjectCacheManager.shared.fetchAndCacheProjects()
+            .onDisappear {
+                viewModel.stopAutoRefresh()
+            }
+            .onChange(of: scenePhase) { _, newPhase in
+                if newPhase == .active {
+                    viewModel.startAutoRefresh()
+                    Task {
+                        await viewModel.resumeActive()
+                        await ProjectCacheManager.shared.fetchAndCacheProjects()
+                    }
+                } else if newPhase == .background {
+                    viewModel.stopAutoRefresh()
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+                viewModel.startAutoRefresh()
+                Task {
+                    await viewModel.resumeActive()
+                    await ProjectCacheManager.shared.fetchAndCacheProjects()
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
+                viewModel.stopAutoRefresh()
             }
         }
     }
