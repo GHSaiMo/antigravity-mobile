@@ -154,10 +154,9 @@ func main() {
 			return
 		}
 
-		// Route Cockpit Quota endpoints
+		// Route Cockpit Quota endpoints (protected by AuthMiddleware)
 		if path == "/api/v1/cockpit/quotas" {
 			w.Header().Set("Content-Type", "application/json")
-			w.Header().Set("Access-Control-Allow-Origin", "*")
 			liveEmail, _, _ := p.GetActiveUserStatus()
 			quotas, err := cockpit.GetQuotas(liveEmail)
 			if err != nil {
@@ -170,12 +169,6 @@ func main() {
 		}
 		if path == "/api/v1/cockpit/refresh" {
 			w.Header().Set("Content-Type", "application/json")
-			w.Header().Set("Access-Control-Allow-Origin", "*")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-			if r.Method == http.MethodOptions {
-				w.WriteHeader(http.StatusOK)
-				return
-			}
 			if r.Method != http.MethodPost {
 				w.WriteHeader(http.StatusMethodNotAllowed)
 				return
@@ -191,12 +184,6 @@ func main() {
 		}
 		if path == "/api/v1/cockpit/switch" {
 			w.Header().Set("Content-Type", "application/json")
-			w.Header().Set("Access-Control-Allow-Origin", "*")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-			if r.Method == http.MethodOptions {
-				w.WriteHeader(http.StatusOK)
-				return
-			}
 			if r.Method != http.MethodPost {
 				w.WriteHeader(http.StatusMethodNotAllowed)
 				return
