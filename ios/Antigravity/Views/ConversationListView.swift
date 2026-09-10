@@ -58,20 +58,6 @@ public struct ConversationListView: View {
                     }
                 )
             }
-            .confirmationDialog(
-                "确定删除此会话吗？\n此操作将永久删除会话记录且无法撤销。",
-                isPresented: $showDeleteConfirm,
-                titleVisibility: .visible
-            ) {
-                Button("删除", role: .destructive) {
-                    if let item = conversationToDelete {
-                        Task {
-                            await viewModel.deleteConversation(item: item)
-                        }
-                    }
-                }
-                Button("取消", role: .cancel) {}
-            }
             .alert("重命名会话", isPresented: $showRenameAlert) {
                 TextField("输入新标题", text: $renameText)
                 Button("取消", role: .cancel) {}
@@ -257,27 +243,47 @@ public struct ConversationListView: View {
             }
             
             ForEach(viewModel.filteredConversations) { item in
-                NavigationLink(value: item) {
-                    conversationCard(for: item)
-                }
-                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                .listRowSeparator(.hidden)
-                .simultaneousGesture(
-                    LongPressGesture(minimumDuration: 0.45).onEnded { _ in
+                conversationCard(for: item)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        navigationPath.append(item)
+                    }
+                    .onLongPressGesture(minimumDuration: 0.45) {
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                         conversationToRename = item
                         renameText = item.title
                         showRenameAlert = true
                     }
-                )
-                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                    Button(role: .destructive) {
-                        conversationToDelete = item
-                        showDeleteConfirm = true
-                    } label: {
-                        Label("删除", systemImage: "trash")
+                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button(role: .destructive) {
+                            conversationToDelete = item
+                            showDeleteConfirm = true
+                        } label: {
+                            Image(systemName: "trash")
+                        }
+                        .tint(.red)
                     }
-                }
+                    .confirmationDialog(
+                        "确定删除此会话吗？\n此操作将永久删除会话记录且无法撤销。",
+                        isPresented: Binding(
+                            get: { showDeleteConfirm && conversationToDelete?.id == item.id },
+                            set: { if !$0 { showDeleteConfirm = false } }
+                        ),
+                        titleVisibility: .visible
+                    ) {
+                        Button("删除", role: .destructive) {
+                            showDeleteConfirm = false
+                            Task {
+                                await viewModel.deleteConversation(item: item)
+                            }
+                        }
+                        Button("取消", role: .cancel) {
+                            showDeleteConfirm = false
+                        }
+                    }
             }
         }
         .listStyle(.plain)
