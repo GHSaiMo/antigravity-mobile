@@ -31,6 +31,7 @@ type Inspector struct {
 	pollInterval time.Duration
 	httpClient   *http.Client
 	stopCh       chan struct{}
+	stopOnce     sync.Once
 	listeners    []func(InstanceInfo)
 }
 
@@ -92,9 +93,11 @@ func (i *Inspector) Start() {
 	}()
 }
 
-// Stop halts the inspector polling loop.
+// Stop halts the inspector polling loop. Safe to call multiple times.
 func (i *Inspector) Stop() {
-	close(i.stopCh)
+	i.stopOnce.Do(func() {
+		close(i.stopCh)
+	})
 }
 
 var (

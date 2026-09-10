@@ -14,20 +14,59 @@ public struct ConversationListView: View {
         NavigationStack(path: $navigationPath) {
             Group {
                 if viewModel.isLoading && viewModel.conversations.isEmpty {
-                    ProgressView("正在连接 Agent...")
+                    VStack(spacing: 16) {
+                        ProgressView()
+                            .scaleEffect(1.2)
+                        Text("正在连接 Agent...")
+                            .font(.system(size: 15))
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if let err = viewModel.errorMessage, viewModel.conversations.isEmpty {
-                    VStack(spacing: 12) {
-                        Image(systemName: "exclamationmark.triangle")
-                            .font(.system(size: 40))
+                    VStack(spacing: 14) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 44))
                             .foregroundColor(.orange)
+                        Text("无法连接网关")
+                            .font(.system(size: 17, weight: .semibold))
                         Text(err)
-                            .font(.system(size: 14))
+                            .font(.system(size: 13))
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
-                        Button("打开设置") {
-                            showSettings = true
+                            .padding(.horizontal, 32)
+                        HStack(spacing: 12) {
+                            Button("重试") {
+                                Task {
+                                    await viewModel.fetchConversations()
+                                }
+                            }
+                            .buttonStyle(.bordered)
+                            
+                            Button("打开设置") {
+                                showSettings = true
+                            }
+                            .buttonStyle(.borderedProminent)
                         }
-                        .buttonStyle(.borderedProminent)
+                        .padding(.top, 4)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if viewModel.filteredConversations.isEmpty {
+                    ContentUnavailableView {
+                        Label(
+                            viewModel.searchQuery.isEmpty ? "暂无会话" : "未找到匹配会话",
+                            systemImage: viewModel.searchQuery.isEmpty ? "bubble.left.and.bubble.right" : "magnifyingglass"
+                        )
+                    } description: {
+                        Text(viewModel.searchQuery.isEmpty ? "可点击右上角 + 开启新会话，或下拉刷新同步" : "请尝试其他关键词搜索")
+                    } actions: {
+                        if viewModel.searchQuery.isEmpty {
+                            Button("刷新列表") {
+                                Task {
+                                    await viewModel.fetchConversations()
+                                }
+                            }
+                            .buttonStyle(.bordered)
+                        }
                     }
                 } else {
                     List {

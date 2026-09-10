@@ -41,7 +41,13 @@ public final class AppSettings {
     }
     
     public init() {
+        // Clean up any legacy Cloudflare credentials from UserDefaults
+        UserDefaults.standard.removeObject(forKey: "antigravity.cf_token")
+        UserDefaults.standard.removeObject(forKey: "antigravity.cf_access_client_id")
+        UserDefaults.standard.removeObject(forKey: "antigravity.cf_access_client_secret")
+        
         let savedURL = UserDefaults.standard.string(forKey: serverURLKey) ?? "http://127.0.0.1:58900"
+        
         let savedLive = UserDefaults.standard.object(forKey: enableLiveActivityKey) as? Bool ?? false
         let savedPreferCellular = UserDefaults.standard.object(forKey: preferCellularNetworkKey) as? Bool ?? true
         

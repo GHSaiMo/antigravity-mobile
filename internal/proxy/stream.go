@@ -72,6 +72,12 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	closeCh := make(chan struct{})
+	// Set initial read deadline and register pong handler to keep connection alive
+	clientConn.SetReadDeadline(time.Now().Add(45 * time.Second))
+	clientConn.SetPongHandler(func(appData string) error {
+		clientConn.SetReadDeadline(time.Now().Add(45 * time.Second))
+		return nil
+	})
 	go func() {
 		defer close(closeCh)
 		for {
@@ -79,6 +85,8 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return
 			}
+			// Reset read deadline on any client message
+			clientConn.SetReadDeadline(time.Now().Add(45 * time.Second))
 		}
 	}()
 

@@ -73,6 +73,8 @@ type trajectoryCacheEntry struct {
 	data      *upstreamTrajectoryResp
 }
 
+const maxTrajCacheSize = 50 // Maximum number of cached trajectory entries to prevent unbounded memory growth
+
 var (
 	trajCache              = make(map[string]*trajectoryCacheEntry)
 	trajCacheMu            sync.Mutex
@@ -85,9 +87,46 @@ var (
 	titleRegex             = regexp.MustCompile(`title:\s*"([^"]+)"`)
 	loadedCascadesMu       sync.Mutex
 	loadedCascades         = make(map[string]bool)
-	hasSyncedHistMu        sync.Mutex
-	hasSyncedHist          bool
+	lastSyncedPort         int
 )
+
+// ResetHistoricalSyncState clears the loaded cascades map and resets the last synced port,
+// allowing a fresh sync of all historical sessions from disk.
+func ResetHistoricalSyncState() {
+	loadedCascadesMu.Lock()
+	defer loadedCascadesMu.Unlock()
+	loadedCascades = make(map[string]bool)
+	lastSyncedPort = 0
+}
+
+// HasSyncedHistoricalTrajectories returns whether historical trajectories have already been synced for this port.
+func HasSyncedHistoricalTrajectories(port int) bool {
+	loadedCascadesMu.Lock()
+	defer loadedCascadesMu.Unlock()
+	return port > 0 && port == lastSyncedPort
+}
+
+// evictTrajCacheLocked removes the oldest entries when cache exceeds maxTrajCacheSize.
+// MUST be called while holding trajCacheMu.
+func evictTrajCacheLocked() {
+	if len(trajCache) <= maxTrajCacheSize {
+		return
+	}
+	// Find and remove oldest entries until we're at the limit
+	for len(trajCache) > maxTrajCacheSize {
+		oldestKey := ""
+		oldestTime := time.Now()
+		for k, v := range trajCache {
+			if v.fetchedAt.Before(oldestTime) {
+				oldestKey = k
+				oldestTime = v.fetchedAt
+			}
+		}
+		if oldestKey != "" {
+			delete(trajCache, oldestKey)
+		}
+	}
+}
 
 type TrajectoryStep struct {
 	Type     string `json:"type"`
@@ -860,6 +899,10 @@ func (p *Proxy) SyncHistoricalTrajectories(port int, token string) error {
 
 	var candidates []string
 	loadedCascadesMu.Lock()
+	if port != lastSyncedPort {
+		loadedCascades = make(map[string]bool)
+		lastSyncedPort = port
+	}
 	for _, entry := range entries {
 		name := entry.Name()
 		if !strings.HasSuffix(name, ".db") {
@@ -875,6 +918,10 @@ func (p *Proxy) SyncHistoricalTrajectories(port int, token string) error {
 			continue
 		}
 
+		if info.Size() == 0 {
+			continue
+		}
+
 		// Empty session schemas are exactly 48KB (49152 bytes) with 0 steps.
 		// If older than 15 minutes and <= 49152 bytes, skip loading old empty drafts.
 		if info.Size() <= 49152 && time.Since(info.ModTime()) > 15*time.Minute {
@@ -887,9 +934,6 @@ func (p *Proxy) SyncHistoricalTrajectories(port int, token string) error {
 	loadedCascadesMu.Unlock()
 
 	if len(candidates) == 0 {
-		hasSyncedHistMu.Lock()
-		hasSyncedHist = true
-		hasSyncedHistMu.Unlock()
 		return nil
 	}
 
@@ -924,10 +968,6 @@ func (p *Proxy) SyncHistoricalTrajectories(port int, token string) error {
 		}()
 	}
 	wg.Wait()
-
-	hasSyncedHistMu.Lock()
-	hasSyncedHist = true
-	hasSyncedHistMu.Unlock()
 
 	log.Printf("[Proxy] Finished syncing historical trajectories")
 	return nil
@@ -1047,6 +1087,7 @@ func (p *Proxy) fetchUpstreamTrajectoryWithMaxAge(cascadeID string, port int, to
 		fetchedAt: time.Now(),
 		data:      &data,
 	}
+	evictTrajCacheLocked()
 	trajCacheMu.Unlock()
 
 	return &data, nil

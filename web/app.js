@@ -1393,6 +1393,24 @@ async function createConversation() {
 
 // --- Helpers ---
 
+/** Validates that a URL uses a safe protocol scheme. Blocks javascript:, data:, vbscript: etc. */
+function isSafeURL(url) {
+  if (!url) return false;
+  const trimmed = url.replace(/^[\s\u00A0]+/, "").toLowerCase();
+  // Allow relative URLs, anchors, and protocol-relative URLs
+  if (trimmed.startsWith("/") || trimmed.startsWith("#") || trimmed.startsWith("./") || trimmed.startsWith("../")) return true;
+  // Allow only safe protocols
+  const safeProtocols = ["http:", "https:", "file:", "mailto:"];
+  for (const proto of safeProtocols) {
+    if (trimmed.startsWith(proto)) return true;
+  }
+  // Block if it looks like a protocol (contains ":" before any "/")
+  const colonIdx = trimmed.indexOf(":");
+  if (colonIdx > 0 && colonIdx < trimmed.indexOf("/")) return false;
+  // Allow bare URLs without protocol (e.g. "example.com/path")
+  return colonIdx === -1;
+}
+
 function escapeHtml(str) {
   if (!str) return "";
   return String(str)
@@ -1554,11 +1572,15 @@ function renderInlineMarkdown(text) {
   if (!text) return "";
   let html = escapeHtml(text);
 
-  // Images
-  html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" class="markdown-image" />');
+  // Images (only allow safe URL protocols)
+  html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, url) => {
+    if (!isSafeURL(url)) return escapeHtml(`![${alt}](${url})`);
+    return `<img src="${url}" alt="${alt}" class="markdown-image" />`;
+  });
 
-  // Markdown links with file icon support
+  // Markdown links with file icon support (only allow safe URL protocols)
   html = html.replace(/(?<!\!)\[([^\]]+)\]\(([^)]+)\)/g, (_, linkText, url) => {
+    if (!isSafeURL(url)) return `${linkText}`;
     const icon = resolveFileIcon(linkText) || resolveFileIcon(url);
     if (icon) {
       return `<a href="${url}" class="file-link" target="_blank" rel="noopener noreferrer"><img src="/icons/files/${icon}.svg" class="file-icon" alt="" /><span>${linkText}</span></a>`;
@@ -1800,10 +1822,18 @@ window.copyCode = function(btn) {
 
 // Markdown & LaTeX Parsing Memory Cache (LRU)
 const markdownCache = new Map();
+/** FNV-1a hash for fast full-text cache key generation */
+function fnv1aHash(str) {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    hash ^= str.charCodeAt(i);
+    hash = (hash * 0x01000193) >>> 0;
+  }
+  return hash.toString(36);
+}
 function getCachedMarkdown(md) {
   if (!md) return "";
-  const len = md.length;
-  const key = len + ":" + (len > 50 ? md.slice(0, 25) + ":" + md.slice(-25) : md);
+  const key = fnv1aHash(md);
   if (markdownCache.has(key)) {
     return markdownCache.get(key);
   }
@@ -1919,6 +1949,7 @@ window.addEventListener("DOMContentLoaded", () => {
       }
     });
     chatInput.addEventListener("keydown", (e) => {
+      if (e.isComposing || e.keyCode === 229) return; // Ignore IME composition (Chinese, Japanese, Korean)
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         sendMessage();

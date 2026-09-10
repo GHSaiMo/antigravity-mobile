@@ -177,7 +177,7 @@ func (p *Proxy) GetProjects() ([]ProjectItem, error) {
 		if result[i].SessionCount != result[j].SessionCount {
 			return result[i].SessionCount > result[j].SessionCount
 		}
-		return strings.ToLower(result[i].Name) < strings.ToLower(result[i].Name)
+		return strings.ToLower(result[i].Name) < strings.ToLower(result[j].Name)
 	})
 
 	return result, nil
