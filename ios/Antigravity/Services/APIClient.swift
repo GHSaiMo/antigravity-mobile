@@ -700,4 +700,26 @@ public final class APIClient: Sendable {
             throw APIError.serverError(statusCode: httpResp.statusCode, message: msg)
         }
     }
+    
+    // Switch Cockpit Active Account
+    public func switchCockpitAccount(baseURL: URL, accountId: String) async throws {
+        let endpoint = baseURL.appendingPathComponent("api/v1/cockpit/switch")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["account_id": accountId])
+        request.timeoutInterval = 10
+        
+        let (data, response) = try await transport.send(
+            request: request,
+            preferCellular: AppSettings.shared.preferCellularNetwork
+        )
+        guard let httpResp = response as? HTTPURLResponse else {
+            throw APIError.networkError("Invalid response type")
+        }
+        guard (200...299).contains(httpResp.statusCode) else {
+            let msg = String(data: data, encoding: .utf8) ?? "HTTP \(httpResp.statusCode)"
+            throw APIError.serverError(statusCode: httpResp.statusCode, message: msg)
+        }
+    }
 }

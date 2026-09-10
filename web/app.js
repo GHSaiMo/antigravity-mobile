@@ -2530,7 +2530,7 @@ function buildAccountQuotaCard(acc, isCurrent) {
       <div class="quota-card-identity">
         <span class="quota-account-email" title="${escapeHtml(acc.email)}">${escapeHtml(displayEmail)}</span>
       </div>
-      ${isCurrent ? `<span class="quota-active-tag">🟢 使用中</span>` : ``}
+      ${isCurrent ? `<span class="quota-active-tag">🟢 使用中</span>` : `<button class="quota-switch-btn" data-id="${escapeHtml(acc.id)}" data-email="${escapeHtml(acc.email)}">切换</button>`}
     </div>
 
     <div class="quota-metrics-grid">
@@ -2584,7 +2584,61 @@ function buildAccountQuotaCard(acc, isCurrent) {
     </div>
   `;
 
+  if (!isCurrent) {
+    const switchBtn = card.querySelector(".quota-switch-btn");
+    if (switchBtn) {
+      switchBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        switchCockpitAccount(acc.id, acc.email, switchBtn);
+      });
+    }
+  }
+
   return card;
+}
+
+async function switchCockpitAccount(accountId, accountEmail, btn) {
+  if (!accountId) return;
+  const originalText = btn ? btn.textContent : "切换";
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "切换中...";
+    btn.classList.add("switching");
+  }
+
+  const lastUpEl = document.getElementById("quota-last-updated");
+  const prevSubtitle = lastUpEl ? lastUpEl.textContent : "";
+  if (lastUpEl) {
+    lastUpEl.textContent = "正在切换账号...";
+  }
+
+  try {
+    const resp = await fetch("/api/v1/cockpit/switch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ account_id: accountId }),
+    });
+    const data = await resp.json();
+    if (!resp.ok || data.error) {
+      throw new Error(data.error || ("HTTP " + resp.status));
+    }
+    if (lastUpEl) {
+      lastUpEl.textContent = "切换成功，正在刷新...";
+    }
+    await new Promise((r) => setTimeout(r, 600));
+    await fetchCockpitQuotas(false);
+  } catch (err) {
+    console.error("[Cockpit] Switch failed:", err);
+    alert("切换账号失败: " + err.message);
+    if (lastUpEl) {
+      lastUpEl.textContent = prevSubtitle;
+    }
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = originalText;
+      btn.classList.remove("switching");
+    }
+  }
 }
 
 function renderQuotaSheet(data) {

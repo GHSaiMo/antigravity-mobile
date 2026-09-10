@@ -150,4 +150,10 @@ public final class ConversationListViewModel {
             // Silently ignore quota fetch error to not disturb chat list
         }
     }
+    
+    public func switchCockpitAccount(id: String) async throws {
+        guard let url = settings.serverURL else { return }
+        try await apiClient.switchCockpitAccount(baseURL: url, accountId: id)
+        await fetchQuotas(force: true)
+    }
 }
