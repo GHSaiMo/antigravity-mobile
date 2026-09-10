@@ -368,10 +368,13 @@ function renderConversationList(summaries) {
 let activeWs = null;
 let wsReconnectTimer = null;
 let userIsNearBottom = true;
+let isUserTouching = false;
 let hasInitiallyAligned = false;
 let prevWasRunning = false;
 let currentCanProceed = false;
 let currentProceedArtifactUri = null;
+let pendingRenderRaf = null;
+let pendingRenderData = null;
 
 function updateProceedButton(canProceed) {
   const proceedBtn = document.getElementById("btn-proceed");
@@ -560,9 +563,21 @@ function initScrollListener() {
   const streamEl = document.getElementById("messages-stream");
   if (!streamEl || streamEl.dataset.hasScrollListener) return;
   streamEl.dataset.hasScrollListener = "true";
-  streamEl.addEventListener("scroll", () => {
+
+  const updateNearBottom = () => {
     const dist = streamEl.scrollHeight - streamEl.scrollTop - streamEl.clientHeight;
-    userIsNearBottom = dist <= 90;
+    userIsNearBottom = dist <= 80;
+  };
+
+  streamEl.addEventListener("scroll", updateNearBottom, { passive: true });
+  streamEl.addEventListener("touchstart", () => { isUserTouching = true; }, { passive: true });
+  streamEl.addEventListener("touchend", () => {
+    isUserTouching = false;
+    updateNearBottom();
+  }, { passive: true });
+  streamEl.addEventListener("touchcancel", () => {
+    isUserTouching = false;
+    updateNearBottom();
   }, { passive: true });
 }
 
@@ -684,7 +699,7 @@ function connectStreamWs(cascadeId) {
         }
 
         if (data.steps) {
-          renderMessages(data.steps, isRunning);
+          scheduleRenderMessages(data.steps, isRunning);
         }
       } catch (err) {
         console.warn("[WS] Error parsing stream message:", err);
@@ -1036,6 +1051,19 @@ function generateItemHtml(item, isRunning, isLastItem) {
   return "";
 }
 
+function scheduleRenderMessages(steps, isRunning = false) {
+  pendingRenderData = { steps, isRunning };
+  if (!pendingRenderRaf) {
+    pendingRenderRaf = requestAnimationFrame(() => {
+      pendingRenderRaf = null;
+      if (pendingRenderData) {
+        renderMessages(pendingRenderData.steps, pendingRenderData.isRunning);
+        pendingRenderData = null;
+      }
+    });
+  }
+}
+
 function renderMessages(steps, isRunning = false) {
   const streamEl = document.getElementById("messages-stream");
   if (!streamEl) return;
@@ -1099,7 +1127,7 @@ function renderMessages(steps, isRunning = false) {
     } else {
       const newEl = document.createElement("div");
       newEl.id = item.id;
-      newEl.className = rowClass;
+      newEl.className = rowClass + " message-entering";
       newEl.setAttribute("data-fp", fp);
       newEl.innerHTML = generateItemHtml(item, isRunning, isLastItem);
 
@@ -1148,55 +1176,27 @@ function renderMessages(steps, isRunning = false) {
     hasDOMChanges = true;
   }
 
-  // 1. First-time render on entering a conversation: align INSTANTLY with zero jitter
+  // 1. First-time render on entering a conversation: align cleanly to bottom without whole-page jump
   if (!hasInitiallyAligned) {
     hasInitiallyAligned = true;
     prevWasRunning = isRunning;
-
-    if (!isRunning && lastItem && lastItem.type === "agent") {
-      let lastUserIdx = -1;
-      for (let i = items.length - 1; i >= 0; i--) {
-        if (items[i].type === "user") {
-          lastUserIdx = i;
-          break;
-        }
-      }
-      const turnStartIdx = lastUserIdx !== -1 ? lastUserIdx + 1 : 0;
-      const turnStartEl = document.getElementById(items[turnStartIdx]?.id);
-      if (turnStartEl) {
-        turnStartEl.scrollIntoView({ behavior: "instant", block: "start" });
-        return;
-      }
-    }
     streamEl.scrollTop = streamEl.scrollHeight;
     return;
   }
 
-  // 2. Active task finished: smooth scroll to turn start ONCE
+  // 2. Active task finished: preserve position stably without upward jumping
   const justFinished = (prevWasRunning && !isRunning);
   prevWasRunning = isRunning;
 
   if (justFinished) {
     LocalQueueManager.onAgentCompleted();
-    if (lastItem && lastItem.type === "agent") {
-      let lastUserIdx = -1;
-      for (let i = items.length - 1; i >= 0; i--) {
-        if (items[i].type === "user") {
-          lastUserIdx = i;
-          break;
-        }
-      }
-      const turnStartIdx = lastUserIdx !== -1 ? lastUserIdx + 1 : 0;
-      const turnStartEl = document.getElementById(items[turnStartIdx]?.id);
-      if (turnStartEl && userIsNearBottom) {
-        turnStartEl.scrollIntoView({ behavior: "smooth", block: "start" });
-        return;
-      }
+    if (userIsNearBottom && !isUserTouching) {
+      streamEl.scrollTop = streamEl.scrollHeight;
     }
   }
 
-  // 3. Live streaming while running: pin to bottom
-  if (isRunning && hasDOMChanges && userIsNearBottom) {
+  // 3. Live streaming while running: pin to bottom ONLY if user is near bottom and not actively dragging
+  if (isRunning && hasDOMChanges && userIsNearBottom && !isUserTouching) {
     streamEl.scrollTop = streamEl.scrollHeight;
   }
 }
@@ -1846,55 +1846,124 @@ function resolveFileIcon(nameOrUrl) {
   return null;
 }
 
-const latexMathMap = [
-  [/\\mathbb\{R\}/g, "ℝ"], [/\\mathbf\{R\}/g, "ℝ"],
-  [/\\mathbb\{N\}/g, "ℕ"], [/\\mathbf\{N\}/g, "ℕ"],
-  [/\\mathbb\{Z\}/g, "ℤ"], [/\\mathbf\{Z\}/g, "ℤ"],
-  [/\\mathbb\{Q\}/g, "ℚ"], [/\\mathbf\{Q\}/g, "ℚ"],
-  [/\\mathbb\{C\}/g, "ℂ"], [/\\mathbf\{C\}/g, "ℂ"],
-  [/\\mathbb\{E\}/g, "𝔼"], [/\\mathbb\{P\}/g, "ℙ"],
-  [/\\mathcal\{L\}/g, "ℒ"], [/\\mathcal\{O\}/g, "𝒪"],
-  [/\\longrightarrow/g, "⟶"], [/\\longleftarrow/g, "⟵"],
-  [/\\longleftrightarrow/g, "⟷"], [/\\Longrightarrow/g, "⟹"],
-  [/\\Longleftarrow/g, "⟸"], [/\\Longleftrightarrow/g, "⟺"],
-  [/\\rightleftharpoons/g, "⇌"], [/\\hookrightarrow/g, "↪"], [/\\hookleftarrow/g, "↩"],
-  [/\\rightarrow/g, "→"], [/\\leftarrow/g, "←"],
-  [/\\leftrightarrow/g, "↔"], [/\\Rightarrow/g, "⇒"], [/\\Leftarrow/g, "⇐"], [/\\Leftrightarrow/g, "⇔"],
-  [/\\to\b/g, "→"], [/\\gets\b/g, "←"], [/\\implies/g, "⇒"], [/\\iff/g, "⇔"],
-  [/\\uparrow/g, "↑"], [/\\downarrow/g, "↓"], [/\\updownarrow/g, "↕"],
-  [/\\Uparrow/g, "⇑"], [/\\Downarrow/g, "⇓"], [/\\Updownarrow/g, "⇕"],
-  [/\\nearrow/g, "↗"], [/\\searrow/g, "↘"], [/\\swarrow/g, "↙"], [/\\nwarrow/g, "↖"],
-  [/\\mapsto/g, "↦"], [/\\longmapsto/g, "⟼"],
-  [/\\leqslant/g, "≤"], [/\\geqslant/g, "≥"], [/\\leq/g, "≤"], [/\\geq/g, "≥"],
-  [/\\le\b/g, "≤"], [/\\ge\b/g, "≥"], [/\\neq/g, "≠"], [/\\ne\b/g, "≠"],
-  [/\\approx/g, "≈"], [/\\simeq/g, "≃"], [/\\cong/g, "≅"], [/\\equiv/g, "≡"],
-  [/\\propto/g, "∝"], [/\\ll/g, "≪"], [/\\gg/g, "≫"], [/\\parallel/g, "∥"], [/\\perp/g, "⊥"],
-  [/\\sim/g, "∼"], [/\\subset/g, "⊂"], [/\\supset/g, "⊃"],
-  [/\\subseteq/g, "⊆"], [/\\supseteq/g, "⊇"], [/\\subsetneq/g, "⊊"], [/\\supsetneq/g, "⊋"],
-  [/\\notin/g, "∉"], [/\\in\b/g, "∈"], [/\\cup/g, "∪"], [/\\cap/g, "∩"], [/\\setminus/g, "∖"],
-  [/\\emptyset/g, "∅"], [/\\empty\b/g, "∅"], [/\\forall/g, "∀"], [/\\exists/g, "∃"],
-  [/\\times/g, "×"], [/\\div/g, "÷"], [/\\pm/g, "±"], [/\\mp/g, "∓"],
-  [/\\cdot/g, "·"], [/\\cdots/g, "⋯"], [/\\ldots/g, "…"], [/\\vdots/g, "⋮"], [/\\ddots/g, "⋱"],
-  [/\\bullet/g, "•"], [/\\circ/g, "∘"], [/\\star/g, "⋆"], [/\\ast/g, "∗"],
-  [/\\oplus/g, "⊕"], [/\\ominus/g, "⊖"], [/\\otimes/g, "⊗"], [/\\odot/g, "⊙"],
-  [/\\iiint/g, "∭"], [/\\iint/g, "∬"], [/\\oint/g, "∮"], [/\\int/g, "∫"],
-  [/\\sum/g, "∑"], [/\\prod/g, "∏"], [/\\partial/g, "∂"], [/\\nabla/g, "∇"], [/\\infty/g, "∞"], [/\\sqrt/g, "√"],
-  [/\\degree/g, "°"],
-  [/\\Gamma/g, "Γ"], [/\\Delta/g, "Δ"], [/\\Theta/g, "Θ"], [/\\Lambda/g, "Λ"], [/\\Xi/g, "Ξ"],
-  [/\\Pi/g, "Π"], [/\\Sigma/g, "Σ"], [/\\Upsilon/g, "Υ"], [/\\Phi/g, "Φ"], [/\\Psi/g, "Ψ"], [/\\Omega/g, "Ω"],
-  [/\\alpha/g, "α"], [/\\beta/g, "β"], [/\\gamma/g, "γ"], [/\\delta/g, "δ"],
-  [/\\varepsilon/g, "ε"], [/\\epsilon/g, "ϵ"], [/\\zeta/g, "ζ"], [/\\eta/g, "η"],
-  [/\\vartheta/g, "ϑ"], [/\\theta/g, "θ"], [/\\iota/g, "ι"], [/\\kappa/g, "κ"],
-  [/\\lambda/g, "λ"], [/\\mu/g, "μ"], [/\\nu/g, "ν"], [/\\xi/g, "ξ"], [/\\pi/g, "π"],
-  [/\\varrho/g, "ϱ"], [/\\rho/g, "ρ"], [/\\varsigma/g, "ς"], [/\\sigma/g, "σ"],
-  [/\\tau/g, "τ"], [/\\upsilon/g, "υ"], [/\\varphi/g, "φ"], [/\\phi/g, "ϕ"],
-  [/\\chi/g, "χ"], [/\\psi/g, "ψ"], [/\\omega/g, "ω"]
-];
+const latexSymbolLookup = {
+  // Blackboard bold & Mathcal
+  "mathbb{R}": "ℝ", "mathbf{R}": "ℝ",
+  "mathbb{N}": "ℕ", "mathbf{N}": "ℕ",
+  "mathbb{Z}": "ℤ", "mathbf{Z}": "ℤ",
+  "mathbb{Q}": "ℚ", "mathbf{Q}": "ℚ",
+  "mathbb{C}": "ℂ", "mathbf{C}": "ℂ",
+  "mathbb{E}": "𝔼", "mathbb{P}": "ℙ",
+  "mathbb{H}": "ℍ", "mathbb{F}": "𝔽",
+  "mathcal{L}": "ℒ", "mathcal{O}": "𝒪",
+  "mathcal{N}": "𝒩", "mathcal{H}": "ℋ",
+  "mathcal{F}": "ℱ", "mathcal{D}": "𝒟",
+
+  // Long arrows
+  "longleftrightarrow": "⟷", "Longleftrightarrow": "⟺",
+  "longrightarrow": "⟶", "longleftarrow": "⟵",
+  "Longrightarrow": "⟹", "Longleftarrow": "⟸",
+  "longmapsto": "⟼",
+
+  // Standard arrows & harpoons
+  "rightleftharpoons": "⇌", "hookrightarrow": "↪", "hookleftarrow": "↩",
+  "rightarrow": "→", "leftarrow": "←",
+  "leftrightarrow": "↔", "Rightarrow": "⇒", "Leftarrow": "⇐", "Leftrightarrow": "⇔",
+  "to": "→", "gets": "←", "implies": "⇒", "iff": "⇔",
+  "uparrow": "↑", "downarrow": "↓", "updownarrow": "↕",
+  "Uparrow": "⇑", "Downarrow": "⇓", "Updownarrow": "⇕",
+  "nearrow": "↗", "searrow": "↘", "swarrow": "↙", "nwarrow": "↖",
+  "mapsto": "↦",
+
+  // Comparisons & Relations
+  "leqslant": "≤", "geqslant": "≥", "leq": "≤", "geq": "≥",
+  "le": "≤", "ge": "≥", "neq": "≠", "ne": "≠",
+  "approx": "≈", "simeq": "≃", "cong": "≅", "equiv": "≡",
+  "propto": "∝", "ll": "≪", "gg": "≫", "parallel": "∥", "perp": "⊥",
+  "sim": "∼", "subset": "⊂", "supset": "⊃",
+  "subseteq": "⊆", "supseteq": "⊇", "subsetneq": "⊊", "supsetneq": "⊋",
+  "notin": "∉", "in": "∈", "cup": "∪", "cap": "∩", "setminus": "∖",
+  "emptyset": "∅", "empty": "∅", "forall": "∀", "exists": "∃",
+
+  // Operators & Calculus
+  "times": "×", "div": "÷", "pm": "±", "mp": "∓",
+  "cdot": "·", "cdots": "⋯", "ldots": "…", "vdots": "⋮", "ddots": "⋱",
+  "bullet": "•", "circ": "∘", "star": "⋆", "ast": "∗",
+  "oplus": "⊕", "ominus": "⊖", "otimes": "⊗", "odot": "⊙",
+  "iiint": "∭", "iint": "∬", "oint": "∮", "int": "∫",
+  "sum": "∑", "prod": "∏", "partial": "∂", "nabla": "∇", "infty": "∞", "sqrt": "√",
+  "degree": "°",
+
+  // Greek capital letters
+  "Gamma": "Γ", "Delta": "Δ", "Theta": "Θ", "Lambda": "Λ", "Xi": "Ξ",
+  "Pi": "Π", "Sigma": "Σ", "Upsilon": "Υ", "Phi": "Φ", "Psi": "Ψ", "Omega": "Ω",
+
+  // Greek lowercase letters
+  "alpha": "α", "beta": "β", "gamma": "γ", "delta": "δ",
+  "varepsilon": "ε", "epsilon": "ϵ", "zeta": "ζ", "eta": "η",
+  "vartheta": "ϑ", "theta": "θ", "iota": "ι", "kappa": "κ",
+  "lambda": "λ", "mu": "μ", "nu": "ν", "xi": "ξ", "pi": "π",
+  "varrho": "ϱ", "rho": "ρ", "varsigma": "ς", "sigma": "σ",
+  "tau": "τ", "upsilon": "υ", "varphi": "φ", "phi": "ϕ",
+  "chi": "χ", "psi": "ψ", "omega": "ω"
+};
+
+const wordBoundaryCommands = new Set(["to", "in", "le", "ge", "ne", "empty", "gets", "sim"]);
+
+function replaceSymbolsSinglePass(str) {
+  if (!str || !str.includes("\\")) return str;
+  let out = "";
+  let i = 0;
+  const len = str.length;
+
+  while (i < len) {
+    if (str[i] === "\\") {
+      let j = i + 1;
+      while (j < len && ((str.charCodeAt(j) >= 65 && str.charCodeAt(j) <= 90) || (str.charCodeAt(j) >= 97 && str.charCodeAt(j) <= 122))) {
+        j++;
+      }
+      const cmd = str.slice(i + 1, j);
+      let fullKey = cmd;
+      let nextJ = j;
+
+      if (j < len && str[j] === "{") {
+        const closeIdx = str.indexOf("}", j + 1);
+        if (closeIdx !== -1 && closeIdx - j <= 12) {
+          const paramCandidate = cmd + "{" + str.slice(j + 1, closeIdx) + "}";
+          if (latexSymbolLookup[paramCandidate]) {
+            fullKey = paramCandidate;
+            nextJ = closeIdx + 1;
+          }
+        }
+      }
+
+      if (fullKey && latexSymbolLookup[fullKey]) {
+        // Word boundary check: if command is short, next char cannot be ASCII letter
+        if (wordBoundaryCommands.has(fullKey) && nextJ < len &&
+            ((str.charCodeAt(nextJ) >= 65 && str.charCodeAt(nextJ) <= 90) || (str.charCodeAt(nextJ) >= 97 && str.charCodeAt(nextJ) <= 122))) {
+          out += str[i];
+          i++;
+        } else {
+          out += latexSymbolLookup[fullKey];
+          i = nextJ;
+        }
+      } else {
+        out += str[i];
+        i++;
+      }
+    } else {
+      out += str[i];
+      i++;
+    }
+  }
+  return out;
+}
 
 const supMap = { "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹", "+": "⁺", "-": "⁻", "=": "⁼", "(": "⁽", ")": "⁾", "n": "ⁿ", "i": "ⁱ", "j": "ʲ", "a": "ᵃ", "b": "ᵇ", "c": "ᶜ", "d": "ᵈ", "e": "ᵉ", "f": "ᶠ", "g": "ᵍ", "h": "ʰ", "k": "ᵏ", "l": "ˡ", "m": "ᵐ", "o": "ᵒ", "p": "ᵖ", "r": "ʳ", "s": "ˢ", "t": "ᵗ", "u": "ᵘ", "v": "ᵛ", "w": "ʷ", "x": "ˣ", "y": "ʸ", "z": "ᶻ", "T": "ᵀ" };
 const subMap = { "0": "₀", "1": "₁", "2": "₂", "3": "₃", "4": "₄", "5": "₅", "6": "₆", "7": "₇", "8": "₈", "9": "₉", "+": "₊", "-": "₋", "=": "₌", "(": "₍", ")": "₎", "a": "ₐ", "e": "ₑ", "h": "ₕ", "i": "ᵢ", "j": "ⱼ", "k": "ₖ", "l": "ₗ", "m": "ₘ", "n": "ₙ", "o": "ₒ", "p": "ₚ", "r": "ᵣ", "s": "ₛ", "t": "ₜ", "u": "ᵤ", "v": "ᵥ", "x": "ₓ" };
 
 function cleanMathExpr(str) {
+  if (!str) return "";
   str = str.replace(/\\(?:text|mathrm|mathbf|mathit|operatorname)\{([^}]*)\}/g, "$1");
   str = str.replace(/\\frac\{([^}]*)\}\{([^}]*)\}/g, "$1 / $2");
   str = str.replace(/\\sqrt\{([^}]*)\}/g, "√($1)");
@@ -1904,9 +1973,7 @@ function cleanMathExpr(str) {
   str = str.replace(/\\\{/g, "{").replace(/\\\}/g, "}");
   str = str.replace(/\\%/g, "%").replace(/\\_/g, "_").replace(/\\&/g, "&");
   str = str.replace(/\\,/g, " ").replace(/\\;/g, " ").replace(/\\quad/g, " ").replace(/\\qquad/g, "  ");
-  for (const [re, repl] of latexMathMap) {
-    str = str.replace(re, repl);
-  }
+  str = replaceSymbolsSinglePass(str);
   str = str.replace(/\^\{([0-9a-zA-Z\+\-\=\(\)]+)\}/g, (_, chars) => chars.split("").map(c => supMap[c] || c).join(""));
   str = str.replace(/\^([0-9a-zA-Z\+\-\*])/g, (_, c) => supMap[c] || c);
   str = str.replace(/_\{([0-9a-zA-Z\+\-\=\(\)]+)\}/g, (_, chars) => chars.split("").map(c => subMap[c] || c).join(""));
@@ -1916,6 +1983,9 @@ function cleanMathExpr(str) {
 
 function processMathSymbols(text) {
   if (!text) return "";
+  // Fast-path: if text does not contain backslash or dollar sign, no LaTeX math can be present
+  if (!text.includes("\\") && !text.includes("$")) return text;
+
   const codeBlocks = [];
   text = text.replace(/```[a-zA-Z0-9_-]*\n[\s\S]*?```/g, m => {
     codeBlocks.push(m);
@@ -1932,9 +2002,8 @@ function processMathSymbols(text) {
   text = text.replace(/(?<!\\)\$(?!\s)([^$\n]+?)(?<!\s)(?<!\\)\$/g, (_, m) => cleanMathExpr(m));
   text = text.replace(/\\\(([\s\S]*?)\\\)/g, (_, m) => cleanMathExpr(m));
 
-  for (const [re, repl] of latexMathMap) {
-    text = text.replace(re, repl);
-  }
+  // Single-pass replacement for standalone LaTeX commands in prose
+  text = replaceSymbolsSinglePass(text);
 
   inlineCodes.forEach((c, idx) => {
     text = text.replace(`XXAGYINLINETOKEN${idx}XX`, c);
@@ -2369,25 +2438,10 @@ window.addEventListener("DOMContentLoaded", () => {
     });
 
     chatInput.addEventListener("blur", () => {
-      // Fix iOS WebKit viewport displacement bug when virtual keyboard retracts
+      // Ensure window is not displaced when keyboard retracts without jerking messagesStream
       window.scrollTo(0, 0);
       document.body.scrollTop = 0;
       document.documentElement.scrollTop = 0;
-
-      // Multi-stage adjustment during and after keyboard retreat animation
-      setTimeout(() => {
-        window.scrollTo(0, 0);
-        if (messagesStream && userIsNearBottom) {
-          messagesStream.scrollTop = messagesStream.scrollHeight;
-        }
-      }, 120);
-
-      setTimeout(() => {
-        window.scrollTo(0, 0);
-        if (messagesStream && userIsNearBottom) {
-          messagesStream.scrollTop = messagesStream.scrollHeight;
-        }
-      }, 280);
     });
 
     chatInput.addEventListener("keydown", (e) => {
@@ -2395,17 +2449,6 @@ window.addEventListener("DOMContentLoaded", () => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         sendMessage();
-      }
-    });
-  }
-
-  if (window.visualViewport) {
-    window.visualViewport.addEventListener("resize", () => {
-      if (document.activeElement !== chatInput) {
-        window.scrollTo(0, 0);
-        if (messagesStream && userIsNearBottom) {
-          messagesStream.scrollTop = messagesStream.scrollHeight;
-        }
       }
     });
   }
