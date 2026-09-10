@@ -107,13 +107,13 @@ var (
 
 // Scan performs one inspection pass to detect and verify the language_server instance.
 func (i *Inspector) Scan() *InstanceInfo {
-	pid, csrfToken, err := i.findProcess()
+	pid, csrfToken, err := i.findProcess(context.Background())
 	if err != nil {
 		i.markUnhealthy()
 		return nil
 	}
 
-	ports, err := i.findListeningPorts(pid)
+	ports, err := i.findListeningPorts(context.Background(), pid)
 	if err != nil || len(ports) == 0 {
 		i.markUnhealthy()
 		return nil
@@ -184,8 +184,10 @@ func (i *Inspector) update(newInfo *InstanceInfo) {
 }
 
 // findProcess uses ps to find the language_server process and extract PID & CSRF token.
-func (i *Inspector) findProcess() (int, string, error) {
-	cmd := exec.Command("ps", "-eo", "pid,command")
+func (i *Inspector) findProcess(ctx context.Context) (int, string, error) {
+	cmdCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(cmdCtx, "ps", "-eo", "pid,command")
 	out, err := cmd.Output()
 	if err != nil {
 		return 0, "", fmt.Errorf("failed to run ps: %w", err)
@@ -214,8 +216,10 @@ func (i *Inspector) findProcess() (int, string, error) {
 }
 
 // findListeningPorts uses lsof to query TCP LISTEN ports for a given PID.
-func (i *Inspector) findListeningPorts(pid int) ([]int, error) {
-	cmd := exec.Command("lsof", "-nP", "-iTCP", "-sTCP:LISTEN", "-a", "-p", strconv.Itoa(pid))
+func (i *Inspector) findListeningPorts(ctx context.Context, pid int) ([]int, error) {
+	cmdCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(cmdCtx, "lsof", "-nP", "-iTCP", "-sTCP:LISTEN", "-a", "-p", strconv.Itoa(pid))
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to run lsof: %w", err)

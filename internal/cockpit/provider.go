@@ -1,10 +1,12 @@
 package cockpit
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -340,8 +342,12 @@ func TriggerRefresh() error {
 
 	// Fallback to macOS AppleScript click tray refresh
 	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 		script := `tell application "System Events" to tell process "Cockpit Tools" to click menu item "🔄 刷新配额" of menu 1 of menu bar item 1 of menu bar 2`
-		_ = exec.Command("osascript", "-e", script).Run()
+		if err := exec.CommandContext(ctx, "osascript", "-e", script).Run(); err != nil {
+			log.Printf("[Cockpit] AppleScript refresh fallback failed: %v", err)
+		}
 	}()
 
 	return nil
