@@ -129,14 +129,19 @@ public struct ChatView: View {
                         await viewModel.loadMessages()
                     }
                     .onAppear {
+                        // Stage 1: Quick pre-alignment before push animation completes (80ms)
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                            initialAlignmentIfNeeded(proxy: proxy)
+                            initialAlignmentIfNeeded(proxy: proxy, force: false)
+                        }
+                        // Stage 2: Precise calibration after navigation push transition finishes (~320ms)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.32) {
+                            initialAlignmentIfNeeded(proxy: proxy, force: true)
                         }
                     }
                     .onChange(of: viewModel.isLoading) { _, loading in
                         if !loading {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                                initialAlignmentIfNeeded(proxy: proxy)
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                                initialAlignmentIfNeeded(proxy: proxy, force: true)
                             }
                             if !hasAutoFocused && autoFocusTask == nil && (shouldAutoFocus || (viewModel.messages.isEmpty && viewModel.stepCount == 0)) {
                                 scheduleAutoFocus(delay: 0.2)
@@ -466,16 +471,20 @@ public struct ChatView: View {
         }
     }
     
-    private func initialAlignmentIfNeeded(proxy: ScrollViewProxy) {
-        guard !hasInitiallyAligned, !viewModel.messages.isEmpty else { return }
-        hasInitiallyAligned = true
+    private func initialAlignmentIfNeeded(proxy: ScrollViewProxy, force: Bool = false) {
+        if !force {
+            guard !hasInitiallyAligned, !viewModel.messages.isEmpty else { return }
+            hasInitiallyAligned = true
+        } else {
+            guard !viewModel.messages.isEmpty else { return }
+        }
         smartScroll(proxy: proxy, animated: false)
     }
     
     private func smartScroll(proxy: ScrollViewProxy, animated: Bool = false) {
         if (viewModel.isAwaitingResponse || viewModel.isRunning) && viewModel.messages.last?.sender == .user {
             scrollToBottom(proxy: proxy, animated: animated)
-        } else if viewModel.messages.last?.sender == .agent {
+        } else if viewModel.latestAgentMessageId != nil || viewModel.latestTurnStartMessageId != nil {
             scrollToTurnStart(proxy: proxy, animated: animated)
         } else {
             scrollToBottom(proxy: proxy, animated: animated)
@@ -483,7 +492,8 @@ public struct ChatView: View {
     }
     
     private func scrollToTurnStart(proxy: ScrollViewProxy, animated: Bool = true) {
-        guard let targetId = viewModel.latestTurnStartMessageId else {
+        // Priority: 1. Latest agent response message; 2. Latest turn start message; 3. Bottom anchor
+        guard let targetId = viewModel.latestAgentMessageId ?? viewModel.latestTurnStartMessageId else {
             scrollToBottom(proxy: proxy, animated: animated)
             return
         }
@@ -494,6 +504,10 @@ public struct ChatView: View {
             }
         } else {
             proxy.scrollTo(targetId, anchor: .top)
+            // Secondary micro-tick to absorb LazyVStack layout expansion on long chats
+            DispatchQueue.main.async {
+                proxy.scrollTo(targetId, anchor: .top)
+            }
         }
     }
     

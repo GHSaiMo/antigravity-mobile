@@ -37,10 +37,21 @@ public final class ChatViewModel {
     /// ID of the first message of the latest response turn (e.g., tool batch or agent response following the last user message)
     public var latestTurnStartMessageId: String? {
         guard let lastUserIdx = messages.lastIndex(where: { $0.sender == .user }) else {
-            return messages.first(where: { $0.sender != .user })?.id ?? messages.first?.id
+            return messages.last(where: { $0.sender != .user })?.id ?? messages.last?.id
         }
         let subsequent = messages.suffix(from: lastUserIdx + 1)
-        return subsequent.first?.id
+        return subsequent.first?.id ?? messages.last?.id
+    }
+    
+    /// ID of the latest agent response message (the actual text bubble from the agent, not tool batches)
+    public var latestAgentMessageId: String? {
+        if let lastUserIdx = messages.lastIndex(where: { $0.sender == .user }) {
+            let subsequent = messages.suffix(from: lastUserIdx + 1)
+            if let agentMsg = subsequent.last(where: { $0.sender == .agent }) {
+                return agentMsg.id
+            }
+        }
+        return messages.last(where: { $0.sender == .agent })?.id
     }
     
     private var awaitingResponseSince: Date? = nil
