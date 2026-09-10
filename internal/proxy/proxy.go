@@ -72,6 +72,53 @@ func (p *Proxy) ActiveUpstream() (int, string) {
 	return p.activePort, p.activeToken
 }
 
+// GetActiveUserStatus queries the running Antigravity instance for the currently logged-in user email and name.
+func (p *Proxy) GetActiveUserStatus() (email string, name string, err error) {
+	port, token := p.ActiveUpstream()
+	if port == 0 {
+		return "", "", fmt.Errorf("no active Antigravity upstream")
+	}
+
+	url := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetUserStatus", port)
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader([]byte("{}")))
+	if err != nil {
+		return "", "", err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Connect-Protocol-Version", "1")
+	if token != "" {
+		req.Header.Set("x-codeium-csrf-token", token)
+	}
+
+	client := &http.Client{
+		Timeout:   2 * time.Second,
+		Transport: p.transport,
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", "", fmt.Errorf("GetUserStatus returned status %d", resp.StatusCode)
+	}
+
+	var data struct {
+		UserStatus struct {
+			Name  string `json:"name"`
+			Email string `json:"email"`
+		} `json:"userStatus"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return "", "", err
+	}
+
+	return strings.TrimSpace(data.UserStatus.Email), strings.TrimSpace(data.UserStatus.Name), nil
+}
+
 // NewProxy creates a new reverse proxy backed by the inspector.
 func NewProxy(insp *inspector.Inspector) *Proxy {
 	tr := &http.Transport{

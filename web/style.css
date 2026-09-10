@@ -2009,3 +2009,34 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
   text-overflow: ellipsis;
 }
 
+.quota-switch-btn {
+  font-size: 11px;
+  font-weight: 600;
+  color: #007aff;
+  background: rgba(0, 122, 255, 0.12);
+  padding: 3px 10px;
+  border-radius: 12px;
+  border: 0.5px solid rgba(0, 122, 255, 0.3);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.quota-switch-btn:hover {
+  background: rgba(0, 122, 255, 0.22);
+}
+
+.quota-switch-btn:active {
+  transform: scale(0.95);
+  background: rgba(0, 122, 255, 0.3);
+}
+
+.quota-switch-btn:disabled,
+.quota-switch-btn.switching {
+  opacity: 0.6;
+  cursor: not-allowed;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--ios-secondary-label);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
