@@ -13,6 +13,9 @@ public final class ConversationListViewModel {
     private let settings: AppSettings
     private let cacheManager: CacheManager
     
+    private var pollTask: Task<Void, Never>? = nil
+    private var lastResumeTime: Date = .distantPast
+    
     public init(
         apiClient: APIClient? = nil,
         settings: AppSettings? = nil,
@@ -41,8 +44,43 @@ public final class ConversationListViewModel {
         }
     }
     
+    public func reloadFromCache() {
+        let cached = cacheManager.loadConversations().filter { !$0.isSubagent }
+        if !cached.isEmpty {
+            self.conversations = cached
+        }
+    }
+    
     @MainActor
-    public func fetchConversations() async {
+    public func resumeActive() async {
+        let now = Date()
+        guard now.timeIntervalSince(lastResumeTime) > 1.0 else { return }
+        lastResumeTime = now
+        
+        reloadFromCache()
+        await fetchConversations(isBackgroundPoll: !conversations.isEmpty)
+    }
+    
+    public func startAutoRefresh() {
+        guard pollTask == nil else { return }
+        pollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                let hasRunning = self?.conversations.contains(where: { $0.status.isRunning || $0.status.needsAction }) ?? false
+                let delaySeconds: UInt64 = hasRunning ? 4 : 10
+                try? await Task.sleep(nanoseconds: delaySeconds * 1_000_000_000)
+                guard let self, !Task.isCancelled else { break }
+                await self.fetchConversations(isBackgroundPoll: true)
+            }
+        }
+    }
+    
+    public func stopAutoRefresh() {
+        pollTask?.cancel()
+        pollTask = nil
+    }
+    
+    @MainActor
+    public func fetchConversations(isBackgroundPoll: Bool = false) async {
         if conversations.isEmpty {
             let cached = cacheManager.loadConversations().filter { !$0.isSubagent }
             if !cached.isEmpty {
@@ -58,10 +96,12 @@ public final class ConversationListViewModel {
             return
         }
         
-        if conversations.isEmpty {
+        if !isBackgroundPoll && conversations.isEmpty {
             self.isLoading = true
         }
-        self.errorMessage = nil
+        if !isBackgroundPoll {
+            self.errorMessage = nil
+        }
         
         do {
             let items = try await apiClient.fetchConversations(baseURL: url)
