@@ -5,6 +5,17 @@ extension Notification.Name {
     public static let deviceTokenRevoked = Notification.Name("antigravity.device_token_revoked")
 }
 
+public enum NetworkTransportError: Error, LocalizedError, Sendable {
+    case requestAlreadyDispatched(any Error)
+    
+    public var errorDescription: String? {
+        switch self {
+        case .requestAlreadyDispatched(let err):
+            return "指令已成功送达服务器，但等待响应超时 (\(err.localizedDescription))"
+        }
+    }
+}
+
 public final class NetworkTransport: Sendable {
     public static let shared = NetworkTransport()
     
@@ -68,8 +79,17 @@ public final class NetworkTransport: Sendable {
         
         do {
             return try await executeViaCellular(request: req, url: url, host: host)
+        } catch let NetworkTransportError.requestAlreadyDispatched(underlying) {
+            let method = (req.httpMethod ?? "GET").uppercased()
+            if method == "GET" || method == "HEAD" {
+                print("[NetworkTransport] Cellular direct response read failed after send, retrying idempotent \(method) via standard interface: \(underlying.localizedDescription)")
+                return try await fallbackSession.data(for: req)
+            } else {
+                print("[NetworkTransport] Cellular direct request was already sent to server, but response failed (\(underlying.localizedDescription)). Suppressing fallback retry for non-idempotent \(method) to prevent duplicate execution.")
+                throw APIError.networkError("指令已成功送达服务器，但等待响应超时 (\(underlying.localizedDescription))")
+            }
         } catch {
-            print("[NetworkTransport] Cellular direct request failed (\(error.localizedDescription)), falling back to standard interface")
+            print("[NetworkTransport] Cellular direct request failed before send (\(error.localizedDescription)), falling back to standard interface")
             return try await fallbackSession.data(for: req)
         }
     }
@@ -116,6 +136,7 @@ public final class NetworkTransport: Sendable {
         return try await withCheckedThrowingContinuation { continuation in
             final class SyncState: @unchecked Sendable {
                 var isCompleted = false
+                var requestDispatched = false
                 var timeoutWork: DispatchWorkItem?
                 var waitingTimerWork: DispatchWorkItem?
                 var connection: NWConnection?
@@ -133,7 +154,11 @@ public final class NetworkTransport: Sendable {
                     case .success(let res):
                         continuation?.resume(returning: res)
                     case .failure(let err):
-                        continuation?.resume(throwing: err)
+                        if requestDispatched {
+                            continuation?.resume(throwing: NetworkTransportError.requestAlreadyDispatched(err))
+                        } else {
+                            continuation?.resume(throwing: err)
+                        }
                     }
                 }
             }
@@ -187,6 +212,9 @@ public final class NetworkTransport: Sendable {
                             state.finish(result: .failure(err))
                             return
                         }
+                        objc_sync_enter(state)
+                        state.requestDispatched = true
+                        objc_sync_exit(state)
                         
                         final class DataBuffer: @unchecked Sendable {
                             var buffer = Data()
