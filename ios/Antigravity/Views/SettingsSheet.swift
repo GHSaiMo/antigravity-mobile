@@ -147,7 +147,7 @@ public struct SettingsSheet: View {
                 }
                 
                 Section(header: Text("网络直连策略"), footer: Text("开启后，即使手机连接了外部 Wi-Fi，也优先通过移动蜂窝网络（自带 IPv6）直连 Mac 端，解决公共 Wi-Fi 无 IPv6 导致的连接失败问题。")) {
-                    Toggle("优先走手机蜂窝网络 (IPv6 直连)", isOn: $settings.preferCellularNetwork)
+                    Toggle("蜂窝网络优先", isOn: $settings.preferCellularNetwork)
                     
                     if settings.preferCellularNetwork {
                         if let v6 = settings.ipv6ServerURL, !v6.isEmpty {
