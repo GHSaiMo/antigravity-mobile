@@ -27,6 +27,13 @@ type CascadeMessageItem struct {
 	ImageURLs []string `json:"imageUrls,omitempty"` // Markdown image URLs
 }
 
+// QueuedMessageItem represents a pending follow-up user message queued for execution.
+type QueuedMessageItem struct {
+	ID        string `json:"id"`
+	Text      string `json:"text"`
+	CreatedAt string `json:"createdAt,omitempty"`
+}
+
 type InteractionOption struct {
 	ID     string `json:"id"`
 	Text   string `json:"text"`
@@ -61,6 +68,7 @@ type CascadeMessagesResponse struct {
 	HasMore            bool                 `json:"hasMore"`
 	NextOffset         int                  `json:"nextOffset"`
 	Messages           []CascadeMessageItem `json:"messages"`
+	QueuedMessages     []QueuedMessageItem  `json:"queuedMessages,omitempty"`
 	CascadeConfig      json.RawMessage      `json:"cascadeConfig,omitempty"`
 	CascadeConfigRaw   string               `json:"cascadeConfigRaw,omitempty"`
 	CanProceed         bool                 `json:"canProceed"`
@@ -199,6 +207,14 @@ type TrajectoryStep struct {
 	} `json:"requestedInteraction"`
 }
 
+type upstreamPendingAgentMessage struct {
+	ID               string          `json:"id"`
+	DeliveryStrategy int             `json:"deliveryStrategy"`
+	StepPayload      json.RawMessage `json:"stepPayload"`
+	Content          string          `json:"content"`
+	Timestamp        string          `json:"timestamp"`
+}
+
 type upstreamTrajectoryResp struct {
 	Trajectory struct {
 		TrajectoryID  string           `json:"trajectoryId"`
@@ -214,7 +230,8 @@ type upstreamTrajectoryResp struct {
 			CascadeConfig json.RawMessage `json:"cascadeConfig"`
 		} `json:"executorMetadatas"`
 	} `json:"trajectory"`
-	Status string `json:"status"`
+	Status               string                        `json:"status"`
+	PendingAgentMessages []upstreamPendingAgentMessage `json:"pendingAgentMessages"`
 }
 
 func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
@@ -311,6 +328,7 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 		HasMore:            hasMore,
 		NextOffset:         nextOffset,
 		Messages:           sliced,
+		QueuedMessages:     details.QueuedMessages,
 		CascadeConfig:      details.CascadeConfig,
 		CascadeConfigRaw:   details.CascadeConfigRaw,
 		CanProceed:         details.CanProceed,
@@ -330,6 +348,7 @@ type TrajectoryDetails struct {
 	WorkspaceURI       string               `json:"workspaceUri"`
 	Steps              []TrajectoryStep     `json:"steps"`
 	AllMessages        []CascadeMessageItem `json:"allMessages"`
+	QueuedMessages     []QueuedMessageItem  `json:"queuedMessages,omitempty"`
 	CascadeConfig      json.RawMessage      `json:"cascadeConfig,omitempty"`
 	CascadeConfigRaw   string               `json:"cascadeConfigRaw,omitempty"`
 	CanProceed         bool                 `json:"canProceed"`
@@ -680,6 +699,43 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 		pendingInteraction = nil
 	}
 
+	var queuedMessages []QueuedMessageItem
+	for _, pam := range rawResp.PendingAgentMessages {
+		text := pam.Content
+		if text == "" && len(pam.StepPayload) > 0 {
+			var parsedPayload struct {
+				Step struct {
+					Case  string `json:"case"`
+					Value struct {
+						Items []struct {
+							Text  string `json:"text"`
+							Chunk *struct {
+								Case  string `json:"case"`
+								Value string `json:"value"`
+							} `json:"chunk"`
+						} `json:"items"`
+					} `json:"value"`
+				} `json:"step"`
+			}
+			if err := json.Unmarshal(pam.StepPayload, &parsedPayload); err == nil {
+				for _, it := range parsedPayload.Step.Value.Items {
+					if it.Text != "" {
+						text += it.Text
+					} else if it.Chunk != nil && it.Chunk.Value != "" {
+						text += it.Chunk.Value
+					}
+				}
+			}
+		}
+		if text != "" {
+			queuedMessages = append(queuedMessages, QueuedMessageItem{
+				ID:        pam.ID,
+				Text:      text,
+				CreatedAt: pam.Timestamp,
+			})
+		}
+	}
+
 	return TrajectoryDetails{
 		CascadeID:          rawResp.Trajectory.CascadeID,
 		Title:              title,
@@ -690,6 +746,7 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 		WorkspaceURI:       wsURI,
 		Steps:              steps,
 		AllMessages:        allMessages,
+		QueuedMessages:     queuedMessages,
 		CascadeConfig:      activeConfig,
 		CascadeConfigRaw:   activeConfigStr,
 		CanProceed:         canProceed,
