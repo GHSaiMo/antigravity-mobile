@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -96,58 +97,82 @@ type trajectoryCacheEntry struct {
 
 const maxTrajCacheSize = 50 // Maximum number of cached trajectory entries to prevent unbounded memory growth
 
+// TrajectoryCache encapsulates all mutable trajectory-related state with proper synchronization.
+// It replaces scattered package-level vars, enabling clean lifecycle management and testability.
+type TrajectoryCache struct {
+	trajCache   map[string]*trajectoryCacheEntry
+	trajCacheMu sync.Mutex
+
+	cascadeTitles       map[string]string
+	cascadeTitlesMu     sync.RWMutex
+	lastTitlesFetchTime time.Time
+
+	lastKnownConfig   json.RawMessage
+	lastKnownConfigMu sync.RWMutex
+
+	loadedCascades   map[string]bool
+	loadedCascadesMu sync.Mutex
+	lastSyncedPort   int
+}
+
+// NewTrajectoryCache creates a new TrajectoryCache with initialized maps.
+func NewTrajectoryCache() *TrajectoryCache {
+	return &TrajectoryCache{
+		trajCache:      make(map[string]*trajectoryCacheEntry),
+		cascadeTitles:  make(map[string]string),
+		loadedCascades: make(map[string]bool),
+	}
+}
+
 var (
-	trajCache              = make(map[string]*trajectoryCacheEntry)
-	trajCacheMu            sync.Mutex
-	cascadeTitlesCache     = make(map[string]string)
-	cascadeTitlesCacheMu   sync.RWMutex
-	lastCascadeTitlesFetch time.Time
-	lastKnownCascadeConfig json.RawMessage
-	lastKnownConfigMu      sync.RWMutex
-	imgRegex               = regexp.MustCompile(`!\[.*?\]\((https?://[^\s\)]+|/static/[^\s\)]+)\)`)
-	titleRegex             = regexp.MustCompile(`title:\s*"([^"]+)"`)
-	loadedCascadesMu       sync.Mutex
-	loadedCascades         = make(map[string]bool)
-	lastSyncedPort         int
+	imgRegex   = regexp.MustCompile(`!\[.*?\]\((https?://[^\s\)]+|/static/[^\s\)]+)\)`)
+	titleRegex = regexp.MustCompile(`title:\s*"([^"]+)"`)
 )
 
 // ResetHistoricalSyncState clears the loaded cascades map and resets the last synced port,
 // allowing a fresh sync of all historical sessions from disk.
 func ResetHistoricalSyncState() {
-	loadedCascadesMu.Lock()
-	defer loadedCascadesMu.Unlock()
-	loadedCascades = make(map[string]bool)
-	lastSyncedPort = 0
+	defaultTrajCache.loadedCascadesMu.Lock()
+	defer defaultTrajCache.loadedCascadesMu.Unlock()
+	defaultTrajCache.loadedCascades = make(map[string]bool)
+	defaultTrajCache.lastSyncedPort = 0
 }
 
 // HasSyncedHistoricalTrajectories returns whether historical trajectories have already been synced for this port.
 func HasSyncedHistoricalTrajectories(port int) bool {
-	loadedCascadesMu.Lock()
-	defer loadedCascadesMu.Unlock()
-	return port > 0 && port == lastSyncedPort
+	defaultTrajCache.loadedCascadesMu.Lock()
+	defer defaultTrajCache.loadedCascadesMu.Unlock()
+	return port > 0 && port == defaultTrajCache.lastSyncedPort
 }
 
 // evictTrajCacheLocked removes the oldest entries when cache exceeds maxTrajCacheSize.
-// MUST be called while holding trajCacheMu.
-func evictTrajCacheLocked() {
-	if len(trajCache) <= maxTrajCacheSize {
+// MUST be called while holding tc.trajCacheMu.
+// Uses sort-based batch removal: O(n log n) instead of O(n²).
+func (tc *TrajectoryCache) evictTrajCacheLocked() {
+	if len(tc.trajCache) <= maxTrajCacheSize {
 		return
 	}
-	// Find and remove oldest entries until we're at the limit
-	for len(trajCache) > maxTrajCacheSize {
-		oldestKey := ""
-		oldestTime := time.Now()
-		for k, v := range trajCache {
-			if v.fetchedAt.Before(oldestTime) {
-				oldestKey = k
-				oldestTime = v.fetchedAt
-			}
-		}
-		if oldestKey != "" {
-			delete(trajCache, oldestKey)
-		}
+	type keyTime struct {
+		key string
+		t   time.Time
+	}
+	items := make([]keyTime, 0, len(tc.trajCache))
+	for k, v := range tc.trajCache {
+		items = append(items, keyTime{key: k, t: v.fetchedAt})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].t.Before(items[j].t)
+	})
+	// Remove oldest entries until we're at the limit
+	removeCount := len(tc.trajCache) - maxTrajCacheSize
+	for i := 0; i < removeCount; i++ {
+		delete(tc.trajCache, items[i].key)
 	}
 }
+
+// defaultTrajCache is the package-level TrajectoryCache instance used by Proxy.
+// It is initialized here and assigned as a field of Proxy in NewProxy.
+var defaultTrajCache = NewTrajectoryCache()
 
 type TrajectoryStep struct {
 	Type     string `json:"type"`
@@ -310,7 +335,9 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadGateway)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		if encErr := json.NewEncoder(w).Encode(map[string]string{"error": err.Error()}); encErr != nil {
+			log.Printf("[Proxy] HandleGetCascadeMessages: failed to encode error response: %v", encErr)
+		}
 		return
 	}
 
@@ -350,7 +377,7 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(CascadeMessagesResponse{
+	if encErr := json.NewEncoder(w).Encode(CascadeMessagesResponse{
 		CascadeID:          cascadeID,
 		Title:              details.Title,
 		Status:             details.Status,
@@ -368,7 +395,9 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 		CanProceed:         details.CanProceed,
 		ProceedArtifactURI: details.ProceedArtifactURI,
 		PendingInteraction: details.PendingInteraction,
-	})
+	}); encErr != nil {
+		log.Printf("[Proxy] HandleGetCascadeMessages: failed to encode response: %v", encErr)
+	}
 }
 
 // TrajectoryDetails represents parsed and processed trajectory information.
@@ -867,12 +896,7 @@ func (p *Proxy) CancelCascadeStep(cascadeID string, stepIndex int, port int, tok
 		req.Header.Set("x-codeium-csrf-token", token)
 	}
 
-	client := &http.Client{
-		Timeout:   5 * time.Second,
-		Transport: p.transport,
-	}
-
-	resp, err := client.Do(req)
+	resp, err := p.mediumClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -891,9 +915,9 @@ func SetLastKnownCascadeConfig(cfg json.RawMessage) {
 	if len(cfg) == 0 || string(cfg) == "null" || string(cfg) == "{}" {
 		return
 	}
-	lastKnownConfigMu.Lock()
-	lastKnownCascadeConfig = cfg
-	lastKnownConfigMu.Unlock()
+	defaultTrajCache.lastKnownConfigMu.Lock()
+	defaultTrajCache.lastKnownConfig = cfg
+	defaultTrajCache.lastKnownConfigMu.Unlock()
 }
 
 // GetCascadeConfig retrieves the cascade config for the given conversation or falls back to last known.
@@ -910,10 +934,10 @@ func (p *Proxy) GetCascadeConfig(cascadeID string, port int, token string) json.
 			}
 		}
 	}
-	lastKnownConfigMu.RLock()
-	defer lastKnownConfigMu.RUnlock()
-	if len(lastKnownCascadeConfig) > 0 {
-		return lastKnownCascadeConfig
+	defaultTrajCache.lastKnownConfigMu.RLock()
+	defer defaultTrajCache.lastKnownConfigMu.RUnlock()
+	if len(defaultTrajCache.lastKnownConfig) > 0 {
+		return defaultTrajCache.lastKnownConfig
 	}
 	return nil
 }
@@ -923,14 +947,14 @@ func ClearTrajectoryCache(cascadeID string) {
 	if cascadeID == "" {
 		return
 	}
-	trajCacheMu.Lock()
-	delete(trajCache, cascadeID)
-	trajCacheMu.Unlock()
+	defaultTrajCache.trajCacheMu.Lock()
+	delete(defaultTrajCache.trajCache, cascadeID)
+	defaultTrajCache.trajCacheMu.Unlock()
 
-	cascadeTitlesCacheMu.Lock()
-	delete(cascadeTitlesCache, cascadeID)
-	lastCascadeTitlesFetch = time.Time{}
-	cascadeTitlesCacheMu.Unlock()
+	defaultTrajCache.cascadeTitlesMu.Lock()
+	delete(defaultTrajCache.cascadeTitles, cascadeID)
+	defaultTrajCache.lastTitlesFetchTime = time.Time{}
+	defaultTrajCache.cascadeTitlesMu.Unlock()
 }
 
 func (p *Proxy) fetchUpstreamTrajectory(cascadeID string, port int, token string) (*upstreamTrajectoryResp, error) {
@@ -938,8 +962,8 @@ func (p *Proxy) fetchUpstreamTrajectory(cascadeID string, port int, token string
 	// But if title is missing or session has few/no steps, keep TTL short (1.5s)
 	// so newly generated titles/summaries are quickly discovered.
 	maxAge := 800 * time.Millisecond
-	trajCacheMu.Lock()
-	if cached, ok := trajCache[cascadeID]; ok {
+	defaultTrajCache.trajCacheMu.Lock()
+	if cached, ok := defaultTrajCache.trajCache[cascadeID]; ok {
 		if cached.data.Status != "" && cached.data.Status != "CASCADE_RUN_STATUS_RUNNING" {
 			hasTitle := (cached.data.Trajectory.Annotations != nil && cached.data.Trajectory.Annotations.Title != "") ||
 				cached.data.Trajectory.Summary != ""
@@ -950,15 +974,15 @@ func (p *Proxy) fetchUpstreamTrajectory(cascadeID string, port int, token string
 			}
 		}
 	}
-	trajCacheMu.Unlock()
+	defaultTrajCache.trajCacheMu.Unlock()
 
 	resp, err := p.fetchUpstreamTrajectoryWithMaxAge(cascadeID, port, token, maxAge)
 	// Fallback: If not found or empty steps, try loading from disk via LoadTrajectory and retry once
 	if (err != nil || (resp != nil && len(resp.Trajectory.Steps) == 0)) && port > 0 {
 		if loadErr := p.LoadTrajectory(cascadeID, port, token); loadErr == nil {
-			trajCacheMu.Lock()
-			delete(trajCache, cascadeID)
-			trajCacheMu.Unlock()
+			defaultTrajCache.trajCacheMu.Lock()
+			delete(defaultTrajCache.trajCache, cascadeID)
+			defaultTrajCache.trajCacheMu.Unlock()
 			if retryResp, retryErr := p.fetchUpstreamTrajectoryWithMaxAge(cascadeID, port, token, 0); retryErr == nil && retryResp != nil {
 				return retryResp, nil
 			}
@@ -992,10 +1016,10 @@ func (p *Proxy) lookupCascadeTitle(cascadeID string, port int, token string) str
 		return ""
 	}
 
-	cascadeTitlesCacheMu.RLock()
-	cachedTitle, ok := cascadeTitlesCache[cascadeID]
-	cacheFresh := time.Since(lastCascadeTitlesFetch) < 3*time.Second
-	cascadeTitlesCacheMu.RUnlock()
+	defaultTrajCache.cascadeTitlesMu.RLock()
+	cachedTitle, ok := defaultTrajCache.cascadeTitles[cascadeID]
+	cacheFresh := time.Since(defaultTrajCache.lastTitlesFetchTime) < 3*time.Second
+	defaultTrajCache.cascadeTitlesMu.RUnlock()
 
 	if ok && cachedTitle != "" && cachedTitle != "未命名会话" && cacheFresh {
 		return cachedTitle
@@ -1004,15 +1028,15 @@ func (p *Proxy) lookupCascadeTitle(cascadeID string, port int, token string) str
 	if !cacheFresh {
 		summaries, err := p.fetchTrajectoriesSummaryWithTitles(port, token)
 		if err == nil && len(summaries) > 0 {
-			cascadeTitlesCacheMu.Lock()
-			lastCascadeTitlesFetch = time.Now()
+			defaultTrajCache.cascadeTitlesMu.Lock()
+			defaultTrajCache.lastTitlesFetchTime = time.Now()
 			for cid, t := range summaries {
 				if t != "" {
-					cascadeTitlesCache[cid] = t
+					defaultTrajCache.cascadeTitles[cid] = t
 				}
 			}
-			newTitle := cascadeTitlesCache[cascadeID]
-			cascadeTitlesCacheMu.Unlock()
+			newTitle := defaultTrajCache.cascadeTitles[cascadeID]
+			defaultTrajCache.cascadeTitlesMu.Unlock()
 			if newTitle != "" && newTitle != "未命名会话" {
 				return newTitle
 			}
@@ -1020,9 +1044,9 @@ func (p *Proxy) lookupCascadeTitle(cascadeID string, port int, token string) str
 	}
 
 	if t := readAnnotationTitle(cascadeID); t != "" {
-		cascadeTitlesCacheMu.Lock()
-		cascadeTitlesCache[cascadeID] = t
-		cascadeTitlesCacheMu.Unlock()
+		defaultTrajCache.cascadeTitlesMu.Lock()
+		defaultTrajCache.cascadeTitles[cascadeID] = t
+		defaultTrajCache.cascadeTitlesMu.Unlock()
 		return t
 	}
 
@@ -1086,10 +1110,10 @@ func (p *Proxy) SyncHistoricalTrajectories(port int, token string) error {
 	}
 
 	var candidates []string
-	loadedCascadesMu.Lock()
-	if port != lastSyncedPort {
-		loadedCascades = make(map[string]bool)
-		lastSyncedPort = port
+	defaultTrajCache.loadedCascadesMu.Lock()
+	if port != defaultTrajCache.lastSyncedPort {
+		defaultTrajCache.loadedCascades = make(map[string]bool)
+		defaultTrajCache.lastSyncedPort = port
 	}
 	for _, entry := range entries {
 		name := entry.Name()
@@ -1097,7 +1121,7 @@ func (p *Proxy) SyncHistoricalTrajectories(port int, token string) error {
 			continue
 		}
 		cascadeID := strings.TrimSuffix(name, ".db")
-		if loadedCascades[cascadeID] {
+		if defaultTrajCache.loadedCascades[cascadeID] {
 			continue
 		}
 
@@ -1113,13 +1137,13 @@ func (p *Proxy) SyncHistoricalTrajectories(port int, token string) error {
 		// Empty session schemas are exactly 48KB (49152 bytes) with 0 steps.
 		// If older than 15 minutes and <= 49152 bytes, skip loading old empty drafts.
 		if info.Size() <= 49152 && time.Since(info.ModTime()) > 15*time.Minute {
-			loadedCascades[cascadeID] = true
+			defaultTrajCache.loadedCascades[cascadeID] = true
 			continue
 		}
 
 		candidates = append(candidates, cascadeID)
 	}
-	loadedCascadesMu.Unlock()
+	defaultTrajCache.loadedCascadesMu.Unlock()
 
 	if len(candidates) == 0 {
 		return nil
@@ -1146,9 +1170,9 @@ func (p *Proxy) SyncHistoricalTrajectories(port int, token string) error {
 			for cid := range workCh {
 				err := p.LoadTrajectory(cid, port, token)
 				if err == nil {
-					loadedCascadesMu.Lock()
-					loadedCascades[cid] = true
-					loadedCascadesMu.Unlock()
+					defaultTrajCache.loadedCascadesMu.Lock()
+					defaultTrajCache.loadedCascades[cid] = true
+					defaultTrajCache.loadedCascadesMu.Unlock()
 				} else {
 					log.Printf("[Proxy] Failed to load historical trajectory %s: %v", cid, err)
 				}
@@ -1218,14 +1242,14 @@ func (p *Proxy) fetchTrajectoriesSummaryWithTitles(port int, token string) (map[
 }
 
 func (p *Proxy) fetchUpstreamTrajectoryWithMaxAge(cascadeID string, port int, token string, maxAge time.Duration) (*upstreamTrajectoryResp, error) {
-	trajCacheMu.Lock()
-	if cached, ok := trajCache[cascadeID]; ok {
+	defaultTrajCache.trajCacheMu.Lock()
+	if cached, ok := defaultTrajCache.trajCache[cascadeID]; ok {
 		if time.Since(cached.fetchedAt) < maxAge {
-			trajCacheMu.Unlock()
+			defaultTrajCache.trajCacheMu.Unlock()
 			return cached.data, nil
 		}
 	}
-	trajCacheMu.Unlock()
+	defaultTrajCache.trajCacheMu.Unlock()
 
 	bodyBytes, _ := json.Marshal(map[string]string{"cascadeId": cascadeID})
 	url := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetCascadeTrajectory", port)
@@ -1240,11 +1264,7 @@ func (p *Proxy) fetchUpstreamTrajectoryWithMaxAge(cascadeID string, port int, to
 		req.Header.Set("x-codeium-csrf-token", token)
 	}
 
-	client := &http.Client{
-		Timeout:   10 * time.Second,
-		Transport: p.transport,
-	}
-	resp, err := client.Do(req)
+	resp, err := p.mediumClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -1270,13 +1290,13 @@ func (p *Proxy) fetchUpstreamTrajectoryWithMaxAge(cascadeID string, port int, to
 		return nil, fmt.Errorf("failed to decode upstream response: %w", err)
 	}
 
-	trajCacheMu.Lock()
-	trajCache[cascadeID] = &trajectoryCacheEntry{
+	defaultTrajCache.trajCacheMu.Lock()
+	defaultTrajCache.trajCache[cascadeID] = &trajectoryCacheEntry{
 		fetchedAt: time.Now(),
 		data:      &data,
 	}
-	evictTrajCacheLocked()
-	trajCacheMu.Unlock()
+	defaultTrajCache.evictTrajCacheLocked()
+	defaultTrajCache.trajCacheMu.Unlock()
 
 	return &data, nil
 }

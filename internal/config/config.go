@@ -26,7 +26,9 @@ type NotificationConfig struct {
 // LoadDotEnv searches for a .env file in standard locations (CWD, parent directory, binary directory)
 // and populates environment variables that are not already set.
 func LoadDotEnv(paths ...string) {
-	searchPaths := append(paths, ".env", "../.env")
+	searchPaths := make([]string, 0, len(paths)+4)
+	searchPaths = append(searchPaths, paths...)
+	searchPaths = append(searchPaths, ".env", "../.env")
 	if execPath, err := os.Executable(); err == nil {
 		searchPaths = append(searchPaths, filepath.Join(filepath.Dir(execPath), ".env"))
 		searchPaths = append(searchPaths, filepath.Join(filepath.Dir(execPath), "..", ".env"))

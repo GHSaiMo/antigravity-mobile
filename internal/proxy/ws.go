@@ -7,12 +7,28 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 )
+
+// allowedOrigins holds trusted origins loaded from the ALLOWED_ORIGINS environment variable.
+// Format: comma-separated list of origins, e.g. "https://my-ddns.example.com,https://[2001:db8::1]:58900"
+var allowedOrigins []string
+
+func init() {
+	if origins := os.Getenv("ALLOWED_ORIGINS"); origins != "" {
+		for _, o := range strings.Split(origins, ",") {
+			o = strings.TrimSpace(o)
+			if o != "" {
+				allowedOrigins = append(allowedOrigins, strings.ToLower(o))
+			}
+		}
+	}
+}
 
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  32768,
@@ -40,6 +56,12 @@ var upgrader = websocket.Upgrader{
 				if lower == scheme+strings.ToLower(r.Host) {
 					return true
 				}
+			}
+		}
+		// Check against configured allowed origins (from ALLOWED_ORIGINS env var)
+		for _, allowed := range allowedOrigins {
+			if lower == allowed || strings.HasPrefix(lower, allowed+":") {
+				return true
 			}
 		}
 		log.Printf("[WS] Rejected WebSocket connection from untrusted origin: %s", origin)

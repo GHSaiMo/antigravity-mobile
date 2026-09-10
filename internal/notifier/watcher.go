@@ -47,6 +47,9 @@ func (w *Watcher) run(ctx context.Context) {
 	cleanupTicker := time.NewTicker(15 * time.Minute)
 	defer cleanupTicker.Stop()
 
+	scanTicker := time.NewTicker(3500 * time.Millisecond)
+	defer scanTicker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -54,19 +57,13 @@ func (w *Watcher) run(ctx context.Context) {
 			return
 		case <-cleanupTicker.C:
 			w.notifier.Dedup().Cleanup(4 * time.Hour)
-		default:
+		case <-scanTicker.C:
 			runningCount := w.scanOnce()
-			var sleepDuration time.Duration
+			// Adjust scan frequency: faster when tasks are running
 			if runningCount > 0 {
-				sleepDuration = 1500 * time.Millisecond
+				scanTicker.Reset(1500 * time.Millisecond)
 			} else {
-				sleepDuration = 3500 * time.Millisecond
-			}
-
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(sleepDuration):
+				scanTicker.Reset(3500 * time.Millisecond)
 			}
 		}
 	}

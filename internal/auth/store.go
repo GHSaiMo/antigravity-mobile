@@ -175,9 +175,10 @@ func (s *AuthStore) UpdateLastSeen(deviceID, remoteAddr string) {
 	cleanIP := CleanIP(remoteAddr)
 
 	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	dev, ok := s.devices[deviceID]
 	if !ok {
-		s.mu.Unlock()
 		return
 	}
 
@@ -188,12 +189,9 @@ func (s *AuthStore) UpdateLastSeen(deviceID, remoteAddr string) {
 	dev.LastSeenAt = now
 	dev.LastSeenIP = cleanIP
 	s.devices[deviceID] = dev
-	s.mu.Unlock()
 
 	if shouldSave {
-		s.mu.Lock()
 		_ = s.save()
-		s.mu.Unlock()
 	}
 }
 
