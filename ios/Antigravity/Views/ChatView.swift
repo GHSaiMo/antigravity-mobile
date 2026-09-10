@@ -58,7 +58,7 @@ public struct ChatView: View {
                 // Message stream
                 ScrollViewReader { proxy in
                     ScrollView {
-                        VStack(spacing: 8) {
+                        LazyVStack(spacing: 8) {
                             // Load older messages button
                             if viewModel.hasMore {
                                 Button(action: {

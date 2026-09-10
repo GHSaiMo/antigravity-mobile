@@ -58,6 +58,43 @@ public final class CacheManager: @unchecked Sendable {
     
     private var memConversations: [ConversationItem]?
     private var memSessions: [String: CachedChatSession] = [:]
+    private var memLastViewDates: [String: Date] = [:]
+    
+    public func getLastViewDate(for cascadeId: String) -> Date? {
+        lock.lock()
+        defer { lock.unlock() }
+        if let d = memLastViewDates[cascadeId] {
+            return d
+        }
+        if let ts = UserDefaults.standard.object(forKey: "ag_last_view_\(cascadeId)") as? Date {
+            memLastViewDates[cascadeId] = ts
+            return ts
+        }
+        return nil
+    }
+    
+    public func markConversationAsRead(cascadeId: String) {
+        lock.lock()
+        let now = Date()
+        memLastViewDates[cascadeId] = now
+        UserDefaults.standard.set(now, forKey: "ag_last_view_\(cascadeId)")
+        
+        if var items = memConversations, let idx = items.firstIndex(where: { $0.id == cascadeId }) {
+            let old = items[idx]
+            items[idx] = ConversationItem(
+                id: old.id,
+                title: old.title,
+                status: old.status,
+                stepCount: old.stepCount,
+                workspaceName: old.workspaceName,
+                lastModified: old.lastModified,
+                isSubagent: old.isSubagent,
+                isUnread: false
+            )
+            memConversations = items
+        }
+        lock.unlock()
+    }
     
     private init() {
         let fm = FileManager.default
@@ -246,6 +283,27 @@ public final class CacheManager: @unchecked Sendable {
         memSessions[cascadeId] = session
         lock.unlock()
         return session
+    }
+    
+    public func prewarmSessions(for cascadeIds: [String]) {
+        guard !cascadeIds.isEmpty else { return }
+        ioQueue.async { [weak self] in
+            guard let self = self else { return }
+            for cid in cascadeIds {
+                self.lock.lock()
+                let exists = self.memSessions[cid] != nil
+                self.lock.unlock()
+                if exists { continue }
+                
+                let fileURL = self.cacheDir.appendingPathComponent("sessions/\(cid).json")
+                if let data = try? Data(contentsOf: fileURL),
+                   let session = try? JSONDecoder().decode(CachedChatSession.self, from: data) {
+                    self.lock.lock()
+                    self.memSessions[cid] = session
+                    self.lock.unlock()
+                }
+            }
+        }
     }
     
     public func clearCache() {

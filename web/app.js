@@ -4,6 +4,7 @@ let activeCascadeId = null;
 let pollTimer = null;
 let currentTrajectories = {};
 let availableModels = [];
+const sessionStepsCache = {};
 
 // --- ConnectRPC & Gateway API ---
 
@@ -117,6 +118,7 @@ function renderRoute() {
     const newCascadeId = hash.slice(3);
     const changed = activeCascadeId !== newCascadeId;
     activeCascadeId = newCascadeId;
+    markConversationAsRead(newCascadeId);
 
     // View toggling
     convView.classList.remove("active");
@@ -143,7 +145,10 @@ function renderRoute() {
       prevWasRunning = false;
       updatePendingInteraction(null, false);
       const streamEl = document.getElementById("messages-stream");
-      if (streamEl) {
+      const cached = sessionStepsCache[activeCascadeId];
+      if (cached && cached.steps && cached.steps.length > 0) {
+        renderMessages(cached.steps, cached.isRunning);
+      } else if (streamEl) {
         streamEl.innerHTML = `
           <div class="loading-state">
             <div class="ios-spinner"></div>
@@ -194,6 +199,69 @@ async function loadConversations() {
   }
 }
 
+function isConversationUnread(item) {
+  if (!item) return false;
+  // 运行中或等待操作时不显示未读蓝点，优先展示状态标签
+  if (item.status === "CASCADE_RUN_STATUS_RUNNING") return false;
+  if (item.needsInput) return false;
+  if (item.annotations?.archived) return false;
+  if (item.annotations?.markedAsUnread) return true;
+
+  const lastMod = item.lastModifiedTime ? new Date(item.lastModifiedTime).getTime() : 0;
+  if (!lastMod) return false;
+
+  const serverView = item.annotations?.lastUserViewTime
+    ? new Date(item.annotations.lastUserViewTime).getTime()
+    : 0;
+
+  let localView = 0;
+  try {
+    const stored = localStorage.getItem(`ag_last_view_${item.id}`);
+    if (stored) localView = Number(stored);
+  } catch (e) {}
+
+  const effectiveView = Math.max(serverView, localView);
+  return lastMod > effectiveView;
+}
+
+async function markConversationAsRead(cascadeId) {
+  if (!cascadeId) return;
+  const nowMs = Date.now();
+  const nowIso = new Date(nowMs).toISOString();
+
+  try {
+    localStorage.setItem(`ag_last_view_${cascadeId}`, nowMs.toString());
+  } catch (e) {}
+
+  // 内存中乐观更新，从会话详情返回列表时立即体现已读状态
+  if (currentTrajectories && currentTrajectories[cascadeId]) {
+    if (!currentTrajectories[cascadeId].annotations) {
+      currentTrajectories[cascadeId].annotations = {};
+    }
+    currentTrajectories[cascadeId].annotations.lastUserViewTime = nowIso;
+    currentTrajectories[cascadeId].annotations.markedAsUnread = false;
+  }
+
+  // 通过网关向原生 language_server 上报已读时间与清除未读标记
+  try {
+    fetch("/api/exa.language_server_pb.LanguageServerService/UpdateConversationAnnotations", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Connect-Protocol-Version": "1",
+      },
+      body: JSON.stringify({
+        cascadeIds: [cascadeId],
+        annotations: {
+          markedAsUnread: false,
+          lastUserViewTime: nowIso,
+        },
+        mergeAnnotations: true,
+      }),
+    }).catch(() => {});
+  } catch (e) {}
+}
+
 function renderConversationList(summaries) {
   const listEl = document.getElementById("conversations-list");
   const searchInput = document.getElementById("conv-search");
@@ -231,9 +299,13 @@ function renderConversationList(summaries) {
     .map((item) => {
       const hasAction = !!item.needsInput;
       const isRunning = item.status === "CASCADE_RUN_STATUS_RUNNING" && !hasAction;
+      const isUnread = !isRunning && !hasAction && isConversationUnread(item);
+      const unreadDotHtml = isUnread
+        ? `<div class="status-unread-dot" title="未读新消息" data-testid="status-unread-dot"><div class="dot-halo"></div><div class="dot-core"></div></div>`
+        : "";
       const badgeHtml = hasAction
         ? `<span class="badge badge-action">ACTION</span>`
-        : (isRunning ? `<span class="badge badge-running">RUNNING</span>` : "");
+        : (isRunning ? `<span class="badge badge-running">RUNNING</span>` : unreadDotHtml);
       const title = item.annotations?.title || item.summary || "未命名会话";
       const wsUri = item.workspaceUris?.[0] || item.workspaces?.[0]?.workspaceFolderAbsoluteUri || "";
       const wsName = wsUri.split("/").filter(Boolean).pop() || "workspace";
@@ -926,6 +998,10 @@ function renderMessages(steps, isRunning = false) {
   if (!steps || steps.length === 0) {
     streamEl.innerHTML = '<div class="loading-state"><p>暂无消息</p></div>';
     return;
+  }
+
+  if (activeCascadeId) {
+    sessionStepsCache[activeCascadeId] = { steps, isRunning };
   }
 
   const items = groupSteps(steps);

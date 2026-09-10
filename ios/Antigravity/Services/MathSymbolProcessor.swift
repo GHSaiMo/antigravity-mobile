@@ -233,18 +233,70 @@ public enum MathSymbolProcessor: Sendable {
         "v": "ᵥ", "x": "ₓ"
     ]
     
+    // MARK: - Precompiled Regular Expressions & Cache
+    
+    private final class ProcessedMathCache: @unchecked Sendable {
+        static let shared = ProcessedMathCache()
+        private let lock = NSLock()
+        private var cache: [Int: String] = [:]
+        
+        func get(_ hash: Int) -> String? {
+            lock.lock()
+            defer { lock.unlock() }
+            return cache[hash]
+        }
+        
+        func set(_ hash: Int, value: String) {
+            lock.lock()
+            defer { lock.unlock() }
+            if cache.count > 500 {
+                cache.removeAll(keepingCapacity: true)
+            }
+            cache[hash] = value
+        }
+    }
+    
+    private static let precompiledSymbolReplacements: [(regex: NSRegularExpression, replacement: String)] = {
+        symbolReplacements.compactMap { (pattern, replacement) in
+            if let reg = try? NSRegularExpression(pattern: pattern) {
+                return (reg, replacement)
+            }
+            return nil
+        }
+    }()
+    
+    private static let blockRegex = try? NSRegularExpression(pattern: #"```[a-zA-Z0-9_\-]*\n[\s\S]*?```"#)
+    private static let inlineRegex = try? NSRegularExpression(pattern: #"`[^`\n]+`"#)
+    private static let displayBlockRegex = try? NSRegularExpression(pattern: #"\$\$(.*?)\$\$|\\\[(.*?)\\\]"#, options: [.dotMatchesLineSeparators])
+    private static let inlineMathRegex = try? NSRegularExpression(pattern: #"(?<!\\)\$(?!\s)([^$\n]+?)(?<!\s)(?<!\\)\$|\\\((.*?)\\\)"#)
+    private static let textWrapperRegex = try? NSRegularExpression(pattern: #"\\(?:text|mathrm|mathbf|mathit|operatorname|pmb)\{([^}]*)\}"#)
+    private static let fracRegex = try? NSRegularExpression(pattern: #"\\frac\{([^}]*)\}\{([^}]*)\}"#)
+    private static let sqrtNRegex = try? NSRegularExpression(pattern: #"\\sqrt\[([^\]]*)\]\{([^}]*)\}"#)
+    private static let sqrtRegex = try? NSRegularExpression(pattern: #"\\sqrt\{([^}]*)\}"#)
+    private static let supGroupRegex = try? NSRegularExpression(pattern: #"\^\{([0-9a-zA-Z\+\-\=\(\)\*]+)\}"#)
+    private static let supSingleRegex = try? NSRegularExpression(pattern: #"\^([0-9a-zA-Z\+\-\*])"#)
+    private static let subGroupRegex = try? NSRegularExpression(pattern: #"_\{([0-9a-zA-Z\+\-\=\(\)]+)\}"#)
+    private static let subSingleRegex = try? NSRegularExpression(pattern: #"_([0-9a-zA-Z])"#)
+    
     // MARK: - Main Processing Entry Point
     
     /// Processes Markdown text to replace all LaTeX math symbols with native Unicode characters,
     /// safely preserving fenced code blocks and inline code spans.
     public static func process(_ text: String) -> String {
         guard !text.isEmpty else { return text }
+        // Fast-path: If text does not contain backslash or dollar sign, no LaTeX math can be present
+        guard text.contains("\\") || text.contains("$") else { return text }
+        
+        let hash = text.hashValue
+        if let cached = ProcessedMathCache.shared.get(hash) {
+            return cached
+        }
         
         var protectedText = text
         
         // 1. Protect fenced code blocks ```...```
         var codeBlocks: [String] = []
-        if let blockRegex = try? NSRegularExpression(pattern: #"```[a-zA-Z0-9_\-]*\n[\s\S]*?```"#) {
+        if let blockRegex = Self.blockRegex {
             let nsText = protectedText as NSString
             let matches = blockRegex.matches(in: protectedText, range: NSRange(location: 0, length: nsText.length))
             for match in matches.reversed() {
@@ -257,7 +309,7 @@ public enum MathSymbolProcessor: Sendable {
         
         // 2. Protect inline code spans `code`
         var inlineCodeSpans: [String] = []
-        if let inlineRegex = try? NSRegularExpression(pattern: #"`[^`\n]+`"#) {
+        if let inlineRegex = Self.inlineRegex {
             let nsText = protectedText as NSString
             let matches = inlineRegex.matches(in: protectedText, range: NSRange(location: 0, length: nsText.length))
             for match in matches.reversed() {
@@ -269,7 +321,7 @@ public enum MathSymbolProcessor: Sendable {
         }
         
         // 3. Process display math blocks: $$...$$ and \[...\]
-        if let displayBlockRegex = try? NSRegularExpression(pattern: #"\$\$(.*?)\$\$|\\\[(.*?)\\\]"#, options: [.dotMatchesLineSeparators]) {
+        if let displayBlockRegex = Self.displayBlockRegex {
             protectedText = replaceRegexMatches(in: protectedText, regex: displayBlockRegex) { matchText in
                 let content = matchText
                     .trimmingCharacters(in: CharacterSet(charactersIn: "$"))
@@ -282,7 +334,7 @@ public enum MathSymbolProcessor: Sendable {
         
         // 4. Process inline math: $...$ and \(...\)
         // Guard against accidental currency matches ($100 and $200) by ensuring no leading/trailing spaces
-        if let inlineMathRegex = try? NSRegularExpression(pattern: #"(?<!\\)\$(?!\s)([^$\n]+?)(?<!\s)(?<!\\)\$|\\\((.*?)\\\)"#) {
+        if let inlineMathRegex = Self.inlineMathRegex {
             protectedText = replaceRegexMatches(in: protectedText, regex: inlineMathRegex) { matchText in
                 var inner = matchText
                 if inner.hasPrefix("$") && inner.hasSuffix("$") && inner.count >= 2 {
@@ -296,8 +348,8 @@ public enum MathSymbolProcessor: Sendable {
         
         // 5. Transform ONLY standalone LaTeX symbol commands in prose (e.g. \rightarrow outside of $)
         // CRITICAL: NEVER run subscripts (_), superscripts (^), fractions, or bracket cleanups on bare prose!
-        for (pattern, repl) in symbolReplacements {
-            if let reg = try? NSRegularExpression(pattern: pattern) {
+        if protectedText.contains("\\") {
+            for (reg, repl) in precompiledSymbolReplacements {
                 protectedText = reg.stringByReplacingMatches(
                     in: protectedText,
                     range: NSRange(location: 0, length: (protectedText as NSString).length),
@@ -318,6 +370,7 @@ public enum MathSymbolProcessor: Sendable {
             protectedText = protectedText.replacingOccurrences(of: token, with: block)
         }
         
+        ProcessedMathCache.shared.set(hash, value: protectedText)
         return protectedText
     }
     
@@ -328,20 +381,20 @@ public enum MathSymbolProcessor: Sendable {
         var str = input
         
         // 1. Text wrappers: \text{...}, \mathrm{...}, \mathbf{...}, etc.
-        if let textWrapperRegex = try? NSRegularExpression(pattern: #"\\(?:text|mathrm|mathbf|mathit|operatorname|pmb)\{([^}]*)\}"#) {
+        if let textWrapperRegex = Self.textWrapperRegex {
             str = textWrapperRegex.stringByReplacingMatches(in: str, range: NSRange(location: 0, length: (str as NSString).length), withTemplate: "$1")
         }
         
         // 2. Fractions: \frac{a}{b} -> a / b
-        if let fracRegex = try? NSRegularExpression(pattern: #"\\frac\{([^}]*)\}\{([^}]*)\}"#) {
+        if let fracRegex = Self.fracRegex {
             str = fracRegex.stringByReplacingMatches(in: str, range: NSRange(location: 0, length: (str as NSString).length), withTemplate: "$1 / $2")
         }
         
         // 3. Square roots: \sqrt{x} -> √(x), \sqrt[n]{x} -> ⁿ√(x)
-        if let sqrtNRegex = try? NSRegularExpression(pattern: #"\\sqrt\[([^\]]*)\]\{([^}]*)\}"#) {
+        if let sqrtNRegex = Self.sqrtNRegex {
             str = sqrtNRegex.stringByReplacingMatches(in: str, range: NSRange(location: 0, length: (str as NSString).length), withTemplate: "$1√($2)")
         }
-        if let sqrtRegex = try? NSRegularExpression(pattern: #"\\sqrt\{([^}]*)\}"#) {
+        if let sqrtRegex = Self.sqrtRegex {
             str = sqrtRegex.stringByReplacingMatches(in: str, range: NSRange(location: 0, length: (str as NSString).length), withTemplate: "√($1)")
         }
         
@@ -364,50 +417,54 @@ public enum MathSymbolProcessor: Sendable {
             .replacingOccurrences(of: #"\qquad"#, with: "  ")
         
         // 5. Replace LaTeX symbols (arrows, relations, operators, Greek)
-        for (pattern, repl) in symbolReplacements {
-            if let reg = try? NSRegularExpression(pattern: pattern) {
+        if str.contains("\\") {
+            for (reg, repl) in precompiledSymbolReplacements {
                 str = reg.stringByReplacingMatches(in: str, range: NSRange(location: 0, length: (str as NSString).length), withTemplate: repl)
             }
         }
         
         // 6. Convert superscripts: ^{...} and ^x
-        if let supGroupRegex = try? NSRegularExpression(pattern: #"\^\{([0-9a-zA-Z\+\-\=\(\)\*]+)\}"#) {
-            let nsStr = str as NSString
-            let matches = supGroupRegex.matches(in: str, range: NSRange(location: 0, length: nsStr.length))
-            for match in matches.reversed() {
-                let inner = nsStr.substring(with: match.range(at: 1))
-                let converted = String(inner.map { superscriptDict[$0] ?? $0 })
-                str = (str as NSString).replacingCharacters(in: match.range, with: converted)
+        if str.contains("^") {
+            if let supGroupRegex = Self.supGroupRegex {
+                let nsStr = str as NSString
+                let matches = supGroupRegex.matches(in: str, range: NSRange(location: 0, length: nsStr.length))
+                for match in matches.reversed() {
+                    let inner = nsStr.substring(with: match.range(at: 1))
+                    let converted = String(inner.map { superscriptDict[$0] ?? $0 })
+                    str = (str as NSString).replacingCharacters(in: match.range, with: converted)
+                }
             }
-        }
-        if let supSingleRegex = try? NSRegularExpression(pattern: #"\^([0-9a-zA-Z\+\-\*])"#) {
-            let nsStr = str as NSString
-            let matches = supSingleRegex.matches(in: str, range: NSRange(location: 0, length: nsStr.length))
-            for match in matches.reversed() {
-                let inner = nsStr.substring(with: match.range(at: 1))
-                if let firstChar = inner.first, let sup = superscriptDict[firstChar] {
-                    str = (str as NSString).replacingCharacters(in: match.range, with: String(sup))
+            if let supSingleRegex = Self.supSingleRegex {
+                let nsStr = str as NSString
+                let matches = supSingleRegex.matches(in: str, range: NSRange(location: 0, length: nsStr.length))
+                for match in matches.reversed() {
+                    let inner = nsStr.substring(with: match.range(at: 1))
+                    if let firstChar = inner.first, let sup = superscriptDict[firstChar] {
+                        str = (str as NSString).replacingCharacters(in: match.range, with: String(sup))
+                    }
                 }
             }
         }
         
         // 7. Convert subscripts: _{...} and _x
-        if let subGroupRegex = try? NSRegularExpression(pattern: #"_\{([0-9a-zA-Z\+\-\=\(\)]+)\}"#) {
-            let nsStr = str as NSString
-            let matches = subGroupRegex.matches(in: str, range: NSRange(location: 0, length: nsStr.length))
-            for match in matches.reversed() {
-                let inner = nsStr.substring(with: match.range(at: 1))
-                let converted = String(inner.map { subscriptDict[$0] ?? $0 })
-                str = (str as NSString).replacingCharacters(in: match.range, with: converted)
+        if str.contains("_") {
+            if let subGroupRegex = Self.subGroupRegex {
+                let nsStr = str as NSString
+                let matches = subGroupRegex.matches(in: str, range: NSRange(location: 0, length: nsStr.length))
+                for match in matches.reversed() {
+                    let inner = nsStr.substring(with: match.range(at: 1))
+                    let converted = String(inner.map { subscriptDict[$0] ?? $0 })
+                    str = (str as NSString).replacingCharacters(in: match.range, with: converted)
+                }
             }
-        }
-        if let subSingleRegex = try? NSRegularExpression(pattern: #"_([0-9a-zA-Z])"#) {
-            let nsStr = str as NSString
-            let matches = subSingleRegex.matches(in: str, range: NSRange(location: 0, length: nsStr.length))
-            for match in matches.reversed() {
-                let inner = nsStr.substring(with: match.range(at: 1))
-                if let firstChar = inner.first, let sub = subscriptDict[firstChar] {
-                    str = (str as NSString).replacingCharacters(in: match.range, with: String(sub))
+            if let subSingleRegex = Self.subSingleRegex {
+                let nsStr = str as NSString
+                let matches = subSingleRegex.matches(in: str, range: NSRange(location: 0, length: nsStr.length))
+                for match in matches.reversed() {
+                    let inner = nsStr.substring(with: match.range(at: 1))
+                    if let firstChar = inner.first, let sub = subscriptDict[firstChar] {
+                        str = (str as NSString).replacingCharacters(in: match.range, with: String(sub))
+                    }
                 }
             }
         }

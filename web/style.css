@@ -319,6 +319,8 @@ html, body {
 }
 
 .conv-card {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
   background-color: var(--ios-secondary-bg);
   border-radius: 14px;
   padding: 14px;
@@ -375,6 +377,47 @@ html, body {
 .badge-running {
   color: var(--ios-green);
   background-color: rgba(48, 209, 88, 0.15);
+}
+
+/* Unread Status Dot (matches Antigravity status-unread-dot spec) */
+.status-unread-dot {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.status-unread-dot .dot-halo {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background-color: var(--ios-blue);
+  opacity: 0.15;
+  animation: unread-dot-pulse 2.2s ease-in-out infinite;
+}
+
+.status-unread-dot .dot-core {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--ios-blue);
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes unread-dot-pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.14;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 0.28;
+  }
 }
 
 .conv-card-bottom {

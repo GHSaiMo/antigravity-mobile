@@ -206,6 +206,34 @@ public final class APIClient: Sendable {
         return nil
     }
     
+    // Mark conversation as read both locally and report to upstream language_server
+    public func markConversationAsRead(cascadeId: String, baseURL: URL) async {
+        CacheManager.shared.markConversationAsRead(cascadeId: cascadeId)
+        
+        struct AnnotationsPayload: Encodable {
+            let markedAsUnread: Bool
+            let lastUserViewTime: String
+        }
+        struct UpdateReq: Encodable {
+            let cascadeIds: [String]
+            let annotations: AnnotationsPayload
+            let mergeAnnotations: Bool
+        }
+        
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let nowStr = formatter.string(from: Date())
+        
+        let body = UpdateReq(
+            cascadeIds: [cascadeId],
+            annotations: AnnotationsPayload(markedAsUnread: false, lastUserViewTime: nowStr),
+            mergeAnnotations: true
+        )
+        
+        struct EmptyResp: Decodable {}
+        _ = try? await rpc(method: "UpdateConversationAnnotations", body: body, baseURL: baseURL) as EmptyResp
+    }
+    
     // Fast lightweight paginated messages endpoint served by Go gateway
     public func fetchMessages(
         cascadeId: String,

@@ -26,6 +26,7 @@ public final class ConversationListViewModel {
         let cached = self.cacheManager.loadConversations().filter { !$0.isSubagent }
         if !cached.isEmpty {
             self.conversations = cached
+            self.cacheManager.prewarmSessions(for: cached.prefix(15).map(\.id))
         }
     }
     
@@ -46,6 +47,7 @@ public final class ConversationListViewModel {
             let cached = cacheManager.loadConversations().filter { !$0.isSubagent }
             if !cached.isEmpty {
                 self.conversations = cached
+                self.cacheManager.prewarmSessions(for: cached.prefix(15).map(\.id))
             }
         }
         
@@ -66,6 +68,7 @@ public final class ConversationListViewModel {
             let cleaned = items.filter { !$0.isSubagent }
             self.conversations = cleaned
             cacheManager.saveConversations(cleaned)
+            cacheManager.prewarmSessions(for: cleaned.prefix(15).map(\.id))
             self.isLoading = false
         } catch {
             if conversations.isEmpty {
