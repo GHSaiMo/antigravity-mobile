@@ -2345,8 +2345,21 @@ window.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Chat Input Auto-grow & Dynamic Queue / Stop Controls
+  // Chat Input Auto-grow, Keyboard Dismissal Recovery & Dynamic Queue / Stop Controls
   const chatInput = document.getElementById("chat-input");
+  const messagesStream = document.getElementById("messages-stream");
+
+  // Tap conversation view to dismiss keyboard smoothly (parity with iOS)
+  if (messagesStream) {
+    messagesStream.addEventListener("pointerdown", (e) => {
+      // Don't blur if tapping inside an input, button, or interactive control
+      if (e.target.closest("button, a, input, select, textarea, summary, .chip-pill")) return;
+      if (document.activeElement === chatInput) {
+        chatInput.blur();
+      }
+    });
+  }
+
   if (chatInput) {
     chatInput.addEventListener("input", () => {
       chatInput.style.height = "auto";
@@ -2354,11 +2367,45 @@ window.addEventListener("DOMContentLoaded", () => {
       const isRunning = currentTrajectories[activeCascadeId]?.status === "CASCADE_RUN_STATUS_RUNNING";
       updateChatControls(isRunning, null, false);
     });
+
+    chatInput.addEventListener("blur", () => {
+      // Fix iOS WebKit viewport displacement bug when virtual keyboard retracts
+      window.scrollTo(0, 0);
+      document.body.scrollTop = 0;
+      document.documentElement.scrollTop = 0;
+
+      // Multi-stage adjustment during and after keyboard retreat animation
+      setTimeout(() => {
+        window.scrollTo(0, 0);
+        if (messagesStream && userIsNearBottom) {
+          messagesStream.scrollTop = messagesStream.scrollHeight;
+        }
+      }, 120);
+
+      setTimeout(() => {
+        window.scrollTo(0, 0);
+        if (messagesStream && userIsNearBottom) {
+          messagesStream.scrollTop = messagesStream.scrollHeight;
+        }
+      }, 280);
+    });
+
     chatInput.addEventListener("keydown", (e) => {
       if (e.isComposing || e.keyCode === 229) return; // Ignore IME composition (Chinese, Japanese, Korean)
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         sendMessage();
+      }
+    });
+  }
+
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", () => {
+      if (document.activeElement !== chatInput) {
+        window.scrollTo(0, 0);
+        if (messagesStream && userIsNearBottom) {
+          messagesStream.scrollTop = messagesStream.scrollHeight;
+        }
       }
     });
   }

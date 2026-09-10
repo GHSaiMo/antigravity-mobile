@@ -121,7 +121,6 @@ public struct ChatView: View {
                         TapGesture().onEnded {
                             if isInputFocused {
                                 isInputFocused = false
-                                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
                             }
                         }
                     )
@@ -162,6 +161,16 @@ public struct ChatView: View {
                     .onChange(of: isInputFocused) { _, focused in
                         if focused {
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                scrollToBottom(proxy: proxy, animated: true)
+                            }
+                        } else {
+                            // 当输入法收起（回弹）时，键盘动画耗时约 0.25s。
+                            // 在动画中段与完全收起时触发底部对齐校准，
+                            // 消除 LazyVStack 懒加载高度延迟造成的视口与消息悬空留白
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                scrollToBottom(proxy: proxy, animated: true)
+                            }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
                                 scrollToBottom(proxy: proxy, animated: true)
                             }
                         }
