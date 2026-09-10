@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import Observation
 
 public enum StreamConnectionStatus: String, Sendable {
@@ -33,25 +34,14 @@ public final class StreamWebSocketClient {
     public var onUpdate: ((StreamUpdatePayload) -> Void)?
     public var onStatusChange: ((StreamConnectionStatus) -> Void)?
     
-    private var webSocketTask: URLSessionWebSocketTask?
-    private var readTask: Task<Void, Never>?
-    private var pingTask: Task<Void, Never>?
+    private var connection: NWConnection?
     private var reconnectTask: Task<Void, Never>?
     
     private var activeURL: URL?
     private var activeCascadeId: String?
     private var isIntentionallyClosed: Bool = false
-    private let session: URLSession
     
-    public init() {
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 20
-        config.timeoutIntervalForResource = 60
-        config.httpShouldSetCookies = true
-        config.httpCookieAcceptPolicy = .always
-        config.httpCookieStorage = HTTPCookieStorage.shared
-        self.session = URLSession(configuration: config)
-    }
+    public init() {}
     
     public func connect(baseURL: URL, cascadeId: String, force: Bool = false) {
         // If already connected to the same session, no need to reconnect unless forced
@@ -65,7 +55,8 @@ public final class StreamWebSocketClient {
         self.activeCascadeId = cascadeId
         self.isIntentionallyClosed = false
         
-        startConnection()
+        let preferCellular = AppSettings.shared.preferCellularNetwork
+        startConnection(useCellular: preferCellular)
     }
     
     public func reconnect(force: Bool = true) {
@@ -73,7 +64,7 @@ public final class StreamWebSocketClient {
         connect(baseURL: baseURL, cascadeId: cascadeId, force: force)
     }
     
-    private func startConnection() {
+    private func startConnection(useCellular: Bool) {
         guard let baseURL = activeURL, let cascadeId = activeCascadeId, !isIntentionallyClosed else { return }
         
         guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: true) else {
@@ -102,57 +93,80 @@ public final class StreamWebSocketClient {
             return
         }
         
-        var request = URLRequest(url: wsURL)
-        request.timeoutInterval = 15
-        
-        // Inject Cloudflare Access headers if configured
-        let settings = AppSettings.shared
-        if !settings.cfAccessClientId.isEmpty {
-            request.setValue(settings.cfAccessClientId, forHTTPHeaderField: "CF-Access-Client-Id")
-        }
-        if !settings.cfAccessClientSecret.isEmpty {
-            request.setValue(settings.cfAccessClientSecret, forHTTPHeaderField: "CF-Access-Client-Secret")
-        }
-        
         updateStatus(.connecting)
         
-        let task = session.webSocketTask(with: request)
-        self.webSocketTask = task
-        task.resume()
+        let endpoint = NWEndpoint.url(wsURL)
+        let wsOptions = NWProtocolWebSocket.Options()
+        wsOptions.autoReplyPing = true
         
-        startPingLoop(for: task)
-        startReadLoop(for: task, cascadeId: cascadeId)
+        let parameters: NWParameters
+        if wsURL.scheme?.lowercased() == "wss" {
+            let tlsOptions = NWProtocolTLS.Options()
+            sec_protocol_options_set_verify_block(tlsOptions.securityProtocolOptions, { (_, _, completion) in
+                completion(true)
+            }, .global())
+            parameters = NWParameters(tls: tlsOptions)
+        } else {
+            parameters = NWParameters.tcp
+        }
+        parameters.defaultProtocolStack.applicationProtocols.insert(wsOptions, at: 0)
+        
+        if useCellular {
+            parameters.requiredInterfaceType = .cellular
+        }
+        
+        let conn = NWConnection(to: endpoint, using: parameters)
+        self.connection = conn
+        
+        conn.stateUpdateHandler = { [weak self] state in
+            guard let self = self else { return }
+            Task { @MainActor in
+                self.handleStateUpdate(state: state, wsURL: wsURL, usedCellular: useCellular)
+            }
+        }
+        
+        conn.start(queue: .main)
     }
     
-    private func startReadLoop(for task: URLSessionWebSocketTask, cascadeId: String) {
-        readTask?.cancel()
-        readTask = Task { [weak self] in
-            while !Task.isCancelled {
-                do {
-                    let message = try await task.receive()
-                    guard let self else { break }
-                    
-                    if self.status != .connected {
-                        self.updateStatus(.connected)
-                    }
-                    
-                    switch message {
-                    case .string(let text):
-                        if let data = text.data(using: .utf8) {
-                            self.handlePayloadData(data, expectedCascadeId: cascadeId)
-                        }
-                    case .data(let data):
-                        self.handlePayloadData(data, expectedCascadeId: cascadeId)
-                    @unknown default:
-                        break
-                    }
-                } catch {
-                    guard let self else { break }
-                    if !Task.isCancelled && !self.isIntentionallyClosed {
-                        print("[StreamWS] Connection interrupted: \(error.localizedDescription)")
-                        self.handleConnectionLoss()
-                    }
-                    break
+    private func handleStateUpdate(state: NWConnection.State, wsURL: URL, usedCellular: Bool) {
+        switch state {
+        case .ready:
+            updateStatus(.connected)
+            receiveNextMessage()
+        case .failed(let error):
+            print("[StreamWS] Connection failed (cellular=\(usedCellular)): \(error)")
+            if usedCellular && !isIntentionallyClosed {
+                // Cellular failed (e.g. no cellular signal or pure Wi-Fi iPad), fall back to standard interface
+                print("[StreamWS] Cellular attempt failed, falling back to standard interface")
+                cleanupCurrentSocket()
+                startConnection(useCellular: false)
+            } else {
+                handleConnectionLoss()
+            }
+        case .cancelled:
+            if !isIntentionallyClosed {
+                updateStatus(.disconnected)
+            }
+        default:
+            break
+        }
+    }
+    
+    private func receiveNextMessage() {
+        guard let conn = connection, status == .connected, !isIntentionallyClosed else { return }
+        
+        conn.receiveMessage { [weak self] content, _, _, error in
+            guard let self = self else { return }
+            Task { @MainActor in
+                if let data = content, !data.isEmpty, let cascadeId = self.activeCascadeId {
+                    self.handlePayloadData(data, expectedCascadeId: cascadeId)
+                }
+                
+                if error == nil && !self.isIntentionallyClosed {
+                    self.receiveNextMessage()
+                } else if let error = error {
+                    print("[StreamWS] Receive error: \(error)")
+                    self.handleConnectionLoss()
                 }
             }
         }
@@ -169,46 +183,26 @@ public final class StreamWebSocketClient {
         }
     }
     
-    private func startPingLoop(for task: URLSessionWebSocketTask) {
-        pingTask?.cancel()
-        pingTask = Task {
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 15_000_000_000) // 15 seconds
-                guard !Task.isCancelled else { break }
-                task.sendPing { error in
-                    if let error = error {
-                        print("[StreamWS] Ping failed: \(error.localizedDescription)")
-                    }
-                }
-            }
-        }
-    }
-    
     private func handleConnectionLoss() {
         updateStatus(.failed)
         cleanupCurrentSocket()
         
         guard !isIntentionallyClosed else { return }
         
-        // Automatically schedule reconnect in 2.5s
         reconnectTask?.cancel()
         reconnectTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 2_500_000_000)
             guard let self, !self.isIntentionallyClosed else { return }
             print("[StreamWS] Reconnecting to stream...")
-            self.startConnection()
+            self.startConnection(useCellular: AppSettings.shared.preferCellularNetwork)
         }
     }
     
     private func cleanupCurrentSocket() {
-        pingTask?.cancel()
-        pingTask = nil
-        readTask?.cancel()
-        readTask = nil
-        
-        if let task = webSocketTask {
-            task.cancel(with: .goingAway, reason: nil)
-            self.webSocketTask = nil
+        if let conn = connection {
+            conn.stateUpdateHandler = nil
+            conn.cancel()
+            self.connection = nil
         }
     }
     

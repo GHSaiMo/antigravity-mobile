@@ -5,7 +5,6 @@ public enum APIError: LocalizedError, Sendable {
     case serverError(statusCode: Int, message: String)
     case networkError(String)
     case decodingError(String)
-    case cloudflareAuthRequired
     
     public var errorDescription: String? {
         switch self {
@@ -17,8 +16,6 @@ public enum APIError: LocalizedError, Sendable {
             return "网络连接失败: \(msg)"
         case .decodingError(let msg):
             return "数据解析失败: \(msg)"
-        case .cloudflareAuthRequired:
-            return "🔒 遇到了 Cloudflare 邮箱验证拦截，请在设置中点击「完成邮箱验证」或配置 Service Token"
         }
     }
 }
@@ -83,16 +80,10 @@ public struct FetchMessagesResult: Sendable {
 public final class APIClient: Sendable {
     public static let shared = APIClient()
     
-    private let session: URLSession
+    private let transport: NetworkTransport
     
-    public init() {
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 15
-        config.timeoutIntervalForResource = 30
-        config.httpShouldSetCookies = true
-        config.httpCookieAcceptPolicy = .always
-        config.httpCookieStorage = HTTPCookieStorage.shared
-        self.session = URLSession(configuration: config)
+    public init(transport: NetworkTransport = .shared) {
+        self.transport = transport
     }
     
     // Core ConnectRPC POST request
@@ -106,37 +97,21 @@ public final class APIClient: Sendable {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("1", forHTTPHeaderField: "Connect-Protocol-Version")
-        
-        // Inject Cloudflare Access Service Token headers if configured
-        let settings = AppSettings.shared
-        if !settings.cfAccessClientId.isEmpty {
-            request.setValue(settings.cfAccessClientId, forHTTPHeaderField: "CF-Access-Client-Id")
-        }
-        if !settings.cfAccessClientSecret.isEmpty {
-            request.setValue(settings.cfAccessClientSecret, forHTTPHeaderField: "CF-Access-Client-Secret")
-        }
-        
         request.httpBody = try JSONEncoder().encode(body)
         
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await session.data(for: request)
+            (data, response) = try await transport.send(
+                request: request,
+                preferCellular: AppSettings.shared.preferCellularNetwork
+            )
         } catch {
             throw APIError.networkError(error.localizedDescription)
         }
         
         guard let httpResp = response as? HTTPURLResponse else {
             throw APIError.networkError("Invalid response type")
-        }
-        
-        // Detect Cloudflare Zero Trust Access challenge
-        let contentType = httpResp.value(forHTTPHeaderField: "Content-Type") ?? ""
-        if contentType.contains("text/html") || httpResp.statusCode == 403 || httpResp.statusCode == 302 {
-            let bodyStr = String(data: data, encoding: .utf8) ?? ""
-            if bodyStr.contains("cloudflareaccess.com") || bodyStr.contains("Cloudflare") || bodyStr.contains("<!DOCTYPE html") {
-                throw APIError.cloudflareAuthRequired
-            }
         }
         
         guard (200...299).contains(httpResp.statusCode) else {
@@ -256,14 +231,11 @@ public final class APIClient: Sendable {
         var request = URLRequest(url: url)
         request.timeoutInterval = 10
         
-        let settings = AppSettings.shared
-        if !settings.cfAccessClientId.isEmpty && !settings.cfAccessClientSecret.isEmpty {
-            request.setValue(settings.cfAccessClientId, forHTTPHeaderField: "CF-Access-Client-Id")
-            request.setValue(settings.cfAccessClientSecret, forHTTPHeaderField: "CF-Access-Client-Secret")
-        }
-        
         do {
-            let (data, response) = try await session.data(for: request)
+            let (data, response) = try await transport.send(
+                request: request,
+                preferCellular: AppSettings.shared.preferCellularNetwork
+            )
             if let httpResp = response as? HTTPURLResponse, httpResp.statusCode == 200 {
                 let decoded = try JSONDecoder().decode(PaginatedMessagesResponse.self, from: data)
                 let chatMessages = decoded.messages.map { item -> ChatMessage in
@@ -499,12 +471,6 @@ public final class APIClient: Sendable {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = 10
         
-        let settings = AppSettings.shared
-        if !settings.cfAccessClientId.isEmpty && !settings.cfAccessClientSecret.isEmpty {
-            request.setValue(settings.cfAccessClientId, forHTTPHeaderField: "CF-Access-Client-Id")
-            request.setValue(settings.cfAccessClientSecret, forHTTPHeaderField: "CF-Access-Client-Secret")
-        }
-        
         let payload = InteractionSubmitRequest(
             cascadeId: cascadeId,
             trajectoryId: trajectoryId,
@@ -520,7 +486,10 @@ public final class APIClient: Sendable {
         
         request.httpBody = try JSONEncoder().encode(payload)
         
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await transport.send(
+            request: request,
+            preferCellular: AppSettings.shared.preferCellularNetwork
+        )
         guard let httpResp = response as? HTTPURLResponse else {
             throw APIError.networkError("Invalid HTTP response")
         }
@@ -546,22 +515,12 @@ public final class APIClient: Sendable {
         var request = URLRequest(url: endpoint)
         request.httpMethod = "GET"
         
-        let settings = AppSettings.shared
-        if !settings.cfAccessClientId.isEmpty {
-            request.setValue(settings.cfAccessClientId, forHTTPHeaderField: "CF-Access-Client-Id")
-        }
-        if !settings.cfAccessClientSecret.isEmpty {
-            request.setValue(settings.cfAccessClientSecret, forHTTPHeaderField: "CF-Access-Client-Secret")
-        }
-        
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await transport.send(
+            request: request,
+            preferCellular: AppSettings.shared.preferCellularNetwork
+        )
         guard let httpResp = response as? HTTPURLResponse else {
             throw APIError.networkError("Invalid response type")
-        }
-        
-        let contentType = httpResp.value(forHTTPHeaderField: "Content-Type") ?? ""
-        if contentType.contains("text/html") || httpResp.statusCode == 403 || httpResp.statusCode == 302 {
-            throw APIError.cloudflareAuthRequired
         }
         
         guard httpResp.statusCode == 200 else {
@@ -578,22 +537,12 @@ public final class APIClient: Sendable {
         request.httpMethod = "GET"
         request.timeoutInterval = 10
         
-        let settings = AppSettings.shared
-        if !settings.cfAccessClientId.isEmpty {
-            request.setValue(settings.cfAccessClientId, forHTTPHeaderField: "CF-Access-Client-Id")
-        }
-        if !settings.cfAccessClientSecret.isEmpty {
-            request.setValue(settings.cfAccessClientSecret, forHTTPHeaderField: "CF-Access-Client-Secret")
-        }
-        
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await transport.send(
+            request: request,
+            preferCellular: AppSettings.shared.preferCellularNetwork
+        )
         guard let httpResp = response as? HTTPURLResponse else {
             throw APIError.networkError("Invalid response type")
-        }
-        
-        let contentType = httpResp.value(forHTTPHeaderField: "Content-Type") ?? ""
-        if contentType.contains("text/html") || httpResp.statusCode == 403 || httpResp.statusCode == 302 {
-            throw APIError.cloudflareAuthRequired
         }
         
         guard (200...299).contains(httpResp.statusCode) else {
@@ -633,14 +582,6 @@ public final class APIClient: Sendable {
         request.timeoutInterval = 15
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
-        let settings = AppSettings.shared
-        if !settings.cfAccessClientId.isEmpty {
-            request.setValue(settings.cfAccessClientId, forHTTPHeaderField: "CF-Access-Client-Id")
-        }
-        if !settings.cfAccessClientSecret.isEmpty {
-            request.setValue(settings.cfAccessClientSecret, forHTTPHeaderField: "CF-Access-Client-Secret")
-        }
-        
         struct Payload: Encodable {
             let workspaceUri: String
             let prompt: String
@@ -655,7 +596,10 @@ public final class APIClient: Sendable {
             projectId: projectId
         ))
         
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await transport.send(
+            request: request,
+            preferCellular: AppSettings.shared.preferCellularNetwork
+        )
         guard let httpResp = response as? HTTPURLResponse else {
             throw APIError.networkError("Invalid response type")
         }

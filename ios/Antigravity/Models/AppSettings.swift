@@ -7,8 +7,7 @@ public final class AppSettings {
     
     private let serverURLKey = "antigravity.server_url"
     private let enableLiveActivityKey = "antigravity.enable_live_activity"
-    private let cfClientIdKey = "antigravity.cf_client_id"
-    private let cfClientSecretKey = "antigravity.cf_client_secret"
+    private let preferCellularNetworkKey = "antigravity.prefer_cellular_network"
     
     public var rawServerURL: String {
         didSet {
@@ -22,15 +21,9 @@ public final class AppSettings {
         }
     }
     
-    public var cfAccessClientId: String {
+    public var preferCellularNetwork: Bool {
         didSet {
-            UserDefaults.standard.set(cfAccessClientId, forKey: cfClientIdKey)
-        }
-    }
-    
-    public var cfAccessClientSecret: String {
-        didSet {
-            UserDefaults.standard.set(cfAccessClientSecret, forKey: cfClientSecretKey)
+            UserDefaults.standard.set(preferCellularNetwork, forKey: preferCellularNetworkKey)
         }
     }
     
@@ -50,12 +43,10 @@ public final class AppSettings {
     public init() {
         let savedURL = UserDefaults.standard.string(forKey: serverURLKey) ?? "http://127.0.0.1:58900"
         let savedLive = UserDefaults.standard.object(forKey: enableLiveActivityKey) as? Bool ?? false
-        let savedClientId = UserDefaults.standard.string(forKey: cfClientIdKey) ?? ""
-        let savedClientSecret = UserDefaults.standard.string(forKey: cfClientSecretKey) ?? ""
+        let savedPreferCellular = UserDefaults.standard.object(forKey: preferCellularNetworkKey) as? Bool ?? true
         
         self.rawServerURL = savedURL
         self.enableLiveActivities = savedLive
-        self.cfAccessClientId = savedClientId
-        self.cfAccessClientSecret = savedClientSecret
+        self.preferCellularNetwork = savedPreferCellular
     }
 }
