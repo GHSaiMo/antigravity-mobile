@@ -225,6 +225,19 @@ public struct ChatView: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
             
+            // Floating Running Tasks Card (Desktop Parity)
+            if !viewModel.runningTasks.isEmpty {
+                RunningTasksCardView(
+                    items: viewModel.runningTasks,
+                    onStop: { task in
+                        Task {
+                            await viewModel.stopTask(task)
+                        }
+                    }
+                )
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+            
             // Floating Queued Messages Card
             if !viewModel.queuedMessages.isEmpty {
                 QueuedMessagesCardView(

@@ -15,6 +15,7 @@ public nonisolated struct CachedChatSession: Codable, Sendable {
     public let proceedArtifactUri: String?
     public let pendingInteraction: PendingInteraction?
     public let queuedMessages: [QueuedMessageItem]?
+    public let runningTasks: [RunningTaskItem]?
     public let savedAt: Date
     
     public init(
@@ -32,6 +33,7 @@ public nonisolated struct CachedChatSession: Codable, Sendable {
         proceedArtifactUri: String? = nil,
         pendingInteraction: PendingInteraction? = nil,
         queuedMessages: [QueuedMessageItem]? = nil,
+        runningTasks: [RunningTaskItem]? = nil,
         savedAt: Date = Date()
     ) {
         self.cascadeId = cascadeId
@@ -48,6 +50,7 @@ public nonisolated struct CachedChatSession: Codable, Sendable {
         self.proceedArtifactUri = proceedArtifactUri
         self.pendingInteraction = pendingInteraction
         self.queuedMessages = queuedMessages
+        self.runningTasks = runningTasks
         self.savedAt = savedAt
     }
 }

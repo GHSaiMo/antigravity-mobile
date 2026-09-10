@@ -1525,6 +1525,166 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
 }
 
 /* ==========================================================================
+   Running Tasks Card (Antigravity Desktop Parity)
+   ========================================================================== */
+.running-tasks-card {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 14px 10px 16px;
+  border-radius: 18px;
+  border: 0.5px solid var(--ios-separator);
+  background: var(--ios-secondary-bg);
+  max-height: 320px;
+  overflow-y: auto;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.24);
+  margin: 0 10px 8px 10px;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  z-index: 46;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.tasks-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 28px;
+}
+
+.tasks-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ios-label);
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.tasks-icon-spin {
+  flex-shrink: 0;
+  color: var(--ios-blue);
+  animation: spin 1s linear infinite;
+}
+
+.tasks-badge {
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--ios-tertiary-bg);
+  color: var(--ios-secondary-label);
+  border-radius: 9999px;
+  padding: 2.5px 7px;
+  line-height: 1;
+}
+
+.tasks-icon-btn {
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: transparent;
+  color: var(--ios-secondary-label);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  cursor: pointer;
+  padding: 0;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.tasks-icon-btn:hover,
+.tasks-icon-btn:active {
+  background: var(--ios-tertiary-bg);
+  color: var(--ios-label);
+}
+
+.tasks-content-wrapper {
+  overflow: hidden;
+  transition: max-height 0.35s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
+  max-height: 260px;
+  opacity: 1;
+  margin-top: 4px;
+}
+
+.tasks-content-wrapper.collapsed {
+  max-height: 0;
+  opacity: 0;
+  margin-top: 0;
+  pointer-events: none;
+}
+
+.tasks-items-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.task-item-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 0;
+  min-height: 40px;
+  border-top: 0.5px solid var(--ios-separator-subtle);
+}
+
+.task-item-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+
+.task-item-desc {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ios-label);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-item-cmd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ios-secondary-label);
+  background: var(--ios-tertiary-bg);
+  padding: 4px 8px;
+  border-radius: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-stop-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(255, 69, 58, 0.15);
+  color: var(--ios-red);
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color 0.15s ease, transform 0.1s ease;
+}
+
+.task-stop-btn:hover,
+.task-stop-btn:active {
+  background: rgba(255, 69, 58, 0.3);
+  transform: scale(0.95);
+}
+
+/* ==========================================================================
    Queued Messages Card (Antigravity Desktop Parity)
    ========================================================================== */
 .queued-messages-card {
