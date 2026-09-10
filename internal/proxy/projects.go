@@ -702,6 +702,7 @@ func (p *Proxy) HandleCreateCascade(w http.ResponseWriter, r *http.Request) {
 			}
 			if msgResp, err := client.Do(msgReq); err == nil {
 				msgResp.Body.Close()
+				ClearTrajectoryCache(cascadeID)
 				log.Printf("[Proxy] Dispatched initial prompt to cascade %s", cascadeID)
 			} else {
 				log.Printf("[Proxy] Warning: failed to dispatch initial prompt: %v", err)

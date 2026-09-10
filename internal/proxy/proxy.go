@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -106,6 +108,11 @@ func (p *Proxy) updateUpstream(info inspector.InstanceInfo) {
 	p.activePort = port
 	p.activeToken = token
 	log.Printf("[Proxy] Updated upstream proxy to 127.0.0.1:%d", port)
+
+	// Asynchronously sync historical trajectories so upstream GetAllCascadeTrajectories includes all persistent sessions
+	go func(prt int, tok string) {
+		_ = p.SyncHistoricalTrajectories(prt, tok)
+	}(port, token)
 }
 
 // ServeHTTP handles incoming HTTP requests.
@@ -566,6 +573,14 @@ func (p *Proxy) HandleCascadeInteraction(w http.ResponseWriter, r *http.Request)
 }
 
 func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.Request, port int, token string) {
+	// 1. Ensure historical trajectories on disk are loaded into upstream memory
+	hasSyncedHistMu.Lock()
+	synced := hasSyncedHist
+	hasSyncedHistMu.Unlock()
+	if !synced && port > 0 {
+		_ = p.SyncHistoricalTrajectories(port, token)
+	}
+
 	url := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories", port)
 	bodyBytes, _ := io.ReadAll(r.Body)
 	if len(bodyBytes) == 0 {
@@ -623,7 +638,55 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	// Identify candidate cascades that might need user action
+	// Enrich missing titles and filter out stale abandoned drafts
+	for id, s := range summaries {
+		// Enrich missing title
+		hasTitle := false
+		if ann, ok := s["annotations"].(map[string]interface{}); ok {
+			if t, ok := ann["title"].(string); ok && strings.TrimSpace(t) != "" && t != "未命名会话" {
+				hasTitle = true
+			}
+		}
+		if !hasTitle {
+			if sm, ok := s["summary"].(string); ok && strings.TrimSpace(sm) != "" && sm != "未命名会话" {
+				hasTitle = true
+			}
+		}
+		if !hasTitle {
+			if t := readAnnotationTitle(id); t != "" {
+				ann, _ := s["annotations"].(map[string]interface{})
+				if ann == nil {
+					ann = make(map[string]interface{})
+				}
+				ann["title"] = t
+				s["annotations"] = ann
+				hasTitle = true
+			}
+		}
+
+		// Filter out stale empty drafts (0 steps, not running, older than 15 minutes, no custom title)
+		status, _ := s["status"].(string)
+		stepCount := 0
+		if sc, ok := s["stepCount"].(float64); ok {
+			stepCount = int(sc)
+		} else if sc, ok := s["stepCount"].(int); ok {
+			stepCount = sc
+		}
+
+		if stepCount == 0 && status != "CASCADE_RUN_STATUS_RUNNING" && !hasTitle {
+			isRecent := false
+			if modStr, ok := s["lastModifiedTime"].(string); ok {
+				if t, err := parseTime(modStr); err == nil && time.Since(t) < 15*time.Minute {
+					isRecent = true
+				}
+			}
+			if !isRecent {
+				delete(summaries, id)
+			}
+		}
+	}
+
+	// Identify candidate cascades that might need user action (permissions or CanProceed plan feedback)
 	candidates := make(map[string]bool)
 
 	type recentItem struct {
@@ -636,21 +699,77 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 		status, _ := s["status"].(string)
 		if status == "CASCADE_RUN_STATUS_RUNNING" {
 			candidates[id] = true
-		} else if modStr, ok := s["lastModifiedTime"].(string); ok {
-			if t, err := time.Parse(time.RFC3339Nano, modStr); err == nil {
-				recentItems = append(recentItems, recentItem{id: id, t: t})
+		} else {
+			// Extract timestamp with fallbacks across lastModifiedTime, lastUserViewTime, createdTime, lastUserInputTime
+			var modTime time.Time
+			foundTime := false
+
+			if modStr, ok := s["lastModifiedTime"].(string); ok && modStr != "" {
+				if t, err := parseTime(modStr); err == nil {
+					modTime = t
+					foundTime = true
+				}
+			}
+			if !foundTime {
+				if ann, ok := s["annotations"].(map[string]interface{}); ok {
+					if uvStr, ok := ann["lastUserViewTime"].(string); ok && uvStr != "" {
+						if t, err := parseTime(uvStr); err == nil {
+							modTime = t
+							foundTime = true
+						}
+					}
+				}
+			}
+			if !foundTime {
+				if ctStr, ok := s["createdTime"].(string); ok && ctStr != "" {
+					if t, err := parseTime(ctStr); err == nil {
+						modTime = t
+						foundTime = true
+					}
+				}
+			}
+			if !foundTime {
+				if uiStr, ok := s["lastUserInputTime"].(string); ok && uiStr != "" {
+					if t, err := parseTime(uiStr); err == nil {
+						modTime = t
+						foundTime = true
+					}
+				}
+			}
+
+			if foundTime {
+				recentItems = append(recentItems, recentItem{id: id, t: modTime})
 			}
 		}
 	}
 
-	// Check top 2 most recently modified sessions (if within 2 hours) for CanProceed (Proceed button)
+	// Check recent sessions for CanProceed / PendingInteraction:
+	// Always check up to 10 most recent sessions regardless of age, and up to 25 if within 7 days
 	if len(recentItems) > 0 {
 		sort.Slice(recentItems, func(i, j int) bool {
 			return recentItems[i].t.After(recentItems[j].t)
 		})
-		for i := 0; i < len(recentItems) && i < 2; i++ {
-			if time.Since(recentItems[i].t) < 2*time.Hour {
+		for i := 0; i < len(recentItems) && i < 25; i++ {
+			if i < 10 || time.Since(recentItems[i].t) < 7*24*time.Hour {
 				candidates[recentItems[i].id] = true
+			}
+		}
+	}
+
+	// Fast disk inspection: If ~/.gemini/antigravity/brain/<id>/implementation_plan.md.metadata.json has requestFeedback == true
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		for cid := range summaries {
+			if candidates[cid] {
+				continue
+			}
+			metaFile := filepath.Join(home, ".gemini/antigravity/brain", cid, "implementation_plan.md.metadata.json")
+			if metaData, err := os.ReadFile(metaFile); err == nil {
+				var meta struct {
+					RequestFeedback bool `json:"requestFeedback"`
+				}
+				if err := json.Unmarshal(metaData, &meta); err == nil && meta.RequestFeedback {
+					candidates[cid] = true
+				}
 			}
 		}
 	}
