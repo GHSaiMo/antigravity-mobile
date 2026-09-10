@@ -47,6 +47,13 @@ func (d *DedupCache) Record(key string) {
 	d.entries[key] = dedupEntry{notifiedAt: time.Now()}
 }
 
+// Remove deletes a key from the dedup cache, allowing subsequent retries.
+func (d *DedupCache) Remove(key string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	delete(d.entries, key)
+}
+
 // IsNotified returns true if key was notified within ttl.
 func (d *DedupCache) IsNotified(key string, ttl time.Duration) bool {
 	d.mu.RLock()

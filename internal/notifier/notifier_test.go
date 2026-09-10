@@ -77,6 +77,12 @@ func TestDedupCache(t *testing.T) {
 		t.Errorf("immediate second TryNotify should return false")
 	}
 
+	// Test Remove method
+	cache.Remove(key)
+	if !cache.TryNotify(key, 100*time.Millisecond) {
+		t.Errorf("TryNotify after Remove should return true immediately")
+	}
+
 	// After TTL expires, it should succeed again
 	time.Sleep(120 * time.Millisecond)
 	if !cache.TryNotify(key, 100*time.Millisecond) {
@@ -140,5 +146,69 @@ func TestNotifierEvents(t *testing.T) {
 	}
 	if requestCount != 3 {
 		t.Errorf("expected 3 requests, got %d", requestCount)
+	}
+}
+
+func TestNotifierDedupRollbackOnFailure(t *testing.T) {
+	var shouldFail bool
+	var requestCount int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		if shouldFail {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`{"code":500,"message":"internal error"}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"code":200,"message":"success"}`))
+	}))
+	defer server.Close()
+
+	cfg := config.NotificationConfig{
+		Enabled:      true,
+		BarkEndpoint: server.URL,
+	}
+	n := NewNotifier(cfg)
+
+	// Cause failure on first attempt
+	shouldFail = true
+	err := n.NotifyCompleted("cas_fail", "Test Fail", 5)
+	if err == nil {
+		t.Fatalf("expected error on failure, got nil")
+	}
+
+	// Because of dedup rollback, calling it again (after server recovered) should succeed!
+	shouldFail = false
+	err = n.NotifyCompleted("cas_fail", "Test Fail", 5)
+	if err != nil {
+		t.Fatalf("expected retry after failure to succeed, got %v", err)
+	}
+}
+
+func TestNotifierOnTrajectoryUpdate_IDLE(t *testing.T) {
+	var requestCount int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"code":200,"message":"success"}`))
+	}))
+	defer server.Close()
+
+	cfg := config.NotificationConfig{
+		Enabled:      true,
+		BarkEndpoint: server.URL,
+	}
+	n := NewNotifier(cfg)
+
+	details := &proxy.TrajectoryDetails{
+		CascadeID:  "cas_idle_test",
+		Title:      "IDLE Completion Test",
+		Status:     "CASCADE_RUN_STATUS_IDLE",
+		TotalSteps: 12,
+	}
+
+	n.OnTrajectoryUpdate(details)
+	if requestCount != 1 {
+		t.Errorf("expected 1 request for IDLE status with TotalSteps > 0, got %d", requestCount)
 	}
 }
