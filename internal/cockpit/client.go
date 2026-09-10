@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -30,6 +31,7 @@ type wsMessage struct {
 type switchAccountPayload struct {
 	RequestID string `json:"request_id"`
 	AccountID string `json:"account_id"`
+	AuthToken string `json:"auth_token,omitempty"`
 }
 
 type eventSwitchErrorPayload struct {
@@ -80,8 +82,27 @@ func generateRequestID() string {
 
 // SwitchAccount connects to Cockpit Tools' WebSocket server and requests an account switch.
 func SwitchAccount(accountID string) error {
+	accountID = strings.TrimSpace(accountID)
 	if accountID == "" {
 		return errors.New("account_id is required")
+	}
+
+	// If accountID is an email, resolve it to its matching account UUID in accounts.json
+	if strings.Contains(accountID, "@") {
+		if dataDir, err := GetCockpitDataDir(); err == nil {
+			if accBytes, err := os.ReadFile(filepath.Join(dataDir, "accounts.json")); err == nil {
+				var idx accountsIndex
+				if json.Unmarshal(accBytes, &idx) == nil {
+					targetEmail := strings.ToLower(accountID)
+					for _, acc := range idx.Accounts {
+						if strings.ToLower(strings.TrimSpace(acc.Email)) == targetEmail {
+							accountID = acc.ID
+							break
+						}
+					}
+				}
+			}
+		}
 	}
 
 	serverInfo, err := GetCockpitServerInfo()
@@ -109,6 +130,7 @@ func SwitchAccount(accountID string) error {
 	reqPayload, _ := json.Marshal(switchAccountPayload{
 		RequestID: reqID,
 		AccountID: accountID,
+		AuthToken: serverInfo.AuthToken,
 	})
 
 	switchReq := wsMessage{
@@ -148,7 +170,7 @@ func SwitchAccount(accountID string) error {
 		case "event.account_switched":
 			var p eventAccountSwitchedPayload
 			_ = json.Unmarshal(msg.Payload, &p)
-			if p.AccountID == accountID {
+			if p.AccountID == accountID || (p.Email != "" && strings.EqualFold(p.Email, accountID)) {
 				return nil
 			}
 		case "response.success":

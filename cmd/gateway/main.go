@@ -152,17 +152,21 @@ func main() {
 		liveEmail, _, _ := p.GetActiveUserStatus()
 		quotas, err := cockpit.GetQuotas(liveEmail)
 		if err != nil {
+			log.Printf("[Cockpit] GetQuotas failed: %v", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
 		writeJSON(w, http.StatusOK, quotas)
 	})
 	rootMux.HandleFunc("POST /api/v1/cockpit/refresh", func(w http.ResponseWriter, r *http.Request) {
+		log.Println("[Cockpit] Triggering quota refresh...")
 		err := cockpit.TriggerRefresh()
 		if err != nil {
+			log.Printf("[Cockpit] TriggerRefresh failed: %v", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
+		log.Println("[Cockpit] Quota refresh triggered successfully")
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "message": "refresh triggered"})
 	})
 	rootMux.HandleFunc("POST /api/v1/cockpit/switch", func(w http.ResponseWriter, r *http.Request) {
@@ -173,14 +177,18 @@ func main() {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "account_id is required"})
 			return
 		}
-		if err := cockpit.SwitchAccount(strings.TrimSpace(req.AccountID)); err != nil {
+		targetID := strings.TrimSpace(req.AccountID)
+		log.Printf("[Cockpit] Switching account to: %s", targetID)
+		if err := cockpit.SwitchAccount(targetID); err != nil {
+			log.Printf("[Cockpit] SwitchAccount failed: %v", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
+		log.Printf("[Cockpit] Account switched successfully to: %s", targetID)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"status":     "ok",
 			"message":    "account switched successfully",
-			"account_id": strings.TrimSpace(req.AccountID),
+			"account_id": targetID,
 		})
 	})
 
