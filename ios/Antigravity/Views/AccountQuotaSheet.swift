@@ -2,6 +2,7 @@ import SwiftUI
 
 public struct AccountQuotaSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @AppStorage("cockpit_email_masked") private var isMasked: Bool = false
     public let quotaResponse: CockpitQuotaResponse?
     public let isRefreshing: Bool
     public let onRefresh: () -> Void
@@ -26,6 +27,29 @@ public struct AccountQuotaSheet: View {
             return all.filter { $0.id != cur.id }
         }
         return all
+    }
+    
+    private func maskEmail(_ email: String) -> String {
+        let parts = email.split(separator: "@", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2 else { return email }
+        let local = String(parts[0])
+        let domain = String(parts[1])
+        
+        func maskPart(_ str: String) -> String {
+            let chars = Array(str)
+            guard chars.count > 0 else { return "" }
+            if chars.count == 1 { return String(chars[0]) + "*" }
+            if chars.count == 2 { return String(chars[0]) + "*" + String(chars[1]) }
+            let middleCount = chars.count - 2
+            return String(chars[0]) + String(repeating: "*", count: middleCount) + String(chars[chars.count - 1])
+        }
+        
+        if let dotIdx = domain.lastIndex(of: ".") {
+            let domainName = String(domain[..<dotIdx])
+            let domainExt = String(domain[dotIdx...])
+            return "\(maskPart(local))@\(maskPart(domainName))\(domainExt)"
+        }
+        return "\(maskPart(local))@\(maskPart(domain))"
     }
     
     public var body: some View {
@@ -96,13 +120,21 @@ public struct AccountQuotaSheet: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button(action: onRefresh) {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 14, weight: .medium))
-                            .rotationEffect(.degrees(isRefreshing ? 360 : 0))
-                            .animation(isRefreshing ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: isRefreshing)
+                    HStack(spacing: 14) {
+                        Button(action: { isMasked.toggle() }) {
+                            Image(systemName: isMasked ? "eye.slash.fill" : "eye.slash")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundColor(isMasked ? .blue : .secondary)
+                        }
+                        
+                        Button(action: onRefresh) {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 14, weight: .medium))
+                                .rotationEffect(.degrees(isRefreshing ? 360 : 0))
+                                .animation(isRefreshing ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: isRefreshing)
+                        }
+                        .disabled(isRefreshing)
                     }
-                    .disabled(isRefreshing)
                 }
             }
         }
@@ -111,36 +143,31 @@ public struct AccountQuotaSheet: View {
     @ViewBuilder
     private func accountCard(for acc: CockpitAccountQuota, isCurrent: Bool) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Header
+            // Header: Email only (no name)
             HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(acc.email)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(.primary)
-                        .lineLimit(1)
-                    
-                    if !acc.name.isEmpty {
-                        Text(acc.name)
-                            .font(.system(size: 12))
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                    }
-                }
+                let displayEmail = isMasked ? maskEmail(acc.email) : acc.email
+                Text(displayEmail)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
                 Spacer()
             }
             
             Divider()
                 .opacity(0.6)
             
-            // 4 Metrics Grid
+            // 4 Metrics Grid: Claude on Left, Gemini on Right, 5h on top, Weekly on bottom
             LazyVGrid(columns: [
                 GridItem(.flexible(), spacing: 10),
                 GridItem(.flexible(), spacing: 10)
             ], spacing: 10) {
-                metricCell(title: "Claude 5小时", bucket: acc.claude5h)
-                metricCell(title: "Claude 一周", bucket: acc.claudeWeekly)
-                metricCell(title: "Gemini 5小时", bucket: acc.gemini5h)
-                metricCell(title: "Gemini 一周", bucket: acc.geminiWeekly)
+                // Row 1: Left Claude 5h, Right Gemini 5h
+                metricCell(title: "Claude 5h", bucket: acc.claude5h)
+                metricCell(title: "Gemini 5h", bucket: acc.gemini5h)
+                
+                // Row 2: Left Claude Weekly, Right Gemini Weekly
+                metricCell(title: "Claude Weekly", bucket: acc.claudeWeekly)
+                metricCell(title: "Gemini Weekly", bucket: acc.geminiWeekly)
             }
         }
         .padding(14)
