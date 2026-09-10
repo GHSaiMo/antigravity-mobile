@@ -196,8 +196,14 @@ public final class AppSettings {
     }
     
     public var serverURL: URL? {
+        // 1. Dynamic endpoint selection: If ConnectionManager has established an activeServerURL,
+        // use it directly (it has already undergone connectivity and latency probing).
+        if let active = activeServerURL, let url = Self.normalize(raw: active) {
+            return url
+        }
+        
         if preferCellularNetwork {
-            // When prioritizing cellular (IPv6 direct connection):
+            // When prioritizing cellular (IPv6 direct connection) without an active probe result:
             // 1. If an IPv6 URL is configured, prioritize it
             if let v6 = ipv6ServerURL, let url = Self.normalize(raw: v6) {
                 return url
@@ -206,34 +212,22 @@ public final class AppSettings {
             if let custom = customServerURL, let url = Self.normalize(raw: custom) {
                 return url
             }
-            // 3. If activeServerURL is configured and NOT a private local host, use it
-            if let active = activeServerURL, let url = Self.normalize(raw: active), !NetworkTransport.isLocalOrPrivateHost(url.host ?? "") {
-                return url
-            }
-            // 4. If rawServerURL is NOT a private local host, use it
-            if let url = Self.normalize(raw: rawServerURL), !NetworkTransport.isLocalOrPrivateHost(url.host ?? "") {
-                return url
-            }
-            // 5. Fallback to activeServerURL or rawServerURL
-            if let active = activeServerURL, let url = Self.normalize(raw: active) {
+            // 3. Fallback to LAN or raw
+            if let lan = lanServerURL, let url = Self.normalize(raw: lan) {
                 return url
             }
             return Self.normalize(raw: rawServerURL)
         } else {
-            // Normal Wi-Fi / local routing mode:
+            // Normal Wi-Fi / local routing mode without an active probe result:
             // 1. If LAN URL is configured, prefer LAN
             if let lan = lanServerURL, let url = Self.normalize(raw: lan) {
                 return url
             }
-            // 2. If an active server URL is established, use it
-            if let active = activeServerURL, let url = Self.normalize(raw: active) {
-                return url
-            }
-            // 3. If IPv6 URL is configured
+            // 2. If IPv6 URL is configured
             if let v6 = ipv6ServerURL, let url = Self.normalize(raw: v6) {
                 return url
             }
-            // 4. Default fallback to rawServerURL
+            // 3. Default fallback to rawServerURL
             return Self.normalize(raw: rawServerURL)
         }
     }
