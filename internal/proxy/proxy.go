@@ -424,6 +424,16 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 				}
 			}
 		}
+		if images, ok := rawMap["images"].([]interface{}); ok {
+			for _, img := range images {
+				if imgMap, ok := img.(map[string]interface{}); ok {
+					if b64, ok := imgMap["base64Data"].(string); ok && len(b64) > 0 {
+						h := sha256.Sum256([]byte(b64))
+						textContent.WriteString(fmt.Sprintf(":img:%x", h[:8]))
+					}
+				}
+			}
+		}
 
 		if cascadeID != "" && textContent.Len() > 0 {
 			dedupKey := fmt.Sprintf("%s:%x", cascadeID, sha256.Sum256([]byte(textContent.String())))

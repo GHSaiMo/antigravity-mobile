@@ -168,8 +168,21 @@
 
         <!-- Sticky iOS Chat Input Bar -->
         <div class="ios-input-bar">
-          <!-- Quick Action Chips (Commit & Push, Proceed) -->
+          <!-- Quick Action Chips (Add Image, Model Switch, Commit & Push, Proceed) -->
           <div class="quick-actions-chips" id="quick-actions-bar">
+            <button id="btn-add-image" class="chip-pill chip-add-image" type="button" title="添加图片" aria-label="添加图片">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+            </button>
+            <input type="file" id="image-file-input" accept="image/*" multiple style="display: none;" />
+
+            <button id="btn-model-switch" class="chip-pill chip-model-switch chip-gemini" type="button" title="点击切换模型: Gemini 3.8 Flash High / Claude Opus 4.6 Thinking">
+              <span id="model-switch-icon" class="model-switch-icon">✨</span>
+              <span id="model-switch-text" class="model-switch-text">Gemini 3.8</span>
+            </button>
+
             <button id="btn-commit-push" class="chip-pill" type="button">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="18" cy="18" r="3"></circle>
@@ -186,6 +199,9 @@
               <span>Proceed</span>
             </button>
           </div>
+
+          <!-- Image Attachment Previews Container -->
+          <div id="image-previews-bar" class="image-previews-bar hidden"></div>
 
           <!-- Input Row: Capsule Textfield + 44x44 Circle Send/Stop Button -->
           <div class="input-row">

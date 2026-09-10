@@ -1097,6 +1097,119 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
   color: #ffffff;
 }
 
+/* Add Image (+) Chip */
+.chip-add-image {
+  padding: 6px 10px;
+  color: var(--ios-label);
+}
+.chip-add-image svg {
+  color: var(--ios-label);
+}
+
+/* Model Switch Chip */
+.chip-model-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+.chip-model-switch.chip-gemini {
+  border-color: rgba(10, 132, 255, 0.45);
+  background: rgba(10, 132, 255, 0.09);
+  color: var(--ios-blue);
+}
+.chip-model-switch.chip-claude {
+  border-color: rgba(175, 82, 222, 0.45);
+  background: rgba(175, 82, 222, 0.09);
+  color: var(--ios-purple);
+}
+.model-switch-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+.model-switch-text {
+  font-size: 12.5px;
+}
+
+/* Image Previews Bar inside Input Area */
+.image-previews-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 4px 0 6px 0;
+  -webkit-overflow-scrolling: touch;
+}
+.image-previews-bar.hidden {
+  display: none;
+}
+.image-preview-item {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--ios-separator);
+  background-color: var(--ios-secondary-bg);
+}
+.image-preview-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.image-preview-remove {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 18px;
+  height: 18px;
+  background: rgba(0, 0, 0, 0.68);
+  color: #ffffff;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  line-height: 1;
+  padding: 0;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  transition: transform 0.1s ease;
+}
+.image-preview-remove:hover {
+  transform: scale(1.1);
+}
+
+/* User Message Bubble with Images */
+.user-message-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.bubble-image {
+  max-width: 200px;
+  max-height: 200px;
+  border-radius: 10px;
+  object-fit: cover;
+  cursor: pointer;
+  border: 0.5px solid rgba(255, 255, 255, 0.2);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.bubble-image:hover {
+  opacity: 0.9;
+}
+.bubble-image:active {
+  transform: scale(0.98);
+}
+
 /* Input Row */
 .input-row {
   display: flex;
