@@ -6,14 +6,12 @@ public struct SettingsSheet: View {
     @State private var testStatus: String? = nil
     @State private var isTesting: Bool = false
     
-    @State private var showCloudflareAuth = false
-    
     public init() {}
     
     public var body: some View {
         NavigationStack {
             Form {
-                Section(header: Text("服务器连接配置"), footer: Text("支持输入 Cloudflare Tunnel 外网域名（如 https://agy.yourdomain.com）或本地网关地址（如 http://127.0.0.1:58900）")) {
+                Section(header: Text("服务器连接配置"), footer: Text("支持输入 IPv6 DDNS 域名（如 https://mac.yourdomain.com:58900）、公网 IPv6 地址或 Tailscale 虚拟 IP。")) {
                     TextField("网关地址", text: $settings.rawServerURL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
@@ -35,19 +33,8 @@ public struct SettingsSheet: View {
                     .disabled(isTesting)
                 }
                 
-                Section(header: Text("Cloudflare 邮箱认证"), footer: Text("公网访问且开启了 Cloudflare Access 邮箱验证时，点击此按钮在 App 内输入邮箱收验证码完成授权。")) {
-                    Button(action: { showCloudflareAuth = true }) {
-                        HStack {
-                            Image(systemName: "envelope.badge.shield.half.filled")
-                                .foregroundColor(.blue)
-                            Text("进行 Cloudflare 邮箱验证")
-                                .foregroundColor(.primary)
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 12))
-                                .foregroundColor(.secondary)
-                        }
-                    }
+                Section(header: Text("网络直连策略"), footer: Text("开启后，即使手机连接了局域网/Wi-Fi，也优先通过移动蜂窝网络（自带 IPv6）直连 Mac 端，解决外部公共 Wi-Fi 无 IPv6 导致的连接失败问题。")) {
+                    Toggle("优先走手机蜂窝网络 (IPv6 直连)", isOn: $settings.preferCellularNetwork)
                 }
 
                 
@@ -85,13 +72,6 @@ public struct SettingsSheet: View {
                     Button("完成") {
                         dismiss()
                     }
-                }
-            }
-            .sheet(isPresented: $showCloudflareAuth) {
-                if let url = settings.serverURL {
-                    CloudflareLoginView(serverURL: url, onLoginSuccess: {
-                        testConnection()
-                    })
                 }
             }
         }

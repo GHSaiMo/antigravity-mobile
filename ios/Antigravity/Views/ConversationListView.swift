@@ -23,18 +23,10 @@ public struct ConversationListView: View {
                             .font(.system(size: 14))
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
-                            .padding(.horizontal)
-                        if err.contains("Cloudflare") {
-                            Button("点击完成邮箱验证") {
-                                showSettings = true
-                            }
-                            .buttonStyle(.borderedProminent)
-                        } else {
-                            Button("打开设置") {
-                                showSettings = true
-                            }
-                            .buttonStyle(.borderedProminent)
+                        Button("打开设置") {
+                            showSettings = true
                         }
+                        .buttonStyle(.borderedProminent)
                     }
                 } else {
                     List {
