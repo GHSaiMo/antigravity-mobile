@@ -256,6 +256,88 @@ public enum MathSymbolProcessor: Sendable {
         }
     }
     
+    /// Dictionary mapping LaTeX command names (without leading backslash) to Unicode replacements.
+    /// Built once from symbolReplacements for O(1) lookup during single-pass scanning.
+    private static let symbolLookup: [String: String] = {
+        var dict: [String: String] = [:]
+        for (pattern, replacement) in symbolReplacements {
+            // Extract the plain command name from the regex pattern.
+            // Patterns are either simple like "\\\\alpha" (command: "alpha")
+            // or parameterized like "\\\\mathbb\\{R\\}" (keep as regex for fallback)
+            var cmd = pattern
+            // Remove leading backslash escapes: each regex "\\\\X" means literal "\X"
+            if cmd.hasPrefix(#"\\\\"#) {
+                cmd = String(cmd.dropFirst(2))
+            }
+            // Remove trailing word boundary marker
+            if cmd.hasSuffix(#"\\b"#) {
+                cmd = String(cmd.dropLast(2))
+            }
+            // Remove regex escapes for braces: "\\{" -> "{", "\\}" -> "}"
+            cmd = cmd.replacingOccurrences(of: #"\\{"#, with: "{")
+                     .replacingOccurrences(of: #"\\}"#, with: "}")
+            dict[cmd] = replacement
+        }
+        return dict
+    }()
+    
+    /// Commands that require word-boundary checks (short names that could be prefixes of longer words)
+    private static let wordBoundaryCommands: Set<String> = ["to", "gets", "le", "ge", "ne", "in", "ni", "empty"]
+    
+    /// Performs a single-pass scan replacing LaTeX \commands with Unicode symbols.
+    /// Much faster than running 150+ regex replacements sequentially.
+    private static func replaceSymbolsSinglePass(_ input: String) -> String {
+        guard input.contains("\\") else { return input }
+        
+        var result = ""
+        result.reserveCapacity(input.count)
+        let chars = Array(input)
+        var i = 0
+        
+        while i < chars.count {
+            if chars[i] == "\\" && i + 1 < chars.count && chars[i + 1].isLetter {
+                // Scan ahead to collect the full command name (letters only first part)
+                var j = i + 1
+                while j < chars.count && chars[j].isLetter { j += 1 }
+                let cmdName = String(chars[(i + 1)..<j])
+                
+                // Check for parameterized commands like mathbb{R}, mathcal{L}, etc.
+                var fullKey = cmdName
+                if j < chars.count && chars[j] == "{" {
+                    if let closeBrace = chars[(j+1)...].firstIndex(of: "}") {
+                        let paramKey = cmdName + String(chars[j...closeBrace])
+                        if symbolLookup[paramKey] != nil {
+                            fullKey = paramKey
+                            j = closeBrace + 1
+                        }
+                    }
+                }
+                
+                if let replacement = symbolLookup[fullKey] {
+                    // Word-boundary check: for short commands, ensure next char is not a letter
+                    if wordBoundaryCommands.contains(fullKey) && j < chars.count && chars[j].isLetter {
+                        // Not a word boundary match — output the backslash and continue
+                        result.append(chars[i])
+                        i += 1
+                    } else {
+                        result.append(contentsOf: replacement)
+                        i = j
+                    }
+                } else {
+                    // Unknown command, pass through as-is
+                    result.append(chars[i])
+                    i += 1
+                }
+            } else {
+                result.append(chars[i])
+                i += 1
+            }
+        }
+        return result
+    }
+    
+    // Keep precompiledSymbolReplacements for use in cleanMathExpression (inside $...$ blocks)
+    // where the full regex semantics are needed for edge cases
     private static let precompiledSymbolReplacements: [(regex: NSRegularExpression, replacement: String)] = {
         symbolReplacements.compactMap { (pattern, replacement) in
             if let reg = try? NSRegularExpression(pattern: pattern) {
@@ -348,15 +430,8 @@ public enum MathSymbolProcessor: Sendable {
         
         // 5. Transform ONLY standalone LaTeX symbol commands in prose (e.g. \rightarrow outside of $)
         // CRITICAL: NEVER run subscripts (_), superscripts (^), fractions, or bracket cleanups on bare prose!
-        if protectedText.contains("\\") {
-            for (reg, repl) in precompiledSymbolReplacements {
-                protectedText = reg.stringByReplacingMatches(
-                    in: protectedText,
-                    range: NSRange(location: 0, length: (protectedText as NSString).length),
-                    withTemplate: repl
-                )
-            }
-        }
+        // Uses single-pass O(N) scanner instead of 150+ sequential regex replacements for performance
+        protectedText = replaceSymbolsSinglePass(protectedText)
         
         // 6. Restore inline code spans
         for (idx, span) in inlineCodeSpans.enumerated() {
@@ -416,12 +491,8 @@ public enum MathSymbolProcessor: Sendable {
             .replacingOccurrences(of: #"\quad"#, with: " ")
             .replacingOccurrences(of: #"\qquad"#, with: "  ")
         
-        // 5. Replace LaTeX symbols (arrows, relations, operators, Greek)
-        if str.contains("\\") {
-            for (reg, repl) in precompiledSymbolReplacements {
-                str = reg.stringByReplacingMatches(in: str, range: NSRange(location: 0, length: (str as NSString).length), withTemplate: repl)
-            }
-        }
+        // 5. Replace LaTeX symbols using single-pass scanner (O(N) instead of 150+ regex passes)
+        str = replaceSymbolsSinglePass(str)
         
         // 6. Convert superscripts: ^{...} and ^x
         if str.contains("^") {
