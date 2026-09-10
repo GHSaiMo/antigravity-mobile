@@ -37,6 +37,106 @@ let currentTrajectories = {};
 let availableModels = [];
 const sessionStepsCache = {};
 
+// Active model & Image attachments state
+let activeModel = localStorage.getItem("agy_active_model") || "gemini-3.8-flash-high";
+let pendingImages = []; // [{ id, name, mimeType, base64Data, dataUrl }]
+
+function updateModelSwitchUI() {
+  const btn = document.getElementById("btn-model-switch");
+  const icon = document.getElementById("model-switch-icon");
+  const text = document.getElementById("model-switch-text");
+  if (!btn || !icon || !text) return;
+
+  if (activeModel === "claude-opus-4-6-thinking") {
+    btn.className = "chip-pill chip-model-switch chip-claude";
+    icon.textContent = "🧠";
+    text.textContent = "Claude Opus 4.6";
+    btn.title = "当前模型: Claude Opus 4.6 (Thinking) - 点击切换为 Gemini 3.8";
+  } else {
+    activeModel = "gemini-3.8-flash-high";
+    btn.className = "chip-pill chip-model-switch chip-gemini";
+    icon.textContent = "✨";
+    text.textContent = "Gemini 3.8";
+    btn.title = "当前模型: Gemini 3.8 Flash (High) - 点击切换为 Claude Opus 4.6";
+  }
+}
+
+async function toggleModel() {
+  if (activeModel === "gemini-3.8-flash-high") {
+    activeModel = "claude-opus-4-6-thinking";
+  } else {
+    activeModel = "gemini-3.8-flash-high";
+  }
+  localStorage.setItem("agy_active_model", activeModel);
+  updateModelSwitchUI();
+
+  // Keep new-model dropdown in sync if opened
+  const newModelSelect = document.getElementById("new-model");
+  if (newModelSelect) {
+    newModelSelect.value = activeModel;
+  }
+
+  // Update Language Server default model via JetboxWriteState
+  const modelEnum = (activeModel === "claude-opus-4-6-thinking") ? "MODEL_PLACEHOLDER_M26" : "MODEL_PLACEHOLDER_M318";
+  try {
+    await rpc("JetboxWriteState", {
+      appState: {
+        lastSelectedAgentModel: modelEnum
+      }
+    });
+  } catch (err) {
+    console.warn("[Model] Failed to sync model to Language Server:", err);
+  }
+}
+
+function renderImagePreviews() {
+  const bar = document.getElementById("image-previews-bar");
+  if (!bar) return;
+
+  if (pendingImages.length === 0) {
+    bar.innerHTML = "";
+    bar.classList.add("hidden");
+    updateChatControls(currentTrajectories[activeCascadeId]?.status === "CASCADE_RUN_STATUS_RUNNING");
+    return;
+  }
+
+  bar.classList.remove("hidden");
+  bar.innerHTML = pendingImages.map(img => `
+    <div class="image-preview-item" data-id="${img.id}">
+      <img src="${img.dataUrl}" alt="${escapeHtml(img.name || '图片')}" />
+      <button class="image-preview-remove" type="button" aria-label="删除图片" onclick="removePendingImage('${img.id}')">✕</button>
+    </div>
+  `).join("");
+  updateChatControls(currentTrajectories[activeCascadeId]?.status === "CASCADE_RUN_STATUS_RUNNING");
+}
+
+function removePendingImage(id) {
+  pendingImages = pendingImages.filter(img => img.id !== id);
+  renderImagePreviews();
+}
+
+function handleFilesSelected(files) {
+  if (!files || !files.length) return;
+  for (const file of Array.from(files)) {
+    if (!file.type.startsWith("image/")) continue;
+    const reader = new FileReader();
+    const id = `img-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    reader.onload = (e) => {
+      const dataUrl = e.target.result;
+      const base64Data = dataUrl.split(",")[1];
+      pendingImages.push({
+        id,
+        name: file.name,
+        mimeType: file.type || "image/jpeg",
+        base64Data,
+        dataUrl
+      });
+      renderImagePreviews();
+    };
+    reader.readAsDataURL(file);
+  }
+}
+
 // --- ConnectRPC & Gateway API ---
 
 async function rpc(method, body = {}) {
@@ -609,10 +709,10 @@ function updateChatControls(isRunning, wsUri, hasAction = false) {
   if (sendBtn) {
     const iconSend = sendBtn.querySelector(".icon-send");
     const iconStop = sendBtn.querySelector(".icon-stop");
-    const hasText = chatInput && chatInput.value.trim().length > 0;
+    const hasContent = (chatInput && chatInput.value.trim().length > 0) || (pendingImages && pendingImages.length > 0);
 
     if (isRunning) {
-      if (hasText) {
+      if (hasContent) {
         sendBtn.className = "btn-action-circle send-mode active";
         sendBtn.title = "加入待发送队列";
         sendBtn.setAttribute("aria-label", "加入待发送队列");
@@ -627,7 +727,7 @@ function updateChatControls(isRunning, wsUri, hasAction = false) {
       }
     } else {
       sendBtn.className = "btn-action-circle send-mode";
-      if (hasText) sendBtn.classList.add("active");
+      if (hasContent) sendBtn.classList.add("active");
       sendBtn.title = "发送";
       sendBtn.setAttribute("aria-label", "发送");
       if (iconSend) iconSend.classList.remove("hidden");
@@ -830,14 +930,34 @@ function groupSteps(steps) {
 
     if (type === "CORTEX_STEP_TYPE_USER_INPUT") {
       flushBatch();
-      const userText = s.userInput?.userResponse || s.userInput?.items?.[0]?.text || "";
-      items.push({
-        type: "user",
-        id: `item-user-${i}`,
-        index: i,
-        text: userText,
-        step: s
-      });
+      const userText = (s.userInput?.userResponse || s.userInput?.items?.[0]?.text || "").trim();
+      const hasMedia = Array.isArray(s.userInput?.media) && s.userInput.media.length > 0;
+      const hasImages = Array.isArray(s.userInput?.images) && s.userInput.images.length > 0;
+      const isArtifactApproval = Array.isArray(s.userInput?.artifactComments) && s.userInput.artifactComments.length > 0 && !userText;
+      const isSystemApprovalText = userText.startsWith("Comments on artifact URI:") || userText.includes("The user has approved this document");
+
+      if ((userText && !isArtifactApproval && !isSystemApprovalText) || hasMedia || hasImages) {
+        const mediaList = [];
+        if (hasMedia) {
+          for (const m of s.userInput.media) {
+            if (m.thumbnail) mediaList.push(m.thumbnail);
+            else if (m.inlineData) mediaList.push(m.inlineData);
+          }
+        }
+        if (hasImages) {
+          for (const img of s.userInput.images) {
+            if (img.base64Data) mediaList.push(img.base64Data);
+          }
+        }
+        items.push({
+          type: "user",
+          id: `item-user-${i}`,
+          index: i,
+          text: userText,
+          media: mediaList,
+          step: s
+        });
+      }
     } else if (type === "CORTEX_STEP_TYPE_PLANNER_RESPONSE") {
       const p = s.plannerResponse || {};
       const resp = (p.response || "").trim();
@@ -948,7 +1068,8 @@ function groupSteps(steps) {
 function getItemFingerprint(item, isRunning, isLastItem) {
   if (!item) return "";
   if (item.type === "user") {
-    return `u:${item.text.length}:${item.text.slice(-10)}`;
+    const mediaLen = (item.media || []).length;
+    return `u:${item.text.length}:${item.text.slice(-10)}:m${mediaLen}`;
   }
   if (item.type === "agent") {
     const thinkLen = (item.thinking || "").length;
@@ -965,7 +1086,16 @@ function getItemFingerprint(item, isRunning, isLastItem) {
 
 function generateItemHtml(item, isRunning, isLastItem) {
   if (item.type === "user") {
-    return `<div class="bubble">${escapeHtml(item.text)}</div>`;
+    let imagesHtml = "";
+    if (item.media && item.media.length > 0) {
+      imagesHtml = `<div class="user-message-images">` +
+        item.media.map(m => {
+          const src = m.startsWith("data:") ? m : `data:image/jpeg;base64,${m}`;
+          return `<img src="${src}" class="bubble-image" onclick="window.open('${src}')" alt="上传图片" />`;
+        }).join("") + `</div>`;
+    }
+    const textHtml = item.text ? `<div>${escapeHtml(item.text)}</div>` : "";
+    return `<div class="bubble">${imagesHtml}${textHtml}</div>`;
   }
 
   if (item.type === "agent") {
@@ -1145,9 +1275,9 @@ function renderMessages(steps, isRunning = false) {
     }
   }
 
-  // Standalone Agent Thinking Indicator (shown only while awaiting response right after user input)
+  // Standalone Agent Thinking Indicator (shown while awaiting response or continuing plan execution)
   const lastItem = items[items.length - 1];
-  const isAwaiting = isRunning && lastItem?.type === "user";
+  const isAwaiting = isRunning && lastItem?.type !== "tools";
   let thinkingIndicator = document.getElementById("agent-thinking-indicator");
 
   if (isAwaiting) {
@@ -1483,26 +1613,46 @@ async function sendMessage() {
 
   const inputEl = document.getElementById("chat-input");
   const text = inputEl.value.trim();
-  if (!text) return;
+  const hasImages = pendingImages.length > 0;
+  if (!text && !hasImages) return;
 
   isSendingMessage = true;
   const isRunning = currentTrajectories[activeCascadeId]?.status === "CASCADE_RUN_STATUS_RUNNING";
+
+  const imagesToSend = [...pendingImages];
+  pendingImages = [];
+  renderImagePreviews();
 
   inputEl.value = "";
   inputEl.style.height = "auto";
   currentCanProceed = false;
   updateProceedButton(false);
 
+  const items = text ? [{ text }] : [];
+  const imagesPayload = imagesToSend.map(img => ({
+    base64Data: img.base64Data,
+    mimeType: img.mimeType || "image/jpeg"
+  }));
+  const mediaPayload = imagesToSend.map(img => ({
+    inlineData: img.base64Data,
+    mimeType: img.mimeType || "image/jpeg"
+  }));
+
   if (isRunning) {
     // Enqueue message while agent is running
-    LocalQueueManager.enqueue(text);
+    LocalQueueManager.enqueue(text || (imagesToSend.length ? `[${imagesToSend.length} 张图片]` : ""));
     updateChatControls(true, null, false);
     try {
-      await rpc("SendUserCascadeMessage", {
+      const payload = {
         cascadeId: activeCascadeId,
-        items: [{ text }],
+        items: items,
         deliveryStrategy: 2 // WHEN_IDLE
-      });
+      };
+      if (imagesPayload.length > 0) {
+        payload.images = imagesPayload;
+        payload.media = mediaPayload;
+      }
+      await rpc("SendUserCascadeMessage", payload);
     } catch (err) {
       console.warn("[Queue] SendUserCascadeMessage with WHEN_IDLE notification:", err);
     } finally {
@@ -1513,9 +1663,16 @@ async function sendMessage() {
 
   const streamEl = document.getElementById("messages-stream");
   const tempId = `temp-user-${Date.now()}`;
+  let imgHtml = "";
+  if (imagesToSend.length > 0) {
+    imgHtml = `<div class="user-message-images">` +
+      imagesToSend.map(img => `<img src="${img.dataUrl}" class="bubble-image" onclick="window.open('${img.dataUrl}')" alt="上传图片" />`).join("") +
+      `</div>`;
+  }
+  const textHtml = text ? `<div>${escapeHtml(text)}</div>` : "";
   streamEl.insertAdjacentHTML("beforeend", `
     <div id="${tempId}" class="message-row user">
-      <div class="bubble">${escapeHtml(text)}</div>
+      <div class="bubble">${imgHtml}${textHtml}</div>
     </div>
   `);
   userIsNearBottom = true;
@@ -1528,10 +1685,16 @@ async function sendMessage() {
     }
     updateChatControls(true, null, false);
 
-    await rpc("SendUserCascadeMessage", {
+    const payload = {
       cascadeId: activeCascadeId,
-      items: [{ text }]
-    });
+      items: items
+    };
+    if (imagesPayload.length > 0) {
+      payload.images = imagesPayload;
+      payload.media = mediaPayload;
+    }
+
+    await rpc("SendUserCascadeMessage", payload);
 
     // Ensure WebSocket stream is actively connected
     if (!activeWs || activeWs.readyState !== WebSocket.OPEN) {
@@ -1542,6 +1705,8 @@ async function sendMessage() {
     const tempEl = document.getElementById(tempId);
     if (tempEl) tempEl.remove();
     inputEl.value = text;
+    pendingImages = imagesToSend;
+    renderImagePreviews();
   } finally {
     isSendingMessage = false;
   }
@@ -1554,12 +1719,30 @@ async function handleProceed() {
   currentCanProceed = false;
 
   const streamEl = document.getElementById("messages-stream");
-  const tempId = `temp-user-${Date.now()}`;
-  streamEl.insertAdjacentHTML("beforeend", `
-    <div id="${tempId}" class="message-row user">
-      <div class="bubble">Proceed</div>
-    </div>
-  `);
+  let thinkingIndicator = document.getElementById("agent-thinking-indicator");
+  if (!thinkingIndicator) {
+    thinkingIndicator = document.createElement("div");
+    thinkingIndicator.id = "agent-thinking-indicator";
+    thinkingIndicator.className = "agent-thinking-card message-entering";
+    thinkingIndicator.innerHTML = `
+      <div class="agent-avatar">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"></path>
+        </svg>
+      </div>
+      <div class="agent-thinking-body">
+        <div class="thinking-title-row">
+          <span>Agent 正在思考与执行</span>
+          <div class="activity-dots">
+            <span class="dot"></span>
+            <span class="dot"></span>
+            <span class="dot"></span>
+          </div>
+        </div>
+      </div>
+    `;
+    streamEl.appendChild(thinkingIndicator);
+  }
   userIsNearBottom = true;
   streamEl.scrollTop = streamEl.scrollHeight;
 
@@ -1588,10 +1771,10 @@ async function handleProceed() {
     }
   } catch (err) {
     alert("确认方案失败: " + err.message);
-    const tempEl = document.getElementById(tempId);
-    if (tempEl) tempEl.remove();
+    if (thinkingIndicator) thinkingIndicator.remove();
     updateProceedButton(true);
     currentCanProceed = true;
+    updateChatControls(false, null, false);
   }
 }
 
@@ -1827,7 +2010,7 @@ function closeSettingsSheet() {
 
 async function createConversation() {
   const ws = document.getElementById("new-workspace").value.trim();
-  const model = document.getElementById("new-model").value;
+  const model = document.getElementById("new-model")?.value || activeModel;
   const prompt = document.getElementById("new-prompt").value.trim();
 
   if (!ws) {
@@ -2466,8 +2649,8 @@ window.addEventListener("DOMContentLoaded", () => {
   sendBtn?.addEventListener("click", () => {
     const summary = currentTrajectories[activeCascadeId];
     const isRunning = summary?.status === "CASCADE_RUN_STATUS_RUNNING";
-    const hasText = document.getElementById("chat-input")?.value.trim().length > 0;
-    if (isRunning && !hasText) {
+    const hasContent = (document.getElementById("chat-input")?.value.trim().length > 0) || (pendingImages && pendingImages.length > 0);
+    if (isRunning && !hasContent) {
       cancelCurrentTask();
     } else {
       sendMessage();
@@ -2483,6 +2666,26 @@ window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btn-queued-expand")?.addEventListener("click", () => {
     LocalQueueManager.toggleExpand();
   });
+
+  // Add Image (+) Chip & File Input
+  const addImgBtn = document.getElementById("btn-add-image");
+  const imgFileInput = document.getElementById("image-file-input");
+  addImgBtn?.addEventListener("click", () => {
+    imgFileInput?.click();
+  });
+  imgFileInput?.addEventListener("change", (e) => {
+    if (e.target.files && e.target.files.length) {
+      handleFilesSelected(e.target.files);
+      e.target.value = "";
+    }
+  });
+
+  // Model Switch Chip
+  const modelSwitchBtn = document.getElementById("btn-model-switch");
+  modelSwitchBtn?.addEventListener("click", () => {
+    toggleModel();
+  });
+  updateModelSwitchUI();
 
   // Chips
   document.getElementById("btn-commit-push")?.addEventListener("click", () => {
@@ -2563,6 +2766,22 @@ window.addEventListener("DOMContentLoaded", () => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         sendMessage();
+      }
+    });
+
+    // Support pasting image screenshots directly into chat input
+    chatInput.addEventListener("paste", (e) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      const files = [];
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.startsWith("image/")) {
+          const file = items[i].getAsFile();
+          if (file) files.push(file);
+        }
+      }
+      if (files.length > 0) {
+        handleFilesSelected(files);
       }
     });
   }

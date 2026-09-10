@@ -205,6 +205,10 @@ type TrajectoryStep struct {
 		Items        []struct {
 			Text string `json:"text"`
 		} `json:"items"`
+		Images []struct {
+			Base64Data string `json:"base64Data"`
+			MimeType   string `json:"mimeType"`
+		} `json:"images"`
 		Media []struct {
 			MimeType    string `json:"mimeType"`
 			Description string `json:"description"`
@@ -462,17 +466,29 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 			}
 
 			var mediaList []string
-			if s.UserInput != nil && len(s.UserInput.Media) > 0 {
-				for _, m := range s.UserInput.Media {
-					if m.Thumbnail != "" {
-						mediaList = append(mediaList, m.Thumbnail)
-					} else if m.InlineData != "" {
-						mediaList = append(mediaList, m.InlineData)
+			if s.UserInput != nil {
+				if len(s.UserInput.Media) > 0 {
+					for _, m := range s.UserInput.Media {
+						if m.Thumbnail != "" {
+							mediaList = append(mediaList, m.Thumbnail)
+						} else if m.InlineData != "" {
+							mediaList = append(mediaList, m.InlineData)
+						}
+					}
+				}
+				if len(s.UserInput.Images) > 0 {
+					for _, img := range s.UserInput.Images {
+						if img.Base64Data != "" {
+							mediaList = append(mediaList, img.Base64Data)
+						}
 					}
 				}
 			}
 
-			if text != "" || len(mediaList) > 0 {
+			trimmed := strings.TrimSpace(text)
+			isSystemApproval := strings.HasPrefix(trimmed, "Comments on artifact URI:") || strings.Contains(trimmed, "The user has approved this document")
+
+			if (trimmed != "" && !isSystemApproval) || len(mediaList) > 0 {
 				allMessages = append(allMessages, CascadeMessageItem{
 					ID:    fmt.Sprintf("step-%d", idx),
 					Type:  "user",

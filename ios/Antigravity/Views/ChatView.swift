@@ -1,10 +1,13 @@
 import SwiftUI
+import PhotosUI
 
 public struct ChatView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var viewModel: ChatViewModel
     @FocusState private var isInputFocused: Bool
     @State private var hasInitiallyAligned = false
+    @State private var selectedPhotoItems: [PhotosPickerItem] = []
+    @State private var selectedImageData: [Data] = []
     private let shouldAutoFocus: Bool
     @State private var hasAutoFocused = false
     @State private var isViewAppeared = false
@@ -101,7 +104,7 @@ public struct ChatView: View {
                             }
                             
                             // Agent thinking & executing indicator animation (shown while awaiting before tools/response arrive)
-                            if (viewModel.isAwaitingResponse || viewModel.isRunning) && viewModel.messages.last?.sender == .user {
+                            if (viewModel.isAwaitingResponse || viewModel.isRunning) && (viewModel.messages.last?.isToolBatch != true) {
                                 AgentThinkingBubbleView()
                                     .id("THINKING_INDICATOR")
                                     .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .topLeading)))
@@ -300,6 +303,17 @@ public struct ChatView: View {
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
             viewModel.handleAppBackground()
         }
+        .onChange(of: selectedPhotoItems) { _, items in
+            Task {
+                var loaded: [Data] = []
+                for item in items {
+                    if let data = try? await item.loadTransferable(type: Data.self) {
+                        loaded.append(data)
+                    }
+                }
+                selectedImageData = loaded
+            }
+        }
         .onDisappear {
             isViewAppeared = false
             autoFocusTask?.cancel()
@@ -309,54 +323,147 @@ public struct ChatView: View {
     }
     
     private var inputBar: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            // Quick action chips at top of input box
-            HStack(spacing: 8) {
-                Button(action: insertCommitAndPush) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "arrow.triangle.branch")
-                            .font(.system(size: 12.5, weight: .semibold))
+        VStack(alignment: .leading, spacing: 8) {
+            // Quick action chips at top of input box (➕ and Model Switch placed in front of Commit and Push)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    // 1. Add Image ➕ (PhotosPicker)
+                    PhotosPicker(selection: $selectedPhotoItems, maxSelectionCount: 5, matching: .images) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 13, weight: .semibold))
                             .foregroundColor(.indigo)
-                        Text("Commit and Push")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(.primary)
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(Color(uiColor: .secondarySystemBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
-                    )
-                }
-                .buttonStyle(.plain)
-                
-                if viewModel.canProceed {
-                    Button(action: handleProceed) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "play.fill")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundColor(.white)
-                            Text("Proceed")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundColor(.white)
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(Color.blue)
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                        .shadow(color: Color.blue.opacity(0.35), radius: 4, x: 0, y: 2)
+                            .frame(width: 34, height: 32)
+                            .background(Color(uiColor: .secondarySystemBackground))
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+                            )
                     }
                     .buttonStyle(.plain)
-                    .transition(.scale(scale: 0.9).combined(with: .opacity))
+                    
+                    // 2. Gemini / Claude Model Switch Button
+                    Button(action: {
+                        Task {
+                            await viewModel.toggleModel()
+                        }
+                    }) {
+                        HStack(spacing: 5) {
+                            if viewModel.isClaudeActive {
+                                Text("🧠")
+                                    .font(.system(size: 12))
+                                Text("Claude 4.6")
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundColor(.orange)
+                            } else {
+                                Text("✨")
+                                    .font(.system(size: 12))
+                                Text("Gemini 3.8")
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundColor(.blue)
+                            }
+                        }
+                        .padding(.horizontal, 10)
+                        .frame(height: 32)
+                        .background(
+                            viewModel.isClaudeActive ? Color.orange.opacity(0.12) : Color.blue.opacity(0.12)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .stroke(
+                                    viewModel.isClaudeActive ? Color.orange.opacity(0.35) : Color.blue.opacity(0.35),
+                                    lineWidth: 1
+                                )
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    
+                    // 3. Commit and Push Button
+                    Button(action: insertCommitAndPush) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.triangle.branch")
+                                .font(.system(size: 12.5, weight: .semibold))
+                                .foregroundColor(.indigo)
+                            Text("Commit and Push")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(.primary)
+                        }
+                        .padding(.horizontal, 14)
+                        .frame(height: 32)
+                        .background(Color(uiColor: .secondarySystemBackground))
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    
+                    // 4. Proceed Button
+                    if viewModel.canProceed {
+                        Button(action: handleProceed) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "play.fill")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundColor(.white)
+                                Text("Proceed")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundColor(.white)
+                            }
+                            .padding(.horizontal, 14)
+                            .frame(height: 32)
+                            .background(Color.blue)
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .shadow(color: Color.blue.opacity(0.35), radius: 4, x: 0, y: 2)
+                        }
+                        .buttonStyle(.plain)
+                        .transition(.scale(scale: 0.9).combined(with: .opacity))
+                    }
                 }
-                
-                Spacer()
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
             }
             .animation(.easeInOut(duration: 0.2), value: viewModel.canProceed)
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
+            
+            // Image previews strip
+            if !selectedImageData.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(Array(selectedImageData.enumerated()), id: \.offset) { index, data in
+                            if let uiImage = UIImage(data: data) {
+                                ZStack(alignment: .topTrailing) {
+                                    Image(uiImage: uiImage)
+                                        .resizable()
+                                        .scaledToFill()
+                                        .frame(width: 52, height: 52)
+                                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                                .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+                                        )
+                                    
+                                    Button(action: {
+                                        removeImage(at: index)
+                                    }) {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .font(.system(size: 16))
+                                            .foregroundColor(.white)
+                                            .background(Circle().fill(Color.black.opacity(0.65)))
+                                    }
+                                    .buttonStyle(.plain)
+                                    .offset(x: 4, y: -4)
+                                }
+                                .padding(.top, 4)
+                                .padding(.trailing, 4)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 2)
+                }
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
             
             // Input field and send/stop button
             HStack(alignment: .bottom, spacing: 10) {
@@ -420,7 +527,7 @@ public struct ChatView: View {
     }
     
     private var isSendDisabled: Bool {
-        viewModel.isSending || viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        viewModel.isSending || (viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && selectedImageData.isEmpty)
     }
     
     private func handleCancel() {
@@ -433,10 +540,21 @@ public struct ChatView: View {
     private func handleSend() {
         guard !viewModel.isSending else { return }
         let text = viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        let images = selectedImageData
+        guard !text.isEmpty || !images.isEmpty else { return }
         viewModel.inputText = ""
+        selectedImageData = []
+        selectedPhotoItems = []
         Task {
-            await viewModel.sendMessage(text: text)
+            await viewModel.sendMessage(text: text, images: images)
+        }
+    }
+    
+    private func removeImage(at index: Int) {
+        guard index < selectedImageData.count else { return }
+        selectedImageData.remove(at: index)
+        if index < selectedPhotoItems.count {
+            selectedPhotoItems.remove(at: index)
         }
     }
     
@@ -482,7 +600,7 @@ public struct ChatView: View {
     }
     
     private func smartScroll(proxy: ScrollViewProxy, animated: Bool = false) {
-        if (viewModel.isAwaitingResponse || viewModel.isRunning) && viewModel.messages.last?.sender == .user {
+        if viewModel.isAwaitingResponse || viewModel.isRunning {
             scrollToBottom(proxy: proxy, animated: animated)
         } else if viewModel.latestAgentMessageId != nil || viewModel.latestTurnStartMessageId != nil {
             scrollToTurnStart(proxy: proxy, animated: animated)
@@ -512,7 +630,7 @@ public struct ChatView: View {
     }
     
     private func scrollToBottom(proxy: ScrollViewProxy, animated: Bool = true) {
-        let isThinkingActive = (viewModel.isAwaitingResponse || viewModel.isRunning) && viewModel.messages.last?.sender == .user
+        let isThinkingActive = (viewModel.isAwaitingResponse || viewModel.isRunning) && (viewModel.messages.last?.isToolBatch != true)
         let target = isThinkingActive ? "THINKING_INDICATOR" : "BOTTOM_ANCHOR"
         if animated {
             withAnimation(.easeOut(duration: 0.25)) {
