@@ -43,21 +43,18 @@ let pendingImages = []; // [{ id, name, mimeType, base64Data, dataUrl }]
 
 function updateModelSwitchUI() {
   const btn = document.getElementById("btn-model-switch");
-  const icon = document.getElementById("model-switch-icon");
   const text = document.getElementById("model-switch-text");
-  if (!btn || !icon || !text) return;
+  if (!btn || !text) return;
 
   if (activeModel === "claude-opus-4-6-thinking") {
     btn.className = "chip-pill chip-model-switch chip-claude";
-    icon.textContent = "🧠";
-    text.textContent = "Claude Opus 4.6";
-    btn.title = "当前模型: Claude Opus 4.6 (Thinking) - 点击切换为 Gemini 3.8";
+    text.textContent = "Claude";
+    btn.title = "当前模型: Claude (Opus 4.6 Thinking) - 点击切换为 Gemini";
   } else {
     activeModel = "gemini-3.8-flash-high";
     btn.className = "chip-pill chip-model-switch chip-gemini";
-    icon.textContent = "✨";
-    text.textContent = "Gemini 3.8";
-    btn.title = "当前模型: Gemini 3.8 Flash (High) - 点击切换为 Claude Opus 4.6";
+    text.textContent = "Gemini";
+    btn.title = "当前模型: Gemini (3.8 Flash High) - 点击切换为 Claude";
   }
 }
 
@@ -2427,36 +2424,59 @@ function renderMarkdown(md) {
       }
       if (tableLines.length >= 2) {
         const parseTableRow = (rowStr) => {
-          const parts = rowStr.split("|");
+          const placeholder = "\uE000";
+          const sanitized = rowStr.replace(/\\\|/g, placeholder);
+          const parts = sanitized.split("|");
           if (parts.length < 2) return [];
-          return parts.slice(1, parts.length - 1).map(c => c.trim());
+          return parts.slice(1, parts.length - 1).map(c => c.replace(/\uE000/g, "|").trim());
         };
         const headers = parseTableRow(tableLines[0]);
+        let alignments = [];
         const rows = [];
         for (let rIdx = 1; rIdx < tableLines.length; rIdx++) {
           const r = parseTableRow(tableLines[rIdx]);
           // Skip separator row (| --- | :--- |)
-          const isSep = r.every(cell => /^[\s\-:]+$/.test(cell));
-          if (isSep) continue;
+          const isSep = r.length > 0 && r.every(cell => /^[\s\-:]+$/.test(cell));
+          if (isSep) {
+            if (alignments.length === 0) {
+              alignments = r.map(c => {
+                const tr = c.trim();
+                const left = tr.startsWith(":");
+                const right = tr.endsWith(":");
+                if (left && right) return "center";
+                if (right) return "right";
+                return "left";
+              });
+            }
+            continue;
+          }
           rows.push(r);
         }
 
-        let tableHtml = `<div class="table-wrapper"><table class="ios-markdown-table"><thead><tr>`;
-        for (const h of headers) {
-          tableHtml += `<th>${renderInlineMarkdown(h)}</th>`;
-        }
-        tableHtml += `</tr></thead><tbody>`;
-        for (const row of rows) {
-          tableHtml += `<tr>`;
-          for (let colIdx = 0; colIdx < headers.length; colIdx++) {
-            const cellVal = colIdx < row.length ? row[colIdx] : "";
-            tableHtml += `<td>${renderInlineMarkdown(cellVal)}</td>`;
+        const maxCols = Math.max(headers.length, ...rows.map(r => r.length));
+        if (maxCols > 0) {
+          let tableHtml = `<div class="table-wrapper"><table class="ios-markdown-table"><thead><tr>`;
+          for (let colIdx = 0; colIdx < maxCols; colIdx++) {
+            const h = colIdx < headers.length ? headers[colIdx] : "";
+            const align = colIdx < alignments.length ? alignments[colIdx] : "left";
+            const alignStyle = align !== "left" ? ` style="text-align:${align};"` : "";
+            tableHtml += `<th${alignStyle}>${renderInlineMarkdown(h)}</th>`;
           }
-          tableHtml += `</tr>`;
+          tableHtml += `</tr></thead><tbody>`;
+          for (const row of rows) {
+            tableHtml += `<tr>`;
+            for (let colIdx = 0; colIdx < maxCols; colIdx++) {
+              const cellVal = colIdx < row.length ? row[colIdx] : "";
+              const align = colIdx < alignments.length ? alignments[colIdx] : "left";
+              const alignStyle = align !== "left" ? ` style="text-align:${align};"` : "";
+              tableHtml += `<td${alignStyle}>${renderInlineMarkdown(cellVal)}</td>`;
+            }
+            tableHtml += `</tr>`;
+          }
+          tableHtml += `</tbody></table></div>`;
+          blocks.push(tableHtml);
+          continue;
         }
-        tableHtml += `</tbody></table></div>`;
-        blocks.push(tableHtml);
-        continue;
       }
     }
 
