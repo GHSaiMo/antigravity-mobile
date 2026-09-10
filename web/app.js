@@ -594,16 +594,24 @@ function updateChatControls(isRunning, wsUri, hasAction = false) {
   if (sendBtn) {
     const iconSend = sendBtn.querySelector(".icon-send");
     const iconStop = sendBtn.querySelector(".icon-stop");
+    const hasText = chatInput && chatInput.value.trim().length > 0;
 
     if (isRunning) {
-      sendBtn.className = "btn-action-circle stop-mode";
-      sendBtn.title = "停止任务";
-      sendBtn.setAttribute("aria-label", "停止任务");
-      if (iconSend) iconSend.classList.add("hidden");
-      if (iconStop) iconStop.classList.remove("hidden");
+      if (hasText) {
+        sendBtn.className = "btn-action-circle send-mode active";
+        sendBtn.title = "加入待发送队列 (Queue Message)";
+        sendBtn.setAttribute("aria-label", "加入待发送队列");
+        if (iconSend) iconSend.classList.remove("hidden");
+        if (iconStop) iconStop.classList.add("hidden");
+      } else {
+        sendBtn.className = "btn-action-circle stop-mode";
+        sendBtn.title = "停止任务";
+        sendBtn.setAttribute("aria-label", "停止任务");
+        if (iconSend) iconSend.classList.add("hidden");
+        if (iconStop) iconStop.classList.remove("hidden");
+      }
     } else {
       sendBtn.className = "btn-action-circle send-mode";
-      const hasText = chatInput && chatInput.value.trim().length > 0;
       if (hasText) sendBtn.classList.add("active");
       sendBtn.title = "发送";
       sendBtn.setAttribute("aria-label", "发送");
@@ -671,6 +679,10 @@ function connectStreamWs(cascadeId) {
           currentTrajectories[cascadeId].needsInput = hasAction;
         }
 
+        if (data.queuedMessages) {
+          LocalQueueManager.syncFromServer(data.queuedMessages);
+        }
+
         if (data.steps) {
           renderMessages(data.steps, isRunning);
         }
@@ -736,12 +748,16 @@ async function loadChat(cascadeId, isBackgroundPoll = false) {
     }
 
     updateChatControls(isRunning, wsUri);
+    LocalQueueManager.init(cascadeId);
     renderMessages(steps, isRunning);
 
     fetch(`/gateway/cascade/messages?cascadeId=${encodeURIComponent(cascadeId)}&limit=1`)
       .then(res => res.json())
       .then(info => {
         if (activeCascadeId === cascadeId) {
+          if (info.queuedMessages) {
+            LocalQueueManager.syncFromServer(info.queuedMessages);
+          }
           currentCanProceed = !!info.canProceed && !isRunning;
           currentProceedArtifactUri = info.proceedArtifactUri || null;
           updateProceedButton(currentCanProceed);
@@ -1161,6 +1177,7 @@ function renderMessages(steps, isRunning = false) {
   prevWasRunning = isRunning;
 
   if (justFinished) {
+    LocalQueueManager.onAgentCompleted();
     if (lastItem && lastItem.type === "agent") {
       let lastUserIdx = -1;
       for (let i = items.length - 1; i >= 0; i--) {
@@ -1184,6 +1201,188 @@ function renderMessages(steps, isRunning = false) {
   }
 }
 
+// --- Local Message Queue Manager (Desktop Parity) ---
+const LocalQueueManager = {
+  queue: [],
+  isExpanded: true,
+
+  init(cascadeId) {
+    if (!cascadeId) return;
+    const expandedKey = `queued-messages-card-expanded-${cascadeId}`;
+    const storedExpanded = localStorage.getItem(expandedKey);
+    this.isExpanded = (storedExpanded !== null) ? (storedExpanded === "true") : true;
+
+    const storedQueue = localStorage.getItem(`agy_queue_${cascadeId}`);
+    if (storedQueue) {
+      try {
+        this.queue = JSON.parse(storedQueue);
+      } catch (e) {
+        this.queue = [];
+      }
+    } else {
+      this.queue = [];
+    }
+    this.render();
+  },
+
+  save() {
+    if (!activeCascadeId) return;
+    localStorage.setItem(`agy_queue_${activeCascadeId}`, JSON.stringify(this.queue));
+    this.render();
+  },
+
+  syncFromServer(serverQueue) {
+    if (!Array.isArray(serverQueue)) return;
+    if (serverQueue.length > 0) {
+      this.queue = serverQueue.map(item => ({
+        id: item.id || `server-${Date.now()}`,
+        text: item.text,
+        createdAt: item.createdAt || new Date().toISOString()
+      }));
+    } else if (currentTrajectories[activeCascadeId]?.status !== "CASCADE_RUN_STATUS_RUNNING") {
+      this.queue = [];
+    }
+    this.save();
+  },
+
+  enqueue(text) {
+    if (!text.trim()) return;
+    const item = {
+      id: `queue-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      text: text.trim(),
+      createdAt: new Date().toISOString()
+    };
+    this.queue.push(item);
+    this.save();
+  },
+
+  remove(id) {
+    this.queue = this.queue.filter(it => it.id !== id);
+    this.save();
+    if (activeCascadeId) {
+      rpc("DeleteAgentMessage", { messageId: id, recipient: activeCascadeId }).catch(() => {});
+    }
+  },
+
+  async sendNow(id) {
+    const item = this.queue.find(it => it.id === id);
+    if (!item || !activeCascadeId) return;
+    this.remove(id);
+
+    try {
+      if (currentTrajectories[activeCascadeId]) {
+        currentTrajectories[activeCascadeId].status = "CASCADE_RUN_STATUS_RUNNING";
+      }
+      updateChatControls(true, null, false);
+      await rpc("SendUserCascadeMessage", {
+        cascadeId: activeCascadeId,
+        items: [{ text: item.text }],
+        deliveryStrategy: 1 // NEXT_INVOCATION
+      });
+      if (!activeWs || activeWs.readyState !== WebSocket.OPEN) {
+        connectStreamWs(activeCascadeId);
+      }
+    } catch (err) {
+      alert("发送失败: " + err.message);
+    }
+  },
+
+  edit(id) {
+    const item = this.queue.find(it => it.id === id);
+    if (!item) return;
+    this.remove(id);
+
+    const inputEl = document.getElementById("chat-input");
+    if (inputEl) {
+      inputEl.value = item.text;
+      inputEl.style.height = "auto";
+      inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + "px";
+      inputEl.focus();
+      const isRunning = currentTrajectories[activeCascadeId]?.status === "CASCADE_RUN_STATUS_RUNNING";
+      updateChatControls(isRunning, null, false);
+    }
+  },
+
+  toggleExpand() {
+    this.isExpanded = !this.isExpanded;
+    if (activeCascadeId) {
+      localStorage.setItem(`queued-messages-card-expanded-${activeCascadeId}`, String(this.isExpanded));
+    }
+    this.render();
+  },
+
+  async onAgentCompleted() {
+    if (this.queue.length === 0 || !activeCascadeId) return;
+    const nextItem = this.queue.shift();
+    this.save();
+
+    try {
+      if (currentTrajectories[activeCascadeId]) {
+        currentTrajectories[activeCascadeId].status = "CASCADE_RUN_STATUS_RUNNING";
+      }
+      updateChatControls(true, null, false);
+      await rpc("SendUserCascadeMessage", {
+        cascadeId: activeCascadeId,
+        items: [{ text: nextItem.text }],
+        deliveryStrategy: 2 // WHEN_IDLE
+      });
+      if (!activeWs || activeWs.readyState !== WebSocket.OPEN) {
+        connectStreamWs(activeCascadeId);
+      }
+    } catch (err) {
+      console.warn("[Queue] Auto dispatch error:", err);
+    }
+  },
+
+  render() {
+    const cardEl = document.getElementById("queued-messages-card");
+    const countEl = document.getElementById("queued-badge-count");
+    const wrapperEl = document.getElementById("queued-content-wrapper");
+    const arrowEl = cardEl?.querySelector(".expand-arrow");
+    const listEl = document.getElementById("queued-items-list");
+    if (!cardEl || !countEl || !wrapperEl || !listEl) return;
+
+    if (this.queue.length === 0) {
+      cardEl.classList.add("hidden");
+      return;
+    }
+
+    cardEl.classList.remove("hidden");
+    countEl.textContent = this.queue.length;
+
+    if (this.isExpanded) {
+      wrapperEl.classList.remove("collapsed");
+      arrowEl?.classList.remove("collapsed");
+    } else {
+      wrapperEl.classList.add("collapsed");
+      arrowEl?.classList.add("collapsed");
+    }
+
+    listEl.innerHTML = this.queue.map(item => `
+      <div class="queued-item-row" data-id="${item.id}">
+        <span class="queued-item-text">${escapeHtml(item.text)}</span>
+        <div class="queued-actions" data-testid="queued-decorators">
+          <button class="queued-icon-btn btn-send-now" onclick="LocalQueueManager.sendNow('${item.id}')" title="Send Now" aria-label="Send Now">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 -960 960 960" fill="currentColor">
+              <path d="M665.08-450H180v-60H665.08L437.23-737.85L480-780L780-480L480-180l-42.77-42.15L665.08-450Z"></path>
+            </svg>
+          </button>
+          <button class="queued-icon-btn btn-edit" onclick="LocalQueueManager.edit('${item.id}')" title="Edit" aria-label="Edit">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 -960 960 960" fill="currentColor">
+              <path d="M200-200h50.46L659.92-609.46l-50.46-50.46L200-250.46V-200Zm-60,60V-275.38L667.62-802.77q9.07-8.24 20.04-12.74T710.65-820t23.31,4.27t19.97,13.58l48.85,49.46q9.31,8.69 13.27,20T820-710.07q0,12.07-4.12,23.03T802.77-667L275.38-140H140ZM760.38-710.15l-50.23-50.23l50.23,50.23Zm-126.13,75.9l-24.79-25.67l50.46,50.46l-25.67-24.79Z"></path>
+            </svg>
+          </button>
+          <button class="queued-icon-btn btn-delete" onclick="LocalQueueManager.remove('${item.id}')" title="Delete" aria-label="Delete">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 -960 960 960" fill="currentColor">
+              <path d="M292.31-140q-29.92,0-51.11-21.19T220-212.31V-720H180v-60H360v-35.38H600V-780H780v60H740v507.69Q740-182 719-161t-51.31,21H292.31ZM680-720H280v507.69q0,5.39 3.46,8.85t8.85,3.46H667.69q4.62,0 8.46-3.85t3.85-8.46V-720ZM376.16-280h60V-640h-60v360Zm147.69,0h60V-640h-60v360ZM280-720v507.69q0,5.39 0,8.85t0,3.46q0,0 0-3.46t0-8.85V-720Z"></path>
+            </svg>
+          </button>
+        </div>
+      </div>
+    `).join("");
+  }
+};
+
 // --- Send Message & Actions ---
 
 async function sendMessage() {
@@ -1193,10 +1392,26 @@ async function sendMessage() {
   const text = inputEl.value.trim();
   if (!text) return;
 
+  const isRunning = currentTrajectories[activeCascadeId]?.status === "CASCADE_RUN_STATUS_RUNNING";
+
   inputEl.value = "";
   inputEl.style.height = "auto";
   currentCanProceed = false;
   updateProceedButton(false);
+
+  if (isRunning) {
+    // Enqueue message while agent is running
+    LocalQueueManager.enqueue(text);
+    updateChatControls(true, null, false);
+    rpc("SendUserCascadeMessage", {
+      cascadeId: activeCascadeId,
+      items: [{ text }],
+      deliveryStrategy: 2 // WHEN_IDLE
+    }).catch(err => {
+      console.warn("[Queue] SendUserCascadeMessage with WHEN_IDLE notification:", err);
+    });
+    return;
+  }
 
   const streamEl = document.getElementById("messages-stream");
   const tempId = `temp-user-${Date.now()}`;
@@ -2076,15 +2291,22 @@ window.addEventListener("DOMContentLoaded", () => {
 
   updateAuthUI();
 
-  // Action Button (Send / Stop Toggle)
+  // Action Button (Send / Stop / Queue Toggle)
   const sendBtn = document.getElementById("btn-send");
   sendBtn?.addEventListener("click", () => {
     const summary = currentTrajectories[activeCascadeId];
-    if (summary?.status === "CASCADE_RUN_STATUS_RUNNING") {
+    const isRunning = summary?.status === "CASCADE_RUN_STATUS_RUNNING";
+    const hasText = document.getElementById("chat-input")?.value.trim().length > 0;
+    if (isRunning && !hasText) {
       cancelCurrentTask();
     } else {
       sendMessage();
     }
+  });
+
+  // Expand / Collapse Queued Messages Card
+  document.getElementById("btn-queued-expand")?.addEventListener("click", () => {
+    LocalQueueManager.toggleExpand();
   });
 
   // Chips
@@ -2131,19 +2353,14 @@ window.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Chat Input Auto-grow & Send Button Active State
+  // Chat Input Auto-grow & Dynamic Queue / Stop Controls
   const chatInput = document.getElementById("chat-input");
   if (chatInput) {
     chatInput.addEventListener("input", () => {
       chatInput.style.height = "auto";
       chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + "px";
-      if (sendBtn && sendBtn.classList.contains("send-mode")) {
-        if (chatInput.value.trim().length > 0) {
-          sendBtn.classList.add("active");
-        } else {
-          sendBtn.classList.remove("active");
-        }
-      }
+      const isRunning = currentTrajectories[activeCascadeId]?.status === "CASCADE_RUN_STATUS_RUNNING";
+      updateChatControls(isRunning, null, false);
     });
     chatInput.addEventListener("keydown", (e) => {
       if (e.isComposing || e.keyCode === 229) return; // Ignore IME composition (Chinese, Japanese, Korean)

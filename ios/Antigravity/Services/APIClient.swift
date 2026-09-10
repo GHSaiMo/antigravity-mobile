@@ -50,6 +50,7 @@ public struct PaginatedMessagesResponse: Codable, Sendable {
     public let canProceed: Bool?
     public let proceedArtifactUri: String?
     public let pendingInteraction: PendingInteraction?
+    public let queuedMessages: [QueuedMessageItem]?
     
     public struct GatewayMessageItem: Codable, Sendable {
         public let id: String
@@ -75,6 +76,7 @@ public struct FetchMessagesResult: Sendable {
     public let canProceed: Bool
     public let proceedArtifactUri: String?
     public let pendingInteraction: PendingInteraction?
+    public let queuedMessages: [QueuedMessageItem]
 }
 
 public final class APIClient: Sendable {
@@ -276,7 +278,8 @@ public final class APIClient: Sendable {
                     title: decoded.title,
                     canProceed: decoded.canProceed ?? false,
                     proceedArtifactUri: decoded.proceedArtifactUri,
-                    pendingInteraction: decoded.pendingInteraction
+                    pendingInteraction: decoded.pendingInteraction,
+                    queuedMessages: decoded.queuedMessages ?? []
                 )
             }
         } catch {
@@ -296,7 +299,8 @@ public final class APIClient: Sendable {
             title: title,
             canProceed: false,
             proceedArtifactUri: nil,
-            pendingInteraction: nil
+            pendingInteraction: nil,
+            queuedMessages: []
         )
     }
     
@@ -430,8 +434,19 @@ public final class APIClient: Sendable {
     }
     
     // Send a message to cascade
-    public func sendMessage(cascadeId: String, text: String, cascadeConfigRaw: String? = nil, baseURL: URL) async throws {
-        let req = SendUserCascadeMessageRequest(cascadeId: cascadeId, text: text, cascadeConfigRaw: cascadeConfigRaw)
+    public func sendMessage(
+        cascadeId: String,
+        text: String,
+        deliveryStrategy: Int? = nil,
+        cascadeConfigRaw: String? = nil,
+        baseURL: URL
+    ) async throws {
+        let req = SendUserCascadeMessageRequest(
+            cascadeId: cascadeId,
+            text: text,
+            deliveryStrategy: deliveryStrategy,
+            cascadeConfigRaw: cascadeConfigRaw
+        )
         let _: EmptyResponse = try await rpc(
             method: "SendUserCascadeMessage",
             body: req,
@@ -508,6 +523,16 @@ public final class APIClient: Sendable {
         let req = CancelCascadeInvocationRequest(cascadeId: cascadeId)
         let _: EmptyResponse = try await rpc(
             method: "CancelCascadeInvocation",
+            body: req,
+            baseURL: baseURL
+        )
+    }
+    
+    // Delete a queued agent message
+    public func deleteAgentMessage(messageId: String, cascadeId: String, baseURL: URL) async throws {
+        let req = DeleteAgentMessageRequest(messageId: messageId, recipient: cascadeId)
+        let _: EmptyResponse = try await rpc(
+            method: "DeleteAgentMessage",
             body: req,
             baseURL: baseURL
         )

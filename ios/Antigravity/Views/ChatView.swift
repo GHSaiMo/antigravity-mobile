@@ -216,6 +216,26 @@ public struct ChatView: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
             
+            // Floating Queued Messages Card
+            if !viewModel.queuedMessages.isEmpty {
+                QueuedMessagesCardView(
+                    items: viewModel.queuedMessages,
+                    onSendNow: { item in
+                        Task {
+                            await viewModel.sendQueuedMessageNow(item: item)
+                        }
+                    },
+                    onEdit: { item in
+                        viewModel.editQueuedMessage(item: item)
+                        isInputFocused = true
+                    },
+                    onDelete: { item in
+                        viewModel.deleteQueuedMessage(item: item)
+                    }
+                )
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+            
             // Bottom input bar
             inputBar
         }
@@ -313,7 +333,7 @@ public struct ChatView: View {
             
             // Input field and send/stop button
             HStack(alignment: .bottom, spacing: 10) {
-                TextField("发送对 Agent 的指令...", text: $viewModel.inputText, axis: .vertical)
+                TextField((viewModel.isRunning || viewModel.isAwaitingResponse) ? "向队列添加指令..." : "发送对 Agent 的指令...", text: $viewModel.inputText, axis: .vertical)
                     .font(.system(size: 16))
                     .padding(.horizontal, 16)
                     .padding(.vertical, 11)
@@ -323,7 +343,7 @@ public struct ChatView: View {
                     .lineLimit(1...5)
                     .focused($isInputFocused)
                 
-                if viewModel.isRunning || viewModel.isAwaitingResponse {
+                if (viewModel.isRunning || viewModel.isAwaitingResponse) && viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Button(action: handleCancel) {
                         ZStack {
                             Circle()

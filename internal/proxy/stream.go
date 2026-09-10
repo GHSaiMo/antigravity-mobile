@@ -22,6 +22,7 @@ type StreamUpdatePayload struct {
 	WorkspaceURI       string               `json:"workspaceUri"`
 	Steps              []TrajectoryStep     `json:"steps"`
 	Messages           []CascadeMessageItem `json:"messages"`
+	QueuedMessages     []QueuedMessageItem  `json:"queuedMessages,omitempty"`
 	IsFullSnapshot     bool                 `json:"isFullSnapshot"`
 	CascadeConfigRaw   string               `json:"cascadeConfigRaw,omitempty"`
 	CanProceed         bool                 `json:"canProceed"`
@@ -35,15 +36,19 @@ func (p *StreamUpdatePayload) Fingerprint() string {
 	if p.PendingInteraction != nil {
 		piKey = fmt.Sprintf("%s:%d:%s", p.PendingInteraction.Type, p.PendingInteraction.StepIndex, p.PendingInteraction.DefaultOptionID)
 	}
+	queuedKey := fmt.Sprintf("%d", len(p.QueuedMessages))
+	if len(p.QueuedMessages) > 0 {
+		queuedKey = fmt.Sprintf("%d:%s", len(p.QueuedMessages), p.QueuedMessages[len(p.QueuedMessages)-1].ID)
+	}
 	if len(p.Steps) == 0 {
-		return fmt.Sprintf("%s:0:0:%t:%s", p.Status, p.CanProceed, piKey)
+		return fmt.Sprintf("%s:0:0:%t:%s:%s", p.Status, p.CanProceed, piKey, queuedKey)
 	}
 	last := p.Steps[len(p.Steps)-1]
 	lastLen := 0
 	if last.PlannerResponse != nil {
 		lastLen = len(last.PlannerResponse.Response) + len(last.PlannerResponse.Thinking)
 	}
-	return fmt.Sprintf("%s:%d:%d:%s:%s:%d:%t:%s", p.Status, p.TotalSteps, p.TotalTools, last.Type, last.Status, lastLen, p.CanProceed, piKey)
+	return fmt.Sprintf("%s:%d:%d:%s:%s:%d:%t:%s:%s", p.Status, p.TotalSteps, p.TotalTools, last.Type, last.Status, lastLen, p.CanProceed, piKey, queuedKey)
 }
 
 // HandleCascadeStream serves a WebSocket connection for continuous real-time trajectory updates.
@@ -147,6 +152,7 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 				WorkspaceURI:       details.WorkspaceURI,
 				Steps:              details.Steps,
 				Messages:           details.AllMessages,
+				QueuedMessages:     details.QueuedMessages,
 				IsFullSnapshot:     true,
 				CascadeConfigRaw:   details.CascadeConfigRaw,
 				CanProceed:         details.CanProceed,
