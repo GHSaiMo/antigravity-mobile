@@ -3,6 +3,7 @@ package proxy
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -379,7 +380,9 @@ func fetchProjectsFromStateDB() []ProjectItem {
 		return nil
 	}
 
-	cmd := exec.Command("sqlite3", dbPath, "SELECT value FROM ItemTable WHERE key = 'history.recentlyOpenedPathsList';")
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "sqlite3", dbPath, "SELECT value FROM ItemTable WHERE key = 'history.recentlyOpenedPathsList';")
 	out, err := cmd.Output()
 	if err != nil {
 		log.Printf("[Projects] Warning: failed to read state.vscdb: %v", err)

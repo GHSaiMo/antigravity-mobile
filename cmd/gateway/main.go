@@ -43,6 +43,8 @@ func main() {
 	pollSec := flag.Int("poll", 5, "Polling interval in seconds for Antigravity instance discovery")
 	ddnsHost := flag.String("ddns", os.Getenv("DDNS_HOST"), "Public DDNS domain or IPv6 address for pairing QR code")
 	enableSSL := flag.Bool("ssl", os.Getenv("GATEWAY_SSL") == "1" || os.Getenv("GATEWAY_SSL") == "true", "Indicate SSL mode in pairing QR code")
+	tlsCert := flag.String("tls-cert", os.Getenv("TLS_CERT_FILE"), "Path to TLS certificate file for HTTPS (optional)")
+	tlsKey := flag.String("tls-key", os.Getenv("TLS_KEY_FILE"), "Path to TLS private key file for HTTPS (optional)")
 	flag.Parse()
 
 	log.Printf("==================================================")
@@ -136,93 +138,72 @@ func main() {
 	// 5. Web frontend handler
 	webHandler := web.Handler()
 
-	// 6. Combined Root Router
-	rootMux := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := r.URL.Path
+	// 6. Combined Root Router (Go 1.22+ ServeMux with method-aware patterns)
+	rootMux := http.NewServeMux()
 
-		// Route auth and device management endpoints
-		if path == "/api/v1/auth/pair" {
-			authHandler.HandlePair(w, r)
-			return
-		}
-		if path == "/api/v1/auth/session" {
-			authHandler.HandleNewPairingSession(w, r)
-			return
-		}
-		if strings.HasPrefix(path, "/api/v1/devices") {
-			authHandler.HandleDevices(w, r)
-			return
-		}
+	// Auth endpoints
+	rootMux.HandleFunc("/api/v1/auth/pair", authHandler.HandlePair)
+	rootMux.HandleFunc("/api/v1/auth/session", authHandler.HandleNewPairingSession)
+	rootMux.HandleFunc("/api/v1/devices/", authHandler.HandleDevices)
+	rootMux.HandleFunc("/api/v1/devices", authHandler.HandleDevices)
 
-		// Route Cockpit Quota endpoints (protected by AuthMiddleware)
-		if path == "/api/v1/cockpit/quotas" {
-			liveEmail, _, _ := p.GetActiveUserStatus()
-			quotas, err := cockpit.GetQuotas(liveEmail)
-			if err != nil {
-				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-				return
-			}
-			writeJSON(w, http.StatusOK, quotas)
+	// Cockpit endpoints
+	rootMux.HandleFunc("GET /api/v1/cockpit/quotas", func(w http.ResponseWriter, r *http.Request) {
+		liveEmail, _, _ := p.GetActiveUserStatus()
+		quotas, err := cockpit.GetQuotas(liveEmail)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
-		if path == "/api/v1/cockpit/refresh" {
-			if r.Method != http.MethodPost {
-				w.WriteHeader(http.StatusMethodNotAllowed)
-				return
-			}
-			err := cockpit.TriggerRefresh()
-			if err != nil {
-				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-				return
-			}
-			writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "message": "refresh triggered"})
-			return
-		}
-		if path == "/api/v1/cockpit/switch" {
-			if r.Method != http.MethodPost {
-				w.WriteHeader(http.StatusMethodNotAllowed)
-				return
-			}
-			var req struct {
-				AccountID string `json:"account_id"`
-			}
-			if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.AccountID) == "" {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "account_id is required"})
-				return
-			}
-			if err := cockpit.SwitchAccount(strings.TrimSpace(req.AccountID)); err != nil {
-				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-				return
-			}
-			writeJSON(w, http.StatusOK, map[string]any{
-				"status":     "ok",
-				"message":    "account switched successfully",
-				"account_id": strings.TrimSpace(req.AccountID),
-			})
-			return
-		}
-
-		// Route to proxy for APIs, WebSockets, Artifacts, and Gateway status
-		if strings.HasPrefix(path, "/api/") ||
-			strings.HasPrefix(path, "/gateway/") ||
-			strings.HasPrefix(path, "/static/artifacts/") ||
-			path == "/connect-websocket" {
-			p.ServeHTTP(w, r)
-			return
-		}
-
-		// Route to web frontend for everything else
-		webHandler.ServeHTTP(w, r)
+		writeJSON(w, http.StatusOK, quotas)
 	})
+	rootMux.HandleFunc("POST /api/v1/cockpit/refresh", func(w http.ResponseWriter, r *http.Request) {
+		err := cockpit.TriggerRefresh()
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "message": "refresh triggered"})
+	})
+	rootMux.HandleFunc("POST /api/v1/cockpit/switch", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			AccountID string `json:"account_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.AccountID) == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "account_id is required"})
+			return
+		}
+		if err := cockpit.SwitchAccount(strings.TrimSpace(req.AccountID)); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"status":     "ok",
+			"message":    "account switched successfully",
+			"account_id": strings.TrimSpace(req.AccountID),
+		})
+	})
+
+	// Proxy routes: APIs, WebSocket, Artifacts, Gateway status
+	rootMux.Handle("/api/", p)
+	rootMux.Handle("/gateway/", p)
+	rootMux.Handle("/static/artifacts/", p)
+	rootMux.Handle("/connect-websocket", p)
+
+	// Web frontend (catch-all)
+	rootMux.Handle("/", webHandler)
 
 	// 7. Wrap with AuthMiddleware
 	router := auth.AuthMiddleware(authStore, rootMux)
 
 	server := &http.Server{
-		Addr:         fmt.Sprintf("%s:%d", *host, *port),
-		Handler:      router,
-		ReadTimeout:  60 * time.Second,
-		WriteTimeout: 60 * time.Second,
+		Addr:        fmt.Sprintf("%s:%d", *host, *port),
+		Handler:     router,
+		ReadTimeout: 60 * time.Second,
+		// WriteTimeout is intentionally 0 (disabled) to avoid cutting off
+		// WebSocket and SSE long-lived connections. Each handler manages
+		// its own response timeouts via context.WithTimeout.
+		WriteTimeout: 0,
 		IdleTimeout:  120 * time.Second,
 	}
 
@@ -238,7 +219,14 @@ func main() {
 	signal.Notify(stopCh, os.Interrupt, syscall.SIGTERM)
 
 	go func() {
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		var err error
+		if *tlsCert != "" && *tlsKey != "" {
+			log.Printf("🔒 TLS enabled with cert=%s key=%s", *tlsCert, *tlsKey)
+			err = server.ListenAndServeTLS(*tlsCert, *tlsKey)
+		} else {
+			err = server.ListenAndServe()
+		}
+		if err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Server error: %v", err)
 		}
 	}()
