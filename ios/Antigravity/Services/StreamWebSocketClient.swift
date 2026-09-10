@@ -53,9 +53,9 @@ public final class StreamWebSocketClient {
         self.session = URLSession(configuration: config)
     }
     
-    public func connect(baseURL: URL, cascadeId: String) {
-        // If already connected to the same session, no need to reconnect
-        if status == .connected && activeCascadeId == cascadeId {
+    public func connect(baseURL: URL, cascadeId: String, force: Bool = false) {
+        // If already connected to the same session, no need to reconnect unless forced
+        if !force && status == .connected && activeCascadeId == cascadeId {
             return
         }
         
@@ -66,6 +66,11 @@ public final class StreamWebSocketClient {
         self.isIntentionallyClosed = false
         
         startConnection()
+    }
+    
+    public func reconnect(force: Bool = true) {
+        guard let baseURL = activeURL, let cascadeId = activeCascadeId else { return }
+        connect(baseURL: baseURL, cascadeId: cascadeId, force: force)
     }
     
     private func startConnection() {

@@ -248,6 +248,12 @@ public final class ChatViewModel {
                     if hasAgentResponse {
                         self.isAwaitingResponse = false
                         self.awaitingResponseSince = nil
+                        if result.status != "CASCADE_RUN_STATUS_RUNNING" {
+                            self.isRunning = false
+                            self.canProceed = result.canProceed
+                            self.proceedArtifactUri = result.proceedArtifactUri
+                            self.pendingInteraction = nil
+                        }
                         self.scrollToTurnStartTrigger += 1
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     } else if !self.isRunning && previouslyRunning {
@@ -812,6 +818,13 @@ public final class ChatViewModel {
                 if hasAgentResponse {
                     self.isAwaitingResponse = false
                     self.awaitingResponseSince = nil
+                    if statusString != "CASCADE_RUN_STATUS_RUNNING" {
+                        self.isRunning = false
+                        if let cp = payload.canProceed {
+                            self.canProceed = cp
+                            self.proceedArtifactUri = payload.proceedArtifactUri
+                        }
+                    }
                     self.scrollToTurnStartTrigger += 1
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 } else if !self.isRunning && previouslyRunning {
@@ -957,9 +970,32 @@ public final class ChatViewModel {
         }
     }
     
-    public func connectStream() {
+    public func connectStream(force: Bool = false) {
         guard !cascadeId.isEmpty, let url = settings.serverURL else { return }
-        streamClient.connect(baseURL: url, cascadeId: cascadeId)
+        streamClient.connect(baseURL: url, cascadeId: cascadeId, force: force)
+    }
+    
+    private var lastResumeTime: Date = .distantPast
+    
+    @MainActor
+    public func resumeActiveSession() async {
+        let now = Date()
+        guard now.timeIntervalSince(lastResumeTime) > 1.0 else { return }
+        lastResumeTime = now
+        
+        guard !cascadeId.isEmpty else { return }
+        
+        // 1. Force reconnect WebSocket stream to discard stale/suspended connection and receive fresh snapshot
+        connectStream(force: true)
+        
+        // 2. Concurrently fetch latest trajectory over HTTP for instantaneous UI refresh
+        await loadMessages(isBackgroundPoll: true)
+        await checkAndRefreshTitle()
+    }
+    
+    @MainActor
+    public func handleAppBackground() {
+        disconnectStream()
     }
     
     public func disconnectStream() {
