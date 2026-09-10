@@ -63,21 +63,82 @@ public struct SettingsSheet: View {
                     }
                 }
 
-                Section(header: Text("服务器连接配置"), footer: Text("支持输入局域网/DDNS 地址（如 http://mac.yourdomain.com:58900）、IPv6 地址（如 [240e:...]:58900）或 Tailscale 虚拟 IP。注意：网关默认采用 http 协议。")) {
-                    TextField("网关地址", text: $settings.rawServerURL)
+                Section(
+                    header: Text("已绑定的网络端点 (多网址自适应)"),
+                    footer: Text("扫码后会自动同步局域网 Wi-Fi 与公网 IPv6 双网址。在家同一 Wi-Fi 下优先走局域网（极速秒连），出门在外自动秒切 IPv6 直连。")
+                ) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("局域网 Wi-Fi 地址 (LAN IPv4)")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.secondary)
+                        TextField("未设置 (如 http://192.168.1.50:58900)", text: Binding(
+                            get: { settings.lanServerURL ?? "" },
+                            set: { settings.lanServerURL = $0.isEmpty ? nil : $0 }
+                        ))
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .keyboardType(.URL)
+                    }
+                    .padding(.vertical, 2)
                     
-                    Button(action: testConnection) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("外网直连地址 (Public IPv6)")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.secondary)
+                        TextField("未设置 (如 http://[240e:...]:58900)", text: Binding(
+                            get: { settings.ipv6ServerURL ?? "" },
+                            set: { settings.ipv6ServerURL = $0.isEmpty ? nil : $0 }
+                        ))
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                    }
+                    .padding(.vertical, 2)
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("自定义域名 / DDNS / Tailscale")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.secondary)
+                        TextField("未设置 (如 https://mac.yourdomain.com)", text: Binding(
+                            get: { settings.customServerURL ?? "" },
+                            set: { settings.customServerURL = $0.isEmpty ? nil : $0 }
+                        ))
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                    }
+                    .padding(.vertical, 2)
+                    
+                    if let active = settings.activeServerURL, !active.isEmpty {
                         HStack {
-                            Text("测试连接")
+                            Text("当前活动通道")
+                                .font(.system(size: 13))
+                            Spacer()
+                            Text(active)
+                                .font(.system(size: 12, design: .monospaced))
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    }
+                    
+                    Button(action: {
+                        Task {
+                            isTesting = true
+                            testStatus = nil
+                            _ = await ConnectionManager.shared.probeEndpoints()
+                            testConnection()
+                        }
+                    }) {
+                        HStack {
+                            Image(systemName: "bolt.horizontal.circle")
+                            Text("智能探活与测速")
                             Spacer()
                             if isTesting {
                                 ProgressView()
                             } else if let status = testStatus {
                                 Text(status)
-                                    .font(.system(size: 13))
+                                    .font(.system(size: 12))
                                     .foregroundColor(status.contains("成功") ? .green : .red)
                             }
                         }
@@ -85,8 +146,33 @@ public struct SettingsSheet: View {
                     .disabled(isTesting)
                 }
                 
-                Section(header: Text("网络直连策略"), footer: Text("开启后，即使手机连接了局域网/Wi-Fi，也优先通过移动蜂窝网络（自带 IPv6）直连 Mac 端，解决外部公共 Wi-Fi 无 IPv6 导致的连接失败问题。")) {
+                Section(header: Text("网络直连策略"), footer: Text("开启后，即使手机连接了外部 Wi-Fi，也优先通过移动蜂窝网络（自带 IPv6）直连 Mac 端，解决公共 Wi-Fi 无 IPv6 导致的连接失败问题。")) {
                     Toggle("优先走手机蜂窝网络 (IPv6 直连)", isOn: $settings.preferCellularNetwork)
+                    
+                    if settings.preferCellularNetwork {
+                        if let v6 = settings.ipv6ServerURL, !v6.isEmpty {
+                            HStack {
+                                Image(systemName: "antenna.radiowaves.left.and.right")
+                                    .foregroundColor(.blue)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("已绑定 IPv6 直连通道")
+                                        .font(.system(size: 13, weight: .medium))
+                                    Text(v6)
+                                        .font(.system(size: 11, design: .monospaced))
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(1)
+                                }
+                            }
+                        } else {
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundColor(.orange)
+                                Text("未检测到已保存的 IPv6 地址。请在上方「外网直连地址」中填入 Mac 终端显示的 IPv6 地址，或重新扫码。")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
                 }
 
                 
@@ -144,10 +230,11 @@ public struct SettingsSheet: View {
         Task { @MainActor in
             do {
                 let status = try await APIClient.shared.testConnection(baseURL: url)
+                let ifaceDesc = (status.usedInterface == "cellular") ? "蜂窝网络 IPv6" : "Wi-Fi 局域网"
                 if status.status == "connected", let upstream = status.upstream {
-                    testStatus = "连接成功 (PID \(upstream.pid ?? 0))"
+                    testStatus = "连接成功 (PID \(upstream.pid ?? 0) · \(ifaceDesc))"
                 } else {
-                    testStatus = "网关在线，上游未就绪"
+                    testStatus = "网关在线，上游未就绪 (\(ifaceDesc))"
                 }
             } catch {
                 testStatus = "失败: \(error.localizedDescription)"

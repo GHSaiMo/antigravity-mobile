@@ -41,6 +41,7 @@ public final class StreamWebSocketClient {
     private var activeURL: URL?
     private var activeCascadeId: String?
     private var isIntentionallyClosed: Bool = false
+    private var cellularWatchdogWork: DispatchWorkItem?
     
     public init() {}
     
@@ -128,17 +129,22 @@ public final class StreamWebSocketClient {
         }
         parameters.defaultProtocolStack.applicationProtocols.insert(wsOptions, at: 0)
         
+        cellularWatchdogWork?.cancel()
+        cellularWatchdogWork = nil
+        
         if useCellular {
             if let host = wsURL.host, !NetworkTransport.isLocalOrPrivateHost(host) {
                 parameters.requiredInterfaceType = .cellular
                 
-                // Watchdog: if cellular socket cannot connect within 3.0s, gracefully fall back to standard system interface
-                DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
+                // Watchdog: if cellular socket cannot connect within 6.0s, gracefully fall back to standard system interface
+                let work = DispatchWorkItem { [weak self] in
                     guard let self = self, self.status != .connected, !self.isIntentionallyClosed else { return }
-                    print("[StreamWS] Cellular connection attempt timed out (3.0s), falling back to standard interface")
+                    print("[StreamWS] Cellular connection attempt timed out (6.0s), falling back to standard interface")
                     self.cleanupCurrentSocket()
                     self.startConnection(useCellular: false)
                 }
+                self.cellularWatchdogWork = work
+                DispatchQueue.main.asyncAfter(deadline: .now() + 6.0, execute: work)
             }
         }
         
@@ -158,15 +164,15 @@ public final class StreamWebSocketClient {
     private func handleStateUpdate(state: NWConnection.State, wsURL: URL, usedCellular: Bool) {
         switch state {
         case .ready:
+            cellularWatchdogWork?.cancel()
+            cellularWatchdogWork = nil
             updateStatus(.connected)
             receiveNextMessage()
         case .waiting(let error):
             print("[StreamWS] Connection waiting (cellular=\(usedCellular)): \(error)")
-            if usedCellular && !isIntentionallyClosed {
-                print("[StreamWS] Cellular socket waiting with no route, falling back to standard interface")
-                cleanupCurrentSocket()
-                startConnection(useCellular: false)
-            }
+            // Note: Do not immediately fallback here when usedCellular is true;
+            // iOS transitions through .waiting while the cellular radio warms up.
+            // The 6.0s watchdog timer will gracefully fallback if the radio cannot establish a path.
         case .failed(let error):
             print("[StreamWS] Connection failed (cellular=\(usedCellular)): \(error)")
             if usedCellular && !isIntentionallyClosed {
@@ -233,6 +239,8 @@ public final class StreamWebSocketClient {
     }
     
     private func cleanupCurrentSocket() {
+        cellularWatchdogWork?.cancel()
+        cellularWatchdogWork = nil
         if let conn = connection {
             conn.stateUpdateHandler = nil
             conn.cancel()
