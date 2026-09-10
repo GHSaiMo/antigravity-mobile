@@ -602,10 +602,8 @@ func (p *Proxy) HandleCreateCascade(w http.ResponseWriter, r *http.Request) {
 		startPayload["workspaceUris"] = []string{wsURI}
 	}
 
-	if req.Model != "" {
-		startPayload["requestedModel"] = map[string]string{
-			"model": req.Model,
-		}
+	if modelEnum := resolveModelEnum(req.Model); modelEnum != "" {
+		startPayload["requestedModel"] = modelEnum
 	}
 
 	startBytes, _ := json.Marshal(startPayload)
@@ -755,4 +753,45 @@ func uriToPath(rawURI string) string {
 		return u.Path
 	}
 	return path
+}
+
+// modelEnumMap maps friendly model IDs or aliases to upstream Protobuf enum names.
+var modelEnumMap = map[string]string{
+	"gemini":                   "MODEL_PLACEHOLDER_M318",
+	"gemini-flash":             "MODEL_PLACEHOLDER_M318",
+	"gemini-3.8-flash":         "MODEL_PLACEHOLDER_M318",
+	"gemini-3.8-flash-high":    "MODEL_PLACEHOLDER_M318",
+	"gemini-3.8-flash-medium":  "MODEL_PLACEHOLDER_M319",
+	"gemini-3.8-flash-low":     "MODEL_PLACEHOLDER_M320",
+	"gemini-3.7-flash-high":    "MODEL_PLACEHOLDER_M298",
+	"gemini-3.7-flash-medium":  "MODEL_PLACEHOLDER_M299",
+	"gemini-3.7-flash-low":     "MODEL_PLACEHOLDER_M300",
+	"gemini-3.6-flash-high":    "MODEL_PLACEHOLDER_M71",
+	"gemini-3.6-flash-medium":  "MODEL_PLACEHOLDER_M72",
+	"gemini-3.6-flash-low":     "MODEL_PLACEHOLDER_M73",
+	"gemini-pro-agent":         "MODEL_PLACEHOLDER_M16",
+	"gemini-3.1-pro-low":       "MODEL_PLACEHOLDER_M36",
+	"gemini-3.1-pro-high":      "MODEL_PLACEHOLDER_M37",
+	"gemini-2.5-pro":           "MODEL_GOOGLE_GEMINI_2_5_PRO",
+	"gemini-2.5-flash":         "MODEL_GOOGLE_GEMINI_2_5_FLASH",
+	"claude":                   "MODEL_PLACEHOLDER_M26",
+	"claude-opus":              "MODEL_PLACEHOLDER_M26",
+	"claude-opus-4-6-thinking": "MODEL_PLACEHOLDER_M26",
+	"claude-sonnet-4-6":        "MODEL_PLACEHOLDER_M35",
+	"gpt-oss-120b-medium":      "MODEL_OPENAI_GPT_OSS_120B_MEDIUM",
+}
+
+// resolveModelEnum resolves a user or client provided model name to its protobuf enum string.
+func resolveModelEnum(model string) string {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return ""
+	}
+	if strings.HasPrefix(model, "MODEL_") {
+		return model
+	}
+	if enum, ok := modelEnumMap[strings.ToLower(model)]; ok {
+		return enum
+	}
+	return ""
 }

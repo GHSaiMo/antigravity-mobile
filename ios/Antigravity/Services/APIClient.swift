@@ -484,11 +484,13 @@ public final class APIClient: Sendable {
         cascadeConfigRaw: String? = nil,
         baseURL: URL
     ) async throws {
-        let imagePayloads = images?.map { ImageDataPayload(base64Data: $0.base64EncodedString()) }
+        let imagePayloads = images?.map { ImageDataPayload(base64Data: $0.base64EncodedString(), mimeType: "image/jpeg") }
+        let mediaPayloads = images?.map { MediaDataPayload(inlineData: $0.base64EncodedString(), mimeType: "image/jpeg") }
         let req = SendUserCascadeMessageRequest(
             cascadeId: cascadeId,
             text: text,
             images: imagePayloads,
+            media: mediaPayloads,
             deliveryStrategy: deliveryStrategy,
             cascadeConfigRaw: cascadeConfigRaw
         )

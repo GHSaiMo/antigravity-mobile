@@ -185,28 +185,41 @@ public struct ImageDataPayload: Codable, Sendable {
     }
 }
 
+public struct MediaDataPayload: Codable, Sendable {
+    public let inlineData: String
+    public let mimeType: String
+    
+    public init(inlineData: String, mimeType: String = "image/jpeg") {
+        self.inlineData = inlineData
+        self.mimeType = mimeType
+    }
+}
+
 // Request to send a message
 public struct SendUserCascadeMessageRequest: Codable, Sendable {
     public let cascadeId: String
     public let items: [TextItem]
     public let images: [ImageDataPayload]?
+    public let media: [MediaDataPayload]?
     public let cascadeConfigRaw: String?
     public let artifactComments: [ArtifactCommentPayload]?
     public let deliveryStrategy: Int?
     
-    public init(cascadeId: String, text: String, images: [ImageDataPayload]? = nil, deliveryStrategy: Int? = nil, cascadeConfigRaw: String? = nil) {
+    public init(cascadeId: String, text: String, images: [ImageDataPayload]? = nil, media: [MediaDataPayload]? = nil, deliveryStrategy: Int? = nil, cascadeConfigRaw: String? = nil) {
         self.cascadeId = cascadeId
         self.items = text.isEmpty ? [] : [TextItem(text: text)]
         self.images = images
+        self.media = media
         self.cascadeConfigRaw = cascadeConfigRaw
         self.artifactComments = nil
         self.deliveryStrategy = deliveryStrategy
     }
     
-    public init(cascadeId: String, items: [TextItem] = [], images: [ImageDataPayload]? = nil, deliveryStrategy: Int? = nil, cascadeConfigRaw: String? = nil, artifactComments: [ArtifactCommentPayload]? = nil) {
+    public init(cascadeId: String, items: [TextItem] = [], images: [ImageDataPayload]? = nil, media: [MediaDataPayload]? = nil, deliveryStrategy: Int? = nil, cascadeConfigRaw: String? = nil, artifactComments: [ArtifactCommentPayload]? = nil) {
         self.cascadeId = cascadeId
         self.items = items
         self.images = images
+        self.media = media
         self.cascadeConfigRaw = cascadeConfigRaw
         self.artifactComments = artifactComments
         self.deliveryStrategy = deliveryStrategy

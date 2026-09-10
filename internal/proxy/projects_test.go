@@ -2,8 +2,10 @@ package proxy
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -47,5 +49,93 @@ func TestURIHelpers(t *testing.T) {
 	norm := normalizeURI("/Users/hal9000/Projects/foo/")
 	if norm != "file:///Users/hal9000/Projects/foo" {
 		t.Errorf("expected normalized URI, got: %s", norm)
+	}
+}
+
+func TestResolveModelEnum(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"gemini-3.8-flash-high", "MODEL_PLACEHOLDER_M318"},
+		{"claude-opus-4-6-thinking", "MODEL_PLACEHOLDER_M26"},
+		{"gemini", "MODEL_PLACEHOLDER_M318"},
+		{"claude", "MODEL_PLACEHOLDER_M26"},
+		{"MODEL_PLACEHOLDER_M16", "MODEL_PLACEHOLDER_M16"},
+		{"MODEL_CUSTOM_TEST", "MODEL_CUSTOM_TEST"},
+		{"", ""},
+		{"unknown-model-xyz", ""},
+	}
+
+	for _, tc := range tests {
+		got := resolveModelEnum(tc.input)
+		if got != tc.expected {
+			t.Errorf("resolveModelEnum(%q) = %q, expected %q", tc.input, got, tc.expected)
+		}
+	}
+}
+
+func TestHandleCreateCascadeRequestedModel(t *testing.T) {
+	var lastReceivedPayload map[string]interface{}
+	mockUpstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/StartCascade") {
+			json.NewDecoder(r.Body).Decode(&lastReceivedPayload)
+			w.Write([]byte(`{"cascadeId": "test-cascade-123"}`))
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/UpdateConversationAnnotations") {
+			w.Write([]byte(`{}`))
+			return
+		}
+		w.Write([]byte(`{}`))
+	}))
+	defer mockUpstream.Close()
+
+	port := mockUpstream.Listener.Addr().(*net.TCPAddr).Port
+	insp := inspector.NewInspector(5 * time.Second)
+	p := NewProxy(insp)
+	p.activePort = port
+	p.activeToken = "test-token"
+
+	testCases := []struct {
+		modelInput    string
+		expectedEnum  string
+		shouldHaveKey bool
+	}{
+		{"gemini-3.8-flash-high", "MODEL_PLACEHOLDER_M318", true},
+		{"claude-opus-4-6-thinking", "MODEL_PLACEHOLDER_M26", true},
+		{"MODEL_PLACEHOLDER_M37", "MODEL_PLACEHOLDER_M37", true},
+		{"", "", false},
+		{"unknown-model", "", false},
+	}
+
+	for _, tc := range testCases {
+		lastReceivedPayload = nil
+		body, _ := json.Marshal(CreateCascadeRequest{
+			WorkspaceURI: "file:///test/ws",
+			Model:        tc.modelInput,
+		})
+		req := httptest.NewRequest(http.MethodPost, "/gateway/cascade/new", strings.NewReader(string(body)))
+		rec := httptest.NewRecorder()
+
+		p.HandleCreateCascade(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("model %q: expected 200, got %d: %s", tc.modelInput, rec.Code, rec.Body.String())
+		}
+
+		if tc.shouldHaveKey {
+			reqModel, ok := lastReceivedPayload["requestedModel"]
+			if !ok {
+				t.Errorf("model %q: expected requestedModel in payload, but not found", tc.modelInput)
+			} else if reqModelStr, ok := reqModel.(string); !ok || reqModelStr != tc.expectedEnum {
+				t.Errorf("model %q: expected string enum %q, got %v (%T)", tc.modelInput, tc.expectedEnum, reqModel, reqModel)
+			}
+		} else {
+			if _, ok := lastReceivedPayload["requestedModel"]; ok {
+				t.Errorf("model %q: expected requestedModel to be omitted, but found: %v", tc.modelInput, lastReceivedPayload["requestedModel"])
+			}
+		}
 	}
 }

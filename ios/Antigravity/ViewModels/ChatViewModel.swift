@@ -564,12 +564,13 @@ public final class ChatViewModel {
         }
     }
     
+    @discardableResult
     @MainActor
-    public func sendMessage(text customText: String? = nil, images: [Data]? = nil) async {
-        guard !isSending else { return }
+    public func sendMessage(text customText: String? = nil, images: [Data]? = nil) async -> Bool {
+        guard !isSending else { return false }
         let text = (customText ?? inputText).trimmingCharacters(in: .whitespacesAndNewlines)
         let hasImages = (images != nil && !images!.isEmpty)
-        guard (!text.isEmpty || hasImages), let url = settings.serverURL else { return }
+        guard (!text.isEmpty || hasImages), let url = settings.serverURL else { return false }
         
         isSending = true
         defer { isSending = false }
@@ -621,7 +622,7 @@ public final class ChatViewModel {
                     print("⚠️ Failed to deliver queued message upstream: \(error)")
                 }
             }
-            return
+            return true
         }
         
         // Haptic feedback
@@ -667,7 +668,7 @@ public final class ChatViewModel {
                 let newCascadeId = try await apiClient.createCascade(
                     workspaceUri: project.uri,
                     prompt: initialPrompt,
-                    model: settings.activeModel,
+                    model: settings.activeModelEnum,
                     projectId: pid,
                     baseURL: url
                 )
@@ -723,6 +724,7 @@ public final class ChatViewModel {
                 try? await Task.sleep(nanoseconds: 250_000_000)
                 await self.loadMessages(isBackgroundPoll: true)
             }
+            return true
         } catch {
             print("❌ sendMessage error: \(error)")
             errorMessage = error.localizedDescription
@@ -735,7 +737,12 @@ public final class ChatViewModel {
             }
             // Restore text so user does not lose their input
             inputText = text
+            // If session was not yet created, preserve isNewConversation so the user stays in draft mode
+            if cascadeId.isEmpty && draftProject != nil {
+                isNewConversation = true
+            }
             stopPollingFallback()
+            return false
         }
     }
     

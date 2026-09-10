@@ -186,8 +186,8 @@ public struct ChatView: View {
                 }
             }
             
-            // Error banner for active chats
-            if let err = viewModel.errorMessage, !viewModel.messages.isEmpty {
+            // Error banner for active chats or drafting new conversations
+            if let err = viewModel.errorMessage, (!viewModel.messages.isEmpty || viewModel.isNewConversation) {
                 HStack(spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundColor(.orange)
@@ -308,6 +308,27 @@ public struct ChatView: View {
                 var loaded: [Data] = []
                 for item in items {
                     if let data = try? await item.loadTransferable(type: Data.self) {
+                        if let uiImage = UIImage(data: data) {
+                            let maxDim: CGFloat = 2048
+                            let size = uiImage.size
+                            let targetImage: UIImage
+                            if size.width > maxDim || size.height > maxDim {
+                                let ratio = min(maxDim / size.width, maxDim / size.height)
+                                let newSize = CGSize(width: size.width * ratio, height: size.height * ratio)
+                                let format = UIGraphicsImageRendererFormat()
+                                format.scale = 1.0
+                                let renderer = UIGraphicsImageRenderer(size: newSize, format: format)
+                                targetImage = renderer.image { _ in
+                                    uiImage.draw(in: CGRect(origin: .zero, size: newSize))
+                                }
+                            } else {
+                                targetImage = uiImage
+                            }
+                            if let jpeg = targetImage.jpegData(compressionQuality: 0.8) {
+                                loaded.append(jpeg)
+                                continue
+                            }
+                        }
                         loaded.append(data)
                     }
                 }
@@ -529,7 +550,10 @@ public struct ChatView: View {
         selectedImageData = []
         selectedPhotoItems = []
         Task {
-            await viewModel.sendMessage(text: text, images: images)
+            let success = await viewModel.sendMessage(text: text, images: images)
+            if !success && !images.isEmpty {
+                selectedImageData = images
+            }
         }
     }
     
