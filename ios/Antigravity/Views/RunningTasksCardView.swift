@@ -58,7 +58,7 @@ public struct RunningTasksCardView: View {
             if isExpanded {
                 VStack(spacing: 6) {
                     ForEach(items) { item in
-                        HStack(alignment: .center, spacing: 12) {
+                        HStack(alignment: .bottom, spacing: 12) {
                             VStack(alignment: .leading, spacing: 3) {
                                 if let desc = item.toolSummary ?? item.toolAction ?? item.toolName, !desc.isEmpty {
                                     Text(desc)
