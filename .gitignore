@@ -68,3 +68,6 @@ temp/
 *.swo
 *~
 *.bak
+
+# --- Internal Docs & Notes ---
+docs/
