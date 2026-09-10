@@ -2659,11 +2659,6 @@ function initQuotaModule() {
     });
   }
 
-  const refreshBtn = document.getElementById("btn-quota-refresh");
-  if (refreshBtn) {
-    refreshBtn.addEventListener("click", () => fetchCockpitQuotas(true));
-  }
-
   const maskBtn = document.getElementById("btn-quota-mask");
   if (maskBtn) {
     if (isCockpitEmailMasked) {
@@ -2682,10 +2677,10 @@ function initQuotaModule() {
   // Initial fetch
   fetchCockpitQuotas();
 
-  // Periodic poll every 45s
+  // Periodic poll every 5 minutes (300,000 ms) while app is open
   setInterval(() => {
     if (document.visibilityState === "visible") {
       fetchCockpitQuotas();
     }
-  }, 45000);
+  }, 5 * 60 * 1000);
 }

@@ -42,15 +42,7 @@ public struct ConversationListView: View {
                 })
             }
             .sheet(isPresented: $showAccountQuota) {
-                AccountQuotaSheet(
-                    quotaResponse: viewModel.quotaResponse,
-                    isRefreshing: viewModel.isRefreshingQuota,
-                    onRefresh: {
-                        Task {
-                            await viewModel.triggerQuotaRefresh()
-                        }
-                    }
-                )
+                AccountQuotaSheet(quotaResponse: viewModel.quotaResponse)
             }
             .navigationDestination(for: ConversationItem.self) { item in
                 ChatView(conversation: item, isNewConversation: item.stepCount == 0)
