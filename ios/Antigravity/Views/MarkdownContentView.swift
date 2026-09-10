@@ -88,10 +88,38 @@ public struct MarkdownContentView: View {
     
     // MARK: - Rich Text with File Icons and Inline Code Styler
     
+    private final class InlineMarkdownCache: @unchecked Sendable {
+        static let shared = InlineMarkdownCache()
+        private let lock = NSLock()
+        private var cache: [Int: AttributedString] = [:]
+        
+        func get(_ key: Int) -> AttributedString? {
+            lock.lock()
+            defer { lock.unlock() }
+            return cache[key]
+        }
+        
+        func set(_ key: Int, value: AttributedString) {
+            lock.lock()
+            defer { lock.unlock() }
+            if cache.count > 500 {
+                cache.removeAll(keepingCapacity: true)
+            }
+            cache[key] = value
+        }
+    }
+    
+    private static let linkRegex = try? NSRegularExpression(pattern: #"(?<!\!)\[([^\]]+)\]\(([^)]+)\)"#)
+    
     public static func renderRichText(_ rawText: String, size: CGFloat = 15, weight: Font.Weight = .regular) -> Text {
         let text = MathSymbolProcessor.process(rawText)
-        let pattern = #"(?<!\!)\[([^\]]+)\]\(([^)]+)\)"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+        
+        // Fast-path: If text does not contain markdown link signature `](`, avoid regex inspection entirely
+        guard text.contains("[") && text.contains("](") else {
+            return Text(renderInlineMarkdown(text, size: size, weight: weight))
+        }
+        
+        guard let regex = Self.linkRegex else {
             return Text(renderInlineMarkdown(text, size: size, weight: weight))
         }
         
@@ -135,10 +163,17 @@ public struct MarkdownContentView: View {
     // MARK: - Markdown Attributed String Styler
     
     public static func renderInlineMarkdown(_ text: String, size: CGFloat = 15, weight: Font.Weight = .regular) -> AttributedString {
+        let cacheKey = text.hashValue ^ (Int(size * 100) << 2) ^ weight.hashValue
+        if let cached = InlineMarkdownCache.shared.get(cacheKey) {
+            return cached
+        }
+        
         var options = AttributedString.MarkdownParsingOptions()
         options.interpretedSyntax = .inlineOnlyPreservingWhitespace
         guard var attr = try? AttributedString(markdown: text, options: options) else {
-            return AttributedString(text)
+            let fallback = AttributedString(text)
+            InlineMarkdownCache.shared.set(cacheKey, value: fallback)
+            return fallback
         }
         
         // Antigravity Desktop Code Amber/Yellow color: #E5C07B (RGB: 229, 192, 123)
@@ -152,6 +187,7 @@ public struct MarkdownContentView: View {
                 attr[run.range].font = .system(size: size * 0.9, weight: .medium, design: .monospaced)
             }
         }
+        InlineMarkdownCache.shared.set(cacheKey, value: attr)
         return attr
     }
     

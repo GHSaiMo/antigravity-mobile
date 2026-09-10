@@ -38,7 +38,7 @@ public struct ConversationListView: View {
                 } else {
                     List {
                         ForEach(viewModel.filteredConversations) { item in
-                            NavigationLink(destination: ChatView(conversation: item, isNewConversation: item.stepCount == 0)) {
+                            NavigationLink(value: item) {
                                 conversationCard(for: item)
                             }
                             .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
@@ -77,13 +77,20 @@ public struct ConversationListView: View {
                     }
                 })
             }
+            .navigationDestination(for: ConversationItem.self) { item in
+                ChatView(conversation: item, isNewConversation: item.stepCount == 0)
+                    .onAppear {
+                        Task {
+                            if let url = AppSettings.shared.gatewayURL {
+                                await APIClient.shared.markConversationAsRead(cascadeId: item.id, baseURL: url)
+                            } else {
+                                CacheManager.shared.markConversationAsRead(cascadeId: item.id)
+                            }
+                        }
+                    }
+            }
             .navigationDestination(item: $selectedDraftProject) { project in
                 ChatView(draftProject: project)
-            }
-            .onAppear {
-                Task {
-                    await viewModel.fetchConversations()
-                }
             }
             .task {
                 await viewModel.fetchConversations()
@@ -120,6 +127,17 @@ public struct ConversationListView: View {
                         .padding(.vertical, 3)
                         .background(Color.green.opacity(0.15))
                         .cornerRadius(6)
+                } else if item.isUnread {
+                    ZStack {
+                        Circle()
+                            .fill(Color.blue.opacity(0.15))
+                            .frame(width: 14, height: 14)
+                        Circle()
+                            .fill(Color.blue)
+                            .frame(width: 6, height: 6)
+                    }
+                    .frame(width: 16, height: 16)
+                    .padding(.top, 2)
                 }
             }
             
