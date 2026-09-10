@@ -348,55 +348,38 @@ public struct ChatView: View {
                             await viewModel.toggleModel()
                         }
                     }) {
-                        HStack(spacing: 5) {
-                            if viewModel.isClaudeActive {
-                                Text("🧠")
-                                    .font(.system(size: 12))
-                                Text("Claude 4.6")
-                                    .font(.system(size: 13, weight: .medium))
-                                    .foregroundColor(.orange)
-                            } else {
-                                Text("✨")
-                                    .font(.system(size: 12))
-                                Text("Gemini 3.8")
-                                    .font(.system(size: 13, weight: .medium))
-                                    .foregroundColor(.blue)
-                            }
-                        }
-                        .padding(.horizontal, 10)
-                        .frame(height: 32)
-                        .background(
-                            viewModel.isClaudeActive ? Color.orange.opacity(0.12) : Color.blue.opacity(0.12)
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .stroke(
-                                    viewModel.isClaudeActive ? Color.orange.opacity(0.35) : Color.blue.opacity(0.35),
-                                    lineWidth: 1
-                                )
-                        )
+                        Text(viewModel.isClaudeActive ? "Claude" : "Gemini")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(viewModel.isClaudeActive ? .orange : .blue)
+                            .padding(.horizontal, 11)
+                            .frame(height: 32)
+                            .background(
+                                viewModel.isClaudeActive ? Color.orange.opacity(0.12) : Color.blue.opacity(0.12)
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .stroke(
+                                        viewModel.isClaudeActive ? Color.orange.opacity(0.35) : Color.blue.opacity(0.35),
+                                        lineWidth: 1
+                                    )
+                            )
                     }
                     .buttonStyle(.plain)
                     
                     // 3. Commit and Push Button
                     Button(action: insertCommitAndPush) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "arrow.triangle.branch")
-                                .font(.system(size: 12.5, weight: .semibold))
-                                .foregroundColor(.indigo)
-                            Text("Commit and Push")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(.primary)
-                        }
-                        .padding(.horizontal, 14)
-                        .frame(height: 32)
-                        .background(Color(uiColor: .secondarySystemBackground))
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
-                        )
+                        Text("Commit and Push")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.primary)
+                            .padding(.horizontal, 14)
+                            .frame(height: 32)
+                            .background(Color(uiColor: .secondarySystemBackground))
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+                            )
                     }
                     .buttonStyle(.plain)
                     

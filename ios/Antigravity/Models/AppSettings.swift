@@ -120,7 +120,7 @@ public final class AppSettings {
     }
     
     public var activeModelDisplayName: String {
-        activeModel == "claude-opus-4-6-thinking" ? "Claude 4.6" : "Gemini 3.8"
+        activeModel == "claude-opus-4-6-thinking" ? "Claude" : "Gemini"
     }
     
     public var isClaudeActive: Bool {
