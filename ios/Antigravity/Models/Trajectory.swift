@@ -175,19 +175,33 @@ public struct SendUserCascadeMessageRequest: Codable, Sendable {
     public let items: [TextItem]
     public let cascadeConfigRaw: String?
     public let artifactComments: [ArtifactCommentPayload]?
+    public let deliveryStrategy: Int?
     
-    public init(cascadeId: String, text: String, cascadeConfigRaw: String? = nil) {
+    public init(cascadeId: String, text: String, deliveryStrategy: Int? = nil, cascadeConfigRaw: String? = nil) {
         self.cascadeId = cascadeId
         self.items = [TextItem(text: text)]
         self.cascadeConfigRaw = cascadeConfigRaw
         self.artifactComments = nil
+        self.deliveryStrategy = deliveryStrategy
     }
     
-    public init(cascadeId: String, items: [TextItem] = [], cascadeConfigRaw: String? = nil, artifactComments: [ArtifactCommentPayload]? = nil) {
+    public init(cascadeId: String, items: [TextItem] = [], deliveryStrategy: Int? = nil, cascadeConfigRaw: String? = nil, artifactComments: [ArtifactCommentPayload]? = nil) {
         self.cascadeId = cascadeId
         self.items = items
         self.cascadeConfigRaw = cascadeConfigRaw
         self.artifactComments = artifactComments
+        self.deliveryStrategy = deliveryStrategy
+    }
+}
+
+// Request to delete a queued agent message
+public struct DeleteAgentMessageRequest: Codable, Sendable {
+    public let messageId: String
+    public let recipient: String
+    
+    public init(messageId: String, recipient: String) {
+        self.messageId = messageId
+        self.recipient = recipient
     }
 }
 

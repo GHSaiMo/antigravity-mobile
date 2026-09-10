@@ -102,6 +102,27 @@
         <!-- Floating Interaction Card (Permissions / Choices) -->
         <div id="interaction-card-container" class="interaction-card-container hidden"></div>
 
+        <!-- Floating Queued Messages Card (Desktop Parity) -->
+        <div id="queued-messages-card" class="queued-messages-card hidden" data-testid="queued-messages-card">
+          <div class="queued-header">
+            <div class="queued-header-left">
+              <span class="queued-title">Queued Messages</span>
+              <span id="queued-badge-count" class="queued-badge">0</span>
+              <span class="queued-subtitle">Sends after agent finishes working</span>
+            </div>
+            <div class="queued-header-right">
+              <button id="btn-queued-expand" class="queued-icon-btn" aria-label="Collapse queued messages" data-testid="queued-messages-expand-button">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 -960 960 960" fill="currentColor" class="expand-arrow">
+                  <path d="M480-541.85l-184,184L253.85-400L480-626.15L706.15-400L664-357.85l-184-184Z"></path>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div id="queued-content-wrapper" class="queued-content-wrapper">
+            <div id="queued-items-list" class="queued-items-list"></div>
+          </div>
+        </div>
+
         <!-- Sticky iOS Chat Input Bar -->
         <div class="ios-input-bar">
           <!-- Quick Action Chips (Commit & Push, Proceed) -->
