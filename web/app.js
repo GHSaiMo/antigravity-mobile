@@ -2863,6 +2863,19 @@ function getQuotaStatusClass(percent) {
   return "danger";
 }
 
+function formatResetClockTime(isoStr) {
+  if (!isoStr) return "";
+  try {
+    const d = new Date(isoStr);
+    if (isNaN(d.getTime())) return "";
+    const hours = String(d.getHours()).padStart(2, '0');
+    const minutes = String(d.getMinutes()).padStart(2, '0');
+    return `(${hours}:${minutes})`;
+  } catch (e) {
+    return "";
+  }
+}
+
 function renderQuotaStatusBar(data) {
   if (!data) return;
   const current = data.current_account || (data.accounts && data.accounts[0]);
@@ -2882,7 +2895,14 @@ function renderQuotaStatusBar(data) {
   }
   if (descEl) {
     const resetTxt = current.gemini_5h.reset_friendly || "就绪";
-    descEl.textContent = resetTxt;
+    let displayText = resetTxt;
+    if (resetTxt !== "就绪" && resetTxt !== "已就绪" && resetTxt !== "未知") {
+      const clockTime = formatResetClockTime(current.gemini_5h.reset_time);
+      if (clockTime) {
+        displayText = `${resetTxt} ${clockTime}`;
+      }
+    }
+    descEl.textContent = displayText;
   }
 }
 

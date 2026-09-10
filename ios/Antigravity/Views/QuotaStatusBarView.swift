@@ -27,19 +27,67 @@ public struct QuotaStatusBarView: View {
         }
     }
     
+    private var formattedResetClockTime: String? {
+        guard let resetTimeStr = bucket?.resetTime, !resetTimeStr.isEmpty else {
+            return nil
+        }
+        
+        let date: Date?
+        let fmtFraction = ISO8601DateFormatter()
+        fmtFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = fmtFraction.date(from: resetTimeStr) {
+            date = d
+        } else {
+            let fmtStandard = ISO8601DateFormatter()
+            fmtStandard.formatOptions = [.withInternetDateTime]
+            if let d = fmtStandard.date(from: resetTimeStr) {
+                date = d
+            } else {
+                let df = DateFormatter()
+                df.locale = Locale(identifier: "en_US_POSIX")
+                df.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZ"
+                date = df.date(from: resetTimeStr)
+            }
+        }
+        
+        guard let validDate = date else {
+            return nil
+        }
+        
+        let outputFormatter = DateFormatter()
+        outputFormatter.dateFormat = "HH:mm"
+        outputFormatter.locale = Locale.current
+        outputFormatter.timeZone = TimeZone.current
+        return "(\(outputFormatter.string(from: validDate)))"
+    }
+    
+    private var resetCountdownDisplay: String? {
+        guard let friendly = bucket?.resetFriendly, !friendly.isEmpty else {
+            return nil
+        }
+        if friendly == "已就绪" || friendly == "未知" {
+            return friendly
+        }
+        if let clock = formattedResetClockTime {
+            return "\(friendly) \(clock)"
+        }
+        return friendly
+    }
+    
     public var body: some View {
-        guard let b = bucket else { return AnyView(EmptyView()) }
+        guard let _ = bucket else { return AnyView(EmptyView()) }
         
         return AnyView(
             Button(action: onTap) {
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     Image(systemName: "bolt.fill")
                         .font(.system(size: 11, weight: .bold))
                         .foregroundColor(progressColor)
                     
-                    Text("5h 额度:")
+                    Text("Gemini 5h 额度:")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(.primary)
+                        .lineLimit(1)
                     
                     // Mini progress bar
                     GeometryReader { geo in
@@ -51,17 +99,18 @@ public struct QuotaStatusBarView: View {
                                 .frame(width: max(0, min(geo.size.width, geo.size.width * CGFloat(percent / 100.0))))
                         }
                     }
-                    .frame(width: 50, height: 6)
+                    .frame(width: 48, height: 6)
                     
                     Text(String(format: "%.0f%%", percent))
                         .font(.system(size: 12, weight: .semibold, design: .monospaced))
                         .foregroundColor(progressColor)
                     
-                    if let friendly = b.resetFriendly, !friendly.isEmpty {
-                        Text(friendly)
+                    if let countdownText = resetCountdownDisplay {
+                        Text(countdownText)
                             .font(.system(size: 10))
                             .foregroundColor(.secondary)
                             .lineLimit(1)
+                            .minimumScaleFactor(0.85)
                     }
                     
                     Spacer(minLength: 0)
