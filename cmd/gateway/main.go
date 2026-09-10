@@ -18,6 +18,7 @@ import (
 )
 
 func main() {
+	host := flag.String("host", "", "Host/IP for Mobile Gateway to listen on (default \"\" binds to all IPv4 and IPv6 interfaces)")
 	port := flag.Int("port", 58900, "Port for Mobile Gateway to listen on")
 	pollSec := flag.Int("poll", 5, "Polling interval in seconds for Antigravity instance discovery")
 	flag.Parse()
@@ -55,7 +56,7 @@ func main() {
 	})
 
 	server := &http.Server{
-		Addr:         fmt.Sprintf("127.0.0.1:%d", *port),
+		Addr:         fmt.Sprintf("%s:%d", *host, *port),
 		Handler:      router,
 		ReadTimeout:  60 * time.Second,
 		WriteTimeout: 60 * time.Second,

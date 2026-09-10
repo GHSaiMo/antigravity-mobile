@@ -29,33 +29,53 @@ async function rpc(method, body = {}) {
 }
 
 async function checkGatewayStatus() {
-  const pill = document.getElementById("conn-pill");
-  if (!pill) return;
-  const text = pill.querySelector(".status-text");
+  const statusPill = document.getElementById("settings-status-pill");
+  const portEl = document.getElementById("settings-upstream-port");
+  const pidEl = document.getElementById("settings-upstream-pid");
+  const tokenEl = document.getElementById("settings-csrf-token");
+  const chatDot = document.getElementById("chat-status-dot");
 
   try {
     const resp = await fetch("/gateway/status");
     const data = await resp.json();
 
     if (data.status === "connected" && data.upstream) {
-      pill.className = "status-pill connected";
-      text.textContent = `已连接 :${data.upstream.port}`;
-      pill.title = `PID: ${data.upstream.pid} | Token: ${data.upstream.csrf_token.slice(0, 8)}... (点击重新探测)`;
+      if (statusPill) {
+        statusPill.className = "status-badge connected";
+        statusPill.textContent = "已连接";
+      }
+      if (portEl) portEl.textContent = data.upstream.port;
+      if (pidEl) pidEl.textContent = data.upstream.pid;
+      if (tokenEl) tokenEl.textContent = data.upstream.csrf_token || "-";
+      if (chatDot) {
+        chatDot.classList.add("active");
+        chatDot.title = `已连接 :${data.upstream.port}`;
+      }
     } else {
-      pill.className = "status-pill disconnected";
-      text.textContent = "未连接";
-      pill.title = "language_server 未启动 (点击重试)";
+      if (statusPill) {
+        statusPill.className = "status-badge disconnected";
+        statusPill.textContent = "未连接";
+      }
+      if (chatDot) {
+        chatDot.classList.remove("active");
+        chatDot.title = "上游未连接";
+      }
     }
   } catch (e) {
-    pill.className = "status-pill disconnected";
-    text.textContent = "网关离线";
+    if (statusPill) {
+      statusPill.className = "status-badge disconnected";
+      statusPill.textContent = "网关离线";
+    }
+    if (chatDot) {
+      chatDot.classList.remove("active");
+      chatDot.title = "网关离线";
+    }
   }
 }
 
 async function rescanGateway() {
-  const pill = document.getElementById("conn-pill");
-  pill.className = "status-pill discovering";
-  pill.querySelector(".status-text").textContent = "正在探测...";
+  const btn = document.getElementById("btn-rescan-gateway");
+  if (btn) btn.textContent = "正在重新探测...";
 
   try {
     const resp = await fetch("/gateway/rescan");
@@ -64,6 +84,8 @@ async function rescanGateway() {
     loadConversations();
   } catch (e) {
     await checkGatewayStatus();
+  } finally {
+    if (btn) btn.textContent = "重新嗅探 Antigravity 实例";
   }
 }
 
@@ -78,9 +100,13 @@ function renderRoute() {
   const hash = window.location.hash || "#";
   const convView = document.getElementById("view-conversations");
   const chatView = document.getElementById("view-chat");
+  const settingsBtn = document.getElementById("btn-settings");
+  const newBtn = document.getElementById("btn-new");
   const backBtn = document.getElementById("btn-back");
-  const title = document.getElementById("header-title");
-  const subtitle = document.getElementById("header-subtitle");
+  const inlineTitle = document.getElementById("nav-inline-title");
+  const titleText = document.getElementById("chat-title-text");
+  const wsText = document.getElementById("chat-workspace-text");
+  const chatDot = document.getElementById("chat-status-dot");
 
   if (pollTimer) {
     clearInterval(pollTimer);
@@ -92,12 +118,25 @@ function renderRoute() {
     const changed = activeCascadeId !== newCascadeId;
     activeCascadeId = newCascadeId;
 
+    // View toggling
     convView.classList.remove("active");
     chatView.classList.add("active");
-    backBtn.classList.remove("hidden");
 
-    title.textContent = "会话详情";
-    if (subtitle) subtitle.textContent = activeCascadeId.slice(0, 8);
+    // Nav Bar configuration for Chat View
+    if (settingsBtn) settingsBtn.classList.add("hidden");
+    if (newBtn) newBtn.classList.add("hidden");
+    if (backBtn) backBtn.classList.remove("hidden");
+    if (inlineTitle) inlineTitle.classList.remove("hidden");
+    if (chatDot) chatDot.classList.remove("hidden");
+
+    // Title resolution
+    const summary = currentTrajectories[activeCascadeId];
+    const title = summary?.annotations?.title || summary?.summary || "会话详情";
+    const wsUri = summary?.workspaceUris?.[0] || summary?.workspaces?.[0]?.workspaceFolderAbsoluteUri || "";
+    const wsName = wsUri.split("/").filter(Boolean).pop() || "";
+
+    if (titleText) titleText.textContent = title;
+    if (wsText) wsText.textContent = wsName ? `📁 ${wsName}` : "";
 
     if (changed) {
       hasInitiallyAligned = false;
@@ -107,14 +146,14 @@ function renderRoute() {
       if (streamEl) {
         streamEl.innerHTML = `
           <div class="loading-state">
-            <div class="spinner"></div>
+            <div class="ios-spinner"></div>
             <p>正在同步会话历史与步骤...</p>
           </div>
         `;
       }
     }
 
-    // Connect real-time WebSocket stream (WS delivers snapshot directly)
+    // Connect real-time WebSocket stream
     connectStreamWs(activeCascadeId);
   } else {
     activeCascadeId = null;
@@ -123,10 +162,13 @@ function renderRoute() {
 
     chatView.classList.remove("active");
     convView.classList.add("active");
-    backBtn.classList.add("hidden");
 
-    title.textContent = "Antigravity";
-    if (subtitle) subtitle.textContent = "";
+    // Nav Bar configuration for List View
+    if (settingsBtn) settingsBtn.classList.remove("hidden");
+    if (newBtn) newBtn.classList.remove("hidden");
+    if (backBtn) backBtn.classList.add("hidden");
+    if (inlineTitle) inlineTitle.classList.add("hidden");
+    if (chatDot) chatDot.classList.add("hidden");
 
     loadConversations();
   }
@@ -145,8 +187,8 @@ async function loadConversations() {
   } catch (err) {
     listEl.innerHTML = `
       <div class="loading-state">
-        <p style="color: var(--status-error);">加载失败: ${escapeHtml(err.message)}</p>
-        <button class="btn-secondary" onclick="loadConversations()" style="margin-top:10px;">重试</button>
+        <p style="color: var(--ios-red);">加载失败: ${escapeHtml(err.message)}</p>
+        <button class="btn-ios-secondary" onclick="loadConversations()" style="margin-top:10px;">点击重试</button>
       </div>
     `;
   }
@@ -154,7 +196,17 @@ async function loadConversations() {
 
 function renderConversationList(summaries) {
   const listEl = document.getElementById("conversations-list");
-  const query = (document.getElementById("conv-search").value || "").toLowerCase().trim();
+  const searchInput = document.getElementById("conv-search");
+  const clearBtn = document.getElementById("btn-search-clear");
+  const query = (searchInput?.value || "").toLowerCase().trim();
+
+  if (clearBtn) {
+    if (query) {
+      clearBtn.classList.remove("hidden");
+    } else {
+      clearBtn.classList.add("hidden");
+    }
+  }
 
   const items = Object.entries(summaries)
     .map(([id, info]) => ({ id, ...info }))
@@ -195,11 +247,12 @@ function renderConversationList(summaries) {
           </div>
           <div class="conv-card-bottom">
             <div class="conv-meta">
-              <span>📁 ${escapeHtml(wsName)}</span>
-              <span>•</span>
-              <span>${item.stepCount || 0} 步骤</span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+              </svg>
+              <span class="ws-name">${escapeHtml(wsName)}</span>
             </div>
-            <span>${timeStr}</span>
+            <span class="conv-steps-time">${item.stepCount || 0} 步骤 • ${timeStr}</span>
           </div>
         </div>
       `;
@@ -426,65 +479,33 @@ function closeActiveWs() {
 }
 
 function updateChatControls(isRunning, wsUri, hasAction = false) {
-  const statusBadge = document.getElementById("chat-status-badge");
-  const cancelBtn = document.getElementById("btn-cancel-task");
   const sendBtn = document.getElementById("btn-send");
-  const wsTag = document.getElementById("chat-workspace-name");
+  const chatInput = document.getElementById("chat-input");
+  const wsText = document.getElementById("chat-workspace-text");
 
-  if (wsUri && wsTag) {
+  if (wsUri && wsText) {
     const wsName = wsUri.split("/").filter(Boolean).pop() || "workspace";
-    wsTag.textContent = "📁 " + wsName;
+    wsText.textContent = `📁 ${wsName}`;
   }
 
-  if (hasAction) {
-    if (statusBadge) {
-      statusBadge.className = "badge-action";
-      statusBadge.textContent = "ACTION";
-    }
-    if (cancelBtn) cancelBtn.classList.add("hidden");
-    if (sendBtn) {
-      sendBtn.classList.remove("btn-stop");
-      sendBtn.title = "发送";
-      sendBtn.setAttribute("aria-label", "发送");
-      sendBtn.innerHTML = `
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="22" y1="2" x2="11" y2="13"></line>
-          <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-        </svg>
-      `;
-    }
-  } else if (isRunning) {
-    if (statusBadge) {
-      statusBadge.className = "badge-running";
-      statusBadge.textContent = "RUNNING";
-    }
-    if (cancelBtn) cancelBtn.classList.remove("hidden");
-    if (sendBtn) {
-      sendBtn.classList.add("btn-stop");
+  if (sendBtn) {
+    const iconSend = sendBtn.querySelector(".icon-send");
+    const iconStop = sendBtn.querySelector(".icon-stop");
+
+    if (isRunning) {
+      sendBtn.className = "btn-action-circle stop-mode";
       sendBtn.title = "停止任务";
       sendBtn.setAttribute("aria-label", "停止任务");
-      sendBtn.innerHTML = `
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-          <rect width="12" height="12" rx="2" fill="#ef4444" />
-        </svg>
-      `;
-    }
-  } else {
-    if (statusBadge) {
-      statusBadge.className = "badge-idle";
-      statusBadge.textContent = "IDLE";
-    }
-    if (cancelBtn) cancelBtn.classList.add("hidden");
-    if (sendBtn) {
-      sendBtn.classList.remove("btn-stop");
+      if (iconSend) iconSend.classList.add("hidden");
+      if (iconStop) iconStop.classList.remove("hidden");
+    } else {
+      sendBtn.className = "btn-action-circle send-mode";
+      const hasText = chatInput && chatInput.value.trim().length > 0;
+      if (hasText) sendBtn.classList.add("active");
       sendBtn.title = "发送";
       sendBtn.setAttribute("aria-label", "发送");
-      sendBtn.innerHTML = `
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="22" y1="2" x2="11" y2="13"></line>
-          <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-        </svg>
-      `;
+      if (iconSend) iconSend.classList.remove("hidden");
+      if (iconStop) iconStop.classList.add("hidden");
     }
   }
 }
@@ -648,62 +669,247 @@ async function loadChat(cascadeId, isBackgroundPoll = false) {
   }
 }
 
-function getStepFingerprint(step) {
-  if (!step) return "";
-  const type = step.type || "";
-  if (type === "CORTEX_STEP_TYPE_USER_INPUT") {
-    const userText = step.userInput?.userResponse || step.userInput?.items?.[0]?.text || "";
-    return `u:${userText.length}:${userText.slice(-10)}`;
-  } else if (type === "CORTEX_STEP_TYPE_PLANNER_RESPONSE") {
-    const p = step.plannerResponse || {};
-    const thinkLen = (p.thinking || "").length;
-    const respLen = (p.response || "").length;
-    const lastChars = (p.response || "").slice(-12);
-    return `p:${thinkLen}:${respLen}:${lastChars}`;
-  } else {
-    return `t:${type}:${step.status || ""}`;
+function groupSteps(steps) {
+  if (!steps || !steps.length) return [];
+
+  const items = [];
+  let currentBatch = null;
+
+  function flushBatch() {
+    if (currentBatch && currentBatch.steps.length > 0) {
+      items.push(currentBatch);
+      currentBatch = null;
+    }
   }
+
+  for (let i = 0; i < steps.length; i++) {
+    const s = steps[i];
+    const type = s.type || "";
+
+    if (type === "CORTEX_STEP_TYPE_USER_INPUT") {
+      flushBatch();
+      const userText = s.userInput?.userResponse || s.userInput?.items?.[0]?.text || "";
+      items.push({
+        type: "user",
+        id: `item-user-${i}`,
+        index: i,
+        text: userText,
+        step: s
+      });
+    } else if (type === "CORTEX_STEP_TYPE_PLANNER_RESPONSE") {
+      const p = s.plannerResponse || {};
+      const resp = (p.response || "").trim();
+      const thinking = (p.thinking || "").trim();
+
+      if (resp) {
+        flushBatch();
+        items.push({
+          type: "agent",
+          id: `item-agent-${i}`,
+          index: i,
+          text: p.response,
+          thinking: thinking,
+          step: s
+        });
+      } else if (thinking) {
+        if (!currentBatch) {
+          currentBatch = {
+            type: "tools",
+            id: `item-tools-${i}`,
+            startIndex: i,
+            steps: [],
+            toolNames: []
+          };
+        }
+        currentBatch.steps.push({
+          name: "thinking",
+          detail: thinking.length > 60 ? thinking.slice(0, 57) + "..." : thinking,
+          status: "DONE",
+          raw: s
+        });
+        if (!currentBatch.toolNames.includes("thinking") && currentBatch.toolNames.length < 3) {
+          currentBatch.toolNames.push("thinking");
+        }
+      } else {
+        if (!currentBatch) {
+          currentBatch = {
+            type: "tools",
+            id: `item-tools-${i}`,
+            startIndex: i,
+            steps: [],
+            toolNames: []
+          };
+        }
+        currentBatch.steps.push({
+          name: "planning",
+          detail: "",
+          status: "DONE",
+          raw: s
+        });
+      }
+    } else if (type.startsWith("CORTEX_STEP_TYPE_") && type !== "CORTEX_STEP_TYPE_SYSTEM_MESSAGE") {
+      const rawName = type.replace("CORTEX_STEP_TYPE_", "").toLowerCase();
+      let displayName = rawName;
+      let detail = "";
+
+      if (s.codeAction) {
+        const ca = s.codeAction;
+        if (ca.actionSpec?.createFile) {
+          displayName = "create_file";
+          detail = (ca.actionSpec.createFile.path?.absoluteURI || "").split("/").pop();
+        } else if (ca.actionSpec?.editFile) {
+          displayName = "edit_file";
+          detail = (ca.actionSpec.editFile.path?.absoluteURI || "").split("/").pop();
+        } else if (ca.actionSpec?.deleteFile) {
+          displayName = "delete_file";
+          detail = (ca.actionSpec.deleteFile.path?.absoluteURI || "").split("/").pop();
+        }
+      } else if (s.toolCall) {
+        displayName = s.toolCall.name || rawName;
+        if (s.toolCall.toolSummary) {
+          detail = s.toolCall.toolSummary;
+        }
+      } else if (rawName === "shell_command") {
+        displayName = "command";
+        if (s.shellCommand?.commandLine) {
+          detail = s.shellCommand.commandLine.slice(0, 40);
+        }
+      }
+
+      if (!currentBatch) {
+        currentBatch = {
+          type: "tools",
+          id: `item-tools-${i}`,
+          startIndex: i,
+          steps: [],
+          toolNames: []
+        };
+      }
+
+      currentBatch.steps.push({
+        name: displayName,
+        detail: detail,
+        status: s.status || "DONE",
+        raw: s
+      });
+
+      if (!currentBatch.toolNames.includes(displayName) && currentBatch.toolNames.length < 3) {
+        currentBatch.toolNames.push(displayName);
+      }
+    }
+  }
+
+  flushBatch();
+  return items;
 }
 
-function generateStepHtml(step, i) {
-  const type = step.type;
+function getItemFingerprint(item, isRunning, isLastItem) {
+  if (!item) return "";
+  if (item.type === "user") {
+    return `u:${item.text.length}:${item.text.slice(-10)}`;
+  }
+  if (item.type === "agent") {
+    const thinkLen = (item.thinking || "").length;
+    const textLen = (item.text || "").length;
+    const textLast = (item.text || "").slice(-12);
+    return `a:${thinkLen}:${textLen}:${textLast}`;
+  }
+  if (item.type === "tools") {
+    const active = (isRunning && isLastItem) ? "1" : "0";
+    return `t:${item.steps.length}:${item.toolNames.join(",")}:${active}`;
+  }
+  return "";
+}
 
-  if (type === "CORTEX_STEP_TYPE_USER_INPUT") {
-    const userText = step.userInput?.userResponse || step.userInput?.items?.[0]?.text || "";
-    return `<div class="bubble">${escapeHtml(userText)}</div>`;
-  } else if (type === "CORTEX_STEP_TYPE_PLANNER_RESPONSE") {
-    const p = step.plannerResponse || {};
-    const thinking = p.thinking || "";
-    const text = p.response || "";
+function generateItemHtml(item, isRunning, isLastItem) {
+  if (item.type === "user") {
+    return `<div class="bubble">${escapeHtml(item.text)}</div>`;
+  }
 
+  if (item.type === "agent") {
     let thoughtHtml = "";
-    if (thinking.trim()) {
+    if (item.thinking) {
       thoughtHtml = `
         <details class="thought-box">
-          <summary>🧠 Agent 思考过程 (${thinking.length} 字符)</summary>
-          <div class="thought-content">${escapeHtml(thinking)}</div>
+          <summary>🧠 Agent 思考过程 (${item.thinking.length} 字符)</summary>
+          <div class="thought-content">${escapeHtml(item.thinking)}</div>
         </details>
       `;
     }
-
-    const bodyHtml = text ? getCachedMarkdown(text) : '<span style="color:var(--text-muted);">执行中...</span>';
-
+    const bodyHtml = item.text ? getCachedMarkdown(item.text) : '<span style="color:var(--text-muted);">执行中...</span>';
     return `
       <div class="bubble markdown-body">
         ${thoughtHtml}
         <div>${bodyHtml}</div>
       </div>
     `;
-  } else if (type && type.startsWith("CORTEX_STEP_TYPE_")) {
-    const toolName = type.replace("CORTEX_STEP_TYPE_", "").toLowerCase();
-    const status = step.status || "DONE";
+  }
+
+  if (item.type === "tools") {
+    const isActive = isRunning && isLastItem;
+    const count = item.steps.length;
+    const toolNamesStr = item.toolNames.join(", ") + (item.toolNames.length > 2 ? "..." : "");
+
+    if (isActive) {
+      return `
+        <div class="agent-thinking-card">
+          <div class="agent-avatar">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"></path>
+            </svg>
+          </div>
+          <div class="agent-thinking-body">
+            <div class="thinking-title-row">
+              <span>Agent 正在思考与执行</span>
+              <div class="activity-dots">
+                <span class="dot"></span>
+                <span class="dot"></span>
+                <span class="dot"></span>
+              </div>
+            </div>
+            <div class="active-tools-pill">
+              <svg class="bolt-icon" width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+              </svg>
+              <span>已执行 <strong>${count}</strong> 项操作</span>
+              ${toolNamesStr ? `<span class="tool-names">(${escapeHtml(toolNamesStr)})</span>` : ''}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    const stepItemsHtml = item.steps.map(s => `
+      <div class="tool-step-item">
+        <div class="tool-step-left">
+          <span class="tool-step-name">⚡ ${escapeHtml(s.name)}</span>
+          ${s.detail ? `<span class="tool-step-detail">${escapeHtml(s.detail)}</span>` : ''}
+        </div>
+        <span class="tool-step-status">${escapeHtml(s.status || "DONE")}</span>
+      </div>
+    `).join("");
+
     return `
-      <details class="tool-box" style="width: 100%;">
-        <summary>⚡ 工具调用: <strong>${escapeHtml(toolName)}</strong> <span style="font-size:11px;color:var(--text-muted);">(${escapeHtml(status)})</span></summary>
-        <div class="tool-content">${escapeHtml(JSON.stringify(step, null, 2))}</div>
+      <details class="tool-batch-accordion">
+        <summary class="tool-batch-summary">
+          <div class="tool-batch-banner">
+            <svg class="bolt-icon" width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+            </svg>
+            <span class="tool-batch-title">已思考并执行 <strong>${count}</strong> 项操作</span>
+            ${toolNamesStr ? `<span class="tool-names">(${escapeHtml(toolNamesStr)})</span>` : ''}
+            <svg class="chevron-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="9 18 15 12 9 6"></polyline>
+            </svg>
+          </div>
+        </summary>
+        <div class="tool-batch-expanded">
+          ${stepItemsHtml}
+        </div>
       </details>
     `;
   }
+
   return "";
 }
 
@@ -722,40 +928,97 @@ function renderMessages(steps, isRunning = false) {
     return;
   }
 
-  // Remove any obsolete nodes if steps count decreased
-  while (streamEl.children.length > steps.length) {
-    streamEl.removeChild(streamEl.lastChild);
-  }
+  const items = groupSteps(steps);
+  const currentChildIds = new Set(items.map(it => it.id));
+  currentChildIds.add("agent-thinking-indicator");
 
   let hasDOMChanges = false;
 
-  for (let i = 0; i < steps.length; i++) {
-    const step = steps[i];
-    const type = step.type;
-    const fp = getStepFingerprint(step);
-    const rowClass = type === "CORTEX_STEP_TYPE_USER_INPUT" ? "message-row user" : "message-row agent";
-
-    let existingEl = document.getElementById(`step-item-${i}`);
-    if (existingEl) {
-      if (existingEl.getAttribute("data-fp") === fp) {
-        // Unchanged: preserve DOM node completely
-        continue;
-      }
-      // Content updated: patch in place
-      existingEl.setAttribute("data-fp", fp);
-      existingEl.className = rowClass;
-      existingEl.innerHTML = generateStepHtml(step, i);
-      hasDOMChanges = true;
-    } else {
-      // New step: create and append
-      const newEl = document.createElement("div");
-      newEl.id = `step-item-${i}`;
-      newEl.className = rowClass;
-      newEl.setAttribute("data-fp", fp);
-      newEl.innerHTML = generateStepHtml(step, i);
-      streamEl.appendChild(newEl);
+  // Remove nodes that no longer exist
+  Array.from(streamEl.children).forEach(child => {
+    if (!currentChildIds.has(child.id)) {
+      child.remove();
       hasDOMChanges = true;
     }
+  });
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    const isLastItem = (i === items.length - 1);
+    const fp = getItemFingerprint(item, isRunning, isLastItem);
+
+    let rowClass = "message-row";
+    if (item.type === "user") {
+      rowClass = "message-row user";
+    } else if (item.type === "agent") {
+      rowClass = "message-row agent";
+    } else if (item.type === "tools") {
+      rowClass = (isRunning && isLastItem) ? "message-row agent" : "message-row tool-batch-row";
+    }
+
+    let existingEl = document.getElementById(item.id);
+    if (existingEl) {
+      if (existingEl.getAttribute("data-fp") !== fp) {
+        const wasOpen = existingEl.querySelector("details")?.open;
+        existingEl.setAttribute("data-fp", fp);
+        existingEl.className = rowClass;
+        existingEl.innerHTML = generateItemHtml(item, isRunning, isLastItem);
+        if (wasOpen) {
+          const newDetails = existingEl.querySelector("details");
+          if (newDetails) newDetails.open = true;
+        }
+        hasDOMChanges = true;
+      }
+    } else {
+      const newEl = document.createElement("div");
+      newEl.id = item.id;
+      newEl.className = rowClass;
+      newEl.setAttribute("data-fp", fp);
+      newEl.innerHTML = generateItemHtml(item, isRunning, isLastItem);
+
+      const indicator = document.getElementById("agent-thinking-indicator");
+      if (indicator) {
+        streamEl.insertBefore(newEl, indicator);
+      } else {
+        streamEl.appendChild(newEl);
+      }
+      hasDOMChanges = true;
+    }
+  }
+
+  // Standalone Agent Thinking Indicator (shown only while awaiting response right after user input)
+  const lastItem = items[items.length - 1];
+  const isAwaiting = isRunning && lastItem?.type === "user";
+  let thinkingIndicator = document.getElementById("agent-thinking-indicator");
+
+  if (isAwaiting) {
+    if (!thinkingIndicator) {
+      thinkingIndicator = document.createElement("div");
+      thinkingIndicator.id = "agent-thinking-indicator";
+      thinkingIndicator.className = "agent-thinking-card";
+      thinkingIndicator.innerHTML = `
+        <div class="agent-avatar">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"></path>
+          </svg>
+        </div>
+        <div class="agent-thinking-body">
+          <div class="thinking-title-row">
+            <span>Agent 正在思考与执行</span>
+            <div class="activity-dots">
+              <span class="dot"></span>
+              <span class="dot"></span>
+              <span class="dot"></span>
+            </div>
+          </div>
+        </div>
+      `;
+      streamEl.appendChild(thinkingIndicator);
+      hasDOMChanges = true;
+    }
+  } else if (thinkingIndicator) {
+    thinkingIndicator.remove();
+    hasDOMChanges = true;
   }
 
   // 1. First-time render on entering a conversation: align INSTANTLY with zero jitter
@@ -763,17 +1026,16 @@ function renderMessages(steps, isRunning = false) {
     hasInitiallyAligned = true;
     prevWasRunning = isRunning;
 
-    const lastStep = steps[steps.length - 1];
-    if (!isRunning && lastStep && lastStep.type === "CORTEX_STEP_TYPE_PLANNER_RESPONSE") {
+    if (!isRunning && lastItem && lastItem.type === "agent") {
       let lastUserIdx = -1;
-      for (let i = steps.length - 1; i >= 0; i--) {
-        if (steps[i].type === "CORTEX_STEP_TYPE_USER_INPUT") {
+      for (let i = items.length - 1; i >= 0; i--) {
+        if (items[i].type === "user") {
           lastUserIdx = i;
           break;
         }
       }
       const turnStartIdx = lastUserIdx !== -1 ? lastUserIdx + 1 : 0;
-      const turnStartEl = document.getElementById(`step-item-${turnStartIdx}`);
+      const turnStartEl = document.getElementById(items[turnStartIdx]?.id);
       if (turnStartEl) {
         turnStartEl.scrollIntoView({ behavior: "instant", block: "start" });
         return;
@@ -788,17 +1050,16 @@ function renderMessages(steps, isRunning = false) {
   prevWasRunning = isRunning;
 
   if (justFinished) {
-    const lastStep = steps[steps.length - 1];
-    if (lastStep && lastStep.type === "CORTEX_STEP_TYPE_PLANNER_RESPONSE") {
+    if (lastItem && lastItem.type === "agent") {
       let lastUserIdx = -1;
-      for (let i = steps.length - 1; i >= 0; i--) {
-        if (steps[i].type === "CORTEX_STEP_TYPE_USER_INPUT") {
+      for (let i = items.length - 1; i >= 0; i--) {
+        if (items[i].type === "user") {
           lastUserIdx = i;
           break;
         }
       }
       const turnStartIdx = lastUserIdx !== -1 ? lastUserIdx + 1 : 0;
-      const turnStartEl = document.getElementById(`step-item-${turnStartIdx}`);
+      const turnStartEl = document.getElementById(items[turnStartIdx]?.id);
       if (turnStartEl && userIsNearBottom) {
         turnStartEl.scrollIntoView({ behavior: "smooth", block: "start" });
         return;
@@ -925,13 +1186,14 @@ async function cancelCurrentTask() {
   }
 }
 
-// --- New Conversation Modal ---
+// --- iOS Bottom Sheets (New Conversation & Settings) ---
 
 let discoveredProjects = [];
 
-async function openNewModal() {
-  const modal = document.getElementById("modal-new");
-  modal.classList.remove("hidden");
+async function openNewSheet() {
+  const sheet = document.getElementById("sheet-new");
+  if (!sheet) return;
+  sheet.classList.remove("hidden");
 
   // 1. Fetch discovered upstream projects
   const wsSelect = document.getElementById("new-workspace-select");
@@ -985,8 +1247,20 @@ async function openNewModal() {
   }
 }
 
-function closeNewModal() {
-  document.getElementById("modal-new").classList.add("hidden");
+function closeNewSheet() {
+  const sheet = document.getElementById("sheet-new");
+  if (sheet) sheet.classList.add("hidden");
+}
+
+function openSettingsSheet() {
+  checkGatewayStatus();
+  const sheet = document.getElementById("sheet-settings");
+  if (sheet) sheet.classList.remove("hidden");
+}
+
+function closeSettingsSheet() {
+  const sheet = document.getElementById("sheet-settings");
+  if (sheet) sheet.classList.add("hidden");
 }
 
 async function createConversation() {
@@ -1004,9 +1278,11 @@ async function createConversation() {
     return;
   }
 
-  const createBtn = document.getElementById("btn-modal-create");
-  createBtn.textContent = "创建中...";
-  createBtn.disabled = true;
+  const createBtn = document.getElementById("btn-sheet-new-create");
+  if (createBtn) {
+    createBtn.textContent = "创建中...";
+    createBtn.disabled = true;
+  }
 
   try {
     const res = await fetch("/gateway/cascade/new", {
@@ -1025,15 +1301,17 @@ async function createConversation() {
     }
 
     const cascadeId = data.cascadeId;
-    closeNewModal();
+    closeNewSheet();
     document.getElementById("new-prompt").value = "";
     navigateTo("#c=" + cascadeId);
     await loadConversations();
   } catch (err) {
     alert("创建会话失败: " + err.message);
   } finally {
-    createBtn.textContent = "开始执行";
-    createBtn.disabled = false;
+    if (createBtn) {
+      createBtn.textContent = "开始执行";
+      createBtn.disabled = false;
+    }
   }
 }
 
@@ -1196,52 +1474,253 @@ function processMathSymbols(text) {
   return text;
 }
 
-function renderMarkdown(md) {
-  if (!md) return "";
-  md = processMathSymbols(md);
-  let html = escapeHtml(md);
+function renderInlineMarkdown(text) {
+  if (!text) return "";
+  let html = escapeHtml(text);
 
-  // Fenced Code blocks
-  html = html.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (_, lang, code) => {
-    return `<pre><code class="lang-${lang}">${code.trim()}</code></pre>`;
-  });
-
-  // Inline code
-  html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
+  // Images
+  html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" class="markdown-image" />');
 
   // Markdown links with file icon support
-  html = html.replace(/(?<!\!)\[([^\]]+)\]\(([^)]+)\)/g, (_, text, url) => {
-    const icon = resolveFileIcon(text) || resolveFileIcon(url);
+  html = html.replace(/(?<!\!)\[([^\]]+)\]\(([^)]+)\)/g, (_, linkText, url) => {
+    const icon = resolveFileIcon(linkText) || resolveFileIcon(url);
     if (icon) {
-      return `<a href="${url}" class="file-link" target="_blank" rel="noopener noreferrer"><img src="/icons/files/${icon}.svg" class="file-icon" alt="" /><span>${text}</span></a>`;
+      return `<a href="${url}" class="file-link" target="_blank" rel="noopener noreferrer"><img src="/icons/files/${icon}.svg" class="file-icon" alt="" /><span>${linkText}</span></a>`;
     }
-    return `<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`;
+    return `<a href="${url}" class="text-link" target="_blank" rel="noopener noreferrer">${linkText}</a>`;
   });
 
+  // Inline code (e.g. `foo`)
+  html = html.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
+
   // Bold & Italic
-  html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-  html = html.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+  html = html.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em>$1</em>');
+  html = html.replace(/(?<!_)_([^_]+)_(?!_)/g, '<em>$1</em>');
 
-  // Headers
-  html = html.replace(/^### (.*$)/gim, "<h3>$1</h3>");
-  html = html.replace(/^## (.*$)/gim, "<h2>$1</h2>");
-  html = html.replace(/^# (.*$)/gim, "<h1>$1</h1>");
-
-  // Lists
-  html = html.replace(/^\s*-\s+(.*$)/gim, "<li>$1</li>");
-  html = html.replace(/(<li>.*<\/li>)/gims, "<ul>$1</ul>");
-
-  // Paragraphs
-  html = html.split(/\n\n+/).map(p => {
-    p = p.trim();
-    if (p.startsWith("<h") || p.startsWith("<pre") || p.startsWith("<ul") || p.startsWith("<details") || p.startsWith("<a")) {
-      return p;
-    }
-    return `<p>${p.replace(/\n/g, "<br/>")}</p>`;
-  }).join("");
+  // Strikethrough
+  html = html.replace(/~~([^~]+)~~/g, '<del>$1</del>');
 
   return html;
 }
+
+function renderMarkdown(md) {
+  if (!md) return "";
+  md = processMathSymbols(md);
+
+  const lines = md.split("\n");
+  const blocks = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      i++;
+      continue;
+    }
+
+    // 1. Fenced Code Block
+    if (trimmed.startsWith("```")) {
+      const lang = trimmed.slice(3).trim();
+      const codeLines = [];
+      i++;
+      while (i < lines.length) {
+        if (lines[i].trim().startsWith("```")) {
+          i++;
+          break;
+        }
+        codeLines.push(lines[i]);
+        i++;
+      }
+      const langClean = (lang || "").toLowerCase();
+      const displayLang = langClean ? langClean.toUpperCase() : "CODE";
+      const codeEscaped = escapeHtml(codeLines.join("\n"));
+      blocks.push(`
+        <div class="code-block-card">
+          <div class="code-block-header">
+            <span class="code-block-lang">${displayLang}</span>
+            <button class="code-copy-btn" onclick="copyCode(this)" type="button" aria-label="复制代码">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+              <span>复制</span>
+            </button>
+          </div>
+          <pre class="code-block-pre"><code class="lang-${langClean}">${codeEscaped}</code></pre>
+        </div>
+      `);
+      continue;
+    }
+
+    // 2. Horizontal Divider
+    if (trimmed === "---" || trimmed === "***" || trimmed === "___") {
+      blocks.push(`<hr class="ios-divider" />`);
+      i++;
+      continue;
+    }
+
+    // 3. Headings (# H1..H6)
+    if (trimmed.startsWith("#")) {
+      let level = 0;
+      while (level < trimmed.length && trimmed[level] === "#") {
+        level++;
+      }
+      if (level <= 6 && trimmed.length > level && trimmed[level] === " ") {
+        const hText = trimmed.slice(level + 1).trim();
+        blocks.push(`<h${level}>${renderInlineMarkdown(hText)}</h${level}>`);
+        i++;
+        continue;
+      }
+    }
+
+    // 4. Tables (| Header | Header |)
+    if (trimmed.startsWith("|") && trimmed.endsWith("|") && trimmed.includes("|")) {
+      const tableLines = [];
+      while (i < lines.length) {
+        const tLine = lines[i].trim();
+        if (tLine.startsWith("|") && tLine.endsWith("|")) {
+          tableLines.push(tLine);
+          i++;
+        } else {
+          break;
+        }
+      }
+      if (tableLines.length >= 2) {
+        const parseTableRow = (rowStr) => {
+          const parts = rowStr.split("|");
+          if (parts.length < 2) return [];
+          return parts.slice(1, parts.length - 1).map(c => c.trim());
+        };
+        const headers = parseTableRow(tableLines[0]);
+        const rows = [];
+        for (let rIdx = 1; rIdx < tableLines.length; rIdx++) {
+          const r = parseTableRow(tableLines[rIdx]);
+          // Skip separator row (| --- | :--- |)
+          const isSep = r.every(cell => /^[\s\-:]+$/.test(cell));
+          if (isSep) continue;
+          rows.push(r);
+        }
+
+        let tableHtml = `<div class="table-wrapper"><table class="ios-markdown-table"><thead><tr>`;
+        for (const h of headers) {
+          tableHtml += `<th>${renderInlineMarkdown(h)}</th>`;
+        }
+        tableHtml += `</tr></thead><tbody>`;
+        for (const row of rows) {
+          tableHtml += `<tr>`;
+          for (let colIdx = 0; colIdx < headers.length; colIdx++) {
+            const cellVal = colIdx < row.length ? row[colIdx] : "";
+            tableHtml += `<td>${renderInlineMarkdown(cellVal)}</td>`;
+          }
+          tableHtml += `</tr>`;
+        }
+        tableHtml += `</tbody></table></div>`;
+        blocks.push(tableHtml);
+        continue;
+      }
+    }
+
+    // 5. Blockquotes & GitHub Alerts
+    if (trimmed.startsWith(">")) {
+      const quoteLines = [];
+      while (i < lines.length) {
+        const qLine = lines[i].trim();
+        if (qLine.startsWith(">")) {
+          quoteLines.push(qLine.replace(/^>\s?/, ""));
+          i++;
+        } else {
+          break;
+        }
+      }
+      const quoteText = quoteLines.join("\n");
+      const alertMatch = quoteText.match(/^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*([\s\S]*)$/i);
+      if (alertMatch) {
+        const alertType = alertMatch[1].toLowerCase();
+        const alertContent = alertMatch[2].trim();
+        blocks.push(`
+          <div class="ios-alert alert-${alertType}">
+            <div class="alert-title">${alertMatch[1].toUpperCase()}</div>
+            <div class="alert-content">${renderInlineMarkdown(alertContent).replace(/\n/g, "<br/>")}</div>
+          </div>
+        `);
+      } else {
+        blocks.push(`<blockquote class="ios-blockquote">${renderInlineMarkdown(quoteText).replace(/\n/g, "<br/>")}</blockquote>`);
+      }
+      continue;
+    }
+
+    // 6. Lists (Unordered & Ordered)
+    const isUnordered = trimmed.startsWith("- ") || trimmed.startsWith("* ") || trimmed.startsWith("• ");
+    const isOrdered = /^\d+\.\s/.test(trimmed);
+    if (isUnordered || isOrdered) {
+      const listItems = [];
+      const tag = isOrdered ? "ol" : "ul";
+      while (i < lines.length) {
+        const lLine = lines[i].trim();
+        if (isOrdered && /^\d+\.\s/.test(lLine)) {
+          listItems.push(lLine.replace(/^\d+\.\s+/, ""));
+          i++;
+        } else if (!isOrdered && (lLine.startsWith("- ") || lLine.startsWith("* ") || lLine.startsWith("• "))) {
+          listItems.push(lLine.replace(/^[-*•]\s+/, ""));
+          i++;
+        } else {
+          break;
+        }
+      }
+      const itemsHtml = listItems.map(it => `<li>${renderInlineMarkdown(it)}</li>`).join("");
+      blocks.push(`<${tag} class="ios-list">${itemsHtml}</${tag}>`);
+      continue;
+    }
+
+    // 7. Paragraph
+    const paraLines = [line];
+    i++;
+    while (i < lines.length) {
+      const nextLine = lines[i];
+      const nTrimmed = nextLine.trim();
+      if (!nTrimmed ||
+          nTrimmed.startsWith("```") ||
+          nTrimmed.startsWith("#") ||
+          nTrimmed === "---" || nTrimmed === "***" || nTrimmed === "___" ||
+          (nTrimmed.startsWith("|") && nTrimmed.endsWith("|")) ||
+          nTrimmed.startsWith(">") ||
+          nTrimmed.startsWith("- ") || nTrimmed.startsWith("* ") || nTrimmed.startsWith("• ") ||
+          /^\d+\.\s/.test(nTrimmed)) {
+        break;
+      }
+      paraLines.push(nextLine);
+      i++;
+    }
+    const paraHtml = renderInlineMarkdown(paraLines.join("\n")).replace(/\n/g, "<br/>");
+    blocks.push(`<p>${paraHtml}</p>`);
+  }
+
+  return blocks.join("");
+}
+
+window.copyCode = function(btn) {
+  const card = btn.closest(".code-block-card");
+  if (!card) return;
+  const codeEl = card.querySelector("code");
+  if (!codeEl) return;
+  const text = codeEl.innerText;
+  navigator.clipboard.writeText(text).then(() => {
+    const span = btn.querySelector("span");
+    if (span) {
+      const orig = span.textContent;
+      span.textContent = "已复制";
+      btn.classList.add("copied");
+      setTimeout(() => {
+        span.textContent = orig;
+        btn.classList.remove("copied");
+      }, 1500);
+    }
+  }).catch(() => {});
+};
 
 // Markdown & LaTeX Parsing Memory Cache (LRU)
 const markdownCache = new Map();
@@ -1273,17 +1752,30 @@ window.addEventListener("DOMContentLoaded", () => {
   checkGatewayStatus();
   setInterval(checkGatewayStatus, 6000);
 
-  document.getElementById("btn-back").addEventListener("click", () => navigateTo("#"));
-  document.getElementById("btn-new").addEventListener("click", openNewModal);
-  document.getElementById("btn-refresh").addEventListener("click", () => {
-    loadConversations();
-    checkGatewayStatus();
+  // Navigation & Sheets
+  document.getElementById("btn-back")?.addEventListener("click", () => navigateTo("#"));
+  document.getElementById("btn-new")?.addEventListener("click", openNewSheet);
+  document.getElementById("btn-settings")?.addEventListener("click", openSettingsSheet);
+
+  // New Conversation Sheet
+  document.getElementById("btn-sheet-new-cancel")?.addEventListener("click", closeNewSheet);
+  document.getElementById("btn-sheet-new-create")?.addEventListener("click", createConversation);
+  const sheetNew = document.getElementById("sheet-new");
+  sheetNew?.addEventListener("click", (e) => {
+    if (e.target === sheetNew) closeNewSheet();
   });
-  document.getElementById("conn-pill").addEventListener("click", rescanGateway);
-  document.getElementById("btn-close-modal").addEventListener("click", closeNewModal);
-  document.getElementById("btn-modal-cancel").addEventListener("click", closeNewModal);
-  document.getElementById("btn-modal-create").addEventListener("click", createConversation);
-  document.getElementById("btn-send").addEventListener("click", () => {
+
+  // Settings Sheet
+  document.getElementById("btn-sheet-settings-done")?.addEventListener("click", closeSettingsSheet);
+  document.getElementById("btn-rescan-gateway")?.addEventListener("click", rescanGateway);
+  const sheetSettings = document.getElementById("sheet-settings");
+  sheetSettings?.addEventListener("click", (e) => {
+    if (e.target === sheetSettings) closeSettingsSheet();
+  });
+
+  // Action Button (Send / Stop Toggle)
+  const sendBtn = document.getElementById("btn-send");
+  sendBtn?.addEventListener("click", () => {
     const summary = currentTrajectories[activeCascadeId];
     if (summary?.status === "CASCADE_RUN_STATUS_RUNNING") {
       cancelCurrentTask();
@@ -1292,6 +1784,7 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  // Chips
   document.getElementById("btn-commit-push")?.addEventListener("click", () => {
     const input = document.getElementById("chat-input");
     if (!input) return;
@@ -1302,24 +1795,60 @@ window.addEventListener("DOMContentLoaded", () => {
       input.value += "\n" + toAppend;
     }
     input.focus();
+    if (sendBtn && sendBtn.classList.contains("send-mode")) {
+      sendBtn.classList.add("active");
+    }
   });
 
   document.getElementById("btn-proceed")?.addEventListener("click", handleProceed);
 
+  // Search Filter with iOS Clear Button
   const searchInput = document.getElementById("conv-search");
-  searchInput.addEventListener("input", () => renderConversationList(currentTrajectories));
+  const searchClearBtn = document.getElementById("btn-search-clear");
+  if (searchInput) {
+    searchInput.addEventListener("input", () => {
+      if (searchClearBtn) {
+        if (searchInput.value.trim().length > 0) {
+          searchClearBtn.classList.remove("hidden");
+        } else {
+          searchClearBtn.classList.add("hidden");
+        }
+      }
+      renderConversationList(currentTrajectories);
+    });
+  }
+  if (searchClearBtn) {
+    searchClearBtn.addEventListener("click", () => {
+      if (searchInput) {
+        searchInput.value = "";
+        searchInput.focus();
+      }
+      searchClearBtn.classList.add("hidden");
+      renderConversationList(currentTrajectories);
+    });
+  }
 
+  // Chat Input Auto-grow & Send Button Active State
   const chatInput = document.getElementById("chat-input");
-  chatInput.addEventListener("input", () => {
-    chatInput.style.height = "auto";
-    chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + "px";
-  });
-  chatInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
-  });
+  if (chatInput) {
+    chatInput.addEventListener("input", () => {
+      chatInput.style.height = "auto";
+      chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + "px";
+      if (sendBtn && sendBtn.classList.contains("send-mode")) {
+        if (chatInput.value.trim().length > 0) {
+          sendBtn.classList.add("active");
+        } else {
+          sendBtn.classList.remove("active");
+        }
+      }
+    });
+    chatInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    });
+  }
 
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible" && activeCascadeId) {
