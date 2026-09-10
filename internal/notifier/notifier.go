@@ -92,7 +92,11 @@ func (n *Notifier) NotifyAction(cascadeID, title string, pi *proxy.PendingIntera
 		Category: "antigravity_action",
 	}
 
-	return n.bark.Send(context.Background(), payload)
+	if err := n.bark.Send(context.Background(), payload); err != nil {
+		n.dedup.Remove(dedupKey)
+		return err
+	}
+	return nil
 }
 
 // NotifyProceed sends an alert when an implementation plan has completed and waits for Proceed.
@@ -124,7 +128,11 @@ func (n *Notifier) NotifyProceed(cascadeID, title string, totalSteps int) error 
 		Category: "antigravity_proceed",
 	}
 
-	return n.bark.Send(context.Background(), payload)
+	if err := n.bark.Send(context.Background(), payload); err != nil {
+		n.dedup.Remove(dedupKey)
+		return err
+	}
+	return nil
 }
 
 // NotifyCompleted sends a notification when a cascade completes all steps successfully.
@@ -156,7 +164,11 @@ func (n *Notifier) NotifyCompleted(cascadeID, title string, totalSteps int) erro
 		Category: "antigravity_complete",
 	}
 
-	return n.bark.Send(context.Background(), payload)
+	if err := n.bark.Send(context.Background(), payload); err != nil {
+		n.dedup.Remove(dedupKey)
+		return err
+	}
+	return nil
 }
 
 // NotifyFailed sends a notification when a cascade fails or terminates abnormally.
@@ -188,7 +200,11 @@ func (n *Notifier) NotifyFailed(cascadeID, title string, totalSteps int) error {
 		Category: "antigravity_error",
 	}
 
-	return n.bark.Send(context.Background(), payload)
+	if err := n.bark.Send(context.Background(), payload); err != nil {
+		n.dedup.Remove(dedupKey)
+		return err
+	}
+	return nil
 }
 
 // OnTrajectoryUpdate handles a real-time trajectory snapshot from WebSocket or polling.
@@ -210,7 +226,7 @@ func (n *Notifier) OnTrajectoryUpdate(details *proxy.TrajectoryDetails) {
 	}
 
 	// 3. Check for Terminal Completion
-	if details.Status == "CASCADE_RUN_STATUS_COMPLETED" && details.TotalSteps > 0 {
+	if (details.Status == "CASCADE_RUN_STATUS_COMPLETED" || details.Status == "CASCADE_RUN_STATUS_IDLE") && details.TotalSteps > 0 {
 		_ = n.NotifyCompleted(details.CascadeID, details.Title, details.TotalSteps)
 	} else if details.Status == "CASCADE_RUN_STATUS_FAILED" && details.TotalSteps > 0 {
 		_ = n.NotifyFailed(details.CascadeID, details.Title, details.TotalSteps)

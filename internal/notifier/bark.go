@@ -45,12 +45,12 @@ func NewBarkClient(cfg config.NotificationConfig) *BarkClient {
 		soundAction:   cfg.SoundAction,
 		soundComplete: cfg.SoundComplete,
 		client: &http.Client{
-			Timeout: 6 * time.Second,
+			Timeout: 10 * time.Second,
 		},
 	}
 }
 
-// Send dispatches a push notification to Bark.
+// Send dispatches a push notification to Bark with automatic retry on failure.
 func (b *BarkClient) Send(ctx context.Context, payload BarkPayload) error {
 	if b.endpoint == "" {
 		return fmt.Errorf("bark endpoint not configured")
@@ -69,26 +69,43 @@ func (b *BarkClient) Send(ctx context.Context, payload BarkPayload) error {
 		return fmt.Errorf("failed to marshal bark payload: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, b.endpoint, bytes.NewReader(bodyBytes))
-	if err != nil {
-		return fmt.Errorf("failed to create http request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json; charset=utf-8")
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(1 * time.Second):
+			}
+			log.Printf("[Bark] 🔄 Retrying notification send (attempt %d)...", attempt+1)
+		}
 
-	resp, err := b.client.Do(req)
-	if err != nil {
-		log.Printf("[Bark] ❌ Failed to send notification: %v", err)
-		return err
-	}
-	defer resp.Body.Close()
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, b.endpoint, bytes.NewReader(bodyBytes))
+		if err != nil {
+			return fmt.Errorf("failed to create http request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json; charset=utf-8")
 
-	respBody, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		log.Printf("[Bark] ⚠️ Server returned status %d: %s", resp.StatusCode, string(respBody))
-		return fmt.Errorf("bark server error %d: %s", resp.StatusCode, string(respBody))
+		resp, err := b.client.Do(req)
+		if err != nil {
+			lastErr = err
+			log.Printf("[Bark] ❌ Failed to send notification (attempt %d): %v", attempt+1, err)
+			continue
+		}
+
+		respBody, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			lastErr = fmt.Errorf("bark server error %d: %s", resp.StatusCode, string(respBody))
+			log.Printf("[Bark] ⚠️ Server returned status %d: %s", resp.StatusCode, string(respBody))
+			continue
+		}
+
+		log.Printf("[Bark] 🚀 Notification sent successfully: %q - %q (level=%s, sound=%s)",
+			payload.Title, payload.Body, payload.Level, payload.Sound)
+		return nil
 	}
 
-	log.Printf("[Bark] 🚀 Notification sent successfully: %q - %q (level=%s, sound=%s)",
-		payload.Title, payload.Body, payload.Level, payload.Sound)
-	return nil
+	return lastErr
 }
