@@ -227,7 +227,7 @@ func TestActualCascade_51dbc1ee(t *testing.T) {
 	p := NewProxy(insp)
 	rawResp, err := p.fetchUpstreamTrajectory("51dbc1ee-33a5-4272-a5a6-468901235e0c", info.Port, info.CSRFToken)
 	if err != nil {
-		t.Fatalf("failed to fetch trajectory: %v", err)
+		t.Skipf("debug cascade not found on running instance: %v", err)
 	}
 	details := p.ParseTrajectoryDetails(rawResp)
 	t.Logf("Status: %s, PendingInteraction: %+v", details.Status, details.PendingInteraction)
@@ -250,7 +250,7 @@ func TestActualCascade_d363164b(t *testing.T) {
 	p := NewProxy(insp)
 	rawResp, err := p.fetchUpstreamTrajectory("d363164b-e572-4de3-b4ad-05029eb6a629", info.Port, info.CSRFToken)
 	if err != nil {
-		t.Fatalf("failed to fetch trajectory: %v", err)
+		t.Skipf("debug cascade not found on running instance: %v", err)
 	}
 	details := p.ParseTrajectoryDetails(rawResp)
 	t.Logf("CanProceed: %t, ProceedArtifactURI: %s", details.CanProceed, details.ProceedArtifactURI)

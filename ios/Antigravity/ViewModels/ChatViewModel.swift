@@ -6,10 +6,11 @@ import SwiftUI
 @Observable
 @MainActor
 public final class ChatViewModel {
-    public let cascadeId: String
+    public var cascadeId: String
     public let initialTitle: String
     public var currentTitle: String
     public var isNewConversation: Bool
+    public var draftProject: ProjectItem?
     
     public var messages: [ChatMessage] = []
     public var inputText: String = ""
@@ -90,8 +91,29 @@ public final class ChatViewModel {
         }
     }
     
+    public init(
+        draftProject: ProjectItem,
+        apiClient: APIClient? = nil,
+        settings: AppSettings? = nil,
+        cacheManager: CacheManager? = nil
+    ) {
+        self.cascadeId = ""
+        self.initialTitle = draftProject.name
+        self.currentTitle = draftProject.name
+        self.isNewConversation = true
+        self.draftProject = draftProject
+        self.apiClient = apiClient ?? .shared
+        self.settings = settings ?? .shared
+        self.activityManager = ActivityManager.shared
+        self.cacheManager = cacheManager ?? .shared
+        self.streamClient = StreamWebSocketClient()
+        
+        self.setupStreamClient()
+    }
+    
     @MainActor
     public func loadMessages(isBackgroundPoll: Bool = false) async {
+        guard !cascadeId.isEmpty else { return }
         // Fallback to cache if messages empty
         if messages.isEmpty, let cached = cacheManager.loadSession(for: cascadeId) {
             let healed = self.sanitizeMessageOrder(cached.messages)
@@ -201,6 +223,17 @@ public final class ChatViewModel {
             if self.pendingOptimisticMessageId == nil {
                 self.knownServerMessageIds = Set(toCache.map(\.id))
             }
+            
+            let convStatus: ConversationItem.ConversationStatus = {
+                if self.canProceed || self.pendingInteraction != nil {
+                    return .action
+                } else if self.isRunning {
+                    return .running
+                } else {
+                    return .idle
+                }
+            }()
+            cacheManager.updateConversationStatus(cascadeId: cascadeId, status: convStatus)
             
             // If awaiting response, check if agent has completed response
             if self.isAwaitingResponse {
@@ -503,23 +536,66 @@ public final class ChatViewModel {
         inputText = ""
         errorMessage = nil
         
-        if settings.enableLiveActivities {
-            activityManager.startActivity(title: currentTitle, cascadeId: cascadeId)
-        }
-        
-        // Ensure WebSocket stream is connected for immediate streaming
-        connectStream()
-        
-        // If stream is not actively connected, use fallback polling
-        if streamClient.status != .connected {
-            startPollingFallback()
+        if !cascadeId.isEmpty {
+            if settings.enableLiveActivities {
+                activityManager.startActivity(title: currentTitle, cascadeId: cascadeId)
+            }
+            
+            // Ensure WebSocket stream is connected for immediate streaming
+            connectStream()
+            
+            // If stream is not actively connected, use fallback polling
+            if streamClient.status != .connected {
+                startPollingFallback()
+            }
         }
         
         do {
-            try await apiClient.sendMessage(cascadeId: cascadeId, text: text, cascadeConfigRaw: cascadeConfigRaw, baseURL: url)
-            // Allow upstream 250ms to register task and update state before first eager sync
-            try? await Task.sleep(nanoseconds: 250_000_000)
-            await self.loadMessages(isBackgroundPoll: true)
+            if cascadeId.isEmpty, let project = draftProject {
+                let pid = project.rawId ?? (project.id != project.uri ? project.id : nil)
+                let newCascadeId = try await apiClient.createCascade(
+                    workspaceUri: project.uri,
+                    prompt: text,
+                    model: nil,
+                    projectId: pid,
+                    baseURL: url
+                )
+                self.cascadeId = newCascadeId
+                self.draftProject = nil
+                
+                // Immediately register new conversation item in cache
+                let newConv = ConversationItem(
+                    id: newCascadeId,
+                    title: project.name,
+                    status: .running,
+                    stepCount: 1,
+                    workspaceName: project.name,
+                    lastModified: Date()
+                )
+                self.cacheManager.upsertConversation(newConv)
+                
+                if settings.enableLiveActivities {
+                    activityManager.startActivity(title: currentTitle, cascadeId: newCascadeId)
+                }
+                
+                // Ensure WebSocket stream is connected for immediate streaming
+                connectStream()
+                
+                // If stream is not actively connected, use fallback polling
+                if streamClient.status != .connected {
+                    startPollingFallback()
+                }
+                
+                // Allow upstream 250ms to register task and update state before first eager sync
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                await self.loadMessages(isBackgroundPoll: true)
+                await self.checkAndRefreshTitle()
+            } else {
+                try await apiClient.sendMessage(cascadeId: cascadeId, text: text, cascadeConfigRaw: cascadeConfigRaw, baseURL: url)
+                // Allow upstream 250ms to register task and update state before first eager sync
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                await self.loadMessages(isBackgroundPoll: true)
+            }
         } catch {
             print("❌ sendMessage error: \(error)")
             errorMessage = error.localizedDescription
@@ -558,6 +634,7 @@ public final class ChatViewModel {
         self.awaitingResponseSince = Date()
         self.isRunning = true
         errorMessage = nil
+        cacheManager.updateConversationStatus(cascadeId: cascadeId, status: .running)
         
         if settings.enableLiveActivities {
             activityManager.startActivity(title: currentTitle, cascadeId: cascadeId)
@@ -594,7 +671,7 @@ public final class ChatViewModel {
     
     @MainActor
     public func checkAndRefreshTitle() async {
-        guard let url = settings.serverURL else { return }
+        guard !cascadeId.isEmpty, let url = settings.serverURL else { return }
         do {
             if let title = try await apiClient.fetchConversationTitle(cascadeId: cascadeId, baseURL: url),
                !title.isEmpty, title != "未命名会话", title != self.currentTitle {
@@ -610,7 +687,7 @@ public final class ChatViewModel {
     
     @MainActor
     public func cancelTask() async {
-        guard let url = settings.serverURL else { return }
+        guard !cascadeId.isEmpty, let url = settings.serverURL else { return }
         
         UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
         isAwaitingResponse = false
@@ -787,6 +864,17 @@ public final class ChatViewModel {
         if self.pendingOptimisticMessageId == nil {
             self.knownServerMessageIds = Set(toCache.map(\.id))
         }
+        
+        let convStatus: ConversationItem.ConversationStatus = {
+            if self.canProceed || self.pendingInteraction != nil {
+                return .action
+            } else if self.isRunning {
+                return .running
+            } else {
+                return .idle
+            }
+        }()
+        cacheManager.updateConversationStatus(cascadeId: cascadeId, status: convStatus)
     }
     
     // Submit user decision on a pending interaction
@@ -870,7 +958,7 @@ public final class ChatViewModel {
     }
     
     public func connectStream() {
-        guard let url = settings.serverURL else { return }
+        guard !cascadeId.isEmpty, let url = settings.serverURL else { return }
         streamClient.connect(baseURL: url, cascadeId: cascadeId)
     }
     
