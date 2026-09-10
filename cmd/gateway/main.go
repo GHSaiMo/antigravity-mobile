@@ -156,34 +156,29 @@ func main() {
 
 		// Route Cockpit Quota endpoints (protected by AuthMiddleware)
 		if path == "/api/v1/cockpit/quotas" {
-			w.Header().Set("Content-Type", "application/json")
 			liveEmail, _, _ := p.GetActiveUserStatus()
 			quotas, err := cockpit.GetQuotas(liveEmail)
 			if err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
-				_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 				return
 			}
-			_ = json.NewEncoder(w).Encode(quotas)
+			writeJSON(w, http.StatusOK, quotas)
 			return
 		}
 		if path == "/api/v1/cockpit/refresh" {
-			w.Header().Set("Content-Type", "application/json")
 			if r.Method != http.MethodPost {
 				w.WriteHeader(http.StatusMethodNotAllowed)
 				return
 			}
 			err := cockpit.TriggerRefresh()
 			if err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
-				_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 				return
 			}
-			_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "message": "refresh triggered"})
+			writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "message": "refresh triggered"})
 			return
 		}
 		if path == "/api/v1/cockpit/switch" {
-			w.Header().Set("Content-Type", "application/json")
 			if r.Method != http.MethodPost {
 				w.WriteHeader(http.StatusMethodNotAllowed)
 				return
@@ -192,16 +187,14 @@ func main() {
 				AccountID string `json:"account_id"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.AccountID) == "" {
-				w.WriteHeader(http.StatusBadRequest)
-				_ = json.NewEncoder(w).Encode(map[string]string{"error": "account_id is required"})
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "account_id is required"})
 				return
 			}
 			if err := cockpit.SwitchAccount(strings.TrimSpace(req.AccountID)); err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
-				_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 				return
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{
+			writeJSON(w, http.StatusOK, map[string]any{
 				"status":     "ok",
 				"message":    "account switched successfully",
 				"account_id": strings.TrimSpace(req.AccountID),
@@ -265,4 +258,12 @@ func main() {
 		log.Printf("Server shutdown error: %v", err)
 	}
 	log.Println("Gateway stopped gracefully.")
+}
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		log.Printf("[HTTP] Failed to encode JSON response: %v", err)
+	}
 }
