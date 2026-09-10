@@ -257,6 +257,40 @@ public final class CacheManager: @unchecked Sendable {
         }
     }
     
+    public func deleteConversation(cascadeId: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        
+        var items = memConversations ?? []
+        if items.isEmpty {
+            let fileURL = cacheDir.appendingPathComponent("conversations.json")
+            if let data = try? Data(contentsOf: fileURL),
+               let loaded = try? JSONDecoder().decode([ConversationItem].self, from: data) {
+                items = loaded
+            }
+        }
+        
+        items.removeAll(where: { $0.id == cascadeId })
+        memConversations = items
+        memSessions.removeValue(forKey: cascadeId)
+        memLastViewDates.removeValue(forKey: cascadeId)
+        UserDefaults.standard.removeObject(forKey: "ag_last_view_\(cascadeId)")
+        
+        let convFileURL = cacheDir.appendingPathComponent("conversations.json")
+        let sessionFileURL = cacheDir.appendingPathComponent("sessions/\(cascadeId).json")
+        
+        if let data = try? JSONEncoder().encode(items) {
+            ioQueue.async {
+                try? data.write(to: convFileURL, options: .atomic)
+                try? FileManager.default.removeItem(at: sessionFileURL)
+            }
+        } else {
+            ioQueue.async {
+                try? FileManager.default.removeItem(at: sessionFileURL)
+            }
+        }
+    }
+    
     // MARK: - Chat Session Cache
     
     public func saveSession(_ session: CachedChatSession) {

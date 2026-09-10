@@ -585,4 +585,45 @@ func TestSendUserCascadeMessageDeduplication(t *testing.T) {
 	}
 }
 
+func TestDeleteCascadeTrajectoryProxy(t *testing.T) {
+	var receivedCascadeID string
+	mockUpstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/DeleteCascadeTrajectory") {
+			var body struct {
+				CascadeID string `json:"cascadeId"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			receivedCascadeID = body.CascadeID
+			w.Write([]byte("{}"))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer mockUpstream.Close()
+
+	port := mockUpstream.Listener.Addr().(*net.TCPAddr).Port
+	insp := inspector.NewInspector(5 * time.Second)
+	p := NewProxy(insp)
+	p.updateUpstream(inspector.InstanceInfo{
+		PID:       1234,
+		Port:      port,
+		CSRFToken: "test-token",
+		IsHealthy: true,
+	})
+
+	deleteReq := `{"cascadeId":"cascade-delete-test-id"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/exa.language_server_pb.LanguageServerService/DeleteCascadeTrajectory", strings.NewReader(deleteReq))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	p.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if receivedCascadeID != "cascade-delete-test-id" {
+		t.Fatalf("expected upstream to receive cascadeId 'cascade-delete-test-id', got %q", receivedCascadeID)
+	}
+}
+
 

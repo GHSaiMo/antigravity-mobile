@@ -166,4 +166,76 @@ public final class ConversationListViewModel {
         self.quotaResponse = res
         self.lastQuotaFetchTime = Date()
     }
+    
+    @MainActor
+    public func deleteConversation(item: ConversationItem) async {
+        guard let url = settings.serverURL else {
+            self.errorMessage = "请在设置中配置有效的服务器地址"
+            return
+        }
+        
+        let originalConversations = self.conversations
+        // Optimistic UI removal
+        self.conversations.removeAll(where: { $0.id == item.id })
+        self.cacheManager.deleteConversation(cascadeId: item.id)
+        
+        do {
+            try await apiClient.deleteConversation(cascadeId: item.id, baseURL: url)
+        } catch {
+            // Revert on failure
+            self.conversations = originalConversations
+            self.cacheManager.saveConversations(originalConversations)
+            self.errorMessage = "删除会话失败: \(error.localizedDescription)"
+        }
+    }
+    
+    @MainActor
+    public func renameConversation(item: ConversationItem, newTitle: String) async {
+        let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        guard trimmed != item.title else { return }
+        
+        guard let url = settings.serverURL else {
+            self.errorMessage = "请在设置中配置有效的服务器地址"
+            return
+        }
+        
+        let originalTitle = item.title
+        // Optimistic UI update
+        if let idx = self.conversations.firstIndex(where: { $0.id == item.id }) {
+            let old = self.conversations[idx]
+            self.conversations[idx] = ConversationItem(
+                id: old.id,
+                title: trimmed,
+                status: old.status,
+                stepCount: old.stepCount,
+                workspaceName: old.workspaceName,
+                lastModified: old.lastModified,
+                isSubagent: old.isSubagent,
+                isUnread: old.isUnread
+            )
+        }
+        self.cacheManager.updateConversationTitle(cascadeId: item.id, newTitle: trimmed)
+        
+        do {
+            try await apiClient.renameConversation(cascadeId: item.id, newTitle: trimmed, baseURL: url)
+        } catch {
+            // Revert on failure
+            if let idx = self.conversations.firstIndex(where: { $0.id == item.id }) {
+                let old = self.conversations[idx]
+                self.conversations[idx] = ConversationItem(
+                    id: old.id,
+                    title: originalTitle,
+                    status: old.status,
+                    stepCount: old.stepCount,
+                    workspaceName: old.workspaceName,
+                    lastModified: old.lastModified,
+                    isSubagent: old.isSubagent,
+                    isUnread: old.isUnread
+                )
+            }
+            self.cacheManager.updateConversationTitle(cascadeId: item.id, newTitle: originalTitle)
+            self.errorMessage = "重命名会话失败: \(error.localizedDescription)"
+        }
+    }
 }
