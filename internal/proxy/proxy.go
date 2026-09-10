@@ -638,8 +638,14 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	// Enrich missing titles and filter out stale abandoned drafts
+	// Enrich missing titles, filter out subagent sessions and stale abandoned drafts
 	for id, s := range summaries {
+		// Filter out internal subagent sessions completely
+		if isSubagentTrajectoryMap(s, id) {
+			delete(summaries, id)
+			continue
+		}
+
 		// Enrich missing title
 		hasTitle := false
 		if ann, ok := s["annotations"].(map[string]interface{}); ok {
@@ -821,5 +827,35 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(rawMap)
 }
+
+// isSubagentTrajectoryMap checks if a trajectory summary map belongs to an internal subagent.
+func isSubagentTrajectoryMap(s map[string]interface{}, id string) bool {
+	meta, ok := s["trajectoryMetadata"].(map[string]interface{})
+	if !ok || meta == nil {
+		return false
+	}
+
+	if parent, ok := meta["parentConversationId"].(string); ok && strings.TrimSpace(parent) != "" {
+		return true
+	}
+	if spec, ok := meta["subagentSpec"]; ok && spec != nil {
+		return true
+	}
+	if script, ok := meta["agentScript"]; ok && script != nil {
+		return true
+	}
+	if depth, ok := meta["nestingDepth"].(float64); ok && depth > 0 {
+		return true
+	}
+	if depth, ok := meta["nestingDepth"].(int); ok && depth > 0 {
+		return true
+	}
+	if root, ok := meta["rootConversationId"].(string); ok && strings.TrimSpace(root) != "" && id != "" && root != id {
+		return true
+	}
+
+	return false
+}
+
 
 

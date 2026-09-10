@@ -70,11 +70,12 @@ public final class CacheManager: @unchecked Sendable {
     // MARK: - Conversations List Cache
     
     public func saveConversations(_ items: [ConversationItem]) {
+        let clean = items.filter { !$0.isSubagent }
         lock.lock()
-        memConversations = items
+        memConversations = clean
         lock.unlock()
         
-        guard let data = try? JSONEncoder().encode(items) else { return }
+        guard let data = try? JSONEncoder().encode(clean) else { return }
         let fileURL = cacheDir.appendingPathComponent("conversations.json")
         ioQueue.async {
             try? data.write(to: fileURL, options: .atomic)
@@ -84,8 +85,10 @@ public final class CacheManager: @unchecked Sendable {
     public func loadConversations() -> [ConversationItem] {
         lock.lock()
         if let mem = memConversations {
+            let filtered = mem.filter { !$0.isSubagent }
+            memConversations = filtered
             lock.unlock()
-            return mem
+            return filtered
         }
         lock.unlock()
         
@@ -95,10 +98,21 @@ public final class CacheManager: @unchecked Sendable {
             return []
         }
         
+        let filtered = items.filter { !$0.isSubagent }
         lock.lock()
-        memConversations = items
+        memConversations = filtered
         lock.unlock()
-        return items
+        
+        // If legacy subagents were pruned, rewrite clean data to disk asynchronously
+        if filtered.count != items.count {
+            if let cleanData = try? JSONEncoder().encode(filtered) {
+                ioQueue.async {
+                    try? cleanData.write(to: fileURL, options: .atomic)
+                }
+            }
+        }
+        
+        return filtered
     }
     
     public func updateConversationTitle(cascadeId: String, newTitle: String) {
@@ -171,6 +185,9 @@ public final class CacheManager: @unchecked Sendable {
     }
     
     public func upsertConversation(_ item: ConversationItem) {
+        if item.isSubagent {
+            return
+        }
         lock.lock()
         defer { lock.unlock() }
         

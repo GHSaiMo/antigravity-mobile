@@ -57,7 +57,19 @@ func (p *Proxy) GetProjects() ([]ProjectItem, error) {
 	if port > 0 {
 		trajectories, err := p.fetchTrajectoriesSummary(port, token)
 		if err == nil {
-			for _, sum := range trajectories {
+			for cid, sum := range trajectories {
+				// Exclude internal subagents from project statistics
+				if sum.TrajectoryMetadata != nil {
+					meta := sum.TrajectoryMetadata
+					if meta.ParentConversationID != "" ||
+						meta.SubagentSpec != nil ||
+						meta.AgentScript != nil ||
+						meta.NestingDepth > 0 ||
+						(meta.RootConversationID != "" && meta.RootConversationID != cid) {
+						continue
+					}
+				}
+
 				var uris []string
 				if sum.TrajectoryMetadata != nil && len(sum.TrajectoryMetadata.WorkspaceUris) > 0 {
 					uris = sum.TrajectoryMetadata.WorkspaceUris
@@ -422,27 +434,26 @@ func fetchProjectsFromStateDB() []ProjectItem {
 	return items
 }
 
-type upstreamTrajectoriesResp struct {
-	TrajectorySummaries map[string]struct {
-		LastModifiedTime   string `json:"lastModifiedTime"`
-		TrajectoryMetadata *struct {
-			WorkspaceUris []string `json:"workspaceUris"`
-		} `json:"trajectoryMetadata"`
-		Workspaces []struct {
-			WorkspaceFolderAbsoluteUri string `json:"workspaceFolderAbsoluteUri"`
-		} `json:"workspaces"`
-	} `json:"trajectorySummaries"`
-}
-
-func (p *Proxy) fetchTrajectoriesSummary(port int, token string) (map[string]struct {
+type upstreamTrajectorySummaryItem struct {
 	LastModifiedTime   string `json:"lastModifiedTime"`
 	TrajectoryMetadata *struct {
-		WorkspaceUris []string `json:"workspaceUris"`
+		WorkspaceUris        []string    `json:"workspaceUris"`
+		ParentConversationID string      `json:"parentConversationId,omitempty"`
+		SubagentSpec         interface{} `json:"subagentSpec,omitempty"`
+		AgentScript          interface{} `json:"agentScript,omitempty"`
+		NestingDepth         int         `json:"nestingDepth,omitempty"`
+		RootConversationID   string      `json:"rootConversationId,omitempty"`
 	} `json:"trajectoryMetadata"`
 	Workspaces []struct {
 		WorkspaceFolderAbsoluteUri string `json:"workspaceFolderAbsoluteUri"`
 	} `json:"workspaces"`
-}, error) {
+}
+
+type upstreamTrajectoriesResp struct {
+	TrajectorySummaries map[string]upstreamTrajectorySummaryItem `json:"trajectorySummaries"`
+}
+
+func (p *Proxy) fetchTrajectoriesSummary(port int, token string) (map[string]upstreamTrajectorySummaryItem, error) {
 	url := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories", port)
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader([]byte("{}")))
 	if err != nil {
