@@ -62,7 +62,7 @@ public struct ChatView: View {
                 // Message stream
                 ScrollViewReader { proxy in
                     ScrollView {
-                        LazyVStack(spacing: 8) {
+                        VStack(spacing: 8) {
                             // Load older messages button
                             if viewModel.hasMore {
                                 Button(action: {
@@ -124,7 +124,9 @@ public struct ChatView: View {
                         }
                         .padding(.vertical, 12)
                         .frame(maxWidth: .infinity)
+                        .scrollTargetLayout()
                     }
+                    .defaultScrollAnchor(.bottom)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color(uiColor: .systemBackground))
                     .contentShape(Rectangle())
@@ -169,31 +171,17 @@ public struct ChatView: View {
                             initialAlignmentIfNeeded(proxy: proxy)
                             return
                         }
-                        if viewModel.messages.last?.sender == .user {
-                            scrollToBottom(proxy: proxy, animated: true)
-                        } else if viewModel.isAwaitingResponse || viewModel.isRunning {
-                            scrollToBottom(proxy: proxy, animated: true)
-                        }
+                        scrollToBottom(proxy: proxy, animated: true)
                     }
                     .onChange(of: isInputFocused) { _, focused in
                         if focused {
-                            // 软键盘弹起耗时约 0.25s~0.35s。
-                            // 阶段 1: 伴随键盘初段平滑过渡（0.08s），避免输入框遮挡
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                                scrollToBottom(proxy: proxy, animated: true)
-                            }
-                            // 阶段 2: 键盘完全展开、视口尺寸确立后（0.32s），进行精确校准
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.32) {
-                                scrollToBottom(proxy: proxy, animated: false)
-                            }
-                        } else {
-                            // 当输入法收起（回弹）时，键盘动画耗时约 0.25s。
-                            // 在动画中段与完全收起时触发底部对齐校准，
-                            // 消除 LazyVStack 懒加载高度延迟造成的视口与消息悬空留白
+                            // 软键盘弹起时平滑过渡贴合底部
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                                 scrollToBottom(proxy: proxy, animated: true)
                             }
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
+                        } else {
+                            // 输入法收起时校准底部对齐，消除视口悬空留白
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                                 scrollToBottom(proxy: proxy, animated: true)
                             }
                         }
@@ -620,7 +608,7 @@ public struct ChatView: View {
     private func smartScroll(proxy: ScrollViewProxy, animated: Bool = false) {
         if viewModel.isAwaitingResponse || viewModel.isRunning {
             scrollToBottom(proxy: proxy, animated: animated)
-        } else if viewModel.latestAgentMessageId != nil || viewModel.latestTurnStartMessageId != nil {
+        } else if let _ = viewModel.latestAgentMessageId {
             scrollToTurnStart(proxy: proxy, animated: animated)
         } else {
             scrollToBottom(proxy: proxy, animated: animated)
@@ -628,22 +616,18 @@ public struct ChatView: View {
     }
     
     private func scrollToTurnStart(proxy: ScrollViewProxy, animated: Bool = true) {
-        // Priority: 1. Latest agent response message; 2. Latest turn start message; 3. Bottom anchor
-        guard let targetId = viewModel.latestAgentMessageId ?? viewModel.latestTurnStartMessageId else {
+        // Only target agent response message start when opening a completed chat
+        guard let targetId = viewModel.latestAgentMessageId else {
             scrollToBottom(proxy: proxy, animated: animated)
             return
         }
         
         if animated {
-            withAnimation(.easeOut(duration: 0.28)) {
+            withAnimation(.easeOut(duration: 0.22)) {
                 proxy.scrollTo(targetId, anchor: .top)
             }
         } else {
             proxy.scrollTo(targetId, anchor: .top)
-            // Secondary micro-tick to absorb LazyVStack layout expansion on long chats
-            DispatchQueue.main.async {
-                proxy.scrollTo(targetId, anchor: .top)
-            }
         }
     }
     
@@ -653,17 +637,13 @@ public struct ChatView: View {
         if viewModel.messages.isEmpty && !isThinkingActive {
             return
         }
-        let target = isThinkingActive ? "THINKING_INDICATOR" : "BOTTOM_ANCHOR"
+        let target = "BOTTOM_ANCHOR"
         if animated {
-            withAnimation(.easeOut(duration: 0.22)) {
+            withAnimation(.easeOut(duration: 0.2)) {
                 proxy.scrollTo(target, anchor: .bottom)
             }
         } else {
             proxy.scrollTo(target, anchor: .bottom)
-            // Secondary micro-tick to absorb LazyVStack layout expansion
-            DispatchQueue.main.async {
-                proxy.scrollTo(target, anchor: .bottom)
-            }
         }
     }
     
