@@ -185,7 +185,7 @@ func TestNotifierDedupRollbackOnFailure(t *testing.T) {
 	}
 }
 
-func TestNotifierOnTrajectoryUpdate_IDLE(t *testing.T) {
+func TestNotifierOnTrajectoryUpdate_IgnoresTerminalStates(t *testing.T) {
 	var requestCount int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestCount++
@@ -200,15 +200,80 @@ func TestNotifierOnTrajectoryUpdate_IDLE(t *testing.T) {
 	}
 	n := NewNotifier(cfg)
 
-	details := &proxy.TrajectoryDetails{
+	// 1. IDLE status should not trigger completion notification
+	idleDetails := &proxy.TrajectoryDetails{
 		CascadeID:  "cas_idle_test",
-		Title:      "IDLE Completion Test",
+		Title:      "IDLE Test",
 		Status:     "CASCADE_RUN_STATUS_IDLE",
 		TotalSteps: 12,
 	}
+	n.OnTrajectoryUpdate(idleDetails)
 
-	n.OnTrajectoryUpdate(details)
+	// 2. COMPLETED status should not trigger completion notification
+	completedDetails := &proxy.TrajectoryDetails{
+		CascadeID:  "cas_completed_test",
+		Title:      "Completed Test",
+		Status:     "CASCADE_RUN_STATUS_COMPLETED",
+		TotalSteps: 10,
+	}
+	n.OnTrajectoryUpdate(completedDetails)
+
+	// 3. FAILED status should not trigger failure notification
+	failedDetails := &proxy.TrajectoryDetails{
+		CascadeID:  "cas_failed_test",
+		Title:      "Failed Test",
+		Status:     "CASCADE_RUN_STATUS_FAILED",
+		TotalSteps: 5,
+	}
+	n.OnTrajectoryUpdate(failedDetails)
+
+	// 4. IDLE with stale pending interaction should not trigger action notification
+	idleWithPIDetails := &proxy.TrajectoryDetails{
+		CascadeID:  "cas_idle_pi",
+		Title:      "Idle with Stale PI",
+		Status:     "CASCADE_RUN_STATUS_IDLE",
+		TotalSteps: 8,
+		PendingInteraction: &proxy.PendingInteraction{
+			Type:   "run_command",
+			Target: "ls",
+		},
+	}
+	n.OnTrajectoryUpdate(idleWithPIDetails)
+
+	if requestCount != 0 {
+		t.Errorf("expected 0 requests for terminal/idle snapshots in OnTrajectoryUpdate, got %d", requestCount)
+	}
+}
+
+func TestNotifierOnTrajectoryUpdate_RunningInteraction(t *testing.T) {
+	var requestCount int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"code":200,"message":"success"}`))
+	}))
+	defer server.Close()
+
+	cfg := config.NotificationConfig{
+		Enabled:      true,
+		BarkEndpoint: server.URL,
+	}
+	n := NewNotifier(cfg)
+
+	runningPIDetails := &proxy.TrajectoryDetails{
+		CascadeID:  "cas_running_pi",
+		Title:      "Running Action",
+		Status:     "CASCADE_RUN_STATUS_RUNNING",
+		TotalSteps: 4,
+		PendingInteraction: &proxy.PendingInteraction{
+			Type:      "run_command",
+			Target:    "go test ./...",
+			StepIndex: 4,
+		},
+	}
+	n.OnTrajectoryUpdate(runningPIDetails)
+
 	if requestCount != 1 {
-		t.Errorf("expected 1 request for IDLE status with TotalSteps > 0, got %d", requestCount)
+		t.Errorf("expected 1 request for running pending interaction, got %d", requestCount)
 	}
 }

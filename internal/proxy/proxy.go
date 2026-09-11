@@ -84,6 +84,15 @@ func (p *Proxy) ActiveUpstream() (int, string) {
 	return p.activePort, p.activeToken
 }
 
+// SetTestUpstream configures active port and token for testing.
+func (p *Proxy) SetTestUpstream(port int, token string) {
+	p.updateUpstream(inspector.InstanceInfo{
+		Port:      port,
+		CSRFToken: token,
+		IsHealthy: true,
+	})
+}
+
 // GetActiveUserStatus queries the running Antigravity instance for the currently logged-in user email and name.
 func (p *Proxy) GetActiveUserStatus() (email string, name string, err error) {
 	port, token := p.ActiveUpstream()
