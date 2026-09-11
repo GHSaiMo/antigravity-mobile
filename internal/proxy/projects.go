@@ -571,6 +571,22 @@ func (p *Proxy) HandleCreateCascade(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	clientMsgID := strings.TrimSpace(r.Header.Get("X-Client-Message-Id"))
+	if clientMsgID == "" {
+		clientMsgID = strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	}
+	if clientMsgID != "" {
+		if cachedID := p.getCascadeDedup(clientMsgID, 60*time.Second); cachedID != "" {
+			log.Printf("[Proxy] Deduplicated repeat CreateCascade via clientMsgID %s -> cascade %s", clientMsgID, cachedID)
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(CreateCascadeResponse{
+				CascadeID: cachedID,
+				Status:    "ok",
+			})
+			return
+		}
+	}
+
 	wsURI := req.WorkspaceURI
 	if wsURI != "" && !strings.HasPrefix(wsURI, "file://") {
 		wsURI = "file://" + filepath.Clean(wsURI)
@@ -671,6 +687,9 @@ func (p *Proxy) HandleCreateCascade(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cascadeID := startResult.CascadeID
+	if clientMsgID != "" {
+		p.setCascadeDedup(clientMsgID, cascadeID)
+	}
 	log.Printf("[Proxy] Created new cascade: %s (projectId: %s) for workspace: %s", cascadeID, projectID, wsURI)
 
 	// Update lastUserViewTime annotation upstream so desktop client recognizes it immediately

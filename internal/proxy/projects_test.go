@@ -139,3 +139,70 @@ func TestHandleCreateCascadeRequestedModel(t *testing.T) {
 		}
 	}
 }
+
+func TestHandleCreateCascadeIdempotency(t *testing.T) {
+	startCascadeCalls := 0
+	mockUpstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/StartCascade") {
+			startCascadeCalls++
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"cascadeId":"cascade-idemp-123"}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer mockUpstream.Close()
+
+	insp := inspector.NewInspector(5 * time.Second)
+	p := NewProxy(insp)
+	port := mockUpstream.Listener.Addr().(*net.TCPAddr).Port
+	p.updateUpstream(inspector.InstanceInfo{
+		Port:      port,
+		CSRFToken: "test-token",
+		IsHealthy: true,
+	})
+
+	body, _ := json.Marshal(CreateCascadeRequest{
+		WorkspaceURI: "file:///test/ws",
+		Prompt:       "Initial prompt",
+	})
+
+	clientMsgID := "new-cascade-uuid-456"
+
+	// First request -> should call StartCascade
+	req1 := httptest.NewRequest(http.MethodPost, "/gateway/cascade/new", strings.NewReader(string(body)))
+	req1.Header.Set("X-Client-Message-Id", clientMsgID)
+	rec1 := httptest.NewRecorder()
+	p.HandleCreateCascade(rec1, req1)
+
+	if rec1.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec1.Code)
+	}
+	var resp1 CreateCascadeResponse
+	_ = json.NewDecoder(rec1.Body).Decode(&resp1)
+	if resp1.CascadeID != "cascade-idemp-123" {
+		t.Fatalf("expected cascadeId 'cascade-idemp-123', got %q", resp1.CascadeID)
+	}
+	if startCascadeCalls != 1 {
+		t.Fatalf("expected startCascadeCalls=1, got %d", startCascadeCalls)
+	}
+
+	// Second request with same X-Client-Message-Id -> should return cached response without calling StartCascade
+	req2 := httptest.NewRequest(http.MethodPost, "/gateway/cascade/new", strings.NewReader(string(body)))
+	req2.Header.Set("X-Client-Message-Id", clientMsgID)
+	rec2 := httptest.NewRecorder()
+	p.HandleCreateCascade(rec2, req2)
+
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("expected 200 on repeat, got %d", rec2.Code)
+	}
+	var resp2 CreateCascadeResponse
+	_ = json.NewDecoder(rec2.Body).Decode(&resp2)
+	if resp2.CascadeID != "cascade-idemp-123" {
+		t.Fatalf("expected cached cascadeId 'cascade-idemp-123', got %q", resp2.CascadeID)
+	}
+	if startCascadeCalls != 1 {
+		t.Fatalf("expected startCascadeCalls to remain 1 (deduplicated), got %d", startCascadeCalls)
+	}
+}
