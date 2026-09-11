@@ -3441,6 +3441,17 @@ window.addEventListener("DOMContentLoaded", () => {
 // ==========================================================================
 // Cockpit Quota Monitor Module
 // ==========================================================================
+// 功能参数：是否在 Cockpit Tools 页面显示账号切换按钮。
+// 当前切换后端逻辑暂不可用，因此默认隐藏（false）；后期调通就绪后，将此参数修改为 true 即可恢复切换按钮。
+const ENABLE_COCKPIT_SWITCH = false;
+
+function isCockpitSwitchEnabled() {
+  if (typeof window !== "undefined" && typeof window.ENABLE_COCKPIT_SWITCH === "boolean") {
+    return window.ENABLE_COCKPIT_SWITCH;
+  }
+  return ENABLE_COCKPIT_SWITCH;
+}
+
 let currentCockpitQuotas = null;
 
 async function fetchCockpitQuotas(isManual = false) {
@@ -3585,13 +3596,16 @@ function buildAccountQuotaCard(acc, isCurrent) {
   card.className = `quota-account-card ${isCurrent ? "current-account-card" : ""}`;
 
   const displayEmail = isCockpitEmailMasked ? maskEmail(acc.email) : acc.email;
+  const switchBtnHtml = (!isCurrent && isCockpitSwitchEnabled())
+    ? `<button class="quota-switch-btn" data-id="${escapeHtml(acc.id)}" data-email="${escapeHtml(acc.email)}">切换</button>`
+    : "";
 
   card.innerHTML = `
     <div class="quota-card-header">
       <div class="quota-card-identity">
         <span class="quota-account-email" title="${escapeHtml(acc.email)}">${escapeHtml(displayEmail)}</span>
       </div>
-      ${isCurrent ? `<span class="quota-active-tag">🟢 使用中</span>` : `<button class="quota-switch-btn" data-id="${escapeHtml(acc.id)}" data-email="${escapeHtml(acc.email)}">切换</button>`}
+      ${isCurrent ? `<span class="quota-active-tag">🟢 使用中</span>` : switchBtnHtml}
     </div>
 
     <div class="quota-metrics-grid">
@@ -3645,7 +3659,7 @@ function buildAccountQuotaCard(acc, isCurrent) {
     </div>
   `;
 
-  if (!isCurrent) {
+  if (!isCurrent && isCockpitSwitchEnabled()) {
     const switchBtn = card.querySelector(".quota-switch-btn");
     if (switchBtn) {
       switchBtn.addEventListener("click", (e) => {
