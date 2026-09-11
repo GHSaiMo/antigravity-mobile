@@ -666,12 +666,20 @@ func (p *Proxy) handleJetboxWriteState(w http.ResponseWriter, r *http.Request, r
 			if canonicalName == "" {
 				canonicalName = model
 			}
-			lastCfg := p.GetCascadeConfig("", 0, "")
+			cascadeID := r.Header.Get("X-Cascade-Id")
+			if cascadeID == "" {
+				cascadeID = r.URL.Query().Get("cascade_id")
+			}
+			lastCfg := p.GetCascadeConfig(cascadeID, 0, "")
 			patched := applyModelToCascadeConfig(lastCfg, modelEnum, canonicalName)
 			if patchedBytes, err := json.Marshal(patched); err == nil {
 				SetLastKnownCascadeConfig(patchedBytes)
+				if cascadeID != "" {
+					SetCascadeModel(cascadeID, canonicalName, patchedBytes)
+					ClearTrajectoryCache(cascadeID)
+				}
 			}
-			log.Printf("[Proxy] JetboxWriteState: cached active model %s (%s)", canonicalName, modelEnum)
+			log.Printf("[Proxy] JetboxWriteState: cached active model %s (%s) cascadeId=%s", canonicalName, modelEnum, cascadeID)
 		}
 	}
 

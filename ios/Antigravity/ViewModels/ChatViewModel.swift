@@ -57,11 +57,30 @@ public final class ChatViewModel {
     }
     
     public var activeModel: String {
-        settings.activeModel
+        didSet {
+            settings.activeModel = activeModel
+        }
     }
     
     public var isClaudeActive: Bool {
-        settings.isClaudeActive
+        activeModel.lowercased().contains("claude") || activeModel == "MODEL_PLACEHOLDER_M26"
+    }
+    
+    public var activeModelEnum: String {
+        isClaudeActive ? "MODEL_PLACEHOLDER_M26" : "MODEL_PLACEHOLDER_M318"
+    }
+    
+    public var activeModelDisplayName: String {
+        isClaudeActive ? "Claude" : "Gemini"
+    }
+    
+    public func syncModel(from raw: String?) {
+        guard let raw = raw, !raw.isEmpty else { return }
+        let lower = raw.lowercased()
+        let target = (lower.contains("claude") || lower.contains("m26")) ? "claude-opus-4-6-thinking" : "gemini-3.8-flash-high"
+        if activeModel != target {
+            activeModel = target
+        }
     }
     
     private var awaitingResponseSince: Date? = nil
@@ -87,16 +106,31 @@ public final class ChatViewModel {
         self.initialTitle = initialTitle
         self.currentTitle = initialTitle
         self.isNewConversation = isNewConversation
-        self.apiClient = apiClient ?? .shared
-        self.settings = settings ?? .shared
+        let resolvedApiClient = apiClient ?? .shared
+        let resolvedSettings = settings ?? .shared
+        let resolvedCacheManager = cacheManager ?? .shared
+        self.apiClient = resolvedApiClient
+        self.settings = resolvedSettings
         self.activityManager = ActivityManager.shared
-        self.cacheManager = cacheManager ?? .shared
+        self.cacheManager = resolvedCacheManager
         self.streamClient = StreamWebSocketClient()
+        
+        var initialModel = resolvedSettings.activeModel
+        if let cached = resolvedCacheManager.loadSession(for: cascadeId),
+           let cfg = cached.cascadeConfigRaw {
+            let lower = cfg.lowercased()
+            if lower.contains("m26") || lower.contains("claude") {
+                initialModel = "claude-opus-4-6-thinking"
+            } else if lower.contains("m318") || lower.contains("gemini") {
+                initialModel = "gemini-3.8-flash-high"
+            }
+        }
+        self.activeModel = initialModel
         
         self.setupStreamClient()
         
         // Instant restore from local cache
-        if let cached = self.cacheManager.loadSession(for: cascadeId) {
+        if let cached = resolvedCacheManager.loadSession(for: cascadeId) {
             let healed = self.sanitizeMessageOrder(cached.messages)
             self.messages = healed
             self.duration = cached.duration
@@ -113,14 +147,6 @@ public final class ChatViewModel {
                 self.trajectoryErrorMessage = latestTurn.last(where: { $0.isError })?.content
             }
             self.cascadeConfigRaw = cached.cascadeConfigRaw
-            if let cfg = cached.cascadeConfigRaw {
-                let lower = cfg.lowercased()
-                if lower.contains("m26") || lower.contains("claude") {
-                    self.settings.syncModel(from: "claude-opus-4-6-thinking")
-                } else if lower.contains("m318") || lower.contains("gemini") {
-                    self.settings.syncModel(from: "gemini-3.8-flash-high")
-                }
-            }
             self.canProceed = false
             self.proceedArtifactUri = nil
             self.pendingInteraction = cached.pendingInteraction
@@ -143,11 +169,13 @@ public final class ChatViewModel {
         self.currentTitle = draftProject.name
         self.isNewConversation = true
         self.draftProject = draftProject
+        let resolvedSettings = settings ?? .shared
         self.apiClient = apiClient ?? .shared
-        self.settings = settings ?? .shared
+        self.settings = resolvedSettings
         self.activityManager = ActivityManager.shared
         self.cacheManager = cacheManager ?? .shared
         self.streamClient = StreamWebSocketClient()
+        self.activeModel = resolvedSettings.activeModel
         
         self.setupStreamClient()
     }
@@ -196,13 +224,13 @@ public final class ChatViewModel {
             if let configRaw = result.cascadeConfigRaw, !configRaw.isEmpty {
                 self.cascadeConfigRaw = configRaw
                 if self.hasUserManuallySelectedModel {
-                    self.updateCascadeConfigRawModel(self.settings.activeModelEnum, modelName: self.settings.activeModel)
+                    self.updateCascadeConfigRawModel(self.activeModelEnum, modelName: self.activeModel)
                 }
             }
             if let activeModel = result.activeModel, !activeModel.isEmpty {
                 // User manual model selection is authoritative and must not be overwritten by background polling
                 if !self.hasUserManuallySelectedModel && !isBackgroundPoll {
-                    self.settings.syncModel(from: activeModel)
+                    self.syncModel(from: activeModel)
                 }
             }
             
@@ -634,16 +662,25 @@ public final class ChatViewModel {
     }
     
     @MainActor
-    public func toggleModel() async {
-        hasUserManuallySelectedModel = true
-        settings.toggleActiveModel()
+    public func toggleModel() {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        updateCascadeConfigRawModel(settings.activeModelEnum, modelName: settings.activeModel)
+        hasUserManuallySelectedModel = true
+        if isClaudeActive {
+            activeModel = "gemini-3.8-flash-high"
+        } else {
+            activeModel = "claude-opus-4-6-thinking"
+        }
+        updateCascadeConfigRawModel(activeModelEnum, modelName: activeModel)
         guard let url = settings.serverURL else { return }
-        do {
-            try await apiClient.switchModel(to: settings.activeModelEnum, baseURL: url)
-        } catch {
-            print("⚠️ Failed to switch model upstream: \(error)")
+        let cid = self.cascadeId
+        let currentEnum = self.activeModelEnum
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await self.apiClient.switchModel(to: currentEnum, cascadeId: cid.isEmpty ? nil : cid, baseURL: url)
+            } catch {
+                print("⚠️ Failed to switch model upstream: \(error)")
+            }
         }
     }
     
@@ -656,7 +693,7 @@ public final class ChatViewModel {
         guard (!text.isEmpty || hasImages), let url = settings.serverURL else { return false }
         
         hasUserManuallySelectedModel = true
-        updateCascadeConfigRawModel(settings.activeModelEnum, modelName: settings.activeModel)
+        updateCascadeConfigRawModel(activeModelEnum, modelName: activeModel)
         
         isSending = true
         defer { isSending = false }
@@ -700,7 +737,7 @@ public final class ChatViewModel {
                     try await self.apiClient.sendMessage(
                         cascadeId: self.cascadeId,
                         text: text,
-                        model: self.settings.activeModelEnum,
+                        model: self.activeModelEnum,
                         images: images,
                         deliveryStrategy: 2,
                         cascadeConfigRaw: self.cascadeConfigRaw,
@@ -760,7 +797,7 @@ public final class ChatViewModel {
                 let newCascadeId = try await apiClient.createCascade(
                     workspaceUri: project.uri,
                     prompt: initialPrompt,
-                    model: settings.activeModelEnum,
+                    model: activeModelEnum,
                     projectId: pid,
                     clientMessageId: clientMessageId,
                     baseURL: url
@@ -795,7 +832,7 @@ public final class ChatViewModel {
                     try await apiClient.sendMessage(
                         cascadeId: newCascadeId,
                         text: text,
-                        model: settings.activeModelEnum,
+                        model: activeModelEnum,
                         images: imgs,
                         cascadeConfigRaw: cascadeConfigRaw,
                         clientMessageId: UUID().uuidString,
@@ -811,7 +848,7 @@ public final class ChatViewModel {
                 try await apiClient.sendMessage(
                     cascadeId: cascadeId,
                     text: text,
-                    model: settings.activeModelEnum,
+                    model: activeModelEnum,
                     images: images,
                     cascadeConfigRaw: cascadeConfigRaw,
                     clientMessageId: clientMessageId,
@@ -885,7 +922,7 @@ public final class ChatViewModel {
             try await apiClient.sendMessage(
                 cascadeId: cascadeId,
                 text: item.text,
-                model: settings.activeModelEnum,
+                model: activeModelEnum,
                 deliveryStrategy: 1,
                 cascadeConfigRaw: cascadeConfigRaw,
                 clientMessageId: UUID().uuidString,
@@ -958,7 +995,7 @@ public final class ChatViewModel {
         canProceed = false
         proceedArtifactUri = nil
         hasUserManuallySelectedModel = true
-        updateCascadeConfigRawModel(settings.activeModelEnum, modelName: settings.activeModel)
+        updateCascadeConfigRawModel(activeModelEnum, modelName: activeModel)
         self.isAwaitingResponse = true
         self.awaitingResponseSince = Date()
         self.isRunning = true
@@ -978,7 +1015,7 @@ public final class ChatViewModel {
             try await apiClient.proceedArtifact(
                 cascadeId: cascadeId,
                 artifactUri: artifactUri,
-                model: settings.activeModelEnum,
+                model: activeModelEnum,
                 cascadeConfigRaw: cascadeConfigRaw,
                 baseURL: url
             )
@@ -1038,13 +1075,17 @@ public final class ChatViewModel {
     
     private func setupStreamClient() {
         streamClient.onUpdate = { [weak self] payload in
-            guard let self else { return }
-            self.handleStreamPayload(payload)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.handleStreamPayload(payload)
+            }
         }
         
         streamClient.onStatusChange = { [weak self] status in
-            guard let self else { return }
-            self.handleStreamStatusChange(status)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.handleStreamStatusChange(status)
+            }
         }
         
         NotificationCenter.default.addObserver(
@@ -1088,13 +1129,13 @@ public final class ChatViewModel {
         if let cfg = payload.cascadeConfigRaw, !cfg.isEmpty {
             self.cascadeConfigRaw = cfg
             if self.hasUserManuallySelectedModel {
-                self.updateCascadeConfigRawModel(self.settings.activeModelEnum, modelName: self.settings.activeModel)
+                self.updateCascadeConfigRawModel(self.activeModelEnum, modelName: self.activeModel)
             }
         }
         if let activeModel = payload.activeModel, !activeModel.isEmpty {
             // Streaming updates occur during execution; do not override user manual model selection
             if !self.hasUserManuallySelectedModel {
-                self.settings.syncModel(from: activeModel)
+                self.syncModel(from: activeModel)
             }
         }
         

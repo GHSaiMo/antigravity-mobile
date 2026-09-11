@@ -368,8 +368,8 @@ public struct ChatView: View {
                     
                     // 2. Gemini / Claude Model Switch Button
                     Button(action: {
-                        Task {
-                            await viewModel.toggleModel()
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            viewModel.toggleModel()
                         }
                     }) {
                         Text(viewModel.isClaudeActive ? "Claude" : "Gemini")

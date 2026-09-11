@@ -649,15 +649,24 @@ public final class APIClient: Sendable {
     }
     
     // Switch active model in upstream Language Server via JetboxWriteState
-    public func switchModel(to modelEnum: String, baseURL: URL) async throws {
+    public func switchModel(to modelEnum: String, cascadeId: String? = nil, baseURL: URL) async throws {
         struct JetboxWriteStateRequest: Encodable {
             struct AppState: Encodable {
                 let lastSelectedAgentModel: String
             }
             let appState: AppState
         }
+        var headers: [String: String] = [:]
+        if let cid = cascadeId, !cid.isEmpty {
+            headers["X-Cascade-Id"] = cid
+        }
         let req = JetboxWriteStateRequest(appState: .init(lastSelectedAgentModel: modelEnum))
-        let _: EmptyResponse = try await rpc(method: "JetboxWriteState", body: req, baseURL: baseURL)
+        let _: EmptyResponse = try await rpc(
+            method: "JetboxWriteState",
+            body: req,
+            baseURL: baseURL,
+            additionalHeaders: headers.isEmpty ? nil : headers
+        )
     }
     
     // Proceed with an artifact review/plan
