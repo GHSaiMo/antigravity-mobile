@@ -122,6 +122,24 @@ async function toggleModel() {
   }
 }
 
+function syncActiveModel(rawModel) {
+  if (!rawModel) return;
+  const lower = rawModel.toLowerCase();
+  const target = (lower.includes("claude") || lower.includes("m26"))
+    ? "claude-opus-4-6-thinking"
+    : "gemini-3.8-flash-high";
+  if (activeModel !== target) {
+    activeModel = target;
+    localStorage.setItem("agy_active_model", activeModel);
+    updateModelSwitchUI();
+    const newModelSelect = document.getElementById("new-model");
+    if (newModelSelect) {
+      newModelSelect.value = activeModel;
+    }
+  }
+}
+
+
 function renderImagePreviews() {
   const bar = document.getElementById("image-previews-bar");
   if (!bar) return;
@@ -172,13 +190,18 @@ function handleFilesSelected(files) {
 
 // --- ConnectRPC & Gateway API ---
 
-async function rpc(method, body = {}) {
+async function rpc(method, body = {}, extraHeaders = {}) {
+  const headers = {
+    "Content-Type": "application/json",
+    "Connect-Protocol-Version": "1",
+    ...extraHeaders
+  };
+  if (activeModel) {
+    headers["X-Antigravity-Model"] = activeModel;
+  }
   const resp = await fetch(`/api/exa.language_server_pb.LanguageServerService/${method}`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Connect-Protocol-Version": "1"
-    },
+    headers: headers,
     body: JSON.stringify(body)
   });
 
@@ -1232,6 +1255,10 @@ function connectStreamWs(cascadeId) {
         const data = JSON.parse(event.data);
         if (data.cascadeId !== cascadeId) return;
 
+        if (data.activeModel) {
+          syncActiveModel(data.activeModel);
+        }
+
         const isRunning = data.status === "CASCADE_RUN_STATUS_RUNNING";
 
         if (typeof data.canProceed === "boolean") {
@@ -1341,6 +1368,9 @@ async function loadChat(cascadeId, isBackgroundPoll = false) {
       .then(res => res.json())
       .then(info => {
         if (activeCascadeId === cascadeId) {
+          if (info.activeModel) {
+            syncActiveModel(info.activeModel);
+          }
           if (info.queuedMessages) {
             LocalQueueManager.syncFromServer(info.queuedMessages);
           }
@@ -1983,6 +2013,7 @@ const LocalQueueManager = {
       updateChatControls(true, null, false);
       await rpc("SendUserCascadeMessage", {
         cascadeId: activeCascadeId,
+        model: activeModel,
         items: [{ text: item.text }],
         deliveryStrategy: 1 // NEXT_INVOCATION
       });
@@ -2113,6 +2144,7 @@ async function sendMessage() {
     try {
       const payload = {
         cascadeId: activeCascadeId,
+        model: activeModel,
         items: items,
         deliveryStrategy: 2 // WHEN_IDLE
       };
@@ -2155,6 +2187,7 @@ async function sendMessage() {
 
     const payload = {
       cascadeId: activeCascadeId,
+      model: activeModel,
       items: items
     };
     if (imagesPayload.length > 0) {
@@ -2223,6 +2256,7 @@ async function handleProceed() {
 
     await rpc("SendUserCascadeMessage", {
       cascadeId: activeCascadeId,
+      model: activeModel,
       items: [],
       artifactComments: [
         {
@@ -2322,6 +2356,22 @@ async function openNewSheet() {
       modelSelect.innerHTML = `<option value="">自动推荐模型</option>` +
         availableModels.map(m => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.name)}</option>`).join("");
     } catch (_) {}
+  }
+
+  if (modelSelect && activeModel) {
+    let matched = false;
+    for (const opt of modelSelect.options) {
+      if (opt.value === activeModel || 
+          (activeModel.includes("claude") && (opt.value.toLowerCase().includes("claude") || opt.value.includes("m26"))) ||
+          (activeModel.includes("gemini") && (opt.value.toLowerCase().includes("gemini") || opt.value.includes("m318")))) {
+        modelSelect.value = opt.value;
+        matched = true;
+        break;
+      }
+    }
+    if (!matched && activeModel) {
+      modelSelect.value = activeModel;
+    }
   }
 }
 

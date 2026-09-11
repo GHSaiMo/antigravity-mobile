@@ -737,5 +737,83 @@ func TestDeleteCascadeTrajectoryTombstonePreventsReflow(t *testing.T) {
 	}
 }
 
+func TestSendUserCascadeMessageModelSwitching(t *testing.T) {
+	var forwardedPayload map[string]interface{}
+	upstreamServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/SendUserCascadeMessage") {
+			json.NewDecoder(r.Body).Decode(&forwardedPayload)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{}`))
+	}))
+	defer upstreamServer.Close()
+
+	port := upstreamServer.Listener.Addr().(*net.TCPAddr).Port
+	insp := inspector.NewInspector(5 * time.Second)
+	p := NewProxy(insp)
+	p.updateUpstream(inspector.InstanceInfo{
+		PID:       1234,
+		Port:      port,
+		CSRFToken: "test-token",
+		IsHealthy: true,
+	})
+
+	// Case 1: Switching via X-Antigravity-Model header
+	req1 := httptest.NewRequest(http.MethodPost, "/api/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage",
+		strings.NewReader(`{"cascadeId":"cascade-switch-test","items":[{"text":"Run with Claude"}],"cascadeConfig":{"plannerConfig":{"planModel":"MODEL_PLACEHOLDER_M318","modelName":"gemini-3.8-flash-high"}}}`))
+	req1.Header.Set("Content-Type", "application/json")
+	req1.Header.Set("X-Antigravity-Model", "claude-opus-4-6-thinking")
+	rec1 := httptest.NewRecorder()
+	p.ServeHTTP(rec1, req1)
+
+	if rec1.Code != http.StatusOK {
+		t.Fatalf("Case 1 expected 200, got %d: %s", rec1.Code, rec1.Body.String())
+	}
+
+	cfg1, ok := forwardedPayload["cascadeConfig"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("Case 1 expected cascadeConfig in forwarded payload")
+	}
+	pCfg1 := cfg1["plannerConfig"].(map[string]interface{})
+	if pCfg1["planModel"] != "MODEL_PLACEHOLDER_M26" {
+		t.Errorf("Case 1 expected planModel MODEL_PLACEHOLDER_M26, got %v", pCfg1["planModel"])
+	}
+	if pCfg1["modelName"] != "claude-opus-4-6-thinking" {
+		t.Errorf("Case 1 expected modelName claude-opus-4-6-thinking, got %v", pCfg1["modelName"])
+	}
+
+	// Case 2: Switching via body field "model"
+	forwardedPayload = nil
+	req2 := httptest.NewRequest(http.MethodPost, "/api/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage",
+		strings.NewReader(`{"cascadeId":"cascade-switch-test","model":"claude","items":[{"text":"Run with Claude again"}],"cascadeConfig":{"plannerConfig":{"planModel":"MODEL_PLACEHOLDER_M318","modelName":"gemini-3.8-flash-high"}}}`))
+	req2.Header.Set("Content-Type", "application/json")
+	rec2 := httptest.NewRecorder()
+	p.ServeHTTP(rec2, req2)
+
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("Case 2 expected 200, got %d: %s", rec2.Code, rec2.Body.String())
+	}
+
+	// Verify "model" was stripped from forwarded payload
+	if _, hasModel := forwardedPayload["model"]; hasModel {
+		t.Errorf("Case 2 expected 'model' field to be stripped from forwarded payload")
+	}
+
+	cfg2, ok := forwardedPayload["cascadeConfig"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("Case 2 expected cascadeConfig in forwarded payload")
+	}
+	pCfg2 := cfg2["plannerConfig"].(map[string]interface{})
+	if pCfg2["planModel"] != "MODEL_PLACEHOLDER_M26" {
+		t.Errorf("Case 2 expected planModel MODEL_PLACEHOLDER_M26, got %v", pCfg2["planModel"])
+	}
+}
+
+
 
 
