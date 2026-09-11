@@ -229,8 +229,8 @@ public final class NetworkTransport: Sendable {
         let connection = NWConnection(to: endpoint, using: parameters)
         let method = request.httpMethod ?? "GET"
         let body = request.httpBody
-        // Cap cellular timeout to 8.0s so that network blocks/drops don't cause prolonged UI freezing before fallback
-        let timeoutInterval: TimeInterval = min(request.timeoutInterval > 0 ? request.timeoutInterval : 8.0, 8.0)
+        // Cap cellular attempt timeout to 2.0s so that unreachable paths don't cause prolonged UI freezing before fallback
+        let timeoutInterval: TimeInterval = min(request.timeoutInterval > 0 ? request.timeoutInterval : 2.0, 2.0)
         
         return try await withCheckedThrowingContinuation { continuation in
             final class SyncState: @unchecked Sendable {
@@ -358,16 +358,25 @@ public final class NetworkTransport: Sendable {
                         dataBuffer.readNext(connection: connection, state: state, url: url)
                     })
                 case .waiting(let err):
-                    // When requiredInterfaceType = .cellular, .waiting indicates cellular interface
-                    // is bringing up its radio carrier or waiting for DNS resolution.
-                    // Allow up to 6.0s for carrier radio warmup before timing out.
-                    // Stored in state.waitingTimerWork so it gets canceled once .ready is reached.
-                    if state.waitingTimerWork == nil {
+                    // When requiredInterfaceType = .cellular while on Wi-Fi, iOS keeps the cellular baseband
+                    // dormant, immediately reporting .waiting with ENETDOWN (50) or ENETUNREACH (51).
+                    // Fail fast so fallbackSession can take over without hanging the UI for seconds.
+                    let isImmediateFailure: Bool = {
+                        switch err {
+                        case .posix(let code):
+                            return code == .ENETDOWN || code == .ENETUNREACH || code == .EHOSTUNREACH
+                        default:
+                            return false
+                        }
+                    }()
+                    if isImmediateFailure {
+                        state.finish(result: .failure(err))
+                    } else if state.waitingTimerWork == nil {
                         let work = DispatchWorkItem { [weak state] in
                             state?.finish(result: .failure(err))
                         }
                         state.waitingTimerWork = work
-                        DispatchQueue.global().asyncAfter(deadline: .now() + 6.0, execute: work)
+                        DispatchQueue.global().asyncAfter(deadline: .now() + 0.3, execute: work)
                     }
                 case .failed(let err):
                     state.finish(result: .failure(err))

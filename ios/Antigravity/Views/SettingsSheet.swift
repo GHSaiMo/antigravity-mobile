@@ -153,7 +153,7 @@ public struct SettingsSheet: View {
                     .disabled(isTesting)
                 }
                 
-                Section(header: Text("网络直连策略"), footer: Text("开启后，即使手机连接了外部 Wi-Fi，也优先通过移动蜂窝网络（自带 IPv6）直连 Mac 端，解决公共 Wi-Fi 无 IPv6 导致的连接失败问题。")) {
+                Section(header: Text("网络直连策略"), footer: Text("同局域网下系统始终极速走局域网（~1ms）；外出连接无 IPv6 的外部公共 Wi-Fi 时，开启此项将在局域网不通时优先走蜂窝 IPv6 直连。提示：若外部 Wi-Fi 限制双网并发，在 iOS 控制中心临时断开 Wi-Fi 即可秒切 5G 极速直连。")) {
                     Toggle("蜂窝网络优先", isOn: $settings.preferCellularNetwork)
                     
                     if settings.preferCellularNetwork {
@@ -237,7 +237,7 @@ public struct SettingsSheet: View {
         Task { @MainActor in
             do {
                 let status = try await APIClient.shared.testConnection(baseURL: url)
-                let isCellular = (status.usedInterface == "cellular") || NetworkTransport.shared.isCellular
+                let isCellular = (status.usedInterface == "cellular") || (NetworkTransport.shared.isCellular && !NetworkTransport.shared.isWifi)
                 let ifaceDesc = status.connectionDescription ?? AppSettings.describeEndpoint(url: url, isCellular: isCellular)
                 
                 // Fetch latency from recent probe if available
