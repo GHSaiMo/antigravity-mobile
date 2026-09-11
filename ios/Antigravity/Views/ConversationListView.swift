@@ -395,6 +395,14 @@ public struct ConversationListView: View {
                         .padding(.vertical, 3)
                         .background(Color.blue.opacity(0.15))
                         .cornerRadius(6)
+                } else if item.status.isError {
+                    Text("error")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(.red)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(Color.red.opacity(0.15))
+                        .cornerRadius(6)
                 } else if item.status.isRunning {
                     Text(item.status.rawValue)
                         .font(.system(size: 11, weight: .bold))
