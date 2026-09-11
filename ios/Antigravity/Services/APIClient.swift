@@ -96,13 +96,19 @@ public final class APIClient: Sendable {
     public func rpc<Req: Encodable, Resp: Decodable>(
         method: String,
         body: Req,
-        baseURL: URL
+        baseURL: URL,
+        additionalHeaders: [String: String]? = nil
     ) async throws -> Resp {
         let endpoint = baseURL.appendingPathComponent("api/exa.language_server_pb.LanguageServerService/\(method)")
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("1", forHTTPHeaderField: "Connect-Protocol-Version")
+        if let headers = additionalHeaders {
+            for (k, v) in headers {
+                request.setValue(v, forHTTPHeaderField: k)
+            }
+        }
         request.httpBody = try JSONEncoder().encode(body)
         request.timeoutInterval = 15.0
         
@@ -483,6 +489,7 @@ public final class APIClient: Sendable {
         images: [Data]? = nil,
         deliveryStrategy: Int? = nil,
         cascadeConfigRaw: String? = nil,
+        clientMessageId: String? = nil,
         baseURL: URL
     ) async throws {
         let imagePayloads = images?.map { ImageDataPayload(base64Data: $0.base64EncodedString(), mimeType: "image/jpeg") }
@@ -495,10 +502,15 @@ public final class APIClient: Sendable {
             deliveryStrategy: deliveryStrategy,
             cascadeConfigRaw: cascadeConfigRaw
         )
+        var headers: [String: String]? = nil
+        if let cmid = clientMessageId, !cmid.isEmpty {
+            headers = ["X-Client-Message-Id": cmid]
+        }
         let _: EmptyResponse = try await rpc(
             method: "SendUserCascadeMessage",
             body: req,
-            baseURL: baseURL
+            baseURL: baseURL,
+            additionalHeaders: headers
         )
     }
     
@@ -678,6 +690,7 @@ public final class APIClient: Sendable {
         prompt: String,
         model: String? = nil,
         projectId: String? = nil,
+        clientMessageId: String? = nil,
         baseURL: URL
     ) async throws -> String {
         let endpoint = baseURL.appendingPathComponent("gateway/cascade/new")
@@ -685,6 +698,9 @@ public final class APIClient: Sendable {
         request.httpMethod = "POST"
         request.timeoutInterval = 15
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let cmid = clientMessageId, !cmid.isEmpty {
+            request.setValue(cmid, forHTTPHeaderField: "X-Client-Message-Id")
+        }
         
         struct Payload: Encodable {
             let workspaceUri: String

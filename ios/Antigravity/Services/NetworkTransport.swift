@@ -101,6 +101,20 @@ public final class NetworkTransport: Sendable {
         return false
      }
 
+    /// Determines whether a request mutates server state and must never be silently retried on timeout/failure
+    nonisolated public static func isNonIdempotentRequest(method: String, path: String) -> Bool {
+        let m = method.uppercased()
+        guard m == "POST" || m == "PUT" || m == "DELETE" || m == "PATCH" else {
+            return false
+        }
+        if path.contains("SendUserCascadeMessage") ||
+           path.contains("gateway/cascade/new") ||
+           path.contains("gateway/interaction/submit") {
+            return true
+        }
+        return false
+    }
+
     /// Sends a request prioritizing the cellular interface (IPv6 direct) if requested and available,
     /// otherwise seamlessly falls back to standard URLSession routing.
     public func send(request: URLRequest, preferCellular: Bool = false) async throws -> (Data, URLResponse) {
@@ -121,17 +135,15 @@ public final class NetworkTransport: Sendable {
             return (data, decorateResponse(response, url: req.url))
         }
         
+        let method = (req.httpMethod ?? "GET").uppercased()
+        let path = req.url?.path ?? ""
+        let isNonIdempotent = Self.isNonIdempotentRequest(method: method, path: path)
+        
         do {
             let (data, response) = try await executeViaCellular(request: req, url: url, host: host)
             return (data, decorateResponse(response, url: req.url, forcedCellular: true))
         } catch let NetworkTransportError.requestAlreadyDispatched(underlying) {
-            let method = (req.httpMethod ?? "GET").uppercased()
-            let path = req.url?.path ?? ""
-            // In ConnectRPC, all RPC methods (including read queries like GetAllCascadeTrajectories and GetCascadeTrajectory)
-            // use HTTP POST. Only state-mutating requests like SendUserCascadeMessage create new messages and should suppress retry.
-            // All queries and idempotent operations MUST seamlessly fall back to standard URLSession routing (Wi-Fi).
-            let isNonIdempotentMutation = method == "POST" && path.contains("SendUserCascadeMessage")
-            if !isNonIdempotentMutation {
+            if !isNonIdempotent {
                 print("[NetworkTransport] Cellular direct response read failed after send, retrying idempotent request (\(path)) via standard interface: \(underlying.localizedDescription)")
                 let (data, response) = try await fallbackSession.data(for: req)
                 return (data, decorateResponse(response, url: req.url))
@@ -140,6 +152,14 @@ public final class NetworkTransport: Sendable {
                 throw APIError.networkError("指令已成功送达服务器，但等待响应超时 (\(underlying.localizedDescription))")
             }
         } catch {
+            if isNonIdempotent {
+                print("[NetworkTransport] Cellular direct request failed for non-idempotent \(path) (\(error.localizedDescription)). Suppressing fallback retry to prevent duplicate execution.")
+                if self.isWifi {
+                    throw APIError.networkError("蜂窝直连发送未完成（当前外部 Wi-Fi 限制双网并发且无 IPv6 路由）。建议临时断开 Wi-Fi 即可秒连: \(error.localizedDescription)")
+                } else {
+                    throw error
+                }
+            }
             print("[NetworkTransport] Cellular direct request failed before send (\(error.localizedDescription)), attempting fallback")
             do {
                 let (data, response) = try await fallbackSession.data(for: req)
@@ -199,6 +219,7 @@ public final class NetworkTransport: Sendable {
         return try await withCheckedThrowingContinuation { continuation in
             final class SyncState: @unchecked Sendable {
                 var isCompleted = false
+                var hasDispatched = false
                 var requestDispatched = false
                 var timeoutWork: DispatchWorkItem?
                 var waitingTimerWork: DispatchWorkItem?
@@ -241,6 +262,16 @@ public final class NetworkTransport: Sendable {
                     state.waitingTimerWork?.cancel()
                     state.waitingTimerWork = nil
                     
+                    var shouldSend = false
+                    objc_sync_enter(state)
+                    if !state.hasDispatched && !state.isCompleted {
+                        state.hasDispatched = true
+                        state.requestDispatched = true
+                        shouldSend = true
+                    }
+                    objc_sync_exit(state)
+                    guard shouldSend else { return }
+                    
                     var pathAndQuery = url.path.isEmpty ? "/" : url.path
                     if let query = url.query {
                         pathAndQuery += "?\(query)"
@@ -275,9 +306,6 @@ public final class NetworkTransport: Sendable {
                             state.finish(result: .failure(err))
                             return
                         }
-                        objc_sync_enter(state)
-                        state.requestDispatched = true
-                        objc_sync_exit(state)
                         
                         final class DataBuffer: @unchecked Sendable {
                             var buffer = Data()
