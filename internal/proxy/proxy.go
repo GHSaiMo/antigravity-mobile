@@ -279,14 +279,19 @@ func (p *Proxy) handleStatus(w http.ResponseWriter, r *http.Request) {
 		status = "connected"
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(GatewayStatus{
+	data, err := json.Marshal(GatewayStatus{
 		Status:    status,
 		Upstream:  cur,
 		Timestamp: time.Now(),
-	}); err != nil {
-		log.Printf("[Proxy] handleStatus: failed to encode response: %v", err)
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+	w.WriteHeader(http.StatusOK)
+	w.Write(data)
 }
 
 func (p *Proxy) handleRescan(w http.ResponseWriter, r *http.Request) {
@@ -300,14 +305,19 @@ func (p *Proxy) handleRescan(w http.ResponseWriter, r *http.Request) {
 		}(info.Port, info.CSRFToken)
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(GatewayStatus{
+	data, err := json.Marshal(GatewayStatus{
 		Status:    status,
 		Upstream:  info,
 		Timestamp: time.Now(),
-	}); err != nil {
-		log.Printf("[Proxy] handleRescan: failed to encode response: %v", err)
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+	w.WriteHeader(http.StatusOK)
+	w.Write(data)
 }
 
 func (p *Proxy) handleRpcProxy(w http.ResponseWriter, r *http.Request) {
@@ -958,19 +968,21 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 
 	summariesRaw, ok := rawMap["trajectorySummaries"]
 	if !ok {
+		respBytes, _ := json.Marshal(rawMap)
 		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(rawMap); err != nil {
-			log.Printf("[Proxy] GetAllCascadeTrajectories: failed to encode response: %v", err)
-		}
+		w.Header().Set("Content-Length", strconv.Itoa(len(respBytes)))
+		w.WriteHeader(http.StatusOK)
+		w.Write(respBytes)
 		return
 	}
 
 	var summaries map[string]map[string]interface{}
 	if err := json.Unmarshal(summariesRaw, &summaries); err != nil {
+		respBytes, _ := json.Marshal(rawMap)
 		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(rawMap); err != nil {
-			log.Printf("[Proxy] GetAllCascadeTrajectories: failed to encode response: %v", err)
-		}
+		w.Header().Set("Content-Length", strconv.Itoa(len(respBytes)))
+		w.WriteHeader(http.StatusOK)
+		w.Write(respBytes)
 		return
 	}
 
@@ -1188,10 +1200,16 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 	}
 
 	rawMap["trajectorySummaries"], _ = json.Marshal(summaries)
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(rawMap); err != nil {
+	respBytes, err := json.Marshal(rawMap)
+	if err != nil {
 		log.Printf("[Proxy] GetAllCascadeTrajectories: failed to encode response: %v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Length", strconv.Itoa(len(respBytes)))
+	w.WriteHeader(http.StatusOK)
+	w.Write(respBytes)
 }
 
 // isSubagentTrajectoryMap checks if a trajectory summary map belongs to an internal subagent.
