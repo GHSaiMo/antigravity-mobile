@@ -119,7 +119,7 @@ public struct ChatView: View {
                             }
                             
                             Color.clear
-                                .frame(height: 1)
+                                .frame(height: 4)
                                 .id("BOTTOM_ANCHOR")
                         }
                         .padding(.vertical, 12)
@@ -177,8 +177,14 @@ public struct ChatView: View {
                     }
                     .onChange(of: isInputFocused) { _, focused in
                         if focused {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            // 软键盘弹起耗时约 0.25s~0.35s。
+                            // 阶段 1: 伴随键盘初段平滑过渡（0.08s），避免输入框遮挡
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
                                 scrollToBottom(proxy: proxy, animated: true)
+                            }
+                            // 阶段 2: 键盘完全展开、视口尺寸确立后（0.32s），进行精确校准
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.32) {
+                                scrollToBottom(proxy: proxy, animated: false)
                             }
                         } else {
                             // 当输入法收起（回弹）时，键盘动画耗时约 0.25s。
@@ -643,13 +649,21 @@ public struct ChatView: View {
     
     private func scrollToBottom(proxy: ScrollViewProxy, animated: Bool = true) {
         let isThinkingActive = (viewModel.isAwaitingResponse || viewModel.isRunning) && (viewModel.messages.last?.isToolBatch != true)
+        // 空会话且无活跃思考卡片时，无需强行滚动到底部，避免 emptyStateView 被挤出视口顶部
+        if viewModel.messages.isEmpty && !isThinkingActive {
+            return
+        }
         let target = isThinkingActive ? "THINKING_INDICATOR" : "BOTTOM_ANCHOR"
         if animated {
-            withAnimation(.easeOut(duration: 0.25)) {
+            withAnimation(.easeOut(duration: 0.22)) {
                 proxy.scrollTo(target, anchor: .bottom)
             }
         } else {
             proxy.scrollTo(target, anchor: .bottom)
+            // Secondary micro-tick to absorb LazyVStack layout expansion
+            DispatchQueue.main.async {
+                proxy.scrollTo(target, anchor: .bottom)
+            }
         }
     }
     

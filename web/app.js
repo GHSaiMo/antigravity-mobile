@@ -3272,6 +3272,25 @@ window.addEventListener("DOMContentLoaded", () => {
       updateChatControls(isRunning, null, false);
     });
 
+    chatInput.addEventListener("focus", () => {
+      // Lock window displacement when virtual keyboard rises (parity with iOS)
+      window.scrollTo(0, 0);
+      document.body.scrollTop = 0;
+      document.documentElement.scrollTop = 0;
+      setTimeout(() => {
+        window.scrollTo(0, 0);
+        if (messagesStream && userIsNearBottom) {
+          messagesStream.scrollTop = messagesStream.scrollHeight;
+        }
+      }, 100);
+      setTimeout(() => {
+        window.scrollTo(0, 0);
+        if (messagesStream && userIsNearBottom) {
+          messagesStream.scrollTop = messagesStream.scrollHeight;
+        }
+      }, 320);
+    });
+
     chatInput.addEventListener("blur", () => {
       // Ensure window is not displaced when keyboard retracts without jerking messagesStream
       window.scrollTo(0, 0);
