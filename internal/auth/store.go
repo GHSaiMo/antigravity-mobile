@@ -80,6 +80,10 @@ func (s *AuthStore) load() error {
 		return err
 	}
 
+	if len(strings.TrimSpace(string(data))) == 0 {
+		return nil
+	}
+
 	var list []PairedDevice
 	if err := json.Unmarshal(data, &list); err != nil {
 		return err

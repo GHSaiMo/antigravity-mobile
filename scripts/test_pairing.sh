@@ -16,7 +16,13 @@ cleanup() {
 trap cleanup EXIT
 
 # Wait for gateway to start
-sleep 1.5
+for i in $(seq 1 30); do
+  PROBE_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$PORT/gateway/status" || true)
+  if [ "$PROBE_STATUS" = "200" ]; then
+    break
+  fi
+  sleep 0.3
+done
 
 echo "--- 1. Testing /gateway/status (whitelisted probe) ---"
 STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$PORT/gateway/status")
