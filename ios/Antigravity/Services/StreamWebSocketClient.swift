@@ -139,13 +139,22 @@ public final class StreamWebSocketClient {
         if useCellular {
             if let host = wsURL.host, !NetworkTransport.isLocalOrPrivateHost(host) {
                 parameters.requiredInterfaceType = .cellular
+                parameters.prohibitedInterfaceTypes = [.wifi]
+                parameters.prohibitExpensivePaths = false
+                parameters.prohibitConstrainedPaths = false
                 
-                // Watchdog: if cellular socket cannot connect within 6.0s, gracefully fall back to standard system interface
+                // Watchdog: if cellular socket cannot connect within 6.0s
                 let work = DispatchWorkItem { [weak self] in
                     guard let self = self, self.status != .connected, !self.isIntentionallyClosed else { return }
-                    print("[StreamWS] Cellular connection attempt timed out (6.0s), falling back to standard interface")
-                    self.cleanupCurrentSocket()
-                    self.startConnection(useCellular: false)
+                    print("[StreamWS] Cellular connection attempt timed out (6.0s)")
+                    if AppSettings.shared.preferCellularNetwork {
+                        // User explicitly requested cellular priority; avoid falling back to Wi-Fi that lacks IPv6 routing
+                        self.handleConnectionLoss()
+                    } else {
+                        print("[StreamWS] Falling back to standard interface")
+                        self.cleanupCurrentSocket()
+                        self.startConnection(useCellular: false)
+                    }
                 }
                 self.cellularWatchdogWork = work
                 DispatchQueue.main.asyncAfter(deadline: .now() + 6.0, execute: work)
@@ -176,11 +185,11 @@ public final class StreamWebSocketClient {
             print("[StreamWS] Connection waiting (cellular=\(usedCellular)): \(error)")
             // Note: Do not immediately fallback here when usedCellular is true;
             // iOS transitions through .waiting while the cellular radio warms up.
-            // The 6.0s watchdog timer will gracefully fallback if the radio cannot establish a path.
+            // The 6.0s watchdog timer will gracefully handle if the radio cannot establish a path.
         case .failed(let error):
             print("[StreamWS] Connection failed (cellular=\(usedCellular)): \(error)")
-            if usedCellular && !isIntentionallyClosed {
-                // Cellular failed (e.g. no cellular signal or pure Wi-Fi iPad), fall back to standard interface
+            if usedCellular && !isIntentionallyClosed && !AppSettings.shared.preferCellularNetwork {
+                // Cellular failed and cellular priority is not enforced, fall back to standard interface
                 print("[StreamWS] Cellular attempt failed, falling back to standard interface")
                 cleanupCurrentSocket()
                 startConnection(useCellular: false)
