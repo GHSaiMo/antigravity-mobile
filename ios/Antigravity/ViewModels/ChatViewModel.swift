@@ -68,6 +68,7 @@ public final class ChatViewModel {
     private var pendingOptimisticMessageId: String? = nil
     private var knownServerMessageIds: Set<String> = []
     private var pollTask: Task<Void, Never>?
+    private var hasUserManuallySelectedModel: Bool = false
     public private(set) var streamClient: StreamWebSocketClient
     private let apiClient: APIClient
     private let settings: AppSettings
@@ -112,6 +113,14 @@ public final class ChatViewModel {
                 self.trajectoryErrorMessage = latestTurn.last(where: { $0.isError })?.content
             }
             self.cascadeConfigRaw = cached.cascadeConfigRaw
+            if let cfg = cached.cascadeConfigRaw {
+                let lower = cfg.lowercased()
+                if lower.contains("m26") || lower.contains("claude") {
+                    self.settings.syncModel(from: "claude-opus-4-6-thinking")
+                } else if lower.contains("m318") || lower.contains("gemini") {
+                    self.settings.syncModel(from: "gemini-3.8-flash-high")
+                }
+            }
             self.canProceed = false
             self.proceedArtifactUri = nil
             self.pendingInteraction = cached.pendingInteraction
@@ -186,9 +195,15 @@ public final class ChatViewModel {
             )
             if let configRaw = result.cascadeConfigRaw, !configRaw.isEmpty {
                 self.cascadeConfigRaw = configRaw
+                if self.hasUserManuallySelectedModel {
+                    self.updateCascadeConfigRawModel(self.settings.activeModelEnum, modelName: self.settings.activeModel)
+                }
             }
             if let activeModel = result.activeModel, !activeModel.isEmpty {
-                self.settings.syncModel(from: activeModel)
+                // User manual model selection is authoritative and must not be overwritten by background polling
+                if !self.hasUserManuallySelectedModel && !isBackgroundPoll {
+                    self.settings.syncModel(from: activeModel)
+                }
             }
             
             if let title = result.title?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines), !title.isEmpty, title != "未命名会话" {
@@ -620,6 +635,7 @@ public final class ChatViewModel {
     
     @MainActor
     public func toggleModel() async {
+        hasUserManuallySelectedModel = true
         settings.toggleActiveModel()
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         updateCascadeConfigRawModel(settings.activeModelEnum, modelName: settings.activeModel)
@@ -638,6 +654,9 @@ public final class ChatViewModel {
         let text = (customText ?? inputText).trimmingCharacters(in: .whitespacesAndNewlines)
         let hasImages = (images != nil && !images!.isEmpty)
         guard (!text.isEmpty || hasImages), let url = settings.serverURL else { return false }
+        
+        hasUserManuallySelectedModel = true
+        updateCascadeConfigRawModel(settings.activeModelEnum, modelName: settings.activeModel)
         
         isSending = true
         defer { isSending = false }
@@ -938,6 +957,8 @@ public final class ChatViewModel {
         
         canProceed = false
         proceedArtifactUri = nil
+        hasUserManuallySelectedModel = true
+        updateCascadeConfigRawModel(settings.activeModelEnum, modelName: settings.activeModel)
         self.isAwaitingResponse = true
         self.awaitingResponseSince = Date()
         self.isRunning = true
@@ -1066,9 +1087,15 @@ public final class ChatViewModel {
         }
         if let cfg = payload.cascadeConfigRaw, !cfg.isEmpty {
             self.cascadeConfigRaw = cfg
+            if self.hasUserManuallySelectedModel {
+                self.updateCascadeConfigRawModel(self.settings.activeModelEnum, modelName: self.settings.activeModel)
+            }
         }
         if let activeModel = payload.activeModel, !activeModel.isEmpty {
-            self.settings.syncModel(from: activeModel)
+            // Streaming updates occur during execution; do not override user manual model selection
+            if !self.hasUserManuallySelectedModel {
+                self.settings.syncModel(from: activeModel)
+            }
         }
         
         if let title = payload.title?.trimmingCharacters(in: .whitespacesAndNewlines),

@@ -812,6 +812,25 @@ func TestSendUserCascadeMessageModelSwitching(t *testing.T) {
 	if pCfg2["planModel"] != "MODEL_PLACEHOLDER_M26" {
 		t.Errorf("Case 2 expected planModel MODEL_PLACEHOLDER_M26, got %v", pCfg2["planModel"])
 	}
+
+	// Verify that ParseTrajectoryDetails preserves the switched model (Claude)
+	// even when older ExecutorMetadatas contain Gemini
+	historicalGeminiResp := &upstreamTrajectoryResp{}
+	historicalGeminiResp.Trajectory.CascadeID = "cascade-switch-test"
+	historicalGeminiResp.Trajectory.ExecutorMetadatas = []struct {
+		CascadeConfig json.RawMessage `json:"cascadeConfig"`
+	}{
+		{
+			CascadeConfig: json.RawMessage(`{"plannerConfig":{"planModel":"MODEL_PLACEHOLDER_M318","modelName":"gemini-3.8-flash-high"}}`),
+		},
+	}
+	details := p.ParseTrajectoryDetails(historicalGeminiResp)
+	if details.ActiveModel != "claude-opus-4-6-thinking" {
+		t.Errorf("expected ActiveModel to be 'claude-opus-4-6-thinking', got %q", details.ActiveModel)
+	}
+	if details.ModelDisplayName != "Claude" {
+		t.Errorf("expected ModelDisplayName to be 'Claude', got %q", details.ModelDisplayName)
+	}
 }
 
 func TestGetAllCascadeTrajectoriesErrorStatus(t *testing.T) {

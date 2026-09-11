@@ -743,6 +743,9 @@ func (p *Proxy) HandleCreateCascade(w http.ResponseWriter, r *http.Request) {
 				canonicalName = req.Model
 			}
 			cfgObj = applyModelToCascadeConfig(cfgObj, modelEnum, canonicalName)
+			if cfgBytes, err := json.Marshal(cfgObj); err == nil {
+				SetCascadeModel(cascadeID, canonicalName, cfgBytes)
+			}
 		}
 		if cfgObj != nil {
 			msgPayload["cascadeConfig"] = cfgObj
