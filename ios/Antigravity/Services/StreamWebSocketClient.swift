@@ -17,6 +17,9 @@ public struct StreamUpdatePayload: Decodable, Sendable {
     public let duration: String?
     public let totalSteps: Int?
     public let totalTools: Int?
+    public let totalMessages: Int?
+    public let hasMore: Bool?
+    public let nextOffset: Int?
     public let workspaceUri: String?
     public let messages: [PaginatedMessagesResponse.GatewayMessageItem]?
     public let isFullSnapshot: Bool?

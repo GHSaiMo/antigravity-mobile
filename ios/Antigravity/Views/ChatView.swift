@@ -66,7 +66,15 @@ public struct ChatView: View {
                             // Load older messages button
                             if viewModel.hasMore {
                                 Button(action: {
-                                    Task { await viewModel.loadOlderMessages() }
+                                    let currentTopId = viewModel.messages.first?.id
+                                    Task {
+                                        await viewModel.loadOlderMessages()
+                                        if let topId = currentTopId {
+                                            withAnimation(.easeOut(duration: 0.2)) {
+                                                proxy.scrollTo(topId, anchor: .top)
+                                            }
+                                        }
+                                    }
                                 }) {
                                     if viewModel.isLoadingOlder {
                                         ProgressView()
@@ -132,19 +140,20 @@ public struct ChatView: View {
                         await viewModel.loadMessages()
                     }
                     .onAppear {
-                        // Stage 1: Quick pre-alignment before push animation completes (80ms)
+                        // Stage 1: Quick pre-alignment for cached messages before push completes (80ms)
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                            initialAlignmentIfNeeded(proxy: proxy, force: false)
+                            initialAlignmentIfNeeded(proxy: proxy)
                         }
-                        // Stage 2: Precise calibration after navigation push transition finishes (~320ms)
+                        // Stage 2: Fallback calibration after push finishes if Stage 1 missed (320ms)
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.32) {
-                            initialAlignmentIfNeeded(proxy: proxy, force: true)
+                            initialAlignmentIfNeeded(proxy: proxy)
                         }
                     }
                     .onChange(of: viewModel.isLoading) { _, loading in
                         if !loading {
+                            // If initial alignment was waiting on network load, perform it now
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                                initialAlignmentIfNeeded(proxy: proxy, force: true)
+                                initialAlignmentIfNeeded(proxy: proxy)
                             }
                             if !hasAutoFocused && autoFocusTask == nil && (shouldAutoFocus || (viewModel.messages.isEmpty && viewModel.stepCount == 0)) {
                                 scheduleAutoFocus(delay: 0.2)
@@ -596,13 +605,9 @@ public struct ChatView: View {
         }
     }
     
-    private func initialAlignmentIfNeeded(proxy: ScrollViewProxy, force: Bool = false) {
-        if !force {
-            guard !hasInitiallyAligned, !viewModel.messages.isEmpty else { return }
-            hasInitiallyAligned = true
-        } else {
-            guard !viewModel.messages.isEmpty else { return }
-        }
+    private func initialAlignmentIfNeeded(proxy: ScrollViewProxy) {
+        guard !hasInitiallyAligned, !viewModel.messages.isEmpty else { return }
+        hasInitiallyAligned = true
         smartScroll(proxy: proxy, animated: false)
     }
     
