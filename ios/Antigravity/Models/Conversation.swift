@@ -14,6 +14,8 @@ public struct TrajectorySummary: Codable, Sendable {
     public let annotations: Annotations?
     public let trajectoryMetadata: TrajectoryMetadata?
     public let needsInput: Bool?
+    public let hasError: Bool?
+    public let errorMessage: String?
     
     public var isSubagent: Bool {
         if let meta = trajectoryMetadata {
@@ -164,6 +166,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         case action = "ACTION"
         case idle = "IDLE"
         case unknown = "UNKNOWN"
+        case error = "ERROR"
         
         public var isRunning: Bool {
             self == .running
@@ -171,6 +174,10 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         
         public var needsAction: Bool {
             self == .action
+        }
+        
+        public var isError: Bool {
+            self == .error
         }
     }
     
@@ -187,6 +194,8 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         
         if summary.needsInput == true {
             self.status = .action
+        } else if summary.hasError == true || summary.status == "CASCADE_RUN_STATUS_ERROR" {
+            self.status = .error
         } else if summary.status == "CASCADE_RUN_STATUS_RUNNING" {
             self.status = .running
         } else if summary.status == "CASCADE_RUN_STATUS_IDLE" {
