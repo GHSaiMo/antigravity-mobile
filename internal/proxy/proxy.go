@@ -345,6 +345,10 @@ func (p *Proxy) handleRpcProxy(w http.ResponseWriter, r *http.Request) {
 		p.handleSendUserCascadeMessage(w, r, rp, reqPath, port, token)
 		return
 	}
+	if strings.HasSuffix(reqPath, "/JetboxWriteState") && r.Method == http.MethodPost {
+		p.handleJetboxWriteState(w, r, rp, reqPath)
+		return
+	}
 	if strings.HasSuffix(reqPath, "/StartCascade") && r.Method == http.MethodPost {
 		p.handleStartCascadeProxy(w, r, rp, reqPath)
 		return
@@ -569,11 +573,15 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 				rawMap["cascadeConfig"] = cfgObj
 			}
 			SetLastKnownCascadeConfig(configToUse)
+			if canonicalName != "" {
+				SetCascadeModel(cascadeID, canonicalName, configToUse)
+			}
 		} else if modelEnum != "" {
 			cfgObj := applyModelToCascadeConfig(nil, modelEnum, canonicalName)
 			rawMap["cascadeConfig"] = cfgObj
 			if updatedBytes, err := json.Marshal(cfgObj); err == nil {
 				SetLastKnownCascadeConfig(updatedBytes)
+				SetCascadeModel(cascadeID, canonicalName, updatedBytes)
 			}
 			log.Printf("[Proxy] SendUserCascadeMessage: synthesized cascadeConfig with model %s (%s) for cascade %s", targetModel, modelEnum, cascadeID)
 		}
@@ -626,6 +634,42 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 		w.Write(respBody)
 		log.Printf("[Proxy] SendUserCascadeMessage upstream error: status=%d body=%s", rw.statusCode, string(respBody))
 	}
+}
+
+func (p *Proxy) handleJetboxWriteState(w http.ResponseWriter, r *http.Request, rp http.Handler, reqPath string) {
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, `{"error":"failed to read request body"}`, http.StatusBadRequest)
+		return
+	}
+	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+
+	var stateReq struct {
+		AppState struct {
+			LastSelectedAgentModel string `json:"lastSelectedAgentModel"`
+		} `json:"appState"`
+	}
+	if err := json.Unmarshal(bodyBytes, &stateReq); err == nil {
+		model := stateReq.AppState.LastSelectedAgentModel
+		if model != "" {
+			modelEnum := resolveModelEnum(model)
+			canonicalName := canonicalModelName(model)
+			if canonicalName == "" {
+				canonicalName = model
+			}
+			lastCfg := p.GetCascadeConfig("", 0, "")
+			patched := applyModelToCascadeConfig(lastCfg, modelEnum, canonicalName)
+			if patchedBytes, err := json.Marshal(patched); err == nil {
+				SetLastKnownCascadeConfig(patchedBytes)
+			}
+			log.Printf("[Proxy] JetboxWriteState: cached active model %s (%s)", canonicalName, modelEnum)
+		}
+	}
+
+	fwdReq := r.Clone(r.Context())
+	fwdReq.URL.Path = reqPath
+	fwdReq.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+	rp.ServeHTTP(w, fwdReq)
 }
 
 func (p *Proxy) handleArtifactProxy(w http.ResponseWriter, r *http.Request) {
