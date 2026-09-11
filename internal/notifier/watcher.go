@@ -142,10 +142,10 @@ func (w *Watcher) scanOnce() int {
 					_ = w.notifier.NotifyAction(id, details.Title, details.PendingInteraction)
 				} else if details.CanProceed {
 					_ = w.notifier.NotifyProceed(id, details.Title, details.TotalSteps)
+				} else if (details.Status == "CASCADE_RUN_STATUS_FAILED" || details.Status == "CASCADE_RUN_STATUS_ERROR" || details.HasError) && details.TotalSteps > 0 {
+					_ = w.notifier.NotifyFailed(id, details.Title, details.TotalSteps)
 				} else if (details.Status == "CASCADE_RUN_STATUS_COMPLETED" || details.Status == "CASCADE_RUN_STATUS_IDLE") && details.TotalSteps > 0 {
 					_ = w.notifier.NotifyCompleted(id, details.Title, details.TotalSteps)
-				} else if details.Status == "CASCADE_RUN_STATUS_FAILED" {
-					_ = w.notifier.NotifyFailed(id, details.Title, details.TotalSteps)
 				}
 			}
 		}
