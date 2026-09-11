@@ -1,4 +1,4 @@
-.PHONY: build run test clean tmux-start tmux-stop
+.PHONY: build run test clean tmux-start tmux-stop pair
 
 # Build the unified single binary with embedded web assets
 build:
@@ -26,3 +26,8 @@ tmux-start: build
 # Stop the tmux session
 tmux-stop:
 	@./scripts/tmux-stop.sh
+
+# Display a fresh pairing QR code and URI in the terminal
+pair:
+	@./scripts/pair.sh
+
