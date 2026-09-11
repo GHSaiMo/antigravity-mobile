@@ -20,6 +20,8 @@ public struct TrajectoryDetails: Codable, Sendable {
     public let workspaceUris: [String]?
     public let annotations: Annotations?
     public let summary: String?
+    public let hasError: Bool?
+    public let errorMessage: String?
 }
 
 public struct CortexStep: Codable, Sendable {
@@ -28,6 +30,19 @@ public struct CortexStep: Codable, Sendable {
     public let metadata: CortexStepMetadata?
     public let userInput: UserInputPayload?
     public let plannerResponse: PlannerResponsePayload?
+    public let errorMessage: ErrorMessagePayload?
+    public let error: ErrorPayload?
+}
+
+public struct ErrorMessagePayload: Codable, Sendable {
+    public let message: String?
+    public let shortError: String?
+    public let userErrorMessage: String?
+}
+
+public struct ErrorPayload: Codable, Sendable {
+    public let message: String?
+    public let detail: String?
 }
 
 public struct CortexStepMetadata: Codable, Sendable {
@@ -264,6 +279,7 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
         case user
         case agent
         case toolBatch(count: Int, tools: [String])
+        case error
         
         private enum CodingKeys: String, CodingKey {
             case type, count, tools
@@ -280,6 +296,8 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
                 try container.encode("toolBatch", forKey: .type)
                 try container.encode(count, forKey: .count)
                 try container.encode(tools, forKey: .tools)
+            case .error:
+                try container.encode("error", forKey: .type)
             }
         }
         
@@ -289,6 +307,8 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
             switch type {
             case "agent":
                 self = .agent
+            case "error":
+                self = .error
             case "toolBatch":
                 let count = try container.decodeIfPresent(Int.self, forKey: .count) ?? 1
                 let tools = try container.decodeIfPresent([String].self, forKey: .tools) ?? []
@@ -321,6 +341,11 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
     
     public var isToolBatch: Bool {
         if case .toolBatch = sender { return true }
+        return false
+    }
+
+    public var isError: Bool {
+        if case .error = sender { return true }
         return false
     }
 }

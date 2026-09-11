@@ -486,15 +486,18 @@ function renderConversationList(summaries) {
 
   listEl.innerHTML = items
     .map((item) => {
-      const hasAction = !!item.needsInput;
-      const isRunning = item.status === "CASCADE_RUN_STATUS_RUNNING" && !hasAction;
-      const isUnread = !isRunning && !hasAction && isConversationUnread(item);
+      const hasError = !!item.hasError || item.status === "CASCADE_RUN_STATUS_ERROR";
+      const hasAction = !hasError && !!item.needsInput;
+      const isRunning = !hasError && item.status === "CASCADE_RUN_STATUS_RUNNING" && !hasAction;
+      const isUnread = !hasError && !isRunning && !hasAction && isConversationUnread(item);
       const unreadDotHtml = isUnread
         ? `<div class="status-unread-dot" title="未读新消息" data-testid="status-unread-dot"><div class="dot-halo"></div><div class="dot-core"></div></div>`
         : "";
-      const badgeHtml = hasAction
-        ? `<span class="badge badge-action">ACTION</span>`
-        : (isRunning ? `<span class="badge badge-running">RUNNING</span>` : unreadDotHtml);
+      const badgeHtml = hasError
+        ? `<span class="badge badge-error">error</span>`
+        : (hasAction
+          ? `<span class="badge badge-action">ACTION</span>`
+          : (isRunning ? `<span class="badge badge-running">RUNNING</span>` : unreadDotHtml));
       const title = item.annotations?.title || item.summary || "未命名会话";
       const wsUri = item.workspaceUris?.[0] || item.workspaces?.[0]?.workspaceFolderAbsoluteUri || "";
       const wsName = wsUri.split("/").filter(Boolean).pop() || "workspace";
@@ -1507,6 +1510,20 @@ function groupSteps(steps) {
           raw: s
         });
       }
+    } else if (type === "CORTEX_STEP_TYPE_ERROR_MESSAGE") {
+      flushBatch();
+      const errText = s.errorMessage?.userErrorMessage
+        || s.errorMessage?.shortError
+        || s.errorMessage?.message
+        || s.error?.message
+        || "执行遇到错误";
+      items.push({
+        type: "error",
+        id: `item-error-${i}`,
+        index: i,
+        text: errText,
+        step: s
+      });
     } else if (type.startsWith("CORTEX_STEP_TYPE_") && type !== "CORTEX_STEP_TYPE_SYSTEM_MESSAGE") {
       const rawName = type.replace("CORTEX_STEP_TYPE_", "").toLowerCase();
       let displayName = rawName;
@@ -1579,10 +1596,33 @@ function getItemFingerprint(item, isRunning, isLastItem) {
     const active = (isRunning && isLastItem) ? "1" : "0";
     return `t:${item.steps.length}:${item.toolNames.join(",")}:${active}`;
   }
+  if (item.type === "error") {
+    return `e:${item.text.length}:${item.text.slice(-12)}`;
+  }
   return "";
 }
 
 function generateItemHtml(item, isRunning, isLastItem) {
+  if (item.type === "error") {
+    return `
+      <div class="agent-error-card">
+        <div class="agent-error-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+            <line x1="12" y1="9" x2="12" y2="13"></line>
+            <line x1="12" y1="17" x2="12.01" y2="17"></line>
+          </svg>
+        </div>
+        <div class="agent-error-body">
+          <div class="agent-error-header">
+            <span class="badge badge-error">error</span>
+            <span class="agent-error-title">执行遇到错误</span>
+          </div>
+          <div class="agent-error-message">${escapeHtml(item.text)}</div>
+        </div>
+      </div>
+    `;
+  }
   if (item.type === "user") {
     let imagesHtml = "";
     if (item.media && item.media.length > 0) {
@@ -1741,6 +1781,8 @@ function renderMessages(steps, isRunning = false) {
       rowClass = "message-row agent";
     } else if (item.type === "tools") {
       rowClass = (isRunning && isLastItem) ? "message-row agent" : "message-row tool-batch-row";
+    } else if (item.type === "error") {
+      rowClass = "message-row agent error-row";
     }
 
     let existingEl = document.getElementById(item.id);

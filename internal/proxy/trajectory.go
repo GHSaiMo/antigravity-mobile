@@ -74,6 +74,8 @@ type CascadeMessagesResponse struct {
 	CascadeID          string               `json:"cascadeId"`
 	Title              string               `json:"title,omitempty"`
 	Status             string               `json:"status"`
+	HasError           bool                 `json:"hasError"`
+	ErrorMessage       string               `json:"errorMessage,omitempty"`
 	Duration           string               `json:"duration"`
 	TotalSteps         int                  `json:"totalSteps"`
 	TotalTools         int                  `json:"totalTools"`
@@ -314,6 +316,22 @@ type TrajectoryStep struct {
 			AbsolutePathURI string `json:"absolutePathUri"`
 		} `json:"filePermission"`
 	} `json:"requestedInteraction"`
+	ErrorMessage *struct {
+		Error struct {
+			UserErrorMessage  string `json:"userErrorMessage"`
+			ModelErrorMessage string `json:"modelErrorMessage"`
+			ShortError        string `json:"shortError"`
+			FullError         string `json:"fullError"`
+			ErrorCode         int    `json:"errorCode"`
+			ErrorID           string `json:"errorId"`
+			IsBenign          bool   `json:"isBenign"`
+		} `json:"error"`
+		ShouldShowUser bool `json:"shouldShowUser"`
+	} `json:"errorMessage"`
+	Error *struct {
+		ShortError string `json:"shortError"`
+		FullError  string `json:"fullError"`
+	} `json:"error"`
 }
 
 type upstreamPendingAgentMessage struct {
@@ -432,6 +450,8 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 		CascadeID:          cascadeID,
 		Title:              details.Title,
 		Status:             details.Status,
+		HasError:           details.HasError,
+		ErrorMessage:       details.ErrorMessage,
 		Duration:           details.Duration,
 		TotalSteps:         details.TotalSteps,
 		TotalTools:         details.TotalTools,
@@ -458,6 +478,8 @@ type TrajectoryDetails struct {
 	CascadeID          string               `json:"cascadeId"`
 	Title              string               `json:"title,omitempty"`
 	Status             string               `json:"status"`
+	HasError           bool                 `json:"hasError"`
+	ErrorMessage       string               `json:"errorMessage,omitempty"`
 	Duration           string               `json:"duration"`
 	TotalSteps         int                  `json:"totalSteps"`
 	TotalTools         int                  `json:"totalTools"`
@@ -475,12 +497,50 @@ type TrajectoryDetails struct {
 	PendingInteraction *PendingInteraction  `json:"pendingInteraction,omitempty"`
 }
 
+// extractErrorText retrieves the most descriptive error message from a trajectory step.
+func extractErrorText(s TrajectoryStep) string {
+	if s.ErrorMessage != nil {
+		e := s.ErrorMessage.Error
+		userMsg := strings.TrimSpace(e.UserErrorMessage)
+		shortErr := strings.TrimSpace(e.ShortError)
+		modelErr := strings.TrimSpace(e.ModelErrorMessage)
+		fullErr := strings.TrimSpace(e.FullError)
+
+		if userMsg != "" && shortErr != "" && userMsg != shortErr && !strings.Contains(shortErr, userMsg) {
+			return fmt.Sprintf("%s\n%s", userMsg, shortErr)
+		}
+		if shortErr != "" {
+			return shortErr
+		}
+		if userMsg != "" {
+			return userMsg
+		}
+		if modelErr != "" {
+			return modelErr
+		}
+		if fullErr != "" {
+			return fullErr
+		}
+	}
+	if s.Error != nil {
+		if s.Error.ShortError != "" {
+			return s.Error.ShortError
+		}
+		if s.Error.FullError != "" {
+			return s.Error.FullError
+		}
+	}
+	return "Agent execution terminated due to error."
+}
+
 // ParseTrajectoryDetails extracts messages, tools count, duration and metadata from raw response.
 func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) TrajectoryDetails {
 	steps := rawResp.Trajectory.Steps
 	totalSteps := len(steps)
 
 	var allMessages []CascadeMessageItem
+	hasError := false
+	var lastErrorText string
 	pendingTools := 0
 	toolNamesMap := make(map[string]bool)
 	var toolNames []string
@@ -575,7 +635,16 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 				// Intermediate planner thought step: count as internal step
 				pendingTools++
 			}
-		} else if strings.HasPrefix(stepType, "CORTEX_STEP_TYPE_") && stepType != "CORTEX_STEP_TYPE_SYSTEM_MESSAGE" {
+		} else if stepType == "CORTEX_STEP_TYPE_ERROR_MESSAGE" {
+			flushTools()
+			hasError = true
+			lastErrorText = extractErrorText(s)
+			allMessages = append(allMessages, CascadeMessageItem{
+				ID:   fmt.Sprintf("step-%d", idx),
+				Type: "error",
+				Text: lastErrorText,
+			})
+		} else if strings.HasPrefix(stepType, "CORTEX_STEP_TYPE_") && stepType != "CORTEX_STEP_TYPE_SYSTEM_MESSAGE" && stepType != "CORTEX_STEP_TYPE_ERROR_MESSAGE" {
 			pendingTools++
 			totalToolsCount++
 			name := strings.ToLower(strings.TrimPrefix(stepType, "CORTEX_STEP_TYPE_"))
@@ -954,10 +1023,17 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 		}
 	}
 
+	finalStatus := rawResp.Status
+	if (rawResp.Status != "CASCADE_RUN_STATUS_RUNNING" || (len(steps) > 0 && steps[len(steps)-1].Type == "CORTEX_STEP_TYPE_ERROR_MESSAGE")) && hasError {
+		finalStatus = "CASCADE_RUN_STATUS_ERROR"
+	}
+
 	return TrajectoryDetails{
 		CascadeID:          rawResp.Trajectory.CascadeID,
 		Title:              title,
-		Status:             rawResp.Status,
+		Status:             finalStatus,
+		HasError:           hasError,
+		ErrorMessage:       lastErrorText,
 		Duration:           duration,
 		TotalSteps:         totalSteps,
 		TotalTools:         totalToolsCount,

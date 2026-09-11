@@ -16,6 +16,8 @@ type StreamUpdatePayload struct {
 	CascadeID          string               `json:"cascadeId"`
 	Title              string               `json:"title,omitempty"`
 	Status             string               `json:"status"`
+	HasError           bool                 `json:"hasError"`
+	ErrorMessage       string               `json:"errorMessage,omitempty"`
 	Duration           string               `json:"duration"`
 	TotalSteps         int                  `json:"totalSteps"`
 	TotalTools         int                  `json:"totalTools"`
@@ -52,14 +54,14 @@ func (p *StreamUpdatePayload) Fingerprint() string {
 		tasksKey = fmt.Sprintf("%d:%s:%d", len(p.RunningTasks), lastTask.ID, lastTask.StepIndex)
 	}
 	if len(p.Steps) == 0 {
-		return fmt.Sprintf("%s:0:0:%t:%s:%s:%s:%s", p.Status, p.CanProceed, piKey, queuedKey, tasksKey, p.ActiveModel)
+		return fmt.Sprintf("%s:%t:0:0:%t:%s:%s:%s:%s", p.Status, p.HasError, p.CanProceed, piKey, queuedKey, tasksKey, p.ActiveModel)
 	}
 	last := p.Steps[len(p.Steps)-1]
 	lastLen := 0
 	if last.PlannerResponse != nil {
 		lastLen = len(last.PlannerResponse.Response) + len(last.PlannerResponse.Thinking)
 	}
-	return fmt.Sprintf("%s:%d:%d:%s:%s:%d:%t:%s:%s:%s:%s", p.Status, p.TotalSteps, p.TotalTools, last.Type, last.Status, lastLen, p.CanProceed, piKey, queuedKey, tasksKey, p.ActiveModel)
+	return fmt.Sprintf("%s:%t:%d:%d:%s:%s:%d:%t:%s:%s:%s:%s", p.Status, p.HasError, p.TotalSteps, p.TotalTools, last.Type, last.Status, lastLen, p.CanProceed, piKey, queuedKey, tasksKey, p.ActiveModel)
 }
 
 // HandleCascadeStream serves a WebSocket connection for continuous real-time trajectory updates.
@@ -166,6 +168,8 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 				CascadeID:          details.CascadeID,
 				Title:              details.Title,
 				Status:             details.Status,
+				HasError:           details.HasError,
+				ErrorMessage:       details.ErrorMessage,
 				Duration:           details.Duration,
 				TotalSteps:         details.TotalSteps,
 				TotalTools:         details.TotalTools,

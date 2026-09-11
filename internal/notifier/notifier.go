@@ -226,10 +226,10 @@ func (n *Notifier) OnTrajectoryUpdate(details *proxy.TrajectoryDetails) {
 	}
 
 	// 3. Check for Terminal Completion
-	if (details.Status == "CASCADE_RUN_STATUS_COMPLETED" || details.Status == "CASCADE_RUN_STATUS_IDLE") && details.TotalSteps > 0 {
-		_ = n.NotifyCompleted(details.CascadeID, details.Title, details.TotalSteps)
-	} else if details.Status == "CASCADE_RUN_STATUS_FAILED" && details.TotalSteps > 0 {
+	if (details.Status == "CASCADE_RUN_STATUS_FAILED" || details.Status == "CASCADE_RUN_STATUS_ERROR" || details.HasError) && details.TotalSteps > 0 {
 		_ = n.NotifyFailed(details.CascadeID, details.Title, details.TotalSteps)
+	} else if (details.Status == "CASCADE_RUN_STATUS_COMPLETED" || details.Status == "CASCADE_RUN_STATUS_IDLE") && details.TotalSteps > 0 {
+		_ = n.NotifyCompleted(details.CascadeID, details.Title, details.TotalSteps)
 	}
 }
 

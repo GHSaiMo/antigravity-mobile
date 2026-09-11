@@ -468,6 +468,11 @@ html, body {
   background-color: rgba(48, 209, 88, 0.15);
 }
 
+.badge-error {
+  color: var(--ios-red, #ff453a);
+  background-color: rgba(255, 69, 58, 0.15);
+}
+
 /* Unread Status Dot (matches Antigravity status-unread-dot spec) */
 .status-unread-dot {
   position: relative;
@@ -682,6 +687,61 @@ html, body {
   justify-content: flex-start;
   padding: 3px 0;
   width: 100%;
+}
+
+/* Agent Error Card */
+.agent-error-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  background-color: rgba(255, 69, 58, 0.08);
+  border-radius: 14px;
+  margin-top: 4px;
+  border: 1px solid rgba(255, 69, 58, 0.25);
+}
+
+.agent-error-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background-color: rgba(255, 69, 58, 0.15);
+  color: var(--ios-red, #ff453a);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.agent-error-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+
+.agent-error-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.agent-error-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ios-red, #ff453a);
+}
+
+.agent-error-message {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+  color: var(--ios-label);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .tool-batch-accordion {

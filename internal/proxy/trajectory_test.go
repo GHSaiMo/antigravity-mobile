@@ -458,3 +458,66 @@ func TestTrajectoryPagingDefaults(t *testing.T) {
 	}
 }
 
+func TestParseTrajectoryDetails_ErrorMessage(t *testing.T) {
+	rawJSON := `{
+		"status": "CASCADE_RUN_STATUS_IDLE",
+		"trajectory": {
+			"cascadeId": "test-error-cascade",
+			"steps": [
+				{
+					"type": "CORTEX_STEP_TYPE_USER_INPUT",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"userInput": {
+						"userResponse": "你是什么模型"
+					}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_ERROR_MESSAGE",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"errorMessage": {
+						"error": {
+							"userErrorMessage": "Agent execution terminated due to error.",
+							"shortError": "checkpoint config validation failed: max token limit exceeded"
+						},
+						"shouldShowUser": true
+					}
+				}
+			]
+		}
+	}`
+
+	var rawResp upstreamTrajectoryResp
+	if err := json.Unmarshal([]byte(rawJSON), &rawResp); err != nil {
+		t.Fatalf("failed to unmarshal test JSON: %v", err)
+	}
+
+	p := &Proxy{}
+	details := p.ParseTrajectoryDetails(&rawResp)
+
+	if !details.HasError {
+		t.Errorf("expected HasError to be true, got false")
+	}
+	if details.Status != "CASCADE_RUN_STATUS_ERROR" {
+		t.Errorf("expected Status to be CASCADE_RUN_STATUS_ERROR, got %s", details.Status)
+	}
+	if details.TotalTools != 0 {
+		t.Errorf("expected TotalTools to be 0, got %d", details.TotalTools)
+	}
+
+	if len(details.AllMessages) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(details.AllMessages))
+	}
+
+	if details.AllMessages[0].Type != "user" || details.AllMessages[0].Text != "你是什么模型" {
+		t.Errorf("expected first message to be user '你是什么模型', got %+v", details.AllMessages[0])
+	}
+
+	errMsg := details.AllMessages[1]
+	if errMsg.Type != "error" {
+		t.Errorf("expected second message to be error type, got %s", errMsg.Type)
+	}
+	if errMsg.Text == "" || errMsg.Text == "error_message" {
+		t.Errorf("expected descriptive error text, got %q", errMsg.Text)
+	}
+}
+
