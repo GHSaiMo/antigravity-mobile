@@ -1117,9 +1117,14 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 	}
 
 	// Fast disk inspection: If ~/.gemini/antigravity/brain/<id>/implementation_plan.md.metadata.json has requestFeedback == true
+	// and walkthrough.md does not yet exist (plan not yet delivered)
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
 		for cid := range summaries {
 			if candidates[cid] {
+				continue
+			}
+			walkthroughFile := filepath.Join(home, ".gemini/antigravity/brain", cid, "walkthrough.md")
+			if _, err := os.Stat(walkthroughFile); err == nil {
 				continue
 			}
 			metaFile := filepath.Join(home, ".gemini/antigravity/brain", cid, "implementation_plan.md.metadata.json")
