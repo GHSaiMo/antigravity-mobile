@@ -289,7 +289,6 @@ public final class ChatViewModel {
                             self.proceedArtifactUri = result.proceedArtifactUri
                             self.pendingInteraction = nil
                         }
-                        self.scrollToTurnStartTrigger += 1
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     } else if !self.isRunning && previouslyRunning {
                         if let since = awaitingResponseSince {
@@ -1075,7 +1074,6 @@ public final class ChatViewModel {
                             self.proceedArtifactUri = payload.proceedArtifactUri
                         }
                     }
-                    self.scrollToTurnStartTrigger += 1
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 } else if !self.isRunning && previouslyRunning {
                     if let since = awaitingResponseSince {
