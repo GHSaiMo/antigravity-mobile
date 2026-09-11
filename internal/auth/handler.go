@@ -284,6 +284,19 @@ func (h *AuthHandler) HandleNewPairingSession(w http.ResponseWriter, r *http.Req
 		"expires_at": session.ExpiresAt,
 		"uri":        uri,
 	})
+
+	// Also print QR code to gateway console/log
+	var extraHosts []string
+	if h.lanHost != "" && h.lanHost != h.host {
+		extraHosts = append(extraHosts, h.lanHost)
+	}
+	if h.ipv6Host != "" && h.ipv6Host != h.host {
+		extraHosts = append(extraHosts, h.ipv6Host)
+	}
+	if h.ddnsHost != "" && h.ddnsHost != h.host {
+		extraHosts = append(extraHosts, h.ddnsHost)
+	}
+	PrintPairingQRCode(h.host, h.port, session.Code, h.ssl, extraHosts...)
 }
 
 // isLoopback checks whether the incoming address is from localhost.
