@@ -41,6 +41,42 @@ const sessionStepsCache = {};
 let activeModel = localStorage.getItem("agy_active_model") || "gemini-3.8-flash-high";
 let pendingImages = []; // [{ id, name, mimeType, base64Data, dataUrl }]
 
+// iOS Haptic Simulation & App Badge helpers
+function triggerHaptic(type = "light") {
+  if (navigator.vibrate) {
+    try {
+      if (type === "light") navigator.vibrate(10);
+      else if (type === "selection") navigator.vibrate(8);
+      else if (type === "medium") navigator.vibrate(22);
+      else if (type === "heavy") navigator.vibrate(40);
+      else if (type === "success") navigator.vibrate([12, 45, 18]);
+    } catch (_) {}
+  }
+}
+
+function updateAppBadge(count) {
+  if ("setAppBadge" in navigator) {
+    if (count > 0) navigator.setAppBadge(count).catch(() => {});
+    else navigator.clearAppBadge().catch(() => {});
+  }
+}
+
+function clearAppBadge() {
+  if ("clearAppBadge" in navigator) {
+    navigator.clearAppBadge().catch(() => {});
+  }
+}
+
+function updateAppBadgeFromList(items) {
+  let unreadCount = 0;
+  for (const item of items) {
+    if (item.needsInput || isConversationUnread(item)) {
+      unreadCount++;
+    }
+  }
+  updateAppBadge(unreadCount);
+}
+
 function updateModelSwitchUI() {
   const btn = document.getElementById("btn-model-switch");
   const text = document.getElementById("model-switch-text");
@@ -248,8 +284,8 @@ function renderRoute() {
     activeCascadeId = newCascadeId;
     markConversationAsRead(newCascadeId);
 
-    // View toggling
-    convView.classList.remove("active");
+    // View toggling with iOS NavigationStack slide
+    convView.classList.add("pushed-left");
     chatView.classList.add("active");
 
     // Nav Bar configuration for Chat View
@@ -293,8 +329,10 @@ function renderRoute() {
     closeActiveWs();
     updatePendingInteraction(null, false);
 
+    // View toggling with iOS NavigationStack pop
     chatView.classList.remove("active");
-    convView.classList.add("active");
+    convView.classList.remove("pushed-left");
+    clearAppBadge();
 
     // Nav Bar configuration for List View
     if (settingsBtn) settingsBtn.classList.remove("hidden");
@@ -440,24 +478,457 @@ function renderConversationList(summaries) {
       const timeStr = formatRelativeTime(item.lastModifiedTime);
 
       return `
-        <div class="conv-card" onclick="navigateTo('#c=${item.id}')">
-          <div class="conv-card-top">
-            <div class="conv-title">${escapeHtml(title)}</div>
-            ${badgeHtml}
-          </div>
-          <div class="conv-card-bottom">
-            <div class="conv-meta">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+        <div class="conv-card-wrapper" data-id="${item.id}">
+          <div class="conv-card-actions">
+            <button class="conv-card-delete-btn" type="button" aria-label="删除会话" data-id="${item.id}">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                <line x1="10" y1="11" x2="10" y2="17"></line>
+                <line x1="14" y1="11" x2="14" y2="17"></line>
               </svg>
-              <span class="ws-name">${escapeHtml(wsName)}</span>
+              <span>删除</span>
+            </button>
+          </div>
+          <div class="conv-card" data-id="${item.id}" data-title="${escapeHtml(title)}">
+            <div class="conv-card-top">
+              <div class="conv-title">${escapeHtml(title)}</div>
+              ${badgeHtml}
             </div>
-            <span class="conv-steps-time">${item.stepCount || 0} 步骤 • ${timeStr}</span>
+            <div class="conv-card-bottom">
+              <div class="conv-meta">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                </svg>
+                <span class="ws-name">${escapeHtml(wsName)}</span>
+              </div>
+              <span class="conv-steps-time">${item.stepCount || 0} 步骤 • ${timeStr}</span>
+            </div>
           </div>
         </div>
       `;
     })
     .join("");
+
+  attachConversationCardInteractions();
+  updateAppBadgeFromList(items);
+}
+
+// --- iOS Conversation List Card Interactions (Swipe-to-Delete & Long-Press Rename) ---
+
+function attachConversationCardInteractions() {
+  const wrappers = document.querySelectorAll(".conv-card-wrapper");
+  wrappers.forEach((wrapper) => {
+    const card = wrapper.querySelector(".conv-card");
+    const deleteBtn = wrapper.querySelector(".conv-card-delete-btn");
+    const id = wrapper.getAttribute("data-id");
+    if (!card) return;
+
+    let startX = 0;
+    let startY = 0;
+    let currentX = 0;
+    let isDragging = false;
+    let isHorizontal = null;
+    let longPressTimer = null;
+    let hasTriggeredLongPress = false;
+
+    const closeCard = () => {
+      card.style.transform = "translateX(0)";
+      card.classList.remove("swiped");
+    };
+
+    const closeOtherCards = () => {
+      document.querySelectorAll(".conv-card.swiped").forEach((c) => {
+        if (c !== card) {
+          c.style.transform = "translateX(0)";
+          c.classList.remove("swiped");
+        }
+      });
+    };
+
+    // Touch event handlers
+    card.addEventListener("touchstart", (e) => {
+      if (e.touches.length > 1) return;
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      currentX = startX;
+      isDragging = false;
+      isHorizontal = null;
+      hasTriggeredLongPress = false;
+      card.classList.remove("swiping");
+
+      // 450ms long press for Rename (aligns with iOS LongPressGesture)
+      longPressTimer = setTimeout(() => {
+        if (!isDragging && Math.abs(currentX - startX) < 10) {
+          hasTriggeredLongPress = true;
+          triggerHaptic("medium");
+          const title = card.getAttribute("data-title") || "会话";
+          openRenameAlert(id, title);
+        }
+      }, 450);
+    }, { passive: true });
+
+    card.addEventListener("touchmove", (e) => {
+      currentX = e.touches[0].clientX;
+      const currentY = e.touches[0].clientY;
+      const dx = currentX - startX;
+      const dy = currentY - startY;
+
+      if (isHorizontal === null && (Math.abs(dx) > 6 || Math.abs(dy) > 6)) {
+        isHorizontal = Math.abs(dx) > Math.abs(dy);
+        if (!isHorizontal || Math.abs(dx) > 8) {
+          clearTimeout(longPressTimer);
+        }
+      }
+
+      if (isHorizontal) {
+        clearTimeout(longPressTimer);
+        closeOtherCards();
+        isDragging = true;
+        card.classList.add("swiping");
+
+        const isAlreadySwiped = card.classList.contains("swiped");
+        const baseOffset = isAlreadySwiped ? -80 : 0;
+        let newX = baseOffset + dx;
+
+        // Clamping & rubber-band resistance
+        if (newX > 0) {
+          newX = newX * 0.2;
+        } else if (newX < -80) {
+          newX = -80 + (newX + 80) * 0.25;
+        }
+        card.style.transform = `translateX(${newX}px)`;
+      }
+    }, { passive: true });
+
+    card.addEventListener("touchend", () => {
+      clearTimeout(longPressTimer);
+      card.classList.remove("swiping");
+
+      if (hasTriggeredLongPress) return;
+
+      if (isDragging) {
+        const dx = currentX - startX;
+        const isAlreadySwiped = card.classList.contains("swiped");
+        if (isAlreadySwiped) {
+          if (dx > 25) {
+            closeCard();
+          } else {
+            card.style.transform = "translateX(-80px)";
+          }
+        } else {
+          if (dx < -38) {
+            card.style.transform = "translateX(-80px)";
+            card.classList.add("swiped");
+            triggerHaptic("light");
+          } else {
+            closeCard();
+          }
+        }
+      } else {
+        if (card.classList.contains("swiped")) {
+          closeCard();
+        } else {
+          closeOtherCards();
+          triggerHaptic("selection");
+          navigateTo(`#c=${id}`);
+        }
+      }
+    });
+
+    if (deleteBtn) {
+      deleteBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        triggerHaptic("medium");
+        openDeleteActionSheet(id);
+      });
+    }
+  });
+}
+
+// --- Delete Conversation ActionSheet ---
+
+let pendingDeleteCascadeId = null;
+
+function openDeleteActionSheet(id) {
+  pendingDeleteCascadeId = id;
+  const sheet = document.getElementById("actionsheet-delete");
+  if (sheet) sheet.classList.remove("hidden");
+}
+
+function closeDeleteActionSheet() {
+  pendingDeleteCascadeId = null;
+  const sheet = document.getElementById("actionsheet-delete");
+  if (sheet) sheet.classList.add("hidden");
+}
+
+async function confirmDeleteConversation() {
+  const id = pendingDeleteCascadeId;
+  closeDeleteActionSheet();
+  if (!id) return;
+
+  const wrapper = document.querySelector(`.conv-card-wrapper[data-id="${id}"]`);
+  if (wrapper) {
+    wrapper.classList.add("deleting");
+    setTimeout(() => wrapper.remove(), 280);
+  }
+
+  delete currentTrajectories[id];
+
+  try {
+    await rpc("DeleteCascadeTrajectory", { cascadeId: id });
+    triggerHaptic("heavy");
+  } catch (err) {
+    console.error("Failed to delete conversation on server:", err);
+    loadConversations();
+  }
+}
+
+// --- Rename Conversation Alert Dialog ---
+
+let pendingRenameCascadeId = null;
+
+function openRenameAlert(id, currentTitle) {
+  pendingRenameCascadeId = id;
+  const overlay = document.getElementById("alert-rename");
+  const input = document.getElementById("input-rename-title");
+  if (input) {
+    input.value = currentTitle || "";
+  }
+  if (overlay) overlay.classList.remove("hidden");
+  setTimeout(() => {
+    input?.focus();
+    input?.select();
+  }, 60);
+}
+
+function closeRenameAlert() {
+  pendingRenameCascadeId = null;
+  const overlay = document.getElementById("alert-rename");
+  if (overlay) overlay.classList.add("hidden");
+}
+
+async function submitRenameConversation() {
+  const id = pendingRenameCascadeId;
+  const input = document.getElementById("input-rename-title");
+  const newTitle = input?.value?.trim();
+  closeRenameAlert();
+
+  if (!id || !newTitle) return;
+
+  if (currentTrajectories[id]) {
+    if (!currentTrajectories[id].annotations) currentTrajectories[id].annotations = {};
+    currentTrajectories[id].annotations.title = newTitle;
+  }
+  const titleEl = document.querySelector(`.conv-card[data-id="${id}"] .conv-title`);
+  if (titleEl) titleEl.textContent = newTitle;
+  const cardEl = document.querySelector(`.conv-card[data-id="${id}"]`);
+  if (cardEl) cardEl.setAttribute("data-title", newTitle);
+
+  try {
+    await rpc("UpdateConversationAnnotations", {
+      cascadeIds: [id],
+      annotations: { title: newTitle },
+      mergeAnnotations: true,
+    });
+    triggerHaptic("success");
+  } catch (err) {
+    console.error("Failed to rename conversation:", err);
+    loadConversations();
+  }
+}
+
+// --- iOS Pull-to-Refresh Gesture ---
+
+function initPullToRefresh() {
+  const listEl = document.getElementById("conversations-list");
+  const refreshBar = document.getElementById("pull-refresh-bar");
+  if (!listEl || !refreshBar) return;
+
+  let startY = 0;
+  let isPulling = false;
+  let pullDistance = 0;
+
+  listEl.addEventListener("touchstart", (e) => {
+    if (listEl.scrollTop <= 0) {
+      startY = e.touches[0].clientY;
+      isPulling = true;
+      pullDistance = 0;
+    } else {
+      isPulling = false;
+    }
+  }, { passive: true });
+
+  listEl.addEventListener("touchmove", (e) => {
+    if (!isPulling) return;
+    const currentY = e.touches[0].clientY;
+    const dy = currentY - startY;
+
+    if (dy > 0 && listEl.scrollTop <= 0) {
+      pullDistance = Math.min(75, dy * 0.45);
+      refreshBar.classList.add("pulling");
+      refreshBar.style.height = `${pullDistance}px`;
+      refreshBar.style.opacity = `${Math.min(1, pullDistance / 35)}`;
+      refreshBar.style.transform = `translateY(${pullDistance - 22}px)`;
+    } else {
+      pullDistance = 0;
+      refreshBar.style.height = "0";
+      refreshBar.style.opacity = "0";
+    }
+  }, { passive: true });
+
+  listEl.addEventListener("touchend", async () => {
+    if (!isPulling) return;
+    isPulling = false;
+    refreshBar.classList.remove("pulling");
+
+    if (pullDistance >= 40) {
+      refreshBar.classList.add("refreshing");
+      refreshBar.style.height = "48px";
+      refreshBar.style.opacity = "1";
+      refreshBar.style.transform = "translateY(0)";
+      triggerHaptic("light");
+
+      try {
+        await loadConversations();
+      } finally {
+        setTimeout(() => {
+          refreshBar.classList.remove("refreshing");
+          refreshBar.style.height = "0";
+          refreshBar.style.opacity = "0";
+        }, 260);
+      }
+    } else {
+      refreshBar.style.height = "0";
+      refreshBar.style.opacity = "0";
+    }
+  });
+}
+
+// --- iOS Edge Swipe Back Gesture ---
+
+function initEdgeSwipeBack() {
+  const chatView = document.getElementById("view-chat");
+  const convView = document.getElementById("view-conversations");
+  if (!chatView || !convView) return;
+
+  let startX = 0;
+  let startY = 0;
+  let currentX = 0;
+  let isSwiping = false;
+  let isHorizontal = null;
+  let startTime = 0;
+
+  window.addEventListener("touchstart", (e) => {
+    if (!activeCascadeId || e.touches.length > 1) return;
+    const touchX = e.touches[0].clientX;
+    // Edge trigger zone: within left 32px of the screen
+    if (touchX <= 32) {
+      startX = touchX;
+      startY = e.touches[0].clientY;
+      currentX = startX;
+      isSwiping = true;
+      isHorizontal = null;
+      startTime = Date.now();
+      chatView.classList.add("is-swiping");
+      convView.classList.add("is-swiping");
+    }
+  }, { passive: true });
+
+  window.addEventListener("touchmove", (e) => {
+    if (!isSwiping) return;
+    currentX = e.touches[0].clientX;
+    const currentY = e.touches[0].clientY;
+    const dx = currentX - startX;
+    const dy = currentY - startY;
+
+    if (isHorizontal === null && (Math.abs(dx) > 5 || Math.abs(dy) > 5)) {
+      isHorizontal = Math.abs(dx) > Math.abs(dy);
+    }
+
+    if (isHorizontal) {
+      const clampedX = Math.max(0, dx);
+      chatView.style.transform = `translateX(${clampedX}px)`;
+
+      const progress = Math.min(1, clampedX / window.innerWidth);
+      const convOffset = -28 + progress * 28;
+      const convBrightness = 0.85 + progress * 0.15;
+
+      convView.style.transform = `translateX(${convOffset}%)`;
+      convView.style.filter = `brightness(${convBrightness})`;
+    }
+  }, { passive: true });
+
+  window.addEventListener("touchend", () => {
+    if (!isSwiping) return;
+    isSwiping = false;
+    chatView.classList.remove("is-swiping");
+    convView.classList.remove("is-swiping");
+
+    const dx = currentX - startX;
+    const elapsed = Date.now() - startTime;
+    const velocity = dx / (elapsed || 1);
+
+    if (dx > window.innerWidth * 0.33 || (velocity > 0.38 && dx > 40)) {
+      chatView.style.transition = "transform 0.25s cubic-bezier(0.32, 0.72, 0, 1)";
+      convView.style.transition = "transform 0.25s cubic-bezier(0.32, 0.72, 0, 1), filter 0.25s ease";
+      chatView.style.transform = "translateX(100%)";
+      convView.style.transform = "translateX(0)";
+      convView.style.filter = "brightness(1)";
+
+      triggerHaptic("light");
+
+      setTimeout(() => {
+        chatView.style.transition = "";
+        convView.style.transition = "";
+        chatView.style.transform = "";
+        convView.style.transform = "";
+        convView.style.filter = "";
+        navigateTo("#");
+      }, 250);
+    } else {
+      chatView.style.transition = "transform 0.22s cubic-bezier(0.32, 0.72, 0, 1)";
+      convView.style.transition = "transform 0.22s cubic-bezier(0.32, 0.72, 0, 1), filter 0.22s ease";
+      chatView.style.transform = "translateX(0)";
+      convView.style.transform = "translateX(-28%)";
+      convView.style.filter = "brightness(0.85)";
+
+      setTimeout(() => {
+        chatView.style.transition = "";
+        convView.style.transition = "";
+        chatView.style.transform = "";
+        convView.style.transform = "";
+        convView.style.filter = "";
+      }, 220);
+    }
+  });
+}
+
+// --- iOS Virtual Viewport & Keyboard Handling ---
+
+function initVisualViewportHandling() {
+  if (!window.visualViewport) return;
+
+  const handleViewportChange = () => {
+    if (!activeCascadeId) return;
+    const vp = window.visualViewport;
+    const offset = Math.max(0, window.innerHeight - vp.height - vp.offsetTop);
+    const appEl = document.getElementById("app");
+    if (!appEl) return;
+
+    if (offset > 60) {
+      appEl.style.height = `${vp.height}px`;
+      const streamEl = document.getElementById("messages-stream");
+      if (streamEl && userIsNearBottom) {
+        streamEl.scrollTop = streamEl.scrollHeight;
+      }
+    } else {
+      appEl.style.height = "";
+    }
+  };
+
+  window.visualViewport.addEventListener("resize", handleViewportChange);
+  window.visualViewport.addEventListener("scroll", handleViewportChange);
 }
 
 // --- Chat View & Real-Time Stream ---
@@ -2617,7 +3088,10 @@ window.addEventListener("DOMContentLoaded", () => {
   setInterval(checkGatewayStatus, 6000);
 
   // Navigation & Sheets
-  document.getElementById("btn-back")?.addEventListener("click", () => navigateTo("#"));
+  document.getElementById("btn-back")?.addEventListener("click", () => {
+    triggerHaptic("selection");
+    navigateTo("#");
+  });
   document.getElementById("btn-new")?.addEventListener("click", openNewSheet);
   document.getElementById("btn-settings")?.addEventListener("click", openSettingsSheet);
 
@@ -2649,6 +3123,30 @@ window.addEventListener("DOMContentLoaded", () => {
   sheetPairing?.addEventListener("click", (e) => {
     if (e.target === sheetPairing) closePairingSheet();
   });
+
+  // iOS Alert Dialog: Rename Conversation
+  document.getElementById("btn-alert-rename-cancel")?.addEventListener("click", closeRenameAlert);
+  document.getElementById("btn-alert-rename-save")?.addEventListener("click", submitRenameConversation);
+  document.getElementById("input-rename-title")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      submitRenameConversation();
+    }
+  });
+  const alertRename = document.getElementById("alert-rename");
+  alertRename?.addEventListener("click", (e) => {
+    if (e.target === alertRename) closeRenameAlert();
+  });
+
+  // iOS ActionSheet: Delete Conversation Confirmation
+  document.getElementById("btn-actionsheet-delete-cancel")?.addEventListener("click", closeDeleteActionSheet);
+  document.getElementById("actionsheet-delete-backdrop")?.addEventListener("click", closeDeleteActionSheet);
+  document.getElementById("btn-actionsheet-delete-confirm")?.addEventListener("click", confirmDeleteConversation);
+
+  // Initialize iOS Gestures & Viewport Handling
+  initPullToRefresh();
+  initEdgeSwipeBack();
+  initVisualViewportHandling();
 
   // Check URL parameters for auto pairing
   const urlParams = new URLSearchParams(window.location.search);
