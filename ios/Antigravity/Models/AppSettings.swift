@@ -155,8 +155,9 @@ public final class AppSettings {
     
     /// Accurately describes the connection channel based on target endpoint and active interface
     public static func describeEndpoint(url: URL, isCellular: Bool) -> String {
+        let shouldUseCellular = isCellular || AppSettings.shared.preferCellularNetwork
         guard let host = url.host else {
-            return isCellular ? "蜂窝网络" : "Wi-Fi"
+            return shouldUseCellular ? "蜂窝网络" : "Wi-Fi"
         }
         let clean = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
         
@@ -170,13 +171,13 @@ public final class AppSettings {
         let isTailscale = clean.hasPrefix("100.") || clean.contains("ts.net")
         
         if isIPv6 {
-            return isCellular ? "蜂窝网络 IPv6" : "Wi-Fi IPv6 直连"
+            return shouldUseCellular ? "蜂窝网络 IPv6" : "Wi-Fi IPv6 直连"
         } else if isLAN {
             return "Wi-Fi 局域网"
         } else if isTailscale {
-            return isCellular ? "蜂窝网络 (Tailscale)" : "Wi-Fi (Tailscale)"
+            return shouldUseCellular ? "蜂窝网络 (Tailscale)" : "Wi-Fi (Tailscale)"
         } else {
-            return isCellular ? "蜂窝网络 (公网域名)" : "Wi-Fi (公网域名)"
+            return shouldUseCellular ? "蜂窝网络 (公网域名)" : "Wi-Fi (公网域名)"
         }
     }
     

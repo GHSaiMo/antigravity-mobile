@@ -140,9 +140,17 @@ public final class NetworkTransport: Sendable {
                 throw APIError.networkError("指令已成功送达服务器，但等待响应超时 (\(underlying.localizedDescription))")
             }
         } catch {
-            print("[NetworkTransport] Cellular direct request failed before send (\(error.localizedDescription)), falling back to standard interface")
-            let (data, response) = try await fallbackSession.data(for: req)
-            return (data, decorateResponse(response, url: req.url))
+            print("[NetworkTransport] Cellular direct request failed before send (\(error.localizedDescription)), attempting fallback")
+            do {
+                let (data, response) = try await fallbackSession.data(for: req)
+                return (data, decorateResponse(response, url: req.url))
+            } catch let fallbackErr {
+                if self.isWifi {
+                    throw APIError.networkError("蜂窝直连未成功建立（当前外部 Wi-Fi 限制双网并发且无 IPv6 路由）。建议在控制中心临时断开 Wi-Fi 即可秒连: \(error.localizedDescription)")
+                } else {
+                    throw fallbackErr
+                }
+            }
         }
     }
     
@@ -176,8 +184,11 @@ public final class NetworkTransport: Sendable {
             parameters = NWParameters.tcp
         }
         
-        // Pin to cellular interface to use mobile carrier's native IPv6
+        // Pin to cellular interface and strictly isolate from Wi-Fi
         parameters.requiredInterfaceType = .cellular
+        parameters.prohibitedInterfaceTypes = [.wifi]
+        parameters.prohibitExpensivePaths = false
+        parameters.prohibitConstrainedPaths = false
         
         let connection = NWConnection(to: endpoint, using: parameters)
         let method = request.httpMethod ?? "GET"

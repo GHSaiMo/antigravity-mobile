@@ -26,6 +26,17 @@ public final class ConnectionManager {
     
     private init() {
         startMonitoring()
+        
+        NotificationCenter.default.addObserver(
+            forName: .networkRoutingPreferenceChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self = self else { return }
+                await self.probeEndpoints()
+            }
+        }
     }
     
     private func startMonitoring() {
@@ -112,8 +123,8 @@ public final class ConnectionManager {
             settings.activeServerURL = best.urlString
             settings.rawServerURL = best.urlString
             return best.urlString
-        } else if isCellular, let v6 = settings.ipv6ServerURL, !v6.isEmpty {
-            // If on cellular with radio warming up, ensure IPv6 remains active endpoint
+        } else if (isCellular || settings.preferCellularNetwork), let v6 = settings.ipv6ServerURL, !v6.isEmpty {
+            // If on cellular or preferring cellular direct connection, ensure IPv6 remains active endpoint
             settings.activeServerURL = v6
             settings.rawServerURL = v6
             return v6
