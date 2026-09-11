@@ -463,6 +463,30 @@ public final class APIClient: Sendable {
                     ))
                 }
             } else if type == "CORTEX_STEP_TYPE_ERROR_MESSAGE" {
+                let isUserVisible: Bool = {
+                    if let em = step.errorMessage {
+                        if em.shouldShowUser == true { return true }
+                        if em.shouldShowModel == true { return false }
+                        let short = (em.shortError ?? "").lowercased()
+                        let userMsg = (em.userErrorMessage ?? "").lowercased()
+                        if short.contains("stream was interrupted") || userMsg.contains("stream was interrupted") ||
+                            short.contains("model produced invalid output") || userMsg.contains("model produced invalid output") {
+                            return false
+                        }
+                        return true
+                    }
+                    if let err = step.error {
+                        let short = (err.message ?? err.detail ?? "").lowercased()
+                        if short.contains("stream was interrupted") || short.contains("model produced invalid output") {
+                            return false
+                        }
+                        return true
+                    }
+                    return false
+                }()
+                if !isUserVisible {
+                    continue
+                }
                 flushTools()
                 let errText = step.errorMessage?.userErrorMessage
                     ?? step.errorMessage?.shortError
@@ -501,13 +525,36 @@ public final class APIClient: Sendable {
         for i in (lastUserInputIndex + 1)..<steps.count {
             let step = steps[i]
             if step.type == "CORTEX_STEP_TYPE_ERROR_MESSAGE" {
-                foundErrorInTurn = true
-                let errText = step.errorMessage?.userErrorMessage
-                    ?? step.errorMessage?.shortError
-                    ?? step.errorMessage?.message
-                    ?? step.error?.message
-                    ?? "执行遇到错误"
-                lastErrInTurn = errText.trimmingCharacters(in: .whitespacesAndNewlines)
+                let isUserVisible: Bool = {
+                    if let em = step.errorMessage {
+                        if em.shouldShowUser == true { return true }
+                        if em.shouldShowModel == true { return false }
+                        let short = (em.shortError ?? "").lowercased()
+                        let userMsg = (em.userErrorMessage ?? "").lowercased()
+                        if short.contains("stream was interrupted") || userMsg.contains("stream was interrupted") ||
+                            short.contains("model produced invalid output") || userMsg.contains("model produced invalid output") {
+                            return false
+                        }
+                        return true
+                    }
+                    if let err = step.error {
+                        let short = (err.message ?? err.detail ?? "").lowercased()
+                        if short.contains("stream was interrupted") || short.contains("model produced invalid output") {
+                            return false
+                        }
+                        return true
+                    }
+                    return false
+                }()
+                if isUserVisible {
+                    foundErrorInTurn = true
+                    let errText = step.errorMessage?.userErrorMessage
+                        ?? step.errorMessage?.shortError
+                        ?? step.errorMessage?.message
+                        ?? step.error?.message
+                        ?? "执行遇到错误"
+                    lastErrInTurn = errText.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
             } else if step.type == "CORTEX_STEP_TYPE_PLANNER_RESPONSE" {
                 let resp = step.plannerResponse?.response?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 if !resp.isEmpty {

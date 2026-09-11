@@ -338,6 +338,38 @@ func TestActualCascade_d363164b(t *testing.T) {
 	}
 }
 
+func TestActualCascade_def5e25a(t *testing.T) {
+	insp := inspector.NewInspector(5 * time.Second)
+	info := insp.Scan()
+	if info == nil {
+		t.Skip("Antigravity instance not available")
+	}
+	p := NewProxy(insp)
+	rawResp, err := p.fetchUpstreamTrajectory("def5e25a-1718-4fd5-9c25-e3d3789fad36", info.Port, info.CSRFToken)
+	if err != nil {
+		t.Skipf("debug cascade def5e25a not found on running instance: %v", err)
+	}
+	details := p.ParseTrajectoryDetails(rawResp)
+	t.Logf("def5e25a details: Status=%s, HasError=%t, TotalTools=%d, TotalMessages=%d",
+		details.Status, details.HasError, details.TotalTools, len(details.AllMessages))
+	for i, msg := range details.AllMessages {
+		t.Logf("  Msg %d: type=%s, text=%q", i, msg.Type, msg.Text)
+	}
+
+	if details.TotalTools != 0 {
+		t.Errorf("expected TotalTools to be 0, got %d", details.TotalTools)
+	}
+	if len(details.AllMessages) != 2 {
+		t.Fatalf("expected exactly 2 messages (1 user, 1 final 503 error), got %d", len(details.AllMessages))
+	}
+	if details.AllMessages[0].Type != "user" || details.AllMessages[0].Text != "你是什么模型" {
+		t.Errorf("expected first message to be '你是什么模型', got %+v", details.AllMessages[0])
+	}
+	if details.AllMessages[1].Type != "error" || !strings.Contains(details.AllMessages[1].Text, "503") {
+		t.Errorf("expected second message to be 503 error, got %+v", details.AllMessages[1])
+	}
+}
+
 func TestParseTrajectoryDetails_RunningTasks(t *testing.T) {
 	rawJSON := `{
 		"status": "CASCADE_RUN_STATUS_RUNNING",
@@ -544,9 +576,10 @@ func TestParseTrajectoryDetails_HistoricalErrorResolved(t *testing.T) {
 					"status": "CORTEX_STEP_STATUS_DONE",
 					"errorMessage": {
 						"error": {
-							"userErrorMessage": "The stream was interrupted.",
-							"shortError": "stream interrupted"
-						}
+							"userErrorMessage": "LoRA 训练执行异常中断。",
+							"shortError": "training stream interrupted"
+						},
+						"shouldShowUser": true
 					}
 				},
 				{
@@ -585,16 +618,125 @@ func TestParseTrajectoryDetails_HistoricalErrorResolved(t *testing.T) {
 		t.Errorf("expected empty ErrorMessage, got %q", details.ErrorMessage)
 	}
 
-	// But historical messages should still include the error message
+	// But historical messages should still include the user-visible error message
 	var hasErrorMessage bool
 	for _, msg := range details.AllMessages {
-		if msg.Type == "error" && strings.Contains(msg.Text, "stream interrupted") {
+		if msg.Type == "error" && strings.Contains(msg.Text, "training stream interrupted") {
 			hasErrorMessage = true
 			break
 		}
 	}
 	if !hasErrorMessage {
 		t.Errorf("expected historical error message to be preserved in AllMessages")
+	}
+}
+
+func TestParseTrajectoryDetails_InternalStreamInterruptedFiltered(t *testing.T) {
+	// Replicates the exact scenario of "def5e25a-1718-4fd5-9c25-e3d3789fad36":
+	// 1 User Input -> 2 transient stream interruptions with shouldShowModel: true -> final 503 error with shouldShowUser: true
+	rawJSON := `{
+		"status": "CASCADE_RUN_STATUS_ERROR",
+		"trajectory": {
+			"cascadeId": "def5e25a-1718-4fd5-9c25-e3d3789fad36",
+			"steps": [
+				{
+					"type": "CORTEX_STEP_TYPE_USER_INPUT",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"userInput": {
+						"userResponse": "你是什么模型"
+					}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_PLANNER_RESPONSE",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"plannerResponse": {
+						"response": ""
+					}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_ERROR_MESSAGE",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"errorMessage": {
+						"error": {
+							"shortError": "The stream was interrupted. Please continue the task you were working on.",
+							"errorId": "step-2-err"
+						},
+						"shouldShowModel": true
+					}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_PLANNER_RESPONSE",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"plannerResponse": {
+						"response": ""
+					}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_ERROR_MESSAGE",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"errorMessage": {
+						"error": {
+							"shortError": "The stream was interrupted. Please continue the task you were working on.",
+							"errorId": "step-4-err"
+						},
+						"shouldShowModel": true
+					}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_PLANNER_RESPONSE",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"plannerResponse": {
+						"response": ""
+					}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_ERROR_MESSAGE",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"errorMessage": {
+						"error": {
+							"userErrorMessage": "Our servers are experiencing high traffic right now, please try again in a minute.",
+							"shortError": "UNAVAILABLE (code 503): No capacity available for model claude-opus-4-6-thinking on the server",
+							"errorId": "step-6-503"
+						},
+						"shouldShowUser": true
+					}
+				}
+			]
+		}
+	}`
+
+	var rawResp upstreamTrajectoryResp
+	if err := json.Unmarshal([]byte(rawJSON), &rawResp); err != nil {
+		t.Fatalf("failed to unmarshal test JSON: %v", err)
+	}
+
+	p := &Proxy{}
+	details := p.ParseTrajectoryDetails(&rawResp)
+
+	if !details.HasError {
+		t.Errorf("expected HasError to be true, got false")
+	}
+	if details.Status != "CASCADE_RUN_STATUS_ERROR" {
+		t.Errorf("expected Status to be CASCADE_RUN_STATUS_ERROR, got %s", details.Status)
+	}
+	if details.TotalTools != 0 {
+		t.Errorf("expected TotalTools to be 0 (no phantom tools from planner responses), got %d", details.TotalTools)
+	}
+
+	// Should contain EXACTLY 2 messages: 1 user, 1 error (the 503).
+	// Transient errors and phantom tool batches must NOT appear!
+	if len(details.AllMessages) != 2 {
+		t.Fatalf("expected exactly 2 messages (1 user, 1 final error), got %d: %+v", len(details.AllMessages), details.AllMessages)
+	}
+
+	if details.AllMessages[0].Type != "user" || details.AllMessages[0].Text != "你是什么模型" {
+		t.Errorf("unexpected first message: %+v", details.AllMessages[0])
+	}
+	if details.AllMessages[1].Type != "error" {
+		t.Errorf("expected second message to be error, got %s", details.AllMessages[1].Type)
+	}
+	if !strings.Contains(details.AllMessages[1].Text, "503") {
+		t.Errorf("expected second message to contain 503 error, got %s", details.AllMessages[1].Text)
 	}
 }
 
