@@ -54,6 +54,8 @@ public struct PaginatedMessagesResponse: Codable, Sendable {
     public let pendingInteraction: PendingInteraction?
     public let queuedMessages: [QueuedMessageItem]?
     public let runningTasks: [RunningTaskItem]?
+    public let activeModel: String?
+    public let modelDisplayName: String?
     
     public struct GatewayMessageItem: Codable, Sendable {
         public let id: String
@@ -81,6 +83,8 @@ public struct FetchMessagesResult: Sendable {
     public let pendingInteraction: PendingInteraction?
     public let queuedMessages: [QueuedMessageItem]
     public let runningTasks: [RunningTaskItem]
+    public let activeModel: String?
+    public let modelDisplayName: String?
 }
 
 public final class APIClient: Sendable {
@@ -318,7 +322,9 @@ public final class APIClient: Sendable {
                     proceedArtifactUri: decoded.proceedArtifactUri,
                     pendingInteraction: decoded.pendingInteraction,
                     queuedMessages: decoded.queuedMessages ?? [],
-                    runningTasks: decoded.runningTasks ?? []
+                    runningTasks: decoded.runningTasks ?? [],
+                    activeModel: decoded.activeModel,
+                    modelDisplayName: decoded.modelDisplayName
                 )
             }
         } catch {
@@ -340,7 +346,9 @@ public final class APIClient: Sendable {
             proceedArtifactUri: nil,
             pendingInteraction: nil,
             queuedMessages: [],
-            runningTasks: []
+            runningTasks: [],
+            activeModel: nil,
+            modelDisplayName: nil
         )
     }
     
@@ -486,6 +494,7 @@ public final class APIClient: Sendable {
     public func sendMessage(
         cascadeId: String,
         text: String,
+        model: String? = nil,
         images: [Data]? = nil,
         deliveryStrategy: Int? = nil,
         cascadeConfigRaw: String? = nil,
@@ -497,20 +506,24 @@ public final class APIClient: Sendable {
         let req = SendUserCascadeMessageRequest(
             cascadeId: cascadeId,
             text: text,
+            model: model,
             images: imagePayloads,
             media: mediaPayloads,
             deliveryStrategy: deliveryStrategy,
             cascadeConfigRaw: cascadeConfigRaw
         )
-        var headers: [String: String]? = nil
+        var headers: [String: String] = [:]
         if let cmid = clientMessageId, !cmid.isEmpty {
-            headers = ["X-Client-Message-Id": cmid]
+            headers["X-Client-Message-Id"] = cmid
+        }
+        if let m = model, !m.isEmpty {
+            headers["X-Antigravity-Model"] = m
         }
         let _: EmptyResponse = try await rpc(
             method: "SendUserCascadeMessage",
             body: req,
             baseURL: baseURL,
-            additionalHeaders: headers
+            additionalHeaders: headers.isEmpty ? nil : headers
         )
     }
     
@@ -527,18 +540,24 @@ public final class APIClient: Sendable {
     }
     
     // Proceed with an artifact review/plan
-    public func proceedArtifact(cascadeId: String, artifactUri: String, cascadeConfigRaw: String? = nil, baseURL: URL) async throws {
+    public func proceedArtifact(cascadeId: String, artifactUri: String, model: String? = nil, cascadeConfigRaw: String? = nil, baseURL: URL) async throws {
         let comment = ArtifactCommentPayload(artifactUri: artifactUri, approvalStatus: 1, comment: "")
         let req = SendUserCascadeMessageRequest(
             cascadeId: cascadeId,
             items: [],
+            model: model,
             cascadeConfigRaw: cascadeConfigRaw,
             artifactComments: [comment]
         )
+        var headers: [String: String]? = nil
+        if let m = model, !m.isEmpty {
+            headers = ["X-Antigravity-Model": m]
+        }
         let _: EmptyResponse = try await rpc(
             method: "SendUserCascadeMessage",
             body: req,
-            baseURL: baseURL
+            baseURL: baseURL,
+            additionalHeaders: headers
         )
     }
     

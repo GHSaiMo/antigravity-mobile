@@ -32,6 +32,8 @@ type StreamUpdatePayload struct {
 	CanProceed         bool                 `json:"canProceed"`
 	ProceedArtifactURI string               `json:"proceedArtifactUri,omitempty"`
 	PendingInteraction *PendingInteraction  `json:"pendingInteraction,omitempty"`
+	ActiveModel        string               `json:"activeModel,omitempty"`
+	ModelDisplayName   string               `json:"modelDisplayName,omitempty"`
 }
 
 // Fingerprint computes a fast signature to detect changes and prevent redundant pushes.
@@ -50,14 +52,14 @@ func (p *StreamUpdatePayload) Fingerprint() string {
 		tasksKey = fmt.Sprintf("%d:%s:%d", len(p.RunningTasks), lastTask.ID, lastTask.StepIndex)
 	}
 	if len(p.Steps) == 0 {
-		return fmt.Sprintf("%s:0:0:%t:%s:%s:%s", p.Status, p.CanProceed, piKey, queuedKey, tasksKey)
+		return fmt.Sprintf("%s:0:0:%t:%s:%s:%s:%s", p.Status, p.CanProceed, piKey, queuedKey, tasksKey, p.ActiveModel)
 	}
 	last := p.Steps[len(p.Steps)-1]
 	lastLen := 0
 	if last.PlannerResponse != nil {
 		lastLen = len(last.PlannerResponse.Response) + len(last.PlannerResponse.Thinking)
 	}
-	return fmt.Sprintf("%s:%d:%d:%s:%s:%d:%t:%s:%s:%s", p.Status, p.TotalSteps, p.TotalTools, last.Type, last.Status, lastLen, p.CanProceed, piKey, queuedKey, tasksKey)
+	return fmt.Sprintf("%s:%d:%d:%s:%s:%d:%t:%s:%s:%s:%s", p.Status, p.TotalSteps, p.TotalTools, last.Type, last.Status, lastLen, p.CanProceed, piKey, queuedKey, tasksKey, p.ActiveModel)
 }
 
 // HandleCascadeStream serves a WebSocket connection for continuous real-time trajectory updates.
@@ -180,6 +182,8 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 				CanProceed:         details.CanProceed,
 				ProceedArtifactURI: details.ProceedArtifactURI,
 				PendingInteraction: details.PendingInteraction,
+				ActiveModel:        details.ActiveModel,
+				ModelDisplayName:   details.ModelDisplayName,
 			}
 
 			if firstPush {

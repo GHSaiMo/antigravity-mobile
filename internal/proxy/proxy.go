@@ -519,6 +519,17 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 			}
 		}
 
+		targetModel := strings.TrimSpace(r.Header.Get("X-Antigravity-Model"))
+		if targetModel == "" {
+			targetModel = strings.TrimSpace(r.Header.Get("X-Model"))
+		}
+		if targetModel == "" {
+			if m, ok := rawMap["model"].(string); ok {
+				targetModel = strings.TrimSpace(m)
+			}
+		}
+		delete(rawMap, "model")
+
 		var configToUse json.RawMessage
 		// 1. Check if cascadeConfig already exists in payload
 		if cfg, exists := rawMap["cascadeConfig"]; exists && cfg != nil {
@@ -539,12 +550,32 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 			configToUse = p.GetCascadeConfig(cascadeID, port, token)
 		}
 
+		modelEnum := resolveModelEnum(targetModel)
+		canonicalName := canonicalModelName(targetModel)
+		if canonicalName == "" {
+			canonicalName = targetModel
+		}
+
 		if len(configToUse) > 0 {
 			var cfgObj interface{}
 			if err := json.Unmarshal(configToUse, &cfgObj); err == nil {
+				if modelEnum != "" {
+					cfgObj = applyModelToCascadeConfig(cfgObj, modelEnum, canonicalName)
+					if updatedBytes, err := json.Marshal(cfgObj); err == nil {
+						configToUse = updatedBytes
+					}
+					log.Printf("[Proxy] SendUserCascadeMessage: applied model %s (%s) to cascade %s", targetModel, modelEnum, cascadeID)
+				}
 				rawMap["cascadeConfig"] = cfgObj
 			}
 			SetLastKnownCascadeConfig(configToUse)
+		} else if modelEnum != "" {
+			cfgObj := applyModelToCascadeConfig(nil, modelEnum, canonicalName)
+			rawMap["cascadeConfig"] = cfgObj
+			if updatedBytes, err := json.Marshal(cfgObj); err == nil {
+				SetLastKnownCascadeConfig(updatedBytes)
+			}
+			log.Printf("[Proxy] SendUserCascadeMessage: synthesized cascadeConfig with model %s (%s) for cascade %s", targetModel, modelEnum, cascadeID)
 		}
 
 		delete(rawMap, "cascadeConfigRaw")

@@ -636,7 +636,8 @@ func (p *Proxy) HandleCreateCascade(w http.ResponseWriter, r *http.Request) {
 		startPayload["workspaceUris"] = []string{wsURI}
 	}
 
-	if modelEnum := resolveModelEnum(req.Model); modelEnum != "" {
+	modelEnum := resolveModelEnum(req.Model)
+	if modelEnum != "" {
 		startPayload["requestedModel"] = modelEnum
 	}
 
@@ -732,11 +733,19 @@ func (p *Proxy) HandleCreateCascade(w http.ResponseWriter, r *http.Request) {
 			},
 		}
 
+		var cfgObj interface{}
 		if cfg := p.GetCascadeConfig(cascadeID, port, token); len(cfg) > 0 {
-			var cfgObj interface{}
-			if err := json.Unmarshal(cfg, &cfgObj); err == nil {
-				msgPayload["cascadeConfig"] = cfgObj
+			_ = json.Unmarshal(cfg, &cfgObj)
+		}
+		if modelEnum != "" {
+			canonicalName := canonicalModelName(req.Model)
+			if canonicalName == "" {
+				canonicalName = req.Model
 			}
+			cfgObj = applyModelToCascadeConfig(cfgObj, modelEnum, canonicalName)
+		}
+		if cfgObj != nil {
+			msgPayload["cascadeConfig"] = cfgObj
 		}
 
 		msgBytes, _ := json.Marshal(msgPayload)
@@ -832,3 +841,72 @@ func resolveModelEnum(model string) string {
 	}
 	return ""
 }
+
+// enumToCanonicalMap maps upstream Protobuf enum names to canonical model identifiers.
+var enumToCanonicalMap = map[string]string{
+	"MODEL_PLACEHOLDER_M26":            "claude-opus-4-6-thinking",
+	"MODEL_PLACEHOLDER_M35":            "claude-sonnet-4-6",
+	"MODEL_PLACEHOLDER_M318":           "gemini-3.8-flash-high",
+	"MODEL_PLACEHOLDER_M319":           "gemini-3.8-flash-medium",
+	"MODEL_PLACEHOLDER_M320":           "gemini-3.8-flash-low",
+	"MODEL_PLACEHOLDER_M298":           "gemini-3.7-flash-high",
+	"MODEL_PLACEHOLDER_M299":           "gemini-3.7-flash-medium",
+	"MODEL_PLACEHOLDER_M300":           "gemini-3.7-flash-low",
+	"MODEL_PLACEHOLDER_M71":            "gemini-3.6-flash-high",
+	"MODEL_PLACEHOLDER_M72":            "gemini-3.6-flash-medium",
+	"MODEL_PLACEHOLDER_M73":            "gemini-3.6-flash-low",
+	"MODEL_PLACEHOLDER_M16":            "gemini-pro-agent",
+	"MODEL_PLACEHOLDER_M36":            "gemini-3.1-pro-low",
+	"MODEL_PLACEHOLDER_M37":            "gemini-3.1-pro-high",
+	"MODEL_GOOGLE_GEMINI_2_5_PRO":      "gemini-2.5-pro",
+	"MODEL_GOOGLE_GEMINI_2_5_FLASH":    "gemini-2.5-flash",
+	"MODEL_OPENAI_GPT_OSS_120B_MEDIUM": "gpt-oss-120b-medium",
+}
+
+// canonicalModelName converts a model enum or friendly alias into its canonical model name.
+func canonicalModelName(model string) string {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return ""
+	}
+	if name, ok := enumToCanonicalMap[model]; ok {
+		return name
+	}
+	enum := resolveModelEnum(model)
+	if name, ok := enumToCanonicalMap[enum]; ok {
+		return name
+	}
+	return model
+}
+
+// applyModelToCascadeConfig patches or injects the given modelEnum and modelName into cfgObj.
+func applyModelToCascadeConfig(cfgObj interface{}, modelEnum string, modelName string) interface{} {
+	if modelEnum == "" {
+		return cfgObj
+	}
+	if modelName == "" {
+		modelName = canonicalModelName(modelEnum)
+	}
+
+	cfgMap, ok := cfgObj.(map[string]interface{})
+	if !ok || cfgMap == nil {
+		cfgMap = make(map[string]interface{})
+	}
+
+	var plannerConfig map[string]interface{}
+	if p, ok := cfgMap["plannerConfig"].(map[string]interface{}); ok && p != nil {
+		plannerConfig = p
+	} else {
+		plannerConfig = make(map[string]interface{})
+	}
+
+	plannerConfig["planModel"] = modelEnum
+	plannerConfig["requestedModel"] = map[string]interface{}{
+		"model": modelEnum,
+	}
+	plannerConfig["modelName"] = modelName
+	cfgMap["plannerConfig"] = plannerConfig
+
+	return cfgMap
+}
+

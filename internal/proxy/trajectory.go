@@ -83,6 +83,8 @@ type CascadeMessagesResponse struct {
 	Messages           []CascadeMessageItem `json:"messages"`
 	QueuedMessages     []QueuedMessageItem  `json:"queuedMessages,omitempty"`
 	RunningTasks       []RunningTaskItem    `json:"runningTasks,omitempty"`
+	ActiveModel        string               `json:"activeModel,omitempty"`
+	ModelDisplayName   string               `json:"modelDisplayName,omitempty"`
 	CascadeConfig      json.RawMessage      `json:"cascadeConfig,omitempty"`
 	CascadeConfigRaw   string               `json:"cascadeConfigRaw,omitempty"`
 	CanProceed         bool                 `json:"canProceed"`
@@ -439,6 +441,8 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 		Messages:           sliced,
 		QueuedMessages:     details.QueuedMessages,
 		RunningTasks:       details.RunningTasks,
+		ActiveModel:        details.ActiveModel,
+		ModelDisplayName:   details.ModelDisplayName,
 		CascadeConfig:      details.CascadeConfig,
 		CascadeConfigRaw:   details.CascadeConfigRaw,
 		CanProceed:         details.CanProceed,
@@ -462,6 +466,8 @@ type TrajectoryDetails struct {
 	AllMessages        []CascadeMessageItem `json:"allMessages"`
 	QueuedMessages     []QueuedMessageItem  `json:"queuedMessages,omitempty"`
 	RunningTasks       []RunningTaskItem    `json:"runningTasks,omitempty"`
+	ActiveModel        string               `json:"activeModel,omitempty"`
+	ModelDisplayName   string               `json:"modelDisplayName,omitempty"`
 	CascadeConfig      json.RawMessage      `json:"cascadeConfig,omitempty"`
 	CascadeConfigRaw   string               `json:"cascadeConfigRaw,omitempty"`
 	CanProceed         bool                 `json:"canProceed"`
@@ -609,17 +615,48 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 	}
 
 	var activeConfig json.RawMessage
+	var activeModel string
 	for i := len(rawResp.Trajectory.ExecutorMetadatas) - 1; i >= 0; i-- {
 		cfg := rawResp.Trajectory.ExecutorMetadatas[i].CascadeConfig
 		if len(cfg) > 0 && string(cfg) != "null" && string(cfg) != "{}" {
-			activeConfig = cfg
-			SetLastKnownCascadeConfig(cfg)
-			break
+			if activeModel == "" {
+				var cfgMap map[string]interface{}
+				if err := json.Unmarshal(cfg, &cfgMap); err == nil {
+					if p, ok := cfgMap["plannerConfig"].(map[string]interface{}); ok {
+						if mn, ok := p["modelName"].(string); ok && mn != "" {
+							activeModel = canonicalModelName(mn)
+						} else if pm, ok := p["planModel"].(string); ok && pm != "" {
+							activeModel = canonicalModelName(pm)
+						}
+					}
+				}
+			}
+			if len(activeConfig) == 0 {
+				activeConfig = cfg
+				SetLastKnownCascadeConfig(cfg)
+			}
+			if activeModel != "" && len(activeConfig) > 0 {
+				break
+			}
 		}
 	}
 	var activeConfigStr string
 	if len(activeConfig) > 0 {
 		activeConfigStr = string(activeConfig)
+	}
+
+	modelDisplayName := ""
+	if activeModel != "" {
+		lower := strings.ToLower(activeModel)
+		if strings.Contains(lower, "claude") {
+			modelDisplayName = "Claude"
+		} else if strings.Contains(lower, "gemini") {
+			modelDisplayName = "Gemini"
+		} else if strings.Contains(lower, "gpt") {
+			modelDisplayName = "GPT"
+		} else {
+			modelDisplayName = activeModel
+		}
 	}
 
 	wsURI := ""
@@ -929,6 +966,8 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 		AllMessages:        allMessages,
 		QueuedMessages:     queuedMessages,
 		RunningTasks:       runningTasks,
+		ActiveModel:        activeModel,
+		ModelDisplayName:   modelDisplayName,
 		CascadeConfig:      activeConfig,
 		CascadeConfigRaw:   activeConfigStr,
 		CanProceed:         canProceed,

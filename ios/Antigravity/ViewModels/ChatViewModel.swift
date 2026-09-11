@@ -178,6 +178,9 @@ public final class ChatViewModel {
             if let configRaw = result.cascadeConfigRaw, !configRaw.isEmpty {
                 self.cascadeConfigRaw = configRaw
             }
+            if let activeModel = result.activeModel, !activeModel.isEmpty {
+                self.settings.syncModel(from: activeModel)
+            }
             
             if let title = result.title?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines), !title.isEmpty, title != "未命名会话" {
                 if self.currentTitle != title {
@@ -551,10 +554,25 @@ public final class ChatViewModel {
         }
     }
     
+    private func updateCascadeConfigRawModel(_ modelEnum: String, modelName: String) {
+        guard let raw = cascadeConfigRaw, let data = raw.data(using: .utf8) else { return }
+        guard var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+        var plannerConfig = json["plannerConfig"] as? [String: Any] ?? [:]
+        plannerConfig["planModel"] = modelEnum
+        plannerConfig["requestedModel"] = modelEnum
+        plannerConfig["modelName"] = modelName
+        json["plannerConfig"] = plannerConfig
+        if let patchedData = try? JSONSerialization.data(withJSONObject: json),
+           let patchedStr = String(data: patchedData, encoding: .utf8) {
+            self.cascadeConfigRaw = patchedStr
+        }
+    }
+    
     @MainActor
     public func toggleModel() async {
         settings.toggleActiveModel()
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        updateCascadeConfigRawModel(settings.activeModelEnum, modelName: settings.activeModel)
         guard let url = settings.serverURL else { return }
         do {
             try await apiClient.switchModel(to: settings.activeModelEnum, baseURL: url)
@@ -613,6 +631,7 @@ public final class ChatViewModel {
                     try await self.apiClient.sendMessage(
                         cascadeId: self.cascadeId,
                         text: text,
+                        model: self.settings.activeModelEnum,
                         images: images,
                         deliveryStrategy: 2,
                         cascadeConfigRaw: self.cascadeConfigRaw,
@@ -705,6 +724,7 @@ public final class ChatViewModel {
                     try await apiClient.sendMessage(
                         cascadeId: newCascadeId,
                         text: text,
+                        model: settings.activeModelEnum,
                         images: imgs,
                         cascadeConfigRaw: cascadeConfigRaw,
                         clientMessageId: UUID().uuidString,
@@ -720,6 +740,7 @@ public final class ChatViewModel {
                 try await apiClient.sendMessage(
                     cascadeId: cascadeId,
                     text: text,
+                    model: settings.activeModelEnum,
                     images: images,
                     cascadeConfigRaw: cascadeConfigRaw,
                     clientMessageId: clientMessageId,
@@ -793,6 +814,7 @@ public final class ChatViewModel {
             try await apiClient.sendMessage(
                 cascadeId: cascadeId,
                 text: item.text,
+                model: settings.activeModelEnum,
                 deliveryStrategy: 1,
                 cascadeConfigRaw: cascadeConfigRaw,
                 clientMessageId: UUID().uuidString,
@@ -883,6 +905,7 @@ public final class ChatViewModel {
             try await apiClient.proceedArtifact(
                 cascadeId: cascadeId,
                 artifactUri: artifactUri,
+                model: settings.activeModelEnum,
                 cascadeConfigRaw: cascadeConfigRaw,
                 baseURL: url
             )
@@ -991,6 +1014,9 @@ public final class ChatViewModel {
         }
         if let cfg = payload.cascadeConfigRaw, !cfg.isEmpty {
             self.cascadeConfigRaw = cfg
+        }
+        if let activeModel = payload.activeModel, !activeModel.isEmpty {
+            self.settings.syncModel(from: activeModel)
         }
         
         if let title = payload.title?.trimmingCharacters(in: .whitespacesAndNewlines),

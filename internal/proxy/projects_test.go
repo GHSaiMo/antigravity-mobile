@@ -206,3 +206,150 @@ func TestHandleCreateCascadeIdempotency(t *testing.T) {
 		t.Fatalf("expected startCascadeCalls to remain 1 (deduplicated), got %d", startCascadeCalls)
 	}
 }
+
+func TestCanonicalModelName(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"MODEL_PLACEHOLDER_M26", "claude-opus-4-6-thinking"},
+		{"claude", "claude-opus-4-6-thinking"},
+		{"claude-opus", "claude-opus-4-6-thinking"},
+		{"claude-opus-4-6-thinking", "claude-opus-4-6-thinking"},
+		{"claude-sonnet-4-6", "claude-sonnet-4-6"},
+		{"MODEL_PLACEHOLDER_M318", "gemini-3.8-flash-high"},
+		{"gemini", "gemini-3.8-flash-high"},
+		{"gemini-3.8-flash-high", "gemini-3.8-flash-high"},
+		{"", ""},
+	}
+
+	for _, tc := range tests {
+		got := canonicalModelName(tc.input)
+		if got != tc.expected {
+			t.Errorf("canonicalModelName(%q) = %q, expected %q", tc.input, got, tc.expected)
+		}
+	}
+}
+
+func TestApplyModelToCascadeConfig(t *testing.T) {
+	// 1. Apply to existing config with different model
+	origConfig := map[string]interface{}{
+		"plannerConfig": map[string]interface{}{
+			"planModel": "MODEL_PLACEHOLDER_M318",
+			"requestedModel": map[string]interface{}{
+				"model": "MODEL_PLACEHOLDER_M318",
+			},
+			"modelName": "gemini-3.8-flash-high",
+		},
+		"otherField": "keepMe",
+	}
+
+	updated := applyModelToCascadeConfig(origConfig, "MODEL_PLACEHOLDER_M26", "claude-opus-4-6-thinking")
+	upMap, ok := updated.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected map[string]interface{}, got %T", updated)
+	}
+
+	if upMap["otherField"] != "keepMe" {
+		t.Errorf("expected otherField to be preserved")
+	}
+
+	pCfg, ok := upMap["plannerConfig"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected plannerConfig map, got %T", upMap["plannerConfig"])
+	}
+
+	if pCfg["planModel"] != "MODEL_PLACEHOLDER_M26" {
+		t.Errorf("expected planModel MODEL_PLACEHOLDER_M26, got %v", pCfg["planModel"])
+	}
+	if pCfg["modelName"] != "claude-opus-4-6-thinking" {
+		t.Errorf("expected modelName claude-opus-4-6-thinking, got %v", pCfg["modelName"])
+	}
+	reqM, ok := pCfg["requestedModel"].(map[string]interface{})
+	if !ok || reqM["model"] != "MODEL_PLACEHOLDER_M26" {
+		t.Errorf("expected requestedModel.model to be MODEL_PLACEHOLDER_M26, got %v", pCfg["requestedModel"])
+	}
+
+	// 2. Apply to nil config
+	nilUpdated := applyModelToCascadeConfig(nil, "MODEL_PLACEHOLDER_M26", "claude-opus-4-6-thinking")
+	nilMap, ok := nilUpdated.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected map from nil config, got %T", nilUpdated)
+	}
+	pCfg2 := nilMap["plannerConfig"].(map[string]interface{})
+	if pCfg2["planModel"] != "MODEL_PLACEHOLDER_M26" {
+		t.Errorf("expected planModel MODEL_PLACEHOLDER_M26 from nil config, got %v", pCfg2["planModel"])
+	}
+}
+
+func TestHandleCreateCascadeWithPromptModelSync(t *testing.T) {
+	var startPayload map[string]interface{}
+	var sendUserMsgPayload map[string]interface{}
+
+	mockUpstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/StartCascade") {
+			json.NewDecoder(r.Body).Decode(&startPayload)
+			w.Write([]byte(`{"cascadeId": "test-model-sync-123"}`))
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/UpdateConversationAnnotations") {
+			w.Write([]byte(`{}`))
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/SendUserCascadeMessage") {
+			json.NewDecoder(r.Body).Decode(&sendUserMsgPayload)
+			w.Write([]byte(`{}`))
+			return
+		}
+		w.Write([]byte(`{}`))
+	}))
+	defer mockUpstream.Close()
+
+	port := mockUpstream.Listener.Addr().(*net.TCPAddr).Port
+	insp := inspector.NewInspector(5 * time.Second)
+	p := NewProxy(insp)
+	p.activePort = port
+	p.activeToken = "test-token"
+
+	// Seed lastKnownConfig with Gemini model (simulating a prior session)
+	staleConfig := []byte(`{"plannerConfig":{"planModel":"MODEL_PLACEHOLDER_M318","modelName":"gemini-3.8-flash-high"}}`)
+	SetLastKnownCascadeConfig(staleConfig)
+
+	body, _ := json.Marshal(CreateCascadeRequest{
+		WorkspaceURI: "file:///test/ws",
+		Prompt:       "Analyze the codebase",
+		Model:        "claude-opus-4-6-thinking",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/gateway/cascade/new", strings.NewReader(string(body)))
+	rec := httptest.NewRecorder()
+
+	p.HandleCreateCascade(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 1. Verify StartCascade received MODEL_PLACEHOLDER_M26
+	if startPayload["requestedModel"] != "MODEL_PLACEHOLDER_M26" {
+		t.Errorf("StartCascade expected requestedModel MODEL_PLACEHOLDER_M26, got %v", startPayload["requestedModel"])
+	}
+
+	// 2. Verify SendUserCascadeMessage received cascadeConfig patched with Claude model instead of stale Gemini
+	cfg, ok := sendUserMsgPayload["cascadeConfig"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("SendUserCascadeMessage expected cascadeConfig map, got %T", sendUserMsgPayload["cascadeConfig"])
+	}
+	pCfg, ok := cfg["plannerConfig"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected plannerConfig, got %T", cfg["plannerConfig"])
+	}
+
+	if pCfg["planModel"] != "MODEL_PLACEHOLDER_M26" {
+		t.Errorf("initial prompt expected planModel MODEL_PLACEHOLDER_M26, got %v", pCfg["planModel"])
+	}
+	if pCfg["modelName"] != "claude-opus-4-6-thinking" {
+		t.Errorf("initial prompt expected modelName claude-opus-4-6-thinking, got %v", pCfg["modelName"])
+	}
+}
+
