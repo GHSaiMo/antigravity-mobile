@@ -782,7 +782,12 @@ public final class APIClient: Sendable {
             var decoded = try JSONDecoder().decode(GatewayStatusResponse.self, from: data)
             let ifaceHeader = (httpResp.allHeaderFields["X-Antigravity-Interface"] as? String) ??
                               (httpResp.allHeaderFields["x-antigravity-interface"] as? String)
-            let isCellular = (ifaceHeader == "cellular") || NetworkTransport.shared.isCellular
+            let isCellular: Bool
+            if let iface = ifaceHeader {
+                isCellular = (iface == "cellular")
+            } else {
+                isCellular = NetworkTransport.shared.isCellular && !NetworkTransport.shared.isWifi
+            }
             decoded.usedInterface = isCellular ? "cellular" : "wifi"
             decoded.connectionDescription = AppSettings.describeEndpoint(url: baseURL, isCellular: isCellular)
             return decoded
