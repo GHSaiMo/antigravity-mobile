@@ -53,8 +53,14 @@ type Proxy struct {
 	activeToken string
 	notifier    NotificationSink
 
-	msgDedupMu sync.Mutex
-	msgDedup   map[string]time.Time
+	msgDedupMu   sync.Mutex
+	msgDedup     map[string]time.Time
+	cascadeDedup map[string]cascadeDedupEntry
+}
+
+type cascadeDedupEntry struct {
+	cascadeID string
+	createdAt time.Time
 }
 
 // SetNotificationSink registers a sink to receive real-time trajectory updates.
@@ -130,8 +136,9 @@ func NewProxy(insp *inspector.Inspector) *Proxy {
 	p := &Proxy{
 		insp:      insp,
 		transport: tr,
-		startTime: time.Now(),
-		msgDedup:  make(map[string]time.Time),
+		startTime:    time.Now(),
+		msgDedup:     make(map[string]time.Time),
+		cascadeDedup: make(map[string]cascadeDedupEntry),
 		shortClient: &http.Client{
 			Timeout:   2 * time.Second,
 			Transport: tr,
@@ -380,9 +387,9 @@ func (p *Proxy) checkAndRecordMessageDedup(key string, ttl time.Duration) bool {
 	}
 	now := time.Now()
 	// Periodic cleanup of stale entries
-	if len(p.msgDedup) > 64 {
+	if len(p.msgDedup) > 128 {
 		for k, t := range p.msgDedup {
-			if now.Sub(t) > 30*time.Second {
+			if now.Sub(t) > 120*time.Second {
 				delete(p.msgDedup, k)
 			}
 		}
@@ -396,7 +403,58 @@ func (p *Proxy) checkAndRecordMessageDedup(key string, ttl time.Duration) bool {
 	return false
 }
 
+func (p *Proxy) getCascadeDedup(key string, ttl time.Duration) string {
+	p.msgDedupMu.Lock()
+	defer p.msgDedupMu.Unlock()
+	if p.cascadeDedup == nil {
+		p.cascadeDedup = make(map[string]cascadeDedupEntry)
+		return ""
+	}
+	now := time.Now()
+	if len(p.cascadeDedup) > 64 {
+		for k, v := range p.cascadeDedup {
+			if now.Sub(v.createdAt) > 120*time.Second {
+				delete(p.cascadeDedup, k)
+			}
+		}
+	}
+	if entry, exists := p.cascadeDedup[key]; exists {
+		if now.Sub(entry.createdAt) < ttl {
+			return entry.cascadeID
+		}
+	}
+	return ""
+}
+
+func (p *Proxy) setCascadeDedup(key string, cascadeID string) {
+	p.msgDedupMu.Lock()
+	defer p.msgDedupMu.Unlock()
+	if p.cascadeDedup == nil {
+		p.cascadeDedup = make(map[string]cascadeDedupEntry)
+	}
+	p.cascadeDedup[key] = cascadeDedupEntry{
+		cascadeID: cascadeID,
+		createdAt: time.Now(),
+	}
+}
+
 func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Request, rp http.Handler, reqPath string, port int, token string) {
+	clientMsgID := strings.TrimSpace(r.Header.Get("X-Client-Message-Id"))
+	if clientMsgID == "" {
+		clientMsgID = strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	}
+	if clientMsgID != "" {
+		dedupKey := "client_msg:" + clientMsgID
+		if p.checkAndRecordMessageDedup(dedupKey, 60*time.Second) {
+			log.Printf("[Proxy] Deduplicated repeat SendUserCascadeMessage via clientMsgID: %s", clientMsgID)
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Content-Length", "2")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("{}"))
+			return
+		}
+	}
+
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "Failed to read request body", http.StatusBadRequest)
@@ -408,7 +466,7 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 	if err := json.Unmarshal(bodyBytes, &rawMap); err == nil {
 		cascadeID, _ = rawMap["cascadeId"].(string)
 
-		// Short-window idempotency check: prevent duplicate triggers within 2.5 seconds
+		// Short-window idempotency check: prevent duplicate triggers within 15 seconds
 		var textContent strings.Builder
 		if items, ok := rawMap["items"].([]interface{}); ok {
 			for _, it := range items {
@@ -441,8 +499,8 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 
 		if cascadeID != "" && textContent.Len() > 0 {
 			dedupKey := fmt.Sprintf("%s:%x", cascadeID, sha256.Sum256([]byte(textContent.String())))
-			if p.checkAndRecordMessageDedup(dedupKey, 2500*time.Millisecond) {
-				log.Printf("[Proxy] Deduplicated repeat SendUserCascadeMessage for cascade %s (textLen=%d)", cascadeID, textContent.Len())
+			if p.checkAndRecordMessageDedup(dedupKey, 15*time.Second) {
+				log.Printf("[Proxy] Deduplicated repeat SendUserCascadeMessage for cascade %s (textLen=%d, hashDedup)", cascadeID, textContent.Len())
 				w.Header().Set("Content-Type", "application/json")
 				w.Header().Set("Content-Length", "2")
 				w.WriteHeader(http.StatusOK)

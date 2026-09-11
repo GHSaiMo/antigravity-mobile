@@ -607,6 +607,7 @@ public final class ChatViewModel {
             ))
             
             // Dispatch to server with deliveryStrategy = 2 (WHEN_IDLE)
+            let queueClientMsgId = UUID().uuidString
             Task { [weak self] in
                 guard let self else { return }
                 do {
@@ -616,6 +617,7 @@ public final class ChatViewModel {
                         images: images,
                         deliveryStrategy: 2,
                         cascadeConfigRaw: self.cascadeConfigRaw,
+                        clientMessageId: queueClientMsgId,
                         baseURL: url
                     )
                 } catch {
@@ -636,8 +638,9 @@ public final class ChatViewModel {
             self.isNewConversation = false
         }
         
-        // Optimistic update
-        let optId = "optimistic-\(UUID().uuidString)"
+        // Optimistic update with unique client message id
+        let clientMessageId = UUID().uuidString
+        let optId = "optimistic-\(clientMessageId)"
         messages.append(ChatMessage(id: optId, sender: .user, content: text, imageDataList: images ?? []))
         self.pendingOptimisticMessageId = optId
         self.isAwaitingResponse = true
@@ -670,6 +673,7 @@ public final class ChatViewModel {
                     prompt: initialPrompt,
                     model: settings.activeModelEnum,
                     projectId: pid,
+                    clientMessageId: clientMessageId,
                     baseURL: url
                 )
                 self.cascadeId = newCascadeId
@@ -704,6 +708,7 @@ public final class ChatViewModel {
                         text: text,
                         images: imgs,
                         cascadeConfigRaw: cascadeConfigRaw,
+                        clientMessageId: UUID().uuidString,
                         baseURL: url
                     )
                 }
@@ -718,6 +723,7 @@ public final class ChatViewModel {
                     text: text,
                     images: images,
                     cascadeConfigRaw: cascadeConfigRaw,
+                    clientMessageId: clientMessageId,
                     baseURL: url
                 )
                 // Allow upstream 250ms to register task and update state before first eager sync
@@ -727,19 +733,39 @@ public final class ChatViewModel {
             return true
         } catch {
             print("❌ sendMessage error: \(error)")
-            errorMessage = error.localizedDescription
-            isRunning = false
-            isAwaitingResponse = false
-            awaitingResponseSince = nil
-            if let optId = pendingOptimisticMessageId {
-                messages.removeAll(where: { $0.id == optId })
-                self.pendingOptimisticMessageId = nil
-            }
-            // Restore text so user does not lose their input
-            inputText = text
-            // If session was not yet created, preserve isNewConversation so the user stays in draft mode
-            if cascadeId.isEmpty && draftProject != nil {
-                isNewConversation = true
+            let errorDesc = error.localizedDescription
+            errorMessage = errorDesc
+            
+            let isTimeoutOrDispatched = errorDesc.contains("超时") ||
+                                       errorDesc.contains("timed out") ||
+                                       errorDesc.contains("送达服务器")
+            
+            if isTimeoutOrDispatched {
+                // Keep the optimistic message in the chat list, but stop active loading spinners so user can see it
+                self.isAwaitingResponse = false
+                self.awaitingResponseSince = nil
+                self.isRunning = false
+                // Do NOT restore inputText: keep it empty so user won't duplicate send!
+                // Trigger background refresh after a short delay to check if server actually executed it
+                Task { [weak self] in
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    guard let self else { return }
+                    await self.loadMessages(isBackgroundPoll: true)
+                }
+            } else {
+                isRunning = false
+                isAwaitingResponse = false
+                awaitingResponseSince = nil
+                if let optId = pendingOptimisticMessageId {
+                    messages.removeAll(where: { $0.id == optId })
+                    self.pendingOptimisticMessageId = nil
+                }
+                // Restore text so user does not lose their input on hard network failure
+                inputText = text
+                // If session was not yet created, preserve isNewConversation so the user stays in draft mode
+                if cascadeId.isEmpty && draftProject != nil {
+                    isNewConversation = true
+                }
             }
             stopPollingFallback()
             return false
@@ -770,6 +796,7 @@ public final class ChatViewModel {
                 text: item.text,
                 deliveryStrategy: 1,
                 cascadeConfigRaw: cascadeConfigRaw,
+                clientMessageId: UUID().uuidString,
                 baseURL: url
             )
         } catch {

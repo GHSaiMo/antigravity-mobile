@@ -583,6 +583,38 @@ func TestSendUserCascadeMessageDeduplication(t *testing.T) {
 	if upstreamCallCount != 2 {
 		t.Fatalf("expected upstreamCallCount to be 2 for different text, got %d", upstreamCallCount)
 	}
+
+	// 4. ClientMessageId header deduplication test
+	clientMsgID := "msg-unique-uuid-123"
+	req4 := httptest.NewRequest(http.MethodPost, "/api/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage", strings.NewReader(`{"cascadeId":"cascade-dup-test","items":[{"text":"Command with header"}]}`))
+	req4.Header.Set("Content-Type", "application/json")
+	req4.Header.Set("X-Client-Message-Id", clientMsgID)
+	rec4 := httptest.NewRecorder()
+	p.ServeHTTP(rec4, req4)
+
+	if rec4.Code != http.StatusOK {
+		t.Fatalf("fourth request expected 200, got %d", rec4.Code)
+	}
+	if upstreamCallCount != 3 {
+		t.Fatalf("expected upstreamCallCount to be 3, got %d", upstreamCallCount)
+	}
+
+	// 5. Repeat with same X-Client-Message-Id -> must be deduplicated
+	req5 := httptest.NewRequest(http.MethodPost, "/api/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage", strings.NewReader(`{"cascadeId":"cascade-dup-test","items":[{"text":"Command with header"}]}`))
+	req5.Header.Set("Content-Type", "application/json")
+	req5.Header.Set("X-Client-Message-Id", clientMsgID)
+	rec5 := httptest.NewRecorder()
+	p.ServeHTTP(rec5, req5)
+
+	if rec5.Code != http.StatusOK {
+		t.Fatalf("fifth duplicate request expected 200, got %d", rec5.Code)
+	}
+	if rec5.Body.String() != "{}" {
+		t.Fatalf("expected response body '{}', got %q", rec5.Body.String())
+	}
+	if upstreamCallCount != 3 {
+		t.Fatalf("expected upstreamCallCount to remain 3 (deduplicated by clientMsgID), got %d", upstreamCallCount)
+	}
 }
 
 func TestDeleteCascadeTrajectoryProxy(t *testing.T) {
