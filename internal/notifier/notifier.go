@@ -213,24 +213,15 @@ func (n *Notifier) OnTrajectoryUpdate(details *proxy.TrajectoryDetails) {
 		return
 	}
 
-	// 1. Check for Pending Interaction
-	if details.PendingInteraction != nil {
+	// 1. Check for Pending Interaction (only while the cascade is actively RUNNING)
+	if details.Status == "CASCADE_RUN_STATUS_RUNNING" && details.PendingInteraction != nil {
 		_ = n.NotifyAction(details.CascadeID, details.Title, details.PendingInteraction)
 		return
 	}
 
-	// 2. Check for Plan Proceed
-	if details.CanProceed {
-		_ = n.NotifyProceed(details.CascadeID, details.Title, details.TotalSteps)
-		return
-	}
-
-	// 3. Check for Terminal Completion
-	if (details.Status == "CASCADE_RUN_STATUS_FAILED" || details.Status == "CASCADE_RUN_STATUS_ERROR" || details.HasError) && details.TotalSteps > 0 {
-		_ = n.NotifyFailed(details.CascadeID, details.Title, details.TotalSteps)
-	} else if (details.Status == "CASCADE_RUN_STATUS_COMPLETED" || details.Status == "CASCADE_RUN_STATUS_IDLE") && details.TotalSteps > 0 {
-		_ = n.NotifyCompleted(details.CascadeID, details.Title, details.TotalSteps)
-	}
+	// Terminal completion (Completed/Failed) and Plan Proceed notifications are handled
+	// strictly by the background Watcher's state transition engine (detecting RUNNING -> IDLE/COMPLETED).
+	// This avoids spurious notifications when users open or view historical/idle conversations.
 }
 
 func truncateString(s string, maxLen int) string {
