@@ -114,6 +114,12 @@ type TrajectoryCache struct {
 	lastKnownConfig   json.RawMessage
 	lastKnownConfigMu sync.RWMutex
 
+	cascadeConfigs   map[string]json.RawMessage
+	cascadeConfigsMu sync.RWMutex
+
+	cascadeModels   map[string]string
+	cascadeModelsMu sync.RWMutex
+
 	loadedCascades   map[string]bool
 	loadedCascadesMu sync.Mutex
 	lastSyncedPort   int
@@ -127,6 +133,8 @@ func NewTrajectoryCache() *TrajectoryCache {
 	return &TrajectoryCache{
 		trajCache:       make(map[string]*trajectoryCacheEntry),
 		cascadeTitles:   make(map[string]string),
+		cascadeConfigs:  make(map[string]json.RawMessage),
+		cascadeModels:   make(map[string]string),
 		loadedCascades:  make(map[string]bool),
 		deletedCascades: make(map[string]time.Time),
 	}
@@ -714,6 +722,14 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 
 	var activeConfig json.RawMessage
 	var activeModel string
+	if cid := rawResp.Trajectory.CascadeID; cid != "" {
+		if recModel, recCfg := GetCascadeModel(cid); recModel != "" {
+			activeModel = canonicalModelName(recModel)
+			if len(recCfg) > 0 {
+				activeConfig = recCfg
+			}
+		}
+	}
 	for i := len(rawResp.Trajectory.ExecutorMetadatas) - 1; i >= 0; i-- {
 		cfg := rawResp.Trajectory.ExecutorMetadatas[i].CascadeConfig
 		if len(cfg) > 0 && string(cfg) != "null" && string(cfg) != "{}" {
@@ -1151,8 +1167,59 @@ func SetLastKnownCascadeConfig(cfg json.RawMessage) {
 	defaultTrajCache.lastKnownConfigMu.Unlock()
 }
 
+// SetCascadeModel records the active model name and cascadeConfig explicitly chosen/applied for a cascade.
+func SetCascadeModel(cascadeID, modelName string, cfg json.RawMessage) {
+	if cascadeID == "" {
+		return
+	}
+	if modelName != "" {
+		defaultTrajCache.cascadeModelsMu.Lock()
+		if defaultTrajCache.cascadeModels == nil {
+			defaultTrajCache.cascadeModels = make(map[string]string)
+		}
+		defaultTrajCache.cascadeModels[cascadeID] = modelName
+		defaultTrajCache.cascadeModelsMu.Unlock()
+	}
+	if len(cfg) > 0 && string(cfg) != "null" && string(cfg) != "{}" {
+		defaultTrajCache.cascadeConfigsMu.Lock()
+		if defaultTrajCache.cascadeConfigs == nil {
+			defaultTrajCache.cascadeConfigs = make(map[string]json.RawMessage)
+		}
+		defaultTrajCache.cascadeConfigs[cascadeID] = cfg
+		defaultTrajCache.cascadeConfigsMu.Unlock()
+		SetLastKnownCascadeConfig(cfg)
+	}
+}
+
+// GetCascadeModel retrieves any explicitly recorded model name and config for a cascade.
+func GetCascadeModel(cascadeID string) (string, json.RawMessage) {
+	if cascadeID == "" {
+		return "", nil
+	}
+	defaultTrajCache.cascadeModelsMu.RLock()
+	model := ""
+	if defaultTrajCache.cascadeModels != nil {
+		model = defaultTrajCache.cascadeModels[cascadeID]
+	}
+	defaultTrajCache.cascadeModelsMu.RUnlock()
+
+	defaultTrajCache.cascadeConfigsMu.RLock()
+	var cfg json.RawMessage
+	if defaultTrajCache.cascadeConfigs != nil {
+		cfg = defaultTrajCache.cascadeConfigs[cascadeID]
+	}
+	defaultTrajCache.cascadeConfigsMu.RUnlock()
+
+	return model, cfg
+}
+
 // GetCascadeConfig retrieves the cascade config for the given conversation or falls back to last known.
 func (p *Proxy) GetCascadeConfig(cascadeID string, port int, token string) json.RawMessage {
+	if cascadeID != "" {
+		if _, recordedCfg := GetCascadeModel(cascadeID); len(recordedCfg) > 0 {
+			return recordedCfg
+		}
+	}
 	if cascadeID != "" && port > 0 {
 		if rawResp, err := p.fetchUpstreamTrajectory(cascadeID, port, token); err == nil && rawResp != nil {
 			metas := rawResp.Trajectory.ExecutorMetadatas
