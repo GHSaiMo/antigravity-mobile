@@ -669,53 +669,59 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 					uri = ca.ActionSpec.CreateFile.Path.AbsoluteURI
 				}
 
-				isArtifact := ca.IsArtifactFile ||
+				isScratch := strings.Contains(uri, "/scratch/")
+				isWalkthrough := strings.Contains(uri, "walkthrough.md")
+				isPlan := strings.Contains(uri, "implementation_plan.md")
+
+				isArtifact := (ca.IsArtifactFile ||
 					strings.Contains(uri, "/brain/") ||
 					strings.Contains(uri, ".gemini/antigravity/brain") ||
-					strings.Contains(uri, "implementation_plan.md")
+					isPlan) && !isScratch
 
 				if isArtifact {
 					reqFeedback := false
-					if ca.ArtifactMetadata != nil && ca.ArtifactMetadata.RequestFeedback {
-						reqFeedback = true
-					}
-
-					filePath := uri
-					if strings.HasPrefix(filePath, "file://") {
-						filePath = strings.TrimPrefix(filePath, "file://")
-					}
-
-					// If step metadata was missing but this is an artifact step in the current turn, check its specific metadata file
-					if !reqFeedback && filePath != "" {
-						if metaData, err := os.ReadFile(filePath + ".metadata.json"); err == nil {
-							var meta struct {
-								RequestFeedback bool `json:"requestFeedback"`
-							}
-							if err := json.Unmarshal(metaData, &meta); err == nil && meta.RequestFeedback {
-								reqFeedback = true
-							}
+					if !isWalkthrough {
+						if ca.ArtifactMetadata != nil && ca.ArtifactMetadata.RequestFeedback {
+							reqFeedback = true
 						}
-					}
 
-					// Also fallback check ~/.gemini/antigravity/brain/<cascadeId>/implementation_plan.md.metadata.json
-					if !reqFeedback && rawResp.Trajectory.CascadeID != "" {
-						if home, err := os.UserHomeDir(); err == nil && home != "" {
-							planMetaPath := filepath.Join(home, ".gemini/antigravity/brain", rawResp.Trajectory.CascadeID, "implementation_plan.md.metadata.json")
-							if metaData, err := os.ReadFile(planMetaPath); err == nil {
+						filePath := uri
+						if strings.HasPrefix(filePath, "file://") {
+							filePath = strings.TrimPrefix(filePath, "file://")
+						}
+
+						// If step metadata was missing but this is an artifact step in the current turn, check its specific metadata file
+						if !reqFeedback && filePath != "" {
+							if metaData, err := os.ReadFile(filePath + ".metadata.json"); err == nil {
 								var meta struct {
 									RequestFeedback bool `json:"requestFeedback"`
 								}
 								if err := json.Unmarshal(metaData, &meta); err == nil && meta.RequestFeedback {
 									reqFeedback = true
-									if uri == "" {
-										uri = "file://" + filepath.Join(home, ".gemini/antigravity/brain", rawResp.Trajectory.CascadeID, "implementation_plan.md")
+								}
+							}
+						}
+
+						// Fallback: ONLY check implementation_plan.md.metadata.json if this step actually targets implementation_plan.md
+						if !reqFeedback && isPlan && rawResp.Trajectory.CascadeID != "" {
+							if home, err := os.UserHomeDir(); err == nil && home != "" {
+								planMetaPath := filepath.Join(home, ".gemini/antigravity/brain", rawResp.Trajectory.CascadeID, "implementation_plan.md.metadata.json")
+								if metaData, err := os.ReadFile(planMetaPath); err == nil {
+									var meta struct {
+										RequestFeedback bool `json:"requestFeedback"`
+									}
+									if err := json.Unmarshal(metaData, &meta); err == nil && meta.RequestFeedback {
+										reqFeedback = true
+										if uri == "" {
+											uri = "file://" + filepath.Join(home, ".gemini/antigravity/brain", rawResp.Trajectory.CascadeID, "implementation_plan.md")
+										}
 									}
 								}
 							}
 						}
 					}
 
-					if reqFeedback && uri != "" {
+					if reqFeedback && uri != "" && !isWalkthrough {
 						canProceed = true
 						proceedArtifactURI = uri
 					}
