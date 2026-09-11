@@ -29,6 +29,8 @@ public struct StreamUpdatePayload: Decodable, Sendable {
     public let pendingInteraction: PendingInteraction?
     public let queuedMessages: [QueuedMessageItem]?
     public let runningTasks: [RunningTaskItem]?
+    public let activeModel: String?
+    public let modelDisplayName: String?
 }
 
 @Observable

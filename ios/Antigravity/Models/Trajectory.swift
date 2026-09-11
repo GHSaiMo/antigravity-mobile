@@ -198,6 +198,7 @@ public struct MediaDataPayload: Codable, Sendable {
 // Request to send a message
 public struct SendUserCascadeMessageRequest: Codable, Sendable {
     public let cascadeId: String
+    public let model: String?
     public let items: [TextItem]
     public let images: [ImageDataPayload]?
     public let media: [MediaDataPayload]?
@@ -205,8 +206,9 @@ public struct SendUserCascadeMessageRequest: Codable, Sendable {
     public let artifactComments: [ArtifactCommentPayload]?
     public let deliveryStrategy: Int?
     
-    public init(cascadeId: String, text: String, images: [ImageDataPayload]? = nil, media: [MediaDataPayload]? = nil, deliveryStrategy: Int? = nil, cascadeConfigRaw: String? = nil) {
+    public init(cascadeId: String, text: String, model: String? = nil, images: [ImageDataPayload]? = nil, media: [MediaDataPayload]? = nil, deliveryStrategy: Int? = nil, cascadeConfigRaw: String? = nil) {
         self.cascadeId = cascadeId
+        self.model = model
         self.items = text.isEmpty ? [] : [TextItem(text: text)]
         self.images = images
         self.media = media
@@ -215,8 +217,9 @@ public struct SendUserCascadeMessageRequest: Codable, Sendable {
         self.deliveryStrategy = deliveryStrategy
     }
     
-    public init(cascadeId: String, items: [TextItem] = [], images: [ImageDataPayload]? = nil, media: [MediaDataPayload]? = nil, deliveryStrategy: Int? = nil, cascadeConfigRaw: String? = nil, artifactComments: [ArtifactCommentPayload]? = nil) {
+    public init(cascadeId: String, items: [TextItem] = [], model: String? = nil, images: [ImageDataPayload]? = nil, media: [MediaDataPayload]? = nil, deliveryStrategy: Int? = nil, cascadeConfigRaw: String? = nil, artifactComments: [ArtifactCommentPayload]? = nil) {
         self.cascadeId = cascadeId
+        self.model = model
         self.items = items
         self.images = images
         self.media = media
