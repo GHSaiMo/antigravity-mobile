@@ -156,6 +156,81 @@ func TestParseTrajectoryDetails_CanProceed(t *testing.T) {
 	if details3.CanProceed {
 		t.Fatalf("expected CanProceed to be false when code files were modified in same turn, got true")
 	}
+
+	// Test 4: Walkthrough document in the current turn must never trigger CanProceed
+	rawJSONWalkthrough := `{
+		"status": "CASCADE_RUN_STATUS_IDLE",
+		"trajectory": {
+			"cascadeId": "test-cascade-123",
+			"steps": [
+				{
+					"type": "CORTEX_STEP_TYPE_USER_INPUT",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"userInput": { "userResponse": "Remove animations and verify" }
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_PLANNER_RESPONSE",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"plannerResponse": { "response": "Completed task, updating walkthrough" }
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_CODE_ACTION",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"codeAction": {
+						"isArtifactFile": true,
+						"artifactMetadata": {
+							"summary": "Walkthrough delivery report",
+							"requestFeedback": false,
+							"userFacing": true
+						},
+						"actionResult": {
+							"edit": { "absoluteUri": "file:///path/to/.gemini/antigravity/brain/test-cascade-123/walkthrough.md" }
+						}
+					}
+				}
+			]
+		}
+	}`
+	var rawResp4 upstreamTrajectoryResp
+	if err := json.Unmarshal([]byte(rawJSONWalkthrough), &rawResp4); err != nil {
+		t.Fatalf("failed to unmarshal test JSON 4: %v", err)
+	}
+	details4 := p.ParseTrajectoryDetails(&rawResp4)
+	if details4.CanProceed {
+		t.Fatalf("expected CanProceed to be false for walkthrough.md, got true")
+	}
+
+	// Test 5: Scratch scripts in brain/scratch/ should count as code actions, not feedback artifacts
+	rawJSONScratch := `{
+		"status": "CASCADE_RUN_STATUS_IDLE",
+		"trajectory": {
+			"cascadeId": "test-cascade-123",
+			"steps": [
+				{
+					"type": "CORTEX_STEP_TYPE_USER_INPUT",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"userInput": { "userResponse": "Run scratch script" }
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_CODE_ACTION",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"codeAction": {
+						"actionResult": {
+							"edit": { "absoluteUri": "file:///path/to/.gemini/antigravity/brain/test-cascade-123/scratch/build.py" }
+						}
+					}
+				}
+			]
+		}
+	}`
+	var rawResp5 upstreamTrajectoryResp
+	if err := json.Unmarshal([]byte(rawJSONScratch), &rawResp5); err != nil {
+		t.Fatalf("failed to unmarshal test JSON 5: %v", err)
+	}
+	details5 := p.ParseTrajectoryDetails(&rawResp5)
+	if details5.CanProceed {
+		t.Fatalf("expected CanProceed to be false when scratch script was modified, got true")
+	}
 }
 
 func TestParseTrajectoryDetails_PendingInteraction(t *testing.T) {
