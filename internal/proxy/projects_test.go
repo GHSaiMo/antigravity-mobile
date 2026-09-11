@@ -353,3 +353,54 @@ func TestHandleCreateCascadeWithPromptModelSync(t *testing.T) {
 	}
 }
 
+func TestApplyModelToCascadeConfig_ClaudeLimits(t *testing.T) {
+	// 1. Initial Gemini config with 256000 maxTokenLimit
+	initialGeminiConfig := map[string]interface{}{
+		"plannerConfig": map[string]interface{}{
+			"planModel": "MODEL_PLACEHOLDER_M318",
+			"modelName": "gemini-3.8-flash-high",
+		},
+		"checkpointConfig": map[string]interface{}{
+			"maxTokenLimit":       256000,
+			"tokenThreshold":      140000,
+			"isSync":              true,
+			"useLastPlannerModel": true,
+		},
+	}
+
+	// 2. Switch to Claude Opus 4.6 Thinking
+	claudeConfig := applyModelToCascadeConfig(initialGeminiConfig, "MODEL_PLACEHOLDER_M26", "claude-opus-4-6-thinking")
+	cfgMap, ok := claudeConfig.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected map, got %T", claudeConfig)
+	}
+
+	cpCfg, ok := cfgMap["checkpointConfig"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected checkpointConfig map, got %T", cfgMap["checkpointConfig"])
+	}
+
+	if limit, ok := cpCfg["maxTokenLimit"].(int); !ok || limit > 186000 || limit != 160000 {
+		t.Errorf("expected Claude maxTokenLimit 160000 (must be <= 186000), got %v", cpCfg["maxTokenLimit"])
+	}
+	if thresh, ok := cpCfg["tokenThreshold"].(int); !ok || thresh != 50000 {
+		t.Errorf("expected Claude tokenThreshold 50000, got %v", cpCfg["tokenThreshold"])
+	}
+	if sync, ok := cpCfg["isSync"].(bool); !ok || sync != false {
+		t.Errorf("expected Claude isSync false, got %v", cpCfg["isSync"])
+	}
+
+	// 3. Switch back to Gemini
+	geminiRestored := applyModelToCascadeConfig(claudeConfig, "MODEL_PLACEHOLDER_M318", "gemini-3.8-flash-high")
+	geminiMap := geminiRestored.(map[string]interface{})
+	geminiCp := geminiMap["checkpointConfig"].(map[string]interface{})
+
+	if limit, ok := geminiCp["maxTokenLimit"].(int); !ok || limit != 256000 {
+		t.Errorf("expected Gemini maxTokenLimit restored to 256000, got %v", geminiCp["maxTokenLimit"])
+	}
+	if thresh, ok := geminiCp["tokenThreshold"].(int); !ok || thresh != 140000 {
+		t.Errorf("expected Gemini tokenThreshold restored to 140000, got %v", geminiCp["tokenThreshold"])
+	}
+}
+
+

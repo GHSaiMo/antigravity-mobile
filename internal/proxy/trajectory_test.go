@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -520,4 +521,81 @@ func TestParseTrajectoryDetails_ErrorMessage(t *testing.T) {
 		t.Errorf("expected descriptive error text, got %q", errMsg.Text)
 	}
 }
+
+func TestParseTrajectoryDetails_HistoricalErrorResolved(t *testing.T) {
+	// Scenario matching LoRA session:
+	// Turn 1 had an error at step 1.
+	// Turn 2 had a user input at step 2 and a successful planner response at step 3.
+	// The session should NOT be marked as an error.
+	rawJSON := `{
+		"status": "CASCADE_RUN_STATUS_IDLE",
+		"trajectory": {
+			"cascadeId": "lora-session",
+			"steps": [
+				{
+					"type": "CORTEX_STEP_TYPE_USER_INPUT",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"userInput": {
+						"userResponse": "旧指令"
+					}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_ERROR_MESSAGE",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"errorMessage": {
+						"error": {
+							"userErrorMessage": "The stream was interrupted.",
+							"shortError": "stream interrupted"
+						}
+					}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_USER_INPUT",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"userInput": {
+						"userResponse": "新指令"
+					}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_PLANNER_RESPONSE",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"plannerResponse": {
+						"response": "新指令已顺利完成，没有错误。"
+					}
+				}
+			]
+		}
+	}`
+
+	var rawResp upstreamTrajectoryResp
+	if err := json.Unmarshal([]byte(rawJSON), &rawResp); err != nil {
+		t.Fatalf("failed to unmarshal test JSON: %v", err)
+	}
+
+	p := &Proxy{}
+	details := p.ParseTrajectoryDetails(&rawResp)
+
+	if details.HasError {
+		t.Errorf("expected HasError to be false for resolved historical error, got true")
+	}
+	if details.Status != "CASCADE_RUN_STATUS_IDLE" {
+		t.Errorf("expected Status to be CASCADE_RUN_STATUS_IDLE, got %s", details.Status)
+	}
+	if details.ErrorMessage != "" {
+		t.Errorf("expected empty ErrorMessage, got %q", details.ErrorMessage)
+	}
+
+	// But historical messages should still include the error message
+	var hasErrorMessage bool
+	for _, msg := range details.AllMessages {
+		if msg.Type == "error" && strings.Contains(msg.Text, "stream interrupted") {
+			hasErrorMessage = true
+			break
+		}
+	}
+	if !hasErrorMessage {
+		t.Errorf("expected historical error message to be preserved in AllMessages")
+	}
+}
+
 

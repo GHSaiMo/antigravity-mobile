@@ -104,9 +104,12 @@ public final class ChatViewModel {
             self.hasMore = cached.hasMore
             self.nextOffset = cached.nextOffset
             self.isRunning = (cached.status == "CASCADE_RUN_STATUS_RUNNING")
-            self.hasError = (cached.status == "CASCADE_RUN_STATUS_ERROR" || healed.contains(where: { $0.isError }))
+            let lastUserIdx = healed.lastIndex(where: { $0.isUser }) ?? -1
+            let latestTurn = lastUserIdx >= 0 ? healed.suffix(from: lastUserIdx + 1) : healed[...]
+            let latestHasErr = latestTurn.contains(where: { $0.isError }) && !(latestTurn.last?.isAgent == true)
+            self.hasError = (cached.status == "CASCADE_RUN_STATUS_ERROR" || latestHasErr)
             if self.hasError {
-                self.trajectoryErrorMessage = healed.last(where: { $0.isError })?.content
+                self.trajectoryErrorMessage = latestTurn.last(where: { $0.isError })?.content
             }
             self.cascadeConfigRaw = cached.cascadeConfigRaw
             self.canProceed = false
@@ -218,10 +221,13 @@ public final class ChatViewModel {
             self.isLoading = false
             
             let previouslyRunning = self.isRunning
-            let isTrajectoryError = result.hasError || result.status == "CASCADE_RUN_STATUS_ERROR" || self.messages.contains(where: { $0.isError })
+            let lastUserIdx = self.messages.lastIndex(where: { $0.isUser }) ?? -1
+            let latestTurn = lastUserIdx >= 0 ? self.messages.suffix(from: lastUserIdx + 1) : self.messages[...]
+            let latestHasErr = latestTurn.contains(where: { $0.isError }) && !(latestTurn.last?.isAgent == true)
+            let isTrajectoryError = result.hasError || result.status == "CASCADE_RUN_STATUS_ERROR" || latestHasErr
             self.hasError = isTrajectoryError
             if isTrajectoryError {
-                self.trajectoryErrorMessage = result.errorMessage ?? self.messages.last(where: { $0.isError })?.content
+                self.trajectoryErrorMessage = result.errorMessage ?? latestTurn.last(where: { $0.isError })?.content
                 self.isRunning = false
                 self.isAwaitingResponse = false
                 self.awaitingResponseSince = nil
@@ -580,9 +586,32 @@ public final class ChatViewModel {
         guard var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
         var plannerConfig = json["plannerConfig"] as? [String: Any] ?? [:]
         plannerConfig["planModel"] = modelEnum
-        plannerConfig["requestedModel"] = modelEnum
+        plannerConfig["requestedModel"] = ["model": modelEnum]
         plannerConfig["modelName"] = modelName
         json["plannerConfig"] = plannerConfig
+        
+        var checkpointConfig = json["checkpointConfig"] as? [String: Any] ?? [:]
+        let isClaude = modelEnum.lowercased().contains("claude") ||
+            modelName.lowercased().contains("claude") ||
+            modelEnum == "MODEL_PLACEHOLDER_M26"
+        
+        if isClaude {
+            checkpointConfig["maxTokenLimit"] = 160000
+            checkpointConfig["tokenThreshold"] = 50000
+            checkpointConfig["isSync"] = false
+            checkpointConfig["useLastPlannerModel"] = false
+        } else {
+            if let limit = checkpointConfig["maxTokenLimit"] as? Int, limit <= 160000 {
+                checkpointConfig["maxTokenLimit"] = 256000
+            }
+            if let thresh = checkpointConfig["tokenThreshold"] as? Int, thresh <= 50000 {
+                checkpointConfig["tokenThreshold"] = 140000
+            }
+            checkpointConfig["isSync"] = true
+            checkpointConfig["useLastPlannerModel"] = true
+        }
+        json["checkpointConfig"] = checkpointConfig
+        
         if let patchedData = try? JSONSerialization.data(withJSONObject: json),
            let patchedStr = String(data: patchedData, encoding: .utf8) {
             self.cascadeConfigRaw = patchedStr
@@ -1092,11 +1121,14 @@ public final class ChatViewModel {
         }
         
         let previouslyRunning = self.isRunning
-        let isStreamError = payload.hasError == true || payload.status == "CASCADE_RUN_STATUS_ERROR" || self.messages.contains(where: { $0.isError })
+        let lastUserIdx = self.messages.lastIndex(where: { $0.isUser }) ?? -1
+        let latestTurn = lastUserIdx >= 0 ? self.messages.suffix(from: lastUserIdx + 1) : self.messages[...]
+        let latestHasErr = latestTurn.contains(where: { $0.isError }) && !(latestTurn.last?.isAgent == true)
+        let isStreamError = payload.hasError == true || payload.status == "CASCADE_RUN_STATUS_ERROR" || latestHasErr
         self.hasError = isStreamError
         let statusString: String
         if isStreamError {
-            self.trajectoryErrorMessage = payload.errorMessage ?? self.messages.last(where: { $0.isError })?.content
+            self.trajectoryErrorMessage = payload.errorMessage ?? latestTurn.last(where: { $0.isError })?.content
             self.isRunning = false
             self.isAwaitingResponse = false
             self.awaitingResponseSince = nil

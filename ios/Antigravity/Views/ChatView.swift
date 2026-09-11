@@ -274,23 +274,6 @@ public struct ChatView: View {
         }
         .navigationTitle(viewModel.currentTitle)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            if viewModel.hasError {
-                ToolbarItem(placement: .topBarTrailing) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "exclamationmark.circle.fill")
-                            .font(.system(size: 11, weight: .bold))
-                        Text("error")
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
-                    }
-                    .foregroundColor(.red)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(Color.red.opacity(0.15))
-                    .clipShape(Capsule())
-                }
-            }
-        }
         .onAppear {
             isViewAppeared = true
             if shouldAutoFocus {

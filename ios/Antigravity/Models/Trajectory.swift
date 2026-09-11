@@ -339,6 +339,16 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
         self.imageUrls = imageUrls
     }
     
+    public var isUser: Bool {
+        if case .user = sender { return true }
+        return false
+    }
+
+    public var isAgent: Bool {
+        if case .agent = sender { return true }
+        return false
+    }
+
     public var isToolBatch: Bool {
         if case .toolBatch = sender { return true }
         return false

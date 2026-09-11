@@ -539,7 +539,6 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 	totalSteps := len(steps)
 
 	var allMessages []CascadeMessageItem
-	hasError := false
 	var lastErrorText string
 	pendingTools := 0
 	toolNamesMap := make(map[string]bool)
@@ -637,7 +636,6 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 			}
 		} else if stepType == "CORTEX_STEP_TYPE_ERROR_MESSAGE" {
 			flushTools()
-			hasError = true
 			lastErrorText = extractErrorText(s)
 			allMessages = append(allMessages, CascadeMessageItem{
 				ID:   fmt.Sprintf("step-%d", idx),
@@ -1023,8 +1021,26 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 		}
 	}
 
+	// Determine error state scoped strictly to the latest turn (after lastUserInputIdx).
+	// Historical errors in previous turns that were subsequently recovered must not mark the session as an error.
+	latestTurnHasError := false
+	var latestTurnErrorText string
+	for i := lastUserInputIdx + 1; i < len(steps); i++ {
+		s := steps[i]
+		if s.Type == "CORTEX_STEP_TYPE_ERROR_MESSAGE" {
+			latestTurnHasError = true
+			latestTurnErrorText = extractErrorText(s)
+		} else if s.Type == "CORTEX_STEP_TYPE_PLANNER_RESPONSE" {
+			if s.PlannerResponse != nil && strings.TrimSpace(s.PlannerResponse.Response) != "" {
+				// If planner succeeded with response in this turn, error was resolved
+				latestTurnHasError = false
+				latestTurnErrorText = ""
+			}
+		}
+	}
+
 	finalStatus := rawResp.Status
-	if (rawResp.Status != "CASCADE_RUN_STATUS_RUNNING" || (len(steps) > 0 && steps[len(steps)-1].Type == "CORTEX_STEP_TYPE_ERROR_MESSAGE")) && hasError {
+	if (rawResp.Status != "CASCADE_RUN_STATUS_RUNNING" || (len(steps) > 0 && steps[len(steps)-1].Type == "CORTEX_STEP_TYPE_ERROR_MESSAGE")) && latestTurnHasError {
 		finalStatus = "CASCADE_RUN_STATUS_ERROR"
 	}
 
@@ -1032,8 +1048,8 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 		CascadeID:          rawResp.Trajectory.CascadeID,
 		Title:              title,
 		Status:             finalStatus,
-		HasError:           hasError,
-		ErrorMessage:       lastErrorText,
+		HasError:           latestTurnHasError,
+		ErrorMessage:       latestTurnErrorText,
 		Duration:           duration,
 		TotalSteps:         totalSteps,
 		TotalTools:         totalToolsCount,

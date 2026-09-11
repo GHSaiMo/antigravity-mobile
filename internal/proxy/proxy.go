@@ -1188,6 +1188,7 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 		var mu sync.Mutex
 		actionMap := make(map[string]bool)
 		errorMap := make(map[string]string)
+		clearedErrorMap := make(map[string]string)
 		sem := make(chan struct{}, 4) // Limit concurrent upstream RPCs to prevent hammering language_server
 
 		// M-5: Add overall timeout to prevent blocking indefinitely on concurrent RPCs
@@ -1217,6 +1218,10 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 						mu.Lock()
 						errorMap[cascadeID] = details.ErrorMessage
 						mu.Unlock()
+					} else {
+						mu.Lock()
+						clearedErrorMap[cascadeID] = details.Status
+						mu.Unlock()
 					}
 				}
 			}(cid)
@@ -1244,6 +1249,13 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 				summaries[cid]["hasError"] = true
 				summaries[cid]["status"] = "CASCADE_RUN_STATUS_ERROR"
 				summaries[cid]["errorMessage"] = errMsg
+			}
+		}
+		for cid, cleanStatus := range clearedErrorMap {
+			if summaries[cid] != nil && summaries[cid]["status"] == "CASCADE_RUN_STATUS_ERROR" {
+				summaries[cid]["hasError"] = false
+				summaries[cid]["status"] = cleanStatus
+				delete(summaries[cid], "errorMessage")
 			}
 		}
 	}

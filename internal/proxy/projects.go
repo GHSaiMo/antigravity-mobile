@@ -879,7 +879,8 @@ func canonicalModelName(model string) string {
 	return model
 }
 
-// applyModelToCascadeConfig patches or injects the given modelEnum and modelName into cfgObj.
+// applyModelToCascadeConfig patches or injects the given modelEnum and modelName into cfgObj,
+// and ensures checkpointConfig limits comply with model context window constraints.
 func applyModelToCascadeConfig(cfgObj interface{}, modelEnum string, modelName string) interface{} {
 	if modelEnum == "" {
 		return cfgObj
@@ -907,6 +908,56 @@ func applyModelToCascadeConfig(cfgObj interface{}, modelEnum string, modelName s
 	plannerConfig["modelName"] = modelName
 	cfgMap["plannerConfig"] = plannerConfig
 
+	// Adjust checkpointConfig to match model's context window constraints.
+	// Gemini: 1M context, allows maxTokenLimit: 256000, tokenThreshold: 140000.
+	// Claude Opus 4.6 Thinking: 250k context, maxOutputTokens: 64000.
+	// LanguageServer asserts: maxTokenLimit <= ContextWindow (250000) - MaxOutputTokens (64000) = 186000.
+	// Desktop Antigravity uses maxTokenLimit: 160000, tokenThreshold: 50000 for Claude.
+	isClaude := strings.Contains(strings.ToLower(modelEnum), "claude") ||
+		strings.Contains(strings.ToLower(modelName), "claude") ||
+		modelEnum == "MODEL_PLACEHOLDER_M26"
+
+	var checkpointConfig map[string]interface{}
+	if cp, ok := cfgMap["checkpointConfig"].(map[string]interface{}); ok && cp != nil {
+		checkpointConfig = cp
+	} else {
+		checkpointConfig = make(map[string]interface{})
+	}
+
+	if isClaude {
+		checkpointConfig["maxTokenLimit"] = 160000
+		checkpointConfig["tokenThreshold"] = 50000
+		checkpointConfig["isSync"] = false
+		checkpointConfig["useLastPlannerModel"] = false
+	} else {
+		// Restore Gemini limits if previously clamped
+		if limit, ok := getNumberAsInt(checkpointConfig["maxTokenLimit"]); ok && limit <= 160000 {
+			checkpointConfig["maxTokenLimit"] = 256000
+		}
+		if thresh, ok := getNumberAsInt(checkpointConfig["tokenThreshold"]); ok && thresh <= 50000 {
+			checkpointConfig["tokenThreshold"] = 140000
+		}
+		checkpointConfig["isSync"] = true
+		checkpointConfig["useLastPlannerModel"] = true
+	}
+	cfgMap["checkpointConfig"] = checkpointConfig
+
 	return cfgMap
+}
+
+func getNumberAsInt(val interface{}) (int, bool) {
+	if val == nil {
+		return 0, false
+	}
+	switch v := val.(type) {
+	case int:
+		return v, true
+	case int64:
+		return int(v), true
+	case float64:
+		return int(v), true
+	default:
+		return 0, false
+	}
 }
 
