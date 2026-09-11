@@ -1170,12 +1170,12 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 		}
 	}
 
-	// Also check any cascade in trajCache that has PendingInteraction or CanProceed
+	// Also check any cascade in trajCache that has PendingInteraction, CanProceed, or HasError
 	defaultTrajCache.trajCacheMu.Lock()
 	for cid, entry := range defaultTrajCache.trajCache {
 		if entry != nil && entry.data != nil {
 			details := p.ParseTrajectoryDetails(entry.data)
-			if details.PendingInteraction != nil || details.CanProceed {
+			if details.PendingInteraction != nil || details.CanProceed || details.HasError {
 				if _, exists := summaries[cid]; exists {
 					candidates[cid] = true
 				}
@@ -1187,6 +1187,7 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 	if len(candidates) > 0 {
 		var mu sync.Mutex
 		actionMap := make(map[string]bool)
+		errorMap := make(map[string]string)
 		sem := make(chan struct{}, 4) // Limit concurrent upstream RPCs to prevent hammering language_server
 
 		// M-5: Add overall timeout to prevent blocking indefinitely on concurrent RPCs
@@ -1212,6 +1213,11 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 						actionMap[cascadeID] = true
 						mu.Unlock()
 					}
+					if details.HasError {
+						mu.Lock()
+						errorMap[cascadeID] = details.ErrorMessage
+						mu.Unlock()
+					}
 				}
 			}(cid)
 		}
@@ -1231,6 +1237,13 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 		for cid, hasAction := range actionMap {
 			if hasAction && summaries[cid] != nil {
 				summaries[cid]["needsInput"] = true
+			}
+		}
+		for cid, errMsg := range errorMap {
+			if summaries[cid] != nil {
+				summaries[cid]["hasError"] = true
+				summaries[cid]["status"] = "CASCADE_RUN_STATUS_ERROR"
+				summaries[cid]["errorMessage"] = errMsg
 			}
 		}
 	}

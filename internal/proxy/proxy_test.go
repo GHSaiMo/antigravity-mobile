@@ -814,6 +814,104 @@ func TestSendUserCascadeMessageModelSwitching(t *testing.T) {
 	}
 }
 
+func TestGetAllCascadeTrajectoriesErrorStatus(t *testing.T) {
+	mockUpstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/GetAllCascadeTrajectories") {
+			w.Write([]byte(`{
+				"trajectorySummaries": {
+					"traj-with-error": {
+						"summary": "Errored session",
+						"status": "CASCADE_RUN_STATUS_IDLE",
+						"stepCount": 2,
+						"lastModifiedTime": "2026-09-11T15:00:00Z"
+					}
+				}
+			}`))
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/LoadTrajectory") {
+			w.Write([]byte("{}"))
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/GetCascadeTrajectory") {
+			w.Write([]byte(`{
+				"status": "CASCADE_RUN_STATUS_IDLE",
+				"trajectory": {
+					"cascadeId": "traj-with-error",
+					"steps": [
+						{
+							"type": "CORTEX_STEP_TYPE_USER_INPUT",
+							"status": "CORTEX_STEP_STATUS_DONE",
+							"userInput": {"userResponse": "test"}
+						},
+						{
+							"type": "CORTEX_STEP_TYPE_ERROR_MESSAGE",
+							"status": "CORTEX_STEP_STATUS_DONE",
+							"errorMessage": {
+								"error": {
+									"userErrorMessage": "Agent execution terminated due to error.",
+									"shortError": "checkpoint validation failed"
+								}
+							}
+						}
+					]
+				}
+			}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer mockUpstream.Close()
+
+	port := mockUpstream.Listener.Addr().(*net.TCPAddr).Port
+	p := NewProxy(inspector.NewInspector(10 * time.Second))
+	p.transport = mockUpstream.Client().Transport.(*http.Transport)
+	p.updateUpstream(inspector.InstanceInfo{
+		PID:       1234,
+		Port:      port,
+		CSRFToken: "test-token",
+		IsHealthy: true,
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories", strings.NewReader("{}"))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	p.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	var resp struct {
+		TrajectorySummaries map[string]struct {
+			Status       string `json:"status"`
+			HasError     bool   `json:"hasError"`
+			ErrorMessage string `json:"errorMessage"`
+		} `json:"trajectorySummaries"`
+	}
+
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	sum, ok := resp.TrajectorySummaries["traj-with-error"]
+	if !ok {
+		t.Fatalf("expected traj-with-error in summaries")
+	}
+	if !sum.HasError {
+		t.Errorf("expected HasError to be true, got false")
+	}
+	if sum.Status != "CASCADE_RUN_STATUS_ERROR" {
+		t.Errorf("expected Status CASCADE_RUN_STATUS_ERROR, got %s", sum.Status)
+	}
+	if !strings.Contains(sum.ErrorMessage, "checkpoint validation failed") {
+		t.Errorf("expected ErrorMessage to contain 'checkpoint validation failed', got %q", sum.ErrorMessage)
+	}
+}
+
+
 
 
 

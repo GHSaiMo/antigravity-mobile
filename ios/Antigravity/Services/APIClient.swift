@@ -56,6 +56,8 @@ public struct PaginatedMessagesResponse: Codable, Sendable {
     public let runningTasks: [RunningTaskItem]?
     public let activeModel: String?
     public let modelDisplayName: String?
+    public let hasError: Bool?
+    public let errorMessage: String?
     
     public struct GatewayMessageItem: Codable, Sendable {
         public let id: String
@@ -85,6 +87,8 @@ public struct FetchMessagesResult: Sendable {
     public let runningTasks: [RunningTaskItem]
     public let activeModel: String?
     public let modelDisplayName: String?
+    public let hasError: Bool
+    public let errorMessage: String?
 }
 
 public final class APIClient: Sendable {
@@ -291,6 +295,7 @@ public final class APIClient: Sendable {
                         switch item.type {
                         case "user": return .user
                         case "agent": return .agent
+                        case "error": return .error
                         default: return .toolBatch(count: item.toolCount ?? 1, tools: item.toolNames ?? [])
                         }
                     }()
@@ -308,8 +313,11 @@ public final class APIClient: Sendable {
                     )
                 }
                 
+                let isErr = decoded.hasError ?? (decoded.status == "CASCADE_RUN_STATUS_ERROR" || chatMessages.contains(where: { $0.isError }))
+                let errMsg = decoded.errorMessage ?? chatMessages.first(where: { $0.isError })?.content
+                
                 return FetchMessagesResult(
-                    status: decoded.status,
+                    status: isErr ? "CASCADE_RUN_STATUS_ERROR" : decoded.status,
                     messages: chatMessages,
                     totalSteps: decoded.totalSteps,
                     totalTools: decoded.totalTools,
@@ -324,14 +332,16 @@ public final class APIClient: Sendable {
                     queuedMessages: decoded.queuedMessages ?? [],
                     runningTasks: decoded.runningTasks ?? [],
                     activeModel: decoded.activeModel,
-                    modelDisplayName: decoded.modelDisplayName
+                    modelDisplayName: decoded.modelDisplayName,
+                    hasError: isErr,
+                    errorMessage: errMsg
                 )
             }
         } catch {
             // Fallback to full trajectory fetch if gateway custom endpoint fails
         }
         
-        let (status, msgs, steps, tools, dur, title) = try await fetchTrajectory(cascadeId: cascadeId, baseURL: baseURL)
+        let (status, msgs, steps, tools, dur, title, hasErr, errMsg) = try await fetchTrajectory(cascadeId: cascadeId, baseURL: baseURL)
         return FetchMessagesResult(
             status: status,
             messages: msgs,
@@ -348,12 +358,14 @@ public final class APIClient: Sendable {
             queuedMessages: [],
             runningTasks: [],
             activeModel: nil,
-            modelDisplayName: nil
+            modelDisplayName: nil,
+            hasError: hasErr,
+            errorMessage: errMsg
         )
     }
     
     // Fetch trajectory steps and parse into streamlined ChatMessage array
-    public func fetchTrajectory(cascadeId: String, baseURL: URL) async throws -> (status: String, messages: [ChatMessage], totalSteps: Int, totalTools: Int, duration: String, title: String?) {
+    public func fetchTrajectory(cascadeId: String, baseURL: URL) async throws -> (status: String, messages: [ChatMessage], totalSteps: Int, totalTools: Int, duration: String, title: String?, hasError: Bool, errorMessage: String?) {
         let req = GetCascadeTrajectoryRequest(cascadeId: cascadeId)
         let resp: GetCascadeTrajectoryResponse = try await rpc(
             method: "GetCascadeTrajectory",
@@ -362,12 +374,14 @@ public final class APIClient: Sendable {
         )
         
         guard let traj = resp.trajectory, let steps = traj.steps else {
-            return ("UNKNOWN", [], 0, 0, "0秒", nil)
+            return ("UNKNOWN", [], 0, 0, "0秒", nil, false, nil)
         }
         
         var messages: [ChatMessage] = []
         var pendingTools: [String] = []
         var totalToolsCount = 0
+        var hasError = traj.hasError ?? false
+        var errorMessage = traj.errorMessage
         
         func flushTools() {
             guard !pendingTools.isEmpty else { return }
@@ -447,6 +461,22 @@ public final class APIClient: Sendable {
                         imageUrls: imageUrls
                     ))
                 }
+            } else if type == "CORTEX_STEP_TYPE_ERROR_MESSAGE" {
+                flushTools()
+                let errText = step.errorMessage?.userErrorMessage
+                    ?? step.errorMessage?.shortError
+                    ?? step.errorMessage?.message
+                    ?? step.error?.message
+                    ?? "执行遇到错误"
+                let trimmed = errText.trimmingCharacters(in: .whitespacesAndNewlines)
+                hasError = true
+                if errorMessage == nil {
+                    errorMessage = trimmed
+                }
+                messages.append(ChatMessage(
+                    sender: .error,
+                    content: trimmed
+                ))
             } else if type.hasPrefix("CORTEX_STEP_TYPE_") && type != "CORTEX_STEP_TYPE_SYSTEM_MESSAGE" {
                 let toolName = type
                     .replacingOccurrences(of: "CORTEX_STEP_TYPE_", with: "")
@@ -485,9 +515,13 @@ public final class APIClient: Sendable {
             }
         }
         
-        let runStatus = resp.status ?? "DONE"
+        var runStatus = resp.status ?? "DONE"
+        if hasError || runStatus == "CASCADE_RUN_STATUS_ERROR" {
+            hasError = true
+            runStatus = "CASCADE_RUN_STATUS_ERROR"
+        }
         let title = traj.annotations?.title ?? traj.summary
-        return (runStatus, messages, steps.count, totalToolsCount, durationString, title)
+        return (runStatus, messages, steps.count, totalToolsCount, durationString, title, hasError, errorMessage)
     }
     
     // Send a message to cascade
