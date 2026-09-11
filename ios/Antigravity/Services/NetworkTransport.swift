@@ -51,6 +51,11 @@ public final class NetworkTransport: Sendable {
             self._isWifi.withLock { $0 = wifi }
         }
         pathMonitor.start(queue: monitorQueue)
+        let initialPath = pathMonitor.currentPath
+        let cellular = initialPath.usesInterfaceType(.cellular) || initialPath.isExpensive
+        let wifi = initialPath.usesInterfaceType(.wifi)
+        _isCellular.withLock { $0 = cellular }
+        _isWifi.withLock { $0 = wifi }
     }
     
     /// Decorates HTTPURLResponse with X-Antigravity-Interface header to indicate actual interface used
@@ -125,7 +130,12 @@ public final class NetworkTransport: Sendable {
             }
         }
         
-        guard preferCellular, let url = req.url, let host = url.host else {
+        // 1. If caller didn't prefer cellular, OR if the device is not on Wi-Fi (already natively routing over cellular),
+        // or if target host is a local/private network host, route via high-performance URLSession.
+        // NWConnection override is ONLY necessary when BOTH preferCellular is requested AND the device is actively on Wi-Fi,
+        // in order to bypass iOS's default preference for Wi-Fi when external Wi-Fi lacks IPv6 routing.
+        let requiresCellularOverride = preferCellular && isWifi
+        guard requiresCellularOverride, let url = req.url, let host = url.host else {
             let (data, response) = try await fallbackSession.data(for: req)
             return (data, decorateResponse(response, url: req.url))
         }
@@ -172,6 +182,12 @@ public final class NetworkTransport: Sendable {
                 }
             }
         }
+    }
+    
+    public struct ParsedHTTPResponse: Sendable {
+        public let body: Data
+        public let response: HTTPURLResponse
+        public let isComplete: Bool
     }
     
     private func executeViaCellular(request: URLRequest, url: URL, host: String) async throws -> (Data, HTTPURLResponse) {
@@ -316,18 +332,17 @@ public final class NetworkTransport: Sendable {
                                         self.buffer.append(data)
                                     }
                                     
-                                    // Complete immediately if Content-Length bytes have all been received
-                                    if let (bodyPart, response) = NetworkTransport.parseHTTPResponse(data: self.buffer, url: url) {
-                                        if let clStr = response.allHeaderFields["Content-Length"] as? String ?? (response.allHeaderFields["content-length"] as? String),
-                                           let cl = Int(clStr), bodyPart.count >= cl {
-                                            state.finish(result: .success((bodyPart, response)))
+                                    // Complete immediately as soon as response body is fully received (Content-Length or chunked terminal block)
+                                    if let parsed = NetworkTransport.parseHTTPResponse(data: self.buffer, url: url) {
+                                        if parsed.isComplete {
+                                            state.finish(result: .success((parsed.body, parsed.response)))
                                             return
                                         }
                                     }
                                     
                                     if isComplete || err != nil {
-                                        if let (bodyPart, response) = NetworkTransport.parseHTTPResponse(data: self.buffer, url: url) {
-                                            state.finish(result: .success((bodyPart, response)))
+                                        if let parsed = NetworkTransport.parseHTTPResponse(data: self.buffer, url: url) {
+                                            state.finish(result: .success((parsed.body, parsed.response)))
                                         } else if let err = err {
                                             state.finish(result: .failure(err))
                                         } else {
@@ -365,12 +380,12 @@ public final class NetworkTransport: Sendable {
         }
     }
     
-    nonisolated private static func parseHTTPResponse(data: Data, url: URL) -> (Data, HTTPURLResponse)? {
+    nonisolated private static func parseHTTPResponse(data: Data, url: URL) -> ParsedHTTPResponse? {
         guard let separatorRange = data.range(of: Data("\r\n\r\n".utf8)) else {
             return nil
         }
         let headerData = data.subdata(in: 0..<separatorRange.lowerBound)
-        var bodyData = data.subdata(in: separatorRange.upperBound..<data.count)
+        let bodyData = data.subdata(in: separatorRange.upperBound..<data.count)
         
         guard let headerString = String(data: headerData, encoding: .utf8) else {
             return nil
@@ -392,10 +407,6 @@ public final class NetworkTransport: Sendable {
             }
         }
         
-        if headers["Transfer-Encoding"]?.lowercased().contains("chunked") == true {
-            bodyData = dechunk(data: bodyData)
-        }
-        
         headers["X-Antigravity-Interface"] = "cellular"
         
         guard let response = HTTPURLResponse(
@@ -406,22 +417,51 @@ public final class NetworkTransport: Sendable {
         ) else {
             return nil
         }
-        return (bodyData, response)
+        
+        // Status codes with explicitly no content (RFC 7230 §3.3.3)
+        if statusCode == 204 || statusCode == 304 || (statusCode >= 100 && statusCode < 200) {
+            return ParsedHTTPResponse(body: Data(), response: response, isComplete: true)
+        }
+        
+        if headers["Transfer-Encoding"]?.lowercased().contains("chunked") == true {
+            let (decoded, isDone) = dechunk(data: bodyData)
+            return ParsedHTTPResponse(body: decoded, response: response, isComplete: isDone)
+        }
+        
+        let clHeader = headers["Content-Length"] ?? headers["content-length"]
+        if let clStr = clHeader, let cl = Int(clStr.trimmingCharacters(in: .whitespaces)) {
+            let isDone = bodyData.count >= cl
+            let truncated = isDone ? bodyData.prefix(cl) : bodyData
+            return ParsedHTTPResponse(body: Data(truncated), response: response, isComplete: isDone)
+        }
+        
+        return ParsedHTTPResponse(body: bodyData, response: response, isComplete: false)
     }
     
-    nonisolated private static func dechunk(data: Data) -> Data {
+    nonisolated private static func dechunk(data: Data) -> (decoded: Data, isComplete: Bool) {
         var result = Data()
         var offset = data.startIndex
         while offset < data.endIndex {
             guard let crlfRange = data.range(of: Data("\r\n".utf8), in: offset..<data.endIndex) else {
-                break
+                return (result, false)
             }
             let lengthData = data.subdata(in: offset..<crlfRange.lowerBound)
             guard let lengthStr = String(data: lengthData, encoding: .utf8)?.trimmingCharacters(in: .whitespaces),
                   let chunkSize = Int(lengthStr, radix: 16) else {
-                break
+                return (result, false)
             }
-            if chunkSize == 0 { break }
+            if chunkSize == 0 {
+                let trailerStart = crlfRange.upperBound
+                if let _ = data.range(of: Data("\r\n\r\n".utf8), in: offset..<data.endIndex) {
+                    return (result, true)
+                } else if trailerStart + 2 <= data.endIndex && data.subdata(in: trailerStart..<(trailerStart + 2)) == Data("\r\n".utf8) {
+                    return (result, true)
+                } else if trailerStart == data.endIndex {
+                    return (result, false)
+                } else {
+                    return (result, false)
+                }
+            }
             let chunkStart = crlfRange.upperBound
             let chunkEnd = chunkStart + chunkSize
             if chunkEnd <= data.endIndex {
@@ -431,9 +471,9 @@ public final class NetworkTransport: Sendable {
                     offset += 2
                 }
             } else {
-                break
+                return (result, false)
             }
         }
-        return result
+        return (result, false)
     }
 }
