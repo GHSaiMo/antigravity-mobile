@@ -171,7 +171,7 @@ public final class ChatViewModel {
         do {
             let result = try await apiClient.fetchMessages(
                 cascadeId: cascadeId,
-                limit: 10,
+                limit: 15,
                 offset: nil,
                 baseURL: url
             )
@@ -354,7 +354,7 @@ public final class ChatViewModel {
         do {
             let result = try await apiClient.fetchMessages(
                 cascadeId: cascadeId,
-                limit: 10,
+                limit: 15,
                 offset: nextOffset,
                 baseURL: url
             )
@@ -441,7 +441,7 @@ public final class ChatViewModel {
     
     /// Applies a full trajectory snapshot directly without destructive slicing or reverse appends.
     @MainActor
-    private func applySnapshotMessages(_ incoming: [ChatMessage]) {
+    private func applySnapshotMessages(_ incoming: [ChatMessage], hasMore: Bool = false, nextOffset: Int = 0) {
         guard !incoming.isEmpty else { return }
         
         // 1. Check if server has incorporated the pending optimistic user message
@@ -465,8 +465,8 @@ public final class ChatViewModel {
         }
         
         self.messages = fullList
-        self.hasMore = false
-        self.nextOffset = 0
+        self.hasMore = hasMore
+        self.nextOffset = nextOffset
         if self.pendingOptimisticMessageId == nil {
             self.knownServerMessageIds = Set(fullList.map(\.id))
         }
@@ -997,10 +997,21 @@ public final class ChatViewModel {
                     imageUrls: item.imageUrls ?? []
                 )
             }
-            if payload.isFullSnapshot == true || payload.type == "init" || (!parsedMessages.isEmpty && parsedMessages.count >= self.messages.count) {
-                self.applySnapshotMessages(parsedMessages)
+            let hasExpandedHistory = self.messages.count > parsedMessages.count
+            if payload.isFullSnapshot == true && !hasExpandedHistory {
+                self.applySnapshotMessages(
+                    parsedMessages,
+                    hasMore: payload.hasMore ?? false,
+                    nextOffset: payload.nextOffset ?? 0
+                )
             } else {
                 self.mergeIncomingMessages(parsedMessages)
+                if let hm = payload.hasMore, !self.isLoadingOlder && !hasExpandedHistory {
+                    self.hasMore = hm
+                    if let no = payload.nextOffset {
+                        self.nextOffset = no
+                    }
+                }
             }
         }
         

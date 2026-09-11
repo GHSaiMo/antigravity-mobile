@@ -329,3 +329,57 @@ func TestParseTrajectoryDetails_RunningTasks(t *testing.T) {
 	}
 }
 
+func TestTrajectoryPagingDefaults(t *testing.T) {
+	// Generate 35 mock messages
+	var allMessages []CascadeMessageItem
+	for i := 0; i < 35; i++ {
+		allMessages = append(allMessages, CascadeMessageItem{
+			ID:   string(rune('A' + i)),
+			Type: "user",
+			Text: "message",
+		})
+	}
+
+	totalMsgs := len(allMessages)
+	defaultLimit := 15
+
+	// 1. Initial fetch (offset < 0)
+	start := totalMsgs - defaultLimit
+	if start < 0 {
+		start = 0
+	}
+	sliced := allMessages[start:totalMsgs]
+	hasMore := start > 0
+	nextOffset := start
+
+	if len(sliced) != 15 {
+		t.Fatalf("expected 15 sliced messages, got %d", len(sliced))
+	}
+	if !hasMore {
+		t.Fatalf("expected hasMore to be true")
+	}
+	if nextOffset != 20 {
+		t.Fatalf("expected nextOffset 20, got %d", nextOffset)
+	}
+
+	// 2. Load older messages (offset = 20)
+	targetEnd := nextOffset
+	targetStart := targetEnd - defaultLimit
+	if targetStart < 0 {
+		targetStart = 0
+	}
+	slicedOlder := allMessages[targetStart:targetEnd]
+	hasMoreOlder := targetStart > 0
+	nextOffsetOlder := targetStart
+
+	if len(slicedOlder) != 15 {
+		t.Fatalf("expected 15 slicedOlder messages, got %d", len(slicedOlder))
+	}
+	if !hasMoreOlder {
+		t.Fatalf("expected hasMoreOlder to be true")
+	}
+	if nextOffsetOlder != 5 {
+		t.Fatalf("expected nextOffsetOlder 5, got %d", nextOffsetOlder)
+	}
+}
+

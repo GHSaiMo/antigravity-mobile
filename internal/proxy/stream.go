@@ -19,6 +19,9 @@ type StreamUpdatePayload struct {
 	Duration           string               `json:"duration"`
 	TotalSteps         int                  `json:"totalSteps"`
 	TotalTools         int                  `json:"totalTools"`
+	TotalMessages      int                  `json:"totalMessages"`
+	HasMore            bool                 `json:"hasMore"`
+	NextOffset         int                  `json:"nextOffset"`
 	WorkspaceURI       string               `json:"workspaceUri"`
 	Steps              []TrajectoryStep     `json:"steps"`
 	Messages           []CascadeMessageItem `json:"messages"`
@@ -147,6 +150,15 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			if sink := p.NotificationSink(); sink != nil {
 				sink.OnTrajectoryUpdate(&details)
 			}
+			totalMsgs := len(details.AllMessages)
+			streamLimit := 15
+			streamStart := totalMsgs - streamLimit
+			if streamStart < 0 {
+				streamStart = 0
+			}
+			slicedMessages := details.AllMessages[streamStart:totalMsgs]
+			hasMore := streamStart > 0
+
 			payload := StreamUpdatePayload{
 				Type:               "update",
 				CascadeID:          details.CascadeID,
@@ -155,12 +167,15 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 				Duration:           details.Duration,
 				TotalSteps:         details.TotalSteps,
 				TotalTools:         details.TotalTools,
+				TotalMessages:      totalMsgs,
+				HasMore:            hasMore,
+				NextOffset:         streamStart,
 				WorkspaceURI:       details.WorkspaceURI,
 				Steps:              details.Steps,
-				Messages:           details.AllMessages,
+				Messages:           slicedMessages,
 				QueuedMessages:     details.QueuedMessages,
 				RunningTasks:       details.RunningTasks,
-				IsFullSnapshot:     true,
+				IsFullSnapshot:     !hasMore,
 				CascadeConfigRaw:   details.CascadeConfigRaw,
 				CanProceed:         details.CanProceed,
 				ProceedArtifactURI: details.ProceedArtifactURI,
