@@ -11,14 +11,20 @@ public struct AccountQuotaSheet: View {
     public let onSwitch: ((String) async throws -> Void)?
     public let onRefresh: (() async throws -> Void)?
     
+    /// 功能参数：是否在 Cockpit Tools 页面显示账号切换按钮。
+    /// 由于切换功能暂不可用，默认设为 false 隐藏；后期若调整就绪，直接将此参数修改为 true 即可恢复切换按钮。
+    public let enableSwitchButton: Bool
+    
     public init(
         quotaResponse: Binding<CockpitQuotaResponse?>,
         onSwitch: ((String) async throws -> Void)? = nil,
-        onRefresh: (() async throws -> Void)? = nil
+        onRefresh: (() async throws -> Void)? = nil,
+        enableSwitchButton: Bool = false
     ) {
         self._quotaResponse = quotaResponse
         self.onSwitch = onSwitch
         self.onRefresh = onRefresh
+        self.enableSwitchButton = enableSwitchButton
     }
     
     private var currentAccount: CockpitAccountQuota? {
@@ -197,7 +203,7 @@ public struct AccountQuotaSheet: View {
                     .lineLimit(1)
                 Spacer()
                 
-                if !isCurrent && onSwitch != nil {
+                if !isCurrent && enableSwitchButton && onSwitch != nil {
                     Button(action: {
                         Task {
                             await performSwitch(to: acc)
