@@ -3442,9 +3442,9 @@ function renderQuotaStatusBar(data) {
     const resetTxt = current.gemini_5h.reset_friendly || "就绪";
     let displayText = resetTxt;
     if (resetTxt !== "就绪" && resetTxt !== "已就绪" && resetTxt !== "未知") {
-      const clockTime = formatResetClockTime(current.gemini_5h.reset_time);
-      if (clockTime) {
-        displayText = `${resetTxt} ${clockTime}`;
+      const dateTime = formatResetDateTime(current.gemini_5h.reset_time);
+      if (dateTime) {
+        displayText = `${resetTxt} ${dateTime}`;
       }
     }
     descEl.textContent = displayText;
