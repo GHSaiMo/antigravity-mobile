@@ -3393,6 +3393,34 @@ function formatResetClockTime(isoStr) {
   }
 }
 
+function formatResetDateTime(isoStr) {
+  if (!isoStr) return "";
+  try {
+    const d = new Date(isoStr);
+    if (isNaN(d.getTime())) return "";
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const hours = String(d.getHours()).padStart(2, '0');
+    const minutes = String(d.getMinutes()).padStart(2, '0');
+    return `(${month}/${day} ${hours}:${minutes})`;
+  } catch (e) {
+    return "";
+  }
+}
+
+function getQuotaResetDisplayText(bucket) {
+  if (!bucket || !bucket.reset_friendly) return "配额充足";
+  const friendly = bucket.reset_friendly;
+  if (friendly === "已就绪" || friendly === "未知" || friendly === "配额充足" || friendly === "就绪") {
+    return friendly;
+  }
+  const dateTime = formatResetDateTime(bucket.reset_time);
+  if (dateTime) {
+    return `${friendly} ${dateTime}`;
+  }
+  return friendly;
+}
+
 function renderQuotaStatusBar(data) {
   if (!data) return;
   const current = data.current_account || (data.accounts && data.accounts[0]);
@@ -3476,7 +3504,7 @@ function buildAccountQuotaCard(acc, isCurrent) {
         <div class="metric-mini-track">
           <div class="metric-mini-fill ${getQuotaStatusClass(c5h.remaining_percent)}" style="width: ${Math.min(100, Math.max(0, c5h.remaining_percent))}%;"></div>
         </div>
-        <span class="metric-box-reset" title="${c5h.reset_friendly}">${c5h.reset_friendly}</span>
+        <span class="metric-box-reset" title="${escapeHtml(getQuotaResetDisplayText(c5h))}">${escapeHtml(getQuotaResetDisplayText(c5h))}</span>
       </div>
 
       <!-- 2. Right Top: Gemini 5h -->
@@ -3488,7 +3516,7 @@ function buildAccountQuotaCard(acc, isCurrent) {
         <div class="metric-mini-track">
           <div class="metric-mini-fill ${getQuotaStatusClass(g5h.remaining_percent)}" style="width: ${Math.min(100, Math.max(0, g5h.remaining_percent))}%;"></div>
         </div>
-        <span class="metric-box-reset" title="${g5h.reset_friendly}">${g5h.reset_friendly}</span>
+        <span class="metric-box-reset" title="${escapeHtml(getQuotaResetDisplayText(g5h))}">${escapeHtml(getQuotaResetDisplayText(g5h))}</span>
       </div>
 
       <!-- 3. Left Bottom: Claude Weekly -->
@@ -3500,7 +3528,7 @@ function buildAccountQuotaCard(acc, isCurrent) {
         <div class="metric-mini-track">
           <div class="metric-mini-fill ${getQuotaStatusClass(cWk.remaining_percent)}" style="width: ${Math.min(100, Math.max(0, cWk.remaining_percent))}%;"></div>
         </div>
-        <span class="metric-box-reset" title="${cWk.reset_friendly}">${cWk.reset_friendly}</span>
+        <span class="metric-box-reset" title="${escapeHtml(getQuotaResetDisplayText(cWk))}">${escapeHtml(getQuotaResetDisplayText(cWk))}</span>
       </div>
 
       <!-- 4. Right Bottom: Gemini Weekly -->
@@ -3512,7 +3540,7 @@ function buildAccountQuotaCard(acc, isCurrent) {
         <div class="metric-mini-track">
           <div class="metric-mini-fill ${getQuotaStatusClass(gWk.remaining_percent)}" style="width: ${Math.min(100, Math.max(0, gWk.remaining_percent))}%;"></div>
         </div>
-        <span class="metric-box-reset" title="${gWk.reset_friendly}">${gWk.reset_friendly}</span>
+        <span class="metric-box-reset" title="${escapeHtml(getQuotaResetDisplayText(gWk))}">${escapeHtml(getQuotaResetDisplayText(gWk))}</span>
       </div>
     </div>
   `;

@@ -281,23 +281,65 @@ public struct AccountQuotaSheet: View {
             }
             .frame(height: 5)
             
-            if let friendly = bucket?.resetFriendly, !friendly.isEmpty {
-                Text(friendly)
-                    .font(.system(size: 9.5))
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-            } else {
-                Text("配额充足")
-                    .font(.system(size: 9.5))
-                    .foregroundColor(.secondary.opacity(0.6))
-                    .lineLimit(1)
-            }
+            let displayText = resetCountdownDisplay(for: bucket)
+            Text(displayText)
+                .font(.system(size: 9.5))
+                .foregroundColor(displayText == "配额充足" ? .secondary.opacity(0.6) : .secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
         }
         .padding(9)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(Color(uiColor: .tertiarySystemGroupedBackground))
         )
+    }
+    
+    private func resetCountdownDisplay(for bucket: CockpitQuotaBucket?) -> String {
+        guard let friendly = bucket?.resetFriendly, !friendly.isEmpty else {
+            return "配额充足"
+        }
+        if friendly == "已就绪" || friendly == "未知" || friendly == "配额充足" {
+            return friendly
+        }
+        if let timeStr = formatEstimatedResetTime(bucket?.resetTime) {
+            return "\(friendly) \(timeStr)"
+        }
+        return friendly
+    }
+    
+    private func formatEstimatedResetTime(_ resetTimeStr: String?) -> String? {
+        guard let resetTimeStr = resetTimeStr, !resetTimeStr.isEmpty else {
+            return nil
+        }
+        
+        let date: Date?
+        let fmtFraction = ISO8601DateFormatter()
+        fmtFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = fmtFraction.date(from: resetTimeStr) {
+            date = d
+        } else {
+            let fmtStandard = ISO8601DateFormatter()
+            fmtStandard.formatOptions = [.withInternetDateTime]
+            if let d = fmtStandard.date(from: resetTimeStr) {
+                date = d
+            } else {
+                let df = DateFormatter()
+                df.locale = Locale(identifier: "en_US_POSIX")
+                df.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZ"
+                date = df.date(from: resetTimeStr)
+            }
+        }
+        
+        guard let validDate = date else {
+            return nil
+        }
+        
+        let outputFormatter = DateFormatter()
+        outputFormatter.locale = Locale(identifier: "en_US_POSIX")
+        outputFormatter.timeZone = TimeZone.current
+        outputFormatter.dateFormat = "MM/dd HH:mm"
+        return "(\(outputFormatter.string(from: validDate)))"
     }
     
     private func colorForPercent(_ p: Double) -> Color {
