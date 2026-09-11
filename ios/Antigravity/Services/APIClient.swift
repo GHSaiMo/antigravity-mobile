@@ -313,8 +313,11 @@ public final class APIClient: Sendable {
                     )
                 }
                 
-                let isErr = decoded.hasError ?? (decoded.status == "CASCADE_RUN_STATUS_ERROR" || chatMessages.contains(where: { $0.isError }))
-                let errMsg = decoded.errorMessage ?? chatMessages.first(where: { $0.isError })?.content
+                let lastUserIdx = chatMessages.lastIndex(where: { $0.isUser }) ?? -1
+                let latestTurnMessages = lastUserIdx >= 0 ? chatMessages.suffix(from: lastUserIdx + 1) : chatMessages[...]
+                let latestTurnHasErr = latestTurnMessages.contains(where: { $0.isError }) && !(latestTurnMessages.last?.isAgent == true)
+                let isErr = decoded.hasError ?? (decoded.status == "CASCADE_RUN_STATUS_ERROR" || latestTurnHasErr)
+                let errMsg = decoded.errorMessage ?? latestTurnMessages.last(where: { $0.isError })?.content
                 
                 return FetchMessagesResult(
                     status: isErr ? "CASCADE_RUN_STATUS_ERROR" : decoded.status,
@@ -380,8 +383,6 @@ public final class APIClient: Sendable {
         var messages: [ChatMessage] = []
         var pendingTools: [String] = []
         var totalToolsCount = 0
-        var hasError = traj.hasError ?? false
-        var errorMessage = traj.errorMessage
         
         func flushTools() {
             guard !pendingTools.isEmpty else { return }
@@ -469,10 +470,6 @@ public final class APIClient: Sendable {
                     ?? step.error?.message
                     ?? "执行遇到错误"
                 let trimmed = errText.trimmingCharacters(in: .whitespacesAndNewlines)
-                hasError = true
-                if errorMessage == nil {
-                    errorMessage = trimmed
-                }
                 messages.append(ChatMessage(
                     sender: .error,
                     content: trimmed
@@ -486,6 +483,49 @@ public final class APIClient: Sendable {
         }
         
         flushTools()
+        
+        // Determine whether the latest turn has an unrecovered error
+        var lastUserInputIndex = -1
+        for (i, step) in steps.enumerated().reversed() {
+            if step.type == "CORTEX_STEP_TYPE_USER_INPUT" {
+                lastUserInputIndex = i
+                break
+            }
+        }
+        
+        var latestTurnHasError = traj.hasError ?? false
+        var latestTurnErrorMessage = traj.errorMessage
+        
+        var foundErrorInTurn = false
+        var lastErrInTurn: String?
+        for i in (lastUserInputIndex + 1)..<steps.count {
+            let step = steps[i]
+            if step.type == "CORTEX_STEP_TYPE_ERROR_MESSAGE" {
+                foundErrorInTurn = true
+                let errText = step.errorMessage?.userErrorMessage
+                    ?? step.errorMessage?.shortError
+                    ?? step.errorMessage?.message
+                    ?? step.error?.message
+                    ?? "执行遇到错误"
+                lastErrInTurn = errText.trimmingCharacters(in: .whitespacesAndNewlines)
+            } else if step.type == "CORTEX_STEP_TYPE_PLANNER_RESPONSE" {
+                let resp = step.plannerResponse?.response?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if !resp.isEmpty {
+                    foundErrorInTurn = false
+                    lastErrInTurn = nil
+                }
+            }
+        }
+        
+        if foundErrorInTurn {
+            latestTurnHasError = true
+            if latestTurnErrorMessage == nil {
+                latestTurnErrorMessage = lastErrInTurn
+            }
+        } else if traj.hasError != true {
+            latestTurnHasError = false
+            latestTurnErrorMessage = nil
+        }
         
         // Calculate total duration
         var durationString = "0秒"
@@ -516,12 +556,12 @@ public final class APIClient: Sendable {
         }
         
         var runStatus = resp.status ?? "DONE"
-        if hasError || runStatus == "CASCADE_RUN_STATUS_ERROR" {
-            hasError = true
+        if latestTurnHasError || runStatus == "CASCADE_RUN_STATUS_ERROR" {
+            latestTurnHasError = true
             runStatus = "CASCADE_RUN_STATUS_ERROR"
         }
         let title = traj.annotations?.title ?? traj.summary
-        return (runStatus, messages, steps.count, totalToolsCount, durationString, title, hasError, errorMessage)
+        return (runStatus, messages, steps.count, totalToolsCount, durationString, title, latestTurnHasError, latestTurnErrorMessage)
     }
     
     // Send a message to cascade
