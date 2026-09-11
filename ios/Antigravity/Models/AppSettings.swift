@@ -136,6 +136,15 @@ public final class AppSettings {
         }
     }
     
+    public func syncModel(from raw: String?) {
+        guard let raw = raw, !raw.isEmpty else { return }
+        let lower = raw.lowercased()
+        let target = (lower.contains("claude") || lower.contains("m26")) ? "claude-opus-4-6-thinking" : "gemini-3.8-flash-high"
+        if activeModel != target {
+            activeModel = target
+        }
+    }
+    
     public var candidateEndpoints: [ServerEndpointItem] {
         var items: [ServerEndpointItem] = []
         if let lan = lanServerURL, !lan.isEmpty {
