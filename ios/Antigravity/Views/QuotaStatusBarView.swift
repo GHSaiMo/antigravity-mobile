@@ -55,9 +55,9 @@ public struct QuotaStatusBarView: View {
         }
         
         let outputFormatter = DateFormatter()
-        outputFormatter.dateFormat = "HH:mm"
-        outputFormatter.locale = Locale.current
+        outputFormatter.locale = Locale(identifier: "en_US_POSIX")
         outputFormatter.timeZone = TimeZone.current
+        outputFormatter.dateFormat = "MM/dd HH:mm"
         return "(\(outputFormatter.string(from: validDate)))"
     }
     
@@ -84,12 +84,13 @@ public struct QuotaStatusBarView: View {
                         .font(.system(size: 11, weight: .bold))
                         .foregroundColor(progressColor)
                     
-                    Text("Gemini 5h 额度:")
+                    Text("Gemini 5h")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(.primary)
                         .lineLimit(1)
+                        .layoutPriority(1)
                     
-                    // Mini progress bar
+                    // Mini progress bar - stretched to fill available width
                     GeometryReader { geo in
                         ZStack(alignment: .leading) {
                             Capsule()
@@ -99,11 +100,14 @@ public struct QuotaStatusBarView: View {
                                 .frame(width: max(0, min(geo.size.width, geo.size.width * CGFloat(percent / 100.0))))
                         }
                     }
-                    .frame(width: 48, height: 6)
+                    .frame(height: 6)
+                    .frame(minWidth: 24)
                     
                     Text(String(format: "%.0f%%", percent))
                         .font(.system(size: 12, weight: .semibold, design: .monospaced))
                         .foregroundColor(progressColor)
+                        .lineLimit(1)
+                        .layoutPriority(1)
                     
                     if let countdownText = resetCountdownDisplay {
                         Text(countdownText)
@@ -111,14 +115,10 @@ public struct QuotaStatusBarView: View {
                             .foregroundColor(.secondary)
                             .lineLimit(1)
                             .minimumScaleFactor(0.85)
+                            .layoutPriority(1)
                     }
-                    
-                    Spacer(minLength: 0)
-                    
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(.secondary.opacity(0.6))
                 }
+                .frame(maxWidth: .infinity)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background(
