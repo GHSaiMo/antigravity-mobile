@@ -101,6 +101,11 @@
           </div>
         </div>
 
+        <!-- iOS Pull to Refresh Bar -->
+        <div id="pull-refresh-bar" class="pull-refresh-bar">
+          <div class="pull-refresh-spinner ios-spinner"></div>
+        </div>
+
         <!-- Conversations List (iOS Inset Plain List) -->
         <div id="conversations-list" class="conversations-list">
           <div class="loading-state">
@@ -379,8 +384,42 @@
         </div>
       </div>
     </div>
+
+    <!-- iOS Native Alert: Rename Conversation (UIAlertController style) -->
+    <div id="alert-rename" class="ios-alert-overlay hidden">
+      <div class="ios-alert-box">
+        <div class="ios-alert-header">
+          <h3 class="ios-alert-title">重命名会话</h3>
+          <p class="ios-alert-message">请输入此会话的新标题</p>
+        </div>
+        <div class="ios-alert-input-wrapper">
+          <input type="text" id="input-rename-title" class="ios-alert-input" placeholder="输入新标题" maxlength="60" autocomplete="off" />
+        </div>
+        <div class="ios-alert-actions">
+          <button id="btn-alert-rename-cancel" class="ios-alert-btn cancel" type="button">取消</button>
+          <button id="btn-alert-rename-save" class="ios-alert-btn save" type="button">保存</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- iOS Native ActionSheet: Delete Conversation Confirmation -->
+    <div id="actionsheet-delete" class="ios-actionsheet-overlay hidden">
+      <div class="ios-actionsheet-backdrop" id="actionsheet-delete-backdrop"></div>
+      <div class="ios-actionsheet-container">
+        <div class="ios-actionsheet-group">
+          <div class="ios-actionsheet-header">
+            <span class="actionsheet-title">确定删除此会话吗？</span>
+            <span class="actionsheet-subtitle">此操作将永久删除会话记录且无法撤销。</span>
+          </div>
+          <button id="btn-actionsheet-delete-confirm" class="ios-actionsheet-btn destructive" type="button">删除会话</button>
+        </div>
+        <div class="ios-actionsheet-group">
+          <button id="btn-actionsheet-delete-cancel" class="ios-actionsheet-btn cancel" type="button">取消</button>
+        </div>
+      </div>
+    </div>
   </div>
 
-  <script src="/app.js?v=12"></script>
+  <script src="/app.js?v=13"></script>
 </body>
 </html>
