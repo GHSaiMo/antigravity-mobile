@@ -50,6 +50,8 @@ public struct MessageBubbleView: View {
     public let isActiveToolBatch: Bool
     @State private var isThinkingExpanded: Bool = false
     
+    @State private var previewImage: IdentifiableImage? = nil
+    
     public init(message: ChatMessage, isActiveToolBatch: Bool = false) {
         self.message = message
         self.isActiveToolBatch = isActiveToolBatch
@@ -74,6 +76,9 @@ public struct MessageBubbleView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 4)
+        .sheet(item: $previewImage) { item in
+            ImageViewerSheet(image: item.image)
+        }
     }
     
     private var userBubble: some View {
@@ -82,11 +87,16 @@ public struct MessageBubbleView: View {
             if !message.imageDataList.isEmpty {
                 ForEach(Array(message.imageDataList.enumerated()), id: \.offset) { _, data in
                     if let uiImg = UIImage(data: data) {
-                        Image(uiImage: uiImg)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(maxWidth: 240, maxHeight: 200)
-                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        userImageBubble(for: uiImg)
+                    }
+                }
+            }
+            
+            // Attached user image URLs (if any)
+            if !message.imageUrls.isEmpty {
+                ForEach(message.imageUrls, id: \.self) { urlString in
+                    if let url = URL(string: urlString) {
+                        userAsyncImageBubble(for: url)
                     }
                 }
             }
@@ -99,6 +109,80 @@ public struct MessageBubbleView: View {
                     .padding(.vertical, 10)
                     .background(Color.indigo)
                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+        }
+    }
+    
+    private func userImageBubble(for uiImg: UIImage) -> some View {
+        let maxDisplayWidth: CGFloat = 240
+        let maxDisplayHeight: CGFloat = 220
+        
+        let imgWidth = uiImg.size.width
+        let imgHeight = uiImg.size.height
+        
+        let fittedSize: CGSize = {
+            guard imgWidth > 0, imgHeight > 0 else {
+                return CGSize(width: maxDisplayWidth, height: maxDisplayHeight)
+            }
+            let widthRatio = maxDisplayWidth / imgWidth
+            let heightRatio = maxDisplayHeight / imgHeight
+            let scale = min(widthRatio, heightRatio)
+            return CGSize(
+                width: max(40, imgWidth * scale),
+                height: max(30, imgHeight * scale)
+            )
+        }()
+        
+        return Button(action: {
+            previewImage = IdentifiableImage(image: uiImg)
+        }) {
+            Image(uiImage: uiImg)
+                .resizable()
+                .scaledToFit()
+                .frame(width: fittedSize.width, height: fittedSize.height)
+                .background(Color(uiColor: .secondarySystemBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(Color.primary.opacity(0.12), lineWidth: 0.8)
+                )
+                .shadow(color: Color.black.opacity(0.06), radius: 3, x: 0, y: 1.5)
+        }
+        .buttonStyle(.plain)
+    }
+    
+    private func userAsyncImageBubble(for url: URL) -> some View {
+        AsyncImage(url: url) { phase in
+            switch phase {
+            case .empty:
+                ProgressView()
+                    .frame(width: 140, height: 140)
+                    .background(Color(uiColor: .secondarySystemBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            case .success(let image):
+                image
+                    .resizable()
+                    .scaledToFit()
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(Color.primary.opacity(0.12), lineWidth: 0.8)
+                    )
+                    .shadow(color: Color.black.opacity(0.06), radius: 3, x: 0, y: 1.5)
+                    .frame(maxWidth: 240, maxHeight: 220, alignment: .trailing)
+            case .failure:
+                HStack(spacing: 6) {
+                    Image(systemName: "photo")
+                    Text("图片加载失败")
+                }
+                .font(.footnote)
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color(uiColor: .secondarySystemBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            @unknown default:
+                EmptyView()
             }
         }
     }
@@ -212,3 +296,49 @@ public struct MessageBubbleView: View {
         }
     }
 }
+
+public struct IdentifiableImage: Identifiable {
+    public let id = UUID()
+    public let image: UIImage
+    
+    public init(image: UIImage) {
+        self.image = image
+    }
+}
+
+public struct ImageViewerSheet: View {
+    public let image: UIImage
+    @Environment(\.dismiss) private var dismiss
+    
+    public init(image: UIImage) {
+        self.image = image
+    }
+    
+    public var body: some View {
+        NavigationStack {
+            ZStack {
+                Color.black.ignoresSafeArea()
+                
+                ScrollView([.horizontal, .vertical], showsIndicators: false) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .padding()
+                }
+            }
+            .navigationTitle("图片详情")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(action: { dismiss() }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(.white.opacity(0.85))
+                    }
+                }
+            }
+            .toolbarColorScheme(.dark, for: .navigationBar)
+        }
+    }
+}
+
