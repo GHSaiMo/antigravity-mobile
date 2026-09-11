@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -518,14 +519,23 @@ func (p *Proxy) HandleProjects(w http.ResponseWriter, r *http.Request) {
 
 	projects, err := p.GetProjects()
 	if err != nil {
+		errBytes, _ := json.Marshal(map[string]string{"error": err.Error()})
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Length", strconv.Itoa(len(errBytes)))
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		w.Write(errBytes)
 		return
 	}
 
+	data, err := json.Marshal(projects)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(projects)
+	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+	w.WriteHeader(http.StatusOK)
+	w.Write(data)
 }
 
 // CreateCascadeRequest represents payload to start a new cascade.

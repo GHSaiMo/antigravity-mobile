@@ -136,7 +136,7 @@ public final class StreamWebSocketClient {
         cellularWatchdogWork?.cancel()
         cellularWatchdogWork = nil
         
-        if useCellular {
+        if useCellular && NetworkTransport.shared.isWifi {
             if let host = wsURL.host, !NetworkTransport.isLocalOrPrivateHost(host) {
                 parameters.requiredInterfaceType = .cellular
                 parameters.prohibitedInterfaceTypes = [.wifi]
