@@ -38,6 +38,8 @@ public struct ErrorMessagePayload: Codable, Sendable {
     public let message: String?
     public let shortError: String?
     public let userErrorMessage: String?
+    public let shouldShowUser: Bool?
+    public let shouldShowModel: Bool?
 }
 
 public struct ErrorPayload: Codable, Sendable {

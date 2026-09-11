@@ -1493,24 +1493,32 @@ function groupSteps(steps) {
         if (!currentBatch.toolNames.includes("thinking") && currentBatch.toolNames.length < 3) {
           currentBatch.toolNames.push("thinking");
         }
-      } else {
-        if (!currentBatch) {
-          currentBatch = {
-            type: "tools",
-            id: `item-tools-${i}`,
-            startIndex: i,
-            steps: [],
-            toolNames: []
-          };
-        }
-        currentBatch.steps.push({
-          name: "planning",
-          detail: "",
-          status: "DONE",
-          raw: s
-        });
       }
     } else if (type === "CORTEX_STEP_TYPE_ERROR_MESSAGE") {
+      const isUserVisible = (() => {
+        if (s.errorMessage) {
+          if (s.errorMessage.shouldShowUser === true) return true;
+          if (s.errorMessage.shouldShowModel === true) return false;
+          const short = (s.errorMessage.shortError || "").toLowerCase();
+          const userMsg = (s.errorMessage.userErrorMessage || "").toLowerCase();
+          if (short.includes("stream was interrupted") || userMsg.includes("stream was interrupted") ||
+              short.includes("model produced invalid output") || userMsg.includes("model produced invalid output")) {
+            return false;
+          }
+          return true;
+        }
+        if (s.error) {
+          const short = (s.error.message || s.error.detail || "").toLowerCase();
+          if (short.includes("stream was interrupted") || short.includes("model produced invalid output")) {
+            return false;
+          }
+          return true;
+        }
+        return false;
+      })();
+      if (!isUserVisible) {
+        continue;
+      }
       flushBatch();
       const errText = s.errorMessage?.userErrorMessage
         || s.errorMessage?.shortError

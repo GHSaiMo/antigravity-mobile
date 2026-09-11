@@ -326,7 +326,8 @@ type TrajectoryStep struct {
 			ErrorID           string `json:"errorId"`
 			IsBenign          bool   `json:"isBenign"`
 		} `json:"error"`
-		ShouldShowUser bool `json:"shouldShowUser"`
+		ShouldShowUser  bool `json:"shouldShowUser"`
+		ShouldShowModel bool `json:"shouldShowModel"`
 	} `json:"errorMessage"`
 	Error *struct {
 		ShortError string `json:"shortError"`
@@ -533,6 +534,36 @@ func extractErrorText(s TrajectoryStep) string {
 	return "Agent execution terminated due to error."
 }
 
+// isUserVisibleError determines whether an error step should be shown to the user.
+// In the official Antigravity IDE, only errors with shouldShowUser == true are rendered in normal mode.
+// Internal stream interruption retries and continuation errors (shouldShowModel == true) are hidden.
+func isUserVisibleError(s TrajectoryStep) bool {
+	if s.ErrorMessage != nil {
+		if s.ErrorMessage.ShouldShowUser {
+			return true
+		}
+		if s.ErrorMessage.ShouldShowModel {
+			return false
+		}
+		// If neither flag was set, check for known transient retry errors
+		short := strings.ToLower(s.ErrorMessage.Error.ShortError)
+		userMsg := strings.ToLower(s.ErrorMessage.Error.UserErrorMessage)
+		if strings.Contains(short, "stream was interrupted") || strings.Contains(userMsg, "stream was interrupted") ||
+			strings.Contains(short, "model produced invalid output") || strings.Contains(userMsg, "model produced invalid output") {
+			return false
+		}
+		return true
+	}
+	if s.Error != nil {
+		short := strings.ToLower(s.Error.ShortError)
+		if strings.Contains(short, "stream was interrupted") || strings.Contains(short, "model produced invalid output") {
+			return false
+		}
+		return true
+	}
+	return false
+}
+
 // ParseTrajectoryDetails extracts messages, tools count, duration and metadata from raw response.
 func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) TrajectoryDetails {
 	steps := rawResp.Trajectory.Steps
@@ -630,11 +661,11 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 					Text:      respText,
 					ImageURLs: imgURLs,
 				})
-			} else {
-				// Intermediate planner thought step: count as internal step
-				pendingTools++
 			}
 		} else if stepType == "CORTEX_STEP_TYPE_ERROR_MESSAGE" {
+			if !isUserVisibleError(s) {
+				continue
+			}
 			flushTools()
 			lastErrorText = extractErrorText(s)
 			allMessages = append(allMessages, CascadeMessageItem{
@@ -1028,8 +1059,10 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 	for i := lastUserInputIdx + 1; i < len(steps); i++ {
 		s := steps[i]
 		if s.Type == "CORTEX_STEP_TYPE_ERROR_MESSAGE" {
-			latestTurnHasError = true
-			latestTurnErrorText = extractErrorText(s)
+			if isUserVisibleError(s) {
+				latestTurnHasError = true
+				latestTurnErrorText = extractErrorText(s)
+			}
 		} else if s.Type == "CORTEX_STEP_TYPE_PLANNER_RESPONSE" {
 			if s.PlannerResponse != nil && strings.TrimSpace(s.PlannerResponse.Response) != "" {
 				// If planner succeeded with response in this turn, error was resolved
