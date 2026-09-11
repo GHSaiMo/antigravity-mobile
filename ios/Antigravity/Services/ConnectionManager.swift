@@ -93,20 +93,24 @@ public final class ConnectionManager {
         }
         
         // Election policy:
-        // 1. If currently on Wi-Fi without cellular preference (!isCellular && !settings.preferCellularNetwork), strongly prefer LAN (lowest latency ~1ms, zero cellular data, bypasses router WAN firewalls).
-        // 2. If currently on Cellular (isCellular) or preferCellularNetwork is active, strongly prioritize IPv6 / public DDNS.
+        // 1. LAN IPv4 First: If on Wi-Fi and LAN is reachable (e.g. 192.168.x.x), ALWAYS prefer LAN.
+        //    LAN offers ~1ms latency, 0 cellular data, and works locally without going through the public internet.
+        // 2. Remote / Out-of-Home: If LAN is unreachable (e.g. on external Wi-Fi, or cellular 5G),
+        //    prioritize IPv6 or custom public DDNS when on cellular or preferring cellular direct mode.
         // 3. Otherwise pick the reachable endpoint with the lowest latency.
         let reachable = results.filter { $0.isReachable }
         
         var selected: EndpointHealthStatus? = nil
-        if !isCellular && !settings.preferCellularNetwork {
-            if let lanEp = reachable.first(where: { ep in
-                let clean = ep.urlString.lowercased()
-                return clean.contains("192.168.") || clean.contains("10.") || clean.contains("172.")
-            }) {
-                selected = lanEp
-            }
-        } else {
+        let lanEp = reachable.first(where: { ep in
+            let clean = ep.urlString.lowercased()
+            return clean.contains("192.168.") || clean.contains("10.") || clean.contains("172.")
+        })
+        
+        if !isCellular, let lan = lanEp {
+            // If on Wi-Fi and home LAN is reachable, ALWAYS select LAN (fastest ~1ms)
+            selected = lan
+        } else if isCellular || settings.preferCellularNetwork {
+            // If on Cellular, or on external Wi-Fi (LAN failed) with cellular preference, prefer IPv6
             if let v6Ep = reachable.first(where: { ep in
                 let clean = ep.urlString.lowercased()
                 return clean.contains("[") || clean.contains("::") || (!clean.contains("192.168.") && !clean.contains("10.") && !clean.contains("127."))
@@ -148,13 +152,14 @@ public final class ConnectionManager {
         
         var request = URLRequest(url: probeURL)
         request.httpMethod = "GET"
-        request.timeoutInterval = 6.0 // Adequate probe timeout for cellular wakeup
+        request.timeoutInterval = 2.5 // Bound probe timeout so dead routes fail quickly
         
         let start = CFAbsoluteTimeGetCurrent()
         do {
+            // When probing, test candidate reachability over current system route without artificial interface penalties
             let (_, response) = try await NetworkTransport.shared.send(
                 request: request,
-                preferCellular: AppSettings.shared.preferCellularNetwork
+                preferCellular: false
             )
             let elapsedMs = (CFAbsoluteTimeGetCurrent() - start) * 1000.0
             
