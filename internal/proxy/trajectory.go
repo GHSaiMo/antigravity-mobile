@@ -242,8 +242,9 @@ type TrajectoryStep struct {
 			StepIndex int `json:"stepIndex"`
 		} `json:"sourceTrajectoryStepInfo,omitempty"`
 		ToolCall *struct {
-			ID   string `json:"id"`
-			Name string `json:"name"`
+			ID            string `json:"id"`
+			Name          string `json:"name"`
+			ArgumentsJson string `json:"argumentsJson,omitempty"`
 		} `json:"toolCall,omitempty"`
 	} `json:"metadata"`
 	TaskDetails *struct {
@@ -341,6 +342,10 @@ type TrajectoryStep struct {
 		ShortError string `json:"shortError"`
 		FullError  string `json:"fullError"`
 	} `json:"error"`
+	SystemMessage *struct {
+		Content string `json:"content"`
+	} `json:"systemMessage,omitempty"`
+	Content string `json:"content,omitempty"`
 }
 
 type upstreamPendingAgentMessage struct {
@@ -1067,18 +1072,23 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 				toolName = s.Metadata.ToolCall.Name
 			}
 
-			if cmdLine != "" || s.TaskDetails != nil {
-				runningTasks = append(runningTasks, RunningTaskItem{
-					ID:          taskID,
-					StepIndex:   stepIdx,
-					ToolName:    toolName,
-					CommandLine: cmdLine,
-					ToolSummary: s.Metadata.ToolSummary,
-					ToolAction:  s.Metadata.ToolAction,
-					LogURI:      logURI,
-					StartedAt:   s.Metadata.CreatedAt,
-				})
+			if cmdLine == "" && s.Metadata.ToolCall != nil {
+				cmdLine = s.Metadata.ToolCall.ArgumentsJson
 			}
+			if cmdLine == "" {
+				cmdLine = s.Metadata.ToolAction
+			}
+
+			runningTasks = append(runningTasks, RunningTaskItem{
+				ID:          taskID,
+				StepIndex:   stepIdx,
+				ToolName:    toolName,
+				CommandLine: cmdLine,
+				ToolSummary: s.Metadata.ToolSummary,
+				ToolAction:  s.Metadata.ToolAction,
+				LogURI:      logURI,
+				StartedAt:   s.Metadata.CreatedAt,
+			})
 		}
 	}
 
@@ -1658,17 +1668,18 @@ func (p *Proxy) FetchTrajectoryDetails(cascadeID string, maxAge time.Duration) (
 	return &details, nil
 }
 
-// FetchRawCascadeSummaries queries upstream GetAllCascadeTrajectories and returns non-subagent summaries.
-func (p *Proxy) FetchRawCascadeSummaries() (map[string]map[string]interface{}, error) {
+// FetchRawCascadeSummaries queries upstream GetAllCascadeTrajectories and returns non-subagent summaries
+// along with a map of parent conversation IDs that currently have active running subagents.
+func (p *Proxy) FetchRawCascadeSummaries() (map[string]map[string]interface{}, map[string]bool, error) {
 	port, token := p.ActiveUpstream()
 	if port == 0 {
-		return nil, fmt.Errorf("antigravity upstream not connected")
+		return nil, nil, fmt.Errorf("antigravity upstream not connected")
 	}
 
 	url := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories", port)
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader([]byte("{}")))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Connect-Protocol-Version", "1")
@@ -1682,35 +1693,44 @@ func (p *Proxy) FetchRawCascadeSummaries() (map[string]map[string]interface{}, e
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("upstream status %d", resp.StatusCode)
+		return nil, nil, fmt.Errorf("upstream status %d", resp.StatusCode)
 	}
 
 	var rawMap map[string]json.RawMessage
 	if err := json.NewDecoder(resp.Body).Decode(&rawMap); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	summariesRaw, ok := rawMap["trajectorySummaries"]
 	if !ok {
-		return make(map[string]map[string]interface{}), nil
+		return make(map[string]map[string]interface{}), make(map[string]bool), nil
 	}
 
 	var summaries map[string]map[string]interface{}
 	if err := json.Unmarshal(summariesRaw, &summaries); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	// Filter out internal subagent sessions
+	runningSubagents := make(map[string]bool)
+	// Filter out internal subagent sessions while tracking parents of actively running subagents
 	for id, s := range summaries {
 		if isSubagentTrajectoryMap(s, id) {
+			status, _ := s["status"].(string)
+			if status == "CASCADE_RUN_STATUS_RUNNING" {
+				if meta, ok := s["trajectoryMetadata"].(map[string]interface{}); ok {
+					if parent, ok := meta["parentConversationId"].(string); ok && strings.TrimSpace(parent) != "" {
+						runningSubagents[strings.TrimSpace(parent)] = true
+					}
+				}
+			}
 			delete(summaries, id)
 		}
 	}
 
-	return summaries, nil
+	return summaries, runningSubagents, nil
 }
