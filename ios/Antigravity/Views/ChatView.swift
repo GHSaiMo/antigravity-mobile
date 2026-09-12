@@ -15,14 +15,18 @@ public struct ChatView: View {
     public init(conversation: ConversationItem, isNewConversation: Bool = false) {
         if conversation.isDraft {
             self.shouldAutoFocus = true
-            if let draftSession = CacheManager.shared.getLocalDraftSession(id: conversation.id) {
+            if var draftSession = CacheManager.shared.getLocalDraftSession(id: conversation.id) {
+                if draftSession.draftImages.isEmpty {
+                    draftSession.draftImages = CacheManager.shared.getDraftImages(for: conversation.id)
+                }
                 _viewModel = State(initialValue: ChatViewModel(draftSession: draftSession))
             } else if let project = conversation.draftProject {
-                let session = LocalDraftSession(
+                var session = LocalDraftSession(
                     id: conversation.id,
                     project: project,
                     draftText: CacheManager.shared.getDraft(for: conversation.id)
                 )
+                session.draftImages = CacheManager.shared.getDraftImages(for: conversation.id)
                 _viewModel = State(initialValue: ChatViewModel(draftSession: session))
             } else {
                 let isNewOrEmpty = isNewConversation || conversation.stepCount == 0

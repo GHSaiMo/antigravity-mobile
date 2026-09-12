@@ -264,7 +264,11 @@ public struct ConversationListView: View {
                 conversationCard(for: item)
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        navigationPath.append(item)
+                        if item.isDraft, let draftSession = CacheManager.shared.getLocalDraftSession(id: item.id) {
+                            selectedDraftSession = draftSession
+                        } else {
+                            navigationPath.append(item)
+                        }
                     }
                     .onLongPressGesture(minimumDuration: 0.45) {
                         guard !item.isDraft else { return }
