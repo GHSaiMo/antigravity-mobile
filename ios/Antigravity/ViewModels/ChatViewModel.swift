@@ -200,6 +200,24 @@ public final class ChatViewModel {
         return subsequent.first?.id ?? messages.last?.id
     }
     
+    public var isUnreadOnEntry: Bool = false
+    public var initialConversationStatus: ConversationItem.ConversationStatus? = nil
+    
+    /// Whether this conversation has an error (trajectory error, error status, or latest turn error)
+    public var hasErrorState: Bool {
+        hasError || (initialConversationStatus?.isError == true) || (messages.last?.isError == true)
+    }
+    
+    /// Whether this conversation has an action requiring user input/interaction
+    public var hasActionState: Bool {
+        canProceed || pendingInteraction != nil || (initialConversationStatus?.needsAction == true)
+    }
+    
+    /// Whether this conversation on entry has unread messages, error messages, or action messages
+    public var shouldScrollToTurnStartOnEntry: Bool {
+        isUnreadOnEntry || hasErrorState || hasActionState
+    }
+    
     /// ID of the latest agent response message (the actual text bubble from the agent, not tool batches)
     public var latestAgentMessageId: String? {
         if let lastUserIdx = messages.lastIndex(where: { $0.sender == .user }) {
@@ -261,12 +279,16 @@ public final class ChatViewModel {
         isNewConversation: Bool = false,
         apiClient: APIClient? = nil,
         settings: AppSettings? = nil,
-        cacheManager: CacheManager? = nil
+        cacheManager: CacheManager? = nil,
+        isUnread: Bool = false,
+        conversationStatus: ConversationItem.ConversationStatus? = nil
     ) {
         self.cascadeId = cascadeId
         self.initialTitle = initialTitle
         self.currentTitle = initialTitle
         self.isNewConversation = isNewConversation
+        self.isUnreadOnEntry = isUnread
+        self.initialConversationStatus = conversationStatus
         let resolvedApiClient = apiClient ?? .shared
         let resolvedSettings = settings ?? .shared
         let resolvedCacheManager = cacheManager ?? .shared
@@ -313,8 +335,8 @@ public final class ChatViewModel {
                 self.trajectoryErrorMessage = latestTurn.last(where: { $0.isError })?.content
             }
             self.cascadeConfigRaw = cached.cascadeConfigRaw
-            self.canProceed = false
-            self.proceedArtifactUri = nil
+            self.canProceed = cached.canProceed ?? false
+            self.proceedArtifactUri = cached.proceedArtifactUri
             self.pendingInteraction = cached.pendingInteraction
             let recentUser = Set(healed.filter { $0.sender == .user }.suffix(15).map { $0.content.trimmingCharacters(in: .whitespacesAndNewlines) })
             self.queuedMessages = (cached.queuedMessages ?? []).filter { !recentUser.contains($0.text.trimmingCharacters(in: .whitespacesAndNewlines)) }

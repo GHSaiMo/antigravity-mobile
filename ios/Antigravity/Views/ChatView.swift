@@ -8,11 +8,17 @@ public struct ChatView: View {
     @State private var hasInitiallyAligned = false
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     private let shouldAutoFocus: Bool
+    private let initialConversation: ConversationItem?
+    private let initialIsUnread: Bool
+    private let initialStatus: ConversationItem.ConversationStatus?
     @State private var hasAutoFocused = false
     @State private var isViewAppeared = false
     @State private var autoFocusTask: Task<Void, Never>? = nil
     
     public init(conversation: ConversationItem, isNewConversation: Bool = false) {
+        self.initialConversation = conversation
+        self.initialIsUnread = conversation.isUnread
+        self.initialStatus = conversation.status
         if conversation.isDraft {
             self.shouldAutoFocus = true
             if var draftSession = CacheManager.shared.getLocalDraftSession(id: conversation.id) {
@@ -33,7 +39,9 @@ public struct ChatView: View {
                 _viewModel = State(initialValue: ChatViewModel(
                     cascadeId: conversation.id,
                     initialTitle: conversation.title,
-                    isNewConversation: isNewOrEmpty
+                    isNewConversation: isNewOrEmpty,
+                    isUnread: conversation.isUnread,
+                    conversationStatus: conversation.status
                 ))
             }
         } else {
@@ -42,12 +50,17 @@ public struct ChatView: View {
             _viewModel = State(initialValue: ChatViewModel(
                 cascadeId: conversation.id,
                 initialTitle: conversation.title,
-                isNewConversation: isNewOrEmpty
+                isNewConversation: isNewOrEmpty,
+                isUnread: conversation.isUnread,
+                conversationStatus: conversation.status
             ))
         }
     }
     
     public init(draftSession: LocalDraftSession) {
+        self.initialConversation = nil
+        self.initialIsUnread = false
+        self.initialStatus = nil
         self.shouldAutoFocus = true
         _viewModel = State(initialValue: ChatViewModel(
             draftSession: draftSession
@@ -55,6 +68,9 @@ public struct ChatView: View {
     }
     
     public init(draftProject: ProjectItem) {
+        self.initialConversation = nil
+        self.initialIsUnread = false
+        self.initialStatus = nil
         self.shouldAutoFocus = true
         _viewModel = State(initialValue: ChatViewModel(
             draftProject: draftProject
@@ -807,17 +823,24 @@ public struct ChatView: View {
     }
     
     private func smartScroll(proxy: ScrollViewProxy, animated: Bool = false) {
-        if viewModel.isAwaitingResponse || viewModel.isRunning {
-            scrollToBottom(proxy: proxy, animated: animated)
-        } else if let _ = viewModel.latestAgentMessageId {
+        let shouldScrollToTurnStart = viewModel.shouldScrollToTurnStartOnEntry
+            || initialIsUnread
+            || (initialStatus?.isError == true)
+            || (initialStatus?.needsAction == true)
+        
+        if shouldScrollToTurnStart {
+            // 1. 若会话有未读消息、ERROR 消息或 ACTION 消息：
+            // 默认从 Agent 发起的最后一句会话的开头开始显示（保持现在的逻辑）
             scrollToTurnStart(proxy: proxy, animated: animated)
         } else {
+            // 2. 若会话为已读状态（即所有消息都已读过，且无 ERROR 消息、ACTION 消息等）：
+            // 默认拉到会话的最下面。
             scrollToBottom(proxy: proxy, animated: animated)
         }
     }
     
     private func scrollToTurnStart(proxy: ScrollViewProxy, animated: Bool = true) {
-        // Only target agent response message start when opening a completed chat
+        // Target agent response message start when opening a chat with unread messages, error, or pending action
         guard let targetId = viewModel.latestAgentMessageId else {
             scrollToBottom(proxy: proxy, animated: animated)
             return
