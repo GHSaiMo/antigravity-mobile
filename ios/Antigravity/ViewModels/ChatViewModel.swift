@@ -160,6 +160,7 @@ public final class ChatViewModel {
     public var downloadBytesTotal: Int64 = 0
     private var documentDownloadTask: Task<Void, Never>? = nil
     public var quickLookURL: URL? = nil
+    public var quickLookTitle: String = ""
     public var htmlPreviewURL: URL? = nil
     public var htmlPreviewTitle: String = ""
     
@@ -1366,6 +1367,18 @@ public final class ChatViewModel {
     public func downloadAndPreviewDocument(uri: String, fileName: String, isHTML: Bool) {
         documentDownloadTask?.cancel()
         
+        // 1. Fast-path: Check persistent local cache first
+        if let cachedURL = DocumentCacheManager.shared.getCachedFile(for: uri, fileName: fileName) {
+            if isHTML {
+                self.htmlPreviewTitle = fileName
+                self.htmlPreviewURL = cachedURL
+            } else {
+                self.quickLookTitle = fileName
+                self.quickLookURL = cachedURL
+            }
+            return
+        }
+        
         self.isDownloadingDocument = true
         self.downloadingDocumentName = fileName
         self.downloadProgress = 0.0
@@ -1402,6 +1415,7 @@ public final class ChatViewModel {
                     self.htmlPreviewTitle = resolvedName
                     self.htmlPreviewURL = localURL
                 } else {
+                    self.quickLookTitle = resolvedName
                     self.quickLookURL = localURL
                 }
             } catch {
