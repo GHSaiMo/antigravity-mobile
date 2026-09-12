@@ -1800,10 +1800,11 @@ function generateItemHtml(item, isRunning, isLastItem) {
     const stepItemsHtml = item.steps.map(s => `
       <div class="tool-step-item">
         <div class="tool-step-left">
-          <span class="tool-step-name">⚡ ${escapeHtml(s.name)}</span>
-          ${s.detail ? `<span class="tool-step-detail">${escapeHtml(s.detail)}</span>` : ''}
+          <svg class="tool-puzzle-icon" width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M20.5 11H19V7c0-1.1-.9-2-2-2h-4V3.5a2.5 2.5 0 0 0-5 0V5H4c-1.1 0-1.99.9-1.99 2v3.8H3.5c1.49 0 2.7 1.21 2.7 2.7s-1.21 2.7-2.7 2.7H2V20c0 1.1.9 2 2 2h3.8v-1.5c0-1.49 1.21-2.7 2.7-2.7s2.7 1.21 2.7 2.7V22H17c1.1 0 2-.9 2-2v-4h1.5a2.5 2.5 0 0 0 0-5z"></path>
+          </svg>
+          <span class="tool-step-name">${escapeHtml(s.name)}</span>
         </div>
-        <span class="tool-step-status">${escapeHtml(s.status || "DONE")}</span>
       </div>
     `).join("");
 
@@ -1817,7 +1818,7 @@ function generateItemHtml(item, isRunning, isLastItem) {
             <span class="tool-batch-title">已思考并执行 <strong>${count}</strong> 项操作</span>
             ${toolNamesStr ? `<span class="tool-names">(${escapeHtml(toolNamesStr)})</span>` : ''}
             <svg class="chevron-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="9 18 15 12 9 6"></polyline>
+              <polyline points="6 9 12 15 18 9"></polyline>
             </svg>
           </div>
         </summary>
