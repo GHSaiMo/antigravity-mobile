@@ -4,61 +4,97 @@ import WebKit
 
 // MARK: - Native QuickLook Presentation Sheet (PPTX, DOCX, XLSX, PDF, KEY)
 
-public struct QuickLookPreviewSheet: UIViewControllerRepresentable {
+public struct QuickLookPreviewSheet: View {
     public let url: URL
-    public let onDismiss: (() -> Void)?
+    public let title: String
+    public let onDismiss: () -> Void
+    @State private var isSharing: Bool = false
     
-    public init(url: URL, onDismiss: (() -> Void)? = nil) {
+    public init(url: URL, title: String = "", onDismiss: @escaping () -> Void) {
         self.url = url
+        let fallback = url.lastPathComponent.removingPercentEncoding ?? url.lastPathComponent
+        self.title = title.isEmpty ? fallback : title
         self.onDismiss = onDismiss
     }
     
-    public func makeCoordinator() -> Coordinator {
-        Coordinator(parent: self)
-    }
-    
-    public func makeUIViewController(context: Context) -> UINavigationController {
-        let controller = QLPreviewController()
-        controller.dataSource = context.coordinator
-        controller.delegate = context.coordinator
-        
-        let doneItem = UIBarButtonItem(
-            title: "完成",
-            style: .done,
-            target: context.coordinator,
-            action: #selector(Coordinator.doneTapped)
-        )
-        controller.navigationItem.leftBarButtonItem = doneItem
-        
-        let shareItem = UIBarButtonItem(
-            image: UIImage(systemName: "square.and.arrow.up"),
-            style: .plain,
-            target: context.coordinator,
-            action: #selector(Coordinator.shareTapped)
-        )
-        shareItem.accessibilityLabel = "发送"
-        controller.navigationItem.rightBarButtonItem = shareItem
-        
-        let nav = UINavigationController(rootViewController: controller)
-        nav.navigationBar.prefersLargeTitles = false
-        context.coordinator.navController = nav
-        return nav
-    }
-    
-    public func updateUIViewController(_ uiViewController: UINavigationController, context: Context) {
-        context.coordinator.parent = self
-        context.coordinator.navController = uiViewController
-        if let ql = uiViewController.topViewController as? QLPreviewController {
-            ql.reloadData()
+    public var body: some View {
+        VStack(spacing: 0) {
+            // Floating grab handle hinting pull-down dismissal
+            Capsule()
+                .fill(Color(uiColor: .tertiaryLabel))
+                .frame(width: 38, height: 5)
+                .padding(.top, 10)
+                .padding(.bottom, 12)
+            
+            // Header bar
+            HStack {
+                Button("完成") {
+                    onDismiss()
+                }
+                .font(.system(size: 16, weight: .semibold))
+                .frame(width: 60, alignment: .leading)
+                
+                Spacer()
+                
+                Text(title)
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                
+                Spacer()
+                
+                Button {
+                    isSharing = true
+                } label: {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 16, weight: .semibold))
+                }
+                .frame(width: 60, alignment: .trailing)
+                .accessibilityLabel("发送")
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 12)
+            
+            Divider()
+            
+            QuickLookControllerRepresentable(url: url)
+                .ignoresSafeArea(edges: .bottom)
         }
+        .sheet(isPresented: $isSharing) {
+            ShareSheetView(activityItems: [url])
+        }
+    }
+}
+
+public struct QuickLookControllerRepresentable: UIViewControllerRepresentable {
+    public let url: URL
+    
+    public init(url: URL) {
+        self.url = url
+    }
+    
+    public func makeCoordinator() -> Coordinator {
+        Coordinator(url: url)
+    }
+    
+    public func makeUIViewController(context: Context) -> QuickLookContainerViewController {
+        let container = QuickLookContainerViewController(url: url)
+        container.qlController.dataSource = context.coordinator
+        container.qlController.delegate = context.coordinator
+        return container
+    }
+    
+    public func updateUIViewController(_ uiViewController: QuickLookContainerViewController, context: Context) {
+        context.coordinator.url = url
+        uiViewController.url = url
     }
     
     public final class Coordinator: NSObject, QLPreviewControllerDataSource, QLPreviewControllerDelegate {
-        var parent: QuickLookPreviewSheet
-        weak var navController: UINavigationController?
+        var url: URL
         
-        init(parent: QuickLookPreviewSheet) {
-            self.parent = parent
+        init(url: URL) {
+            self.url = url
         }
         
         public func numberOfPreviewItems(in controller: QLPreviewController) -> Int {
@@ -66,24 +102,40 @@ public struct QuickLookPreviewSheet: UIViewControllerRepresentable {
         }
         
         public func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> QLPreviewItem {
-            return parent.url as NSURL
+            return url as NSURL
         }
-        
-        public func previewControllerDidDismiss(_ controller: QLPreviewController) {
-            parent.onDismiss?()
+    }
+}
+
+public final class QuickLookContainerViewController: UIViewController {
+    let qlController = QLPreviewController()
+    var url: URL {
+        didSet {
+            qlController.reloadData()
         }
-        
-        @objc func doneTapped() {
-            parent.onDismiss?()
-        }
-        
-        @objc func shareTapped() {
-            let activityVC = UIActivityViewController(activityItems: [parent.url], applicationActivities: nil)
-            if let popover = activityVC.popoverPresentationController, let rightBtn = navController?.topViewController?.navigationItem.rightBarButtonItem {
-                popover.barButtonItem = rightBtn
-            }
-            navController?.present(activityVC, animated: true)
-        }
+    }
+    
+    init(url: URL) {
+        self.url = url
+        super.init(nibName: nil, bundle: nil)
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+    
+    public override func viewDidLoad() {
+        super.viewDidLoad()
+        addChild(qlController)
+        view.addSubview(qlController.view)
+        qlController.view.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            qlController.view.topAnchor.constraint(equalTo: view.topAnchor),
+            qlController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            qlController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            qlController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor)
+        ])
+        qlController.didMove(toParent: self)
     }
 }
 
@@ -95,37 +147,59 @@ public struct HTMLPreviewSheet: View {
     public let onDismiss: () -> Void
     @State private var isSharing: Bool = false
     
-    public init(url: URL, title: String, onDismiss: @escaping () -> Void) {
+    public init(url: URL, title: String = "", onDismiss: @escaping () -> Void) {
         self.url = url
-        self.title = title
+        let fallback = url.lastPathComponent.removingPercentEncoding ?? url.lastPathComponent
+        self.title = title.isEmpty ? fallback : title
         self.onDismiss = onDismiss
     }
     
     public var body: some View {
-        NavigationStack {
+        VStack(spacing: 0) {
+            // Floating grab handle hinting pull-down dismissal
+            Capsule()
+                .fill(Color(uiColor: .tertiaryLabel))
+                .frame(width: 38, height: 5)
+                .padding(.top, 10)
+                .padding(.bottom, 12)
+            
+            // Header bar
+            HStack {
+                Button("完成") {
+                    onDismiss()
+                }
+                .font(.system(size: 16, weight: .semibold))
+                .frame(width: 60, alignment: .leading)
+                
+                Spacer()
+                
+                Text(title)
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                
+                Spacer()
+                
+                Button {
+                    isSharing = true
+                } label: {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 16, weight: .semibold))
+                }
+                .frame(width: 60, alignment: .trailing)
+                .accessibilityLabel("发送")
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 12)
+            
+            Divider()
+            
             HTMLWebViewRepresentable(url: url)
                 .ignoresSafeArea(edges: .bottom)
-                .navigationTitle(title.isEmpty ? "网页文档" : title)
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button("完成") {
-                            onDismiss()
-                        }
-                        .fontWeight(.semibold)
-                    }
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            isSharing = true
-                        } label: {
-                            Image(systemName: "square.and.arrow.up")
-                        }
-                        .accessibilityLabel("发送")
-                    }
-                }
-                .sheet(isPresented: $isSharing) {
-                    ShareSheetView(activityItems: [url])
-                }
+        }
+        .sheet(isPresented: $isSharing) {
+            ShareSheetView(activityItems: [url])
         }
     }
 }

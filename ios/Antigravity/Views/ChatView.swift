@@ -161,10 +161,10 @@ public struct ChatView: View {
             set: { if !$0 { viewModel.closeQuickLook() } }
         )) {
             if let qlURL = viewModel.quickLookURL {
-                QuickLookPreviewSheet(url: qlURL) {
+                QuickLookPreviewSheet(url: qlURL, title: viewModel.quickLookTitle) {
                     viewModel.closeQuickLook()
                 }
-                .ignoresSafeArea()
+                .presentationDragIndicator(.hidden)
             }
         }
         .sheet(isPresented: Binding(
@@ -175,74 +175,41 @@ public struct ChatView: View {
                 HTMLPreviewSheet(url: htmlURL, title: viewModel.htmlPreviewTitle) {
                     viewModel.closeHTMLPreview()
                 }
+                .presentationDragIndicator(.hidden)
             }
         }
         .overlay {
             if viewModel.isDownloadingDocument {
                 ZStack {
-                    Color.black.opacity(0.35)
+                    Color.black.opacity(0.12)
                         .ignoresSafeArea()
-                    
-                    VStack(spacing: 14) {
-                        Image(systemName: "arrow.down.circle.fill")
-                            .font(.system(size: 36))
-                            .foregroundStyle(.tint)
-                        
-                        Text("正在从电脑端拉取文件...")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundColor(.primary)
-                        
-                        if !viewModel.downloadingDocumentName.isEmpty {
-                            Text(viewModel.downloadingDocumentName)
-                                .font(.system(size: 13))
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                                .padding(.horizontal, 8)
-                        }
-                        
-                        VStack(spacing: 6) {
-                            if viewModel.downloadBytesTotal > 0 {
-                                ProgressView(value: viewModel.downloadProgress)
-                                    .progressViewStyle(.linear)
-                                
-                                HStack {
-                                    Text("\(formatBytes(viewModel.downloadBytesWritten)) / \(formatBytes(viewModel.downloadBytesTotal))")
-                                        .font(.system(size: 11, design: .monospaced))
-                                        .foregroundColor(.secondary)
-                                    Spacer()
-                                    Text("\(Int(viewModel.downloadProgress * 100))%")
-                                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                                        .foregroundColor(.secondary)
-                                }
-                            } else {
-                                ProgressView()
-                                    .progressViewStyle(.circular)
-                                    .padding(.vertical, 4)
-                                if viewModel.downloadBytesWritten > 0 {
-                                    Text(formatBytes(viewModel.downloadBytesWritten))
-                                        .font(.system(size: 11, design: .monospaced))
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-                        }
-                        .frame(maxWidth: 240)
-                        
-                        Button("取消") {
+                        .onTapGesture {
                             viewModel.cancelDocumentDownload()
                         }
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(.secondary)
-                        .padding(.top, 4)
+                    
+                    VStack(spacing: 12) {
+                        Text("正在下载文件")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.primary)
+                        
+                        if viewModel.downloadBytesTotal > 0 {
+                            ProgressView(value: viewModel.downloadProgress)
+                                .progressViewStyle(.linear)
+                                .tint(.accentColor)
+                                .frame(width: 150)
+                        } else {
+                            ProgressView()
+                                .progressViewStyle(.circular)
+                        }
                     }
                     .padding(.horizontal, 24)
-                    .padding(.vertical, 20)
-                    .background(Color(uiColor: .systemBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                    .shadow(color: .black.opacity(0.18), radius: 18, y: 8)
+                    .padding(.vertical, 16)
+                    .background(.ultraThinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
                 }
                 .transition(.opacity)
-                .animation(.easeInOut(duration: 0.2), value: viewModel.isDownloadingDocument)
+                .animation(.easeInOut(duration: 0.15), value: viewModel.isDownloadingDocument)
             }
         }
     }
@@ -559,13 +526,6 @@ public struct ChatView: View {
         }
         
         return .handled
-    }
-    
-    private func formatBytes(_ bytes: Int64) -> String {
-        let formatter = ByteCountFormatter()
-        formatter.allowedUnits = [.useAll]
-        formatter.countStyle = .file
-        return formatter.string(fromByteCount: bytes)
     }
     
     @ViewBuilder
