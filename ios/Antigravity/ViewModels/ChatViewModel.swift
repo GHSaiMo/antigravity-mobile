@@ -117,6 +117,12 @@ public final class ChatViewModel {
     
     private var awaitingResponseSince: Date? = nil
     private var pendingOptimisticMessageId: String? = nil
+    private struct PendingOptimisticQueueItem {
+        let id: String
+        let text: String
+        let createdAt: Date
+    }
+    private var pendingOptimisticQueueItems: [PendingOptimisticQueueItem] = []
     private var knownServerMessageIds: Set<String> = []
     private var pollTask: Task<Void, Never>?
     private var hasUserManuallySelectedModel: Bool = false
@@ -182,7 +188,8 @@ public final class ChatViewModel {
             self.canProceed = false
             self.proceedArtifactUri = nil
             self.pendingInteraction = cached.pendingInteraction
-            self.queuedMessages = cached.queuedMessages ?? []
+            let recentUser = Set(healed.filter { $0.sender == .user }.suffix(15).map { $0.content.trimmingCharacters(in: .whitespacesAndNewlines) })
+            self.queuedMessages = (cached.queuedMessages ?? []).filter { !recentUser.contains($0.text.trimmingCharacters(in: .whitespacesAndNewlines)) }
             self.knownServerMessageIds = Set(healed.map(\.id))
             if let cachedTitle = cached.title, !cachedTitle.isEmpty, cachedTitle != "未命名会话" {
                 self.currentTitle = cachedTitle
@@ -229,7 +236,8 @@ public final class ChatViewModel {
             self.canProceed = false
             self.proceedArtifactUri = nil
             self.pendingInteraction = cached.pendingInteraction
-            self.queuedMessages = cached.queuedMessages ?? []
+            let recentUser = Set(healed.filter { $0.sender == .user }.suffix(15).map { $0.content.trimmingCharacters(in: .whitespacesAndNewlines) })
+            self.queuedMessages = (cached.queuedMessages ?? []).filter { !recentUser.contains($0.text.trimmingCharacters(in: .whitespacesAndNewlines)) }
             self.runningTasks = cached.runningTasks ?? []
             self.knownServerMessageIds = Set(healed.map(\.id))
         }
@@ -325,11 +333,7 @@ public final class ChatViewModel {
                 self.pendingInteraction = nil
             }
             
-            if !result.queuedMessages.isEmpty {
-                self.queuedMessages = result.queuedMessages
-            } else if !self.isRunning && !self.isAwaitingResponse {
-                self.queuedMessages = []
-            }
+            self.syncQueuedMessages(serverQueue: result.queuedMessages)
             
             self.runningTasks = result.runningTasks
             
@@ -656,6 +660,60 @@ public final class ChatViewModel {
         }
     }
     
+    // MARK: - Queued Messages Synchronization
+    
+    private func syncQueuedMessages(serverQueue: [QueuedMessageItem]?) {
+        let now = Date()
+        // 1. Expire stale optimistic items older than 15 seconds
+        pendingOptimisticQueueItems.removeAll(where: { now.timeIntervalSince($0.createdAt) > 15.0 })
+        
+        // 2. Identify recent user messages in the active conversation
+        let recentUserMessages = self.messages
+            .filter { $0.sender == .user }
+            .suffix(15)
+            .map { $0.content.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let recentUserMessageSet = Set(recentUserMessages)
+        
+        // 3. Clear optimistic items if server has incorporated them OR if their text has already entered the conversation
+        pendingOptimisticQueueItems.removeAll { opt in
+            let trimmed = opt.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let inServer = serverQueue?.contains(where: { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == trimmed }) == true
+            let inChat = recentUserMessageSet.contains(trimmed)
+            return inServer || inChat
+        }
+        
+        // 4. Compute base queue from server if provided, otherwise filter existing queue
+        var baseQueue: [QueuedMessageItem]
+        if let sq = serverQueue {
+            baseQueue = sq.filter { sItem in
+                !recentUserMessageSet.contains(sItem.text.trimmingCharacters(in: .whitespacesAndNewlines))
+            }
+        } else {
+            baseQueue = self.queuedMessages.filter { qm in
+                !qm.id.hasPrefix("queue-") && !recentUserMessageSet.contains(qm.text.trimmingCharacters(in: .whitespacesAndNewlines))
+            }
+        }
+        
+        // 5. Append unconfirmed optimistic items (not yet in server queue and not yet entered chat)
+        let remainingOptItems = pendingOptimisticQueueItems.compactMap { opt -> QueuedMessageItem? in
+            let trimmed = opt.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if baseQueue.contains(where: { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == trimmed }) {
+                return nil
+            }
+            if recentUserMessageSet.contains(trimmed) {
+                return nil
+            }
+            return QueuedMessageItem(id: opt.id, text: opt.text)
+        }
+        
+        let newQueue = baseQueue + remainingOptItems
+        if newQueue != self.queuedMessages {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                self.queuedMessages = newQueue
+            }
+        }
+    }
+    
     private func updateCascadeConfigRawModel(_ modelEnum: String, modelName: String) {
         guard let raw = cascadeConfigRaw, let data = raw.data(using: .utf8) else { return }
         guard var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
@@ -734,6 +792,7 @@ public final class ChatViewModel {
         if (self.isRunning || self.isAwaitingResponse) && !self.cascadeId.isEmpty {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             let queueItem = QueuedMessageItem(id: "queue-\(UUID().uuidString)", text: text)
+            self.pendingOptimisticQueueItems.append(PendingOptimisticQueueItem(id: queueItem.id, text: text, createdAt: Date()))
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                 self.queuedMessages.append(queueItem)
             }
@@ -939,6 +998,7 @@ public final class ChatViewModel {
         guard let url = settings.serverURL, !cascadeId.isEmpty else { return }
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         
+        self.pendingOptimisticQueueItems.removeAll(where: { $0.id == item.id || $0.text == item.text })
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
             self.queuedMessages.removeAll(where: { $0.id == item.id })
         }
@@ -968,6 +1028,7 @@ public final class ChatViewModel {
     @MainActor
     public func editQueuedMessage(item: QueuedMessageItem) {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        self.pendingOptimisticQueueItems.removeAll(where: { $0.id == item.id || $0.text == item.text })
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
             self.queuedMessages.removeAll(where: { $0.id == item.id })
         }
@@ -985,6 +1046,7 @@ public final class ChatViewModel {
     @MainActor
     public func deleteQueuedMessage(item: QueuedMessageItem) {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        self.pendingOptimisticQueueItems.removeAll(where: { $0.id == item.id || $0.text == item.text })
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
             self.queuedMessages.removeAll(where: { $0.id == item.id })
         }
@@ -1384,13 +1446,7 @@ public final class ChatViewModel {
             self.pendingInteraction = nil
         }
         
-        if let qm = payload.queuedMessages {
-            if !qm.isEmpty {
-                self.queuedMessages = qm
-            } else if !self.isRunning && !self.isAwaitingResponse {
-                self.queuedMessages = []
-            }
-        }
+        self.syncQueuedMessages(serverQueue: payload.queuedMessages)
         
         if let tasks = payload.runningTasks {
             self.runningTasks = tasks

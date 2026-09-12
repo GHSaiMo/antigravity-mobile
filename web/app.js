@@ -1301,8 +1301,10 @@ function connectStreamWs(cascadeId) {
           currentTrajectories[cascadeId].needsInput = hasAction;
         }
 
-        if (data.queuedMessages) {
-          LocalQueueManager.syncFromServer(data.queuedMessages);
+        if (data.queuedMessages !== undefined) {
+          LocalQueueManager.syncFromServer(data.queuedMessages, data.steps || data.messages);
+        } else if (data.steps) {
+          LocalQueueManager.syncFromServer(null, data.steps);
         }
 
         RunningTasksManager.syncFromServer(data.runningTasks);
@@ -1383,8 +1385,10 @@ async function loadChat(cascadeId, isBackgroundPoll = false) {
           if (info.activeModel) {
             syncActiveModel(info.activeModel);
           }
-          if (info.queuedMessages) {
-            LocalQueueManager.syncFromServer(info.queuedMessages);
+          if (info.queuedMessages !== undefined) {
+            LocalQueueManager.syncFromServer(info.queuedMessages, info.messages || info.steps);
+          } else if (info.messages) {
+            LocalQueueManager.syncFromServer(null, info.messages);
           }
           RunningTasksManager.syncFromServer(info.runningTasks);
           currentCanProceed = !!info.canProceed && !isRunning;
@@ -2027,16 +2031,41 @@ const LocalQueueManager = {
     this.render();
   },
 
-  syncFromServer(serverQueue) {
-    if (!Array.isArray(serverQueue)) return;
-    if (serverQueue.length > 0) {
-      this.queue = serverQueue.map(item => ({
-        id: item.id || `server-${Date.now()}`,
-        text: item.text,
-        createdAt: item.createdAt || new Date().toISOString()
-      }));
-    } else if (currentTrajectories[activeCascadeId]?.status !== "CASCADE_RUN_STATUS_RUNNING") {
-      this.queue = [];
+  syncFromServer(serverQueue, currentStepsOrMessages = []) {
+    const recentUserContents = [];
+    if (Array.isArray(currentStepsOrMessages)) {
+      for (const item of currentStepsOrMessages) {
+        if (item && item.type === 'CORTEX_STEP_TYPE_USER_INPUT' && item.userInput) {
+          const t = (item.userInput.userResponse || item.userInput.response || '').trim();
+          if (t) recentUserContents.push(t);
+        } else if (item && (item.sender === 'user' || item.role === 'user')) {
+          const t = (item.content || item.text || '').trim();
+          if (t) recentUserContents.push(t);
+        }
+      }
+    }
+    const recentUserSet = new Set(recentUserContents.slice(-15));
+
+    if (Array.isArray(serverQueue)) {
+      const now = Date.now();
+      const pendingOpt = this.queue.filter(it => 
+        it.id && it.id.startsWith('queue-') &&
+        (now - new Date(it.createdAt).getTime() < 15000) &&
+        !recentUserSet.has((it.text || '').trim()) &&
+        !serverQueue.some(s => (s.text || '').trim() === (it.text || '').trim())
+      );
+
+      const baseQueue = serverQueue
+        .filter(item => !recentUserSet.has((item.text || '').trim()))
+        .map(item => ({
+          id: item.id || `server-${Date.now()}`,
+          text: item.text,
+          createdAt: item.createdAt || new Date().toISOString()
+        }));
+
+      this.queue = [...baseQueue, ...pendingOpt];
+    } else {
+      this.queue = this.queue.filter(item => !recentUserSet.has((item.text || '').trim()));
     }
     this.save();
   },

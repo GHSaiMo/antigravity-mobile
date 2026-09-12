@@ -10,7 +10,23 @@ public struct SettingsSheet: View {
     public init() {}
     
     public var body: some View {
-        NavigationStack {
+        VStack(spacing: 0) {
+            // Floating grab handle hinting pull-down dismissal
+            Capsule()
+                .fill(Color(uiColor: .tertiaryLabel))
+                .frame(width: 38, height: 5)
+                .padding(.top, 10)
+                .padding(.bottom, 8)
+            
+            // Header title
+            Text("设置")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundColor(.primary)
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, 12)
+            
+            Divider()
+            
             Form {
                 Section(header: Text("设备扫码配对与鉴权"), footer: Text("扫描 Mac 网关终端显示的配对二维码，自动绑定设备专属凭证并完成长效免密直连。")) {
                     if settings.isPaired {
@@ -210,18 +226,11 @@ public struct SettingsSheet: View {
                     }
                 }
             }
-            .navigationTitle("设置")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("完成") {
-                        dismiss()
-                    }
-                }
-            }
-            .sheet(isPresented: $showQRScanner) {
-                QRScannerView()
-            }
+        }
+        .background(Color(uiColor: .systemGroupedBackground))
+        .presentationDragIndicator(.hidden)
+        .sheet(isPresented: $showQRScanner) {
+            QRScannerView()
         }
     }
     
