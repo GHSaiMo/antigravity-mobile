@@ -22,7 +22,23 @@ public struct NewConversationSheet: View {
     }
     
     public var body: some View {
-        NavigationStack {
+        VStack(spacing: 0) {
+            // Floating grab handle hinting pull-down dismissal
+            Capsule()
+                .fill(Color(uiColor: .tertiaryLabel))
+                .frame(width: 38, height: 5)
+                .padding(.top, 10)
+                .padding(.bottom, 8)
+            
+            // Header title
+            Text("新建会话")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundColor(.primary)
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, 12)
+            
+            Divider()
+            
             Group {
                 if isLoading && projects.isEmpty {
                     VStack(spacing: 14) {
@@ -100,18 +116,10 @@ public struct NewConversationSheet: View {
                     }
                 }
             }
-            .navigationTitle("新建会话")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") {
-                        dismiss()
-                    }
-                }
-            }
-            .task {
-                await refreshProjectsInBackground()
-            }
+        }
+        .presentationDragIndicator(.hidden)
+        .task {
+            await refreshProjectsInBackground()
         }
     }
     
