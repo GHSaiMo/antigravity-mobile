@@ -15,6 +15,7 @@ public enum TableColumnAlignment: Sendable, Equatable {
 }
 
 public enum MarkdownBlock: Identifiable {
+    case frontmatter(id: String, rawContent: String, lineCount: Int)
     case heading(id: String, level: Int, text: String)
     case divider(id: String)
     case codeBlock(id: String, lang: String, code: String)
@@ -24,6 +25,7 @@ public enum MarkdownBlock: Identifiable {
     
     public var id: String {
         switch self {
+        case .frontmatter(let id, _, _): return id
         case .heading(let id, _, _): return id
         case .divider(let id): return id
         case .codeBlock(let id, _, _): return id
@@ -72,6 +74,9 @@ public struct MarkdownContentView: View {
         VStack(alignment: .leading, spacing: 10) {
             ForEach(blocks) { block in
                 switch block {
+                case .frontmatter(_, let rawContent, let lineCount):
+                    FrontmatterCollapseView(content: rawContent, lineCount: lineCount)
+                    
                 case .heading(_, let level, let text):
                     headingView(level: level, text: text)
                     
@@ -502,6 +507,74 @@ public enum MarkdownParser {
                 continue
             }
             
+            // 0. YAML Frontmatter / Marp configuration at beginning of document
+            if blockIdx == 0 {
+                if trimmed == "---" {
+                    var endIdx = i + 1
+                    var foundEnd = false
+                    while endIdx < lines.count {
+                        let t = lines[endIdx].trimmingCharacters(in: .whitespaces)
+                        if t == "---" || t == "..." {
+                            foundEnd = true
+                            break
+                        }
+                        endIdx += 1
+                    }
+                    if foundEnd && endIdx > i + 1 {
+                        let fmLines = lines[(i + 1)..<endIdx]
+                        let raw = fmLines.joined(separator: "\n")
+                        blocks.append(.frontmatter(id: "block-\(blockIdx)", rawContent: raw, lineCount: endIdx - i + 1))
+                        blockIdx += 1
+                        i = endIdx + 1
+                        continue
+                    }
+                } else if trimmed.hasPrefix("marp:") || (trimmed.contains(":") && (trimmed.hasPrefix("theme:") || trimmed.hasPrefix("style:"))) {
+                    var endIdx = i + 1
+                    var foundEnd = false
+                    while endIdx < min(lines.count, i + 100) {
+                        let t = lines[endIdx].trimmingCharacters(in: .whitespaces)
+                        if t == "---" {
+                            foundEnd = true
+                            break
+                        }
+                        if t.hasPrefix("# ") || t.hasPrefix("## ") {
+                            break
+                        }
+                        endIdx += 1
+                    }
+                    if foundEnd {
+                        let fmLines = lines[i..<endIdx]
+                        let raw = fmLines.joined(separator: "\n")
+                        blocks.append(.frontmatter(id: "block-\(blockIdx)", rawContent: raw, lineCount: endIdx - i + 1))
+                        blockIdx += 1
+                        i = endIdx + 1
+                        continue
+                    }
+                }
+            }
+            
+            // HTML <style>...</style> Block
+            if trimmed.lowercased().hasPrefix("<style") {
+                var styleLines: [String] = []
+                var endFound = false
+                while i < lines.count {
+                    let sLine = lines[i]
+                    styleLines.append(sLine)
+                    if sLine.lowercased().contains("</style>") {
+                        endFound = true
+                        i += 1
+                        break
+                    }
+                    i += 1
+                }
+                if endFound {
+                    let raw = styleLines.joined(separator: "\n")
+                    blocks.append(.frontmatter(id: "block-\(blockIdx)", rawContent: raw, lineCount: styleLines.count))
+                    blockIdx += 1
+                    continue
+                }
+            }
+            
             // Fenced code block
             if trimmed.hasPrefix("```") {
                 let lang = String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespaces)
@@ -792,3 +865,63 @@ public struct FlowLayout: Layout {
     }
 }
 
+// MARK: - Frontmatter Collapse View
+
+public struct FrontmatterCollapseView: View {
+    public let content: String
+    public let lineCount: Int
+    @State private var isExpanded: Bool = false
+    
+    public init(content: String, lineCount: Int) {
+        self.content = content
+        self.lineCount = lineCount
+    }
+    
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button(action: {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    isExpanded.toggle()
+                }
+            }) {
+                HStack(spacing: 7) {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundColor(.secondary)
+                    
+                    Text("已自动隐藏文档配置与排版样式 (\(lineCount)行)")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.secondary)
+                    
+                    Spacer()
+                    
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundColor(.secondary.opacity(0.8))
+                }
+                .padding(.horizontal, 11)
+                .padding(.vertical, 7)
+                .background(Color(uiColor: .tertiarySystemFill))
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            
+            if isExpanded {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    Text(content)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.primary.opacity(0.85))
+                        .padding(10)
+                }
+                .background(Color(uiColor: .secondarySystemBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Color.secondary.opacity(0.2), lineWidth: 0.8)
+                )
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .padding(.bottom, 4)
+    }
+}

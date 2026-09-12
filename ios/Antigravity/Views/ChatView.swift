@@ -7,7 +7,6 @@ public struct ChatView: View {
     @FocusState private var isInputFocused: Bool
     @State private var hasInitiallyAligned = false
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
-    @State private var selectedImageData: [Data] = []
     private let shouldAutoFocus: Bool
     @State private var hasAutoFocused = false
     @State private var isViewAppeared = false
@@ -135,7 +134,7 @@ public struct ChatView: View {
                         loaded.append(data)
                     }
                 }
-                selectedImageData = loaded
+                viewModel.updateDraftImages(loaded)
             }
         }
         .onDisappear {
@@ -152,6 +151,93 @@ public struct ChatView: View {
         }) { (item: MarkdownFileViewerData) in
             renderMarkdownViewer(data: item)
                 .presentationDragIndicator(.hidden)
+        }
+        .confirmationDialog(
+            viewModel.selectedDocumentAction?.fileName ?? "文档选项",
+            isPresented: Binding(
+                get: { viewModel.selectedDocumentAction != nil },
+                set: { if !$0 { viewModel.selectedDocumentAction = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: viewModel.selectedDocumentAction
+        ) { doc in
+            Button {
+                viewModel.openDocumentQuickLook(doc: doc)
+            } label: {
+                Text(doc.isPresentation ? "🖥️ 查看演示文稿 (QuickLook)" : "👀 预览文档 (QuickLook)")
+            }
+            
+            Button {
+                viewModel.exportDocument(doc: doc)
+            } label: {
+                Text("📤 分享 / 导出至其他应用")
+            }
+            
+            Button {
+                let path = doc.uri.removingPercentEncoding ?? doc.uri
+                UIPasteboard.general.string = path
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            } label: {
+                Text("📋 拷贝电脑端文件路径")
+            }
+            
+            Button("取消", role: .cancel) {
+                viewModel.selectedDocumentAction = nil
+            }
+        } message: { doc in
+            Text(doc.isPresentation ? "支持原生翻页、双指缩放、幻灯片抽屉与系统级分享" : "系统级原生高清文档预览")
+        }
+        .sheet(isPresented: Binding(
+            get: { viewModel.quickLookURL != nil },
+            set: { if !$0 { viewModel.closeQuickLook() } }
+        )) {
+            if let qlURL = viewModel.quickLookURL {
+                QuickLookPreviewSheet(url: qlURL) {
+                    viewModel.closeQuickLook()
+                }
+                .ignoresSafeArea()
+            }
+        }
+        .sheet(isPresented: Binding(
+            get: { viewModel.sharingURL != nil },
+            set: { if !$0 { viewModel.closeSharing() } }
+        )) {
+            if let sURL = viewModel.sharingURL {
+                ShareSheetView(activityItems: [sURL]) {
+                    viewModel.closeSharing()
+                }
+            }
+        }
+        .overlay {
+            if viewModel.isDownloadingDocument {
+                ZStack {
+                    Color.black.opacity(0.3)
+                        .ignoresSafeArea()
+                    
+                    VStack(spacing: 12) {
+                        ProgressView()
+                            .scaleEffect(1.2)
+                            .tint(.white)
+                        Text("正在从电脑端拉取文件...")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.white)
+                        if !viewModel.downloadingDocumentName.isEmpty {
+                            Text(viewModel.downloadingDocumentName)
+                                .font(.system(size: 12))
+                                .foregroundColor(.white.opacity(0.85))
+                                .lineLimit(1)
+                                .padding(.horizontal, 16)
+                        }
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 20)
+                    .background(.ultraThinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .shadow(color: .black.opacity(0.2), radius: 10, y: 5)
+                }
+                .transition(.opacity)
+                .animation(.easeInOut(duration: 0.2), value: viewModel.isDownloadingDocument)
+            }
         }
     }
     
@@ -424,8 +510,18 @@ public struct ChatView: View {
     
     private func handleURLTap(_ url: URL) -> OpenURLAction.Result {
         let clean = url.absoluteString.trimmingCharacters(in: .whitespacesAndNewlines)
-        let lower = clean.lowercased()
+        let unescaped = clean.removingPercentEncoding ?? clean
+        let lower = unescaped.lowercased()
         
+        let decodedFileName: String = {
+            if let last = url.lastPathComponent.removingPercentEncoding, !last.isEmpty {
+                return last
+            }
+            let fn = (unescaped as NSString).lastPathComponent
+            return fn.isEmpty ? "文档详情" : fn
+        }()
+        
+        // 1. Markdown & Plan Artifacts
         if lower.hasSuffix(".md") || lower.hasSuffix(".markdown") ||
            lower.contains("/brain/") || lower.contains("/static/artifacts/") ||
            lower.contains("implementation_plan") || lower.contains("walkthrough") {
@@ -435,13 +531,21 @@ public struct ChatView: View {
                 } else if lower.contains("implementation_plan") {
                     return "Implementation Plan"
                 }
-                let fn = (clean as NSString).lastPathComponent
-                return fn.isEmpty ? "文档详情" : fn
+                return decodedFileName
             }()
-            viewModel.openMarkdownViewer(uri: clean, title: docTitle)
+            viewModel.openMarkdownViewer(uri: unescaped, title: docTitle)
             return .handled
         }
         
+        // 2. Presentations & Office documents (PPTX, PPT, KEY, DOCX, XLSX, PDF, HTML, etc.)
+        let documentExtensions = [".pptx", ".ppt", ".key", ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".numbers", ".pages", ".html", ".htm"]
+        if documentExtensions.contains(where: { lower.hasSuffix($0) }) {
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            viewModel.selectedDocumentAction = DocumentActionItem(uri: unescaped, fileName: decodedFileName)
+            return .handled
+        }
+        
+        // 3. External Web links
         if url.scheme == "http" || url.scheme == "https" {
             return .systemAction
         }
@@ -553,10 +657,10 @@ public struct ChatView: View {
             .animation(.easeInOut(duration: 0.2), value: viewModel.canProceed)
             
             // Image previews strip
-            if !selectedImageData.isEmpty {
+            if !viewModel.selectedImageData.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
-                        ForEach(Array(selectedImageData.enumerated()), id: \.offset) { index, data in
+                        ForEach(Array(viewModel.selectedImageData.enumerated()), id: \.offset) { index, data in
                             if let uiImage = UIImage(data: data) {
                                 ZStack(alignment: .topTrailing) {
                                     Image(uiImage: uiImage)
@@ -653,7 +757,7 @@ public struct ChatView: View {
     }
     
     private var isSendDisabled: Bool {
-        viewModel.isSending || (viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && selectedImageData.isEmpty)
+        viewModel.isSending || (viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && viewModel.selectedImageData.isEmpty)
     }
     
     private func handleCancel() {
@@ -666,22 +770,21 @@ public struct ChatView: View {
     private func handleSend() {
         guard !viewModel.isSending else { return }
         let text = viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let images = selectedImageData
+        let images = viewModel.selectedImageData
         guard !text.isEmpty || !images.isEmpty else { return }
         viewModel.inputText = ""
-        selectedImageData = []
+        viewModel.selectedImageData = []
         selectedPhotoItems = []
         Task {
             let success = await viewModel.sendMessage(text: text, images: images)
             if !success && !images.isEmpty {
-                selectedImageData = images
+                viewModel.selectedImageData = images
             }
         }
     }
     
     private func removeImage(at index: Int) {
-        guard index < selectedImageData.count else { return }
-        selectedImageData.remove(at: index)
+        viewModel.removeDraftImage(at: index)
         if index < selectedPhotoItems.count {
             selectedPhotoItems.remove(at: index)
         }
