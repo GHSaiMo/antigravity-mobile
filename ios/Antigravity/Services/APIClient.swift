@@ -1038,8 +1038,13 @@ public final class APIClient: Sendable {
         }
     }
     
-    // Download raw file or document (e.g. PPTX, PDF, DOCX) from Gateway
-    public func downloadFile(uri: String, cascadeId: String? = nil, baseURL: URL) async throws -> (localURL: URL, fileName: String) {
+    // Download raw file or document (e.g. PPTX, PDF, DOCX, HTML) from Gateway with progress reporting
+    public func downloadFile(
+        uri: String,
+        cascadeId: String? = nil,
+        baseURL: URL,
+        onProgress: (@Sendable (Double, Int64, Int64) -> Void)? = nil
+    ) async throws -> (localURL: URL, fileName: String) {
         var components = URLComponents(url: baseURL.appendingPathComponent("api/v1/files/raw"), resolvingAgainstBaseURL: false)
         var queryItems: [URLQueryItem] = [URLQueryItem(name: "uri", value: uri)]
         if let cascadeId = cascadeId, !cascadeId.isEmpty {
@@ -1051,20 +1056,29 @@ public final class APIClient: Sendable {
         }
         var request = URLRequest(url: endpoint)
         request.httpMethod = "GET"
-        request.timeoutInterval = 45.0
+        request.timeoutInterval = 60.0
         
-        let (data, response) = try await transport.send(
-            request: request,
-            preferCellular: AppSettings.shared.preferCellularNetwork
-        )
-        guard let httpResp = response as? HTTPURLResponse else {
-            throw APIError.networkError("Invalid response type")
+        if let token = KeychainHelper.shared.read(key: .deviceToken), !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
+        
+        let delegate = FileDownloadProgressDelegate(onProgress: onProgress)
+        let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+        
+        let (tempDownloadedURL, httpResp) = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<(URL, HTTPURLResponse), Error>) in
+            delegate.continuation = continuation
+            let task = session.downloadTask(with: request)
+            task.resume()
+        }
+        session.finishTasksAndInvalidate()
+        
         guard (200...299).contains(httpResp.statusCode) else {
+            try? FileManager.default.removeItem(at: tempDownloadedURL)
             if httpResp.statusCode == 401 {
                 NotificationCenter.default.post(name: .deviceTokenRevoked, object: nil)
             }
-            let msg = String(data: data, encoding: .utf8) ?? "HTTP \(httpResp.statusCode)"
+            let errData = (try? Data(contentsOf: tempDownloadedURL)) ?? Data()
+            let msg = String(data: errData, encoding: .utf8) ?? "HTTP \(httpResp.statusCode)"
             throw APIError.serverError(statusCode: httpResp.statusCode, message: msg)
         }
         
@@ -1084,12 +1098,59 @@ public final class APIClient: Sendable {
         }
         let resolvedFileName = filename?.isEmpty == false ? filename! : "document"
         
-        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("antigravity_docs", isDirectory: true)
-        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        let destinationURL = tempDir.appendingPathComponent(resolvedFileName)
+        let targetDir = FileManager.default.temporaryDirectory.appendingPathComponent("antigravity_docs", isDirectory: true)
+        try? FileManager.default.createDirectory(at: targetDir, withIntermediateDirectories: true)
+        let destinationURL = targetDir.appendingPathComponent(resolvedFileName)
         
-        try data.write(to: destinationURL, options: .atomic)
+        if FileManager.default.fileExists(atPath: destinationURL.path) {
+            try? FileManager.default.removeItem(at: destinationURL)
+        }
+        try FileManager.default.moveItem(at: tempDownloadedURL, to: destinationURL)
+        
+        let attributes = try? FileManager.default.attributesOfItem(atPath: destinationURL.path)
+        let fileSize = (attributes?[.size] as? Int64) ?? 0
+        if fileSize == 0 {
+            throw APIError.serverError(statusCode: 500, message: "下载的文件为空")
+        }
+        
         return (destinationURL, resolvedFileName)
     }
 }
+
+// MARK: - File Download Progress Delegate
+
+private final class FileDownloadProgressDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+    let onProgress: (@Sendable (Double, Int64, Int64) -> Void)?
+    var continuation: CheckedContinuation<(URL, HTTPURLResponse), Error>?
+    
+    init(onProgress: (@Sendable (Double, Int64, Int64) -> Void)?) {
+        self.onProgress = onProgress
+    }
+    
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+        let progress = totalBytesExpectedToWrite > 0 ? max(0, min(1.0, Double(totalBytesWritten) / Double(totalBytesExpectedToWrite))) : 0.0
+        onProgress?(progress, totalBytesWritten, totalBytesExpectedToWrite)
+    }
+    
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+        guard let httpResp = downloadTask.response as? HTTPURLResponse else {
+            continuation?.resume(throwing: APIError.networkError("Invalid response type"))
+            return
+        }
+        let tempFile = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        do {
+            try FileManager.default.moveItem(at: location, to: tempFile)
+            continuation?.resume(returning: (tempFile, httpResp))
+        } catch {
+            continuation?.resume(throwing: error)
+        }
+    }
+    
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if let error = error {
+            continuation?.resume(throwing: error)
+        }
+    }
+}
+
 
