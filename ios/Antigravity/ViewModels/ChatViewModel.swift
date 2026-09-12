@@ -128,11 +128,15 @@ public final class ChatViewModel {
     public var runningTasks: [RunningTaskItem] = []
     public var isSending: Bool = false
     public var viewingMarkdownFile: MarkdownFileViewerData? = nil
-    public var selectedDocumentAction: DocumentActionItem? = nil
-    public var quickLookURL: URL? = nil
-    public var sharingURL: URL? = nil
     public var isDownloadingDocument: Bool = false
     public var downloadingDocumentName: String = ""
+    public var downloadProgress: Double = 0.0
+    public var downloadBytesWritten: Int64 = 0
+    public var downloadBytesTotal: Int64 = 0
+    private var documentDownloadTask: Task<Void, Never>? = nil
+    public var quickLookURL: URL? = nil
+    public var htmlPreviewURL: URL? = nil
+    public var htmlPreviewTitle: String = ""
     
     /// ID of the first message of the latest response turn (e.g., tool batch or agent response following the last user message)
     public var latestTurnStartMessageId: String? {
@@ -1334,26 +1338,49 @@ public final class ChatViewModel {
     }
     
     @MainActor
-    public func openDocumentQuickLook(doc: DocumentActionItem) {
-        self.selectedDocumentAction = nil
-        self.isDownloadingDocument = true
-        self.downloadingDocumentName = doc.fileName
+    public func downloadAndPreviewDocument(uri: String, fileName: String, isHTML: Bool) {
+        documentDownloadTask?.cancel()
         
-        Task {
+        self.isDownloadingDocument = true
+        self.downloadingDocumentName = fileName
+        self.downloadProgress = 0.0
+        self.downloadBytesWritten = 0
+        self.downloadBytesTotal = 0
+        
+        documentDownloadTask = Task {
             guard let url = settings.serverURL else {
                 self.isDownloadingDocument = false
                 self.errorMessage = "未连接到网关服务器"
                 return
             }
             do {
-                let (localURL, _) = try await apiClient.downloadFile(
-                    uri: doc.uri,
+                let (localURL, resolvedName) = try await apiClient.downloadFile(
+                    uri: uri,
                     cascadeId: self.cascadeId,
                     baseURL: url
-                )
-                self.isDownloadingDocument = false
-                self.quickLookURL = localURL
+                ) { [weak self] progress, written, total in
+                    Task { @MainActor [weak self] in
+                        guard let self = self, self.isDownloadingDocument else { return }
+                        self.downloadProgress = progress
+                        self.downloadBytesWritten = written
+                        self.downloadBytesTotal = total
+                    }
+                }
+                
+                guard !Task.isCancelled else { return }
+                
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    self.isDownloadingDocument = false
+                }
+                
+                if isHTML {
+                    self.htmlPreviewTitle = resolvedName
+                    self.htmlPreviewURL = localURL
+                } else {
+                    self.quickLookURL = localURL
+                }
             } catch {
+                guard !Task.isCancelled else { return }
                 self.isDownloadingDocument = false
                 self.errorMessage = "下载文档失败: \(error.localizedDescription)"
             }
@@ -1361,29 +1388,11 @@ public final class ChatViewModel {
     }
     
     @MainActor
-    public func exportDocument(doc: DocumentActionItem) {
-        self.selectedDocumentAction = nil
-        self.isDownloadingDocument = true
-        self.downloadingDocumentName = doc.fileName
-        
-        Task {
-            guard let url = settings.serverURL else {
-                self.isDownloadingDocument = false
-                self.errorMessage = "未连接到网关服务器"
-                return
-            }
-            do {
-                let (localURL, _) = try await apiClient.downloadFile(
-                    uri: doc.uri,
-                    cascadeId: self.cascadeId,
-                    baseURL: url
-                )
-                self.isDownloadingDocument = false
-                self.sharingURL = localURL
-            } catch {
-                self.isDownloadingDocument = false
-                self.errorMessage = "下载文档失败: \(error.localizedDescription)"
-            }
+    public func cancelDocumentDownload() {
+        documentDownloadTask?.cancel()
+        documentDownloadTask = nil
+        withAnimation(.easeInOut(duration: 0.15)) {
+            self.isDownloadingDocument = false
         }
     }
     
@@ -1393,9 +1402,10 @@ public final class ChatViewModel {
     }
     
     @MainActor
-    public func closeSharing() {
-        self.sharingURL = nil
+    public func closeHTMLPreview() {
+        self.htmlPreviewURL = nil
     }
+
 
     
     @MainActor
