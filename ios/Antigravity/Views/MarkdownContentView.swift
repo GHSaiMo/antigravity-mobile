@@ -90,11 +90,7 @@ public struct MarkdownContentView: View {
                     listView(items: items)
                     
                 case .paragraph(_, let text):
-                    Self.renderRichText(text, size: 15)
-                        .font(.system(size: 15))
-                        .textSelection(.enabled)
-                        .lineSpacing(3)
-                        .fixedSize(horizontal: false, vertical: true)
+                    paragraphView(text: text, size: 15)
                 }
             }
         }
@@ -210,6 +206,11 @@ public struct MarkdownContentView: View {
                 attr[run.range].font = .system(size: size * 0.9, weight: .medium, design: .monospaced)
             } else if run.link != nil {
                 attr[run.range].font = .system(size: size * 0.9, weight: .medium, design: .monospaced)
+                attr[run.range].foregroundColor = Color.blue
+                let linkStr = (run.link?.absoluteString ?? "").lowercased()
+                if linkStr.contains("implementation_plan") || linkStr.contains("walkthrough") {
+                    attr[run.range].backgroundColor = Color.blue.opacity(0.12)
+                }
             }
         }
         InlineMarkdownCache.shared.set(cacheKey, value: attr)
@@ -373,14 +374,113 @@ public struct MarkdownContentView: View {
                     Text("•")
                         .font(.system(size: 14, weight: .bold))
                         .foregroundColor(.secondary)
-                    Self.renderRichText(item, size: 15)
-                        .font(.system(size: 15))
-                        .textSelection(.enabled)
-                        .lineSpacing(2)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 2)
+                    paragraphView(text: item, size: 15)
                 }
             }
         }
+    }
+    
+    // MARK: - Plan Link Segmentation & Paragraph Flow
+    
+    @ViewBuilder
+    private func paragraphView(text: String, size: CGFloat = 15) -> some View {
+        let segments = Self.parsePlanSegments(text)
+        if segments.count <= 1 && (segments.first?.isPlanButton != true) {
+            Self.renderRichText(text, size: size)
+                .font(.system(size: size))
+                .textSelection(.enabled)
+                .lineSpacing(3)
+                .fixedSize(horizontal: false, vertical: true)
+        } else {
+            FlowLayout(horizontalSpacing: 4, verticalSpacing: 6) {
+                ForEach(segments) { segment in
+                    switch segment {
+                    case .text(_, let content):
+                        let trimmed = content.trimmingCharacters(in: .whitespaces)
+                        if !trimmed.isEmpty {
+                            Self.renderRichText(trimmed, size: size)
+                                .font(.system(size: size))
+                                .textSelection(.enabled)
+                                .lineSpacing(3)
+                        }
+                    case .planButton(_, let title, let uri):
+                        PlanButtonView(title: title, uri: uri)
+                    }
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+    
+    private static let planRegex = try? NSRegularExpression(
+        pattern: #"(?:(?<!\!)\[([^\]]+)\]\(([^)]*(?:implementation_plan|walkthrough)\.md[^)]*)\)|(?<![a-zA-Z0-9_\-\.\/])((?:implementation_plan|walkthrough)\.md)(?![a-zA-Z0-9_\-\.\/]))"#,
+        options: [.caseInsensitive]
+    )
+    
+    public static func parsePlanSegments(_ rawText: String) -> [PlanSegment] {
+        guard rawText.contains("implementation_plan") || rawText.contains("walkthrough") else {
+            return [.text(id: "text-0", content: rawText)]
+        }
+        
+        guard let regex = planRegex else {
+            return [.text(id: "text-0", content: rawText)]
+        }
+        
+        let nsText = rawText as NSString
+        let matches = regex.matches(in: rawText, range: NSRange(location: 0, length: nsText.length))
+        guard !matches.isEmpty else {
+            return [.text(id: "text-0", content: rawText)]
+        }
+        
+        var segments: [PlanSegment] = []
+        var lastEnd = 0
+        var segIdx = 0
+        
+        for match in matches {
+            let matchRange = match.range
+            if matchRange.location > lastEnd {
+                let prefix = nsText.substring(with: NSRange(location: lastEnd, length: matchRange.location - lastEnd))
+                segments.append(.text(id: "seg-\(segIdx)", content: prefix))
+                segIdx += 1
+            }
+            
+            var title = "implementation_plan.md"
+            var uri = "implementation_plan.md"
+            
+            if match.range(at: 1).location != NSNotFound && match.range(at: 2).location != NSNotFound {
+                title = nsText.substring(with: match.range(at: 1)).trimmingCharacters(in: .whitespaces)
+                uri = nsText.substring(with: match.range(at: 2)).trimmingCharacters(in: .whitespaces)
+            } else if match.range(at: 3).location != NSNotFound {
+                let fn = nsText.substring(with: match.range(at: 3)).trimmingCharacters(in: .whitespaces)
+                title = fn
+                uri = fn
+            }
+            
+            segments.append(.planButton(id: "seg-\(segIdx)", title: title, uri: uri))
+            segIdx += 1
+            
+            lastEnd = matchRange.location + matchRange.length
+        }
+        
+        if lastEnd < nsText.length {
+            let suffix = nsText.substring(with: NSRange(location: lastEnd, length: nsText.length - lastEnd))
+            let punctChars: Set<Character> = ["。", ".", "，", ",", "！", "!", "？", "?", "；", ";", "：", ":"]
+            if let firstChar = suffix.first, punctChars.contains(firstChar) {
+                segments.append(.text(id: "seg-\(segIdx)", content: String(firstChar)))
+                segIdx += 1
+                let rest = String(suffix.dropFirst())
+                if !rest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    segments.append(.text(id: "seg-\(segIdx)", content: rest))
+                    segIdx += 1
+                }
+            } else {
+                segments.append(.text(id: "seg-\(segIdx)", content: suffix))
+                segIdx += 1
+            }
+        }
+        
+        return segments
     }
 }
 
@@ -546,3 +646,149 @@ public enum MarkdownParser {
         return blocks
     }
 }
+
+// MARK: - Plan Segment Models & Flow Layout
+
+public enum PlanSegment: Identifiable {
+    case text(id: String, content: String)
+    case planButton(id: String, title: String, uri: String)
+    
+    public var id: String {
+        switch self {
+        case .text(let id, _): return id
+        case .planButton(let id, _, _): return id
+        }
+    }
+    
+    public var isPlanButton: Bool {
+        if case .planButton = self { return true }
+        return false
+    }
+}
+
+public struct PlanButtonStyle: ButtonStyle {
+    public init() {}
+    
+    public func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
+            .opacity(configuration.isPressed ? 0.75 : 1.0)
+            .animation(.easeInOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+public struct PlanButtonView: View {
+    @Environment(\.openURL) private var openURL
+    
+    public let title: String
+    public let uri: String
+    
+    public init(title: String, uri: String) {
+        self.title = title
+        self.uri = uri
+    }
+    
+    public var body: some View {
+        Button(action: {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            let target = uri.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let url = URL(string: target) ?? URL(string: target.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? target) {
+                openURL(url)
+            }
+        }) {
+            HStack(spacing: 5) {
+                if let iconName = FileIconResolver.resolveIcon(for: uri) ?? FileIconResolver.resolveIcon(for: title) {
+                    Image(iconName)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 14, height: 14)
+                } else {
+                    Image(systemName: "doc.text.magnifyingglass")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.blue)
+                }
+                
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                    .foregroundColor(.blue)
+                    .lineLimit(1)
+                
+                Image(systemName: "arrow.up.forward.app")
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundColor(.blue.opacity(0.65))
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4.5)
+            .background(Color.blue.opacity(0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(Color.blue.opacity(0.35), lineWidth: 1)
+            )
+        }
+        .buttonStyle(PlanButtonStyle())
+    }
+}
+
+public struct FlowLayout: Layout {
+    public var horizontalSpacing: CGFloat
+    public var verticalSpacing: CGFloat
+    
+    public init(horizontalSpacing: CGFloat = 4, verticalSpacing: CGFloat = 6) {
+        self.horizontalSpacing = horizontalSpacing
+        self.verticalSpacing = verticalSpacing
+    }
+    
+    public func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxAvailableWidth = proposal.width ?? .infinity
+        var currentX: CGFloat = 0
+        var currentY: CGFloat = 0
+        var lineHeight: CGFloat = 0
+        var maxWidth: CGFloat = 0
+        
+        for subview in subviews {
+            let size = subview.sizeThatFits(ProposedViewSize(width: maxAvailableWidth, height: nil))
+            if currentX + size.width > maxAvailableWidth && currentX > 0 {
+                currentX = 0
+                currentY += lineHeight + verticalSpacing
+                lineHeight = 0
+            }
+            lineHeight = max(lineHeight, size.height)
+            currentX += size.width + horizontalSpacing
+            maxWidth = max(maxWidth, currentX - horizontalSpacing)
+        }
+        
+        return CGSize(width: min(maxWidth, maxAvailableWidth), height: currentY + lineHeight)
+    }
+    
+    public func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let maxAvailableWidth = bounds.width
+        var currentX: CGFloat = bounds.minX
+        var currentY: CGFloat = bounds.minY
+        var lineHeight: CGFloat = 0
+        var lineSubviews: [(subview: LayoutSubview, size: CGSize, x: CGFloat)] = []
+        
+        func flushLine() {
+            for item in lineSubviews {
+                let y = currentY + (lineHeight - item.size.height) / 2
+                item.subview.place(at: CGPoint(x: item.x, y: y), proposal: ProposedViewSize(item.size))
+            }
+            lineSubviews.removeAll()
+        }
+        
+        for subview in subviews {
+            let size = subview.sizeThatFits(ProposedViewSize(width: maxAvailableWidth, height: nil))
+            if currentX + size.width > bounds.maxX && currentX > bounds.minX {
+                flushLine()
+                currentX = bounds.minX
+                currentY += lineHeight + verticalSpacing
+                lineHeight = 0
+            }
+            lineSubviews.append((subview: subview, size: size, x: currentX))
+            lineHeight = max(lineHeight, size.height)
+            currentX += size.width + horizontalSpacing
+        }
+        flushLine()
+    }
+}
+

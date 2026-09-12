@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -320,8 +321,8 @@ func TriggerRefresh() error {
 	refreshMutex.Lock()
 	defer refreshMutex.Unlock()
 
-	// Debounce if called within 5 seconds
-	if time.Since(lastRefresh) < 5*time.Second {
+	// Debounce if called within 3 seconds
+	if time.Since(lastRefresh) < 3*time.Second {
 		return nil
 	}
 	lastRefresh = time.Now()
@@ -339,7 +340,11 @@ func TriggerRefresh() error {
 			go func(port int, token string) {
 				url := fmt.Sprintf("http://127.0.0.1:%d/report?token=%s&format=yaml", port, token)
 				client := &http.Client{Timeout: 60 * time.Second}
-				_, _ = client.Get(url)
+				resp, err := client.Get(url)
+				if err == nil && resp != nil && resp.Body != nil {
+					_, _ = io.Copy(io.Discard, resp.Body)
+					_ = resp.Body.Close()
+				}
 			}(cfg.ReportPort, cfg.ReportToken)
 			return nil
 		}
@@ -356,4 +361,30 @@ func TriggerRefresh() error {
 	}()
 
 	return nil
+}
+
+// RefreshQuotas triggers a refresh and polls up to 10 seconds for updated cache data.
+func RefreshQuotas(activeEmails ...string) (*CockpitQuotaResponse, error) {
+	currentQuotas, _ := GetQuotas(activeEmails...)
+	var initialUpdatedAt int64
+	if currentQuotas != nil {
+		initialUpdatedAt = currentQuotas.UpdatedAt
+	}
+
+	if err := TriggerRefresh(); err != nil {
+		return currentQuotas, err
+	}
+
+	// Poll GetQuotas every 500ms up to 10 seconds (well within client's 15s timeout)
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		time.Sleep(500 * time.Millisecond)
+		latest, err := GetQuotas(activeEmails...)
+		if err == nil && latest != nil && latest.UpdatedAt > initialUpdatedAt {
+			return latest, nil
+		}
+	}
+
+	// If timeout reached before updates observed, return the latest available snapshot
+	return GetQuotas(activeEmails...)
 }
