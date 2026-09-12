@@ -345,10 +345,13 @@ type TrajectoryStep struct {
 
 type upstreamPendingAgentMessage struct {
 	ID               string          `json:"id"`
-	DeliveryStrategy int             `json:"deliveryStrategy"`
+	DeliveryStrategy interface{}     `json:"deliveryStrategy"`
+	Sender           string          `json:"sender"`
+	HideFromUser     bool            `json:"hideFromUser"`
+	SourceMetadata   json.RawMessage `json:"sourceMetadata"`
 	StepPayload      json.RawMessage `json:"stepPayload"`
 	Content          string          `json:"content"`
-	Timestamp        string          `json:"timestamp"`
+	Timestamp        interface{}     `json:"timestamp"`
 }
 
 type upstreamTrajectoryResp struct {
@@ -988,6 +991,12 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 
 	queuedMessages := []QueuedMessageItem{}
 	for _, pam := range rawResp.PendingAgentMessages {
+		if isInternalAgentMessage(pam.HideFromUser, pam.Sender, pam.SourceMetadata, pam.Content) {
+			continue
+		}
+		if pam.DeliveryStrategy != nil && !isQueuedDeliveryStrategy(pam.DeliveryStrategy) {
+			continue
+		}
 		text := pam.Content
 		if text == "" && len(pam.StepPayload) > 0 {
 			var parsedPayload struct {
@@ -1014,11 +1023,11 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 				}
 			}
 		}
-		if text != "" {
+		if text != "" && !isInternalAgentMessage(false, "", nil, text) {
 			queuedMessages = append(queuedMessages, QueuedMessageItem{
 				ID:        pam.ID,
 				Text:      text,
-				CreatedAt: pam.Timestamp,
+				CreatedAt: parseAgentMessageTimestamp(pam.Timestamp),
 			})
 		}
 	}

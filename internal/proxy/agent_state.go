@@ -21,9 +21,11 @@ type upstreamAgentMessage struct {
 	Recipient        string          `json:"recipient"`
 	Sender           string          `json:"sender"`
 	Timestamp        interface{}     `json:"timestamp"`
+	HideFromUser     bool            `json:"hideFromUser"`
 	Content          string          `json:"content"`
 	StepPayload      json.RawMessage `json:"stepPayload"`
 	DeliveryStrategy interface{}     `json:"deliveryStrategy"`
+	SourceMetadata   json.RawMessage `json:"sourceMetadata"`
 	Payload          *struct {
 		Case  string          `json:"case"`
 		Value json.RawMessage `json:"value"`
@@ -93,6 +95,40 @@ func readConnectEnvelope(r io.Reader) (byte, []byte, error) {
 		return 0, nil, err
 	}
 	return flag, body, nil
+}
+
+// isInternalAgentMessage determines whether an upstream pending message is an internal system/tool/subagent notification
+// rather than a genuine user queued message.
+func isInternalAgentMessage(hideFromUser bool, sender string, sourceMetadata json.RawMessage, content string) bool {
+	if hideFromUser {
+		return true
+	}
+	s := strings.ToLower(strings.TrimSpace(sender))
+	if s != "" && s != "user" && s != "human" {
+		if strings.Contains(s, "task-") ||
+			strings.Contains(s, "subagent") ||
+			strings.Contains(s, "system") ||
+			strings.Contains(s, "cron") ||
+			strings.Contains(s, "timer") ||
+			strings.Contains(s, "tool") {
+			return true
+		}
+	}
+	if len(sourceMetadata) > 0 {
+		trimmed := strings.TrimSpace(string(sourceMetadata))
+		if trimmed != "" && trimmed != "{}" && trimmed != "null" {
+			return true
+		}
+	}
+	t := strings.TrimSpace(content)
+	if strings.HasPrefix(t, "Task id \"") ||
+		strings.HasPrefix(t, "Task \"") ||
+		strings.Contains(t, "was canceled with result:") ||
+		strings.Contains(t, "completed with result:") ||
+		strings.Contains(t, "Tool execution was canceled") {
+		return true
+	}
+	return false
 }
 
 // isQueuedDeliveryStrategy checks whether a deliveryStrategy represents WHEN_IDLE or pending execution.
@@ -382,11 +418,14 @@ func parseAgentStateQueuedMessages(state *upstreamAgentStateUpdate) []QueuedMess
 
 	items := make([]QueuedMessageItem, 0, len(rawList))
 	for _, pam := range rawList {
+		if isInternalAgentMessage(pam.HideFromUser, pam.Sender, pam.SourceMetadata, pam.Content) {
+			continue
+		}
 		if !isQueuedDeliveryStrategy(pam.DeliveryStrategy) {
 			continue
 		}
 		text := extractQueuedMessageText(pam)
-		if text == "" {
+		if text == "" || isInternalAgentMessage(false, "", nil, text) {
 			continue
 		}
 		createdAt := parseAgentMessageTimestamp(pam.Timestamp)
