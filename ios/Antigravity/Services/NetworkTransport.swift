@@ -148,6 +148,8 @@ public final class NetworkTransport: Sendable {
         let method = (req.httpMethod ?? "GET").uppercased()
         let path = req.url?.path ?? ""
         let isNonIdempotent = Self.isNonIdempotentRequest(method: method, path: path)
+        let cleanHost = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
+        let isIPv6Host = cleanHost.contains(":")
         
         do {
             let (data, response) = try await executeViaCellular(request: req, url: url, host: host)
@@ -170,6 +172,14 @@ public final class NetworkTransport: Sendable {
                     throw error
                 }
             }
+            
+            // For remote IPv6 targets, external Wi-Fi does not have a route and will either return HTTP 503 from a captive portal/proxy or hang.
+            // Suppress fallback to Wi-Fi fallbackSession for IPv6 addresses so that proxy errors (e.g. HTTP 503) do not mask the real cellular status.
+            if isIPv6Host {
+                print("[NetworkTransport] Cellular direct request failed for IPv6 host (\(error.localizedDescription)). Suppressing Wi-Fi fallback to avoid external Wi-Fi 503 proxy errors.")
+                throw APIError.networkError("蜂窝直连未成功建立（基带未在超时前完成无线链路协商或无可用蜂窝网络）。建议在控制中心临时断开 Wi-Fi 即可秒切 5G 直连: \(error.localizedDescription)")
+            }
+            
             print("[NetworkTransport] Cellular direct request failed before send (\(error.localizedDescription)), attempting fallback")
             do {
                 let (data, response) = try await fallbackSession.data(for: req)
@@ -229,8 +239,9 @@ public final class NetworkTransport: Sendable {
         let connection = NWConnection(to: endpoint, using: parameters)
         let method = request.httpMethod ?? "GET"
         let body = request.httpBody
-        // Cap cellular attempt timeout to 2.0s so that unreachable paths don't cause prolonged UI freezing before fallback
-        let timeoutInterval: TimeInterval = min(request.timeoutInterval > 0 ? request.timeoutInterval : 2.0, 2.0)
+        // Give iOS CommCenter at least 3.5s to wake cellular baseband from dormant state
+        // and negotiate RRC connection while Wi-Fi is active.
+        let timeoutInterval: TimeInterval = max(request.timeoutInterval > 0 ? request.timeoutInterval : 3.5, 3.5)
         
         return try await withCheckedThrowingContinuation { continuation in
             final class SyncState: @unchecked Sendable {
@@ -359,25 +370,14 @@ public final class NetworkTransport: Sendable {
                     })
                 case .waiting(let err):
                     // When requiredInterfaceType = .cellular while on Wi-Fi, iOS keeps the cellular baseband
-                    // dormant, immediately reporting .waiting with ENETDOWN (50) or ENETUNREACH (51).
-                    // Fail fast so fallbackSession can take over without hanging the UI for seconds.
-                    let isImmediateFailure: Bool = {
-                        switch err {
-                        case .posix(let code):
-                            return code == .ENETDOWN || code == .ENETUNREACH || code == .EHOSTUNREACH
-                        default:
-                            return false
-                        }
-                    }()
-                    if isImmediateFailure {
-                        state.finish(result: .failure(err))
-                    } else if state.waitingTimerWork == nil {
-                        let work = DispatchWorkItem { [weak state] in
-                            state?.finish(result: .failure(err))
-                        }
-                        state.waitingTimerWork = work
-                        DispatchQueue.global().asyncAfter(deadline: .now() + 0.3, execute: work)
-                    }
+                    // dormant, initially reporting .waiting with ENETDOWN (50) or ENETUNREACH (51) while CommCenter
+                    // wakes the baseband and requests RRC radio bearer.
+                    // Per Apple documentation: "Connections that are waiting will indicate the reason that the
+                    // connection couldn't be established in the associated error. These errors are not fatal."
+                    // Do NOT treat ENETDOWN as an immediate failure. Allow the connection up to timeoutInterval to transition to .ready.
+                    #if DEBUG
+                    print("[NetworkTransport] Cellular connection waiting for path/baseband wake: \(err)")
+                    #endif
                 case .failed(let err):
                     state.finish(result: .failure(err))
                 default:

@@ -131,7 +131,8 @@ public struct SettingsSheet: View {
                                 Text("当前活动通道")
                                     .font(.system(size: 13))
                                 if let activeURL = URL(string: active) {
-                                    Text(AppSettings.describeEndpoint(url: activeURL, isCellular: NetworkTransport.shared.isCellular))
+                                    let isCellular = settings.preferCellularNetwork || NetworkTransport.shared.isCellular
+                                    Text(AppSettings.describeEndpoint(url: activeURL, isCellular: isCellular))
                                         .font(.system(size: 11, weight: .medium))
                                         .foregroundColor(.blue)
                                 }
@@ -246,7 +247,7 @@ public struct SettingsSheet: View {
         Task { @MainActor in
             do {
                 let status = try await APIClient.shared.testConnection(baseURL: url)
-                let isCellular = (status.usedInterface == "cellular") || (NetworkTransport.shared.isCellular && !NetworkTransport.shared.isWifi)
+                let isCellular = (status.usedInterface == "cellular") || (settings.preferCellularNetwork && !NetworkTransport.isLocalOrPrivateHost(url.host ?? "")) || (NetworkTransport.shared.isCellular && !NetworkTransport.shared.isWifi)
                 let ifaceDesc = status.connectionDescription ?? AppSettings.describeEndpoint(url: url, isCellular: isCellular)
                 
                 // Fetch latency from recent probe if available
