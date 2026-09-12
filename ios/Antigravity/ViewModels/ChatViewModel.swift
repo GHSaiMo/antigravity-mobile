@@ -208,6 +208,30 @@ public final class ChatViewModel {
         hasError || (initialConversationStatus?.isError == true) || (messages.last?.isError == true)
     }
     
+    /// Whether the latest message from the Agent in this conversation is an unrecovered error message
+    public var isLatestMessageError: Bool {
+        // Hide Continue button while actively running, sending, or awaiting response
+        guard !isRunning, !isAwaitingResponse, !isSending else { return false }
+        
+        // 1. Direct check: if the very last message in the chat is an error
+        if let last = messages.last {
+            return last.isError
+        }
+        
+        // 2. Turn check: in the latest turn (after the last user message),
+        // check if the latest agent or cortex response was an error
+        if let lastUserIdx = messages.lastIndex(where: { $0.isUser }) {
+            let subsequent = messages.suffix(from: lastUserIdx + 1)
+            if let lastTurnMsg = subsequent.last(where: { $0.isAgent || $0.isError }) {
+                return lastTurnMsg.isError
+            }
+        } else if let lastAgentOrError = messages.last(where: { $0.isAgent || $0.isError }) {
+            return lastAgentOrError.isError
+        }
+        
+        return false
+    }
+    
     /// Whether this conversation has an action requiring user input/interaction
     public var hasActionState: Bool {
         canProceed || pendingInteraction != nil || (initialConversationStatus?.needsAction == true)

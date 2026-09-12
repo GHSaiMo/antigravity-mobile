@@ -1050,6 +1050,32 @@ function updateProceedButton(canProceed) {
   }
 }
 
+function updateContinueButton(canContinue) {
+  const continueBtn = document.getElementById("btn-continue");
+  if (continueBtn) {
+    if (canContinue) {
+      continueBtn.classList.remove("hidden");
+    } else {
+      continueBtn.classList.add("hidden");
+    }
+  }
+}
+
+function checkLatestMessageIsError(steps, isRunning) {
+  if (isRunning) return false;
+  if (!steps || steps.length === 0) return false;
+  const items = groupSteps(steps);
+  if (items.length === 0) return false;
+  const lastItem = items[items.length - 1];
+  if (lastItem && lastItem.type === "error") return true;
+  for (let i = items.length - 1; i >= 0; i--) {
+    if (items[i].type !== "user") {
+      return items[i].type === "error";
+    }
+  }
+  return false;
+}
+
 // --- Floating Interaction Card Management ---
 let currentPendingInteraction = null;
 let selectedInteractionOptionId = null;
@@ -1830,12 +1856,16 @@ function renderMessages(steps, isRunning = false) {
 
   if (!steps || steps.length === 0) {
     streamEl.innerHTML = '<div class="loading-state"><p>暂无消息</p></div>';
+    updateContinueButton(false);
     return;
   }
 
   if (activeCascadeId) {
     sessionStepsCache[activeCascadeId] = { steps, isRunning };
   }
+
+  const isLastError = checkLatestMessageIsError(steps, isRunning);
+  updateContinueButton(isLastError);
 
   const items = groupSteps(steps);
   const currentChildIds = new Set(items.map(it => it.id));
@@ -2099,7 +2129,7 @@ const LocalQueueManager = {
         if (item && item.type === 'CORTEX_STEP_TYPE_USER_INPUT' && item.userInput) {
           const t = (item.userInput.userResponse || item.userInput.response || '').trim();
           if (t) recentUserContents.push(t);
-        } else if (item && (item.sender === 'user' || item.role === 'user')) {
+        } else if (item && (item.sender === 'user' || item.role === 'user' || item.type === 'user')) {
           const t = (item.content || item.text || '').trim();
           if (t) recentUserContents.push(t);
         }
@@ -2276,6 +2306,7 @@ async function sendMessage() {
   DraftManager.clear(activeCascadeId);
   currentCanProceed = false;
   updateProceedButton(false);
+  updateContinueButton(false);
 
   const items = text ? [{ text }] : [];
   const imagesPayload = imagesToSend.map(img => ({
@@ -2428,6 +2459,18 @@ async function handleProceed() {
     currentCanProceed = true;
     updateChatControls(false, null, false);
   }
+}
+
+async function handleContinue() {
+  if (!activeCascadeId || isSendingMessage) return;
+  const inputEl = document.getElementById("chat-input");
+  const text = inputEl ? inputEl.value.trim() : "";
+  const textToSend = text ? `${text}\nContinue` : "Continue";
+  if (inputEl) {
+    inputEl.value = textToSend;
+  }
+  updateContinueButton(false);
+  await sendMessage();
 }
 
 async function cancelCurrentTask() {
@@ -3799,6 +3842,7 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  document.getElementById("btn-continue")?.addEventListener("click", handleContinue);
   document.getElementById("btn-proceed")?.addEventListener("click", handleProceed);
 
   // Search Filter with iOS Clear Button
