@@ -473,6 +473,11 @@ html, body {
   background-color: rgba(255, 69, 58, 0.15);
 }
 
+.badge-draft {
+  color: var(--ios-yellow, #ffd60a);
+  background-color: rgba(255, 214, 10, 0.15);
+}
+
 /* Unread Status Dot (matches Antigravity status-unread-dot spec) */
 .status-unread-dot {
   position: relative;

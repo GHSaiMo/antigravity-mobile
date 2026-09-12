@@ -232,6 +232,7 @@ public final class ChatViewModel {
         self.isNewConversation = true
         self.draftProject = draftProject
         let resolvedCacheManager = cacheManager ?? .shared
+        let resolvedSettings = settings ?? .shared
         self.apiClient = apiClient ?? .shared
         self.settings = resolvedSettings
         self.activityManager = ActivityManager.shared
@@ -890,6 +891,7 @@ public final class ChatViewModel {
         self.hasError = false
         self.trajectoryErrorMessage = nil
         inputText = ""
+        cacheManager.clearDraft(key: draftKey)
         errorMessage = nil
         
         if !cascadeId.isEmpty {
@@ -918,6 +920,8 @@ public final class ChatViewModel {
                     clientMessageId: clientMessageId,
                     baseURL: url
                 )
+                self.cacheManager.clearDraft(key: "draft_project_\(project.id)")
+                self.cacheManager.clearDraft(key: newCascadeId)
                 self.cascadeId = newCascadeId
                 self.draftProject = nil
                 
