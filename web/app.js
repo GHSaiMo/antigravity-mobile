@@ -2664,13 +2664,8 @@ function initMarkdownViewer() {
   const sheet = document.getElementById("sheet-markdown-viewer");
   const retryBtn = document.getElementById("btn-md-viewer-retry");
   const proceedBtn = document.getElementById("btn-md-viewer-proceed");
-  const closeBtn = document.getElementById("btn-md-viewer-close");
 
   enableSheetPullToDismiss(sheet, closeMarkdownViewer);
-
-  closeBtn?.addEventListener("click", () => {
-    closeMarkdownViewer();
-  });
 
   sheet?.addEventListener("click", (e) => {
     if (e.target === sheet) {
