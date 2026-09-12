@@ -823,7 +823,7 @@ public struct MarkdownViewerSheet: View {
                 .fill(Color(uiColor: .tertiaryLabel))
                 .frame(width: 38, height: 5)
                 .padding(.top, 10)
-                .padding(.bottom, 8)
+                .padding(.bottom, 20)
             
             // Header title (clean centered, dismiss via pull-down gesture)
             Text(data.title.isEmpty ? "文档详情" : data.title)
@@ -832,7 +832,7 @@ public struct MarkdownViewerSheet: View {
                 .lineLimit(1)
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, 16)
-                .padding(.bottom, 10)
+                .padding(.bottom, 12)
             
             Divider()
             
