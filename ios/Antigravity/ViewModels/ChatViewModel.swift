@@ -42,6 +42,7 @@ public final class ChatViewModel {
     public var currentTitle: String
     public var isNewConversation: Bool
     public var draftProject: ProjectItem?
+    public var draftSession: LocalDraftSession?
     
     public var messages: [ChatMessage] = []
     public var inputText: String = "" {
@@ -53,6 +54,8 @@ public final class ChatViewModel {
     public var draftKey: String {
         if !cascadeId.isEmpty {
             return cascadeId
+        } else if let draftSession {
+            return draftSession.id
         } else if let draftProject {
             return "draft_project_\(draftProject.id)"
         }
@@ -63,6 +66,13 @@ public final class ChatViewModel {
         let key = draftKey
         guard !key.isEmpty else { return }
         cacheManager.saveDraft(key: key, text: inputText)
+        if let draftSession, key == draftSession.id {
+            var updated = draftSession
+            updated.draftText = inputText
+            updated.updatedAt = Date()
+            self.draftSession = updated
+            cacheManager.saveLocalDraftSession(updated)
+        }
     }
     
     public var isLoading: Bool = false
@@ -240,6 +250,32 @@ public final class ChatViewModel {
         self.streamClient = StreamWebSocketClient()
         self.activeModel = resolvedSettings.activeModel
         self.inputText = resolvedCacheManager.getDraft(for: "draft_project_\(draftProject.id)")
+        
+        self.setupStreamClient()
+    }
+    
+    public init(
+        draftSession: LocalDraftSession,
+        apiClient: APIClient? = nil,
+        settings: AppSettings? = nil,
+        cacheManager: CacheManager? = nil
+    ) {
+        self.cascadeId = ""
+        self.initialTitle = draftSession.project.name
+        self.currentTitle = draftSession.project.name
+        self.isNewConversation = true
+        self.draftSession = draftSession
+        self.draftProject = draftSession.project
+        let resolvedCacheManager = cacheManager ?? .shared
+        let resolvedSettings = settings ?? .shared
+        self.apiClient = apiClient ?? .shared
+        self.settings = resolvedSettings
+        self.activityManager = ActivityManager.shared
+        self.cacheManager = resolvedCacheManager
+        self.streamClient = StreamWebSocketClient()
+        self.activeModel = resolvedSettings.activeModel
+        let existingDraft = resolvedCacheManager.getDraft(for: draftSession.id)
+        self.inputText = existingDraft.isEmpty ? draftSession.draftText : existingDraft
         
         self.setupStreamClient()
     }
@@ -909,7 +945,7 @@ public final class ChatViewModel {
         }
         
         do {
-            if cascadeId.isEmpty, let project = draftProject {
+            if cascadeId.isEmpty, let project = draftProject ?? draftSession?.project {
                 let pid = project.rawId ?? (project.id != project.uri ? project.id : nil)
                 let initialPrompt = (images == nil || images!.isEmpty) ? text : ""
                 let newCascadeId = try await apiClient.createCascade(
@@ -920,10 +956,16 @@ public final class ChatViewModel {
                     clientMessageId: clientMessageId,
                     baseURL: url
                 )
+                if let dSession = draftSession {
+                    self.cacheManager.deleteLocalDraftSession(id: dSession.id)
+                    self.cacheManager.clearDraft(key: dSession.id)
+                }
                 self.cacheManager.clearDraft(key: "draft_project_\(project.id)")
                 self.cacheManager.clearDraft(key: newCascadeId)
                 self.cascadeId = newCascadeId
+                self.draftSession = nil
                 self.draftProject = nil
+                self.isNewConversation = false
                 
                 // Immediately register new conversation item in cache
                 let newConv = ConversationItem(

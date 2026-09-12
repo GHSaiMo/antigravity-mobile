@@ -7,7 +7,7 @@ public struct ConversationListView: View {
     @State private var showQRScanner = false
     @State private var showNewConversation = false
     @State private var showAccountQuota = false
-    @State private var selectedDraftProject: ProjectItem?
+    @State private var selectedDraftSession: LocalDraftSession?
     @State private var navigationPath = NavigationPath()
     
     @State private var conversationToDelete: ConversationItem?
@@ -46,7 +46,8 @@ public struct ConversationListView: View {
                 NewConversationSheet(onSelectProject: { project in
                     Task { @MainActor in
                         try? await Task.sleep(nanoseconds: 200_000_000)
-                        selectedDraftProject = project
+                        let session = CacheManager.shared.createLocalDraftSession(project: project)
+                        selectedDraftSession = session
                     }
                 })
             }
@@ -85,6 +86,7 @@ public struct ConversationListView: View {
             .navigationDestination(for: ConversationItem.self) { item in
                 ChatView(conversation: item, isNewConversation: item.stepCount == 0)
                     .onAppear {
+                        guard !item.isDraft else { return }
                         Task {
                             if let url = AppSettings.shared.gatewayURL {
                                 await APIClient.shared.markConversationAsRead(cascadeId: item.id, baseURL: url)
@@ -98,8 +100,8 @@ public struct ConversationListView: View {
                         viewModel.reloadFromCache()
                     }
             }
-            .navigationDestination(item: $selectedDraftProject) { project in
-                ChatView(draftProject: project)
+            .navigationDestination(item: $selectedDraftSession) { session in
+                ChatView(draftSession: session)
                     .onDisappear {
                         draftsVersion += 1
                         viewModel.reloadFromCache()
@@ -263,6 +265,7 @@ public struct ConversationListView: View {
                         navigationPath.append(item)
                     }
                     .onLongPressGesture(minimumDuration: 0.45) {
+                        guard !item.isDraft else { return }
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                         conversationToRename = item
                         renameText = item.title
@@ -284,7 +287,9 @@ public struct ConversationListView: View {
                     }
 
                     .confirmationDialog(
-                        "确定删除此会话吗？\n此操作将永久删除会话记录且无法撤销。",
+                        (conversationToDelete?.isDraft == true)
+                            ? "确定删除此草稿会话吗？\n此操作将删除本地临时会话且无法撤销。"
+                            : "确定删除此会话吗？\n此操作将永久删除会话记录且无法撤销。",
                         isPresented: Binding(
                             get: { showDeleteConfirm && conversationToDelete?.id == item.id },
                             set: { if !$0 { 
@@ -391,7 +396,7 @@ public struct ConversationListView: View {
     
     private func conversationCard(for item: ConversationItem) -> some View {
         let _ = draftsVersion
-        let hasDraft = CacheManager.shared.hasDraft(for: item.id)
+        let hasDraft = item.isDraft || CacheManager.shared.hasDraft(for: item.id)
         
         return VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top) {
@@ -459,9 +464,15 @@ public struct ConversationListView: View {
                 
                 Spacer()
                 
-                Text("\(item.stepCount) 步骤 • \(item.relativeTimeString)")
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
+                if item.isDraft {
+                    Text("草稿 • \(item.relativeTimeString)")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                } else {
+                    Text("\(item.stepCount) 步骤 • \(item.relativeTimeString)")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
             }
         }
         .padding(14)

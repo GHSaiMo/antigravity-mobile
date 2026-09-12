@@ -70,6 +70,7 @@ public final class CacheManager: @unchecked Sendable {
     private var memSessions: [String: CachedChatSession] = [:]
     private var memLastViewDates: [String: Date] = [:]
     private var memDrafts: [String: String] = [:]
+    private var memLocalDraftSessions: [String: LocalDraftSession]?
     
     public func getLastViewDate(for cascadeId: String) -> Date? {
         lock.lock()
@@ -357,6 +358,7 @@ public final class CacheManager: @unchecked Sendable {
         memConversations = nil
         memSessions.removeAll()
         memDrafts.removeAll()
+        memLocalDraftSessions?.removeAll()
         lock.unlock()
         
         let targetDir = cacheDir
@@ -399,6 +401,16 @@ public final class CacheManager: @unchecked Sendable {
         let old = memDrafts[key]
         memDrafts[key] = text
         UserDefaults.standard.set(text, forKey: "ag_draft_\(key)")
+        
+        if key.hasPrefix("local_draft_") {
+            ensureLocalDraftSessionsLoaded()
+            if var session = memLocalDraftSessions?[key] {
+                session.draftText = text
+                session.updatedAt = Date()
+                memLocalDraftSessions?[key] = session
+                persistDraftSessionsToDisk()
+            }
+        }
         lock.unlock()
         
         if old != text {
@@ -414,6 +426,11 @@ public final class CacheManager: @unchecked Sendable {
         let hadValue = (memDrafts[key] != nil) || (UserDefaults.standard.object(forKey: "ag_draft_\(key)") != nil)
         memDrafts.removeValue(forKey: key)
         UserDefaults.standard.removeObject(forKey: "ag_draft_\(key)")
+        if key.hasPrefix("local_draft_") {
+            ensureLocalDraftSessionsLoaded()
+            memLocalDraftSessions?.removeValue(forKey: key)
+            persistDraftSessionsToDisk()
+        }
         lock.unlock()
         
         if hadValue {
@@ -421,5 +438,93 @@ public final class CacheManager: @unchecked Sendable {
                 NotificationCenter.default.post(name: .conversationDraftChanged, object: key)
             }
         }
+    }
+    
+    // MARK: - Local Draft Sessions Cache
+    
+    private func ensureLocalDraftSessionsLoaded() {
+        if memLocalDraftSessions != nil { return }
+        let fileURL = cacheDir.appendingPathComponent("draft_sessions.json")
+        guard let data = try? Data(contentsOf: fileURL),
+              let items = try? JSONDecoder().decode([LocalDraftSession].self, from: data) else {
+            memLocalDraftSessions = [:]
+            return
+        }
+        var dict: [String: LocalDraftSession] = [:]
+        for item in items {
+            dict[item.id] = item
+        }
+        memLocalDraftSessions = dict
+    }
+    
+    private func persistDraftSessionsToDisk() {
+        guard let dict = memLocalDraftSessions else { return }
+        let list = Array(dict.values)
+        guard let data = try? JSONEncoder().encode(list) else { return }
+        let fileURL = cacheDir.appendingPathComponent("draft_sessions.json")
+        ioQueue.async {
+            try? data.write(to: fileURL, options: .atomic)
+        }
+    }
+    
+    public func createLocalDraftSession(project: ProjectItem) -> LocalDraftSession {
+        let session = LocalDraftSession(project: project)
+        lock.lock()
+        ensureLocalDraftSessionsLoaded()
+        memLocalDraftSessions?[session.id] = session
+        persistDraftSessionsToDisk()
+        lock.unlock()
+        return session
+    }
+    
+    public func saveLocalDraftSession(_ session: LocalDraftSession) {
+        lock.lock()
+        ensureLocalDraftSessionsLoaded()
+        let trimmed = session.draftText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            memLocalDraftSessions?.removeValue(forKey: session.id)
+        } else {
+            memLocalDraftSessions?[session.id] = session
+        }
+        persistDraftSessionsToDisk()
+        lock.unlock()
+    }
+    
+    public func getLocalDraftSession(id: String) -> LocalDraftSession? {
+        lock.lock()
+        defer { lock.unlock() }
+        ensureLocalDraftSessionsLoaded()
+        return memLocalDraftSessions?[id]
+    }
+    
+    public func loadLocalDraftSessions() -> [LocalDraftSession] {
+        lock.lock()
+        defer { lock.unlock() }
+        ensureLocalDraftSessionsLoaded()
+        guard let dict = memLocalDraftSessions else { return [] }
+        return dict.values.filter { session in
+            let text = memDrafts[session.id] ?? UserDefaults.standard.string(forKey: "ag_draft_\(session.id)") ?? session.draftText
+            return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }.sorted { $0.updatedAt > $1.updatedAt }
+    }
+    
+    public func loadLocalDraftConversations() -> [ConversationItem] {
+        let active = loadLocalDraftSessions()
+        return active.map { session in
+            var s = session
+            let text = getDraft(for: session.id)
+            if !text.isEmpty {
+                s.draftText = text
+            }
+            return s.toConversationItem()
+        }
+    }
+    
+    public func deleteLocalDraftSession(id: String) {
+        lock.lock()
+        ensureLocalDraftSessionsLoaded()
+        memLocalDraftSessions?.removeValue(forKey: id)
+        persistDraftSessionsToDisk()
+        lock.unlock()
     }
 }
