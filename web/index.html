@@ -230,11 +230,11 @@
     <!-- iOS Bottom Sheet: New Conversation -->
     <div id="sheet-new" class="ios-sheet-overlay hidden">
       <div class="ios-sheet-card">
-        <div class="sheet-grabber"></div>
-        <div class="sheet-header">
-          <button id="btn-sheet-new-cancel" class="sheet-header-btn">取消</button>
-          <h2 class="sheet-title">新建会话</h2>
-          <button id="btn-sheet-new-create" class="sheet-header-btn primary">开始执行</button>
+        <div class="sheet-grabber md-viewer-grabber"></div>
+        <div class="sheet-header md-viewer-header">
+          <div class="sheet-title-group md-viewer-title-group">
+            <h2 class="sheet-title md-viewer-title">新建会话</h2>
+          </div>
         </div>
         <div class="sheet-body">
           <div class="ios-grouped-section">
@@ -263,6 +263,15 @@
               <textarea id="new-prompt" rows="4" placeholder="输入首条指令，例如：审查代码规范并运行测试..."></textarea>
             </div>
           </div>
+
+          <div style="margin-top: 14px;">
+            <button id="btn-sheet-new-create" type="button" style="width: 100%; height: 44px; border-radius: 12px; background: var(--ios-blue); color: #fff; font-size: 15.5px; font-weight: 600; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 2px 8px rgba(0, 122, 255, 0.3);">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                <polygon points="5 3 19 12 5 21 5 3"></polygon>
+              </svg>
+              <span>开始执行</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -270,11 +279,11 @@
     <!-- iOS Bottom Sheet: Settings & Gateway Status -->
     <div id="sheet-settings" class="ios-sheet-overlay hidden">
       <div class="ios-sheet-card">
-        <div class="sheet-grabber"></div>
-        <div class="sheet-header">
-          <div style="width: 50px;"></div>
-          <h2 class="sheet-title">网关与服务</h2>
-          <button id="btn-sheet-settings-done" class="sheet-header-btn primary">完成</button>
+        <div class="sheet-grabber md-viewer-grabber"></div>
+        <div class="sheet-header md-viewer-header">
+          <div class="sheet-title-group md-viewer-title-group">
+            <h2 class="sheet-title md-viewer-title">设置与服务</h2>
+          </div>
         </div>
         <div class="sheet-body">
           <div class="ios-grouped-section">
@@ -462,6 +471,6 @@
     </div>
   </div>
 
-  <script src="/app.js?v=18"></script>
+  <script src="/app.js?v=19"></script>
 </body>
 </html>

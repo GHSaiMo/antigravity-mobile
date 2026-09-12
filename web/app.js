@@ -2492,16 +2492,12 @@ function closeMarkdownViewer() {
 window.openMarkdownViewer = openMarkdownViewer;
 window.closeMarkdownViewer = closeMarkdownViewer;
 
-function initMarkdownViewer() {
-  const sheet = document.getElementById("sheet-markdown-viewer");
-  const cardEl = sheet?.querySelector(".ios-sheet-card");
-  const grabberEl = sheet?.querySelector(".sheet-grabber");
-  const headerEl = sheet?.querySelector(".sheet-header");
-  const retryBtn = document.getElementById("btn-md-viewer-retry");
-  const proceedBtn = document.getElementById("btn-md-viewer-proceed");
-  const viewPlanBtn = document.getElementById("btn-view-plan");
+function enableSheetPullToDismiss(sheetEl, closeCallback) {
+  if (!sheetEl) return;
+  const cardEl = sheetEl.querySelector(".ios-sheet-card");
+  const grabberEl = sheetEl.querySelector(".sheet-grabber");
+  const headerEl = sheetEl.querySelector(".sheet-header");
 
-  // Pull-down touch gesture to dismiss sheet
   let pullStartY = 0;
   let pullCurrentY = 0;
   let isPullingDown = false;
@@ -2531,7 +2527,7 @@ function initMarkdownViewer() {
     if (cardEl) {
       cardEl.style.transition = "transform 0.28s cubic-bezier(0.16, 1, 0.3, 1)";
       if (dy > 70) {
-        closeMarkdownViewer();
+        closeCallback();
         setTimeout(() => {
           cardEl.style.transform = "";
           cardEl.style.transition = "";
@@ -2552,6 +2548,15 @@ function initMarkdownViewer() {
   headerEl?.addEventListener("touchstart", onPullTouchStart, { passive: true });
   headerEl?.addEventListener("touchmove", onPullTouchMove, { passive: true });
   headerEl?.addEventListener("touchend", onPullTouchEnd, { passive: true });
+}
+
+function initMarkdownViewer() {
+  const sheet = document.getElementById("sheet-markdown-viewer");
+  const retryBtn = document.getElementById("btn-md-viewer-retry");
+  const proceedBtn = document.getElementById("btn-md-viewer-proceed");
+  const viewPlanBtn = document.getElementById("btn-view-plan");
+
+  enableSheetPullToDismiss(sheet, closeMarkdownViewer);
 
   sheet?.addEventListener("click", (e) => {
     if (e.target === sheet) {
@@ -3465,15 +3470,14 @@ window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btn-settings")?.addEventListener("click", openSettingsSheet);
 
   // New Conversation Sheet
-  document.getElementById("btn-sheet-new-cancel")?.addEventListener("click", closeNewSheet);
   document.getElementById("btn-sheet-new-create")?.addEventListener("click", createConversation);
   const sheetNew = document.getElementById("sheet-new");
   sheetNew?.addEventListener("click", (e) => {
     if (e.target === sheetNew) closeNewSheet();
   });
+  enableSheetPullToDismiss(sheetNew, closeNewSheet);
 
   // Settings Sheet
-  document.getElementById("btn-sheet-settings-done")?.addEventListener("click", closeSettingsSheet);
   document.getElementById("btn-rescan-gateway")?.addEventListener("click", rescanGateway);
   document.getElementById("btn-open-pairing")?.addEventListener("click", () => {
     closeSettingsSheet();
@@ -3484,6 +3488,7 @@ window.addEventListener("DOMContentLoaded", () => {
   sheetSettings?.addEventListener("click", (e) => {
     if (e.target === sheetSettings) closeSettingsSheet();
   });
+  enableSheetPullToDismiss(sheetSettings, closeSettingsSheet);
 
   // Pairing Sheet
   document.getElementById("btn-sheet-pairing-cancel")?.addEventListener("click", closePairingSheet);
