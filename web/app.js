@@ -2386,31 +2386,21 @@ async function openMarkdownViewer(uri, title) {
 
   const titleEl = document.getElementById("md-viewer-title");
   const subtitleEl = document.getElementById("md-viewer-subtitle");
-  const summaryCard = document.getElementById("md-viewer-summary-card");
-  const summaryText = document.getElementById("md-viewer-summary-text");
   const loadingEl = document.getElementById("md-viewer-loading");
   const errorEl = document.getElementById("md-viewer-error");
   const contentEl = document.getElementById("md-viewer-content");
   const proceedBar = document.getElementById("md-viewer-proceed-bar");
 
   // Determine display title & subtitle
-  let displayTitle = title || "实施方案";
+  let displayTitle = "Implementation Plan";
   let displaySubtitle = uri || "implementation_plan.md";
   const filename = (uri || "").split("/").pop().split("?")[0] || uri;
-  if (filename.includes("implementation_plan")) {
-    displayTitle = "实施方案 (Implementation Plan)";
-  } else if (filename.includes("walkthrough")) {
-    displayTitle = "工作记录 (Walkthrough)";
-  } else if (filename.includes("task")) {
-    displayTitle = "任务清单 (Task List)";
-  }
   displaySubtitle = filename || displaySubtitle;
 
   if (titleEl) titleEl.textContent = displayTitle;
   if (subtitleEl) subtitleEl.textContent = displaySubtitle;
 
   // Reset state
-  if (summaryCard) summaryCard.classList.add("hidden");
   if (contentEl) contentEl.innerHTML = "";
   if (errorEl) errorEl.classList.add("hidden");
   if (loadingEl) loadingEl.classList.remove("hidden");
@@ -2436,12 +2426,6 @@ async function openMarkdownViewer(uri, title) {
 
     if (data.filename && subtitleEl) {
       subtitleEl.textContent = data.filename;
-    }
-
-    // Render metadata summary if available
-    if (data.summary && summaryCard && summaryText) {
-      summaryText.innerHTML = renderInlineMarkdown(data.summary).replace(/\n/g, "<br/>");
-      summaryCard.classList.remove("hidden");
     }
 
     // Render markdown content using chat's rich markdown parser
@@ -2482,7 +2466,6 @@ window.closeMarkdownViewer = closeMarkdownViewer;
 function initMarkdownViewer() {
   const sheet = document.getElementById("sheet-markdown-viewer");
   const closeBtn = document.getElementById("btn-md-viewer-close");
-  const copyBtn = document.getElementById("btn-md-viewer-copy");
   const retryBtn = document.getElementById("btn-md-viewer-retry");
   const proceedBtn = document.getElementById("btn-md-viewer-proceed");
   const viewPlanBtn = document.getElementById("btn-view-plan");
@@ -2492,19 +2475,6 @@ function initMarkdownViewer() {
   sheet?.addEventListener("click", (e) => {
     if (e.target === sheet) {
       closeMarkdownViewer();
-    }
-  });
-
-  copyBtn?.addEventListener("click", async () => {
-    if (!currentViewerData || !currentViewerData.content) return;
-    try {
-      await navigator.clipboard.writeText(currentViewerData.content);
-      copyBtn.textContent = "已复制";
-      setTimeout(() => {
-        copyBtn.textContent = "复制";
-      }, 1500);
-    } catch (_) {
-      alert("复制失败");
     }
   });
 
@@ -2520,7 +2490,7 @@ function initMarkdownViewer() {
   });
 
   viewPlanBtn?.addEventListener("click", () => {
-    openMarkdownViewer("implementation_plan.md", "实施方案 (Implementation Plan)");
+    openMarkdownViewer("implementation_plan.md", "Implementation Plan");
   });
 
   // Delegated click on document for any markdown file links
