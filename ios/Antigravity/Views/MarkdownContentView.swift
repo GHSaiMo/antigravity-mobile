@@ -281,6 +281,7 @@ public struct MarkdownContentView: View {
                     .textSelection(.enabled)
                     .padding(10)
             }
+            .fixedSize(horizontal: false, vertical: true)
         }
         .background(Color(uiColor: .tertiarySystemBackground).opacity(0.5))
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -367,6 +368,7 @@ public struct MarkdownContentView: View {
                         .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
                 )
             }
+            .fixedSize(horizontal: false, vertical: true)
             .padding(.vertical, 4)
         }
     }
@@ -390,9 +392,10 @@ public struct MarkdownContentView: View {
     
     @ViewBuilder
     private func paragraphView(text: String, size: CGFloat = 15) -> some View {
-        let segments = Self.parsePlanSegments(text)
+        let cleanText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let segments = Self.parsePlanSegments(cleanText)
         if segments.count <= 1 && (segments.first?.isPlanButton != true) {
-            Self.renderRichText(text, size: size)
+            Self.renderRichText(cleanText, size: size)
                 .font(.system(size: size))
                 .textSelection(.enabled)
                 .lineSpacing(3)
@@ -402,7 +405,7 @@ public struct MarkdownContentView: View {
                 ForEach(segments) { segment in
                     switch segment {
                     case .text(_, let content):
-                        let trimmed = content.trimmingCharacters(in: .whitespaces)
+                        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
                         if !trimmed.isEmpty {
                             Self.renderRichText(trimmed, size: size)
                                 .font(.system(size: size))
@@ -913,6 +916,7 @@ public struct FrontmatterCollapseView: View {
                         .foregroundColor(.primary.opacity(0.85))
                         .padding(10)
                 }
+                .fixedSize(horizontal: false, vertical: true)
                 .background(Color(uiColor: .secondarySystemBackground))
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .overlay(

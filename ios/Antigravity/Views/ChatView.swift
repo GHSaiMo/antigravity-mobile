@@ -383,10 +383,11 @@ public struct ChatView: View {
             }
             
             Color.clear
-                .frame(height: 4)
+                .frame(height: 1)
                 .id("BOTTOM_ANCHOR")
         }
-        .padding(.vertical, 12)
+        .padding(.top, 12)
+        .padding(.bottom, 4)
         .frame(maxWidth: .infinity)
     }
     
@@ -1137,4 +1138,5 @@ public struct MarkdownViewerSheet: View {
         .presentationDragIndicator(.hidden)
     }
 }
+
 
