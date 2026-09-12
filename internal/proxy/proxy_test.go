@@ -615,6 +615,34 @@ func TestSendUserCascadeMessageDeduplication(t *testing.T) {
 	if upstreamCallCount != 3 {
 		t.Fatalf("expected upstreamCallCount to remain 3 (deduplicated by clientMsgID), got %d", upstreamCallCount)
 	}
+
+	// 6. Strategy isolation test: WHEN_IDLE (2) followed by NEXT_INVOCATION (1) with same text
+	// Both must reach upstream because strategies are different
+	strategyPayloadIdle := `{"cascadeId":"cascade-dup-test","items":[{"text":"Queue then Send Now"}],"deliveryStrategy":2}`
+	reqIdle := httptest.NewRequest(http.MethodPost, "/api/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage", strings.NewReader(strategyPayloadIdle))
+	reqIdle.Header.Set("Content-Type", "application/json")
+	recIdle := httptest.NewRecorder()
+	p.ServeHTTP(recIdle, reqIdle)
+
+	if recIdle.Code != http.StatusOK {
+		t.Fatalf("reqIdle expected 200, got %d", recIdle.Code)
+	}
+	if upstreamCallCount != 4 {
+		t.Fatalf("expected upstreamCallCount to be 4 for WHEN_IDLE, got %d", upstreamCallCount)
+	}
+
+	strategyPayloadNow := `{"cascadeId":"cascade-dup-test","items":[{"text":"Queue then Send Now"}],"deliveryStrategy":1}`
+	reqNow := httptest.NewRequest(http.MethodPost, "/api/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage", strings.NewReader(strategyPayloadNow))
+	reqNow.Header.Set("Content-Type", "application/json")
+	recNow := httptest.NewRecorder()
+	p.ServeHTTP(recNow, reqNow)
+
+	if recNow.Code != http.StatusOK {
+		t.Fatalf("reqNow expected 200, got %d", recNow.Code)
+	}
+	if upstreamCallCount != 5 {
+		t.Fatalf("expected upstreamCallCount to be 5 for NEXT_INVOCATION (should not be deduplicated against WHEN_IDLE), got %d", upstreamCallCount)
+	}
 }
 
 func TestDeleteCascadeTrajectoryProxy(t *testing.T) {

@@ -1221,17 +1221,64 @@ public final class ChatViewModel {
     @MainActor
     public func sendQueuedMessageNow(item: QueuedMessageItem) async {
         guard let url = settings.serverURL, !cascadeId.isEmpty else { return }
+        guard !isSending else { return }
+        isSending = true
+        defer { isSending = false }
+        
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         
+        // Save original states for rollback on failure
+        let originalQueued = self.queuedMessages
+        let originalPending = self.pendingOptimisticQueueItems
+        
+        // Remove from optimistic queue list
         self.pendingOptimisticQueueItems.removeAll(where: { $0.id == item.id || $0.text == item.text })
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
             self.queuedMessages.removeAll(where: { $0.id == item.id })
         }
         
-        // Remove from upstream queue asynchronously
-        Task { [weak self] in
-            guard let self else { return }
-            _ = try? await self.apiClient.deleteAgentMessage(messageId: item.id, cascadeId: self.cascadeId, baseURL: url)
+        // Snapshot known server message IDs before sending (excluding any optimistic items)
+        self.knownServerMessageIds = Set(messages.filter { $0.id != pendingOptimisticMessageId && !$0.id.hasPrefix("optimistic-") }.map(\.id))
+        
+        // Optimistic user chat bubble
+        let clientMessageId = UUID().uuidString
+        let optId = "optimistic-\(clientMessageId)"
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            self.messages.append(ChatMessage(id: optId, sender: .user, content: item.text))
+        }
+        self.pendingOptimisticMessageId = optId
+        self.isAwaitingResponse = true
+        self.awaitingResponseSince = Date()
+        self.isRunning = true
+        self.canProceed = false
+        self.hasError = false
+        self.trajectoryErrorMessage = nil
+        self.errorMessage = nil
+        
+        // Persist to local cache immediately
+        let toCache = self.messages.filter { $0.id != self.pendingOptimisticMessageId && !$0.id.hasPrefix("optimistic-") }
+        cacheManager.saveSession(CachedChatSession(
+            cascadeId: cascadeId,
+            status: "CASCADE_RUN_STATUS_RUNNING",
+            duration: self.duration,
+            stepCount: self.stepCount,
+            totalTools: self.totalTools,
+            hasMore: self.hasMore,
+            nextOffset: self.nextOffset,
+            messages: toCache,
+            title: self.currentTitle,
+            cascadeConfigRaw: self.cascadeConfigRaw,
+            canProceed: self.canProceed,
+            proceedArtifactUri: self.proceedArtifactUri,
+            pendingInteraction: self.pendingInteraction,
+            queuedMessages: self.queuedMessages,
+            runningTasks: self.runningTasks
+        ))
+        
+        // Ensure stream is actively connected
+        connectStream()
+        if streamClient.status != .connected {
+            startPollingFallback()
         }
         
         // Dispatch with deliveryStrategy = 1 (NEXT_INVOCATION)
@@ -1242,11 +1289,42 @@ public final class ChatViewModel {
                 model: activeModelEnum,
                 deliveryStrategy: 1,
                 cascadeConfigRaw: cascadeConfigRaw,
-                clientMessageId: UUID().uuidString,
+                clientMessageId: clientMessageId,
                 baseURL: url
             )
+            
+            // On successful dispatch: remove from upstream queue if it had a real server message ID
+            Task { [weak self] in
+                guard let self else { return }
+                var targetMsgId: String? = item.id.hasPrefix("queue-") ? nil : item.id
+                if targetMsgId == nil {
+                    try? await Task.sleep(nanoseconds: 350_000_000)
+                    if let currentMsgs = try? await self.apiClient.fetchMessages(cascadeId: self.cascadeId, limit: 15, offset: nil, baseURL: url) {
+                        let trimmedTarget = item.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if let match = currentMsgs.queuedMessages.first(where: { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == trimmedTarget }) {
+                            targetMsgId = match.id
+                        }
+                    }
+                }
+                if let msgId = targetMsgId, !msgId.hasPrefix("queue-") {
+                    _ = try? await self.apiClient.deleteAgentMessage(messageId: msgId, cascadeId: self.cascadeId, baseURL: url)
+                }
+            }
+            
+            // Allow upstream 250ms to register task and update state before first eager sync
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            await self.loadMessages(isBackgroundPoll: true)
         } catch {
-            errorMessage = "发送失败: \(error.localizedDescription)"
+            print("❌ sendQueuedMessageNow error: \(error)")
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                self.queuedMessages = originalQueued
+                self.pendingOptimisticQueueItems = originalPending
+                self.messages.removeAll(where: { $0.id == optId })
+                if self.pendingOptimisticMessageId == optId {
+                    self.pendingOptimisticMessageId = nil
+                }
+            }
+            self.errorMessage = "发送失败: \(error.localizedDescription)"
         }
     }
     
@@ -1261,7 +1339,19 @@ public final class ChatViewModel {
         if let url = settings.serverURL, !cascadeId.isEmpty {
             Task { [weak self] in
                 guard let self else { return }
-                _ = try? await self.apiClient.deleteAgentMessage(messageId: item.id, cascadeId: self.cascadeId, baseURL: url)
+                var targetMsgId: String? = item.id.hasPrefix("queue-") ? nil : item.id
+                if targetMsgId == nil {
+                    try? await Task.sleep(nanoseconds: 350_000_000)
+                    if let currentMsgs = try? await self.apiClient.fetchMessages(cascadeId: self.cascadeId, limit: 15, offset: nil, baseURL: url) {
+                        let trimmedTarget = item.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if let match = currentMsgs.queuedMessages.first(where: { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == trimmedTarget }) {
+                            targetMsgId = match.id
+                        }
+                    }
+                }
+                if let msgId = targetMsgId, !msgId.hasPrefix("queue-") {
+                    _ = try? await self.apiClient.deleteAgentMessage(messageId: msgId, cascadeId: self.cascadeId, baseURL: url)
+                }
             }
         }
         
@@ -1279,7 +1369,19 @@ public final class ChatViewModel {
         if let url = settings.serverURL, !cascadeId.isEmpty {
             Task { [weak self] in
                 guard let self else { return }
-                _ = try? await self.apiClient.deleteAgentMessage(messageId: item.id, cascadeId: self.cascadeId, baseURL: url)
+                var targetMsgId: String? = item.id.hasPrefix("queue-") ? nil : item.id
+                if targetMsgId == nil {
+                    try? await Task.sleep(nanoseconds: 350_000_000)
+                    if let currentMsgs = try? await self.apiClient.fetchMessages(cascadeId: self.cascadeId, limit: 15, offset: nil, baseURL: url) {
+                        let trimmedTarget = item.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if let match = currentMsgs.queuedMessages.first(where: { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == trimmedTarget }) {
+                            targetMsgId = match.id
+                        }
+                    }
+                }
+                if let msgId = targetMsgId, !msgId.hasPrefix("queue-") {
+                    _ = try? await self.apiClient.deleteAgentMessage(messageId: msgId, cascadeId: self.cascadeId, baseURL: url)
+                }
             }
         }
     }
