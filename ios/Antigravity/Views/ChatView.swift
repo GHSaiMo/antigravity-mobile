@@ -32,244 +32,9 @@ public struct ChatView: View {
     
     public var body: some View {
         VStack(spacing: 0) {
-            // Content area
-            if viewModel.isLoading && viewModel.messages.isEmpty && !viewModel.isNewConversation {
-                VStack(spacing: 14) {
-                    ProgressView()
-                        .scaleEffect(1.2)
-                    Text("正在同步会话历史与步骤...")
-                        .font(.system(size: 13.5))
-                        .foregroundColor(.secondary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let err = viewModel.errorMessage, viewModel.messages.isEmpty && !viewModel.isNewConversation {
-                VStack(spacing: 14) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.system(size: 36))
-                        .foregroundColor(.orange)
-                    Text(err)
-                        .font(.system(size: 13.5))
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 24)
-                    Button("点击重试") {
-                        Task { await viewModel.loadMessages() }
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                // Message stream
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        VStack(spacing: 8) {
-                            // Load older messages button
-                            if viewModel.hasMore {
-                                Button(action: {
-                                    let currentTopId = viewModel.messages.first?.id
-                                    Task {
-                                        await viewModel.loadOlderMessages()
-                                        if let topId = currentTopId {
-                                            withAnimation(.easeOut(duration: 0.2)) {
-                                                proxy.scrollTo(topId, anchor: .top)
-                                            }
-                                        }
-                                    }
-                                }) {
-                                    if viewModel.isLoadingOlder {
-                                        ProgressView()
-                                            .scaleEffect(0.9)
-                                            .frame(maxWidth: .infinity)
-                                            .padding(.vertical, 8)
-                                    } else {
-                                        HStack(spacing: 6) {
-                                            Image(systemName: "arrow.up.circle.fill")
-                                                .font(.system(size: 13))
-                                            Text("查看更早的消息")
-                                                .font(.system(size: 12.5, weight: .medium))
-                                        }
-                                        .foregroundColor(.secondary)
-                                        .padding(.horizontal, 14)
-                                        .padding(.vertical, 7)
-                                        .background(Color(uiColor: .secondarySystemBackground).opacity(0.8))
-                                        .clipShape(Capsule())
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.vertical, 4)
-                                    }
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            
-                            if viewModel.messages.isEmpty {
-                                emptyStateView
-                            }
-                            
-                            ForEach(Array(viewModel.messages.enumerated()), id: \.element.id) { index, message in
-                                let isLast = (index == viewModel.messages.count - 1)
-                                let isActive = isLast && (viewModel.isRunning || viewModel.isAwaitingResponse)
-                                MessageBubbleView(message: message, isActiveToolBatch: isActive)
-                                    .id(message.id)
-                            }
-                            
-                            // Agent thinking & executing indicator animation (shown while awaiting before tools/response arrive)
-                            if (viewModel.isAwaitingResponse || viewModel.isRunning) && (viewModel.messages.last?.isToolBatch != true) {
-                                AgentThinkingBubbleView()
-                                    .id("THINKING_INDICATOR")
-                                    .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .topLeading)))
-                            }
-                            
-                            Color.clear
-                                .frame(height: 4)
-                                .id("BOTTOM_ANCHOR")
-                        }
-                        .padding(.vertical, 12)
-                        .frame(maxWidth: .infinity)
-                        .scrollTargetLayout()
-                    }
-                    .defaultScrollAnchor(.bottom)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color(uiColor: .systemBackground))
-                    .contentShape(Rectangle())
-                    .simultaneousGesture(
-                        TapGesture().onEnded {
-                            if isInputFocused {
-                                isInputFocused = false
-                            }
-                        }
-                    )
-                    .scrollDismissesKeyboard(.interactively)
-                    .refreshable {
-                        await viewModel.loadMessages()
-                    }
-                    .onAppear {
-                        // Stage 1: Quick pre-alignment for cached messages before push completes (80ms)
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                            initialAlignmentIfNeeded(proxy: proxy)
-                        }
-                        // Stage 2: Fallback calibration after push finishes if Stage 1 missed (320ms)
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.32) {
-                            initialAlignmentIfNeeded(proxy: proxy)
-                        }
-                    }
-                    .onChange(of: viewModel.isLoading) { _, loading in
-                        if !loading {
-                            // If initial alignment was waiting on network load, perform it now
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                                initialAlignmentIfNeeded(proxy: proxy)
-                            }
-                            if !hasAutoFocused && autoFocusTask == nil && (shouldAutoFocus || (viewModel.messages.isEmpty && viewModel.stepCount == 0)) {
-                                scheduleAutoFocus(delay: 0.2)
-                            }
-                        }
-                    }
-                    .onChange(of: viewModel.scrollToTurnStartTrigger) { _, _ in
-                        scrollToTurnStart(proxy: proxy, animated: true)
-                    }
-                    .onChange(of: viewModel.messages.last?.id) { _, lastId in
-                        guard lastId != nil else { return }
-                        if !hasInitiallyAligned {
-                            initialAlignmentIfNeeded(proxy: proxy)
-                            return
-                        }
-                        scrollToBottom(proxy: proxy, animated: true)
-                    }
-                    .onChange(of: isInputFocused) { _, focused in
-                        if focused {
-                            // 软键盘弹起时平滑过渡贴合底部
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                scrollToBottom(proxy: proxy, animated: true)
-                            }
-                        } else {
-                            // 输入法收起时校准底部对齐，消除视口悬空留白
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                scrollToBottom(proxy: proxy, animated: true)
-                            }
-                        }
-                    }
-                }
-            }
-            
-            // Error banner for active chats or drafting new conversations
-            if let err = viewModel.errorMessage, (!viewModel.messages.isEmpty || viewModel.isNewConversation) {
-                HStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(.orange)
-                        .font(.system(size: 14))
-                    Text(err)
-                        .font(.system(size: 12.5, weight: .medium))
-                        .foregroundColor(.primary)
-                        .lineLimit(2)
-                    Spacer()
-                    Button(action: {
-                        viewModel.errorMessage = nil
-                    }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.secondary)
-                            .font(.system(size: 14))
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(Color(uiColor: .secondarySystemBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .padding(.horizontal, 16)
-                .padding(.bottom, 6)
-            }
-            
-            // Floating Interaction Card (Permissions / Prompts / Decision)
-            if let interaction = viewModel.pendingInteraction {
-                InteractionCardView(
-                    interaction: interaction,
-                    isSubmitting: viewModel.isSubmittingInteraction,
-                    onSubmit: { optionId, writeInText, target in
-                        Task {
-                            await viewModel.submitInteraction(optionId: optionId, writeInText: writeInText, target: target)
-                        }
-                    },
-                    onSkip: {
-                        Task {
-                            await viewModel.skipInteraction()
-                        }
-                    }
-                )
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-            
-            // Floating Running Tasks Card (Desktop Parity)
-            if !viewModel.runningTasks.isEmpty {
-                RunningTasksCardView(
-                    items: viewModel.runningTasks,
-                    onStop: { task in
-                        Task {
-                            await viewModel.stopTask(task)
-                        }
-                    }
-                )
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-            
-            // Floating Queued Messages Card
-            if !viewModel.queuedMessages.isEmpty {
-                QueuedMessagesCardView(
-                    items: viewModel.queuedMessages,
-                    onSendNow: { item in
-                        Task {
-                            await viewModel.sendQueuedMessageNow(item: item)
-                        }
-                    },
-                    onEdit: { item in
-                        viewModel.editQueuedMessage(item: item)
-                        isInputFocused = true
-                    },
-                    onDelete: { item in
-                        viewModel.deleteQueuedMessage(item: item)
-                    }
-                )
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-            
-            // Bottom input bar
+            contentArea
+            errorBanner
+            floatingCards
             inputBar
         }
         .navigationTitle(viewModel.currentTitle)
@@ -345,40 +110,312 @@ public struct ChatView: View {
             viewModel.disconnectStream()
         }
         .environment(\.openURL, OpenURLAction { url in
-            let urlString = url.absoluteString
-            let clean = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-            let lower = clean.lowercased()
-            
-            // Check if it's a markdown file, artifact, or planning document
-            if lower.hasSuffix(".md") || lower.hasSuffix(".markdown") ||
-               lower.contains("/brain/") || lower.contains("/static/artifacts/") ||
-               lower.contains("implementation_plan") || lower.contains("walkthrough") {
-                let fileName = (clean as NSString).lastPathComponent
-                viewModel.openMarkdownViewer(uri: clean, title: fileName.isEmpty ? nil : fileName)
-                return .handled
-            }
-            
-            // Let system handle standard web links (http / https)
-            if url.scheme == "http" || url.scheme == "https" {
-                return .systemAction
-            }
-            
-            return .handled
+            handleURLTap(url)
         })
-        .sheet(item: $viewModel.viewingMarkdownFile) { item in
-            MarkdownViewerSheet(
-                data: item,
-                onDismiss: {
-                    viewModel.closeMarkdownViewer()
+        .sheet(item: $viewModel.viewingMarkdownFile) { (item: MarkdownFileViewerData) in
+            markdownViewerSheet(data: item)
+        }
+    }
+    
+    @ViewBuilder
+    private var contentArea: some View {
+        if viewModel.isLoading && viewModel.messages.isEmpty && !viewModel.isNewConversation {
+            loadingStateView
+        } else if let err = viewModel.errorMessage, viewModel.messages.isEmpty && !viewModel.isNewConversation {
+            errorStateView(err: err)
+        } else {
+            ScrollViewReader { proxy in
+                messagesScrollView(proxy: proxy)
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private var loadingStateView: some View {
+        VStack(spacing: 14) {
+            ProgressView()
+                .scaleEffect(1.2)
+            Text("正在同步会话历史与步骤...")
+                .font(.system(size: 13.5))
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+    
+    @ViewBuilder
+    private func errorStateView(err: String) -> some View {
+        VStack(spacing: 14) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 36))
+                .foregroundColor(.orange)
+            Text(err)
+                .font(.system(size: 13.5))
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+            Button("点击重试") {
+                Task { await viewModel.loadMessages() }
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+    
+    @ViewBuilder
+    private func messagesScrollView(proxy: ScrollViewProxy) -> some View {
+        ScrollView {
+            messagesList(proxy: proxy)
+        }
+        .defaultScrollAnchor(.bottom)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(uiColor: .systemBackground))
+        .contentShape(Rectangle())
+        .simultaneousGesture(
+            TapGesture().onEnded {
+                if isInputFocused {
+                    isInputFocused = false
+                }
+            }
+        )
+        .scrollDismissesKeyboard(.interactively)
+        .refreshable {
+            await viewModel.loadMessages()
+        }
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                initialAlignmentIfNeeded(proxy: proxy)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.32) {
+                initialAlignmentIfNeeded(proxy: proxy)
+            }
+        }
+        .onChange(of: viewModel.isLoading) { _, loading in
+            if !loading {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                    initialAlignmentIfNeeded(proxy: proxy)
+                }
+                if canScheduleAutoFocus {
+                    scheduleAutoFocus(delay: 0.2)
+                }
+            }
+        }
+        .onChange(of: viewModel.scrollToTurnStartTrigger) { _, _ in
+            scrollToTurnStart(proxy: proxy, animated: true)
+        }
+        .onChange(of: viewModel.messages.last?.id) { _, lastId in
+            guard lastId != nil else { return }
+            if !hasInitiallyAligned {
+                initialAlignmentIfNeeded(proxy: proxy)
+                return
+            }
+            scrollToBottom(proxy: proxy, animated: true)
+        }
+        .onChange(of: isInputFocused) { _, focused in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                scrollToBottom(proxy: proxy, animated: true)
+            }
+        }
+    }
+    
+    private var canScheduleAutoFocus: Bool {
+        guard !hasAutoFocused, autoFocusTask == nil else { return false }
+        if shouldAutoFocus { return true }
+        return viewModel.messages.isEmpty && viewModel.stepCount == 0
+    }
+    
+    @ViewBuilder
+    private func messagesList(proxy: ScrollViewProxy) -> some View {
+        VStack(spacing: 8) {
+            if viewModel.hasMore {
+                loadOlderMessagesButton(proxy: proxy)
+            }
+            
+            if viewModel.messages.isEmpty {
+                emptyStateView
+            }
+            
+            ForEach(Array(viewModel.messages.enumerated()), id: \.element.id) { index, message in
+                messageRow(index: index, message: message)
+            }
+            
+            if shouldShowThinkingBubble {
+                AgentThinkingBubbleView()
+                    .id("THINKING_INDICATOR")
+                    .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .topLeading)))
+            }
+            
+            Color.clear
+                .frame(height: 4)
+                .id("BOTTOM_ANCHOR")
+        }
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity)
+        .scrollTargetLayout()
+    }
+    
+    private var shouldShowThinkingBubble: Bool {
+        (viewModel.isAwaitingResponse || viewModel.isRunning) && (viewModel.messages.last?.isToolBatch != true)
+    }
+    
+    @ViewBuilder
+    private func messageRow(index: Int, message: ChatMessage) -> some View {
+        let isLast = (index == viewModel.messages.count - 1)
+        let isActive = isLast && (viewModel.isRunning || viewModel.isAwaitingResponse)
+        MessageBubbleView(message: message, isActiveToolBatch: isActive)
+            .id(message.id)
+    }
+    
+    @ViewBuilder
+    private func loadOlderMessagesButton(proxy: ScrollViewProxy) -> some View {
+        Button(action: {
+            let currentTopId = viewModel.messages.first?.id
+            Task {
+                await viewModel.loadOlderMessages()
+                if let topId = currentTopId {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        proxy.scrollTo(topId, anchor: .top)
+                    }
+                }
+            }
+        }) {
+            if viewModel.isLoadingOlder {
+                ProgressView()
+                    .scaleEffect(0.9)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+            } else {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 13))
+                    Text("查看更早的消息")
+                        .font(.system(size: 12.5, weight: .medium))
+                }
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 7)
+                .background(Color(uiColor: .secondarySystemBackground).opacity(0.8))
+                .clipShape(Capsule())
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 4)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+    
+    @ViewBuilder
+    private var floatingCards: some View {
+        if let interaction = viewModel.pendingInteraction {
+            InteractionCardView(
+                interaction: interaction,
+                isSubmitting: viewModel.isSubmittingInteraction,
+                onSubmit: { optionId, writeInText, target in
+                    Task {
+                        await viewModel.submitInteraction(optionId: optionId, writeInText: writeInText, target: target)
+                    }
                 },
-                onProceed: {
-                    viewModel.proceedFromViewer()
-                },
-                onRetry: {
-                    viewModel.openMarkdownViewer(uri: item.uri, title: item.title)
+                onSkip: {
+                    Task {
+                        await viewModel.skipInteraction()
+                    }
                 }
             )
+            .transition(.move(edge: .bottom).combined(with: .opacity))
         }
+        
+        if !viewModel.runningTasks.isEmpty {
+            RunningTasksCardView(
+                items: viewModel.runningTasks,
+                onStop: { task in
+                    Task {
+                        await viewModel.stopTask(task)
+                    }
+                }
+            )
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+        
+        if !viewModel.queuedMessages.isEmpty {
+            QueuedMessagesCardView(
+                items: viewModel.queuedMessages,
+                onSendNow: { item in
+                    Task {
+                        await viewModel.sendQueuedMessageNow(item: item)
+                    }
+                },
+                onEdit: { item in
+                    viewModel.editQueuedMessage(item: item)
+                    isInputFocused = true
+                },
+                onDelete: { item in
+                    viewModel.deleteQueuedMessage(item: item)
+                }
+            )
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+    }
+    
+    @ViewBuilder
+    private var errorBanner: some View {
+        if let err = viewModel.errorMessage, (!viewModel.messages.isEmpty || viewModel.isNewConversation) {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(.orange)
+                    .font(.system(size: 14))
+                Text(err)
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundColor(.primary)
+                    .lineLimit(2)
+                Spacer()
+                Button(action: {
+                    viewModel.errorMessage = nil
+                }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.secondary)
+                        .font(.system(size: 14))
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(Color(uiColor: .secondarySystemBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .padding(.horizontal, 16)
+            .padding(.bottom, 6)
+        }
+    }
+    
+    private func handleURLTap(_ url: URL) -> OpenURLAction.Result {
+        let clean = url.absoluteString.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = clean.lowercased()
+        
+        if lower.hasSuffix(".md") || lower.hasSuffix(".markdown") ||
+           lower.contains("/brain/") || lower.contains("/static/artifacts/") ||
+           lower.contains("implementation_plan") || lower.contains("walkthrough") {
+            viewModel.openMarkdownViewer(uri: clean, title: "Implementation Plan")
+            return .handled
+        }
+        
+        if url.scheme == "http" || url.scheme == "https" {
+            return .systemAction
+        }
+        
+        return .handled
+    }
+    
+    @ViewBuilder
+    private func markdownViewerSheet(data: MarkdownFileViewerData) -> some View {
+        MarkdownViewerSheet(
+            data: data,
+            onDismiss: {
+                viewModel.closeMarkdownViewer()
+            },
+            onProceed: {
+                viewModel.proceedFromViewer()
+            },
+            onRetry: {
+                viewModel.openMarkdownViewer(uri: data.uri, title: "Implementation Plan")
+            }
+        )
     }
     
     private var inputBar: some View {
@@ -446,7 +483,7 @@ public struct ChatView: View {
                     if viewModel.canProceed {
                         Button(action: {
                             let uri = viewModel.proceedArtifactUri ?? "implementation_plan.md"
-                            viewModel.openMarkdownViewer(uri: uri, title: "implementation_plan.md")
+                            viewModel.openMarkdownViewer(uri: uri, title: "Implementation Plan")
                         }) {
                             HStack(spacing: 5) {
                                 Image(systemName: "doc.text.magnifyingglass")
