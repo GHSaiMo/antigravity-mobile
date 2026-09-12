@@ -6,6 +6,7 @@ public struct ChatView: View {
     @State private var viewModel: ChatViewModel
     @FocusState private var isInputFocused: Bool
     @State private var hasInitiallyAligned = false
+    @State private var hasUserInteracted = false
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     private let shouldAutoFocus: Bool
     private let initialConversation: ConversationItem?
@@ -162,6 +163,8 @@ public struct ChatView: View {
         }
         .onDisappear {
             isViewAppeared = false
+            hasInitiallyAligned = false
+            hasUserInteracted = false
             autoFocusTask?.cancel()
             autoFocusTask = nil
             viewModel.saveCurrentDraft()
@@ -293,22 +296,34 @@ public struct ChatView: View {
                 }
             }
         )
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 10).onChanged { _ in
+                hasUserInteracted = true
+            }
+        )
         .scrollDismissesKeyboard(.interactively)
         .refreshable {
             await viewModel.loadMessages()
         }
         .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                initialAlignmentIfNeeded(proxy: proxy)
+            // 第 1 阶段：快速非动画初位定位，避免看到历史顶部闪动
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
+                alignMessages(proxy: proxy, animated: false)
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.32) {
-                initialAlignmentIfNeeded(proxy: proxy)
+            // 第 2 阶段：等待 NavigationStack 转场动画完全完成（约 0.35s），视口展开至最终真实高度后二次对齐
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                alignMessages(proxy: proxy, animated: false)
+            }
+            // 第 3 阶段：兜底针对大篇幅 Markdown / Table 异步渲染完成后的终态贴边校准
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.60) {
+                alignMessages(proxy: proxy, animated: false)
             }
         }
         .onChange(of: viewModel.isLoading) { _, loading in
             if !loading {
+                // 网络会话历史同步结算后校准对齐
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                    initialAlignmentIfNeeded(proxy: proxy)
+                    alignMessages(proxy: proxy, animated: false)
                 }
                 if canScheduleAutoFocus {
                     scheduleAutoFocus(delay: 0.2)
@@ -321,7 +336,7 @@ public struct ChatView: View {
         .onChange(of: viewModel.messages.last?.id) { _, lastId in
             guard lastId != nil else { return }
             if !hasInitiallyAligned {
-                initialAlignmentIfNeeded(proxy: proxy)
+                alignMessages(proxy: proxy, animated: false)
                 return
             }
             scrollToBottom(proxy: proxy, animated: true)
@@ -873,10 +888,11 @@ public struct ChatView: View {
         }
     }
     
-    private func initialAlignmentIfNeeded(proxy: ScrollViewProxy) {
-        guard !hasInitiallyAligned, !viewModel.messages.isEmpty else { return }
+    private func alignMessages(proxy: ScrollViewProxy, animated: Bool = false) {
+        guard !viewModel.messages.isEmpty else { return }
+        guard !hasUserInteracted else { return }
         hasInitiallyAligned = true
-        smartScroll(proxy: proxy, animated: false)
+        smartScroll(proxy: proxy, animated: animated)
     }
     
     private func smartScroll(proxy: ScrollViewProxy, animated: Bool = false) {
