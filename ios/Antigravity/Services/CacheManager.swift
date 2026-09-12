@@ -63,7 +63,7 @@ public final class CacheManager: @unchecked Sendable {
     public static let shared = CacheManager()
     
     private let cacheDir: URL
-    private let lock = NSLock()
+    private let lock = NSRecursiveLock()
     private let ioQueue = DispatchQueue(label: "com.antigravity.mobile.cache.io", qos: .utility)
     
     private var memConversations: [ConversationItem]?
