@@ -152,41 +152,6 @@ public struct ChatView: View {
             renderMarkdownViewer(data: item)
                 .presentationDragIndicator(.hidden)
         }
-        .confirmationDialog(
-            viewModel.selectedDocumentAction?.fileName ?? "文档选项",
-            isPresented: Binding(
-                get: { viewModel.selectedDocumentAction != nil },
-                set: { if !$0 { viewModel.selectedDocumentAction = nil } }
-            ),
-            titleVisibility: .visible,
-            presenting: viewModel.selectedDocumentAction
-        ) { doc in
-            Button {
-                viewModel.openDocumentQuickLook(doc: doc)
-            } label: {
-                Text(doc.isPresentation ? "🖥️ 查看演示文稿 (QuickLook)" : "👀 预览文档 (QuickLook)")
-            }
-            
-            Button {
-                viewModel.exportDocument(doc: doc)
-            } label: {
-                Text("📤 分享 / 导出至其他应用")
-            }
-            
-            Button {
-                let path = doc.uri.removingPercentEncoding ?? doc.uri
-                UIPasteboard.general.string = path
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            } label: {
-                Text("📋 拷贝电脑端文件路径")
-            }
-            
-            Button("取消", role: .cancel) {
-                viewModel.selectedDocumentAction = nil
-            }
-        } message: { doc in
-            Text(doc.isPresentation ? "支持原生翻页、双指缩放、幻灯片抽屉与系统级分享" : "系统级原生高清文档预览")
-        }
         .sheet(isPresented: Binding(
             get: { viewModel.quickLookURL != nil },
             set: { if !$0 { viewModel.closeQuickLook() } }
@@ -199,41 +164,78 @@ public struct ChatView: View {
             }
         }
         .sheet(isPresented: Binding(
-            get: { viewModel.sharingURL != nil },
-            set: { if !$0 { viewModel.closeSharing() } }
+            get: { viewModel.htmlPreviewURL != nil },
+            set: { if !$0 { viewModel.closeHTMLPreview() } }
         )) {
-            if let sURL = viewModel.sharingURL {
-                ShareSheetView(activityItems: [sURL]) {
-                    viewModel.closeSharing()
+            if let htmlURL = viewModel.htmlPreviewURL {
+                HTMLPreviewSheet(url: htmlURL, title: viewModel.htmlPreviewTitle) {
+                    viewModel.closeHTMLPreview()
                 }
             }
         }
         .overlay {
             if viewModel.isDownloadingDocument {
                 ZStack {
-                    Color.black.opacity(0.3)
+                    Color.black.opacity(0.35)
                         .ignoresSafeArea()
                     
-                    VStack(spacing: 12) {
-                        ProgressView()
-                            .scaleEffect(1.2)
-                            .tint(.white)
+                    VStack(spacing: 14) {
+                        Image(systemName: "arrow.down.circle.fill")
+                            .font(.system(size: 36))
+                            .foregroundStyle(.tint)
+                        
                         Text("正在从电脑端拉取文件...")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(.white)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(.primary)
+                        
                         if !viewModel.downloadingDocumentName.isEmpty {
                             Text(viewModel.downloadingDocumentName)
-                                .font(.system(size: 12))
-                                .foregroundColor(.white.opacity(0.85))
+                                .font(.system(size: 13))
+                                .foregroundColor(.secondary)
                                 .lineLimit(1)
-                                .padding(.horizontal, 16)
+                                .truncationMode(.middle)
+                                .padding(.horizontal, 8)
                         }
+                        
+                        VStack(spacing: 6) {
+                            if viewModel.downloadBytesTotal > 0 {
+                                ProgressView(value: viewModel.downloadProgress)
+                                    .progressViewStyle(.linear)
+                                
+                                HStack {
+                                    Text("\(formatBytes(viewModel.downloadBytesWritten)) / \(formatBytes(viewModel.downloadBytesTotal))")
+                                        .font(.system(size: 11, design: .monospaced))
+                                        .foregroundColor(.secondary)
+                                    Spacer()
+                                    Text("\(Int(viewModel.downloadProgress * 100))%")
+                                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                        .foregroundColor(.secondary)
+                                }
+                            } else {
+                                ProgressView()
+                                    .progressViewStyle(.circular)
+                                    .padding(.vertical, 4)
+                                if viewModel.downloadBytesWritten > 0 {
+                                    Text(formatBytes(viewModel.downloadBytesWritten))
+                                        .font(.system(size: 11, design: .monospaced))
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                        }
+                        .frame(maxWidth: 240)
+                        
+                        Button("取消") {
+                            viewModel.cancelDocumentDownload()
+                        }
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.secondary)
+                        .padding(.top, 4)
                     }
                     .padding(.horizontal, 24)
                     .padding(.vertical, 20)
-                    .background(.ultraThinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .shadow(color: .black.opacity(0.2), radius: 10, y: 5)
+                    .background(Color(uiColor: .systemBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .shadow(color: .black.opacity(0.18), radius: 18, y: 8)
                 }
                 .transition(.opacity)
                 .animation(.easeInOut(duration: 0.2), value: viewModel.isDownloadingDocument)
@@ -538,10 +540,12 @@ public struct ChatView: View {
         }
         
         // 2. Presentations & Office documents (PPTX, PPT, KEY, DOCX, XLSX, PDF, HTML, etc.)
+        let pathLower = url.path.lowercased()
+        let isHTML = lower.hasSuffix(".html") || lower.hasSuffix(".htm") || pathLower.hasSuffix(".html") || pathLower.hasSuffix(".htm")
         let documentExtensions = [".pptx", ".ppt", ".key", ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".numbers", ".pages", ".html", ".htm"]
-        if documentExtensions.contains(where: { lower.hasSuffix($0) }) {
+        if documentExtensions.contains(where: { lower.hasSuffix($0) || pathLower.hasSuffix($0) }) {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-            viewModel.selectedDocumentAction = DocumentActionItem(uri: unescaped, fileName: decodedFileName)
+            viewModel.downloadAndPreviewDocument(uri: unescaped, fileName: decodedFileName, isHTML: isHTML)
             return .handled
         }
         
@@ -551,6 +555,13 @@ public struct ChatView: View {
         }
         
         return .handled
+    }
+    
+    private func formatBytes(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useAll]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
     }
     
     @ViewBuilder
