@@ -61,11 +61,13 @@ public final class ChatViewModel {
     public var isNewConversation: Bool
     public var draftProject: ProjectItem?
     public var draftSession: LocalDraftSession?
+    private var isInitializing: Bool = true
     
     public var messages: [ChatMessage] = []
     public var selectedImageData: [Data] = []
     public var inputText: String = "" {
         didSet {
+            guard !isInitializing else { return }
             saveCurrentDraft()
         }
     }
@@ -83,6 +85,12 @@ public final class ChatViewModel {
     
     public func updateDraftImages(_ images: [Data]) {
         self.selectedImageData = images
+        if var updated = draftSession {
+            updated.draftImages = images
+            updated.updatedAt = Date()
+            self.draftSession = updated
+            cacheManager.saveLocalDraftSession(updated)
+        }
         saveCurrentDraft()
     }
     
@@ -94,16 +102,29 @@ public final class ChatViewModel {
             current = Array(current.prefix(5))
         }
         self.selectedImageData = current
+        if var updated = draftSession {
+            updated.draftImages = current
+            updated.updatedAt = Date()
+            self.draftSession = updated
+            cacheManager.saveLocalDraftSession(updated)
+        }
         saveCurrentDraft()
     }
     
     public func removeDraftImage(at index: Int) {
         guard index < selectedImageData.count else { return }
         selectedImageData.remove(at: index)
+        if var updated = draftSession {
+            updated.draftImages = selectedImageData
+            updated.updatedAt = Date()
+            self.draftSession = updated
+            cacheManager.saveLocalDraftSession(updated)
+        }
         saveCurrentDraft()
     }
     
     public func saveCurrentDraft() {
+        guard !isInitializing else { return }
         let key = draftKey
         guard !key.isEmpty else { return }
         cacheManager.saveDraftImages(key: key, images: selectedImageData)
@@ -111,6 +132,7 @@ public final class ChatViewModel {
         if let draftSession, key == draftSession.id {
             var updated = draftSession
             updated.draftText = inputText
+            updated.draftImages = selectedImageData
             updated.updatedAt = Date()
             self.draftSession = updated
             cacheManager.saveLocalDraftSession(updated)
@@ -121,13 +143,18 @@ public final class ChatViewModel {
     public func restoreDraftsIfNeeded() {
         let key = draftKey
         guard !key.isEmpty else { return }
-        let cachedImages = cacheManager.getDraftImages(for: key)
+        var cachedImages = cacheManager.getDraftImages(for: key)
+        if cachedImages.isEmpty, let dSession = draftSession, !dSession.draftImages.isEmpty {
+            cachedImages = dSession.draftImages
+            cacheManager.saveDraftImages(key: key, images: cachedImages)
+        }
         if !cachedImages.isEmpty && self.selectedImageData.isEmpty {
             self.selectedImageData = cachedImages
         }
         let cachedDraft = cacheManager.getDraft(for: key)
-        if !cachedDraft.isEmpty && self.inputText.isEmpty {
-            self.inputText = cachedDraft
+        let resolvedDraft = !cachedDraft.isEmpty ? cachedDraft : (draftSession?.draftText ?? "")
+        if !resolvedDraft.isEmpty && self.inputText.isEmpty {
+            self.inputText = resolvedDraft
         }
     }
     
@@ -264,8 +291,9 @@ public final class ChatViewModel {
         self.setupStreamClient()
         
         // Restore draft from local cache
-        self.inputText = resolvedCacheManager.getDraft(for: cascadeId)
         self.selectedImageData = resolvedCacheManager.getDraftImages(for: cascadeId)
+        self.inputText = resolvedCacheManager.getDraft(for: cascadeId)
+        self.isInitializing = false
         
         // Instant restore from local cache
         if let cached = resolvedCacheManager.loadSession(for: cascadeId) {
@@ -316,10 +344,12 @@ public final class ChatViewModel {
         self.cacheManager = resolvedCacheManager
         self.streamClient = StreamWebSocketClient()
         self.activeModel = resolvedSettings.activeModel
-        self.inputText = resolvedCacheManager.getDraft(for: "draft_project_\(draftProject.id)")
-        self.selectedImageData = resolvedCacheManager.getDraftImages(for: "draft_project_\(draftProject.id)")
+        let draftKey = "draft_project_\(draftProject.id)"
+        self.selectedImageData = resolvedCacheManager.getDraftImages(for: draftKey)
+        self.inputText = resolvedCacheManager.getDraft(for: draftKey)
         
         self.setupStreamClient()
+        self.isInitializing = false
     }
     
     public init(
@@ -342,11 +372,16 @@ public final class ChatViewModel {
         self.cacheManager = resolvedCacheManager
         self.streamClient = StreamWebSocketClient()
         self.activeModel = resolvedSettings.activeModel
+        let sessionImages = !draftSession.draftImages.isEmpty ? draftSession.draftImages : resolvedCacheManager.getDraftImages(for: draftSession.id)
+        self.selectedImageData = sessionImages
+        if !sessionImages.isEmpty {
+            resolvedCacheManager.saveDraftImages(key: draftSession.id, images: sessionImages)
+        }
         let existingDraft = resolvedCacheManager.getDraft(for: draftSession.id)
         self.inputText = existingDraft.isEmpty ? draftSession.draftText : existingDraft
-        self.selectedImageData = resolvedCacheManager.getDraftImages(for: draftSession.id)
         
         self.setupStreamClient()
+        self.isInitializing = false
     }
     
     @MainActor

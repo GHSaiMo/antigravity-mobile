@@ -291,27 +291,59 @@ public struct LocalDraftSession: Codable, Sendable, Identifiable, Hashable {
     public let id: String
     public let project: ProjectItem
     public var draftText: String
+    public var draftImages: [Data]
     public var createdAt: Date
     public var updatedAt: Date
+    
+    enum CodingKeys: String, CodingKey {
+        case id
+        case project
+        case draftText
+        case draftImages
+        case createdAt
+        case updatedAt
+    }
     
     public init(
         id: String = "local_draft_\(UUID().uuidString)",
         project: ProjectItem,
         draftText: String = "",
+        draftImages: [Data] = [],
         createdAt: Date = Date(),
         updatedAt: Date = Date()
     ) {
         self.id = id
         self.project = project
         self.draftText = draftText
+        self.draftImages = draftImages
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+    }
+    
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.project = try container.decode(ProjectItem.self, forKey: .project)
+        self.draftText = try container.decodeIfPresent(String.self, forKey: .draftText) ?? ""
+        self.draftImages = try container.decodeIfPresent([Data].self, forKey: .draftImages) ?? []
+        self.createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
+        self.updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? Date()
+    }
+    
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(project, forKey: .project)
+        try container.encode(draftText, forKey: .draftText)
+        try container.encode(draftImages, forKey: .draftImages)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(updatedAt, forKey: .updatedAt)
     }
     
     public func toConversationItem() -> ConversationItem {
         let trimmed = draftText.trimmingCharacters(in: .whitespacesAndNewlines)
         let firstLine = trimmed.components(separatedBy: .newlines).first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let hasImages = CacheManager.shared.hasDraftImages(for: id)
+        let hasImages = !draftImages.isEmpty || CacheManager.shared.hasDraftImages(for: id)
         let displayTitle: String
         if !firstLine.isEmpty {
             displayTitle = firstLine
