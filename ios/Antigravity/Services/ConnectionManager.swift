@@ -150,16 +150,18 @@ public final class ConnectionManager {
             )
         }
         
+        let isLocal = probeURL.host.map { NetworkTransport.isLocalOrPrivateHost($0) } ?? false
+        let preferCellular = AppSettings.shared.preferCellularNetwork && !isLocal
+        
         var request = URLRequest(url: probeURL)
         request.httpMethod = "GET"
-        request.timeoutInterval = 2.5 // Bound probe timeout so dead routes fail quickly
+        request.timeoutInterval = preferCellular ? 3.5 : 2.5
         
         let start = CFAbsoluteTimeGetCurrent()
         do {
-            // When probing, test candidate reachability over current system route without artificial interface penalties
             let (_, response) = try await NetworkTransport.shared.send(
                 request: request,
-                preferCellular: false
+                preferCellular: preferCellular
             )
             let elapsedMs = (CFAbsoluteTimeGetCurrent() - start) * 1000.0
             
