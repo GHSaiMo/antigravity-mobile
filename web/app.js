@@ -2413,10 +2413,18 @@ async function openMarkdownViewer(uri, title) {
   const proceedBar = document.getElementById("md-viewer-proceed-bar");
 
   // Determine display title & subtitle
-  let displayTitle = "Implementation Plan";
-  let displaySubtitle = uri || "implementation_plan.md";
   const filename = (uri || "").split("/").pop().split("?")[0] || uri;
-  displaySubtitle = filename || displaySubtitle;
+  let displayTitle = title;
+  if (!displayTitle || displayTitle === "Markdown 文档") {
+    if (filename.includes("walkthrough")) {
+      displayTitle = "Walkthrough";
+    } else if (filename.includes("implementation_plan")) {
+      displayTitle = "Implementation Plan";
+    } else {
+      displayTitle = filename || "Markdown 文档";
+    }
+  }
+  let displaySubtitle = filename || uri || "implementation_plan.md";
 
   if (titleEl) titleEl.textContent = displayTitle;
   if (subtitleEl) subtitleEl.textContent = displaySubtitle;
@@ -2426,8 +2434,8 @@ async function openMarkdownViewer(uri, title) {
   if (errorEl) errorEl.classList.add("hidden");
   if (loadingEl) loadingEl.classList.remove("hidden");
 
-  // Initial proceed bar check
-  const isPlan = filename.includes("implementation_plan") || (title && title.includes("实施方案"));
+  // Initial proceed bar check - only implementation_plan requires proceed approval, walkthrough never does
+  const isPlan = (filename.includes("implementation_plan") || (title && title.includes("实施方案"))) && !filename.includes("walkthrough");
   if (proceedBar) {
     if (currentCanProceed && isPlan) {
       proceedBar.classList.remove("hidden");
@@ -2456,7 +2464,7 @@ async function openMarkdownViewer(uri, title) {
 
     // Check proceed capability
     if (proceedBar) {
-      const canProceedThis = currentCanProceed && (data.request_feedback || isPlan);
+      const canProceedThis = currentCanProceed && isPlan && (data.request_feedback || isPlan);
       if (canProceedThis) {
         proceedBar.classList.remove("hidden");
       } else {
@@ -2489,33 +2497,64 @@ function enableSheetPullToDismiss(sheetEl, closeCallback) {
   const cardEl = sheetEl.querySelector(".ios-sheet-card");
   const grabberEl = sheetEl.querySelector(".sheet-grabber");
   const headerEl = sheetEl.querySelector(".sheet-header");
+  const bodyEl = sheetEl.querySelector(".sheet-body");
 
-  let pullStartY = 0;
-  let pullCurrentY = 0;
-  let isPullingDown = false;
+  let startY = 0;
+  let startX = 0;
+  let currentY = 0;
+  let isDragging = false;
+  let dragAllowed = false;
 
-  function onPullTouchStart(e) {
-    if (e.touches.length === 1) {
-      pullStartY = e.touches[0].clientY;
-      pullCurrentY = pullStartY;
-      isPullingDown = true;
-      if (cardEl) cardEl.style.transition = "none";
+  function onStart(clientY, clientX, target) {
+    // If clicked on an interactive button or input, do not start drag
+    if (target.closest("button") || target.closest("a") || target.closest("input")) {
+      return;
+    }
+    startY = clientY;
+    startX = clientX;
+    currentY = startY;
+    isDragging = false;
+    dragAllowed = false;
+
+    if (grabberEl?.contains(target) || headerEl?.contains(target)) {
+      dragAllowed = true;
+    } else if (bodyEl?.contains(target) && bodyEl.scrollTop <= 0) {
+      dragAllowed = true;
     }
   }
 
-  function onPullTouchMove(e) {
-    if (!isPullingDown) return;
-    pullCurrentY = e.touches[0].clientY;
-    const dy = pullCurrentY - pullStartY;
-    if (dy > 0 && cardEl) {
-      cardEl.style.transform = `translateY(${dy}px)`;
+  function onMove(clientY, clientX, e) {
+    if (!dragAllowed) return;
+    const dy = clientY - startY;
+    const dx = clientX - startX;
+
+    if (!isDragging) {
+      if (dy > 6 && Math.abs(dy) > Math.abs(dx)) {
+        if (bodyEl?.contains(e.target) && bodyEl.scrollTop > 0) {
+          dragAllowed = false;
+          return;
+        }
+        isDragging = true;
+        if (cardEl) cardEl.style.transition = "none";
+      }
+    }
+
+    if (isDragging && dy > 0 && cardEl) {
+      if (e.cancelable) e.preventDefault();
+      const dampedDy = dy > 180 ? 180 + (dy - 180) * 0.35 : dy;
+      cardEl.style.transform = `translateY(${dampedDy}px)`;
+      currentY = clientY;
     }
   }
 
-  function onPullTouchEnd() {
-    if (!isPullingDown) return;
-    isPullingDown = false;
-    const dy = pullCurrentY - pullStartY;
+  function onEnd() {
+    if (!isDragging) {
+      dragAllowed = false;
+      return;
+    }
+    isDragging = false;
+    dragAllowed = false;
+    const dy = currentY - startY;
     if (cardEl) {
       cardEl.style.transition = "transform 0.28s cubic-bezier(0.16, 1, 0.3, 1)";
       if (dy > 70) {
@@ -2534,20 +2573,34 @@ function enableSheetPullToDismiss(sheetEl, closeCallback) {
     }
   }
 
-  grabberEl?.addEventListener("touchstart", onPullTouchStart, { passive: true });
-  grabberEl?.addEventListener("touchmove", onPullTouchMove, { passive: true });
-  grabberEl?.addEventListener("touchend", onPullTouchEnd, { passive: true });
-  headerEl?.addEventListener("touchstart", onPullTouchStart, { passive: true });
-  headerEl?.addEventListener("touchmove", onPullTouchMove, { passive: true });
-  headerEl?.addEventListener("touchend", onPullTouchEnd, { passive: true });
+  // Touch handlers
+  cardEl?.addEventListener("touchstart", (e) => {
+    if (e.touches.length === 1) {
+      onStart(e.touches[0].clientY, e.touches[0].clientX, e.target);
+    }
+  }, { passive: true });
+
+  cardEl?.addEventListener("touchmove", (e) => {
+    if (e.touches.length === 1) {
+      onMove(e.touches[0].clientY, e.touches[0].clientX, e);
+    }
+  }, { passive: false });
+
+  cardEl?.addEventListener("touchend", onEnd, { passive: true });
+  cardEl?.addEventListener("touchcancel", onEnd, { passive: true });
 }
 
 function initMarkdownViewer() {
   const sheet = document.getElementById("sheet-markdown-viewer");
   const retryBtn = document.getElementById("btn-md-viewer-retry");
   const proceedBtn = document.getElementById("btn-md-viewer-proceed");
+  const closeBtn = document.getElementById("btn-md-viewer-close");
 
   enableSheetPullToDismiss(sheet, closeMarkdownViewer);
+
+  closeBtn?.addEventListener("click", () => {
+    closeMarkdownViewer();
+  });
 
   sheet?.addEventListener("click", (e) => {
     if (e.target === sheet) {
