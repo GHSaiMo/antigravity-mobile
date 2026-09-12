@@ -116,6 +116,7 @@ public struct ChatView: View {
             viewModel.closeMarkdownViewer()
         }) { (item: MarkdownFileViewerData) in
             renderMarkdownViewer(data: item)
+                .presentationDragIndicator(.visible)
         }
     }
     
@@ -393,7 +394,16 @@ public struct ChatView: View {
         if lower.hasSuffix(".md") || lower.hasSuffix(".markdown") ||
            lower.contains("/brain/") || lower.contains("/static/artifacts/") ||
            lower.contains("implementation_plan") || lower.contains("walkthrough") {
-            viewModel.openMarkdownViewer(uri: clean, title: "Implementation Plan")
+            let docTitle: String = {
+                if lower.contains("walkthrough") {
+                    return "Walkthrough"
+                } else if lower.contains("implementation_plan") {
+                    return "Implementation Plan"
+                }
+                let fn = (clean as NSString).lastPathComponent
+                return fn.isEmpty ? "文档详情" : fn
+            }()
+            viewModel.openMarkdownViewer(uri: clean, title: docTitle)
             return .handled
         }
         
@@ -415,7 +425,7 @@ public struct ChatView: View {
                 viewModel.proceedFromViewer()
             },
             onRetry: {
-                viewModel.openMarkdownViewer(uri: data.uri, title: "Implementation Plan")
+                viewModel.openMarkdownViewer(uri: data.uri, title: data.title)
             }
         )
     }
@@ -808,12 +818,30 @@ public struct MarkdownViewerSheet: View {
                 .padding(.top, 10)
                 .padding(.bottom, 8)
             
-            // Header title with larger font and no leading icon
-            Text("Implementation Plan")
-                .font(.system(size: 18, weight: .bold))
-                .foregroundColor(.primary)
-                .frame(maxWidth: .infinity)
-                .padding(.bottom, 12)
+            // Header title with close button and pull-down grab handle
+            HStack {
+                Spacer()
+                    .frame(width: 32)
+                
+                Text(data.title.isEmpty ? "文档详情" : data.title)
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity)
+                
+                Button(action: {
+                    onDismiss()
+                    dismiss()
+                }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 20))
+                        .foregroundColor(.secondary.opacity(0.8))
+                }
+                .buttonStyle(.plain)
+                .frame(width: 32)
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 10)
             
             Divider()
             
