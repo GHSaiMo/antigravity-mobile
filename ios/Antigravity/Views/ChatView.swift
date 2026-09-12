@@ -123,7 +123,7 @@ public struct ChatView: View {
             viewModel.closeMarkdownViewer()
         }) { (item: MarkdownFileViewerData) in
             renderMarkdownViewer(data: item)
-                .presentationDragIndicator(.visible)
+                .presentationDragIndicator(.hidden)
         }
     }
     
@@ -825,30 +825,14 @@ public struct MarkdownViewerSheet: View {
                 .padding(.top, 10)
                 .padding(.bottom, 8)
             
-            // Header title with close button and pull-down grab handle
-            HStack {
-                Spacer()
-                    .frame(width: 32)
-                
-                Text(data.title.isEmpty ? "文档详情" : data.title)
-                    .font(.system(size: 17, weight: .bold))
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity)
-                
-                Button(action: {
-                    onDismiss()
-                    dismiss()
-                }) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 20))
-                        .foregroundColor(.secondary.opacity(0.8))
-                }
-                .buttonStyle(.plain)
-                .frame(width: 32)
-            }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 10)
+            // Header title (clean centered, dismiss via pull-down gesture)
+            Text(data.title.isEmpty ? "文档详情" : data.title)
+                .font(.system(size: 17, weight: .bold))
+                .foregroundColor(.primary)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 10)
             
             Divider()
             
