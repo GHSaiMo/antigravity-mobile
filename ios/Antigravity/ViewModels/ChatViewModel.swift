@@ -86,6 +86,17 @@ public final class ChatViewModel {
         saveCurrentDraft()
     }
     
+    public func appendDraftImages(_ newImages: [Data]) {
+        guard !newImages.isEmpty else { return }
+        var current = self.selectedImageData
+        current.append(contentsOf: newImages)
+        if current.count > 5 {
+            current = Array(current.prefix(5))
+        }
+        self.selectedImageData = current
+        saveCurrentDraft()
+    }
+    
     public func removeDraftImage(at index: Int) {
         guard index < selectedImageData.count else { return }
         selectedImageData.remove(at: index)
@@ -95,14 +106,28 @@ public final class ChatViewModel {
     public func saveCurrentDraft() {
         let key = draftKey
         guard !key.isEmpty else { return }
-        cacheManager.saveDraft(key: key, text: inputText)
         cacheManager.saveDraftImages(key: key, images: selectedImageData)
+        cacheManager.saveDraft(key: key, text: inputText)
         if let draftSession, key == draftSession.id {
             var updated = draftSession
             updated.draftText = inputText
             updated.updatedAt = Date()
             self.draftSession = updated
             cacheManager.saveLocalDraftSession(updated)
+        }
+    }
+    
+    @MainActor
+    public func restoreDraftsIfNeeded() {
+        let key = draftKey
+        guard !key.isEmpty else { return }
+        let cachedImages = cacheManager.getDraftImages(for: key)
+        if !cachedImages.isEmpty && self.selectedImageData.isEmpty {
+            self.selectedImageData = cachedImages
+        }
+        let cachedDraft = cacheManager.getDraft(for: key)
+        if !cachedDraft.isEmpty && self.inputText.isEmpty {
+            self.inputText = cachedDraft
         }
     }
     

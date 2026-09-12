@@ -395,8 +395,8 @@ public final class CacheManager: @unchecked Sendable {
     public func saveDraft(key: String, text: String) {
         guard !key.isEmpty else { return }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty && !hasDraftImages(for: key) {
-            clearDraft(key: key)
+        if trimmed.isEmpty {
+            clearTextDraft(key: key)
             return
         }
         
@@ -417,6 +417,33 @@ public final class CacheManager: @unchecked Sendable {
         lock.unlock()
         
         if old != text {
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .conversationDraftChanged, object: key)
+            }
+        }
+    }
+    
+    public func clearTextDraft(key: String) {
+        guard !key.isEmpty else { return }
+        lock.lock()
+        let hadValue = (memDrafts[key] != nil) || (UserDefaults.standard.object(forKey: "ag_draft_\(key)") != nil)
+        memDrafts.removeValue(forKey: key)
+        UserDefaults.standard.removeObject(forKey: "ag_draft_\(key)")
+        if key.hasPrefix("local_draft_") {
+            ensureLocalDraftSessionsLoaded()
+            if !hasDraftImages(for: key) {
+                memLocalDraftSessions?.removeValue(forKey: key)
+                persistDraftSessionsToDisk()
+            } else if var session = memLocalDraftSessions?[key] {
+                session.draftText = ""
+                session.updatedAt = Date()
+                memLocalDraftSessions?[key] = session
+                persistDraftSessionsToDisk()
+            }
+        }
+        lock.unlock()
+        
+        if hadValue {
             DispatchQueue.main.async {
                 NotificationCenter.default.post(name: .conversationDraftChanged, object: key)
             }
@@ -499,7 +526,8 @@ public final class CacheManager: @unchecked Sendable {
         guard let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else {
             return []
         }
-        let sorted = files.sorted {
+        let validFiles = files.filter { ["jpg", "jpeg", "png"].contains($0.pathExtension.lowercased()) }
+        let sorted = validFiles.sorted {
             let n1 = Int($0.deletingPathExtension().lastPathComponent) ?? 0
             let n2 = Int($1.deletingPathExtension().lastPathComponent) ?? 0
             return n1 < n2
@@ -528,8 +556,9 @@ public final class CacheManager: @unchecked Sendable {
         
         let dir = draftImagesDir(for: key)
         let fm = FileManager.default
-        if let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil), !files.isEmpty {
-            return true
+        if let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) {
+            let valid = files.filter { ["jpg", "jpeg", "png"].contains($0.pathExtension.lowercased()) }
+            return !valid.isEmpty
         }
         return false
     }

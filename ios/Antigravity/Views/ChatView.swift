@@ -68,6 +68,7 @@ public struct ChatView: View {
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             isViewAppeared = true
+            viewModel.restoreDraftsIfNeeded()
             if shouldAutoFocus {
                 scheduleAutoFocus(delay: 0.45)
             }
@@ -81,11 +82,9 @@ public struct ChatView: View {
             await viewModel.loadMessages()
             viewModel.connectStream()
         }
-        .onDisappear {
-            viewModel.saveCurrentDraft()
-        }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
+                viewModel.restoreDraftsIfNeeded()
                 Task {
                     await viewModel.resumeActiveSession()
                 }
@@ -97,6 +96,7 @@ public struct ChatView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            viewModel.restoreDraftsIfNeeded()
             Task {
                 await viewModel.resumeActiveSession()
             }
@@ -106,6 +106,7 @@ public struct ChatView: View {
             viewModel.handleAppBackground()
         }
         .onChange(of: selectedPhotoItems) { _, items in
+            guard !items.isEmpty else { return }
             Task {
                 var loaded: [Data] = []
                 for item in items {
@@ -134,13 +135,16 @@ public struct ChatView: View {
                         loaded.append(data)
                     }
                 }
-                viewModel.updateDraftImages(loaded)
+                guard !loaded.isEmpty else { return }
+                viewModel.appendDraftImages(loaded)
+                selectedPhotoItems = []
             }
         }
         .onDisappear {
             isViewAppeared = false
             autoFocusTask?.cancel()
             autoFocusTask = nil
+            viewModel.saveCurrentDraft()
             viewModel.disconnectStream()
         }
         .environment(\.openURL, OpenURLAction { url in
