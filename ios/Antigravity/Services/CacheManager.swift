@@ -70,6 +70,7 @@ public final class CacheManager: @unchecked Sendable {
     private var memSessions: [String: CachedChatSession] = [:]
     private var memLastViewDates: [String: Date] = [:]
     private var memDrafts: [String: String] = [:]
+    private var memDraftImages: [String: [Data]] = [:]
     private var memLocalDraftSessions: [String: LocalDraftSession]?
     
     public func getLastViewDate(for cascadeId: String) -> Date? {
@@ -358,6 +359,7 @@ public final class CacheManager: @unchecked Sendable {
         memConversations = nil
         memSessions.removeAll()
         memDrafts.removeAll()
+        memDraftImages.removeAll()
         memLocalDraftSessions?.removeAll()
         lock.unlock()
         
@@ -366,6 +368,7 @@ public final class CacheManager: @unchecked Sendable {
             let fm = FileManager.default
             try? fm.removeItem(at: targetDir)
             try? fm.createDirectory(at: targetDir.appendingPathComponent("sessions", isDirectory: true), withIntermediateDirectories: true)
+            try? fm.createDirectory(at: targetDir.appendingPathComponent("draft_images", isDirectory: true), withIntermediateDirectories: true)
         }
     }
     
@@ -386,13 +389,13 @@ public final class CacheManager: @unchecked Sendable {
     }
     
     public func hasDraft(for key: String) -> Bool {
-        return !getDraft(for: key).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return !getDraft(for: key).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || hasDraftImages(for: key)
     }
     
     public func saveDraft(key: String, text: String) {
         guard !key.isEmpty else { return }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
+        if trimmed.isEmpty && !hasDraftImages(for: key) {
             clearDraft(key: key)
             return
         }
@@ -423,7 +426,7 @@ public final class CacheManager: @unchecked Sendable {
     public func clearDraft(key: String) {
         guard !key.isEmpty else { return }
         lock.lock()
-        let hadValue = (memDrafts[key] != nil) || (UserDefaults.standard.object(forKey: "ag_draft_\(key)") != nil)
+        let hadValue = (memDrafts[key] != nil) || (UserDefaults.standard.object(forKey: "ag_draft_\(key)") != nil) || hasDraftImages(for: key)
         memDrafts.removeValue(forKey: key)
         UserDefaults.standard.removeObject(forKey: "ag_draft_\(key)")
         if key.hasPrefix("local_draft_") {
@@ -433,7 +436,117 @@ public final class CacheManager: @unchecked Sendable {
         }
         lock.unlock()
         
+        clearDraftImages(key: key)
+        
         if hadValue {
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .conversationDraftChanged, object: key)
+            }
+        }
+    }
+    
+    // MARK: - Draft Images Cache
+    
+    private func draftImagesDir(for key: String) -> URL {
+        let safeKey = key.replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: ":", with: "_")
+        return cacheDir.appendingPathComponent("draft_images/\(safeKey)", isDirectory: true)
+    }
+    
+    public func saveDraftImages(key: String, images: [Data]) {
+        guard !key.isEmpty else { return }
+        lock.lock()
+        let oldImages = memDraftImages[key] ?? []
+        memDraftImages[key] = images
+        lock.unlock()
+        
+        let dir = draftImagesDir(for: key)
+        ioQueue.async {
+            let fm = FileManager.default
+            if images.isEmpty {
+                try? fm.removeItem(at: dir)
+            } else {
+                try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+                if let existing = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) {
+                    for file in existing {
+                        try? fm.removeItem(at: file)
+                    }
+                }
+                for (i, data) in images.enumerated() {
+                    let file = dir.appendingPathComponent("\(i).jpg")
+                    try? data.write(to: file, options: .atomic)
+                }
+            }
+        }
+        
+        if oldImages.count != images.count {
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .conversationDraftChanged, object: key)
+            }
+        }
+    }
+    
+    public func getDraftImages(for key: String) -> [Data] {
+        guard !key.isEmpty else { return [] }
+        lock.lock()
+        if let mem = memDraftImages[key] {
+            lock.unlock()
+            return mem
+        }
+        lock.unlock()
+        
+        let dir = draftImagesDir(for: key)
+        let fm = FileManager.default
+        guard let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        let sorted = files.sorted {
+            let n1 = Int($0.deletingPathExtension().lastPathComponent) ?? 0
+            let n2 = Int($1.deletingPathExtension().lastPathComponent) ?? 0
+            return n1 < n2
+        }
+        var loaded: [Data] = []
+        for file in sorted {
+            if let d = try? Data(contentsOf: file) {
+                loaded.append(d)
+            }
+        }
+        lock.lock()
+        memDraftImages[key] = loaded
+        lock.unlock()
+        return loaded
+    }
+    
+    public func hasDraftImages(for key: String) -> Bool {
+        guard !key.isEmpty else { return false }
+        lock.lock()
+        if let mem = memDraftImages[key] {
+            let count = mem.count
+            lock.unlock()
+            return count > 0
+        }
+        lock.unlock()
+        
+        let dir = draftImagesDir(for: key)
+        let fm = FileManager.default
+        if let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil), !files.isEmpty {
+            return true
+        }
+        return false
+    }
+    
+    public func clearDraftImages(key: String) {
+        guard !key.isEmpty else { return }
+        lock.lock()
+        let hadImages = !(memDraftImages[key]?.isEmpty ?? true)
+        memDraftImages.removeValue(forKey: key)
+        lock.unlock()
+        
+        let dir = draftImagesDir(for: key)
+        ioQueue.async {
+            try? FileManager.default.removeItem(at: dir)
+        }
+        
+        if hadImages {
             DispatchQueue.main.async {
                 NotificationCenter.default.post(name: .conversationDraftChanged, object: key)
             }
@@ -481,7 +594,8 @@ public final class CacheManager: @unchecked Sendable {
         lock.lock()
         ensureLocalDraftSessionsLoaded()
         let trimmed = session.draftText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
+        let hasImages = hasDraftImages(for: session.id)
+        if trimmed.isEmpty && !hasImages {
             memLocalDraftSessions?.removeValue(forKey: session.id)
         } else {
             memLocalDraftSessions?[session.id] = session
@@ -504,7 +618,8 @@ public final class CacheManager: @unchecked Sendable {
         guard let dict = memLocalDraftSessions else { return [] }
         return dict.values.filter { session in
             let text = memDrafts[session.id] ?? UserDefaults.standard.string(forKey: "ag_draft_\(session.id)") ?? session.draftText
-            return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            let hasImages = hasDraftImages(for: session.id)
+            return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || hasImages
         }.sorted { $0.updatedAt > $1.updatedAt }
     }
     
@@ -526,5 +641,6 @@ public final class CacheManager: @unchecked Sendable {
         memLocalDraftSessions?.removeValue(forKey: id)
         persistDraftSessionsToDisk()
         lock.unlock()
+        clearDraftImages(key: id)
     }
 }

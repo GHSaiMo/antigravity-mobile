@@ -2483,8 +2483,17 @@ async function openMarkdownViewer(uri, title) {
   const proceedBar = document.getElementById("md-viewer-proceed-bar");
 
   // Determine display title & subtitle
-  const filename = (uri || "").split("/").pop().split("?")[0] || uri;
+  let rawFilename = (uri || "").split("/").pop().split("?")[0] || uri;
+  let filename = rawFilename;
+  try {
+    filename = decodeURIComponent(rawFilename);
+  } catch (_) {}
+
   let displayTitle = title;
+  try {
+    if (displayTitle) displayTitle = decodeURIComponent(displayTitle);
+  } catch (_) {}
+
   if (!displayTitle || displayTitle === "Markdown 文档") {
     if (filename.includes("walkthrough")) {
       displayTitle = "Walkthrough";
@@ -2523,9 +2532,13 @@ async function openMarkdownViewer(uri, title) {
 
     if (loadingEl) loadingEl.classList.add("hidden");
 
-    if (data.filename && subtitleEl) {
-      subtitleEl.textContent = data.filename;
+    if (data.filename) {
+      if (subtitleEl) subtitleEl.textContent = data.filename;
+      if (titleEl && (!displayTitle || displayTitle.includes("%") || displayTitle === "Markdown 文档")) {
+        titleEl.textContent = data.filename;
+      }
     }
+
 
     // Render markdown content using chat's rich markdown parser
     if (contentEl) {
@@ -3305,6 +3318,87 @@ function renderMarkdown(md) {
     if (!trimmed) {
       i++;
       continue;
+    }
+
+    // 0. YAML Frontmatter / Style Block detection at beginning of document
+    if (blocks.length === 0) {
+      if (trimmed === "---") {
+        let endIdx = i + 1;
+        let foundEnd = false;
+        while (endIdx < lines.length) {
+          const t = lines[endIdx].trim();
+          if (t === "---" || t === "...") {
+            foundEnd = true;
+            break;
+          }
+          endIdx++;
+        }
+        if (foundEnd && endIdx > i + 1) {
+          const fmLines = lines.slice(i + 1, endIdx);
+          const lineCount = endIdx - i + 1;
+          const codeEscaped = escapeHtml(fmLines.join("\n"));
+          blocks.push(`
+            <details class="frontmatter-details" style="margin-bottom: 14px; background: rgba(120,120,128,0.08); border-radius: 8px; padding: 7px 12px; font-size: 12px; color: var(--color-text-secondary, #8e8e93);">
+              <summary style="cursor: pointer; font-weight: 500; user-select: none; outline: none;">⚙️ 已自动隐藏文档配置与样式 (${lineCount}行)</summary>
+              <pre style="margin-top: 8px; font-size: 11px; overflow-x: auto; font-family: ui-monospace, monospace; line-height: 1.4; color: var(--color-text-primary, #1c1c1e); background: rgba(0,0,0,0.03); padding: 8px; border-radius: 6px;"><code>${codeEscaped}</code></pre>
+            </details>
+          `);
+          i = endIdx + 1;
+          continue;
+        }
+      } else if (trimmed.startsWith("marp:") || (trimmed.includes(":") && (trimmed.startsWith("theme:") || trimmed.startsWith("style:")))) {
+        let endIdx = i + 1;
+        let foundEnd = false;
+        while (endIdx < Math.min(lines.length, i + 100)) {
+          const t = lines[endIdx].trim();
+          if (t === "---") {
+            foundEnd = true;
+            break;
+          }
+          if (t.startsWith("# ") || t.startsWith("## ")) {
+            break;
+          }
+          endIdx++;
+        }
+        if (foundEnd) {
+          const fmLines = lines.slice(i, endIdx);
+          const lineCount = endIdx - i + 1;
+          const codeEscaped = escapeHtml(fmLines.join("\n"));
+          blocks.push(`
+            <details class="frontmatter-details" style="margin-bottom: 14px; background: rgba(120,120,128,0.08); border-radius: 8px; padding: 7px 12px; font-size: 12px; color: var(--color-text-secondary, #8e8e93);">
+              <summary style="cursor: pointer; font-weight: 500; user-select: none; outline: none;">⚙️ 已自动隐藏 Marp 演示配置与样式 (${lineCount}行)</summary>
+              <pre style="margin-top: 8px; font-size: 11px; overflow-x: auto; font-family: ui-monospace, monospace; line-height: 1.4; color: var(--color-text-primary, #1c1c1e); background: rgba(0,0,0,0.03); padding: 8px; border-radius: 6px;"><code>${codeEscaped}</code></pre>
+            </details>
+          `);
+          i = endIdx + 1;
+          continue;
+        }
+      }
+    }
+
+    // HTML <style>...</style> Block detection
+    if (trimmed.toLowerCase().startsWith("<style")) {
+      const styleLines = [];
+      let foundEnd = false;
+      while (i < lines.length) {
+        styleLines.push(lines[i]);
+        if (lines[i].toLowerCase().includes("</style>")) {
+          foundEnd = true;
+          i++;
+          break;
+        }
+        i++;
+      }
+      if (foundEnd) {
+        const codeEscaped = escapeHtml(styleLines.join("\n"));
+        blocks.push(`
+          <details class="frontmatter-details" style="margin-bottom: 14px; background: rgba(120,120,128,0.08); border-radius: 8px; padding: 7px 12px; font-size: 12px; color: var(--color-text-secondary, #8e8e93);">
+            <summary style="cursor: pointer; font-weight: 500; user-select: none; outline: none;">⚙️ 已自动隐藏样式代码 (${styleLines.length}行)</summary>
+            <pre style="margin-top: 8px; font-size: 11px; overflow-x: auto; font-family: ui-monospace, monospace; line-height: 1.4; color: var(--color-text-primary, #1c1c1e); background: rgba(0,0,0,0.03); padding: 8px; border-radius: 6px;"><code>${codeEscaped}</code></pre>
+          </details>
+        `);
+        continue;
+      }
     }
 
     // 1. Fenced Code Block

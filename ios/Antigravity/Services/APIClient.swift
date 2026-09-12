@@ -1037,4 +1037,59 @@ public final class APIClient: Sendable {
             throw APIError.decodingError(error.localizedDescription)
         }
     }
+    
+    // Download raw file or document (e.g. PPTX, PDF, DOCX) from Gateway
+    public func downloadFile(uri: String, cascadeId: String? = nil, baseURL: URL) async throws -> (localURL: URL, fileName: String) {
+        var components = URLComponents(url: baseURL.appendingPathComponent("api/v1/files/raw"), resolvingAgainstBaseURL: false)
+        var queryItems: [URLQueryItem] = [URLQueryItem(name: "uri", value: uri)]
+        if let cascadeId = cascadeId, !cascadeId.isEmpty {
+            queryItems.append(URLQueryItem(name: "cascade_id", value: cascadeId))
+        }
+        components?.queryItems = queryItems
+        guard let endpoint = components?.url else {
+            throw APIError.invalidURL
+        }
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 45.0
+        
+        let (data, response) = try await transport.send(
+            request: request,
+            preferCellular: AppSettings.shared.preferCellularNetwork
+        )
+        guard let httpResp = response as? HTTPURLResponse else {
+            throw APIError.networkError("Invalid response type")
+        }
+        guard (200...299).contains(httpResp.statusCode) else {
+            if httpResp.statusCode == 401 {
+                NotificationCenter.default.post(name: .deviceTokenRevoked, object: nil)
+            }
+            let msg = String(data: data, encoding: .utf8) ?? "HTTP \(httpResp.statusCode)"
+            throw APIError.serverError(statusCode: httpResp.statusCode, message: msg)
+        }
+        
+        // Extract filename from Content-Disposition header if available
+        var filename: String? = nil
+        if let disp = httpResp.value(forHTTPHeaderField: "Content-Disposition") {
+            if let idx = disp.range(of: "filename*=UTF-8''") {
+                let encoded = String(disp[idx.upperBound...]).trimmingCharacters(in: CharacterSet(charactersIn: "\"; "))
+                filename = encoded.removingPercentEncoding
+            } else if let idx = disp.range(of: "filename=") {
+                let raw = String(disp[idx.upperBound...]).trimmingCharacters(in: CharacterSet(charactersIn: "\"; "))
+                filename = raw.removingPercentEncoding ?? raw
+            }
+        }
+        if filename == nil || filename?.isEmpty == true {
+            filename = (uri as NSString).lastPathComponent.removingPercentEncoding ?? (uri as NSString).lastPathComponent
+        }
+        let resolvedFileName = filename?.isEmpty == false ? filename! : "document"
+        
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("antigravity_docs", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let destinationURL = tempDir.appendingPathComponent(resolvedFileName)
+        
+        try data.write(to: destinationURL, options: .atomic)
+        return (destinationURL, resolvedFileName)
+    }
 }
+
