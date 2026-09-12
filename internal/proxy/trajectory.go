@@ -345,7 +345,27 @@ type TrajectoryStep struct {
 	SystemMessage *struct {
 		Content string `json:"content"`
 	} `json:"systemMessage,omitempty"`
+	ToolCall *struct {
+		ID            string `json:"id"`
+		Name          string `json:"name"`
+		ToolSummary   string `json:"toolSummary,omitempty"`
+		ToolAction    string `json:"toolAction,omitempty"`
+		ArgumentsJson string `json:"argumentsJson,omitempty"`
+	} `json:"toolCall,omitempty"`
 	Content string `json:"content,omitempty"`
+}
+
+func extractToolNameFromStep(s TrajectoryStep) string {
+	if s.Metadata.ToolCall != nil && s.Metadata.ToolCall.Name != "" {
+		return s.Metadata.ToolCall.Name
+	}
+	if s.ToolCall != nil && s.ToolCall.Name != "" {
+		return s.ToolCall.Name
+	}
+	if s.Metadata.ToolAction != "" {
+		return s.Metadata.ToolAction
+	}
+	return strings.ToLower(strings.TrimPrefix(s.Type, "CORTEX_STEP_TYPE_"))
 }
 
 type upstreamPendingAgentMessage struct {
@@ -593,7 +613,6 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 	var allMessages []CascadeMessageItem
 	var lastErrorText string
 	pendingTools := 0
-	toolNamesMap := make(map[string]bool)
 	var toolNames []string
 	totalToolsCount := 0
 
@@ -611,7 +630,6 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 		allMessages = append(allMessages, item)
 		pendingTools = 0
 		toolNames = nil
-		toolNamesMap = make(map[string]bool)
 	}
 
 	for idx, s := range steps {
@@ -697,11 +715,8 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 		} else if strings.HasPrefix(stepType, "CORTEX_STEP_TYPE_") && stepType != "CORTEX_STEP_TYPE_SYSTEM_MESSAGE" && stepType != "CORTEX_STEP_TYPE_ERROR_MESSAGE" {
 			pendingTools++
 			totalToolsCount++
-			name := strings.ToLower(strings.TrimPrefix(stepType, "CORTEX_STEP_TYPE_"))
-			if !toolNamesMap[name] && len(toolNames) < 3 {
-				toolNamesMap[name] = true
-				toolNames = append(toolNames, name)
-			}
+			name := extractToolNameFromStep(s)
+			toolNames = append(toolNames, name)
 		}
 	}
 

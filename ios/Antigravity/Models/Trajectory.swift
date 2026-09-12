@@ -28,10 +28,18 @@ public struct CortexStep: Codable, Sendable {
     public let type: String?
     public let status: String?
     public let metadata: CortexStepMetadata?
+    public let toolCall: ToolCallPayload?
     public let userInput: UserInputPayload?
     public let plannerResponse: PlannerResponsePayload?
     public let errorMessage: ErrorMessagePayload?
     public let error: ErrorPayload?
+}
+
+public struct ToolCallPayload: Codable, Sendable {
+    public let id: String?
+    public let name: String?
+    public let toolSummary: String?
+    public let toolAction: String?
 }
 
 public struct ErrorMessagePayload: Codable, Sendable {
@@ -49,6 +57,9 @@ public struct ErrorPayload: Codable, Sendable {
 
 public struct CortexStepMetadata: Codable, Sendable {
     public let createdAt: String?
+    public let toolCall: ToolCallPayload?
+    public let toolSummary: String?
+    public let toolAction: String?
 }
 
 public struct UserInputPayload: Codable, Sendable {

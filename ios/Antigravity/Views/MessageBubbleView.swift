@@ -58,19 +58,23 @@ public struct MessageBubbleView: View {
     }
     
     public var body: some View {
-        HStack(alignment: .bottom, spacing: 8) {
+        Group {
             switch message.sender {
             case .user:
-                Spacer(minLength: 40)
-                userBubble
+                HStack(alignment: .bottom, spacing: 8) {
+                    Spacer(minLength: 40)
+                    userBubble
+                }
             case .agent:
-                agentBubble
-                Spacer(minLength: 20)
+                HStack(alignment: .bottom, spacing: 8) {
+                    agentBubble
+                    Spacer(minLength: 20)
+                }
             case .toolBatch(let count, let tools):
                 if isActiveToolBatch {
                     activeToolBatchCard(count: count, tools: tools)
                 } else {
-                    toolBatchBanner(count: count, tools: tools)
+                    ToolBatchAccordionView(count: count, tools: tools)
                 }
             case .error:
                 errorCard
@@ -240,29 +244,109 @@ public struct MessageBubbleView: View {
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
     
-    private func toolBatchBanner(count: Int, tools: [String]) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: "bolt.fill")
-                .font(.system(size: 10))
-                .foregroundColor(.orange)
-            
-            Text("已思考并执行 \(count) 项操作")
-                .font(.system(size: 11.5, weight: .medium))
-                .foregroundColor(.secondary)
-            
-            if !tools.isEmpty {
-                Text("(\(tools.prefix(2).joined(separator: ", "))\(tools.count > 2 ? "..." : ""))")
-                    .font(.system(size: 10.5, design: .monospaced))
-                    .foregroundColor(.secondary.opacity(0.7))
-                    .lineLimit(1)
-            }
-            
-            Spacer()
+    public struct ToolBatchAccordionView: View {
+        public let count: Int
+        public let tools: [String]
+        @State private var isExpanded: Bool = false
+        
+        public init(count: Int, tools: [String]) {
+            self.count = count
+            self.tools = tools
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 4)
-        .background(Color(uiColor: .tertiarySystemBackground).opacity(0.6))
-        .clipShape(Capsule())
+        
+        private var resolvedTools: [String] {
+            if !tools.isEmpty {
+                return tools
+            }
+            let actualCount = max(count, 1)
+            return (0..<actualCount).map { _ in "tool_call" }
+        }
+        
+        private var summaryText: String {
+            let actualCount = max(count, tools.count)
+            let uniqueNames = Array(NSOrderedSet(array: tools)).compactMap { $0 as? String }
+            if !uniqueNames.isEmpty {
+                let namesSummary = uniqueNames.joined(separator: ", ")
+                return "已思考并执行 \(actualCount) 项操作 (\(namesSummary))"
+            }
+            return "已思考并执行 \(actualCount) 项操作"
+        }
+        
+        public var body: some View {
+            VStack(alignment: .leading, spacing: 6) {
+                Button(action: {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+                        isExpanded.toggle()
+                    }
+                }) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "bolt.fill")
+                            .font(.system(size: 11.5, weight: .bold))
+                            .foregroundColor(.orange)
+                        
+                        Text(summaryText)
+                            .font(.system(size: 12.5, weight: .medium))
+                            .foregroundColor(.primary.opacity(0.85))
+                            .lineLimit(1)
+                        
+                        Spacer(minLength: 6)
+                        
+                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(.secondary.opacity(0.7))
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Color(uiColor: .tertiarySystemBackground).opacity(0.9))
+                    .clipShape(Capsule())
+                    .overlay(
+                        Capsule()
+                            .stroke(Color.primary.opacity(0.08), lineWidth: 0.8)
+                    )
+                }
+                .buttonStyle(.plain)
+                .zIndex(2)
+                
+                // Expanded tool details
+                if isExpanded {
+                    VStack(alignment: .leading, spacing: 5) {
+                        ForEach(Array(resolvedTools.enumerated()), id: \.offset) { idx, toolName in
+                            HStack(spacing: 8) {
+                                Image(systemName: "puzzlepiece.extension.fill")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundColor(Color(red: 0.3, green: 0.85, blue: 0.4))
+                                
+                                Text(toolName)
+                                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                                    .foregroundColor(.primary)
+                                    .lineLimit(1)
+                                
+                                Spacer()
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .background(Color(uiColor: .tertiarySystemFill).opacity(0.8))
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .stroke(Color.primary.opacity(0.05), lineWidth: 0.5)
+                            )
+                        }
+                    }
+                    .padding(.top, 2)
+                    .zIndex(1)
+                    .transition(
+                        .asymmetric(
+                            insertion: .opacity.combined(with: .offset(y: -10)).combined(with: .scale(scale: 0.98, anchor: .top)),
+                            removal: .opacity.combined(with: .offset(y: -8))
+                        )
+                    )
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .clipped()
+        }
     }
     
     private func activeToolBatchCard(count: Int, tools: [String]) -> some View {

@@ -406,12 +406,12 @@ public final class APIClient: Sendable {
             guard !pendingTools.isEmpty else { return }
             let count = pendingTools.count
             totalToolsCount += count
-            let uniqueNames = Array(NSOrderedSet(array: pendingTools)).compactMap { $0 as? String }
+            let allTools = pendingTools
             messages.append(ChatMessage(
-                sender: .toolBatch(count: count, tools: uniqueNames),
+                sender: .toolBatch(count: count, tools: allTools),
                 content: "已执行 \(count) 次工具调用",
                 toolCount: count,
-                toolNames: uniqueNames
+                toolNames: allTools
             ))
             pendingTools.removeAll()
         }
@@ -517,9 +517,20 @@ public final class APIClient: Sendable {
                     content: trimmed
                 ))
             } else if type.hasPrefix("CORTEX_STEP_TYPE_") && type != "CORTEX_STEP_TYPE_SYSTEM_MESSAGE" {
-                let toolName = type
-                    .replacingOccurrences(of: "CORTEX_STEP_TYPE_", with: "")
-                    .lowercased()
+                let toolName: String = {
+                    if let name = step.metadata?.toolCall?.name, !name.isEmpty {
+                        return name
+                    }
+                    if let name = step.toolCall?.name, !name.isEmpty {
+                        return name
+                    }
+                    if let action = step.metadata?.toolAction, !action.isEmpty {
+                        return action
+                    }
+                    return type
+                        .replacingOccurrences(of: "CORTEX_STEP_TYPE_", with: "")
+                        .lowercased()
+                }()
                 pendingTools.append(toolName)
             }
         }
