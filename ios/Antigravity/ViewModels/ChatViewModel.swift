@@ -3,6 +3,37 @@ import Observation
 import UIKit
 import SwiftUI
 
+public struct MarkdownFileViewerData: Identifiable, Sendable, Equatable {
+    public let id: String
+    public let title: String
+    public let uri: String
+    public var content: String
+    public var summary: String?
+    public var isLoading: Bool
+    public var errorMessage: String?
+    public var canProceed: Bool
+    
+    public init(
+        id: String,
+        title: String,
+        uri: String,
+        content: String = "",
+        summary: String? = nil,
+        isLoading: Bool = false,
+        errorMessage: String? = nil,
+        canProceed: Bool = false
+    ) {
+        self.id = id
+        self.title = title
+        self.uri = uri
+        self.content = content
+        self.summary = summary
+        self.isLoading = isLoading
+        self.errorMessage = errorMessage
+        self.canProceed = canProceed
+    }
+}
+
 @Observable
 @MainActor
 public final class ChatViewModel {
@@ -35,6 +66,7 @@ public final class ChatViewModel {
     public var queuedMessages: [QueuedMessageItem] = []
     public var runningTasks: [RunningTaskItem] = []
     public var isSending: Bool = false
+    public var viewingMarkdownFile: MarkdownFileViewerData? = nil
     
     /// ID of the first message of the latest response turn (e.g., tool batch or agent response following the last user message)
     public var latestTurnStartMessageId: String? {
@@ -1030,6 +1062,86 @@ public final class ChatViewModel {
             self.canProceed = true
             self.proceedArtifactUri = artifactUri
             stopPollingFallback()
+        }
+    }
+    
+    @MainActor
+    public func openMarkdownViewer(uri: String, title: String? = nil) {
+        let cleanURI = uri.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanURI.isEmpty else { return }
+        
+        let resolvedTitle: String = {
+            if let t = title, !t.isEmpty { return t }
+            let fileName = (cleanURI as NSString).lastPathComponent
+            if !fileName.isEmpty && fileName != "/" { return fileName }
+            return "实施方案"
+        }()
+        
+        let isPlan = resolvedTitle.lowercased().contains("implementation_plan") ||
+                     cleanURI.lowercased().contains("implementation_plan")
+        let isProceedActive = self.canProceed && isPlan
+        
+        // Prefer proceedArtifactUri if cleanURI is a bare implementation_plan.md or matches plan
+        let targetURI: String = {
+            if isPlan, let pUri = self.proceedArtifactUri, !pUri.isEmpty {
+                return pUri
+            }
+            return cleanURI
+        }()
+        
+        let viewer = MarkdownFileViewerData(
+            id: targetURI + "_\(Date().timeIntervalSince1970)",
+            title: resolvedTitle,
+            uri: targetURI,
+            content: "",
+            summary: nil,
+            isLoading: true,
+            errorMessage: nil,
+            canProceed: isProceedActive
+        )
+        self.viewingMarkdownFile = viewer
+        
+        Task {
+            guard let url = settings.serverURL else {
+                if self.viewingMarkdownFile?.id == viewer.id {
+                    self.viewingMarkdownFile?.isLoading = false
+                    self.viewingMarkdownFile?.errorMessage = "未连接到网关服务器"
+                }
+                return
+            }
+            do {
+                let resp = try await apiClient.fetchFileContent(
+                    uri: targetURI,
+                    cascadeId: self.cascadeId,
+                    baseURL: url
+                )
+                if self.viewingMarkdownFile?.id == viewer.id {
+                    self.viewingMarkdownFile?.content = resp.content
+                    self.viewingMarkdownFile?.summary = resp.summary
+                    self.viewingMarkdownFile?.isLoading = false
+                    if resp.requestFeedback == true && self.canProceed {
+                        self.viewingMarkdownFile?.canProceed = true
+                    }
+                }
+            } catch {
+                if self.viewingMarkdownFile?.id == viewer.id {
+                    self.viewingMarkdownFile?.isLoading = false
+                    self.viewingMarkdownFile?.errorMessage = "加载文档失败: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+    
+    @MainActor
+    public func closeMarkdownViewer() {
+        self.viewingMarkdownFile = nil
+    }
+    
+    @MainActor
+    public func proceedFromViewer() {
+        self.viewingMarkdownFile = nil
+        Task {
+            await self.proceedArtifact()
         }
     }
     

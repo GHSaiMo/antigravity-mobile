@@ -2739,4 +2739,118 @@ body {
   overscroll-behavior-y: none;
 }
 
+/* --- View Plan Chip Pill --- */
+.chip-view-plan {
+  color: var(--ios-blue) !important;
+  background-color: rgba(0, 122, 255, 0.12) !important;
+  border: 1px solid rgba(0, 122, 255, 0.35) !important;
+}
+
+/* --- Markdown File Viewer Sheet --- */
+.md-viewer-sheet-card {
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.md-viewer-sheet-body {
+  padding: 16px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  flex: 1;
+}
+
+.md-viewer-summary {
+  background: var(--ios-secondary-bg);
+  border: 1px solid rgba(0, 122, 255, 0.25);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+}
+
+.summary-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ios-blue);
+  margin-bottom: 6px;
+}
+
+.summary-text {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--ios-secondary-label);
+}
+
+.md-viewer-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 60px 0;
+  color: var(--ios-secondary-label);
+  font-size: 14px;
+}
+
+.md-viewer-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 40px 16px;
+  color: var(--ios-orange);
+  text-align: center;
+}
+
+.md-viewer-markdown {
+  line-height: 1.6;
+  color: var(--ios-label);
+  word-break: break-word;
+}
+
+.md-viewer-proceed-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--ios-secondary-bg);
+  border-top: 0.5px solid var(--ios-separator);
+}
+
+.proceed-bar-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.proceed-bar-label {
+  font-size: 11px;
+  color: var(--ios-secondary-label);
+}
+
+.proceed-bar-desc {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ios-label);
+}
+
+.btn-proceed-modal {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--ios-blue);
+  color: #fff;
+  font-size: 13.5px;
+  font-weight: 600;
+  padding: 8px 16px;
+  border-radius: 20px;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 122, 255, 0.35);
+}
+
 

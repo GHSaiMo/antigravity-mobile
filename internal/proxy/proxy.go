@@ -696,6 +696,12 @@ func (p *Proxy) handleArtifactProxy(w http.ResponseWriter, r *http.Request) {
 	p.mu.RUnlock()
 
 	if rp == nil {
+		if fileRes, err := GetFileContent(r.URL.Path, ""); err == nil {
+			w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(fileRes.Content))
+			return
+		}
 		http.Error(w, "Antigravity instance unavailable", http.StatusServiceUnavailable)
 		return
 	}
