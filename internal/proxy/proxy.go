@@ -523,8 +523,9 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 			}
 		}
 
-		if cascadeID != "" && textContent.Len() > 0 {
-			dedupKey := fmt.Sprintf("%s:%x", cascadeID, sha256.Sum256([]byte(textContent.String())))
+		if clientMsgID == "" && cascadeID != "" && textContent.Len() > 0 {
+			strategyKey := fmt.Sprintf("%v", rawMap["deliveryStrategy"])
+			dedupKey := fmt.Sprintf("%s:%s:%x", cascadeID, strategyKey, sha256.Sum256([]byte(textContent.String())))
 			if p.checkAndRecordMessageDedup(dedupKey, 15*time.Second) {
 				log.Printf("[Proxy] Deduplicated repeat SendUserCascadeMessage for cascade %s (textLen=%d, hashDedup)", cascadeID, textContent.Len())
 				w.Header().Set("Content-Type", "application/json")

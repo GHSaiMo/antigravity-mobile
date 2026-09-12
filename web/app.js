@@ -2173,33 +2173,88 @@ const LocalQueueManager = {
   },
 
   remove(id) {
+    const item = this.queue.find(it => it.id === id);
     this.queue = this.queue.filter(it => it.id !== id);
     this.save();
     if (activeCascadeId) {
-      rpc("DeleteAgentMessage", { messageId: id, recipient: activeCascadeId }).catch(() => {});
+      if (id && !id.startsWith("queue-")) {
+        rpc("DeleteAgentMessage", { messageId: id, recipient: activeCascadeId }).catch(() => {});
+      } else if (item && item.text) {
+        setTimeout(async () => {
+          try {
+            const info = await rpc("GetCascadeTrajectory", { cascadeId: activeCascadeId });
+            const serverQueue = info?.queuedMessages || [];
+            const match = serverQueue.find(s => (s.text || "").trim() === item.text.trim());
+            if (match && match.id && !match.id.startsWith("queue-")) {
+              rpc("DeleteAgentMessage", { messageId: match.id, recipient: activeCascadeId }).catch(() => {});
+            }
+          } catch (_) {}
+        }, 350);
+      }
     }
   },
 
   async sendNow(id) {
     const item = this.queue.find(it => it.id === id);
     if (!item || !activeCascadeId) return;
-    this.remove(id);
+
+    // Optimistic removal from queue UI
+    const originalQueue = [...this.queue];
+    this.queue = this.queue.filter(it => it.id !== id);
+    this.save();
+
+    // Optimistically render user message in chat stream
+    const streamEl = document.getElementById("messages-stream");
+    const tempId = `temp-user-${Date.now()}`;
+    if (streamEl) {
+      const textHtml = item.text ? `<div>${escapeHtml(item.text)}</div>` : "";
+      streamEl.insertAdjacentHTML("beforeend", `
+        <div id="${tempId}" class="message-row user">
+          <div class="bubble">${textHtml}</div>
+        </div>
+      `);
+      userIsNearBottom = true;
+      streamEl.scrollTop = streamEl.scrollHeight;
+    }
 
     try {
       if (currentTrajectories[activeCascadeId]) {
         currentTrajectories[activeCascadeId].status = "CASCADE_RUN_STATUS_RUNNING";
+        currentTrajectories[activeCascadeId].needsInput = false;
       }
       updateChatControls(true, null, false);
+      const clientMsgId = "web-" + Date.now() + "-" + Math.random().toString(36).slice(2);
       await rpc("SendUserCascadeMessage", {
         cascadeId: activeCascadeId,
         model: activeModel,
         items: [{ text: item.text }],
         deliveryStrategy: 1 // NEXT_INVOCATION
-      });
+      }, { "X-Client-Message-Id": clientMsgId });
+
+      // After successful send, delete from server queue
+      if (id && !id.startsWith("queue-")) {
+        rpc("DeleteAgentMessage", { messageId: id, recipient: activeCascadeId }).catch(() => {});
+      } else {
+        setTimeout(async () => {
+          try {
+            const info = await rpc("GetCascadeTrajectory", { cascadeId: activeCascadeId });
+            const serverQueue = info?.queuedMessages || [];
+            const match = serverQueue.find(s => (s.text || "").trim() === item.text.trim());
+            if (match && match.id && !match.id.startsWith("queue-")) {
+              rpc("DeleteAgentMessage", { messageId: match.id, recipient: activeCascadeId }).catch(() => {});
+            }
+          } catch (_) {}
+        }, 350);
+      }
+
       if (!activeWs || activeWs.readyState !== WebSocket.OPEN) {
         connectStreamWs(activeCascadeId);
       }
     } catch (err) {
+      const tempEl = document.getElementById(tempId);
+      if (tempEl) tempEl.remove();
+      this.queue = originalQueue;
+      this.save();
       alert("发送失败: " + err.message);
     }
   },
