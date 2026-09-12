@@ -7,8 +7,6 @@ public struct MarkdownViewerSheet: View {
     public let onProceed: (() -> Void)?
     public let onRetry: (() -> Void)?
     
-    @State private var isCopied: Bool = false
-    
     public init(
         data: MarkdownFileViewerData,
         onDismiss: @escaping () -> Void,
@@ -30,41 +28,6 @@ public struct MarkdownViewerSheet: View {
             ZStack(alignment: .bottom) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
-                        // Summary Card (Desktop Parity for Planning Mode Artifacts)
-                        if let summary = data.summary, !summary.isEmpty {
-                            VStack(alignment: .leading, spacing: 6) {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "sparkles")
-                                        .font(.system(size: 13, weight: .semibold))
-                                        .foregroundColor(.blue)
-                                    Text("方案目标与摘要")
-                                        .font(.system(size: 12.5, weight: .semibold))
-                                        .foregroundColor(.primary)
-                                    Spacer()
-                                    if data.canProceed {
-                                        Text("待确认")
-                                            .font(.system(size: 11, weight: .semibold))
-                                            .foregroundColor(.blue)
-                                            .padding(.horizontal, 7)
-                                            .padding(.vertical, 2.5)
-                                            .background(Color.blue.opacity(0.12))
-                                            .clipShape(Capsule())
-                                    }
-                                }
-                                Text(summary)
-                                    .font(.system(size: 13.5))
-                                    .foregroundColor(.secondary)
-                                    .lineSpacing(3)
-                            }
-                            .padding(14)
-                            .background(Color(uiColor: .secondarySystemBackground))
-                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .stroke(Color.blue.opacity(0.2), lineWidth: 1)
-                            )
-                        }
-                        
                         // Main Markdown Content Body
                         if data.isLoading {
                             VStack(spacing: 12) {
@@ -175,31 +138,10 @@ public struct MarkdownViewerSheet: View {
                                 .font(.system(size: 13))
                                 .foregroundColor(.blue)
                         }
-                        Text(data.title)
+                        Text("Implementation Plan")
                             .font(.system(size: 15, weight: .semibold))
                             .lineLimit(1)
                     }
-                }
-                
-                ToolbarItem(placement: .primaryAction) {
-                    Button(action: {
-                        guard !data.content.isEmpty else { return }
-                        UIPasteboard.general.string = data.content
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        isCopied = true
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                            isCopied = false
-                        }
-                    }) {
-                        HStack(spacing: 4) {
-                            Image(systemName: isCopied ? "checkmark" : "doc.on.doc")
-                                .font(.system(size: 13, weight: .medium))
-                            Text(isCopied ? "已复制" : "复制")
-                                .font(.system(size: 14, weight: .medium))
-                        }
-                        .foregroundColor(isCopied ? .green : .blue)
-                    }
-                    .disabled(data.content.isEmpty)
                 }
             }
         }
