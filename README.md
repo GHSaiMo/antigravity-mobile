@@ -10,7 +10,7 @@
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)]()
 
 <p align="center">
-  <img src="images/session_list.jpg" alt="Antigravity Mobile 会话列表与配额面板" width="340" />
+  <img src="images/session_list.jpg" alt="Antigravity Mobile 会话列表与分类信号" width="340" />
   &nbsp;&nbsp;&nbsp;&nbsp;
   <img src="images/native_components.jpg" alt="Antigravity Mobile 原生交互组件与任务监控" width="340" />
 </p>
@@ -32,7 +32,7 @@
 
 | 层级 | 核心组件 | 关键职责与技术特性 |
 | :--- | :--- | :--- |
-| **📱 移动访问层** | **iOS 原生客户端** (SwiftUI 5) | Swift 6 严格并发、单趟 O(N) LaTeX 渲染、VS Code 文件图标、Gemini 3.8 / Claude 4.6 模型切换、多模态图片上传、排队消息、后台任务监控与终止、交互式审批/Proceed 卡片、左滑删除与长按重命名、未读小蓝点、灵动岛 (Live Activity) |
+| **📱 移动访问层** | **iOS 原生客户端** (SwiftUI 5) | Swift 6 严格并发、单趟 O(N) LaTeX 渲染、VS Code 文件图标、Gemini 3.8 / Claude 4.6 模型切换、多模态图片上传、排队消息、后台任务监控与终止、交互式审批/Proceed 卡片、全态分类信号 (RUNNING / ERROR / ACTION / 未读小蓝点)、左滑删除与长按重命名、灵动岛 (Live Activity) |
 | | **移动端 PWA / Web** (Vanilla JS) | 零构建打包、嵌入 Go 二进制 (`embed.FS`)、全面对齐 iOS 原生设计系统、自适应安全区与键盘防遮挡、排队消息与后台任务同步、添加到主屏幕 |
 | **⚡ 远程连接与鉴权层** | **IPv6 双栈直连 (Dual-Stack Direct)** | 网关默认监听 IPv4/IPv6 全网卡，公网 IPv6 / DDNS 直连免中继，极低延迟，客户端蜂窝网络 (Cellular) 智能优先路由 |
 | | **二维码扫码配对 (QR Pairing)** | 终端自动生成一次性 `agy://pair` 配对二维码，扫码秒级签发独占 Device Token，存入系统安全存储 (Keychain)，与 IP 完全解耦 |
@@ -50,8 +50,16 @@
 ### 1. 📱 iOS 原生客户端 (`ios/`)
 - **现代化架构**：基于 SwiftUI 5 与 **Swift 6 严格并发模式**（Strict Concurrency Checking）构建，线程安全、流畅无卡顿。
 - **Cockpit 额度监控与多账号看板**：
-  - **首页 5h 额度状态条**：实时直观显示当前活跃模型（Gemini）5 小时额度百分比、全宽动态进度条、剩余重置倒计时与具体时钟点（如 `⚡ Gemini 5h 90% 4h 52m (09/11 11:36)`）；
+  - **首页 5h 额度状态条**：实时直观显示当前活跃模型（Gemini）5 小时额度百分比、全宽动态进度条、剩余重置倒计时与具体时钟点（如 `⚡ Gemini 5h 98% 4h 16m (09/12 15:57)`）；
   - **Cockpit Tools 配额抽屉**：展开后一览 Claude / Gemini 5h 与每周四项额度指标；支持多账号一键热切换与即时生效校准；内置邮箱打码遮罩（Masking）保护隐私，支持 5 分钟后台自动静默刷新与手动即时刷新。
+- **智能会话状态与多维分类信号 (Multi-State Classification)**：
+  - **全态可视化徽标与状态分流**：
+    - `RUNNING`（绿色徽标）：Agent 正在高负荷思考、多步推理或并发调用工具链；
+    - `ERROR`（红色徽标）：会话执行异常或中断报错（如模型身份限制、命令异常），醒目警示以便第一时间定位排查；
+    - `ACTION`（蓝色徽标）：等待用户关键交互或决策（终端命令审批、敏感文件读写授权、澄清提问、以及实施方案 Proceed 推进）；
+    - `未读小蓝点`：双层同心圆呼吸微光小蓝点，即时提示有新完成但未阅的会话；
+  - **多维上下文元信息**：每个会话卡片清晰标注对应工作区目录（Workspace Folder）、累计步骤统计（如 `24 步骤`、`1,290 步骤`）以及自适应相对时间（`刚刚`、`1分钟前`、`21小时前`、`3天前`）；
+  - **即时模糊搜索**：底部常驻搜索框（“搜索会话或工作区...”），支持按会话标题或所属工作区秒级模糊过滤。
 - **双模型切换与多模态图片上传**：
   - **模型一键切换**：聊天输入栏内置 **Gemini 3.8** / **Claude 4.6** 模型快速切换胶囊，按需调用最适合的模型；
   - **多模态图片发送**：原生集成系统照片库与相机，一键上传报错截图、设计图纸或架构草图，客户端自适应轻量压缩，直接给 Agent 多模态视觉输入。
@@ -64,7 +72,6 @@
 - **交互式审批与方案推进卡片 (Action & Proceed Cards)**：
   - 原生交互式卡片渲染：终端命令执行审批、跨目录文件读写确认、Agent 澄清提问；
   - 实施方案（Implementation Plan）就绪时，高亮展示 **Proceed** 推进按钮，手机上一键确认继续；
-  - 会话列表精准标识 `RUNNING`（绿色运行中）与 `ACTION`（橙色待用户审批/推进）徽标，辅以未读小蓝点。
 - **会话管理细节优化**：
   - 原生 **左滑删除**：内嵌红色居中垃圾桶图标与防误触确认弹窗，消除列表跳动；
   - 原生 **长按一步重命名**：长按卡片即刻弹出重命名输入框；
@@ -95,7 +102,7 @@
 ### 3. 🌐 嵌入式 Mobile Web & PWA (`web/`)
 - **零构建（Zero-Build）**：极简现代原生 JavaScript + CSS，无需 Node.js 或前端打包工具链；
 - **自包含嵌入**：利用 Go `embed.FS` 编译进单个二进制，无散落文件依赖；
-- **全端对齐原生设计**：全面对齐 iOS 原生客户端视觉与交互风格，包含深色现代卡片、排队追问卡片、后台任务控制条与交互审批流；
+- **全端对齐原生设计**：全面对齐 iOS 原生客户端视觉与交互风格，包含多态分类信号徽标（`RUNNING` / `ERROR` / `ACTION` / 未读小蓝点）、深色现代卡片、排队追问卡片、后台任务控制条与交互审批流；
 - **PWA 沉浸体验**：完美支持 iOS Safari「添加到主屏幕」，全屏运行，自带独立启动图标、离线 Manifest 与 Service Worker 缓存支持；
 - **移动端键盘适配**：动态处理虚拟键盘弹出与收起高度，消除键盘收起黑边与页面跳动，安全区完全适配。
 
@@ -123,7 +130,7 @@ antigravity-mobile/
 ├── README.md                   # 全栈开源项目文档
 ├── env.example                 # 环境配置模板 (Bark 推送、端口等)
 ├── images/                     # 项目文档截图与预览图
-│   ├── session_list.jpg        # 移动端主界面与配额监控预览图
+│   ├── session_list.jpg        # 移动端主界面与多维分类信号/配额监控预览图
 │   └── native_components.jpg   # 原生交互组件与后台任务监控预览图
 ├── go.mod / go.sum             # Go 依赖描述 (Go 1.22+)
 ├── .github/workflows/ci.yml    # CI/CD 自动化工作流
