@@ -363,7 +363,7 @@ public final class ChatViewModel {
             self.proceedArtifactUri = cached.proceedArtifactUri
             self.pendingInteraction = cached.pendingInteraction
             let recentUser = Set(healed.filter { $0.sender == .user }.suffix(15).map { $0.content.trimmingCharacters(in: .whitespacesAndNewlines) })
-            self.queuedMessages = (cached.queuedMessages ?? []).filter { !recentUser.contains($0.text.trimmingCharacters(in: .whitespacesAndNewlines)) }
+            self.queuedMessages = (cached.queuedMessages ?? []).filter { Self.isUserQueuedMessage($0.text) && !recentUser.contains($0.text.trimmingCharacters(in: .whitespacesAndNewlines)) }
             self.knownServerMessageIds = Set(healed.map(\.id))
             if let cachedTitle = cached.title, !cachedTitle.isEmpty, cachedTitle != "未命名会话" {
                 self.currentTitle = cachedTitle
@@ -448,7 +448,7 @@ public final class ChatViewModel {
             self.proceedArtifactUri = nil
             self.pendingInteraction = cached.pendingInteraction
             let recentUser = Set(healed.filter { $0.sender == .user }.suffix(15).map { $0.content.trimmingCharacters(in: .whitespacesAndNewlines) })
-            self.queuedMessages = (cached.queuedMessages ?? []).filter { !recentUser.contains($0.text.trimmingCharacters(in: .whitespacesAndNewlines)) }
+            self.queuedMessages = (cached.queuedMessages ?? []).filter { Self.isUserQueuedMessage($0.text) && !recentUser.contains($0.text.trimmingCharacters(in: .whitespacesAndNewlines)) }
             self.runningTasks = cached.runningTasks ?? []
             self.knownServerMessageIds = Set(healed.map(\.id))
         }
@@ -873,6 +873,17 @@ public final class ChatViewModel {
     
     // MARK: - Queued Messages Synchronization
     
+    public static func isUserQueuedMessage(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return false }
+        if trimmed.hasPrefix("Task id \"") || trimmed.hasPrefix("Task \"") ||
+           trimmed.contains("was canceled with result:") || trimmed.contains("completed with result:") ||
+           trimmed.contains("Tool execution was canceled") {
+            return false
+        }
+        return true
+    }
+    
     private func syncQueuedMessages(serverQueue: [QueuedMessageItem]?) {
         let now = Date()
         // 1. Expire stale optimistic items older than 15 seconds
@@ -897,10 +908,12 @@ public final class ChatViewModel {
         var baseQueue: [QueuedMessageItem]
         if let sq = serverQueue {
             baseQueue = sq.filter { sItem in
+                Self.isUserQueuedMessage(sItem.text) &&
                 !recentUserMessageSet.contains(sItem.text.trimmingCharacters(in: .whitespacesAndNewlines))
             }
         } else {
             baseQueue = self.queuedMessages.filter { qm in
+                Self.isUserQueuedMessage(qm.text) &&
                 !qm.id.hasPrefix("queue-") && !recentUserMessageSet.contains(qm.text.trimmingCharacters(in: .whitespacesAndNewlines))
             }
         }

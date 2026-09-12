@@ -245,6 +245,121 @@ func TestParseAgentStateQueuedMessages(t *testing.T) {
 	}
 }
 
+func TestParseAgentStateQueuedMessages_FiltersTaskCancellation(t *testing.T) {
+	// Replicating actual message structure observed in conversation 466ce6f7-bd84-4a3c-b1f6-642fadeb550e
+	updateJSON := `{
+		"update": {
+			"conversationId": "466ce6f7-bd84-4a3c-b1f6-642fadeb550e",
+			"status": "CASCADE_RUN_STATUS_IDLE",
+			"pendingAgentMessagesUpdate": {
+				"indices": [0],
+				"pendingAgentMessages": [
+					{
+						"id": "8f758039-a64b-46cb-ac6f-a34614acb5f8",
+						"recipient": "466ce6f7-bd84-4a3c-b1f6-642fadeb550e",
+						"sender": "466ce6f7-bd84-4a3c-b1f6-642fadeb550e/task-475",
+						"priority": "MESSAGE_PRIORITY_LOW",
+						"timestamp": "2026-09-12T10:59:59.998485Z",
+						"renderDetails": {
+							"messageTitle": "Start JiugeSpace server.py was canceled"
+						},
+						"hideFromUser": true,
+						"content": "Task id \"466ce6f7-bd84-4a3c-b1f6-642fadeb550e/task-475\" was canceled with result:\nTool execution was canceled",
+						"sourceMetadata": {
+							"tool": {
+								"conversationId": "466ce6f7-bd84-4a3c-b1f6-642fadeb550e",
+								"stepIndex": 475
+							}
+						}
+					},
+					{
+						"id": "user-valid-msg",
+						"content": "Valid user follow-up",
+						"deliveryStrategy": 2,
+						"timestamp": "2026-09-12T11:00:00Z"
+					}
+				]
+			}
+		}
+	}`
+
+	var state upstreamAgentStateUpdate
+	if err := json.Unmarshal([]byte(updateJSON), &state); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+
+	items := parseAgentStateQueuedMessages(&state)
+	if len(items) != 1 {
+		t.Fatalf("expected exactly 1 valid user queued message, got %d: %+v", len(items), items)
+	}
+	if items[0].ID != "user-valid-msg" || items[0].Text != "Valid user follow-up" {
+		t.Errorf("unexpected queued message: %+v", items[0])
+	}
+}
+
+func TestIsInternalAgentMessage(t *testing.T) {
+	tests := []struct {
+		name           string
+		hideFromUser   bool
+		sender         string
+		sourceMetadata string
+		content        string
+		expected       bool
+	}{
+		{
+			name:         "hideFromUser true",
+			hideFromUser: true,
+			expected:     true,
+		},
+		{
+			name:     "sender is task",
+			sender:   "conv-123/task-475",
+			expected: true,
+		},
+		{
+			name:     "sender is subagent",
+			sender:   "subagent-research",
+			expected: true,
+		},
+		{
+			name:     "sender is system",
+			sender:   "system",
+			expected: true,
+		},
+		{
+			name:           "sourceMetadata with tool",
+			sourceMetadata: `{"tool":{"conversationId":"123"}}`,
+			expected:       true,
+		},
+		{
+			name:     "content starts with Task id",
+			content:  `Task id "123/task-1" was canceled with result:\nCanceled`,
+			expected: true,
+		},
+		{
+			name:     "genuine user message",
+			sender:   "",
+			content:  "Please help me refactor the function",
+			expected: false,
+		},
+		{
+			name:     "user message with explicit sender user",
+			sender:   "user",
+			content:  "Check git status",
+			expected: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := isInternalAgentMessage(tc.hideFromUser, tc.sender, json.RawMessage(tc.sourceMetadata), tc.content)
+			if got != tc.expected {
+				t.Errorf("[%s] expected %v, got %v", tc.name, tc.expected, got)
+			}
+		})
+	}
+}
+
 func TestGetCachedOrFetchPendingMessages(t *testing.T) {
 	ClearPendingMessagesCache("")
 
