@@ -78,9 +78,8 @@ public struct MessageBubbleView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 4)
-        .sheet(item: $previewImage) { item in
+        .fullScreenCover(item: $previewImage) { item in
             ImageViewerSheet(item: item)
-                .presentationDragIndicator(.hidden)
         }
     }
     
@@ -399,109 +398,77 @@ public struct ImageViewerSheet: View {
     }
     
     public var body: some View {
-        NavigationStack {
-            GeometryReader { proxy in
-                let containerWidth = proxy.size.width
-                let containerHeight = proxy.size.height
+        GeometryReader { proxy in
+            let screenSize = proxy.size
+            
+            let fittedSize: CGSize = {
+                if let img = image, img.size.width > 0, img.size.height > 0 {
+                    let widthRatio = screenSize.width / img.size.width
+                    let heightRatio = screenSize.height / img.size.height
+                    let fitScale = min(widthRatio, heightRatio)
+                    return CGSize(
+                        width: max(1, img.size.width * fitScale),
+                        height: max(1, img.size.height * fitScale)
+                    )
+                }
+                return screenSize
+            }()
+            
+            ZStack {
+                Color.black
+                    .opacity(max(0.15, 1.0 - Double(abs(dismissOffset) / 320.0)))
+                    .ignoresSafeArea()
                 
-                let fittedSize: CGSize = {
-                    if let img = image, img.size.width > 0, img.size.height > 0 {
-                        let widthRatio = containerWidth / img.size.width
-                        let heightRatio = containerHeight / img.size.height
-                        let fitScale = min(widthRatio, heightRatio)
-                        return CGSize(
-                            width: max(1, img.size.width * fitScale),
-                            height: max(1, img.size.height * fitScale)
-                        )
-                    }
-                    return CGSize(width: containerWidth, height: containerHeight)
-                }()
-                
-                ZStack {
-                    Color.black
-                        .opacity(max(0.35, 1.0 - Double(dismissOffset / 400.0)))
-                        .ignoresSafeArea()
-                    
-                    Group {
-                        if let image = image {
-                            Image(uiImage: image)
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(width: fittedSize.width, height: fittedSize.height)
-                        } else if let url = url {
-                            AsyncImage(url: url) { phase in
-                                switch phase {
-                                case .empty:
-                                    ProgressView()
-                                        .tint(.white)
-                                case .success(let img):
-                                    img
-                                        .resizable()
-                                        .aspectRatio(contentMode: .fit)
-                                        .frame(maxWidth: containerWidth, maxHeight: containerHeight)
-                                case .failure:
-                                    VStack(spacing: 8) {
-                                        Image(systemName: "photo")
-                                            .font(.largeTitle)
-                                            .foregroundColor(.white.opacity(0.6))
-                                        Text("图片加载失败")
-                                            .font(.subheadline)
-                                            .foregroundColor(.white.opacity(0.8))
-                                    }
-                                @unknown default:
-                                    EmptyView()
+                Group {
+                    if let image = image {
+                        Image(uiImage: image)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: fittedSize.width, height: fittedSize.height)
+                    } else if let url = url {
+                        AsyncImage(url: url) { phase in
+                            switch phase {
+                            case .empty:
+                                ProgressView()
+                                    .tint(.white)
+                            case .success(let img):
+                                img
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fit)
+                                    .frame(maxWidth: screenSize.width, maxHeight: screenSize.height)
+                            case .failure:
+                                VStack(spacing: 8) {
+                                    Image(systemName: "photo")
+                                        .font(.largeTitle)
+                                        .foregroundColor(.white.opacity(0.6))
+                                    Text("图片加载失败")
+                                        .font(.subheadline)
+                                        .foregroundColor(.white.opacity(0.8))
                                 }
+                            @unknown default:
+                                EmptyView()
                             }
                         }
                     }
-                    .scaleEffect(scale)
-                    .offset(x: offset.width, y: offset.height + dismissOffset)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .contentShape(Rectangle())
-                .gesture(
-                    magnificationGesture(containerSize: proxy.size, fittedSize: fittedSize)
-                        .simultaneously(with: dragGesture(containerSize: proxy.size, fittedSize: fittedSize))
-                )
-                .onTapGesture(count: 2) {
-                    handleDoubleTap()
-                }
+                .scaleEffect(scale)
+                .offset(x: offset.width, y: offset.height + dismissOffset)
             }
-            .navigationTitle("图片详情")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                if scale > 1.05 {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button(action: {
-                            handleDoubleTap()
-                        }) {
-                            HStack(spacing: 4) {
-                                Image(systemName: "arrow.counterclockwise")
-                                    .font(.system(size: 11, weight: .semibold))
-                                Text(String(format: "%.1fx 还原", scale))
-                                    .font(.system(size: 12.5, weight: .medium))
-                            }
-                            .foregroundColor(.white.opacity(0.9))
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 4)
-                            .background(Color.white.opacity(0.18))
-                            .clipShape(Capsule())
-                        }
-                    }
-                }
-                
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(action: { dismiss() }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 22))
-                            .foregroundColor(.white.opacity(0.85))
-                    }
-                }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .gesture(
+                magnificationGesture(containerSize: screenSize, fittedSize: fittedSize)
+                    .simultaneously(with: dragGesture(containerSize: screenSize, fittedSize: fittedSize))
+            )
+            .onTapGesture(count: 2) {
+                handleDoubleTap()
             }
-            .toolbarColorScheme(.dark, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
-            .toolbarBackground(Color.black.opacity(0.75), for: .navigationBar)
+            .onTapGesture(count: 1) {
+                dismiss()
+            }
         }
+        .ignoresSafeArea()
+        .statusBarHidden()
     }
     
     private func magnificationGesture(containerSize: CGSize, fittedSize: CGSize) -> some Gesture {
@@ -559,9 +526,7 @@ public struct ImageViewerSheet: View {
                     
                     offset = CGSize(width: clampedX, height: clampedY)
                 } else {
-                    if value.translation.height > 0 {
-                        dismissOffset = value.translation.height
-                    }
+                    dismissOffset = value.translation.height
                 }
             }
             .onEnded { value in
@@ -570,7 +535,7 @@ public struct ImageViewerSheet: View {
                         clampOffset(containerSize: containerSize, fittedSize: fittedSize)
                     }
                 } else {
-                    if value.translation.height > 90 || value.predictedEndTranslation.height > 200 {
+                    if abs(value.translation.height) > 70 || abs(value.predictedEndTranslation.height) > 160 {
                         dismiss()
                     } else {
                         withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
