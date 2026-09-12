@@ -2827,30 +2827,6 @@ body {
   width: 100%;
 }
 
-.sheet-header-close-btn {
-  position: absolute;
-  right: 16px;
-  top: 50%;
-  transform: translateY(-50%);
-  background: rgba(120, 120, 128, 0.16);
-  border: none;
-  border-radius: 50%;
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--ios-secondary);
-  cursor: pointer;
-  padding: 0;
-  transition: all 0.15s ease;
-}
-
-.sheet-header-close-btn:hover {
-  background: rgba(120, 120, 128, 0.28);
-  color: var(--ios-text);
-}
-
 .md-viewer-title {
   font-size: 18px;
   font-weight: 700;
