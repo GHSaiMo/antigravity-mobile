@@ -125,6 +125,11 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
     public let lastModified: Date?
     public let isSubagent: Bool
     public let isUnread: Bool
+    public let draftProject: ProjectItem?
+    
+    public var isDraft: Bool {
+        id.hasPrefix("local_draft_") || id.hasPrefix("draft_") || draftProject != nil
+    }
     
     enum CodingKeys: String, CodingKey {
         case id
@@ -135,6 +140,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         case lastModified
         case isSubagent
         case isUnread
+        case draftProject
     }
     
     public init(from decoder: Decoder) throws {
@@ -147,6 +153,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         self.lastModified = try container.decodeIfPresent(Date.self, forKey: .lastModified)
         self.isSubagent = try container.decodeIfPresent(Bool.self, forKey: .isSubagent) ?? false
         self.isUnread = try container.decodeIfPresent(Bool.self, forKey: .isUnread) ?? false
+        self.draftProject = try container.decodeIfPresent(ProjectItem.self, forKey: .draftProject)
     }
     
     public func encode(to encoder: Encoder) throws {
@@ -159,6 +166,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         try container.encodeIfPresent(lastModified, forKey: .lastModified)
         try container.encode(isSubagent, forKey: .isSubagent)
         try container.encode(isUnread, forKey: .isUnread)
+        try container.encodeIfPresent(draftProject, forKey: .draftProject)
     }
     
     public enum ConversationStatus: String, Sendable, Codable {
@@ -183,6 +191,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
     
     public init(id: String, summary: TrajectorySummary) {
         self.id = id
+        self.draftProject = nil
         
         if let t = summary.annotations?.title, !t.isEmpty {
             self.title = t
@@ -254,7 +263,8 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         workspaceName: String = "workspace",
         lastModified: Date? = Date(),
         isSubagent: Bool = false,
-        isUnread: Bool = false
+        isUnread: Bool = false,
+        draftProject: ProjectItem? = nil
     ) {
         self.id = id
         self.title = title
@@ -264,6 +274,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         self.lastModified = lastModified
         self.isSubagent = isSubagent
         self.isUnread = isUnread
+        self.draftProject = draftProject
     }
     
     public var relativeTimeString: String {
@@ -273,5 +284,44 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         if diff < 3600 { return "\(Int(diff / 60))分钟前" }
         if diff < 86400 { return "\(Int(diff / 3600))小时前" }
         return "\(Int(diff / 86400))天前"
+    }
+}
+
+public struct LocalDraftSession: Codable, Sendable, Identifiable, Hashable {
+    public let id: String
+    public let project: ProjectItem
+    public var draftText: String
+    public var createdAt: Date
+    public var updatedAt: Date
+    
+    public init(
+        id: String = "local_draft_\(UUID().uuidString)",
+        project: ProjectItem,
+        draftText: String = "",
+        createdAt: Date = Date(),
+        updatedAt: Date = Date()
+    ) {
+        self.id = id
+        self.project = project
+        self.draftText = draftText
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+    
+    public func toConversationItem() -> ConversationItem {
+        let trimmed = draftText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let firstLine = trimmed.components(separatedBy: .newlines).first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let displayTitle = firstLine.isEmpty ? project.name : firstLine
+        return ConversationItem(
+            id: id,
+            title: displayTitle,
+            status: .idle,
+            stepCount: 0,
+            workspaceName: project.name,
+            lastModified: updatedAt,
+            isSubagent: false,
+            isUnread: false,
+            draftProject: project
+        )
     }
 }
