@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -109,4 +110,49 @@ func TestGetFileContentAndHandler(t *testing.T) {
 	if jsonRes.Content != "# Test Plan\nHello world" {
 		t.Errorf("expected content match, got %s", jsonRes.Content)
 	}
+
+	// Test HandleFileRaw
+	rawReq := httptest.NewRequest(http.MethodGet, "/api/v1/files/raw?uri="+testMD, nil)
+	rawRR := httptest.NewRecorder()
+	proxy.HandleFileRaw(rawRR, rawReq)
+
+	if rawRR.Code != http.StatusOK {
+		t.Fatalf("expected 200 for raw file, got %d: %s", rawRR.Code, rawRR.Body.String())
+	}
+	if !strings.Contains(rawRR.Header().Get("Content-Disposition"), "implementation_plan.md") {
+		t.Errorf("expected Content-Disposition header with filename, got: %s", rawRR.Header().Get("Content-Disposition"))
+	}
+	if rawRR.Body.String() != "# Test Plan\nHello world" {
+		t.Errorf("expected raw body '# Test Plan\\nHello world', got %s", rawRR.Body.String())
+	}
 }
+
+func TestHandleFileRawChineseFilename(t *testing.T) {
+	tempDir := t.TempDir()
+	chineseFileName := "五矿证券转训课件测试.pptx"
+	filePath := filepath.Join(tempDir, chineseFileName)
+	content := []byte("PK\x03\x04test_zip_content")
+	if err := os.WriteFile(filePath, content, 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	proxy := &Proxy{}
+	// Test with percent-encoded URI
+	uri := "file://" + filepath.ToSlash(filepath.Join(tempDir, "五矿证券转训课件测试.pptx"))
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/files/raw?uri="+uri, nil)
+	rr := httptest.NewRecorder()
+	proxy.HandleFileRaw(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	disp := rr.Header().Get("Content-Disposition")
+	if !strings.Contains(disp, "filename*=UTF-8''") {
+		t.Errorf("expected RFC 5987 UTF-8 Content-Disposition header, got: %s", disp)
+	}
+	if rr.Body.String() != string(content) {
+		t.Errorf("expected body to match written content")
+	}
+}
+
+

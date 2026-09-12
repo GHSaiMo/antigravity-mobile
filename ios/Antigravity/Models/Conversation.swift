@@ -311,7 +311,15 @@ public struct LocalDraftSession: Codable, Sendable, Identifiable, Hashable {
     public func toConversationItem() -> ConversationItem {
         let trimmed = draftText.trimmingCharacters(in: .whitespacesAndNewlines)
         let firstLine = trimmed.components(separatedBy: .newlines).first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let displayTitle = firstLine.isEmpty ? project.name : firstLine
+        let hasImages = CacheManager.shared.hasDraftImages(for: id)
+        let displayTitle: String
+        if !firstLine.isEmpty {
+            displayTitle = firstLine
+        } else if hasImages {
+            displayTitle = "[图片] \(project.name)"
+        } else {
+            displayTitle = project.name
+        }
         return ConversationItem(
             id: id,
             title: displayTitle,

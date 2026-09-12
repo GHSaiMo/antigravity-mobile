@@ -205,3 +205,49 @@ func (p *Proxy) HandleFileContent(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(result)
 }
+
+// HandleFileRaw streams binary or raw file contents with proper Content-Disposition and Range support.
+// GET /api/v1/files/raw?uri=...&cascade_id=...
+func (p *Proxy) HandleFileRaw(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	q := r.URL.Query()
+	uri := strings.TrimSpace(q.Get("uri"))
+	cascadeID := strings.TrimSpace(q.Get("cascade_id"))
+
+	if uri == "" && cascadeID == "" {
+		http.Error(w, "uri or cascade_id is required", http.StatusBadRequest)
+		return
+	}
+
+	filePath, err := ResolveLocalFilePath(uri, cascadeID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to resolve file path: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	if !IsSafeFilePath(filePath) {
+		http.Error(w, "access to file is restricted for security", http.StatusForbidden)
+		return
+	}
+
+	fi, err := os.Stat(filePath)
+	if err != nil {
+		http.Error(w, "file not found", http.StatusNotFound)
+		return
+	}
+	if fi.IsDir() {
+		http.Error(w, "path is a directory", http.StatusBadRequest)
+		return
+	}
+
+	fileName := filepath.Base(filePath)
+	encodedName := url.PathEscape(fileName)
+	w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename*=UTF-8''%s", encodedName))
+
+	http.ServeFile(w, r, filePath)
+}
+
