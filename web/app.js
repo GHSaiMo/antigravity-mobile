@@ -2146,8 +2146,17 @@ const LocalQueueManager = {
         !serverQueue.some(s => (s.text || '').trim() === (it.text || '').trim())
       );
 
+      const isUserMsg = (txt) => {
+        const t = (txt || '').trim();
+        if (!t) return false;
+        if (t.startsWith('Task id "') || t.startsWith('Task "') || t.includes('was canceled with result:') || t.includes('completed with result:') || t.includes('Tool execution was canceled')) {
+          return false;
+        }
+        return true;
+      };
+
       const baseQueue = serverQueue
-        .filter(item => !recentUserSet.has((item.text || '').trim()))
+        .filter(item => isUserMsg(item.text) && !recentUserSet.has((item.text || '').trim()))
         .map(item => ({
           id: item.id || `server-${Date.now()}`,
           text: item.text,
@@ -2156,7 +2165,15 @@ const LocalQueueManager = {
 
       this.queue = [...baseQueue, ...pendingOpt];
     } else {
-      this.queue = this.queue.filter(item => !recentUserSet.has((item.text || '').trim()));
+      const isUserMsg = (txt) => {
+        const t = (txt || '').trim();
+        if (!t) return false;
+        if (t.startsWith('Task id "') || t.startsWith('Task "') || t.includes('was canceled with result:') || t.includes('completed with result:') || t.includes('Tool execution was canceled')) {
+          return false;
+        }
+        return true;
+      };
+      this.queue = this.queue.filter(item => isUserMsg(item.text) && !recentUserSet.has((item.text || '').trim()));
     }
     this.save();
   },
