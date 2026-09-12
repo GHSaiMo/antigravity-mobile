@@ -283,7 +283,6 @@ public struct ChatView: View {
         ScrollView {
             messagesList(proxy: proxy)
         }
-        .defaultScrollAnchor(.bottom)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(uiColor: .systemBackground))
         .contentShape(Rectangle())
@@ -328,8 +327,15 @@ public struct ChatView: View {
             scrollToBottom(proxy: proxy, animated: true)
         }
         .onChange(of: isInputFocused) { _, focused in
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                scrollToBottom(proxy: proxy, animated: true)
+            if focused {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                    scrollToBottom(proxy: proxy, animated: true)
+                }
+            } else {
+                // 等待键盘完全收起并恢复完整视口高度后，做底部对齐校准，消除悬空留白
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
+                    scrollToBottom(proxy: proxy, animated: true)
+                }
             }
         }
     }
@@ -358,7 +364,7 @@ public struct ChatView: View {
             if shouldShowThinkingBubble {
                 AgentThinkingBubbleView()
                     .id("THINKING_INDICATOR")
-                    .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .topLeading)))
+                    .transition(.opacity)
             }
             
             Color.clear
@@ -367,7 +373,6 @@ public struct ChatView: View {
         }
         .padding(.vertical, 12)
         .frame(maxWidth: .infinity)
-        .scrollTargetLayout()
     }
     
     private var shouldShowThinkingBubble: Bool {
@@ -692,7 +697,7 @@ public struct ChatView: View {
             
             // Input field and send/stop button
             HStack(alignment: .bottom, spacing: 10) {
-                TextField((viewModel.isRunning || viewModel.isAwaitingResponse) ? "向队列添加指令..." : "发送对 Agent 的指令...", text: $viewModel.inputText, axis: .vertical)
+                TextField("", text: $viewModel.inputText, prompt: Text((viewModel.isRunning || viewModel.isAwaitingResponse) ? "向队列添加指令..." : "发送对 Agent 的指令..."), axis: .vertical)
                     .font(.system(size: 16))
                     .padding(.horizontal, 16)
                     .padding(.vertical, 11)
