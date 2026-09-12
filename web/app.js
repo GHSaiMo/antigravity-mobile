@@ -3738,8 +3738,32 @@ async function fetchCockpitQuotas(isManual = false) {
 
   try {
     if (isManual) {
-      await fetch("/api/v1/cockpit/refresh", { method: "POST" }).catch(() => {});
-      await new Promise((r) => setTimeout(r, 600));
+      const initialUpdatedAt = currentCockpitQuotas?.updated_at || 0;
+      const refreshResp = await fetch("/api/v1/cockpit/refresh", { method: "POST" }).catch(() => null);
+      if (refreshResp && refreshResp.ok) {
+        const directData = await refreshResp.json().catch(() => null);
+        if (directData && directData.updated_at > initialUpdatedAt) {
+          currentCockpitQuotas = directData;
+          renderQuotaStatusBar(directData);
+          renderQuotaSheet(directData);
+          return;
+        }
+      }
+      // Poll for up to 20s if background batch refresh across accounts takes longer
+      const startTime = Date.now();
+      while (Date.now() - startTime < 20000) {
+        await new Promise((r) => setTimeout(r, 1500));
+        const pResp = await fetch("/api/v1/cockpit/quotas").catch(() => null);
+        if (pResp && pResp.ok) {
+          const pData = await pResp.json().catch(() => null);
+          if (pData && pData.updated_at > initialUpdatedAt) {
+            currentCockpitQuotas = pData;
+            renderQuotaStatusBar(pData);
+            renderQuotaSheet(pData);
+            return;
+          }
+        }
+      }
     }
     const resp = await fetch("/api/v1/cockpit/quotas");
     if (!resp.ok) throw new Error("HTTP " + resp.status);
