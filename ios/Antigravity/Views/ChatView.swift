@@ -54,13 +54,19 @@ public struct ChatView: View {
             await viewModel.loadMessages()
             viewModel.connectStream()
         }
+        .onDisappear {
+            viewModel.saveCurrentDraft()
+        }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
                 Task {
                     await viewModel.resumeActiveSession()
                 }
-            } else if newPhase == .background {
-                viewModel.handleAppBackground()
+            } else if newPhase == .background || newPhase == .inactive {
+                viewModel.saveCurrentDraft()
+                if newPhase == .background {
+                    viewModel.handleAppBackground()
+                }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
@@ -69,6 +75,7 @@ public struct ChatView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
+            viewModel.saveCurrentDraft()
             viewModel.handleAppBackground()
         }
         .onChange(of: selectedPhotoItems) { _, items in

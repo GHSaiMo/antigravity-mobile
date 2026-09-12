@@ -15,6 +15,7 @@ public struct ConversationListView: View {
     @State private var conversationToRename: ConversationItem?
     @State private var renameText = ""
     @State private var showRenameAlert = false
+    @State private var draftsVersion: Int = 0
     
     public init() {
         _ = SwipeActionAdjuster.activateOnce
@@ -92,9 +93,17 @@ public struct ConversationListView: View {
                             }
                         }
                     }
+                    .onDisappear {
+                        draftsVersion += 1
+                        viewModel.reloadFromCache()
+                    }
             }
             .navigationDestination(item: $selectedDraftProject) { project in
                 ChatView(draftProject: project)
+                    .onDisappear {
+                        draftsVersion += 1
+                        viewModel.reloadFromCache()
+                    }
             }
             .onAppear {
                 viewModel.reloadFromCache()
@@ -120,6 +129,9 @@ public struct ConversationListView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: .deviceTokenRevoked)) { _ in
                 handleTokenRevoked()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .conversationDraftChanged)) { _ in
+                draftsVersion += 1
             }
             .onOpenURL { url in
                 handleDeepLink(url)
@@ -378,7 +390,10 @@ public struct ConversationListView: View {
     }
     
     private func conversationCard(for item: ConversationItem) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let _ = draftsVersion
+        let hasDraft = CacheManager.shared.hasDraft(for: item.id)
+        
+        return VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top) {
                 Text(item.title)
                     .font(.system(size: 15.5, weight: .semibold))
@@ -410,6 +425,14 @@ public struct ConversationListView: View {
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
                         .background(Color.green.opacity(0.15))
+                        .cornerRadius(6)
+                } else if hasDraft {
+                    Text("DRAFT")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(.yellow)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(Color.yellow.opacity(0.15))
                         .cornerRadius(6)
                 } else if item.isUnread {
                     ZStack {
