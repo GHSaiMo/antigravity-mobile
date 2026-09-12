@@ -630,7 +630,35 @@ public struct ChatView: View {
                     }
                     .buttonStyle(.plain)
                     
-                    // 4. Proceed Button (Plan is opened directly via implementation_plan.md button in chat)
+                    // 4. Continue Button (Shown when Agent's latest message is an error)
+                    if viewModel.isLatestMessageError {
+                        Button(action: handleContinue) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "play.fill")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundColor(.white)
+                                Text("Continue")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundColor(.white)
+                            }
+                            .padding(.horizontal, 14)
+                            .frame(height: 32)
+                            .background(Color.blue)
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .shadow(color: Color.blue.opacity(0.35), radius: 4, x: 0, y: 2)
+                        }
+                        .buttonStyle(.plain)
+                        .transition(.scale(scale: 0.9).combined(with: .opacity))
+                        .contextMenu {
+                            Button {
+                                insertContinue()
+                            } label: {
+                                Label("填入输入框", systemImage: "square.and.pencil")
+                            }
+                        }
+                    }
+                    
+                    // 5. Proceed Button (Plan is opened directly via implementation_plan.md button in chat)
                     if viewModel.canProceed {
                         Button(action: handleProceed) {
                             HStack(spacing: 6) {
@@ -654,6 +682,7 @@ public struct ChatView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
             }
+            .animation(.easeInOut(duration: 0.2), value: viewModel.isLatestMessageError)
             .animation(.easeInOut(duration: 0.2), value: viewModel.canProceed)
             
             // Image previews strip
@@ -793,6 +822,29 @@ public struct ChatView: View {
     private func insertCommitAndPush() {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         let toAppend = "Commit and Push"
+        if viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            viewModel.inputText = toAppend
+        } else {
+            viewModel.inputText += "\n" + toAppend
+        }
+        isInputFocused = true
+    }
+    
+    private func handleContinue() {
+        guard !viewModel.isSending && !viewModel.isRunning else { return }
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        isInputFocused = false
+        let text = viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let textToSend = text.isEmpty ? "Continue" : "\(text)\nContinue"
+        viewModel.inputText = ""
+        Task {
+            await viewModel.sendMessage(text: textToSend)
+        }
+    }
+    
+    private func insertContinue() {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        let toAppend = "Continue"
         if viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             viewModel.inputText = toAppend
         } else {
