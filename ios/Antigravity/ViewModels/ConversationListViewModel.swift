@@ -32,10 +32,11 @@ public final class ConversationListViewModel {
         self.settings = settings ?? .shared
         self.cacheManager = cacheManager ?? .shared
         
-        // Immediate local cache restore (filtering out subagents)
+        // Immediate local cache restore (filtering out subagents and loading drafts)
+        let drafts = self.cacheManager.loadLocalDraftConversations()
         let cached = self.cacheManager.loadConversations().filter { !$0.isSubagent }
-        if !cached.isEmpty {
-            self.conversations = cached
+        if !cached.isEmpty || !drafts.isEmpty {
+            self.conversations = drafts + cached
             self.cacheManager.prewarmSessions(for: cached.prefix(15).map(\.id))
         }
         
@@ -72,9 +73,10 @@ public final class ConversationListViewModel {
     }
     
     public func reloadFromCache() {
+        let drafts = cacheManager.loadLocalDraftConversations()
         let cached = cacheManager.loadConversations().filter { !$0.isSubagent }
-        if !cached.isEmpty {
-            self.conversations = cached
+        if !cached.isEmpty || !drafts.isEmpty {
+            self.conversations = drafts + cached
         }
     }
     
@@ -109,9 +111,10 @@ public final class ConversationListViewModel {
     @MainActor
     public func fetchConversations(isBackgroundPoll: Bool = false) async {
         if conversations.isEmpty {
+            let drafts = cacheManager.loadLocalDraftConversations()
             let cached = cacheManager.loadConversations().filter { !$0.isSubagent }
-            if !cached.isEmpty {
-                self.conversations = cached
+            if !cached.isEmpty || !drafts.isEmpty {
+                self.conversations = drafts + cached
                 self.cacheManager.prewarmSessions(for: cached.prefix(15).map(\.id))
             }
         }
@@ -138,7 +141,8 @@ public final class ConversationListViewModel {
                 !self.pendingDeleteCascadeIDs.contains(item.id) &&
                 (self.recentlyDeletedIDs[item.id] == nil)
             }
-            self.conversations = cleaned
+            let drafts = cacheManager.loadLocalDraftConversations()
+            self.conversations = drafts + cleaned
             cacheManager.saveConversations(cleaned)
             cacheManager.prewarmSessions(for: cleaned.prefix(15).map(\.id))
             self.isLoading = false
@@ -212,6 +216,13 @@ public final class ConversationListViewModel {
     
     @MainActor
     public func deleteConversation(item: ConversationItem) async {
+        if item.isDraft {
+            cacheManager.deleteLocalDraftSession(id: item.id)
+            cacheManager.clearDraft(key: item.id)
+            self.conversations.removeAll(where: { $0.id == item.id })
+            return
+        }
+        
         guard let url = settings.serverURL else {
             self.errorMessage = "请在设置中配置有效的服务器地址"
             return
@@ -242,6 +253,7 @@ public final class ConversationListViewModel {
     
     @MainActor
     public func renameConversation(item: ConversationItem, newTitle: String) async {
+        guard !item.isDraft else { return }
         let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         guard trimmed != item.title else { return }

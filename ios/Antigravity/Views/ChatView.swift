@@ -14,12 +14,40 @@ public struct ChatView: View {
     @State private var autoFocusTask: Task<Void, Never>? = nil
     
     public init(conversation: ConversationItem, isNewConversation: Bool = false) {
-        let isNewOrEmpty = isNewConversation || conversation.stepCount == 0
-        self.shouldAutoFocus = isNewOrEmpty
+        if conversation.isDraft {
+            self.shouldAutoFocus = true
+            if let draftSession = CacheManager.shared.getLocalDraftSession(id: conversation.id) {
+                _viewModel = State(initialValue: ChatViewModel(draftSession: draftSession))
+            } else if let project = conversation.draftProject {
+                let session = LocalDraftSession(
+                    id: conversation.id,
+                    project: project,
+                    draftText: CacheManager.shared.getDraft(for: conversation.id)
+                )
+                _viewModel = State(initialValue: ChatViewModel(draftSession: session))
+            } else {
+                let isNewOrEmpty = isNewConversation || conversation.stepCount == 0
+                _viewModel = State(initialValue: ChatViewModel(
+                    cascadeId: conversation.id,
+                    initialTitle: conversation.title,
+                    isNewConversation: isNewOrEmpty
+                ))
+            }
+        } else {
+            let isNewOrEmpty = isNewConversation || conversation.stepCount == 0
+            self.shouldAutoFocus = isNewOrEmpty
+            _viewModel = State(initialValue: ChatViewModel(
+                cascadeId: conversation.id,
+                initialTitle: conversation.title,
+                isNewConversation: isNewOrEmpty
+            ))
+        }
+    }
+    
+    public init(draftSession: LocalDraftSession) {
+        self.shouldAutoFocus = true
         _viewModel = State(initialValue: ChatViewModel(
-            cascadeId: conversation.id,
-            initialTitle: conversation.title,
-            isNewConversation: isNewOrEmpty
+            draftSession: draftSession
         ))
     }
     
