@@ -12,7 +12,7 @@
 <p align="center">
   <img src="images/session_list.jpg" alt="Antigravity Mobile 会话列表与分类信号" width="340" />
   &nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="images/native_components.jpg" alt="Antigravity Mobile 原生交互组件与任务监控" width="340" />
+  <img src="images/native_components.jpg" alt="Antigravity Mobile 原生交互组件、后台任务与指令队列" width="340" />
 </p>
 
 ---
@@ -32,13 +32,13 @@
 
 | 层级 | 核心组件 | 关键职责与技术特性 |
 | :--- | :--- | :--- |
-| **📱 移动访问层** | **iOS 原生客户端** (SwiftUI 5) | Swift 6 严格并发、单趟 O(N) LaTeX 渲染、VS Code 文件图标、Gemini 3.8 / Claude 4.6 模型切换、多模态图片上传、排队消息、后台任务监控与终止、交互式审批/Proceed 卡片、全态分类信号 (RUNNING / ERROR / ACTION / 未读小蓝点)、左滑删除与长按重命名、灵动岛 (Live Activity) |
-| | **移动端 PWA / Web** (Vanilla JS) | 零构建打包、嵌入 Go 二进制 (`embed.FS`)、全面对齐 iOS 原生设计系统、自适应安全区与键盘防遮挡、排队消息与后台任务同步、添加到主屏幕 |
+| **📱 移动访问层** | **iOS 原生客户端** (SwiftUI 5) | Swift 6 严格并发、单趟 O(N) LaTeX 渲染、VS Code 文件图标、Markdown 浮窗预览与伴生摘要、实施方案 Proceed 闭环、Gemini 3.8 / Claude 4.6 模型切换、快捷动作胶囊、多模态图片上传、排队指令与自适应输入、后台任务实时管控与终止、交互式审批卡片、全态分类信号 (RUNNING / ERROR / ACTION / 未读小蓝点)、左滑删除与长按重命名、灵动岛 (Live Activity) |
+| | **移动端 PWA / Web** (Vanilla JS) | 零构建打包、嵌入 Go 二进制 (`embed.FS`)、全面对齐 iOS 原生设计系统、自适应安全区与键盘防遮挡、Markdown 浮窗与方案 Proceed 推进、排队消息与后台任务同步、添加到主屏幕 |
 | **⚡ 远程连接与鉴权层** | **IPv6 双栈直连 (Dual-Stack Direct)** | 网关默认监听 IPv4/IPv6 全网卡，公网 IPv6 / DDNS 直连免中继，极低延迟，客户端蜂窝网络 (Cellular) 智能优先路由 |
 | | **二维码扫码配对 (QR Pairing)** | 终端自动生成一次性 `agy://pair` 配对二维码，扫码秒级签发独占 Device Token，存入系统安全存储 (Keychain)，与 IP 完全解耦 |
 | | **Tailscale / 私有 Mesh VPN (备选)** | 点对点加密 WireGuard 网络，无公网 IP 时安全组网互联 |
 | **🖥️ 本地网关层** | **自愈实例探测器 (Inspector)** | 自动嗅探 `language_server` 进程、实时捕获动态端口与鉴权令牌、进程重启零感知毫秒级自愈 |
-| | **ConnectRPC & WebSocket 代理** | 双向流式转发与长连接保活、自动注入 `x-codeium-csrf-token`、内置提供 Web 静态资产与排队追问代理 |
+| | **ConnectRPC & WebSocket 代理** | 双向流式转发与长连接保活、自动注入 `x-codeium-csrf-token`、安全沙箱文件代理 (`/api/v1/files/content`) 与 Brain 伴生元数据解析、内置提供 Web 静态资产与排队追问代理 |
 | | **Cockpit 配额引擎 (Cockpit Engine)** | 实时提取多账号配额数据、支持双模型 5h/Weekly 四象限监控、一键切号与脱敏遮罩 |
 | | **Bark 实时推送守护 (Notification Watcher)** | 后台持续监听 Agent 状态，任务完成/失败/审批拦截/提问/Proceed 自动触发 Bark 实时推送与 DeepLink 唤醒 |
 | **⚙️ 核心引擎层** | **Antigravity Core** | `language_server` 核心智能体进程，运行于 Mac 本地回环 |
