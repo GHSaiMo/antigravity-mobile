@@ -344,6 +344,41 @@ public struct ChatView: View {
             autoFocusTask = nil
             viewModel.disconnectStream()
         }
+        .environment(\.openURL, OpenURLAction { url in
+            let urlString = url.absoluteString
+            let clean = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+            let lower = clean.lowercased()
+            
+            // Check if it's a markdown file, artifact, or planning document
+            if lower.hasSuffix(".md") || lower.hasSuffix(".markdown") ||
+               lower.contains("/brain/") || lower.contains("/static/artifacts/") ||
+               lower.contains("implementation_plan") || lower.contains("walkthrough") {
+                let fileName = (clean as NSString).lastPathComponent
+                viewModel.openMarkdownViewer(uri: clean, title: fileName.isEmpty ? nil : fileName)
+                return .handled
+            }
+            
+            // Let system handle standard web links (http / https)
+            if url.scheme == "http" || url.scheme == "https" {
+                return .systemAction
+            }
+            
+            return .handled
+        })
+        .sheet(item: $viewModel.viewingMarkdownFile) { item in
+            MarkdownViewerSheet(
+                data: item,
+                onDismiss: {
+                    viewModel.closeMarkdownViewer()
+                },
+                onProceed: {
+                    viewModel.proceedFromViewer()
+                },
+                onRetry: {
+                    viewModel.openMarkdownViewer(uri: item.uri, title: item.title)
+                }
+            )
+        }
     }
     
     private var inputBar: some View {
@@ -407,8 +442,32 @@ public struct ChatView: View {
                     }
                     .buttonStyle(.plain)
                     
-                    // 4. Proceed Button
+                    // 4. View Plan & Proceed Buttons
                     if viewModel.canProceed {
+                        Button(action: {
+                            let uri = viewModel.proceedArtifactUri ?? "implementation_plan.md"
+                            viewModel.openMarkdownViewer(uri: uri, title: "implementation_plan.md")
+                        }) {
+                            HStack(spacing: 5) {
+                                Image(systemName: "doc.text.magnifyingglass")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundColor(.blue)
+                                Text("查看方案")
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundColor(.blue)
+                            }
+                            .padding(.horizontal, 12)
+                            .frame(height: 32)
+                            .background(Color.blue.opacity(0.12))
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .stroke(Color.blue.opacity(0.35), lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .transition(.scale(scale: 0.9).combined(with: .opacity))
+                        
                         Button(action: handleProceed) {
                             HStack(spacing: 6) {
                                 Image(systemName: "play.fill")

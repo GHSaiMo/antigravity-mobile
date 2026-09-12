@@ -126,7 +126,18 @@ public struct MarkdownContentView: View {
     private static let linkRegex = try? NSRegularExpression(pattern: #"(?<!\!)\[([^\]]+)\]\(([^)]+)\)"#)
     
     public static func renderRichText(_ rawText: String, size: CGFloat = 15, weight: Font.Weight = .regular) -> Text {
-        let text = MathSymbolProcessor.process(rawText)
+        var text = MathSymbolProcessor.process(rawText)
+        
+        // Auto-link bare implementation_plan.md, walkthrough.md, task.md if not already in markdown link
+        if text.contains("implementation_plan.md") && !text.contains("[implementation_plan.md]") && !text.contains("](implementation_plan.md)") {
+            text = text.replacingOccurrences(of: "implementation_plan.md", with: "[implementation_plan.md](implementation_plan.md)")
+        }
+        if text.contains("walkthrough.md") && !text.contains("[walkthrough.md]") && !text.contains("](walkthrough.md)") {
+            text = text.replacingOccurrences(of: "walkthrough.md", with: "[walkthrough.md](walkthrough.md)")
+        }
+        if text.contains("task.md") && !text.contains("[task.md]") && !text.contains("](task.md)") {
+            text = text.replacingOccurrences(of: "task.md", with: "[task.md](task.md)")
+        }
         
         // Fast-path: If text does not contain markdown link signature `](`, avoid regex inspection entirely
         guard text.contains("[") && text.contains("](") else {

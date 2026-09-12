@@ -972,11 +972,20 @@ let pendingRenderData = null;
 
 function updateProceedButton(canProceed) {
   const proceedBtn = document.getElementById("btn-proceed");
-  if (!proceedBtn) return;
-  if (canProceed) {
-    proceedBtn.classList.remove("hidden");
-  } else {
-    proceedBtn.classList.add("hidden");
+  const viewPlanBtn = document.getElementById("btn-view-plan");
+  if (proceedBtn) {
+    if (canProceed) {
+      proceedBtn.classList.remove("hidden");
+    } else {
+      proceedBtn.classList.add("hidden");
+    }
+  }
+  if (viewPlanBtn) {
+    if (canProceed) {
+      viewPlanBtn.classList.remove("hidden");
+    } else {
+      viewPlanBtn.classList.add("hidden");
+    }
   }
 }
 
@@ -2348,6 +2357,202 @@ async function cancelCurrentTask() {
   }
 }
 
+// --- Markdown File Viewer Sheet ---
+let currentViewerData = null;
+let currentViewerUri = null;
+
+async function fetchFileContent(uri, cascadeId) {
+  const params = new URLSearchParams();
+  if (uri) params.set("uri", uri);
+  if (cascadeId) params.set("cascade_id", cascadeId);
+  const resp = await fetch(`/api/v1/files/content?${params.toString()}`);
+  if (!resp.ok) {
+    let msg = `HTTP ${resp.status}`;
+    try {
+      const err = await resp.json();
+      if (err.error) msg = err.error;
+    } catch (_) {}
+    throw new Error(msg);
+  }
+  return resp.json();
+}
+
+async function openMarkdownViewer(uri, title) {
+  const sheet = document.getElementById("sheet-markdown-viewer");
+  if (!sheet) return;
+
+  currentViewerUri = uri || "implementation_plan.md";
+  currentViewerData = null;
+
+  const titleEl = document.getElementById("md-viewer-title");
+  const subtitleEl = document.getElementById("md-viewer-subtitle");
+  const summaryCard = document.getElementById("md-viewer-summary-card");
+  const summaryText = document.getElementById("md-viewer-summary-text");
+  const loadingEl = document.getElementById("md-viewer-loading");
+  const errorEl = document.getElementById("md-viewer-error");
+  const contentEl = document.getElementById("md-viewer-content");
+  const proceedBar = document.getElementById("md-viewer-proceed-bar");
+
+  // Determine display title & subtitle
+  let displayTitle = title || "实施方案";
+  let displaySubtitle = uri || "implementation_plan.md";
+  const filename = (uri || "").split("/").pop().split("?")[0] || uri;
+  if (filename.includes("implementation_plan")) {
+    displayTitle = "实施方案 (Implementation Plan)";
+  } else if (filename.includes("walkthrough")) {
+    displayTitle = "工作记录 (Walkthrough)";
+  } else if (filename.includes("task")) {
+    displayTitle = "任务清单 (Task List)";
+  }
+  displaySubtitle = filename || displaySubtitle;
+
+  if (titleEl) titleEl.textContent = displayTitle;
+  if (subtitleEl) subtitleEl.textContent = displaySubtitle;
+
+  // Reset state
+  if (summaryCard) summaryCard.classList.add("hidden");
+  if (contentEl) contentEl.innerHTML = "";
+  if (errorEl) errorEl.classList.add("hidden");
+  if (loadingEl) loadingEl.classList.remove("hidden");
+
+  // Initial proceed bar check
+  const isPlan = filename.includes("implementation_plan") || (title && title.includes("实施方案"));
+  if (proceedBar) {
+    if (currentCanProceed && isPlan) {
+      proceedBar.classList.remove("hidden");
+    } else {
+      proceedBar.classList.add("hidden");
+    }
+  }
+
+  sheet.classList.remove("hidden");
+  triggerHaptic("selection");
+
+  try {
+    const data = await fetchFileContent(currentViewerUri, activeCascadeId);
+    currentViewerData = data;
+
+    if (loadingEl) loadingEl.classList.add("hidden");
+
+    if (data.filename && subtitleEl) {
+      subtitleEl.textContent = data.filename;
+    }
+
+    // Render metadata summary if available
+    if (data.summary && summaryCard && summaryText) {
+      summaryText.innerHTML = renderInlineMarkdown(data.summary).replace(/\n/g, "<br/>");
+      summaryCard.classList.remove("hidden");
+    }
+
+    // Render markdown content using chat's rich markdown parser
+    if (contentEl) {
+      contentEl.innerHTML = renderMarkdown(data.content || "");
+    }
+
+    // Check proceed capability
+    if (proceedBar) {
+      const canProceedThis = currentCanProceed && (data.request_feedback || isPlan);
+      if (canProceedThis) {
+        proceedBar.classList.remove("hidden");
+      } else {
+        proceedBar.classList.add("hidden");
+      }
+    }
+  } catch (err) {
+    if (loadingEl) loadingEl.classList.add("hidden");
+    if (errorEl) {
+      errorEl.classList.remove("hidden");
+      const errText = document.getElementById("md-viewer-error-text");
+      if (errText) errText.textContent = `加载失败: ${err.message}`;
+    }
+  }
+}
+
+function closeMarkdownViewer() {
+  const sheet = document.getElementById("sheet-markdown-viewer");
+  if (sheet) {
+    sheet.classList.add("hidden");
+  }
+  currentViewerData = null;
+}
+
+window.openMarkdownViewer = openMarkdownViewer;
+window.closeMarkdownViewer = closeMarkdownViewer;
+
+function initMarkdownViewer() {
+  const sheet = document.getElementById("sheet-markdown-viewer");
+  const closeBtn = document.getElementById("btn-md-viewer-close");
+  const copyBtn = document.getElementById("btn-md-viewer-copy");
+  const retryBtn = document.getElementById("btn-md-viewer-retry");
+  const proceedBtn = document.getElementById("btn-md-viewer-proceed");
+  const viewPlanBtn = document.getElementById("btn-view-plan");
+
+  closeBtn?.addEventListener("click", closeMarkdownViewer);
+
+  sheet?.addEventListener("click", (e) => {
+    if (e.target === sheet) {
+      closeMarkdownViewer();
+    }
+  });
+
+  copyBtn?.addEventListener("click", async () => {
+    if (!currentViewerData || !currentViewerData.content) return;
+    try {
+      await navigator.clipboard.writeText(currentViewerData.content);
+      copyBtn.textContent = "已复制";
+      setTimeout(() => {
+        copyBtn.textContent = "复制";
+      }, 1500);
+    } catch (_) {
+      alert("复制失败");
+    }
+  });
+
+  retryBtn?.addEventListener("click", () => {
+    if (currentViewerUri) {
+      openMarkdownViewer(currentViewerUri);
+    }
+  });
+
+  proceedBtn?.addEventListener("click", () => {
+    closeMarkdownViewer();
+    handleProceed();
+  });
+
+  viewPlanBtn?.addEventListener("click", () => {
+    openMarkdownViewer("implementation_plan.md", "实施方案 (Implementation Plan)");
+  });
+
+  // Delegated click on document for any markdown file links
+  document.addEventListener("click", (e) => {
+    const link = e.target.closest("a");
+    if (!link) return;
+
+    const dataMdUrl = link.getAttribute("data-md-url");
+    const href = link.getAttribute("href") || "";
+
+    let isLocalMd = !!dataMdUrl || link.classList.contains("markdown-file-link");
+    if (!isLocalMd) {
+      const lower = href.toLowerCase();
+      const isHttp = lower.startsWith("http://") || lower.startsWith("https://");
+      const isExternal = isHttp && !lower.includes(window.location.host);
+      if (!isExternal) {
+        if (lower.endsWith(".md") || lower.endsWith(".markdown") || lower.includes("/brain/") || lower.includes("/static/artifacts/")) {
+          isLocalMd = true;
+        }
+      }
+    }
+
+    if (isLocalMd) {
+      e.preventDefault();
+      e.stopPropagation();
+      const targetUrl = dataMdUrl || href;
+      const targetTitle = link.getAttribute("data-md-title") || link.textContent.trim() || "Markdown 文档";
+      openMarkdownViewer(targetUrl, targetTitle);
+    }
+  });
+}
+
 // --- iOS Bottom Sheets (New Conversation & Settings) ---
 
 let discoveredProjects = [];
@@ -2876,6 +3081,16 @@ function processMathSymbols(text) {
 
 function renderInlineMarkdown(text) {
   if (!text) return "";
+  if (text.includes("implementation_plan.md") && !text.includes("[implementation_plan.md]") && !text.includes("](implementation_plan.md)")) {
+    text = text.replace(/implementation_plan\.md/g, "[implementation_plan.md](implementation_plan.md)");
+  }
+  if (text.includes("walkthrough.md") && !text.includes("[walkthrough.md]") && !text.includes("](walkthrough.md)")) {
+    text = text.replace(/walkthrough\.md/g, "[walkthrough.md](walkthrough.md)");
+  }
+  if (text.includes("task.md") && !text.includes("[task.md]") && !text.includes("](task.md)")) {
+    text = text.replace(/task\.md/g, "[task.md](task.md)");
+  }
+
   let html = escapeHtml(text);
 
   // Images (only allow safe URL protocols)
@@ -2888,10 +3103,13 @@ function renderInlineMarkdown(text) {
   html = html.replace(/(?<!\!)\[([^\]]+)\]\(([^)]+)\)/g, (_, linkText, url) => {
     if (!isSafeURL(url)) return `${linkText}`;
     const icon = resolveFileIcon(linkText) || resolveFileIcon(url);
+    const lower = url.toLowerCase();
+    const isMd = lower.endsWith(".md") || lower.endsWith(".markdown") || lower.includes("/brain/") || lower.includes("implementation_plan");
+    const extraClass = isMd ? " markdown-file-link" : "";
     if (icon) {
-      return `<a href="${url}" class="file-link" target="_blank" rel="noopener noreferrer"><img src="/icons/files/${icon}.svg" class="file-icon" alt="" /><span>${linkText}</span></a>`;
+      return `<a href="${url}" class="file-link${extraClass}" data-md-url="${url}" data-md-title="${escapeHtml(linkText)}"><img src="/icons/files/${icon}.svg" class="file-icon" alt="" /><span>${linkText}</span></a>`;
     }
-    return `<a href="${url}" class="text-link" target="_blank" rel="noopener noreferrer">${linkText}</a>`;
+    return `<a href="${url}" class="text-link${extraClass}" data-md-url="${url}" data-md-title="${escapeHtml(linkText)}">${linkText}</a>`;
   });
 
   // Inline code (e.g. `foo`)
@@ -3436,6 +3654,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
   renderRoute();
   initQuotaModule();
+  initMarkdownViewer();
 });
 
 // ==========================================================================
