@@ -37,6 +37,48 @@ let currentTrajectories = {};
 let availableModels = [];
 const sessionStepsCache = {};
 
+// --- Session Drafts Manager ---
+const DraftManager = {
+  get(cascadeId) {
+    if (!cascadeId) return "";
+    const drafts = this.getAll();
+    return drafts[cascadeId] || "";
+  },
+  has(cascadeId) {
+    if (!cascadeId) return false;
+    return !!this.get(cascadeId).trim();
+  },
+  set(cascadeId, text) {
+    if (!cascadeId) return;
+    const drafts = this.getAll();
+    if (text && text.trim()) {
+      drafts[cascadeId] = text;
+    } else {
+      delete drafts[cascadeId];
+    }
+    try {
+      localStorage.setItem("agy_session_drafts", JSON.stringify(drafts));
+    } catch (_) {}
+  },
+  clear(cascadeId) {
+    if (!cascadeId) return;
+    const drafts = this.getAll();
+    if (drafts[cascadeId]) {
+      delete drafts[cascadeId];
+      try {
+        localStorage.setItem("agy_session_drafts", JSON.stringify(drafts));
+      } catch (_) {}
+    }
+  },
+  getAll() {
+    try {
+      return JSON.parse(localStorage.getItem("agy_session_drafts") || "{}");
+    } catch (_) {
+      return {};
+    }
+  }
+};
+
 // Active model & Image attachments state
 let activeModel = localStorage.getItem("agy_active_model") || "gemini-3.8-flash-high";
 let pendingImages = []; // [{ id, name, mimeType, base64Data, dataUrl }]
@@ -296,9 +338,16 @@ function renderRoute() {
   const wsText = document.getElementById("chat-workspace-text");
   const chatDot = document.getElementById("chat-status-dot");
 
+  const chatInput = document.getElementById("chat-input");
+
   if (pollTimer) {
     clearInterval(pollTimer);
     pollTimer = null;
+  }
+
+  // Persist draft of previous session before route changes
+  if (activeCascadeId && chatInput) {
+    DraftManager.set(activeCascadeId, chatInput.value);
   }
 
   if (hash.startsWith("#c=")) {
@@ -331,6 +380,16 @@ function renderRoute() {
       hasInitiallyAligned = false;
       prevWasRunning = false;
       updatePendingInteraction(null, false);
+
+      // Restore session draft into chat input
+      if (chatInput) {
+        chatInput.value = DraftManager.get(newCascadeId);
+        chatInput.style.height = "auto";
+        chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + "px";
+        const isRunning = currentTrajectories[activeCascadeId]?.status === "CASCADE_RUN_STATUS_RUNNING";
+        updateChatControls(isRunning, null, false);
+      }
+
       const streamEl = document.getElementById("messages-stream");
       const cached = sessionStepsCache[activeCascadeId];
       if (cached && cached.steps && cached.steps.length > 0) {
@@ -351,6 +410,10 @@ function renderRoute() {
     activeCascadeId = null;
     closeActiveWs();
     updatePendingInteraction(null, false);
+    if (chatInput) {
+      chatInput.value = "";
+      chatInput.style.height = "auto";
+    }
 
     // View toggling with iOS NavigationStack pop
     chatView.classList.remove("active");
@@ -489,7 +552,8 @@ function renderConversationList(summaries) {
       const hasError = !!item.hasError || item.status === "CASCADE_RUN_STATUS_ERROR";
       const hasAction = !hasError && !!item.needsInput;
       const isRunning = !hasError && item.status === "CASCADE_RUN_STATUS_RUNNING" && !hasAction;
-      const isUnread = !hasError && !isRunning && !hasAction && isConversationUnread(item);
+      const hasDraft = !hasError && !hasAction && !isRunning && DraftManager.has(item.id);
+      const isUnread = !hasError && !isRunning && !hasAction && !hasDraft && isConversationUnread(item);
       const unreadDotHtml = isUnread
         ? `<div class="status-unread-dot" title="未读新消息" data-testid="status-unread-dot"><div class="dot-halo"></div><div class="dot-core"></div></div>`
         : "";
@@ -497,7 +561,11 @@ function renderConversationList(summaries) {
         ? `<span class="badge badge-error">error</span>`
         : (hasAction
           ? `<span class="badge badge-action">ACTION</span>`
-          : (isRunning ? `<span class="badge badge-running">RUNNING</span>` : unreadDotHtml));
+          : (isRunning
+            ? `<span class="badge badge-running">RUNNING</span>`
+            : (hasDraft
+              ? `<span class="badge badge-draft">DRAFT</span>`
+              : unreadDotHtml)));
       const title = item.annotations?.title || item.summary || "未命名会话";
       const wsUri = item.workspaceUris?.[0] || item.workspaces?.[0]?.workspaceFolderAbsoluteUri || "";
       const wsName = wsUri.split("/").filter(Boolean).pop() || "workspace";
@@ -700,6 +768,7 @@ async function confirmDeleteConversation() {
   }
 
   delete currentTrajectories[id];
+  DraftManager.clear(id);
 
   try {
     await rpc("DeleteCascadeTrajectory", { cascadeId: id });
@@ -2204,6 +2273,7 @@ async function sendMessage() {
 
   inputEl.value = "";
   inputEl.style.height = "auto";
+  DraftManager.clear(activeCascadeId);
   currentCanProceed = false;
   updateProceedButton(false);
 
@@ -3632,6 +3702,9 @@ window.addEventListener("DOMContentLoaded", () => {
       input.value += "\n" + toAppend;
     }
     input.focus();
+    if (activeCascadeId) {
+      DraftManager.set(activeCascadeId, input.value);
+    }
     if (sendBtn && sendBtn.classList.contains("send-mode")) {
       sendBtn.classList.add("active");
     }
@@ -3684,6 +3757,9 @@ window.addEventListener("DOMContentLoaded", () => {
     chatInput.addEventListener("input", () => {
       chatInput.style.height = "auto";
       chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + "px";
+      if (activeCascadeId) {
+        DraftManager.set(activeCascadeId, chatInput.value);
+      }
       const isRunning = currentTrajectories[activeCascadeId]?.status === "CASCADE_RUN_STATUS_RUNNING";
       updateChatControls(isRunning, null, false);
     });
