@@ -3,6 +3,7 @@ package proxy
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // upstreamAgentMessage represents a pending message received from StreamAgentStateUpdates.
@@ -167,7 +169,17 @@ func extractQueuedMessageText(pam upstreamAgentMessage) string {
 	}
 
 	for _, raw := range rawCandidates {
-		// Try Protobuf-ES Step schema: { "step": { "case": "userInput", "value": { "items": [...] } } }
+		// 1. Try decoding as base64-encoded protobuf binary (ProtoJSON bytes field format)
+		var b64Str string
+		if err := json.Unmarshal(raw, &b64Str); err == nil && len(b64Str) > 0 {
+			if protoBytes, err := base64.StdEncoding.DecodeString(b64Str); err == nil && len(protoBytes) > 0 {
+				if t := extractTextFromProto(protoBytes, 0); t != "" {
+					return t
+				}
+			}
+		}
+
+		// 2. Try Protobuf-ES Step schema: { "step": { "case": "userInput", "value": { "items": [...] } } }
 		var esPayload struct {
 			Step struct {
 				Case  string `json:"case"`
@@ -277,6 +289,79 @@ func findTextInGenericMap(m map[string]interface{}) string {
 			if res := findTextInGenericMap(subMap); res != "" {
 				return res
 			}
+		}
+	}
+	return ""
+}
+
+// extractTextFromProto extracts user input text from raw protobuf bytes (e.g. Step/UserInput).
+func extractTextFromProto(data []byte, depth int) string {
+	if depth > 6 {
+		return ""
+	}
+	idx := 0
+	for idx < len(data) {
+		tag, n := binary.Uvarint(data[idx:])
+		if n <= 0 {
+			break
+		}
+		idx += n
+		fieldNum := tag >> 3
+		wireType := tag & 0x7
+		if wireType == 2 {
+			length, n := binary.Uvarint(data[idx:])
+			if n <= 0 {
+				break
+			}
+			idx += n
+			if idx+int(length) > len(data) {
+				break
+			}
+			val := data[idx : idx+int(length)]
+			idx += int(length)
+
+			// field 19 is user_input in Step
+			if fieldNum == 19 {
+				if t := extractTextFromProto(val, depth+1); t != "" {
+					return t
+				}
+			}
+			// field 2 of user_input is user_response
+			if depth > 0 && fieldNum == 2 && utf8.Valid(val) && len(val) > 0 {
+				s := string(val)
+				if !strings.ContainsRune(s, 0) {
+					return strings.TrimSpace(s)
+				}
+			}
+			// field 3 of user_input is items, field 1 of item is text
+			if depth > 0 && (fieldNum == 3 || fieldNum == 1) {
+				if depth >= 2 && fieldNum == 1 && utf8.Valid(val) && len(val) > 0 {
+					s := string(val)
+					if !strings.ContainsRune(s, 0) {
+						return strings.TrimSpace(s)
+					}
+				}
+				if t := extractTextFromProto(val, depth+1); t != "" {
+					return t
+				}
+			}
+			if depth == 0 {
+				if t := extractTextFromProto(val, depth+1); t != "" {
+					return t
+				}
+			}
+		} else if wireType == 0 {
+			_, n := binary.Uvarint(data[idx:])
+			if n <= 0 {
+				break
+			}
+			idx += n
+		} else if wireType == 1 {
+			idx += 8
+		} else if wireType == 5 {
+			idx += 4
+		} else {
+			break
 		}
 	}
 	return ""
