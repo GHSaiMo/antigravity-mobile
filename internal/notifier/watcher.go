@@ -11,9 +11,10 @@ import (
 )
 
 type sessionTrackingState struct {
-	lastStatus string
-	lastSteps  int
-	title      string
+	lastStatus           string
+	lastSteps            int
+	title                string
+	waitingForBackground bool
 }
 
 // Watcher continuously monitors Antigravity sessions in the background
@@ -75,7 +76,7 @@ func (w *Watcher) scanOnce() int {
 		return 0
 	}
 
-	summaries, err := w.proxy.FetchRawCascadeSummaries()
+	summaries, runningSubagents, err := w.proxy.FetchRawCascadeSummaries()
 	if err != nil || len(summaries) == 0 {
 		return 0
 	}
@@ -111,6 +112,7 @@ func (w *Watcher) scanOnce() int {
 		status, _ := s["status"].(string)
 		steps := extractStepCount(s["stepCount"])
 		title := extractTitle(s)
+		hasSubagent := runningSubagents[id]
 
 		prev, exists := w.knownSessions[id]
 		if !exists {
@@ -124,6 +126,7 @@ func (w *Watcher) scanOnce() int {
 
 		if status == "CASCADE_RUN_STATUS_RUNNING" {
 			runningCount++
+			prev.waitingForBackground = false
 			// Fetch real-time trajectory to check for PendingInteraction or CanProceed
 			details, err := w.proxy.FetchTrajectoryDetails(id, 250*time.Millisecond)
 			if err == nil && details != nil {
@@ -145,7 +148,36 @@ func (w *Watcher) scanOnce() int {
 				} else if (details.Status == "CASCADE_RUN_STATUS_FAILED" || details.Status == "CASCADE_RUN_STATUS_ERROR" || details.HasError) && details.TotalSteps > 0 {
 					_ = w.notifier.NotifyFailed(id, details.Title, details.TotalSteps)
 				} else if (details.Status == "CASCADE_RUN_STATUS_COMPLETED" || details.Status == "CASCADE_RUN_STATUS_IDLE") && details.TotalSteps > 0 {
-					_ = w.notifier.NotifyCompleted(id, details.Title, details.TotalSteps)
+					inProgress, reason := IsCascadeInProgress(details, hasSubagent)
+					if inProgress {
+						log.Printf("[Watcher] ⏳ Session %s entered IDLE but still in progress (%s); suppressing completion notification", id, reason)
+						prev.waitingForBackground = true
+						runningCount++
+					} else {
+						prev.waitingForBackground = false
+						_ = w.notifier.NotifyCompleted(id, details.Title, details.TotalSteps)
+					}
+				}
+			}
+		} else if prev.waitingForBackground {
+			// Session was waiting for background task or transitional step to finish while in IDLE
+			details, err := w.proxy.FetchTrajectoryDetails(id, 250*time.Millisecond)
+			if err == nil && details != nil {
+				inProgress, _ := IsCascadeInProgress(details, hasSubagent)
+				if !inProgress {
+					prev.waitingForBackground = false
+					log.Printf("[Watcher] ✅ Session %s background work completed! Triggering completion notification", id)
+					if details.PendingInteraction != nil {
+						_ = w.notifier.NotifyAction(id, details.Title, details.PendingInteraction)
+					} else if details.CanProceed {
+						_ = w.notifier.NotifyProceed(id, details.Title, details.TotalSteps)
+					} else if (details.Status == "CASCADE_RUN_STATUS_FAILED" || details.Status == "CASCADE_RUN_STATUS_ERROR" || details.HasError) && details.TotalSteps > 0 {
+						_ = w.notifier.NotifyFailed(id, details.Title, details.TotalSteps)
+					} else if details.TotalSteps > 0 {
+						_ = w.notifier.NotifyCompleted(id, details.Title, details.TotalSteps)
+					}
+				} else {
+					runningCount++ // Still waiting, keep scan frequency fast (1500ms)
 				}
 			}
 		}
