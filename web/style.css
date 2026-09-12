@@ -2753,6 +2753,39 @@ body {
   flex-direction: column;
 }
 
+.md-viewer-grabber {
+  width: 38px;
+  height: 5px;
+  background-color: var(--ios-quaternary-label, rgba(120, 120, 128, 0.4));
+  border-radius: 2.5px;
+  margin: 10px auto 6px auto;
+  cursor: grab;
+  touch-action: none;
+}
+
+.md-viewer-header {
+  height: auto;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 16px 10px 16px;
+  border-bottom: 0.5px solid var(--ios-separator-subtle);
+}
+
+.md-viewer-title-group {
+  text-align: center;
+  width: 100%;
+}
+
+.md-viewer-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ios-label);
+  margin: 0;
+  letter-spacing: -0.2px;
+}
+
 .md-viewer-sheet-body {
   padding: 16px;
   overflow-y: auto;

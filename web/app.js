@@ -2465,12 +2465,64 @@ window.closeMarkdownViewer = closeMarkdownViewer;
 
 function initMarkdownViewer() {
   const sheet = document.getElementById("sheet-markdown-viewer");
-  const closeBtn = document.getElementById("btn-md-viewer-close");
+  const cardEl = sheet?.querySelector(".ios-sheet-card");
+  const grabberEl = sheet?.querySelector(".sheet-grabber");
+  const headerEl = sheet?.querySelector(".sheet-header");
   const retryBtn = document.getElementById("btn-md-viewer-retry");
   const proceedBtn = document.getElementById("btn-md-viewer-proceed");
   const viewPlanBtn = document.getElementById("btn-view-plan");
 
-  closeBtn?.addEventListener("click", closeMarkdownViewer);
+  // Pull-down touch gesture to dismiss sheet
+  let pullStartY = 0;
+  let pullCurrentY = 0;
+  let isPullingDown = false;
+
+  function onPullTouchStart(e) {
+    if (e.touches.length === 1) {
+      pullStartY = e.touches[0].clientY;
+      pullCurrentY = pullStartY;
+      isPullingDown = true;
+      if (cardEl) cardEl.style.transition = "none";
+    }
+  }
+
+  function onPullTouchMove(e) {
+    if (!isPullingDown) return;
+    pullCurrentY = e.touches[0].clientY;
+    const dy = pullCurrentY - pullStartY;
+    if (dy > 0 && cardEl) {
+      cardEl.style.transform = `translateY(${dy}px)`;
+    }
+  }
+
+  function onPullTouchEnd() {
+    if (!isPullingDown) return;
+    isPullingDown = false;
+    const dy = pullCurrentY - pullStartY;
+    if (cardEl) {
+      cardEl.style.transition = "transform 0.28s cubic-bezier(0.16, 1, 0.3, 1)";
+      if (dy > 70) {
+        closeMarkdownViewer();
+        setTimeout(() => {
+          cardEl.style.transform = "";
+          cardEl.style.transition = "";
+        }, 300);
+      } else {
+        cardEl.style.transform = "translateY(0)";
+        setTimeout(() => {
+          cardEl.style.transform = "";
+          cardEl.style.transition = "";
+        }, 280);
+      }
+    }
+  }
+
+  grabberEl?.addEventListener("touchstart", onPullTouchStart, { passive: true });
+  grabberEl?.addEventListener("touchmove", onPullTouchMove, { passive: true });
+  grabberEl?.addEventListener("touchend", onPullTouchEnd, { passive: true });
+  headerEl?.addEventListener("touchstart", onPullTouchStart, { passive: true });
+  headerEl?.addEventListener("touchmove", onPullTouchMove, { passive: true });
+  headerEl?.addEventListener("touchend", onPullTouchEnd, { passive: true });
 
   sheet?.addEventListener("click", (e) => {
     if (e.target === sheet) {

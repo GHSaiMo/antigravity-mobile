@@ -395,14 +395,11 @@
     <!-- iOS Bottom Sheet: Markdown File / Plan Viewer -->
     <div id="sheet-markdown-viewer" class="ios-sheet-overlay hidden">
       <div class="ios-sheet-card md-viewer-sheet-card">
-        <div class="sheet-grabber"></div>
-        <div class="sheet-header">
-          <button id="btn-md-viewer-close" class="sheet-header-btn">关闭</button>
-          <div class="sheet-title-group">
-            <h2 id="md-viewer-title" class="sheet-title">Implementation Plan</h2>
-            <span id="md-viewer-subtitle" class="sheet-subtitle">implementation_plan.md</span>
+        <div class="sheet-grabber md-viewer-grabber"></div>
+        <div class="sheet-header md-viewer-header">
+          <div class="sheet-title-group md-viewer-title-group">
+            <h2 id="md-viewer-title" class="sheet-title md-viewer-title">Implementation Plan</h2>
           </div>
-          <div style="width: 44px;"></div>
         </div>
         <div class="sheet-body md-viewer-sheet-body">
           <div id="md-viewer-loading" class="md-viewer-loading">
@@ -465,6 +462,6 @@
     </div>
   </div>
 
-  <script src="/app.js?v=17"></script>
+  <script src="/app.js?v=18"></script>
 </body>
 </html>
