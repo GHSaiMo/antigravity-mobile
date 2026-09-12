@@ -85,6 +85,7 @@ public struct ConversationListView: View {
             }
             .navigationDestination(for: ConversationItem.self) { item in
                 ChatView(conversation: item, isNewConversation: item.stepCount == 0)
+                    .id(item.id)
                     .onAppear {
                         guard !item.isDraft else { return }
                         Task {
@@ -102,6 +103,7 @@ public struct ConversationListView: View {
             }
             .navigationDestination(item: $selectedDraftSession) { session in
                 ChatView(draftSession: session)
+                    .id(session.id)
                     .onDisappear {
                         draftsVersion += 1
                         viewModel.reloadFromCache()
