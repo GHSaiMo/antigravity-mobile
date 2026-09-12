@@ -1038,13 +1038,19 @@ public final class APIClient: Sendable {
         }
     }
     
-    // Download raw file or document (e.g. PPTX, PDF, DOCX, HTML) from Gateway with progress reporting
+    // Download raw file or document (e.g. PPTX, PDF, DOCX, HTML) from Gateway with progress reporting and local caching
     public func downloadFile(
         uri: String,
         cascadeId: String? = nil,
         baseURL: URL,
         onProgress: (@Sendable (Double, Int64, Int64) -> Void)? = nil
     ) async throws -> (localURL: URL, fileName: String) {
+        // Fast-path: Check persistent local cache first
+        let initialFileName = (uri as NSString).lastPathComponent.removingPercentEncoding ?? (uri as NSString).lastPathComponent
+        if !initialFileName.isEmpty, let cached = DocumentCacheManager.shared.getCachedFile(for: uri, fileName: initialFileName) {
+            return (cached, initialFileName)
+        }
+        
         var components = URLComponents(url: baseURL.appendingPathComponent("api/v1/files/raw"), resolvingAgainstBaseURL: false)
         var queryItems: [URLQueryItem] = [URLQueryItem(name: "uri", value: uri)]
         if let cascadeId = cascadeId, !cascadeId.isEmpty {
@@ -1098,22 +1104,16 @@ public final class APIClient: Sendable {
         }
         let resolvedFileName = filename?.isEmpty == false ? filename! : "document"
         
-        let targetDir = FileManager.default.temporaryDirectory.appendingPathComponent("antigravity_docs", isDirectory: true)
-        try? FileManager.default.createDirectory(at: targetDir, withIntermediateDirectories: true)
-        let destinationURL = targetDir.appendingPathComponent(resolvedFileName)
+        // Save persistently to DocumentCacheManager
+        let cachedURL = try DocumentCacheManager.shared.saveToCache(from: tempDownloadedURL, for: uri, fileName: resolvedFileName)
         
-        if FileManager.default.fileExists(atPath: destinationURL.path) {
-            try? FileManager.default.removeItem(at: destinationURL)
-        }
-        try FileManager.default.moveItem(at: tempDownloadedURL, to: destinationURL)
-        
-        let attributes = try? FileManager.default.attributesOfItem(atPath: destinationURL.path)
+        let attributes = try? FileManager.default.attributesOfItem(atPath: cachedURL.path)
         let fileSize = (attributes?[.size] as? Int64) ?? 0
         if fileSize == 0 {
             throw APIError.serverError(statusCode: 500, message: "下载的文件为空")
         }
         
-        return (destinationURL, resolvedFileName)
+        return (cachedURL, resolvedFileName)
     }
 }
 
