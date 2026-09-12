@@ -3,6 +3,7 @@ package proxy
 import (
 	"bytes"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -170,6 +171,23 @@ func TestExtractQueuedMessageText(t *testing.T) {
 	}
 	if txt := extractQueuedMessageText(msg5); txt != "Nested generic prompt" {
 		t.Errorf("expected 'Nested generic prompt', got '%s'", txt)
+	}
+
+	// Case 6: Base64-encoded protobuf binary (ProtoJSON bytes field)
+	// Construct minimal Step message with field 19 (UserInput) -> field 2 (user_response)
+	targetText := "Direct protobuf binary prompt"
+	userInputBytes := append([]byte{18, byte(len(targetText))}, []byte(targetText)...)
+	// Varint for field 19, wire type 2: (19 << 3) | 2 = 154 = 0x9A, 0x01
+	stepBytes := append([]byte{0x9A, 0x01, byte(len(userInputBytes))}, userInputBytes...)
+	b64Data := base64.StdEncoding.EncodeToString(stepBytes)
+	rawJSON, _ := json.Marshal(b64Data)
+
+	msg6 := upstreamAgentMessage{
+		ID:          "6",
+		StepPayload: json.RawMessage(rawJSON),
+	}
+	if txt := extractQueuedMessageText(msg6); txt != targetText {
+		t.Errorf("expected '%s', got '%s'", targetText, txt)
 	}
 }
 
