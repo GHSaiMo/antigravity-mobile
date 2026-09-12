@@ -147,15 +147,22 @@ public final class StreamWebSocketClient {
                 parameters.prohibitExpensivePaths = false
                 parameters.prohibitConstrainedPaths = false
                 
-                // Watchdog: if cellular socket cannot connect within 1.0s, fall back to standard interface
+                // Watchdog: give iOS CommCenter up to 3.5s to wake cellular baseband
                 let work = DispatchWorkItem { [weak self] in
                     guard let self = self, self.status != .connected, !self.isIntentionallyClosed else { return }
-                    print("[StreamWS] Cellular connection attempt timed out (1.0s), falling back to standard interface")
+                    print("[StreamWS] Cellular connection attempt timed out (3.5s)")
                     self.cleanupCurrentSocket()
-                    self.startConnection(useCellular: false)
+                    let cleanHost = (wsURL.host ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
+                    let isIPv6Host = cleanHost.contains(":")
+                    if !isIPv6Host {
+                        // Only fall back to Wi-Fi for domain names; IPv6 cannot be routed over external Wi-Fi
+                        self.startConnection(useCellular: false)
+                    } else {
+                        self.handleConnectionLoss()
+                    }
                 }
                 self.cellularWatchdogWork = work
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3.5, execute: work)
             }
         }
         
@@ -180,30 +187,22 @@ public final class StreamWebSocketClient {
             updateStatus(.connected)
             receiveNextMessage()
         case .waiting(let error):
-            print("[StreamWS] Connection waiting (cellular=\(usedCellular)): \(error)")
-            if usedCellular {
-                let isImmediateFailure: Bool = {
-                    switch error {
-                    case .posix(let code):
-                        return code == .ENETDOWN || code == .ENETUNREACH || code == .EHOSTUNREACH
-                    default:
-                        return false
-                    }
-                }()
-                if isImmediateFailure {
-                    cellularWatchdogWork?.cancel()
-                    cellularWatchdogWork = nil
-                    print("[StreamWS] Cellular interface dormant on Wi-Fi, fast fallback to standard interface")
-                    cleanupCurrentSocket()
-                    startConnection(useCellular: false)
-                }
-            }
+            print("[StreamWS] Connection waiting for baseband wake (cellular=\(usedCellular)): \(error)")
+            // Per Apple docs: .waiting is non-fatal while baseband awakens.
+            // Do not abort immediately on ENETDOWN; allow watchdog to govern timeout.
         case .failed(let error):
             print("[StreamWS] Connection failed (cellular=\(usedCellular)): \(error)")
             if usedCellular && !isIntentionallyClosed {
-                print("[StreamWS] Cellular attempt failed, falling back to standard interface")
+                let cleanHost = (wsURL.host ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
+                let isIPv6Host = cleanHost.contains(":")
                 cleanupCurrentSocket()
-                startConnection(useCellular: false)
+                if !isIPv6Host {
+                    print("[StreamWS] Cellular attempt failed, falling back to standard interface for domain host")
+                    startConnection(useCellular: false)
+                } else {
+                    print("[StreamWS] Cellular attempt failed for IPv6 host, suppressing Wi-Fi fallback")
+                    handleConnectionLoss()
+                }
             } else {
                 handleConnectionLoss()
             }
