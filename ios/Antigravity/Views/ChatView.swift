@@ -112,7 +112,9 @@ public struct ChatView: View {
         .environment(\.openURL, OpenURLAction { url in
             handleURLTap(url)
         })
-        .sheet(item: $viewModel.viewingMarkdownFile) { (item: MarkdownFileViewerData) in
+        .sheet(item: $viewModel.viewingMarkdownFile, onDismiss: {
+            viewModel.closeMarkdownViewer()
+        }) { (item: MarkdownFileViewerData) in
             renderMarkdownViewer(data: item)
         }
     }
@@ -821,12 +823,24 @@ public struct MarkdownViewerSheet: View {
         self.onRetry = onRetry
     }
     
-    private var fileIcon: String? {
-        FileIconResolver.resolveIcon(for: data.title) ?? FileIconResolver.resolveIcon(for: data.uri)
-    }
-    
     public var body: some View {
-        NavigationStack {
+        VStack(spacing: 0) {
+            // Floating grab handle hinting pull-down dismissal
+            Capsule()
+                .fill(Color(uiColor: .tertiaryLabel))
+                .frame(width: 38, height: 5)
+                .padding(.top, 10)
+                .padding(.bottom, 8)
+            
+            // Header title with larger font and no leading icon
+            Text("Implementation Plan")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundColor(.primary)
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, 12)
+            
+            Divider()
+            
             ZStack(alignment: .bottom) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
@@ -873,7 +887,7 @@ public struct MarkdownViewerSheet: View {
                         }
                     }
                     .padding(.horizontal, 16)
-                    .padding(.top, 12)
+                    .padding(.top, 14)
                     .padding(.bottom, data.canProceed ? 90 : 32)
                 }
                 
@@ -918,35 +932,8 @@ public struct MarkdownViewerSheet: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("关闭") {
-                        onDismiss()
-                        dismiss()
-                    }
-                    .font(.system(size: 15, weight: .regular))
-                }
-                
-                ToolbarItem(placement: .principal) {
-                    HStack(spacing: 6) {
-                        if let icon = fileIcon {
-                            Image(icon)
-                                .resizable()
-                                .scaledToFit()
-                                .frame(width: 16, height: 16)
-                        } else {
-                            Image(systemName: "doc.text.fill")
-                                .font(.system(size: 13))
-                                .foregroundColor(.blue)
-                        }
-                        Text("Implementation Plan")
-                            .font(.system(size: 15, weight: .semibold))
-                            .lineLimit(1)
-                    }
-                }
-            }
         }
+        .presentationDragIndicator(.hidden)
     }
 }
 
