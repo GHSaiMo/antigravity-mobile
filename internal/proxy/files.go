@@ -245,6 +245,28 @@ func (p *Proxy) HandleFileRaw(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fileName := filepath.Base(filePath)
+	ext := strings.ToLower(filepath.Ext(filePath))
+	switch ext {
+	case ".pptx":
+		w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.presentationml.presentation")
+	case ".ppt":
+		w.Header().Set("Content-Type", "application/vnd.ms-powerpoint")
+	case ".docx":
+		w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+	case ".doc":
+		w.Header().Set("Content-Type", "application/msword")
+	case ".xlsx":
+		w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	case ".xls":
+		w.Header().Set("Content-Type", "application/vnd.ms-excel")
+	case ".pdf":
+		w.Header().Set("Content-Type", "application/pdf")
+	case ".html", ".htm":
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	case ".key":
+		w.Header().Set("Content-Type", "application/x-iwork-keynote-sffkey")
+	}
+
 	encodedName := url.PathEscape(fileName)
 	w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename*=UTF-8''%s", encodedName))
 
