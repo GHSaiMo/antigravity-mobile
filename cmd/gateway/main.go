@@ -192,6 +192,9 @@ func main() {
 		})
 	})
 
+	// File / Artifact reading endpoint
+	rootMux.HandleFunc("GET /api/v1/files/content", p.HandleFileContent)
+
 	// Proxy routes: APIs, WebSocket, Artifacts, Gateway status
 	rootMux.Handle("/api/", p)
 	rootMux.Handle("/gateway/", p)

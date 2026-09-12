@@ -24,6 +24,24 @@ public struct EmptyResponse: Codable, Sendable {
     public init() {}
 }
 
+public struct FileContentResponse: Codable, Sendable {
+    public let uri: String
+    public let filename: String
+    public let content: String
+    public let summary: String?
+    public let requestFeedback: Bool?
+    public let userFacing: Bool?
+    
+    enum CodingKeys: String, CodingKey {
+        case uri
+        case filename
+        case content
+        case summary
+        case requestFeedback = "request_feedback"
+        case userFacing = "user_facing"
+    }
+}
+
 public struct GatewayStatusResponse: Codable, Sendable {
     public let status: String
     public let upstream: UpstreamInfo?
@@ -979,6 +997,42 @@ public final class APIClient: Sendable {
         guard (200...299).contains(httpResp.statusCode) else {
             let msg = String(data: data, encoding: .utf8) ?? "HTTP \(httpResp.statusCode)"
             throw APIError.serverError(statusCode: httpResp.statusCode, message: msg)
+        }
+    }
+    
+    // Fetch file or artifact content from Gateway
+    public func fetchFileContent(uri: String, cascadeId: String? = nil, baseURL: URL) async throws -> FileContentResponse {
+        var components = URLComponents(url: baseURL.appendingPathComponent("api/v1/files/content"), resolvingAgainstBaseURL: false)
+        var queryItems: [URLQueryItem] = [URLQueryItem(name: "uri", value: uri)]
+        if let cascadeId = cascadeId, !cascadeId.isEmpty {
+            queryItems.append(URLQueryItem(name: "cascade_id", value: cascadeId))
+        }
+        components?.queryItems = queryItems
+        guard let endpoint = components?.url else {
+            throw APIError.invalidURL
+        }
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 15.0
+        
+        let (data, response) = try await transport.send(
+            request: request,
+            preferCellular: AppSettings.shared.preferCellularNetwork
+        )
+        guard let httpResp = response as? HTTPURLResponse else {
+            throw APIError.networkError("Invalid response type")
+        }
+        guard (200...299).contains(httpResp.statusCode) else {
+            if httpResp.statusCode == 401 {
+                NotificationCenter.default.post(name: .deviceTokenRevoked, object: nil)
+            }
+            let msg = String(data: data, encoding: .utf8) ?? "HTTP \(httpResp.statusCode)"
+            throw APIError.serverError(statusCode: httpResp.statusCode, message: msg)
+        }
+        do {
+            return try JSONDecoder().decode(FileContentResponse.self, from: data)
+        } catch {
+            throw APIError.decodingError(error.localizedDescription)
         }
     }
 }
