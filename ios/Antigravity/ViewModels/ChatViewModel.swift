@@ -1132,18 +1132,25 @@ public final class ChatViewModel {
         let cleanURI = uri.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanURI.isEmpty else { return }
         
+        let fileName = (cleanURI as NSString).lastPathComponent
+        let isWalkthrough = cleanURI.lowercased().contains("walkthrough") ||
+                            (title?.lowercased().contains("walkthrough") == true)
+        let isPlan = !isWalkthrough && (
+            cleanURI.lowercased().contains("implementation_plan") ||
+            (title?.lowercased().contains("implementation_plan") == true)
+        )
+        
         let resolvedTitle: String = {
             if let t = title, !t.isEmpty { return t }
-            let fileName = (cleanURI as NSString).lastPathComponent
+            if isWalkthrough { return "Walkthrough" }
+            if isPlan { return "Implementation Plan" }
             if !fileName.isEmpty && fileName != "/" { return fileName }
-            return "实施方案"
+            return "文档详情"
         }()
         
-        let isPlan = resolvedTitle.lowercased().contains("implementation_plan") ||
-                     cleanURI.lowercased().contains("implementation_plan")
         let isProceedActive = self.canProceed && isPlan
         
-        // Prefer proceedArtifactUri if cleanURI is a bare implementation_plan.md or matches plan
+        // Prefer proceedArtifactUri only if it's an implementation_plan
         let targetURI: String = {
             if isPlan, let pUri = self.proceedArtifactUri, !pUri.isEmpty {
                 return pUri
