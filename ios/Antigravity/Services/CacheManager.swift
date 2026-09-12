@@ -484,6 +484,15 @@ public final class CacheManager: @unchecked Sendable {
         lock.lock()
         let oldImages = memDraftImages[key] ?? []
         memDraftImages[key] = images
+        if key.hasPrefix("local_draft_") {
+            ensureLocalDraftSessionsLoaded()
+            if var session = memLocalDraftSessions?[key] {
+                session.draftImages = images
+                session.updatedAt = Date()
+                memLocalDraftSessions?[key] = session
+                persistDraftSessionsToDisk()
+            }
+        }
         lock.unlock()
         
         let dir = draftImagesDir(for: key)
@@ -515,9 +524,18 @@ public final class CacheManager: @unchecked Sendable {
     public func getDraftImages(for key: String) -> [Data] {
         guard !key.isEmpty else { return [] }
         lock.lock()
-        if let mem = memDraftImages[key] {
+        if let mem = memDraftImages[key], !mem.isEmpty {
             lock.unlock()
             return mem
+        }
+        if key.hasPrefix("local_draft_") {
+            ensureLocalDraftSessionsLoaded()
+            if let session = memLocalDraftSessions?[key], !session.draftImages.isEmpty {
+                let imgs = session.draftImages
+                memDraftImages[key] = imgs
+                lock.unlock()
+                return imgs
+            }
         }
         lock.unlock()
         
@@ -540,6 +558,14 @@ public final class CacheManager: @unchecked Sendable {
         }
         lock.lock()
         memDraftImages[key] = loaded
+        if key.hasPrefix("local_draft_") && !loaded.isEmpty {
+            ensureLocalDraftSessionsLoaded()
+            if var session = memLocalDraftSessions?[key], session.draftImages.isEmpty {
+                session.draftImages = loaded
+                memLocalDraftSessions?[key] = session
+                persistDraftSessionsToDisk()
+            }
+        }
         lock.unlock()
         return loaded
     }
@@ -549,8 +575,17 @@ public final class CacheManager: @unchecked Sendable {
         lock.lock()
         if let mem = memDraftImages[key] {
             let count = mem.count
-            lock.unlock()
-            return count > 0
+            if count > 0 {
+                lock.unlock()
+                return true
+            }
+        }
+        if key.hasPrefix("local_draft_") {
+            ensureLocalDraftSessionsLoaded()
+            if let session = memLocalDraftSessions?[key], !session.draftImages.isEmpty {
+                lock.unlock()
+                return true
+            }
         }
         lock.unlock()
         
@@ -568,6 +603,14 @@ public final class CacheManager: @unchecked Sendable {
         lock.lock()
         let hadImages = !(memDraftImages[key]?.isEmpty ?? true)
         memDraftImages.removeValue(forKey: key)
+        if key.hasPrefix("local_draft_") {
+            ensureLocalDraftSessionsLoaded()
+            if var session = memLocalDraftSessions?[key] {
+                session.draftImages = []
+                memLocalDraftSessions?[key] = session
+                persistDraftSessionsToDisk()
+            }
+        }
         lock.unlock()
         
         let dir = draftImagesDir(for: key)
@@ -623,11 +666,15 @@ public final class CacheManager: @unchecked Sendable {
         lock.lock()
         ensureLocalDraftSessionsLoaded()
         let trimmed = session.draftText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let hasImages = hasDraftImages(for: session.id)
+        let hasImages = !session.draftImages.isEmpty || hasDraftImages(for: session.id)
         if trimmed.isEmpty && !hasImages {
             memLocalDraftSessions?.removeValue(forKey: session.id)
         } else {
-            memLocalDraftSessions?[session.id] = session
+            var toSave = session
+            if toSave.draftImages.isEmpty, let mem = memDraftImages[session.id], !mem.isEmpty {
+                toSave.draftImages = mem
+            }
+            memLocalDraftSessions?[session.id] = toSave
         }
         persistDraftSessionsToDisk()
         lock.unlock()
@@ -637,7 +684,14 @@ public final class CacheManager: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         ensureLocalDraftSessionsLoaded()
-        return memLocalDraftSessions?[id]
+        guard var session = memLocalDraftSessions?[id] else { return nil }
+        if session.draftImages.isEmpty {
+            let imgs = memDraftImages[id] ?? []
+            if !imgs.isEmpty {
+                session.draftImages = imgs
+            }
+        }
+        return session
     }
     
     public func loadLocalDraftSessions() -> [LocalDraftSession] {
@@ -647,7 +701,7 @@ public final class CacheManager: @unchecked Sendable {
         guard let dict = memLocalDraftSessions else { return [] }
         return dict.values.filter { session in
             let text = memDrafts[session.id] ?? UserDefaults.standard.string(forKey: "ag_draft_\(session.id)") ?? session.draftText
-            let hasImages = hasDraftImages(for: session.id)
+            let hasImages = !session.draftImages.isEmpty || hasDraftImages(for: session.id)
             return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || hasImages
         }.sorted { $0.updatedAt > $1.updatedAt }
     }
@@ -659,6 +713,9 @@ public final class CacheManager: @unchecked Sendable {
             let text = getDraft(for: session.id)
             if !text.isEmpty {
                 s.draftText = text
+            }
+            if s.draftImages.isEmpty {
+                s.draftImages = getDraftImages(for: session.id)
             }
             return s.toConversationItem()
         }
