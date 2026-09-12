@@ -5,7 +5,7 @@ import SwiftUI
 
 public struct MarkdownFileViewerData: Identifiable, Sendable, Equatable {
     public let id: String
-    public let title: String
+    public var title: String
     public let uri: String
     public var content: String
     public var summary: String?
@@ -34,7 +34,25 @@ public struct MarkdownFileViewerData: Identifiable, Sendable, Equatable {
     }
 }
 
+public struct DocumentActionItem: Identifiable, Sendable, Equatable {
+    public let id: String
+    public let uri: String
+    public let fileName: String
+    public let isPresentation: Bool
+    public let isSpreadsheet: Bool
+    
+    public init(uri: String, fileName: String) {
+        self.id = uri
+        self.uri = uri
+        self.fileName = fileName
+        let lower = fileName.lowercased()
+        self.isPresentation = lower.hasSuffix(".pptx") || lower.hasSuffix(".ppt") || lower.hasSuffix(".key")
+        self.isSpreadsheet = lower.hasSuffix(".xlsx") || lower.hasSuffix(".xls") || lower.hasSuffix(".numbers") || lower.hasSuffix(".csv")
+    }
+}
+
 @Observable
+
 @MainActor
 public final class ChatViewModel {
     public var cascadeId: String
@@ -45,6 +63,7 @@ public final class ChatViewModel {
     public var draftSession: LocalDraftSession?
     
     public var messages: [ChatMessage] = []
+    public var selectedImageData: [Data] = []
     public var inputText: String = "" {
         didSet {
             saveCurrentDraft()
@@ -62,10 +81,22 @@ public final class ChatViewModel {
         return ""
     }
     
+    public func updateDraftImages(_ images: [Data]) {
+        self.selectedImageData = images
+        saveCurrentDraft()
+    }
+    
+    public func removeDraftImage(at index: Int) {
+        guard index < selectedImageData.count else { return }
+        selectedImageData.remove(at: index)
+        saveCurrentDraft()
+    }
+    
     public func saveCurrentDraft() {
         let key = draftKey
         guard !key.isEmpty else { return }
         cacheManager.saveDraft(key: key, text: inputText)
+        cacheManager.saveDraftImages(key: key, images: selectedImageData)
         if let draftSession, key == draftSession.id {
             var updated = draftSession
             updated.draftText = inputText
@@ -97,6 +128,11 @@ public final class ChatViewModel {
     public var runningTasks: [RunningTaskItem] = []
     public var isSending: Bool = false
     public var viewingMarkdownFile: MarkdownFileViewerData? = nil
+    public var selectedDocumentAction: DocumentActionItem? = nil
+    public var quickLookURL: URL? = nil
+    public var sharingURL: URL? = nil
+    public var isDownloadingDocument: Bool = false
+    public var downloadingDocumentName: String = ""
     
     /// ID of the first message of the latest response turn (e.g., tool batch or agent response following the last user message)
     public var latestTurnStartMessageId: String? {
@@ -199,6 +235,7 @@ public final class ChatViewModel {
         
         // Restore draft from local cache
         self.inputText = resolvedCacheManager.getDraft(for: cascadeId)
+        self.selectedImageData = resolvedCacheManager.getDraftImages(for: cascadeId)
         
         // Instant restore from local cache
         if let cached = resolvedCacheManager.loadSession(for: cascadeId) {
@@ -250,6 +287,7 @@ public final class ChatViewModel {
         self.streamClient = StreamWebSocketClient()
         self.activeModel = resolvedSettings.activeModel
         self.inputText = resolvedCacheManager.getDraft(for: "draft_project_\(draftProject.id)")
+        self.selectedImageData = resolvedCacheManager.getDraftImages(for: "draft_project_\(draftProject.id)")
         
         self.setupStreamClient()
     }
@@ -276,6 +314,7 @@ public final class ChatViewModel {
         self.activeModel = resolvedSettings.activeModel
         let existingDraft = resolvedCacheManager.getDraft(for: draftSession.id)
         self.inputText = existingDraft.isEmpty ? draftSession.draftText : existingDraft
+        self.selectedImageData = resolvedCacheManager.getDraftImages(for: draftSession.id)
         
         self.setupStreamClient()
     }
@@ -959,9 +998,12 @@ public final class ChatViewModel {
                 if let dSession = draftSession {
                     self.cacheManager.deleteLocalDraftSession(id: dSession.id)
                     self.cacheManager.clearDraft(key: dSession.id)
+                    self.cacheManager.clearDraftImages(key: dSession.id)
                 }
                 self.cacheManager.clearDraft(key: "draft_project_\(project.id)")
+                self.cacheManager.clearDraftImages(key: "draft_project_\(project.id)")
                 self.cacheManager.clearDraft(key: newCascadeId)
+                self.cacheManager.clearDraftImages(key: newCascadeId)
                 self.cascadeId = newCascadeId
                 self.draftSession = nil
                 self.draftProject = nil
@@ -1019,6 +1061,7 @@ public final class ChatViewModel {
                 // Allow upstream 250ms to register task and update state before first eager sync
                 try? await Task.sleep(nanoseconds: 250_000_000)
                 await self.loadMessages(isBackgroundPoll: true)
+                self.cacheManager.clearDraftImages(key: cascadeId)
             }
             return true
         } catch {
@@ -1203,16 +1246,18 @@ public final class ChatViewModel {
         let cleanURI = uri.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanURI.isEmpty else { return }
         
-        let fileName = (cleanURI as NSString).lastPathComponent
-        let isWalkthrough = cleanURI.lowercased().contains("walkthrough") ||
+        let unescapedURI = cleanURI.removingPercentEncoding ?? cleanURI
+        let rawFileName = (unescapedURI as NSString).lastPathComponent
+        let fileName = rawFileName.removingPercentEncoding ?? rawFileName
+        let isWalkthrough = unescapedURI.lowercased().contains("walkthrough") ||
                             (title?.lowercased().contains("walkthrough") == true)
         let isPlan = !isWalkthrough && (
-            cleanURI.lowercased().contains("implementation_plan") ||
+            unescapedURI.lowercased().contains("implementation_plan") ||
             (title?.lowercased().contains("implementation_plan") == true)
         )
         
         let resolvedTitle: String = {
-            if let t = title, !t.isEmpty { return t }
+            if let t = title?.removingPercentEncoding ?? title, !t.isEmpty { return t }
             if isWalkthrough { return "Walkthrough" }
             if isPlan { return "Implementation Plan" }
             if !fileName.isEmpty && fileName != "/" { return fileName }
@@ -1259,6 +1304,9 @@ public final class ChatViewModel {
                     self.viewingMarkdownFile?.content = resp.content
                     self.viewingMarkdownFile?.summary = resp.summary
                     self.viewingMarkdownFile?.isLoading = false
+                    if !isWalkthrough && !isPlan && !resp.filename.isEmpty {
+                        self.viewingMarkdownFile?.title = resp.filename
+                    }
                     if resp.requestFeedback == true && self.canProceed {
                         self.viewingMarkdownFile?.canProceed = true
                     }
@@ -1284,6 +1332,71 @@ public final class ChatViewModel {
             await self.proceedArtifact()
         }
     }
+    
+    @MainActor
+    public func openDocumentQuickLook(doc: DocumentActionItem) {
+        self.selectedDocumentAction = nil
+        self.isDownloadingDocument = true
+        self.downloadingDocumentName = doc.fileName
+        
+        Task {
+            guard let url = settings.serverURL else {
+                self.isDownloadingDocument = false
+                self.errorMessage = "未连接到网关服务器"
+                return
+            }
+            do {
+                let (localURL, _) = try await apiClient.downloadFile(
+                    uri: doc.uri,
+                    cascadeId: self.cascadeId,
+                    baseURL: url
+                )
+                self.isDownloadingDocument = false
+                self.quickLookURL = localURL
+            } catch {
+                self.isDownloadingDocument = false
+                self.errorMessage = "下载文档失败: \(error.localizedDescription)"
+            }
+        }
+    }
+    
+    @MainActor
+    public func exportDocument(doc: DocumentActionItem) {
+        self.selectedDocumentAction = nil
+        self.isDownloadingDocument = true
+        self.downloadingDocumentName = doc.fileName
+        
+        Task {
+            guard let url = settings.serverURL else {
+                self.isDownloadingDocument = false
+                self.errorMessage = "未连接到网关服务器"
+                return
+            }
+            do {
+                let (localURL, _) = try await apiClient.downloadFile(
+                    uri: doc.uri,
+                    cascadeId: self.cascadeId,
+                    baseURL: url
+                )
+                self.isDownloadingDocument = false
+                self.sharingURL = localURL
+            } catch {
+                self.isDownloadingDocument = false
+                self.errorMessage = "下载文档失败: \(error.localizedDescription)"
+            }
+        }
+    }
+    
+    @MainActor
+    public func closeQuickLook() {
+        self.quickLookURL = nil
+    }
+    
+    @MainActor
+    public func closeSharing() {
+        self.sharingURL = nil
+    }
+
     
     @MainActor
     public func checkAndRefreshTitle() async {
