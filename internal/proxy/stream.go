@@ -27,7 +27,7 @@ type StreamUpdatePayload struct {
 	WorkspaceURI       string               `json:"workspaceUri"`
 	Steps              []TrajectoryStep     `json:"steps"`
 	Messages           []CascadeMessageItem `json:"messages"`
-	QueuedMessages     []QueuedMessageItem  `json:"queuedMessages,omitempty"`
+	QueuedMessages     []QueuedMessageItem  `json:"queuedMessages"`
 	RunningTasks       []RunningTaskItem    `json:"runningTasks,omitempty"`
 	IsFullSnapshot     bool                 `json:"isFullSnapshot"`
 	CascadeConfigRaw   string               `json:"cascadeConfigRaw,omitempty"`

@@ -83,7 +83,7 @@ type CascadeMessagesResponse struct {
 	HasMore            bool                 `json:"hasMore"`
 	NextOffset         int                  `json:"nextOffset"`
 	Messages           []CascadeMessageItem `json:"messages"`
-	QueuedMessages     []QueuedMessageItem  `json:"queuedMessages,omitempty"`
+	QueuedMessages     []QueuedMessageItem  `json:"queuedMessages"`
 	RunningTasks       []RunningTaskItem    `json:"runningTasks,omitempty"`
 	ActiveModel        string               `json:"activeModel,omitempty"`
 	ModelDisplayName   string               `json:"modelDisplayName,omitempty"`
@@ -495,7 +495,7 @@ type TrajectoryDetails struct {
 	WorkspaceURI       string               `json:"workspaceUri"`
 	Steps              []TrajectoryStep     `json:"steps"`
 	AllMessages        []CascadeMessageItem `json:"allMessages"`
-	QueuedMessages     []QueuedMessageItem  `json:"queuedMessages,omitempty"`
+	QueuedMessages     []QueuedMessageItem  `json:"queuedMessages"`
 	RunningTasks       []RunningTaskItem    `json:"runningTasks,omitempty"`
 	ActiveModel        string               `json:"activeModel,omitempty"`
 	ModelDisplayName   string               `json:"modelDisplayName,omitempty"`
@@ -981,7 +981,7 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 		pendingInteraction = nil
 	}
 
-	var queuedMessages []QueuedMessageItem
+	queuedMessages := []QueuedMessageItem{}
 	for _, pam := range rawResp.PendingAgentMessages {
 		text := pam.Content
 		if text == "" && len(pam.StepPayload) > 0 {
