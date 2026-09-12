@@ -28,7 +28,7 @@ public struct NewConversationSheet: View {
                 .fill(Color(uiColor: .tertiaryLabel))
                 .frame(width: 38, height: 5)
                 .padding(.top, 10)
-                .padding(.bottom, 8)
+                .padding(.bottom, 20)
             
             // Header title
             Text("新建会话")
