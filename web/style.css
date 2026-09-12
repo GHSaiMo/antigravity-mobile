@@ -1190,6 +1190,49 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
   flex-shrink: 0;
 }
 
+/* Implementation Plan & Artifact Button in Chat Message */
+.file-link.plan-btn-link,
+.text-link.plan-btn-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(0, 122, 255, 0.12);
+  border: 1px solid rgba(0, 122, 255, 0.35);
+  border-radius: 8px;
+  padding: 3px 9px;
+  margin: 1px 2px;
+  color: var(--ios-blue) !important;
+  font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+  text-decoration: none !important;
+  vertical-align: middle;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  transition: all 0.15s ease;
+}
+
+.file-link.plan-btn-link:hover,
+.text-link.plan-btn-link:hover,
+.file-link.plan-btn-link:active,
+.text-link.plan-btn-link:active {
+  background: rgba(0, 122, 255, 0.22);
+  border-color: rgba(0, 122, 255, 0.55);
+  transform: scale(0.97);
+}
+
+.file-link.plan-btn-link .file-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.plan-btn-link .plan-btn-arrow {
+  opacity: 0.7;
+  flex-shrink: 0;
+  margin-left: 1px;
+}
+
 /* Sticky iOS Chat Input Bar */
 .ios-input-bar {
   background-color: var(--ios-bg);
