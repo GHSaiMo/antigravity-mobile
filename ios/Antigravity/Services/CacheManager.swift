@@ -55,6 +55,10 @@ public nonisolated struct CachedChatSession: Codable, Sendable {
     }
 }
 
+public extension Notification.Name {
+    static let conversationDraftChanged = Notification.Name("com.antigravity.mobile.draftChanged")
+}
+
 public final class CacheManager: @unchecked Sendable {
     public static let shared = CacheManager()
     
@@ -65,6 +69,7 @@ public final class CacheManager: @unchecked Sendable {
     private var memConversations: [ConversationItem]?
     private var memSessions: [String: CachedChatSession] = [:]
     private var memLastViewDates: [String: Date] = [:]
+    private var memDrafts: [String: String] = [:]
     
     public func getLastViewDate(for cascadeId: String) -> Date? {
         lock.lock()
@@ -275,6 +280,7 @@ public final class CacheManager: @unchecked Sendable {
         memSessions.removeValue(forKey: cascadeId)
         memLastViewDates.removeValue(forKey: cascadeId)
         UserDefaults.standard.removeObject(forKey: "ag_last_view_\(cascadeId)")
+        clearDraft(key: cascadeId)
         
         let convFileURL = cacheDir.appendingPathComponent("conversations.json")
         let sessionFileURL = cacheDir.appendingPathComponent("sessions/\(cascadeId).json")
@@ -350,6 +356,7 @@ public final class CacheManager: @unchecked Sendable {
         lock.lock()
         memConversations = nil
         memSessions.removeAll()
+        memDrafts.removeAll()
         lock.unlock()
         
         let targetDir = cacheDir
@@ -357,6 +364,62 @@ public final class CacheManager: @unchecked Sendable {
             let fm = FileManager.default
             try? fm.removeItem(at: targetDir)
             try? fm.createDirectory(at: targetDir.appendingPathComponent("sessions", isDirectory: true), withIntermediateDirectories: true)
+        }
+    }
+    
+    // MARK: - Drafts Cache
+    
+    public func getDraft(for key: String) -> String {
+        guard !key.isEmpty else { return "" }
+        lock.lock()
+        defer { lock.unlock() }
+        if let draft = memDrafts[key] {
+            return draft
+        }
+        if let saved = UserDefaults.standard.string(forKey: "ag_draft_\(key)") {
+            memDrafts[key] = saved
+            return saved
+        }
+        return ""
+    }
+    
+    public func hasDraft(for key: String) -> Bool {
+        return !getDraft(for: key).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+    
+    public func saveDraft(key: String, text: String) {
+        guard !key.isEmpty else { return }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            clearDraft(key: key)
+            return
+        }
+        
+        lock.lock()
+        let old = memDrafts[key]
+        memDrafts[key] = text
+        UserDefaults.standard.set(text, forKey: "ag_draft_\(key)")
+        lock.unlock()
+        
+        if old != text {
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .conversationDraftChanged, object: key)
+            }
+        }
+    }
+    
+    public func clearDraft(key: String) {
+        guard !key.isEmpty else { return }
+        lock.lock()
+        let hadValue = (memDrafts[key] != nil) || (UserDefaults.standard.object(forKey: "ag_draft_\(key)") != nil)
+        memDrafts.removeValue(forKey: key)
+        UserDefaults.standard.removeObject(forKey: "ag_draft_\(key)")
+        lock.unlock()
+        
+        if hadValue {
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .conversationDraftChanged, object: key)
+            }
         }
     }
 }

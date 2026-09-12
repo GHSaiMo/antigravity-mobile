@@ -44,7 +44,27 @@ public final class ChatViewModel {
     public var draftProject: ProjectItem?
     
     public var messages: [ChatMessage] = []
-    public var inputText: String = ""
+    public var inputText: String = "" {
+        didSet {
+            saveCurrentDraft()
+        }
+    }
+    
+    public var draftKey: String {
+        if !cascadeId.isEmpty {
+            return cascadeId
+        } else if let draftProject {
+            return "draft_project_\(draftProject.id)"
+        }
+        return ""
+    }
+    
+    public func saveCurrentDraft() {
+        let key = draftKey
+        guard !key.isEmpty else { return }
+        cacheManager.saveDraft(key: key, text: inputText)
+    }
+    
     public var isLoading: Bool = false
     public var isRunning: Bool = false
     public var stepCount: Int = 0
@@ -167,6 +187,9 @@ public final class ChatViewModel {
         
         self.setupStreamClient()
         
+        // Restore draft from local cache
+        self.inputText = resolvedCacheManager.getDraft(for: cascadeId)
+        
         // Instant restore from local cache
         if let cached = resolvedCacheManager.loadSession(for: cascadeId) {
             let healed = self.sanitizeMessageOrder(cached.messages)
@@ -208,13 +231,14 @@ public final class ChatViewModel {
         self.currentTitle = draftProject.name
         self.isNewConversation = true
         self.draftProject = draftProject
-        let resolvedSettings = settings ?? .shared
+        let resolvedCacheManager = cacheManager ?? .shared
         self.apiClient = apiClient ?? .shared
         self.settings = resolvedSettings
         self.activityManager = ActivityManager.shared
-        self.cacheManager = cacheManager ?? .shared
+        self.cacheManager = resolvedCacheManager
         self.streamClient = StreamWebSocketClient()
         self.activeModel = resolvedSettings.activeModel
+        self.inputText = resolvedCacheManager.getDraft(for: "draft_project_\(draftProject.id)")
         
         self.setupStreamClient()
     }
@@ -798,6 +822,7 @@ public final class ChatViewModel {
             }
             if customText == nil {
                 self.inputText = ""
+                cacheManager.clearDraft(key: draftKey)
             }
             
             // Persist to local cache immediately
