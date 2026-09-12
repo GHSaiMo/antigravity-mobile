@@ -148,7 +148,139 @@ func TestWatcherStateTransitions(t *testing.T) {
 	barkMu.Unlock()
 }
 
+func TestWatcherTransitionalAndBackgroundTaskSuppression(t *testing.T) {
+	var mu sync.Mutex
+	statusVal := "CASCADE_RUN_STATUS_RUNNING"
+	stepCountVal := 20
+	currentResp := "正在调用 ego-browser 刷新雪球有效会话并加载最新 WAF 凭证..."
+	hasRunningTask := true
+
+	mockUpstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		mu.Lock()
+		curStatus := statusVal
+		curSteps := stepCountVal
+		curResp := currentResp
+		curRunning := hasRunningTask
+		mu.Unlock()
+
+		if strings.HasSuffix(r.URL.Path, "/GetAllCascadeTrajectories") {
+			w.Write([]byte(`{
+				"trajectorySummaries": {
+					"cas_test_2": {
+						"summary": "Transitional suppression test",
+						"status": "` + curStatus + `",
+						"stepCount": ` + jsonNumber(curSteps) + `,
+						"lastModifiedTime": "2026-09-12T00:00:00Z"
+					}
+				}
+			}`))
+			return
+		}
+
+		if strings.HasSuffix(r.URL.Path, "/GetCascadeTrajectory") {
+			stepStatus := "CORTEX_STEP_STATUS_DONE"
+			taskDetailsJSON := ""
+			if curRunning {
+				stepStatus = "CORTEX_STEP_STATUS_RUNNING"
+				taskDetailsJSON = `, "taskDetails": {"id": "task-238", "description": "ego-browser nodejs -e '...'"} `
+			}
+
+			w.Write([]byte(`{
+				"status": "` + curStatus + `",
+				"trajectory": {
+					"trajectoryId": "cas_test_2",
+					"cascadeId": "cas_test_2",
+					"steps": [
+						{"type": "CORTEX_STEP_TYPE_USER_INPUT", "status": "CORTEX_STEP_STATUS_DONE"},
+						{"type": "CORTEX_STEP_TYPE_RUN_COMMAND", "status": "` + stepStatus + `"` + taskDetailsJSON + `},
+						{"type": "CORTEX_STEP_TYPE_PLANNER_RESPONSE", "status": "CORTEX_STEP_STATUS_DONE", "plannerResponse": {"response": "` + curResp + `"}}
+					]
+				}
+			}`))
+			return
+		}
+
+		http.NotFound(w, r)
+	}))
+	defer mockUpstream.Close()
+
+	port := mockUpstream.Listener.Addr().(*net.TCPAddr).Port
+
+	var barkRequestCount int
+	var barkMu sync.Mutex
+	mockBark := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		barkMu.Lock()
+		barkRequestCount++
+		barkMu.Unlock()
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"code":200,"message":"success"}`))
+	}))
+	defer mockBark.Close()
+
+	p := proxy.NewProxy(inspector.NewInspector(10 * time.Second))
+	p.SetTestUpstream(port, "test-token")
+
+	notifCfg := config.NotificationConfig{
+		Enabled:      true,
+		BarkEndpoint: mockBark.URL,
+	}
+	notif := NewNotifier(notifCfg)
+	watcher := NewWatcher(p, notif)
+
+	// Step 1: Baseline sync
+	watcher.scanOnce()
+
+	// Step 2: Transition from RUNNING -> IDLE while background task is still RUNNING and message is transitional
+	time.Sleep(300 * time.Millisecond) // expire cache
+	mu.Lock()
+	statusVal = "CASCADE_RUN_STATUS_IDLE"
+	stepCountVal = 21
+	mu.Unlock()
+
+	running := watcher.scanOnce()
+	if running == 0 {
+		t.Errorf("expected runningCount > 0 due to active background task, got %d", running)
+	}
+
+	// Verify notification was SUPPRESSED!
+	barkMu.Lock()
+	if barkRequestCount != 0 {
+		t.Errorf("expected 0 bark notifications while background task is running, got %d", barkRequestCount)
+	}
+	barkMu.Unlock()
+
+	// Step 3: Background task completes! Agent wakes up and provides final response
+	time.Sleep(300 * time.Millisecond) // expire cache
+	mu.Lock()
+	hasRunningTask = false
+	currentResp = "数据已更新完毕，共扫描 50 个组合，其中 3 个净值发生变化。"
+	stepCountVal = 23
+	mu.Unlock()
+
+	running = watcher.scanOnce()
+	if running != 0 {
+		t.Errorf("expected runningCount == 0 after real completion, got %d", running)
+	}
+
+	// Verify notification was DELIVERED upon genuine completion!
+	barkMu.Lock()
+	if barkRequestCount != 1 {
+		t.Errorf("expected exactly 1 bark notification upon genuine completion, got %d", barkRequestCount)
+	}
+	barkMu.Unlock()
+
+	// Step 4: Next scan tick (session still IDLE) must not duplicate
+	running = watcher.scanOnce()
+	barkMu.Lock()
+	if barkRequestCount != 1 {
+		t.Errorf("expected still 1 bark notification, got %d", barkRequestCount)
+	}
+	barkMu.Unlock()
+}
+
 func jsonNumber(n int) string {
 	b, _ := json.Marshal(n)
 	return string(b)
 }
+
