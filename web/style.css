@@ -1284,12 +1284,14 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
   color: var(--ios-indigo);
 }
 
+.chip-continue,
 .chip-proceed {
   background-color: var(--ios-blue);
   border-color: var(--ios-blue);
   color: #ffffff;
   box-shadow: 0 2px 8px rgba(10, 132, 255, 0.35);
 }
+.chip-continue svg,
 .chip-proceed svg {
   color: #ffffff;
 }
