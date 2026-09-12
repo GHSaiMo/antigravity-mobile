@@ -425,6 +425,11 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 			details.Title = t
 		}
 	}
+	if qm := p.GetCachedOrFetchPendingMessages(cascadeID, port, token); qm != nil {
+		details.QueuedMessages = qm
+	} else if details.QueuedMessages == nil {
+		details.QueuedMessages = []QueuedMessageItem{}
+	}
 	totalMsgs := len(details.AllMessages)
 	var sliced []CascadeMessageItem
 	hasMore := false

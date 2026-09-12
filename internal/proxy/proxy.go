@@ -370,6 +370,9 @@ func (p *Proxy) handleRpcProxy(w http.ResponseWriter, r *http.Request) {
 		p.handleDeleteCascadeTrajectory(w, r, rp, reqPath)
 		return
 	}
+	if strings.HasSuffix(reqPath, "/DeleteAgentMessage") && r.Method == http.MethodPost {
+		ClearPendingMessagesCache("")
+	}
 
 	// Clone the request to avoid mutating the original before forwarding
 	fwdReq := r.Clone(r.Context())
@@ -603,6 +606,7 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 
 		if cascadeID != "" {
 			ClearTrajectoryCache(cascadeID)
+			ClearPendingMessagesCache(cascadeID)
 		}
 	}
 

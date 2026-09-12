@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -46,7 +47,15 @@ func (p *StreamUpdatePayload) Fingerprint() string {
 	}
 	queuedKey := fmt.Sprintf("%d", len(p.QueuedMessages))
 	if len(p.QueuedMessages) > 0 {
-		queuedKey = fmt.Sprintf("%d:%s", len(p.QueuedMessages), p.QueuedMessages[len(p.QueuedMessages)-1].ID)
+		var qb strings.Builder
+		qb.WriteString(queuedKey)
+		for _, qm := range p.QueuedMessages {
+			qb.WriteString(";")
+			qb.WriteString(qm.ID)
+			qb.WriteString(":")
+			qb.WriteString(fmt.Sprintf("%d", len(qm.Text)))
+		}
+		queuedKey = qb.String()
 	}
 	tasksKey := fmt.Sprintf("%d", len(p.RunningTasks))
 	if len(p.RunningTasks) > 0 {
@@ -150,6 +159,11 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 					details.Title = t
 				}
 			}
+			if qm := p.GetCachedOrFetchPendingMessages(cascadeID, port, token); qm != nil {
+				details.QueuedMessages = qm
+			} else if details.QueuedMessages == nil {
+				details.QueuedMessages = []QueuedMessageItem{}
+			}
 
 			if sink := p.NotificationSink(); sink != nil {
 				sink.OnTrajectoryUpdate(&details)
@@ -203,8 +217,8 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 
-			// Adjust poll interval dynamically: fast when executing, slower when idle
-			if details.Status == "CASCADE_RUN_STATUS_RUNNING" {
+			// Adjust poll interval dynamically: fast when executing or queued messages exist, slower when idle
+			if details.Status == "CASCADE_RUN_STATUS_RUNNING" || len(details.QueuedMessages) > 0 {
 				ticker.Reset(250 * time.Millisecond)
 			} else {
 				ticker.Reset(1200 * time.Millisecond)
