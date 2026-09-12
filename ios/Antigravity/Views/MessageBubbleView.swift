@@ -79,7 +79,8 @@ public struct MessageBubbleView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 4)
         .sheet(item: $previewImage) { item in
-            ImageViewerSheet(image: item.image)
+            ImageViewerSheet(item: item)
+                .presentationDragIndicator(.hidden)
         }
     }
     
@@ -162,16 +163,21 @@ public struct MessageBubbleView: View {
                     .background(Color(uiColor: .secondarySystemBackground))
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             case .success(let image):
-                image
-                    .resizable()
-                    .scaledToFit()
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(Color.primary.opacity(0.12), lineWidth: 0.8)
-                    )
-                    .shadow(color: Color.black.opacity(0.06), radius: 3, x: 0, y: 1.5)
-                    .frame(maxWidth: 240, maxHeight: 220, alignment: .trailing)
+                Button(action: {
+                    previewImage = IdentifiableImage(url: url)
+                }) {
+                    image
+                        .resizable()
+                        .scaledToFit()
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(Color.primary.opacity(0.12), lineWidth: 0.8)
+                        )
+                        .shadow(color: Color.black.opacity(0.06), radius: 3, x: 0, y: 1.5)
+                        .frame(maxWidth: 240, maxHeight: 220, alignment: .trailing)
+                }
+                .buttonStyle(.plain)
             case .failure:
                 HStack(spacing: 6) {
                     Image(systemName: "photo")
@@ -201,10 +207,15 @@ public struct MessageBubbleView: View {
                                 ProgressView()
                                     .frame(maxWidth: .infinity, minHeight: 120)
                             case .success(let image):
-                                image
-                                    .resizable()
-                                    .scaledToFit()
-                                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                                Button(action: {
+                                    previewImage = IdentifiableImage(url: url)
+                                }) {
+                                    image
+                                        .resizable()
+                                        .scaledToFit()
+                                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                                }
+                                .buttonStyle(.plain)
                             case .failure:
                                 HStack {
                                     Image(systemName: "photo")
@@ -347,45 +358,255 @@ public struct MessageBubbleView: View {
 
 public struct IdentifiableImage: Identifiable {
     public let id = UUID()
-    public let image: UIImage
+    public let image: UIImage?
+    public let url: URL?
     
     public init(image: UIImage) {
         self.image = image
+        self.url = nil
+    }
+    
+    public init(url: URL) {
+        self.image = nil
+        self.url = url
     }
 }
 
 public struct ImageViewerSheet: View {
-    public let image: UIImage
+    public let image: UIImage?
+    public let url: URL?
     @Environment(\.dismiss) private var dismiss
+    
+    @State private var scale: CGFloat = 1.0
+    @State private var lastScale: CGFloat = 1.0
+    @State private var offset: CGSize = .zero
+    @State private var lastOffset: CGSize = .zero
+    @State private var dismissOffset: CGFloat = 0.0
     
     public init(image: UIImage) {
         self.image = image
+        self.url = nil
+    }
+    
+    public init(url: URL) {
+        self.image = nil
+        self.url = url
+    }
+    
+    public init(item: IdentifiableImage) {
+        self.image = item.image
+        self.url = item.url
     }
     
     public var body: some View {
         NavigationStack {
-            ZStack {
-                Color.black.ignoresSafeArea()
+            GeometryReader { proxy in
+                let containerWidth = proxy.size.width
+                let containerHeight = proxy.size.height
                 
-                ScrollView([.horizontal, .vertical], showsIndicators: false) {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .padding()
+                let fittedSize: CGSize = {
+                    if let img = image, img.size.width > 0, img.size.height > 0 {
+                        let widthRatio = containerWidth / img.size.width
+                        let heightRatio = containerHeight / img.size.height
+                        let fitScale = min(widthRatio, heightRatio)
+                        return CGSize(
+                            width: max(1, img.size.width * fitScale),
+                            height: max(1, img.size.height * fitScale)
+                        )
+                    }
+                    return CGSize(width: containerWidth, height: containerHeight)
+                }()
+                
+                ZStack {
+                    Color.black
+                        .opacity(max(0.35, 1.0 - Double(dismissOffset / 400.0)))
+                        .ignoresSafeArea()
+                    
+                    Group {
+                        if let image = image {
+                            Image(uiImage: image)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: fittedSize.width, height: fittedSize.height)
+                        } else if let url = url {
+                            AsyncImage(url: url) { phase in
+                                switch phase {
+                                case .empty:
+                                    ProgressView()
+                                        .tint(.white)
+                                case .success(let img):
+                                    img
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fit)
+                                        .frame(maxWidth: containerWidth, maxHeight: containerHeight)
+                                case .failure:
+                                    VStack(spacing: 8) {
+                                        Image(systemName: "photo")
+                                            .font(.largeTitle)
+                                            .foregroundColor(.white.opacity(0.6))
+                                        Text("图片加载失败")
+                                            .font(.subheadline)
+                                            .foregroundColor(.white.opacity(0.8))
+                                    }
+                                @unknown default:
+                                    EmptyView()
+                                }
+                            }
+                        }
+                    }
+                    .scaleEffect(scale)
+                    .offset(x: offset.width, y: offset.height + dismissOffset)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .gesture(
+                    magnificationGesture(containerSize: proxy.size, fittedSize: fittedSize)
+                        .simultaneously(with: dragGesture(containerSize: proxy.size, fittedSize: fittedSize))
+                )
+                .onTapGesture(count: 2) {
+                    handleDoubleTap()
                 }
             }
             .navigationTitle("图片详情")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                if scale > 1.05 {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button(action: {
+                            handleDoubleTap()
+                        }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "arrow.counterclockwise")
+                                    .font(.system(size: 11, weight: .semibold))
+                                Text(String(format: "%.1fx 还原", scale))
+                                    .font(.system(size: 12.5, weight: .medium))
+                            }
+                            .foregroundColor(.white.opacity(0.9))
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 4)
+                            .background(Color.white.opacity(0.18))
+                            .clipShape(Capsule())
+                        }
+                    }
+                }
+                
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(action: { dismiss() }) {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 20))
+                            .font(.system(size: 22))
                             .foregroundColor(.white.opacity(0.85))
                     }
                 }
             }
             .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarBackground(Color.black.opacity(0.75), for: .navigationBar)
+        }
+    }
+    
+    private func magnificationGesture(containerSize: CGSize, fittedSize: CGSize) -> some Gesture {
+        MagnificationGesture()
+            .onChanged { value in
+                let newScale = lastScale * value
+                scale = max(0.8, min(newScale, 5.0))
+            }
+            .onEnded { _ in
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                    if scale < 1.0 {
+                        scale = 1.0
+                        lastScale = 1.0
+                        offset = .zero
+                        lastOffset = .zero
+                    } else if scale > 5.0 {
+                        scale = 5.0
+                        lastScale = 5.0
+                        clampOffset(containerSize: containerSize, fittedSize: fittedSize)
+                    } else {
+                        lastScale = scale
+                        clampOffset(containerSize: containerSize, fittedSize: fittedSize)
+                    }
+                }
+            }
+    }
+    
+    private func dragGesture(containerSize: CGSize, fittedSize: CGSize) -> some Gesture {
+        DragGesture()
+            .onChanged { value in
+                if scale > 1.01 {
+                    let maxOffsetX = max(0, (fittedSize.width * scale - containerSize.width) / 2)
+                    let maxOffsetY = max(0, (fittedSize.height * scale - containerSize.height) / 2)
+                    
+                    let proposedX = lastOffset.width + value.translation.width
+                    let proposedY = lastOffset.height + value.translation.height
+                    
+                    let clampedX: CGFloat
+                    if proposedX > maxOffsetX {
+                        clampedX = maxOffsetX + (proposedX - maxOffsetX) * 0.3
+                    } else if proposedX < -maxOffsetX {
+                        clampedX = -maxOffsetX + (proposedX - (-maxOffsetX)) * 0.3
+                    } else {
+                        clampedX = proposedX
+                    }
+                    
+                    let clampedY: CGFloat
+                    if proposedY > maxOffsetY {
+                        clampedY = maxOffsetY + (proposedY - maxOffsetY) * 0.3
+                    } else if proposedY < -maxOffsetY {
+                        clampedY = -maxOffsetY + (proposedY - (-maxOffsetY)) * 0.3
+                    } else {
+                        clampedY = proposedY
+                    }
+                    
+                    offset = CGSize(width: clampedX, height: clampedY)
+                } else {
+                    if value.translation.height > 0 {
+                        dismissOffset = value.translation.height
+                    }
+                }
+            }
+            .onEnded { value in
+                if scale > 1.01 {
+                    withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                        clampOffset(containerSize: containerSize, fittedSize: fittedSize)
+                    }
+                } else {
+                    if value.translation.height > 90 || value.predictedEndTranslation.height > 200 {
+                        dismiss()
+                    } else {
+                        withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                            dismissOffset = 0
+                        }
+                    }
+                }
+            }
+    }
+    
+    private func clampOffset(containerSize: CGSize, fittedSize: CGSize) {
+        let maxOffsetX = max(0, (fittedSize.width * scale - containerSize.width) / 2)
+        let maxOffsetY = max(0, (fittedSize.height * scale - containerSize.height) / 2)
+        
+        let clampedX = min(maxOffsetX, max(-maxOffsetX, offset.width))
+        let clampedY = min(maxOffsetY, max(-maxOffsetY, offset.height))
+        
+        offset = CGSize(width: clampedX, height: clampedY)
+        lastOffset = offset
+    }
+    
+    private func handleDoubleTap() {
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+            if scale > 1.05 {
+                scale = 1.0
+                lastScale = 1.0
+                offset = .zero
+                lastOffset = .zero
+                dismissOffset = 0
+            } else {
+                scale = 2.5
+                lastScale = 2.5
+                offset = .zero
+                lastOffset = .zero
+                dismissOffset = 0
+            }
         }
     }
 }

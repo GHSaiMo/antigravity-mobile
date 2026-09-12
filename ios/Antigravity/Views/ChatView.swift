@@ -481,32 +481,8 @@ public struct ChatView: View {
                     }
                     .buttonStyle(.plain)
                     
-                    // 4. View Plan & Proceed Buttons
+                    // 4. Proceed Button (Plan is opened directly via implementation_plan.md button in chat)
                     if viewModel.canProceed {
-                        Button(action: {
-                            let uri = viewModel.proceedArtifactUri ?? "implementation_plan.md"
-                            viewModel.openMarkdownViewer(uri: uri, title: "Implementation Plan")
-                        }) {
-                            HStack(spacing: 5) {
-                                Image(systemName: "doc.text.magnifyingglass")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundColor(.blue)
-                                Text("查看方案")
-                                    .font(.system(size: 13, weight: .medium))
-                                    .foregroundColor(.blue)
-                            }
-                            .padding(.horizontal, 12)
-                            .frame(height: 32)
-                            .background(Color.blue.opacity(0.12))
-                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .stroke(Color.blue.opacity(0.35), lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .transition(.scale(scale: 0.9).combined(with: .opacity))
-                        
                         Button(action: handleProceed) {
                             HStack(spacing: 6) {
                                 Image(systemName: "play.fill")

@@ -180,10 +180,34 @@ public final class ConversationListViewModel {
     @MainActor
     public func refreshCockpitQuotas() async throws {
         guard let url = settings.serverURL else { return }
-        _ = try? await apiClient.refreshCockpitQuotas(baseURL: url)
-        let res = try await apiClient.fetchCockpitQuotas(baseURL: url)
-        self.quotaResponse = res
-        self.lastQuotaFetchTime = Date()
+        let initialUpdatedAt = self.quotaResponse?.updatedAt ?? 0
+        
+        // 1. Trigger refresh on gateway (gateway will wait up to 10s for updates)
+        let directRes = try? await apiClient.refreshCockpitQuotas(baseURL: url)
+        if let direct = directRes, direct.updatedAt > initialUpdatedAt {
+            self.quotaResponse = direct
+            self.lastQuotaFetchTime = Date()
+            return
+        }
+        
+        // 2. Poll for updated data if background batch refresh across accounts takes longer
+        let startTime = Date()
+        while Date().timeIntervalSince(startTime) < 20 {
+            try await Task.sleep(nanoseconds: 1_500_000_000)
+            if let res = try? await apiClient.fetchCockpitQuotas(baseURL: url) {
+                if res.updatedAt > initialUpdatedAt {
+                    self.quotaResponse = res
+                    self.lastQuotaFetchTime = Date()
+                    return
+                }
+            }
+        }
+        
+        // Final fallback fetch
+        if let res = try? await apiClient.fetchCockpitQuotas(baseURL: url) {
+            self.quotaResponse = res
+            self.lastQuotaFetchTime = Date()
+        }
     }
     
     @MainActor

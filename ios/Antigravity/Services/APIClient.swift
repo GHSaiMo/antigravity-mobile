@@ -931,11 +931,12 @@ public final class APIClient: Sendable {
     }
     
     // Trigger Cockpit Quota Refresh
-    public func refreshCockpitQuotas(baseURL: URL) async throws {
+    @discardableResult
+    public func refreshCockpitQuotas(baseURL: URL) async throws -> CockpitQuotaResponse? {
         let endpoint = baseURL.appendingPathComponent("api/v1/cockpit/refresh")
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
-        request.timeoutInterval = 10
+        request.timeoutInterval = 12
         
         let (data, response) = try await transport.send(
             request: request,
@@ -948,6 +949,7 @@ public final class APIClient: Sendable {
             let msg = String(data: data, encoding: .utf8) ?? "HTTP \(httpResp.statusCode)"
             throw APIError.serverError(statusCode: httpResp.statusCode, message: msg)
         }
+        return try? JSONDecoder().decode(CockpitQuotaResponse.self, from: data)
     }
     
     // Switch Cockpit Active Account

@@ -147,6 +147,9 @@ func main() {
 	rootMux.HandleFunc("/api/v1/devices/", authHandler.HandleDevices)
 	rootMux.HandleFunc("/api/v1/devices", authHandler.HandleDevices)
 
+	// Start Cockpit quota auto-refresher (every 10 minutes)
+	cockpit.StartQuotaAutoRefresher(watcherCtx, 10*time.Minute)
+
 	// Cockpit endpoints
 	rootMux.HandleFunc("GET /api/v1/cockpit/quotas", func(w http.ResponseWriter, r *http.Request) {
 		liveEmail, _, _ := p.GetActiveUserStatus()
@@ -160,14 +163,15 @@ func main() {
 	})
 	rootMux.HandleFunc("POST /api/v1/cockpit/refresh", func(w http.ResponseWriter, r *http.Request) {
 		log.Println("[Cockpit] Triggering quota refresh...")
-		err := cockpit.TriggerRefresh()
+		liveEmail, _, _ := p.GetActiveUserStatus()
+		quotas, err := cockpit.RefreshQuotas(liveEmail)
 		if err != nil {
-			log.Printf("[Cockpit] TriggerRefresh failed: %v", err)
+			log.Printf("[Cockpit] RefreshQuotas failed: %v", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
-		log.Println("[Cockpit] Quota refresh triggered successfully")
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "message": "refresh triggered"})
+		log.Println("[Cockpit] Quota refresh completed successfully")
+		writeJSON(w, http.StatusOK, quotas)
 	})
 	rootMux.HandleFunc("POST /api/v1/cockpit/switch", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
