@@ -358,8 +358,9 @@ public final class ChatViewModel {
             self.duration = cached.duration
             self.stepCount = cached.stepCount
             self.totalTools = cached.totalTools
-            self.hasMore = cached.hasMore
-            self.nextOffset = cached.nextOffset
+            let hasEarliest = healed.contains(where: { self.extractStepIndex(from: $0.id) == 0 })
+            self.hasMore = hasEarliest ? false : cached.hasMore
+            self.nextOffset = hasEarliest ? 0 : cached.nextOffset
             self.isRunning = (cached.status == "CASCADE_RUN_STATUS_RUNNING")
             let lastUserIdx = healed.lastIndex(where: { $0.isUser }) ?? -1
             let latestTurn = lastUserIdx >= 0 ? healed.suffix(from: lastUserIdx + 1) : healed[...]
@@ -464,8 +465,9 @@ public final class ChatViewModel {
             self.duration = cached.duration
             self.stepCount = cached.stepCount
             self.totalTools = cached.totalTools
-            self.hasMore = cached.hasMore
-            self.nextOffset = cached.nextOffset
+            let hasEarliest = healed.contains(where: { self.extractStepIndex(from: $0.id) == 0 })
+            self.hasMore = hasEarliest ? false : cached.hasMore
+            self.nextOffset = hasEarliest ? 0 : cached.nextOffset
             self.isRunning = (cached.status == "CASCADE_RUN_STATUS_RUNNING")
             self.cascadeConfigRaw = cached.cascadeConfigRaw
             self.canProceed = false
@@ -520,14 +522,23 @@ public final class ChatViewModel {
             
             if (isBackgroundPoll || self.pendingOptimisticMessageId != nil) && !self.messages.isEmpty {
                 self.mergeIncomingMessages(result.messages)
+                if self.messages.contains(where: { self.extractStepIndex(from: $0.id) == 0 }) {
+                    self.hasMore = false
+                    self.nextOffset = 0
+                }
             } else if !self.messages.isEmpty && self.messages.count > result.messages.count {
                 // Preserves cached/expanded history rather than truncating all older messages
                 self.mergeIncomingMessages(result.messages)
+                if self.messages.contains(where: { self.extractStepIndex(from: $0.id) == 0 }) {
+                    self.hasMore = false
+                    self.nextOffset = 0
+                }
             } else {
                 let healed = self.sanitizeMessageOrder(result.messages)
                 self.messages = healed
-                self.hasMore = result.hasMore
-                self.nextOffset = result.nextOffset
+                let hasEarliest = healed.contains(where: { self.extractStepIndex(from: $0.id) == 0 })
+                self.hasMore = hasEarliest ? false : result.hasMore
+                self.nextOffset = hasEarliest ? 0 : result.nextOffset
                 if self.pendingOptimisticMessageId == nil {
                     self.knownServerMessageIds = Set(healed.map(\.id))
                 }
@@ -706,6 +717,11 @@ public final class ChatViewModel {
     @MainActor
     public func loadOlderMessages() async {
         guard hasMore, !isLoadingOlder, let url = settings.serverURL else { return }
+        if messages.contains(where: { extractStepIndex(from: $0.id) == 0 }) {
+            self.hasMore = false
+            self.nextOffset = 0
+            return
+        }
         isLoadingOlder = true
         do {
             let result = try await apiClient.fetchMessages(
@@ -723,9 +739,19 @@ public final class ChatViewModel {
                     self.cacheManager.updateConversationTitle(cascadeId: self.cascadeId, newTitle: title)
                 }
             }
-            self.messages = result.messages + self.messages
-            self.hasMore = result.hasMore
-            self.nextOffset = result.nextOffset
+            let existingIds = Set(self.messages.map(\.id))
+            let uniqueOlder = result.messages.filter { !existingIds.contains($0.id) }
+            let combined = uniqueOlder + self.messages
+            self.messages = sanitizeMessageOrder(combined)
+            
+            let hasEarliest = self.messages.contains(where: { self.extractStepIndex(from: $0.id) == 0 })
+            if !result.hasMore || uniqueOlder.isEmpty || result.nextOffset <= 0 || hasEarliest {
+                self.hasMore = false
+                self.nextOffset = 0
+            } else {
+                self.hasMore = result.hasMore
+                self.nextOffset = result.nextOffset
+            }
             self.isLoadingOlder = false
             
             // Persist expanded message stream to cache
@@ -822,8 +848,9 @@ public final class ChatViewModel {
         }
         
         self.messages = fullList
-        self.hasMore = hasMore
-        self.nextOffset = nextOffset
+        let hasEarliest = fullList.contains(where: { self.extractStepIndex(from: $0.id) == 0 })
+        self.hasMore = hasEarliest ? false : hasMore
+        self.nextOffset = hasEarliest ? 0 : nextOffset
         if self.pendingOptimisticMessageId == nil {
             self.knownServerMessageIds = Set(fullList.map(\.id))
         }
@@ -1835,7 +1862,10 @@ public final class ChatViewModel {
                 )
             } else {
                 self.mergeIncomingMessages(parsedMessages)
-                if let hm = payload.hasMore, !self.isLoadingOlder && !hasExpandedHistory {
+                if self.messages.contains(where: { self.extractStepIndex(from: $0.id) == 0 }) {
+                    self.hasMore = false
+                    self.nextOffset = 0
+                } else if let hm = payload.hasMore, !self.isLoadingOlder && !hasExpandedHistory {
                     self.hasMore = hm
                     if let no = payload.nextOffset {
                         self.nextOffset = no

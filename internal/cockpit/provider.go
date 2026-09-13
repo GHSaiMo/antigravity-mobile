@@ -55,8 +55,28 @@ type accountsIndex struct {
 }
 
 type cockpitConfig struct {
-	ReportPort  int    `json:"report_port"`
-	ReportToken string `json:"report_token"`
+	ReportPort         int    `json:"report_port"`
+	ReportToken        string `json:"report_token"`
+	AutoRefreshMinutes int    `json:"auto_refresh_minutes"`
+}
+
+// GetAutoRefreshInterval reads the configured auto_refresh_minutes from ~/.antigravity_cockpit/config.json.
+// If not configured or invalid, returns defaultInterval.
+func GetAutoRefreshInterval(defaultInterval time.Duration) time.Duration {
+	dataDir, err := GetCockpitDataDir()
+	if err != nil {
+		return defaultInterval
+	}
+	configFile := filepath.Join(dataDir, "config.json")
+	cfgBytes, err := os.ReadFile(configFile)
+	if err != nil {
+		return defaultInterval
+	}
+	var cfg cockpitConfig
+	if err := json.Unmarshal(cfgBytes, &cfg); err == nil && cfg.AutoRefreshMinutes > 0 {
+		return time.Duration(cfg.AutoRefreshMinutes) * time.Minute
+	}
+	return defaultInterval
 }
 
 type cachePayload struct {
@@ -339,7 +359,7 @@ func TriggerRefresh() error {
 		if err := json.Unmarshal(cfgBytes, &cfg); err == nil && cfg.ReportPort > 0 && cfg.ReportToken != "" {
 			go func(port int, token string) {
 				url := fmt.Sprintf("http://127.0.0.1:%d/report?token=%s&format=yaml", port, token)
-				client := &http.Client{Timeout: 60 * time.Second}
+				client := &http.Client{Timeout: 120 * time.Second}
 				resp, err := client.Get(url)
 				if err == nil && resp != nil && resp.Body != nil {
 					_, _ = io.Copy(io.Discard, resp.Body)

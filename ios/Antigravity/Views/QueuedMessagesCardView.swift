@@ -63,6 +63,7 @@ public struct QueuedMessagesCardView: View {
                 .buttonStyle(.plain)
                 .help(isExpanded ? "折叠队列" : "展开队列")
             }
+            .zIndex(10)
             
             // Expandable Content
             if isExpanded {
@@ -113,9 +114,18 @@ public struct QueuedMessagesCardView: View {
                         }
                     }
                 }
-                .transition(.opacity.combined(with: .move(edge: .top)))
+                .clipped()
+                .zIndex(1)
+                .transition(
+                    .asymmetric(
+                        insertion: .opacity.combined(with: .scale(scale: 0.98, anchor: .top)),
+                        removal: .opacity
+                    )
+                )
             }
         }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .clipped()
         .padding(.horizontal, 16)
         .padding(.vertical, 13)
         .background(Color(uiColor: .secondarySystemGroupedBackground))
