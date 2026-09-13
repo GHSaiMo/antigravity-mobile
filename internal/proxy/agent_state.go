@@ -57,7 +57,99 @@ var (
 	pendingCacheMu sync.RWMutex
 	pendingCache   = make(map[string]*pendingMessagesCacheEntry)
 	pendingTTL     = 300 * time.Millisecond
+
+	deletedMsgMu  sync.RWMutex
+	deletedMsgMap = make(map[string]time.Time) // key: cascadeID + ":" + messageID -> deletedAt
+	deletedMsgTTL = 5 * time.Second
 )
+
+// RecordDeletedMessage records a message ID as tombstoned for a cascade so it won't be re-emitted in streams/polls.
+func RecordDeletedMessage(cascadeID, messageID string) {
+	if messageID == "" {
+		return
+	}
+	deletedMsgMu.Lock()
+	defer deletedMsgMu.Unlock()
+	now := time.Now()
+	// Periodic cleanup of stale tombstones
+	if len(deletedMsgMap) > 64 {
+		for k, t := range deletedMsgMap {
+			if now.Sub(t) > deletedMsgTTL {
+				delete(deletedMsgMap, k)
+			}
+		}
+	}
+	deletedMsgMap[cascadeID+":"+messageID] = now
+	deletedMsgMap[":"+messageID] = now
+}
+
+// IsMessageDeleted checks whether a message is currently tombstoned.
+func IsMessageDeleted(cascadeID, messageID string) bool {
+	if messageID == "" {
+		return false
+	}
+	deletedMsgMu.RLock()
+	defer deletedMsgMu.RUnlock()
+	now := time.Now()
+	if t, ok := deletedMsgMap[cascadeID+":"+messageID]; ok {
+		if now.Sub(t) < deletedMsgTTL {
+			return true
+		}
+	}
+	if t, ok := deletedMsgMap[":"+messageID]; ok {
+		if now.Sub(t) < deletedMsgTTL {
+			return true
+		}
+	}
+	return false
+}
+
+// RemoveDeletedMessageTombstone removes a tombstone when upstream rejects deletion.
+func RemoveDeletedMessageTombstone(cascadeID, messageID string) {
+	if messageID == "" {
+		return
+	}
+	deletedMsgMu.Lock()
+	defer deletedMsgMu.Unlock()
+	delete(deletedMsgMap, cascadeID+":"+messageID)
+	delete(deletedMsgMap, ":"+messageID)
+}
+
+// RemovePendingMessageFromCache immediately evicts a specific message from memory cache.
+func RemovePendingMessageFromCache(cascadeID, messageID string) {
+	if messageID == "" {
+		return
+	}
+	pendingCacheMu.Lock()
+	defer pendingCacheMu.Unlock()
+	for cID, entry := range pendingCache {
+		if cascadeID == "" || cID == cascadeID {
+			if entry != nil && len(entry.messages) > 0 {
+				filtered := make([]QueuedMessageItem, 0, len(entry.messages))
+				for _, m := range entry.messages {
+					if m.ID != messageID {
+						filtered = append(filtered, m)
+					}
+				}
+				entry.messages = filtered
+			}
+		}
+	}
+}
+
+// filterTombstonedMessages filters out any messages that are currently tombstoned.
+func filterTombstonedMessages(cascadeID string, items []QueuedMessageItem) []QueuedMessageItem {
+	if len(items) == 0 {
+		return items
+	}
+	filtered := make([]QueuedMessageItem, 0, len(items))
+	for _, it := range items {
+		if !IsMessageDeleted(cascadeID, it.ID) {
+			filtered = append(filtered, it)
+		}
+	}
+	return filtered
+}
 
 // ClearPendingMessagesCache clears the pending messages cache for a cascade, or all if empty.
 func ClearPendingMessagesCache(cascadeID string) {
@@ -513,8 +605,9 @@ func (p *Proxy) GetCachedOrFetchPendingMessages(cascadeID string, port int, toke
 	pendingCacheMu.RLock()
 	entry, ok := pendingCache[cascadeID]
 	if ok && time.Since(entry.fetchedAt) < pendingTTL {
+		cached := filterTombstonedMessages(cascadeID, entry.messages)
 		pendingCacheMu.RUnlock()
-		return entry.messages
+		return cached
 	}
 	pendingCacheMu.RUnlock()
 
@@ -523,7 +616,7 @@ func (p *Proxy) GetCachedOrFetchPendingMessages(cascadeID string, port int, toke
 		// Return stale cache if available upon error
 		pendingCacheMu.RLock()
 		if entry != nil {
-			cached := entry.messages
+			cached := filterTombstonedMessages(cascadeID, entry.messages)
 			pendingCacheMu.RUnlock()
 			return cached
 		}
@@ -531,12 +624,14 @@ func (p *Proxy) GetCachedOrFetchPendingMessages(cascadeID string, port int, toke
 		return []QueuedMessageItem{}
 	}
 
+	filtered := filterTombstonedMessages(cascadeID, items)
+
 	pendingCacheMu.Lock()
 	pendingCache[cascadeID] = &pendingMessagesCacheEntry{
 		fetchedAt: time.Now(),
-		messages:  items,
+		messages:  filtered,
 	}
 	pendingCacheMu.Unlock()
 
-	return items
+	return filtered
 }

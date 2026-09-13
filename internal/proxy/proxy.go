@@ -375,7 +375,8 @@ func (p *Proxy) handleRpcProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if strings.HasSuffix(reqPath, "/DeleteAgentMessage") && r.Method == http.MethodPost {
-		ClearPendingMessagesCache("")
+		p.handleDeleteAgentMessage(w, r, rp, reqPath)
+		return
 	}
 
 	// Clone the request to avoid mutating the original before forwarding
@@ -796,6 +797,53 @@ func (p *Proxy) handleDeleteCascadeTrajectory(w http.ResponseWriter, r *http.Req
 		// Upstream explicitly rejected deletion; release the tombstone
 		if reqData.CascadeID != "" {
 			RemoveDeletedCascadeTombstone(reqData.CascadeID)
+		}
+	}
+
+	for k, v := range rec.header {
+		w.Header()[k] = v
+	}
+	w.WriteHeader(rec.statusCode)
+	w.Write(rec.body.Bytes())
+}
+
+func (p *Proxy) handleDeleteAgentMessage(w http.ResponseWriter, r *http.Request, rp http.Handler, reqPath string) {
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+
+	var reqData struct {
+		MessageID string `json:"messageId"`
+		Recipient string `json:"recipient"`
+	}
+	_ = json.Unmarshal(bodyBytes, &reqData)
+
+	cascadeID := reqData.Recipient
+	messageID := reqData.MessageID
+
+	if messageID != "" {
+		RecordDeletedMessage(cascadeID, messageID)
+		RemovePendingMessageFromCache(cascadeID, messageID)
+	}
+	ClearPendingMessagesCache(cascadeID)
+
+	fwdReq := r.Clone(r.Context())
+	fwdReq.URL.Path = reqPath
+	fwdReq.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+
+	rec := newBufferedResponseWriter()
+	rp.ServeHTTP(rec, fwdReq)
+
+	if rec.statusCode >= 200 && rec.statusCode < 300 {
+		if messageID != "" {
+			RemovePendingMessageFromCache(cascadeID, messageID)
+		}
+		ClearPendingMessagesCache(cascadeID)
+	} else if rec.statusCode >= 400 {
+		if messageID != "" {
+			RemoveDeletedMessageTombstone(cascadeID, messageID)
 		}
 	}
 
