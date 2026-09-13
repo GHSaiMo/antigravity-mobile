@@ -8,6 +8,7 @@ public struct QueuedMessagesCardView: View {
     public let onToggleExpand: (@MainActor @Sendable (Bool) -> Void)?
     
     @State private var isExpanded: Bool = true
+    @State private var tappedActionItemIds: Set<String> = []
     
     public init(
         items: [QueuedMessageItem],
@@ -78,32 +79,48 @@ public struct QueuedMessagesCardView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             
                             // Action Decorators (Send Now, Edit, Delete)
+                            let isItemActionDisabled = tappedActionItemIds.contains(item.id)
                             HStack(spacing: 6) {
                                 // Send Now
-                                Button(action: { onSendNow(item) }) {
+                                Button(action: {
+                                    guard !tappedActionItemIds.contains(item.id) else { return }
+                                    tappedActionItemIds.insert(item.id)
+                                    onSendNow(item)
+                                }) {
                                     Image(systemName: "arrow.right.circle.fill")
                                         .font(.system(size: 20))
-                                        .foregroundColor(.accentColor)
+                                        .foregroundColor(.accentColor.opacity(isItemActionDisabled ? 0.4 : 1.0))
                                 }
                                 .buttonStyle(.plain)
+                                .disabled(isItemActionDisabled)
                                 .help("立即发送")
                                 
                                 // Edit
-                                Button(action: { onEdit(item) }) {
+                                Button(action: {
+                                    guard !tappedActionItemIds.contains(item.id) else { return }
+                                    tappedActionItemIds.insert(item.id)
+                                    onEdit(item)
+                                }) {
                                     Image(systemName: "pencil.circle.fill")
                                         .font(.system(size: 20))
-                                        .foregroundColor(.secondary)
+                                        .foregroundColor(.secondary.opacity(isItemActionDisabled ? 0.4 : 1.0))
                                 }
                                 .buttonStyle(.plain)
+                                .disabled(isItemActionDisabled)
                                 .help("编辑")
                                 
                                 // Delete
-                                Button(action: { onDelete(item) }) {
+                                Button(action: {
+                                    guard !tappedActionItemIds.contains(item.id) else { return }
+                                    tappedActionItemIds.insert(item.id)
+                                    onDelete(item)
+                                }) {
                                     Image(systemName: "trash.circle.fill")
                                         .font(.system(size: 20))
-                                        .foregroundColor(.red.opacity(0.85))
+                                        .foregroundColor(.red.opacity(isItemActionDisabled ? 0.35 : 0.85))
                                 }
                                 .buttonStyle(.plain)
+                                .disabled(isItemActionDisabled)
                                 .help("删除")
                             }
                         }
@@ -137,5 +154,9 @@ public struct QueuedMessagesCardView: View {
         .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 4)
         .padding(.horizontal, 12)
         .padding(.bottom, 6)
+        .onChange(of: items) { _, newItems in
+            let validIds = Set(newItems.map(\.id))
+            tappedActionItemIds = tappedActionItemIds.intersection(validIds)
+        }
     }
 }

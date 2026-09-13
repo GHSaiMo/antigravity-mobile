@@ -2107,9 +2107,11 @@ const RunningTasksManager = {
 const LocalQueueManager = {
   queue: [],
   isExpanded: true,
+  deletedTombstones: [],
 
   init(cascadeId) {
     if (!cascadeId) return;
+    this.deletedTombstones = [];
     const expandedKey = `queued-messages-card-expanded-${cascadeId}`;
     const storedExpanded = localStorage.getItem(expandedKey);
     this.isExpanded = (storedExpanded !== null) ? (storedExpanded === "true") : true;
@@ -2148,12 +2150,18 @@ const LocalQueueManager = {
     }
     const recentUserSet = new Set(recentUserContents.slice(-15));
 
+    const now = Date.now();
+    this.deletedTombstones = (this.deletedTombstones || []).filter(t => (now - t.deletedAt) < 10000);
+    const tombstoneIds = new Set(this.deletedTombstones.filter(t => t.id).map(t => t.id));
+    const tombstoneTexts = new Set(this.deletedTombstones.map(t => (t.text || '').trim()));
+
     if (Array.isArray(serverQueue)) {
-      const now = Date.now();
       const pendingOpt = this.queue.filter(it => 
         it.id && it.id.startsWith('queue-') &&
         (now - new Date(it.createdAt).getTime() < 15000) &&
         !recentUserSet.has((it.text || '').trim()) &&
+        !tombstoneIds.has(it.id) &&
+        !tombstoneTexts.has((it.text || '').trim()) &&
         !serverQueue.some(s => (s.text || '').trim() === (it.text || '').trim())
       );
 
@@ -2167,7 +2175,13 @@ const LocalQueueManager = {
       };
 
       const baseQueue = serverQueue
-        .filter(item => isUserMsg(item.text) && !recentUserSet.has((item.text || '').trim()))
+        .filter(item => {
+          const t = (item.text || '').trim();
+          return isUserMsg(item.text) &&
+            !recentUserSet.has(t) &&
+            !tombstoneIds.has(item.id) &&
+            !tombstoneTexts.has(t);
+        })
         .map(item => ({
           id: item.id || `server-${Date.now()}`,
           text: item.text,
@@ -2184,16 +2198,26 @@ const LocalQueueManager = {
         }
         return true;
       };
-      this.queue = this.queue.filter(item => isUserMsg(item.text) && !recentUserSet.has((item.text || '').trim()));
+      this.queue = this.queue.filter(item => {
+        const t = (item.text || '').trim();
+        return isUserMsg(item.text) &&
+          !recentUserSet.has(t) &&
+          !tombstoneIds.has(item.id) &&
+          !tombstoneTexts.has(t);
+      });
     }
     this.save();
   },
 
   enqueue(text) {
-    if (!text.trim()) return;
+    const t = (text || '').trim();
+    if (!t) return;
+    if (this.deletedTombstones) {
+      this.deletedTombstones = this.deletedTombstones.filter(it => (it.text || '').trim() !== t);
+    }
     const item = {
       id: `queue-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      text: text.trim(),
+      text: t,
       createdAt: new Date().toISOString()
     };
     this.queue.push(item);
@@ -2202,6 +2226,14 @@ const LocalQueueManager = {
 
   remove(id) {
     const item = this.queue.find(it => it.id === id);
+    if (item) {
+      this.deletedTombstones = this.deletedTombstones || [];
+      this.deletedTombstones.push({
+        id: item.id,
+        text: (item.text || '').trim(),
+        deletedAt: Date.now()
+      });
+    }
     this.queue = this.queue.filter(it => it.id !== id);
     this.save();
     if (activeCascadeId) {
@@ -2214,6 +2246,13 @@ const LocalQueueManager = {
             const serverQueue = info?.queuedMessages || [];
             const match = serverQueue.find(s => (s.text || "").trim() === item.text.trim());
             if (match && match.id && !match.id.startsWith("queue-")) {
+              if (this.deletedTombstones) {
+                this.deletedTombstones.push({
+                  id: match.id,
+                  text: (item.text || '').trim(),
+                  deletedAt: Date.now()
+                });
+              }
               rpc("DeleteAgentMessage", { messageId: match.id, recipient: activeCascadeId }).catch(() => {});
             }
           } catch (_) {}
