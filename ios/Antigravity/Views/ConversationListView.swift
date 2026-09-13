@@ -461,8 +461,9 @@ public struct ConversationListView: View {
             
             HStack {
                 HStack(spacing: 4) {
-                    Image(systemName: item.isPureChat ? "bubble.left.and.bubble.right" : "folder")
-                        .font(.system(size: 11))
+                    Image(systemName: item.isPureChat ? "bubble.left" : "folder")
+                        .font(.system(size: item.isPureChat ? 10.5 : 11))
+                        .frame(width: 15, height: 14)
                     Text(item.workspaceName)
                         .font(.system(size: 12, design: .monospaced))
                 }
