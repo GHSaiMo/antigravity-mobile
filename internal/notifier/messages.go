@@ -10,6 +10,7 @@ const (
 	MsgTitleProceed      = "📋 方案已就绪，等待确认"
 	MsgTitleCompleted    = "🎉 Antigravity 任务已完成"
 	MsgTitleFailed       = "❌ Antigravity 任务执行失败"
+	MsgTitleCockpitOffline = "⚠️ 座舱助手未能启动"
 
 	// Notification body templates (use with fmt.Sprintf)
 	MsgBodyCommand       = "Agent 申请执行命令: %s"
@@ -23,6 +24,7 @@ const (
 	MsgBodyProceed       = "「%s」已完成编写，等待您点击 Proceed 确认以继续执行。"
 	MsgBodyCompleted     = "「%s」已顺利执行完毕，共执行 %d 个步骤。"
 	MsgBodyFailed        = "「%s」执行出现异常或已被终止。"
+	MsgBodyCockpitOffline = "Cockpit Tools 自动拉起 2 轮后仍无法连接 (127.0.0.1:18081)，账号配额自动刷新已暂停。"
 
 	// Fallback display names
 	MsgUntitledSession   = "未命名会话"
