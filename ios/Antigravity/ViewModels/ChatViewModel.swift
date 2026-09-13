@@ -176,6 +176,12 @@ public final class ChatViewModel {
     public var cascadeConfigRaw: String? = nil
     public var isAwaitingResponse: Bool = false
     public var scrollToTurnStartTrigger: Int = 0
+    public var scrollToBottomTrigger: Int = 0
+    
+    public func triggerScrollToBottom() {
+        scrollToBottomTrigger &+= 1
+    }
+    
     public var canProceed: Bool = false
     public var proceedArtifactUri: String? = nil
     public var pendingInteraction: PendingInteraction? = nil
@@ -964,8 +970,12 @@ public final class ChatViewModel {
         
         let newQueue = baseQueue + remainingOptItems
         if newQueue != self.queuedMessages {
+            let oldCount = self.queuedMessages.count
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                 self.queuedMessages = newQueue
+            }
+            if newQueue.count > oldCount {
+                triggerScrollToBottom()
             }
         }
     }
@@ -1052,6 +1062,7 @@ public final class ChatViewModel {
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                 self.queuedMessages.append(queueItem)
             }
+            triggerScrollToBottom()
             if customText == nil {
                 self.inputText = ""
                 cacheManager.clearDraft(key: draftKey)
@@ -1114,6 +1125,7 @@ public final class ChatViewModel {
         let clientMessageId = UUID().uuidString
         let optId = "optimistic-\(clientMessageId)"
         messages.append(ChatMessage(id: optId, sender: .user, content: text, imageDataList: images ?? []))
+        triggerScrollToBottom()
         self.pendingOptimisticMessageId = optId
         self.isAwaitingResponse = true
         self.awaitingResponseSince = Date()
@@ -1293,6 +1305,7 @@ public final class ChatViewModel {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
             self.messages.append(ChatMessage(id: optId, sender: .user, content: item.text))
         }
+        triggerScrollToBottom()
         self.pendingOptimisticMessageId = optId
         self.isAwaitingResponse = true
         self.awaitingResponseSince = Date()
