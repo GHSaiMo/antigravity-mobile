@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -171,5 +172,56 @@ func GetNotificationConfig() NotificationConfig {
 		Group:         group,
 		SoundAction:   soundAction,
 		SoundComplete: soundComplete,
+	}
+}
+
+// TunnelConfig holds settings for embedded FRP cloud relay tunnel.
+type TunnelConfig struct {
+	Enabled    bool
+	ServerAddr string
+	ServerPort int
+	Token      string
+	RemotePort int
+}
+
+// GetTunnelConfig parses environment variables for the embedded FRP tunnel.
+func GetTunnelConfig() TunnelConfig {
+	serverAddr := strings.TrimSpace(os.Getenv("FRP_SERVER_ADDR"))
+	if serverAddr == "" {
+		serverAddr = strings.TrimSpace(os.Getenv("FRP_HOST"))
+	}
+
+	serverPort := 7000
+	if pStr := os.Getenv("FRP_SERVER_PORT"); pStr != "" {
+		if p, err := strconv.Atoi(pStr); err == nil && p > 0 {
+			serverPort = p
+		}
+	}
+
+	token := strings.TrimSpace(os.Getenv("FRP_TOKEN"))
+
+	remotePort := 58900
+	if pStr := os.Getenv("FRP_REMOTE_PORT"); pStr != "" {
+		if p, err := strconv.Atoi(pStr); err == nil && p > 0 {
+			remotePort = p
+		}
+	} else if pStr := os.Getenv("GATEWAY_PORT"); pStr != "" {
+		if p, err := strconv.Atoi(pStr); err == nil && p > 0 {
+			remotePort = p
+		}
+	}
+
+	enabled := serverAddr != ""
+	if v := os.Getenv("FRP_ENABLED"); v != "" {
+		vLower := strings.ToLower(v)
+		enabled = (vLower == "1" || vLower == "true" || vLower == "yes")
+	}
+
+	return TunnelConfig{
+		Enabled:    enabled,
+		ServerAddr: serverAddr,
+		ServerPort: serverPort,
+		Token:      token,
+		RemotePort: remotePort,
 	}
 }

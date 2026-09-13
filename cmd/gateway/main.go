@@ -20,6 +20,7 @@ import (
 	"antigravity-mobile/internal/inspector"
 	"antigravity-mobile/internal/notifier"
 	"antigravity-mobile/internal/proxy"
+	"antigravity-mobile/internal/tunnel"
 	"antigravity-mobile/web"
 )
 
@@ -95,6 +96,30 @@ func main() {
 	pairingMgr := auth.NewPairingManager()
 	authHandler := auth.NewAuthHandler(authStore, pairingMgr, qrHost, *port, *enableSSL)
 	authHandler.SetEndpoints(netAddrs.LANIPv4, netAddrs.PublicIPv6, *ddnsHost)
+
+	// 3.5. Initialize Embedded FRP Cloud Relay Tunnel
+	tunnelCfg := config.GetTunnelConfig()
+	var tun *tunnel.Tunnel
+	if tunnelCfg.Enabled && tunnelCfg.ServerAddr != "" {
+		tun = tunnel.New(tunnel.Config{
+			Enabled:    true,
+			ServerAddr: tunnelCfg.ServerAddr,
+			ServerPort: tunnelCfg.ServerPort,
+			Token:      tunnelCfg.Token,
+			LocalPort:  *port,
+			RemotePort: tunnelCfg.RemotePort,
+			ProxyName:  fmt.Sprintf("antigravity-%d", tunnelCfg.RemotePort),
+		})
+		tun.Start(context.Background())
+		defer tun.Stop()
+
+		relayURL := tun.RemoteURL(*enableSSL)
+		authHandler.SetRelayURL(relayURL)
+		extraHosts = append(extraHosts, tunnelCfg.ServerAddr)
+		log.Printf("☁️  Cloud Relay Tunnel ENABLED: %s (via %s:%d)", relayURL, tunnelCfg.ServerAddr, tunnelCfg.ServerPort)
+	} else {
+		log.Printf("ℹ️  Cloud Relay Tunnel disabled (set FRP_SERVER_ADDR in .env to enable)")
+	}
 
 	// Print initial pairing QR code
 	if initialSession, err := pairingMgr.GenerateSession(5 * time.Minute); err == nil {
@@ -255,6 +280,10 @@ func main() {
 
 	<-stopCh
 	log.Println("Shutting down gateway...")
+
+	if tun != nil {
+		tun.Stop()
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

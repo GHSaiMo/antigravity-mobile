@@ -148,15 +148,17 @@ func TestAuthHandler_GetEndpoints(t *testing.T) {
 	pm := NewPairingManager()
 	h := NewAuthHandler(store, pm, "192.168.1.50", 58900, false)
 	h.SetEndpoints("192.168.1.50", "2001:db8:abcd::1", "mac.example.com")
+	h.SetRelayURL("http://relay.example.com:58900")
 
 	endpoints := h.GetEndpoints()
-	if len(endpoints) < 3 {
-		t.Fatalf("expected at least 3 endpoints, got %d", len(endpoints))
+	if len(endpoints) < 4 {
+		t.Fatalf("expected at least 4 endpoints, got %d", len(endpoints))
 	}
 
 	foundLAN := false
 	foundV6 := false
 	foundDDNS := false
+	foundRelay := false
 
 	for _, ep := range endpoints {
 		if ep.Type == "lan" && strings.Contains(ep.URL, "192.168.1.50:58900") {
@@ -168,6 +170,9 @@ func TestAuthHandler_GetEndpoints(t *testing.T) {
 		if ep.Type == "ddns" && strings.Contains(ep.URL, "mac.example.com:58900") {
 			foundDDNS = true
 		}
+		if ep.Type == "relay" && strings.Contains(ep.URL, "relay.example.com:58900") {
+			foundRelay = true
+		}
 	}
 
 	if !foundLAN {
@@ -178,5 +183,8 @@ func TestAuthHandler_GetEndpoints(t *testing.T) {
 	}
 	if !foundDDNS {
 		t.Errorf("DDNS endpoint missing")
+	}
+	if !foundRelay {
+		t.Errorf("Relay endpoint missing")
 	}
 }

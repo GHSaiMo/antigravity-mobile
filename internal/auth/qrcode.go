@@ -3,6 +3,7 @@ package auth
 import (
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/skip2/go-qrcode"
@@ -17,10 +18,11 @@ type MultiHostPairingParams struct {
 	LANHost     string
 	IPv6Host    string
 	DDNSHost    string
+	RelayHost   string
 }
 
 // GenerateMultiHostPairingURI formats the pairing URI according to the agy:// schema specification
-// embedding multiple candidate network endpoints (LAN, IPv6, DDNS).
+// embedding multiple candidate network endpoints (LAN, IPv6, DDNS, Relay).
 func GenerateMultiHostPairingURI(p MultiHostPairingParams) string {
 	cleanHost := strings.TrimSpace(p.PrimaryHost)
 	if cleanHost == "" {
@@ -47,6 +49,9 @@ func GenerateMultiHostPairingURI(p MultiHostPairingParams) string {
 	if ddns := strings.TrimSpace(p.DDNSHost); ddns != "" && ddns != cleanHost {
 		params.Set("ddns", ddns)
 	}
+	if relay := strings.TrimSpace(p.RelayHost); relay != "" && relay != cleanHost {
+		params.Set("relay", relay)
+	}
 
 	return fmt.Sprintf("agy://pair?%s", params.Encode())
 }
@@ -63,9 +68,24 @@ func GeneratePairingURI(host string, port int, code string, ssl bool) string {
 }
 
 // PrintPairingQRCode generates and renders an ANSI QR code to stdout encoding all candidate
-// network endpoints (e.g. public IPv6, LAN IPv4), and displays informative pairing instructions.
+// network endpoints (e.g. public IPv6, LAN IPv4, Cloud Relay), and displays informative pairing instructions.
 func PrintPairingQRCode(primaryHost string, port int, code string, ssl bool, extraHosts ...string) {
-	var lanHost, ipv6Host, ddnsHost string
+	var lanHost, ipv6Host, ddnsHost, relayHost string
+
+	isPrivateIPv4 := func(ipStr string) bool {
+		if strings.HasPrefix(ipStr, "192.168.") || strings.HasPrefix(ipStr, "10.") {
+			return true
+		}
+		if strings.HasPrefix(ipStr, "172.") {
+			parts := strings.Split(ipStr, ".")
+			if len(parts) >= 2 {
+				if n, err := strconv.Atoi(parts[1]); err == nil && n >= 16 && n <= 31 {
+					return true
+				}
+			}
+		}
+		return false
+	}
 
 	classifyHost := func(h string) {
 		h = strings.TrimSpace(h)
@@ -77,8 +97,14 @@ func PrintPairingQRCode(primaryHost string, port int, code string, ssl bool, ext
 				ipv6Host = h
 			}
 		} else if strings.Count(h, ".") == 3 && !strings.ContainsAny(h, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ") {
-			if lanHost == "" {
-				lanHost = h
+			if isPrivateIPv4(h) {
+				if lanHost == "" {
+					lanHost = h
+				}
+			} else {
+				if relayHost == "" {
+					relayHost = h
+				}
 			}
 		} else {
 			if ddnsHost == "" {
@@ -100,6 +126,7 @@ func PrintPairingQRCode(primaryHost string, port int, code string, ssl bool, ext
 		LANHost:     lanHost,
 		IPv6Host:    ipv6Host,
 		DDNSHost:    ddnsHost,
+		RelayHost:   relayHost,
 	}
 
 	uri := GenerateMultiHostPairingURI(params)
@@ -127,13 +154,17 @@ func PrintPairingQRCode(primaryHost string, port int, code string, ssl bool, ext
 		ipv6URI := GeneratePairingURI(ipv6Host, port, code, ssl)
 		fmt.Printf("🌐 外网 IPv6 直连 URI:   %s\n", ipv6URI)
 	}
+	if relayHost != "" {
+		relayURI := GeneratePairingURI(relayHost, port, code, ssl)
+		fmt.Printf("☁️ 云服务器中继 URI:     %s\n", relayURI)
+	}
 	if ddnsHost != "" {
 		ddnsURI := GeneratePairingURI(ddnsHost, port, code, ssl)
 		fmt.Printf("⚡ DDNS / 域名直连 URI:  %s\n", ddnsURI)
 	}
 
 	fmt.Println()
-	fmt.Println("💡 提示: 扫码会自动同步局域网与外网 IPv6 双网址，在家里走 Wi-Fi，外出自动切 IPv6。")
+	fmt.Println("💡 提示: 扫码会自动同步局域网、IPv6 与云服务器中继网址，局域网极速秒连，外网智能自适应。")
 	fmt.Println("==================================================")
 	fmt.Println()
 }

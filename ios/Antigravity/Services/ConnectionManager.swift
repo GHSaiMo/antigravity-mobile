@@ -94,10 +94,10 @@ public final class ConnectionManager {
         
         // Election policy:
         // 1. LAN IPv4 First: If on Wi-Fi and LAN is reachable (e.g. 192.168.x.x), ALWAYS prefer LAN.
-        //    LAN offers ~1ms latency, 0 cellular data, and works locally without going through the public internet.
-        // 2. Remote / Out-of-Home: If LAN is unreachable (e.g. on external Wi-Fi, or cellular 5G),
-        //    prioritize IPv6 or custom public DDNS when on cellular or preferring cellular direct mode.
-        // 3. Otherwise pick the reachable endpoint with the lowest latency.
+        //    LAN offers ~1ms latency, 0 data consumption, and avoids public internet routing.
+        // 2. Remote / Out-of-Home:
+        //    - If IPv6 is reachable (cellular 5G or Wi-Fi with IPv6), prefer IPv6 direct (~20ms).
+        //    - Otherwise pick the reachable endpoint with lowest latency (e.g. Cloud Relay ~40ms).
         let reachable = results.filter { $0.isReachable }
         
         var selected: EndpointHealthStatus? = nil
@@ -109,17 +109,14 @@ public final class ConnectionManager {
         if !isCellular, let lan = lanEp {
             // If on Wi-Fi and home LAN is reachable, ALWAYS select LAN (fastest ~1ms)
             selected = lan
-        } else if isCellular || settings.preferCellularNetwork {
-            // If on Cellular, or on external Wi-Fi (LAN failed) with cellular preference, prefer IPv6
-            if let v6Ep = reachable.first(where: { ep in
-                let clean = ep.urlString.lowercased()
-                return clean.contains("[") || clean.contains("::") || (!clean.contains("192.168.") && !clean.contains("10.") && !clean.contains("127."))
-            }) {
-                selected = v6Ep
-            }
-        }
-        
-        if selected == nil {
+        } else if let v6Ep = reachable.first(where: { ep in
+            let clean = ep.urlString.lowercased()
+            return clean.contains("[") || clean.contains("::")
+        }) {
+            // Out of home: prefer IPv6 direct if reachable (~20ms)
+            selected = v6Ep
+        } else {
+            // Otherwise pick best reachable endpoint (Cloud Relay or DDNS)
             selected = reachable.min(by: { $0.latencyMs < $1.latencyMs })
         }
         
@@ -127,11 +124,6 @@ public final class ConnectionManager {
             settings.activeServerURL = best.urlString
             settings.rawServerURL = best.urlString
             return best.urlString
-        } else if (isCellular || settings.preferCellularNetwork), let v6 = settings.ipv6ServerURL, !v6.isEmpty {
-            // If on cellular or preferring cellular direct connection, ensure IPv6 remains active endpoint
-            settings.activeServerURL = v6
-            settings.rawServerURL = v6
-            return v6
         }
         
         return settings.activeServerURL
@@ -150,19 +142,13 @@ public final class ConnectionManager {
             )
         }
         
-        let isLocal = probeURL.host.map { NetworkTransport.isLocalOrPrivateHost($0) } ?? false
-        let preferCellular = AppSettings.shared.preferCellularNetwork && !isLocal
-        
         var request = URLRequest(url: probeURL)
         request.httpMethod = "GET"
-        request.timeoutInterval = preferCellular ? 3.5 : 2.5
+        request.timeoutInterval = 2.5
         
         let start = CFAbsoluteTimeGetCurrent()
         do {
-            let (_, response) = try await NetworkTransport.shared.send(
-                request: request,
-                preferCellular: preferCellular
-            )
+            let (_, response) = try await NetworkTransport.shared.send(request: request)
             let elapsedMs = (CFAbsoluteTimeGetCurrent() - start) * 1000.0
             
             guard let httpResponse = response as? HTTPURLResponse else {
