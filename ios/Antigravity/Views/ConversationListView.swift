@@ -59,6 +59,9 @@ public struct ConversationListView: View {
                     },
                     onRefresh: {
                         try await viewModel.refreshCockpitQuotas()
+                    },
+                    onAppearFetch: {
+                        await viewModel.fetchQuotas(force: true)
                     }
                 )
             }

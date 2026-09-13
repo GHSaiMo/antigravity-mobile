@@ -53,6 +53,7 @@ public struct RunningTasksCardView: View {
                 .buttonStyle(.plain)
                 .help(isExpanded ? "折叠任务" : "展开任务")
             }
+            .zIndex(10)
             
             // Expandable Content
             if isExpanded {
@@ -97,9 +98,18 @@ public struct RunningTasksCardView: View {
                         }
                     }
                 }
-                .transition(.opacity.combined(with: .move(edge: .top)))
+                .clipped()
+                .zIndex(1)
+                .transition(
+                    .asymmetric(
+                        insertion: .opacity.combined(with: .scale(scale: 0.98, anchor: .top)),
+                        removal: .opacity
+                    )
+                )
             }
         }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .clipped()
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .background(Color(uiColor: .secondarySystemGroupedBackground))
