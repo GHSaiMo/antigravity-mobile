@@ -631,6 +631,14 @@ func (p *Proxy) HandleCreateCascade(w http.ResponseWriter, r *http.Request) {
 			"projectId":                 projectID,
 			"defaultProjectEnvironment": map[string]interface{}{},
 		}
+	} else if wsURI == "" || wsURI == "file://" {
+		// Pure conversation (Chat / outside of project)
+		startPayload["source"] = "CORTEX_TRAJECTORY_SOURCE_CASCADE_CLIENT"
+		startPayload["workspaceUris"] = []string{}
+		startPayload["projectEnvConfig"] = map[string]interface{}{
+			"projectId":                 "outside-of-project",
+			"defaultProjectEnvironment": map[string]interface{}{},
+		}
 	} else {
 		startPayload["source"] = "CORTEX_TRAJECTORY_SOURCE_INTERACTIVE_CASCADE"
 		startPayload["workspaceUris"] = []string{wsURI}
