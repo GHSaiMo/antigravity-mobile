@@ -2,6 +2,8 @@ package proxy
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -739,5 +741,60 @@ func TestParseTrajectoryDetails_InternalStreamInterruptedFiltered(t *testing.T) 
 		t.Errorf("expected second message to contain 503 error, got %s", details.AllMessages[1].Text)
 	}
 }
+
+func TestParseTrajectoryDetails_TitleFallbackFromUserPrompt(t *testing.T) {
+	rawJSON := `{
+		"status": "CASCADE_RUN_STATUS_IDLE",
+		"trajectory": {
+			"cascadeId": "test-title-cascade",
+			"steps": [
+				{
+					"type": "CORTEX_STEP_TYPE_USER_INPUT",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"userInput": {
+						"userResponse": "项目消息子标签页设计\n请帮我优化这个UI布局"
+					}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_PLANNER_RESPONSE",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"plannerResponse": {
+						"response": "好的，我们来进行设计。"
+					}
+				}
+			]
+		}
+	}`
+
+	var rawResp upstreamTrajectoryResp
+	if err := json.Unmarshal([]byte(rawJSON), &rawResp); err != nil {
+		t.Fatalf("failed to unmarshal test JSON: %v", err)
+	}
+
+	p := &Proxy{}
+	details := p.ParseTrajectoryDetails(&rawResp)
+
+	if details.Title != "项目消息子标签页设计" {
+		t.Errorf("expected title to be '项目消息子标签页设计', got %q", details.Title)
+	}
+}
+
+func TestAnnotationTitle_WriteAndRead(t *testing.T) {
+	testID := "test-annotation-cascade-xyz"
+	expectedTitle := "自动测试标题写入"
+
+	writeAnnotationTitle(testID, expectedTitle)
+	defer func() {
+		if home, err := os.UserHomeDir(); err == nil {
+			_ = os.Remove(filepath.Join(home, ".gemini", "antigravity", "annotations", testID+".pbtxt"))
+		}
+	}()
+
+	readBack := readAnnotationTitle(testID)
+	if readBack != expectedTitle {
+		t.Errorf("expected readBack %q, got %q", expectedTitle, readBack)
+	}
+}
+
 
 

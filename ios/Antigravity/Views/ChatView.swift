@@ -244,8 +244,10 @@ public struct ChatView: View {
         } else if let err = viewModel.errorMessage, viewModel.messages.isEmpty && !viewModel.isNewConversation {
             errorStateView(err: err)
         } else {
-            ScrollViewReader { proxy in
-                messagesScrollView(proxy: proxy)
+            GeometryReader { geometry in
+                ScrollViewReader { proxy in
+                    messagesScrollView(proxy: proxy, viewportWidth: geometry.size.width)
+                }
             }
         }
     }
@@ -282,11 +284,13 @@ public struct ChatView: View {
     }
     
     @ViewBuilder
-    private func messagesScrollView(proxy: ScrollViewProxy) -> some View {
-        ScrollView {
+    private func messagesScrollView(proxy: ScrollViewProxy, viewportWidth: CGFloat) -> some View {
+        ScrollView(.vertical, showsIndicators: true) {
             messagesList(proxy: proxy)
+                .frame(width: viewportWidth)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
         .background(Color(uiColor: .systemBackground))
         .contentShape(Rectangle())
         .simultaneousGesture(
@@ -964,7 +968,7 @@ public struct ChatView: View {
                     .foregroundColor(.primary)
                     .lineLimit(1)
                 
-                Text("已连接工作区，在下方输入指令开启对话")
+                Text((viewModel.isPureChat || viewModel.currentTitle == "新对话") ? "新对话模式，在下方输入指令开启对话" : "已连接工作区，在下方输入指令开启对话")
                     .font(.system(size: 13))
                     .foregroundColor(.secondary)
             }

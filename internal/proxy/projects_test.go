@@ -403,4 +403,64 @@ func TestApplyModelToCascadeConfig_ClaudeLimits(t *testing.T) {
 	}
 }
 
+func TestHandleCreateCascadePureChat(t *testing.T) {
+	var lastPayload map[string]interface{}
+	mockUpstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/StartCascade") {
+			json.NewDecoder(r.Body).Decode(&lastPayload)
+			w.Write([]byte(`{"cascadeId": "pure-chat-cascade-1"}`))
+			return
+		}
+		w.Write([]byte(`{}`))
+	}))
+	defer mockUpstream.Close()
+
+	port := mockUpstream.Listener.Addr().(*net.TCPAddr).Port
+	insp := inspector.NewInspector(5 * time.Second)
+	p := NewProxy(insp)
+	p.activePort = port
+	p.activeToken = "test-token"
+
+	// Case 1: Empty workspaceURI and empty projectID -> defaults to outside-of-project
+	body1, _ := json.Marshal(CreateCascadeRequest{
+		WorkspaceURI: "",
+		ProjectID:    "",
+	})
+	req1 := httptest.NewRequest(http.MethodPost, "/gateway/cascade/new", strings.NewReader(string(body1)))
+	rec1 := httptest.NewRecorder()
+	p.HandleCreateCascade(rec1, req1)
+	if rec1.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec1.Code, rec1.Body.String())
+	}
+
+	if src, ok := lastPayload["source"].(string); !ok || src != "CORTEX_TRAJECTORY_SOURCE_CASCADE_CLIENT" {
+		t.Errorf("expected source CORTEX_TRAJECTORY_SOURCE_CASCADE_CLIENT, got %v", lastPayload["source"])
+	}
+	envCfg, ok := lastPayload["projectEnvConfig"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected projectEnvConfig in payload")
+	}
+	if pid, ok := envCfg["projectId"].(string); !ok || pid != "outside-of-project" {
+		t.Errorf("expected projectId outside-of-project, got %v", envCfg["projectId"])
+	}
+
+	// Case 2: Explicit projectID "outside-of-project"
+	lastPayload = nil
+	body2, _ := json.Marshal(CreateCascadeRequest{
+		WorkspaceURI: "",
+		ProjectID:    "outside-of-project",
+	})
+	req2 := httptest.NewRequest(http.MethodPost, "/gateway/cascade/new", strings.NewReader(string(body2)))
+	rec2 := httptest.NewRecorder()
+	p.HandleCreateCascade(rec2, req2)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec2.Code, rec2.Body.String())
+	}
+	envCfg2, ok := lastPayload["projectEnvConfig"].(map[string]interface{})
+	if !ok || envCfg2["projectId"] != "outside-of-project" {
+		t.Errorf("expected projectId outside-of-project, got %v", envCfg2)
+	}
+}
+
 
