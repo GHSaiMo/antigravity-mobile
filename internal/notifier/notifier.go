@@ -207,6 +207,41 @@ func (n *Notifier) NotifyFailed(cascadeID, title string, totalSteps int) error {
 	return nil
 }
 
+// NotifyCockpitAlert sends a notification when Cockpit Tools fails to respond after launch retries.
+func (n *Notifier) NotifyCockpitAlert(title, message string) error {
+	if !n.IsEnabled() {
+		return nil
+	}
+
+	dedupKey := "cockpit:offline"
+	if !n.dedup.TryNotify(dedupKey, 1*time.Hour) {
+		return nil
+	}
+
+	if title == "" {
+		title = MsgTitleCockpitOffline
+	}
+	if message == "" {
+		message = MsgBodyCockpitOffline
+	}
+
+	payload := BarkPayload{
+		Title:    title,
+		Body:     message,
+		Icon:     n.cfg.IconURL,
+		Group:    n.cfg.Group,
+		Level:    "timeSensitive",
+		Sound:    "failure",
+		Category: "cockpit_alert",
+	}
+
+	if err := n.bark.Send(context.Background(), payload); err != nil {
+		n.dedup.Remove(dedupKey)
+		return err
+	}
+	return nil
+}
+
 // OnTrajectoryUpdate handles a real-time trajectory snapshot from WebSocket or polling.
 func (n *Notifier) OnTrajectoryUpdate(details *proxy.TrajectoryDetails) {
 	if !n.IsEnabled() || details == nil || details.CascadeID == "" {
