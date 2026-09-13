@@ -247,6 +247,11 @@ public struct ChatView: View {
             GeometryReader { geometry in
                 ScrollViewReader { proxy in
                     messagesScrollView(proxy: proxy, viewportWidth: geometry.size.width)
+                        .onChange(of: geometry.size.height) { oldHeight, newHeight in
+                            if newHeight < oldHeight && !hasUserInteracted {
+                                scrollToBottom(proxy: proxy, animated: true)
+                            }
+                        }
                 }
             }
         }
@@ -337,17 +342,37 @@ public struct ChatView: View {
         .onChange(of: viewModel.scrollToTurnStartTrigger) { _, _ in
             scrollToTurnStart(proxy: proxy, animated: true)
         }
+        .onChange(of: viewModel.scrollToBottomTrigger) { _, _ in
+            performAutoScrollToBottom(proxy: proxy, animated: true)
+        }
         .onChange(of: viewModel.messages.last?.id) { _, lastId in
             guard lastId != nil else { return }
             if !hasInitiallyAligned {
                 alignMessages(proxy: proxy, animated: false)
                 return
             }
-            scrollToBottom(proxy: proxy, animated: true)
+            if !hasUserInteracted {
+                scrollToBottom(proxy: proxy, animated: true)
+            }
+        }
+        .onChange(of: viewModel.messages.last) { _, lastMsg in
+            guard lastMsg != nil else { return }
+            guard hasInitiallyAligned else { return }
+            if !hasUserInteracted {
+                scrollToBottom(proxy: proxy, animated: true)
+            }
+        }
+        .onChange(of: viewModel.queuedMessages) { oldVal, newVal in
+            if !newVal.isEmpty && newVal != oldVal {
+                performAutoScrollToBottom(proxy: proxy, animated: true)
+            }
         }
         .onChange(of: isInputFocused) { _, focused in
             if focused {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                    scrollToBottom(proxy: proxy, animated: true)
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
                     scrollToBottom(proxy: proxy, animated: true)
                 }
             } else {
@@ -387,6 +412,7 @@ public struct ChatView: View {
             }
             
             Color.clear
+                .frame(maxWidth: .infinity)
                 .frame(height: 1)
                 .id("BOTTOM_ANCHOR")
         }
@@ -490,6 +516,11 @@ public struct ChatView: View {
                 },
                 onDelete: { item in
                     viewModel.deleteQueuedMessage(item: item)
+                },
+                onToggleExpand: { isExpanded in
+                    if isExpanded {
+                        viewModel.triggerScrollToBottom()
+                    }
                 }
             )
             .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -821,6 +852,7 @@ public struct ChatView: View {
         let text = viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         let images = viewModel.selectedImageData
         guard !text.isEmpty || !images.isEmpty else { return }
+        hasUserInteracted = false
         viewModel.inputText = ""
         viewModel.selectedImageData = []
         selectedPhotoItems = []
@@ -847,6 +879,7 @@ public struct ChatView: View {
         } else {
             viewModel.inputText += "\n" + toAppend
         }
+        hasUserInteracted = false
         isInputFocused = true
     }
     
@@ -946,6 +979,24 @@ public struct ChatView: View {
             }
         } else {
             proxy.scrollTo(target, anchor: .bottom)
+        }
+    }
+    
+    private func performAutoScrollToBottom(proxy: ScrollViewProxy, animated: Bool = true) {
+        hasUserInteracted = false
+        scrollToBottom(proxy: proxy, animated: animated)
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+            scrollToBottom(proxy: proxy, animated: animated)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+            scrollToBottom(proxy: proxy, animated: animated)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.38) {
+            scrollToBottom(proxy: proxy, animated: animated)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.50) {
+            scrollToBottom(proxy: proxy, animated: animated)
         }
     }
     
