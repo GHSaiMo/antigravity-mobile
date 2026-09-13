@@ -298,7 +298,7 @@ public struct MessageBubbleView: View {
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
-                    .background(Color(uiColor: .tertiarySystemBackground).opacity(0.9))
+                    .background(Color(uiColor: .tertiarySystemBackground))
                     .clipShape(Capsule())
                     .overlay(
                         Capsule()
@@ -306,7 +306,7 @@ public struct MessageBubbleView: View {
                     )
                 }
                 .buttonStyle(.plain)
-                .zIndex(2)
+                .zIndex(10)
                 
                 // Expanded tool details
                 if isExpanded {
@@ -335,16 +335,17 @@ public struct MessageBubbleView: View {
                         }
                     }
                     .padding(.top, 2)
+                    .clipped()
                     .zIndex(1)
                     .transition(
                         .asymmetric(
-                            insertion: .opacity.combined(with: .offset(y: -10)).combined(with: .scale(scale: 0.98, anchor: .top)),
-                            removal: .opacity.combined(with: .offset(y: -8))
+                            insertion: .opacity.combined(with: .scale(scale: 0.98, anchor: .top)),
+                            removal: .opacity
                         )
                     )
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
             .clipped()
         }
     }

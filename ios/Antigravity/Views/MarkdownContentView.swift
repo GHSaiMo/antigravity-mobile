@@ -909,6 +909,7 @@ public struct FrontmatterCollapseView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
             .buttonStyle(.plain)
+            .zIndex(10)
             
             if isExpanded {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -924,9 +925,18 @@ public struct FrontmatterCollapseView: View {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .stroke(Color.secondary.opacity(0.2), lineWidth: 0.8)
                 )
-                .transition(.opacity.combined(with: .move(edge: .top)))
+                .clipped()
+                .zIndex(1)
+                .transition(
+                    .asymmetric(
+                        insertion: .opacity.combined(with: .scale(scale: 0.98, anchor: .top)),
+                        removal: .opacity
+                    )
+                )
             }
         }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .clipped()
         .padding(.bottom, 4)
     }
 }
