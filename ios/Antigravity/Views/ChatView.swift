@@ -248,7 +248,7 @@ public struct ChatView: View {
                 ScrollViewReader { proxy in
                     messagesScrollView(proxy: proxy, viewportWidth: geometry.size.width)
                         .onChange(of: geometry.size.height) { oldHeight, newHeight in
-                            if newHeight < oldHeight && !hasUserInteracted {
+                            if newHeight != oldHeight && !hasUserInteracted {
                                 scrollToBottom(proxy: proxy, animated: true)
                             }
                         }
@@ -363,7 +363,7 @@ public struct ChatView: View {
             }
         }
         .onChange(of: viewModel.queuedMessages) { oldVal, newVal in
-            if !newVal.isEmpty && newVal != oldVal {
+            if newVal != oldVal {
                 performAutoScrollToBottom(proxy: proxy, animated: true)
             }
         }
@@ -517,10 +517,8 @@ public struct ChatView: View {
                 onDelete: { item in
                     viewModel.deleteQueuedMessage(item: item)
                 },
-                onToggleExpand: { isExpanded in
-                    if isExpanded {
-                        viewModel.triggerScrollToBottom()
-                    }
+                onToggleExpand: { _ in
+                    viewModel.triggerScrollToBottom()
                 }
             )
             .transition(.move(edge: .bottom).combined(with: .opacity))
