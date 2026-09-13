@@ -3460,13 +3460,13 @@ function renderInlineMarkdown(text) {
   html = html.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
 
   // Bold & Italic
-  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/__([^_]+)__/g, '<strong>$1</strong>');
-  html = html.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em>$1</em>');
-  html = html.replace(/(?<!_)_([^_]+)_(?!_)/g, '<em>$1</em>');
+  html = html.replace(/\*\*((?:[^*]|\*(?!\*))+?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/__((?:[^_]|_(?!_))+?)__/g, '<strong>$1</strong>');
+  html = html.replace(/(?<!\*)\*([^*\n]+?)\*(?!\*)/g, '<em>$1</em>');
+  html = html.replace(/(?<!_)_([^_\n]+?)_(?!_)/g, '<em>$1</em>');
 
   // Strikethrough
-  html = html.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+  html = html.replace(/~~((?:[^~]|~(?!~))+?)~~/g, '<del>$1</del>');
 
   return html;
 }

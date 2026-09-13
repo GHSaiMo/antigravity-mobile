@@ -188,18 +188,184 @@ public struct MarkdownContentView: View {
     
     // MARK: - Markdown Attributed String Styler
     
+    private static let cjkDelimiterMarker = "\u{FE50}" // Small comma (Unicode category Po - Punctuation, other)
+    
+    private static let cjkDelimiterPatterns: [NSRegularExpression] = {
+        let patternStrings = [
+            (#"\*\*\*"#, #"(?:[^\*]|\*(?!\*\*))+?"#, #"\*\*\*"#),
+            (#"\*\*"#, #"(?:[^\*]|\*(?!\*))+?"#, #"\*\*"#),
+            (#"~~"#, #"(?:[^~]|~(?!~))+?"#, #"~~"#),
+            (#"__"#, #"(?:[^_]|_(?!_))+?"#, #"__"#),
+            (#"(?<!\*)\*(?!\*)"#, #"[^\*\n]+?"#, #"(?<!\*)\*(?!\*)"#),
+            (#"(?<!_)_(?!_)"#, #"[^_\n]+?"#, #"(?<!_)_(?!_)"#)
+        ]
+        return patternStrings.compactMap { (openPat, innerPat, closePat) in
+            try? NSRegularExpression(pattern: "(\(openPat))(\(innerPat))(\(closePat))")
+        }
+    }()
+    
+    /// Fixes CommonMark delimiter bounding rules for CJK text.
+    /// Under CommonMark 0.30 specification, delimiter runs adjacent to punctuation
+    /// (e.g. **“bold”** or **(bold)**text) fail left-flanking or right-flanking checks
+    /// because CJK characters preceding or following the delimiters are letters (not whitespace or punctuation).
+    /// Inserting a temporary Unicode punctuation marker (U+FE50) on the non-punctuation side
+    /// satisfies CommonMark flanking rules, and the marker is cleanly stripped from the AttributedString.
+    private static func fixCJKDelimiters(in text: String) -> (fixed: String, hasMarkers: Bool) {
+        guard text.contains("*") || text.contains("_") || text.contains("~") else {
+            return (text, false)
+        }
+        
+        // Protect inline code spans from modification
+        var segments: [(content: String, isCode: Bool)] = []
+        let chars = Array(text)
+        var i = 0
+        var lastIdx = 0
+        
+        while i < chars.count {
+            if chars[i] == "`" {
+                let tickStart = i
+                while i < chars.count && chars[i] == "`" {
+                    i += 1
+                }
+                let tickLen = i - tickStart
+                
+                if tickStart > lastIdx {
+                    segments.append((String(chars[lastIdx..<tickStart]), false))
+                }
+                
+                var closeFound = false
+                var j = i
+                while j < chars.count {
+                    if chars[j] == "`" {
+                        let cStart = j
+                        while j < chars.count && chars[j] == "`" {
+                            j += 1
+                        }
+                        if (j - cStart) == tickLen {
+                            closeFound = true
+                            segments.append((String(chars[tickStart..<j]), true))
+                            i = j
+                            lastIdx = j
+                            break
+                        }
+                    } else {
+                        j += 1
+                    }
+                }
+                if !closeFound {
+                    i = tickStart + 1
+                }
+            } else {
+                i += 1
+            }
+        }
+        if lastIdx < chars.count {
+            segments.append((String(chars[lastIdx..<chars.count]), false))
+        }
+        
+        var hasMarkers = false
+        var processedSegments: [String] = []
+        
+        for segment in segments {
+            if segment.isCode {
+                processedSegments.append(segment.content)
+                continue
+            }
+            
+            let (processed, marked) = processDelimitersInSegment(segment.content)
+            if marked { hasMarkers = true }
+            processedSegments.append(processed)
+        }
+        
+        return (processedSegments.joined(), hasMarkers)
+    }
+    
+    private static func processDelimitersInSegment(_ text: String) -> (String, Bool) {
+        var hasMarkers = false
+        var result = text
+        
+        func isPunctOrSymbol(_ c: Character) -> Bool {
+            return c.isPunctuation || c.isSymbol
+        }
+        
+        for regex in cjkDelimiterPatterns {
+            let nsText = result as NSString
+            let matches = regex.matches(in: result, range: NSRange(location: 0, length: nsText.length))
+            guard !matches.isEmpty else { continue }
+            
+            var modified = ""
+            var lastEnd = 0
+            
+            for match in matches {
+                let fullRange = match.range
+                if fullRange.location > lastEnd {
+                    modified += nsText.substring(with: NSRange(location: lastEnd, length: fullRange.location - lastEnd))
+                }
+                
+                let openDelim = nsText.substring(with: match.range(at: 1))
+                let innerText = nsText.substring(with: match.range(at: 2))
+                let closeDelim = nsText.substring(with: match.range(at: 3))
+                
+                let prevChar: Character? = fullRange.location > 0 ? (nsText.substring(with: NSRange(location: fullRange.location - 1, length: 1)).first) : nil
+                let nextCharIndex = fullRange.location + fullRange.length
+                let nextChar: Character? = nextCharIndex < nsText.length ? (nsText.substring(with: NSRange(location: nextCharIndex, length: 1)).first) : nil
+                
+                let firstInner = innerText.first
+                let lastInner = innerText.last
+                
+                var prefixMarker = ""
+                var suffixMarker = ""
+                
+                // Opening rule: if firstInner is punct, and prevChar is non-punct non-whitespace
+                if let fi = firstInner, isPunctOrSymbol(fi) {
+                    if let p = prevChar, !p.isWhitespace && !isPunctOrSymbol(p) {
+                        prefixMarker = cjkDelimiterMarker
+                        hasMarkers = true
+                    }
+                }
+                
+                // Closing rule: if lastInner is punct, and nextChar is non-punct non-whitespace
+                if let li = lastInner, isPunctOrSymbol(li) {
+                    if let n = nextChar, !n.isWhitespace && !isPunctOrSymbol(n) {
+                        suffixMarker = cjkDelimiterMarker
+                        hasMarkers = true
+                    }
+                }
+                
+                modified += prefixMarker + openDelim + innerText + closeDelim + suffixMarker
+                lastEnd = fullRange.location + fullRange.length
+            }
+            
+            if lastEnd < nsText.length {
+                modified += nsText.substring(with: NSRange(location: lastEnd, length: nsText.length - lastEnd))
+            }
+            
+            result = modified
+        }
+        
+        return (result, hasMarkers)
+    }
+    
     public static func renderInlineMarkdown(_ text: String, size: CGFloat = 15, weight: Font.Weight = .regular) -> AttributedString {
         let cacheKey = text.hashValue ^ (Int(size * 100) << 2) ^ weight.hashValue
         if let cached = InlineMarkdownCache.shared.get(cacheKey) {
             return cached
         }
         
+        let (preprocessedText, hasMarkers) = fixCJKDelimiters(in: text)
+        
         var options = AttributedString.MarkdownParsingOptions()
         options.interpretedSyntax = .inlineOnlyPreservingWhitespace
-        guard var attr = try? AttributedString(markdown: text, options: options) else {
+        guard var attr = try? AttributedString(markdown: preprocessedText, options: options) else {
             let fallback = AttributedString(text)
             InlineMarkdownCache.shared.set(cacheKey, value: fallback)
             return fallback
+        }
+        
+        if hasMarkers {
+            while let range = attr.range(of: cjkDelimiterMarker) {
+                attr.removeSubrange(range)
+            }
         }
         
         // Antigravity Desktop Code Amber/Yellow color: #E5C07B (RGB: 229, 192, 123)
