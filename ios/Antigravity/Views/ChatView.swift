@@ -1,12 +1,21 @@
 import SwiftUI
 import PhotosUI
 
+private struct ChatBottomAnchorOffsetPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = .infinity
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
 public struct ChatView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var viewModel: ChatViewModel
     @FocusState private var isInputFocused: Bool
     @State private var hasInitiallyAligned = false
     @State private var hasUserInteracted = false
+    @State private var isNearBottom = true
+    @State private var cardToggleTrigger = 0
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     private let shouldAutoFocus: Bool
     private let initialConversation: ConversationItem?
@@ -165,6 +174,7 @@ public struct ChatView: View {
             isViewAppeared = false
             hasInitiallyAligned = false
             hasUserInteracted = false
+            isNearBottom = true
             autoFocusTask?.cancel()
             autoFocusTask = nil
             viewModel.saveCurrentDraft()
@@ -246,10 +256,12 @@ public struct ChatView: View {
         } else {
             GeometryReader { geometry in
                 ScrollViewReader { proxy in
-                    messagesScrollView(proxy: proxy, viewportWidth: geometry.size.width)
+                    messagesScrollView(proxy: proxy, viewportWidth: geometry.size.width, viewportHeight: geometry.size.height)
                         .onChange(of: geometry.size.height) { oldHeight, newHeight in
-                            if newHeight != oldHeight && !hasUserInteracted {
-                                scrollToBottom(proxy: proxy, animated: true)
+                            if newHeight != oldHeight {
+                                if isNearBottom || !hasUserInteracted {
+                                    performAdaptiveCardScroll(proxy: proxy)
+                                }
                             }
                         }
                 }
@@ -289,12 +301,23 @@ public struct ChatView: View {
     }
     
     @ViewBuilder
-    private func messagesScrollView(proxy: ScrollViewProxy, viewportWidth: CGFloat) -> some View {
+    private func messagesScrollView(proxy: ScrollViewProxy, viewportWidth: CGFloat, viewportHeight: CGFloat) -> some View {
         ScrollView(.vertical, showsIndicators: true) {
             messagesList(proxy: proxy)
                 .frame(width: viewportWidth)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .coordinateSpace(name: "ChatScrollViewSpace")
+        .onPreferenceChange(ChatBottomAnchorOffsetPreferenceKey.self) { anchorMaxY in
+            guard anchorMaxY.isFinite else { return }
+            let near = anchorMaxY <= viewportHeight + 90
+            if near && hasUserInteracted {
+                hasUserInteracted = false
+            }
+            if near != isNearBottom {
+                isNearBottom = near
+            }
+        }
         .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
         .background(Color(uiColor: .systemBackground))
         .contentShape(Rectangle())
@@ -339,11 +362,21 @@ public struct ChatView: View {
                 }
             }
         }
+        .onChange(of: cardToggleTrigger) { _, _ in
+            performAdaptiveCardScroll(proxy: proxy)
+        }
+        .onChange(of: viewModel.runningTasks.count) { oldVal, newVal in
+            if newVal != oldVal {
+                if isNearBottom || !hasUserInteracted {
+                    performAdaptiveCardScroll(proxy: proxy)
+                }
+            }
+        }
         .onChange(of: viewModel.scrollToTurnStartTrigger) { _, _ in
             scrollToTurnStart(proxy: proxy, animated: true)
         }
         .onChange(of: viewModel.scrollToBottomTrigger) { _, _ in
-            performAutoScrollToBottom(proxy: proxy, animated: true)
+            performAdaptiveCardScroll(proxy: proxy)
         }
         .onChange(of: viewModel.messages.last?.id) { _, lastId in
             guard lastId != nil else { return }
@@ -351,34 +384,37 @@ public struct ChatView: View {
                 alignMessages(proxy: proxy, animated: false)
                 return
             }
-            if !hasUserInteracted {
+            if !hasUserInteracted || isNearBottom {
                 scrollToBottom(proxy: proxy, animated: true)
             }
         }
         .onChange(of: viewModel.messages.last) { _, lastMsg in
             guard lastMsg != nil else { return }
             guard hasInitiallyAligned else { return }
-            if !hasUserInteracted {
+            if !hasUserInteracted || isNearBottom {
                 scrollToBottom(proxy: proxy, animated: true)
             }
         }
         .onChange(of: viewModel.queuedMessages) { oldVal, newVal in
             if newVal != oldVal {
-                performAutoScrollToBottom(proxy: proxy, animated: true)
+                if isNearBottom || !hasUserInteracted {
+                    performAdaptiveCardScroll(proxy: proxy)
+                }
             }
         }
         .onChange(of: isInputFocused) { _, focused in
+            performAdaptiveCardScroll(proxy: proxy)
             if focused {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                    scrollToBottom(proxy: proxy, animated: true)
+                    performAdaptiveCardScroll(proxy: proxy)
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
-                    scrollToBottom(proxy: proxy, animated: true)
+                    performAdaptiveCardScroll(proxy: proxy)
                 }
             } else {
                 // 等待键盘完全收起并恢复完整视口高度后，做底部对齐校准，消除悬空留白
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
-                    scrollToBottom(proxy: proxy, animated: true)
+                    performAdaptiveCardScroll(proxy: proxy)
                 }
             }
         }
@@ -415,6 +451,14 @@ public struct ChatView: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: 1)
                 .id("BOTTOM_ANCHOR")
+                .background(
+                    GeometryReader { geo in
+                        Color.clear.preference(
+                            key: ChatBottomAnchorOffsetPreferenceKey.self,
+                            value: geo.frame(in: .named("ChatScrollViewSpace")).maxY
+                        )
+                    }
+                )
         }
         .padding(.top, 12)
         .padding(.bottom, 4)
@@ -497,6 +541,9 @@ public struct ChatView: View {
                     Task {
                         await viewModel.stopTask(task)
                     }
+                },
+                onToggleExpand: { isExpanded in
+                    handleFloatingCardToggle(isExpanded: isExpanded)
                 }
             )
             .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -517,8 +564,8 @@ public struct ChatView: View {
                 onDelete: { item in
                     viewModel.deleteQueuedMessage(item: item)
                 },
-                onToggleExpand: { _ in
-                    viewModel.triggerScrollToBottom()
+                onToggleExpand: { isExpanded in
+                    handleFloatingCardToggle(isExpanded: isExpanded)
                 }
             )
             .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -980,22 +1027,43 @@ public struct ChatView: View {
         }
     }
     
-    private func performAutoScrollToBottom(proxy: ScrollViewProxy, animated: Bool = true) {
+    private func handleFloatingCardToggle(isExpanded: Bool) {
         hasUserInteracted = false
-        scrollToBottom(proxy: proxy, animated: animated)
+        isNearBottom = true
+        cardToggleTrigger &+= 1
+    }
+    
+    private func performAdaptiveCardScroll(proxy: ScrollViewProxy) {
+        hasUserInteracted = false
+        isNearBottom = true
+        // 1. 同步使用完全一致的弹性阻尼动画启动滚动，卡片展开向上弹起，卡片折叠直接贴着卡片边缘回弹
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            scrollToBottom(proxy: proxy, animated: false)
+        }
         
+        // 2. 连续多阶段布局微调吸附，消除折叠卡片后的悬空留白，贴边回弹
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-            scrollToBottom(proxy: proxy, animated: animated)
+            withAnimation(.spring(response: 0.30, dampingFraction: 0.82)) {
+                scrollToBottom(proxy: proxy, animated: false)
+            }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
-            scrollToBottom(proxy: proxy, animated: animated)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                scrollToBottom(proxy: proxy, animated: false)
+            }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.38) {
-            scrollToBottom(proxy: proxy, animated: animated)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.36) {
+            withAnimation(.easeOut(duration: 0.15)) {
+                scrollToBottom(proxy: proxy, animated: false)
+            }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.50) {
-            scrollToBottom(proxy: proxy, animated: animated)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.48) {
+            scrollToBottom(proxy: proxy, animated: false)
         }
+    }
+    
+    private func performAutoScrollToBottom(proxy: ScrollViewProxy, animated: Bool = true) {
+        performAdaptiveCardScroll(proxy: proxy)
     }
     
     private var emptyStateView: some View {
