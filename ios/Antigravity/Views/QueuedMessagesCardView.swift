@@ -5,6 +5,7 @@ public struct QueuedMessagesCardView: View {
     public let onSendNow: @MainActor @Sendable (QueuedMessageItem) -> Void
     public let onEdit: @MainActor @Sendable (QueuedMessageItem) -> Void
     public let onDelete: @MainActor @Sendable (QueuedMessageItem) -> Void
+    public let onToggleExpand: (@MainActor @Sendable (Bool) -> Void)?
     
     @State private var isExpanded: Bool = true
     
@@ -12,12 +13,14 @@ public struct QueuedMessagesCardView: View {
         items: [QueuedMessageItem],
         onSendNow: @escaping @MainActor @Sendable (QueuedMessageItem) -> Void,
         onEdit: @escaping @MainActor @Sendable (QueuedMessageItem) -> Void,
-        onDelete: @escaping @MainActor @Sendable (QueuedMessageItem) -> Void
+        onDelete: @escaping @MainActor @Sendable (QueuedMessageItem) -> Void,
+        onToggleExpand: (@MainActor @Sendable (Bool) -> Void)? = nil
     ) {
         self.items = items
         self.onSendNow = onSendNow
         self.onEdit = onEdit
         self.onDelete = onDelete
+        self.onToggleExpand = onToggleExpand
     }
     
     public var body: some View {
@@ -49,6 +52,7 @@ public struct QueuedMessagesCardView: View {
                     withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                         isExpanded.toggle()
                     }
+                    onToggleExpand?(isExpanded)
                 }) {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 13, weight: .bold))
