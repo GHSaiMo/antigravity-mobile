@@ -366,6 +366,10 @@ func (p *Proxy) handleRpcProxy(w http.ResponseWriter, r *http.Request) {
 		p.handleGetAllCascadeTrajectories(w, r, port, token)
 		return
 	}
+	if strings.HasSuffix(reqPath, "/UpdateConversationAnnotations") && r.Method == http.MethodPost {
+		p.handleUpdateConversationAnnotations(w, r, rp, reqPath)
+		return
+	}
 	if strings.HasSuffix(reqPath, "/DeleteCascadeTrajectory") && r.Method == http.MethodPost {
 		p.handleDeleteCascadeTrajectory(w, r, rp, reqPath)
 		return
@@ -802,6 +806,39 @@ func (p *Proxy) handleDeleteCascadeTrajectory(w http.ResponseWriter, r *http.Req
 	w.Write(rec.body.Bytes())
 }
 
+func (p *Proxy) handleUpdateConversationAnnotations(w http.ResponseWriter, r *http.Request, rp http.Handler, reqPath string) {
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+
+	var payload struct {
+		CascadeIDs  []string `json:"cascadeIds"`
+		Annotations struct {
+			Title string `json:"title"`
+		} `json:"annotations"`
+	}
+	if err := json.Unmarshal(bodyBytes, &payload); err == nil {
+		title := strings.TrimSpace(payload.Annotations.Title)
+		if title != "" && title != "未命名会话" {
+			defaultTrajCache.cascadeTitlesMu.Lock()
+			for _, cid := range payload.CascadeIDs {
+				if cid != "" {
+					defaultTrajCache.cascadeTitles[cid] = title
+					writeAnnotationTitle(cid, title)
+				}
+			}
+			defaultTrajCache.cascadeTitlesMu.Unlock()
+		}
+	}
+
+	fwdReq := r.Clone(r.Context())
+	fwdReq.URL.Path = reqPath
+	fwdReq.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+	rp.ServeHTTP(w, fwdReq)
+}
+
 // InteractionSubmitRequest represents user decision submitted from mobile client.
 type InteractionSubmitRequest struct {
 	CascadeID       string `json:"cascadeId"`
@@ -1116,7 +1153,18 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 			}
 		}
 		if !hasTitle {
-			if t := readAnnotationTitle(id); t != "" {
+			if t := readAnnotationTitle(id); t != "" && t != "未命名会话" {
+				ann, _ := s["annotations"].(map[string]interface{})
+				if ann == nil {
+					ann = make(map[string]interface{})
+				}
+				ann["title"] = t
+				s["annotations"] = ann
+				hasTitle = true
+			}
+		}
+		if !hasTitle {
+			if t := p.lookupCascadeTitle(id, port, token); t != "" && t != "未命名会话" {
 				ann, _ := s["annotations"].(map[string]interface{})
 				if ann == nil {
 					ann = make(map[string]interface{})

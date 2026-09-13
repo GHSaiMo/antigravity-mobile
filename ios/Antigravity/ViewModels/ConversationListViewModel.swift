@@ -141,10 +141,32 @@ public final class ConversationListViewModel {
                 !self.pendingDeleteCascadeIDs.contains(item.id) &&
                 (self.recentlyDeletedIDs[item.id] == nil)
             }
+            let existingMap = Dictionary(self.conversations.map { ($0.id, $0.title) }, uniquingKeysWith: { _, new in new })
+            let enriched = cleaned.map { item -> ConversationItem in
+                let currentT = item.title.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+                if currentT.isEmpty || currentT == "未命名会话" {
+                    if let knownTitle = existingMap[item.id], !knownTitle.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty, knownTitle != "未命名会话" {
+                        return item.withTitle(knownTitle)
+                    }
+                    if let cached = self.cacheManager.loadSession(for: item.id) {
+                        if let st = cached.title?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines), !st.isEmpty, st != "未命名会话" {
+                            return item.withTitle(st)
+                        } else if let firstUserMsg = cached.messages.first(where: { $0.isUser }),
+                                  let prompt = firstUserMsg.content.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).components(separatedBy: CharacterSet.newlines).first(where: { !$0.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty }) {
+                            let trimmed = prompt.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+                            let derived = String(trimmed.prefix(36))
+                            if !derived.isEmpty {
+                                return item.withTitle(derived)
+                            }
+                        }
+                    }
+                }
+                return item
+            }
             let drafts = cacheManager.loadLocalDraftConversations()
-            self.conversations = drafts + cleaned
-            cacheManager.saveConversations(cleaned)
-            cacheManager.prewarmSessions(for: cleaned.prefix(15).map(\.id))
+            self.conversations = drafts + enriched
+            cacheManager.saveConversations(enriched)
+            cacheManager.prewarmSessions(for: enriched.prefix(15).map(\.id))
             self.isLoading = false
         } catch {
             if conversations.isEmpty {

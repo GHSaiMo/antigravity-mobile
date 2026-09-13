@@ -391,7 +391,7 @@ public struct ConversationListView: View {
                 title: "会话",
                 status: .running,
                 stepCount: 0,
-                workspaceName: "workspace",
+                workspaceName: "Chat",
                 lastModified: Date(),
                 isSubagent: false,
                 isUnread: false
@@ -461,7 +461,7 @@ public struct ConversationListView: View {
             
             HStack {
                 HStack(spacing: 4) {
-                    Image(systemName: "folder")
+                    Image(systemName: item.isPureChat ? "bubble.left.and.bubble.right" : "folder")
                         .font(.system(size: 11))
                     Text(item.workspaceName)
                         .font(.system(size: 12, design: .monospaced))

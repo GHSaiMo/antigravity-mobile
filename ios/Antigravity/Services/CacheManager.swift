@@ -119,13 +119,42 @@ public final class CacheManager: @unchecked Sendable {
     
     // MARK: - Conversations List Cache
     
+    public func healConversationTitleIfNeeded(_ item: ConversationItem) -> ConversationItem {
+        let t = item.title.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        guard t.isEmpty || t == "未命名会话" else { return item }
+        if let session = loadSession(for: item.id) {
+            if let st = session.title?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines), !st.isEmpty && st != "未命名会话" {
+                return item.withTitle(st)
+            } else if let firstUserMsg = session.messages.first(where: { $0.isUser }),
+                      let prompt = firstUserMsg.content.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).components(separatedBy: CharacterSet.newlines).first(where: { !$0.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty }) {
+                let trimmed = prompt.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+                let derived = String(trimmed.prefix(36))
+                if !derived.isEmpty {
+                    return item.withTitle(derived)
+                }
+            }
+        }
+        return item
+    }
+    
     public func saveConversations(_ items: [ConversationItem]) {
         let clean = items.filter { !$0.isSubagent }
         lock.lock()
-        memConversations = clean
+        let existingMap = Dictionary((memConversations ?? []).map { ($0.id, $0.title) }, uniquingKeysWith: { _, new in new })
+        let protected = clean.map { item -> ConversationItem in
+            let t = item.title.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+            if t.isEmpty || t == "未命名会话" {
+                if let existingT = existingMap[item.id], !existingT.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty && existingT != "未命名会话" {
+                    return item.withTitle(existingT)
+                }
+                return healConversationTitleIfNeeded(item)
+            }
+            return item
+        }
+        memConversations = protected
         lock.unlock()
         
-        guard let data = try? JSONEncoder().encode(clean) else { return }
+        guard let data = try? JSONEncoder().encode(protected) else { return }
         let fileURL = cacheDir.appendingPathComponent("conversations.json")
         ioQueue.async {
             try? data.write(to: fileURL, options: .atomic)
@@ -135,7 +164,7 @@ public final class CacheManager: @unchecked Sendable {
     public func loadConversations() -> [ConversationItem] {
         lock.lock()
         if let mem = memConversations {
-            let filtered = mem.filter { !$0.isSubagent }
+            let filtered = mem.filter { !$0.isSubagent }.map { healConversationTitleIfNeeded($0) }
             memConversations = filtered
             lock.unlock()
             return filtered
@@ -148,13 +177,24 @@ public final class CacheManager: @unchecked Sendable {
             return []
         }
         
-        let filtered = items.filter { !$0.isSubagent }
+        var hasChanges = false
+        let filtered = items.filter { !$0.isSubagent }.map { item -> ConversationItem in
+            let healed = healConversationTitleIfNeeded(item)
+            if healed.title != item.title {
+                hasChanges = true
+            }
+            return healed
+        }
+        if filtered.count != items.count {
+            hasChanges = true
+        }
+        
         lock.lock()
         memConversations = filtered
         lock.unlock()
         
-        // If legacy subagents were pruned, rewrite clean data to disk asynchronously
-        if filtered.count != items.count {
+        // If legacy subagents were pruned or titles were healed, rewrite clean data to disk asynchronously
+        if hasChanges {
             if let cleanData = try? JSONEncoder().encode(filtered) {
                 ioQueue.async {
                     try? cleanData.write(to: fileURL, options: .atomic)
@@ -166,9 +206,10 @@ public final class CacheManager: @unchecked Sendable {
     }
     
     public func updateConversationTitle(cascadeId: String, newTitle: String) {
+        let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != "未命名会话" else { return }
         lock.lock()
         defer { lock.unlock() }
-        guard !newTitle.isEmpty, newTitle != "未命名会话" else { return }
         
         var items = memConversations ?? []
         if items.isEmpty {
@@ -181,19 +222,14 @@ public final class CacheManager: @unchecked Sendable {
         
         if let idx = items.firstIndex(where: { $0.id == cascadeId }) {
             let old = items[idx]
-            items[idx] = ConversationItem(
-                id: old.id,
-                title: newTitle,
-                status: old.status,
-                stepCount: old.stepCount,
-                workspaceName: old.workspaceName,
-                lastModified: old.lastModified
-            )
-            memConversations = items
-            if let data = try? JSONEncoder().encode(items) {
-                let fileURL = cacheDir.appendingPathComponent("conversations.json")
-                ioQueue.async {
-                    try? data.write(to: fileURL, options: .atomic)
+            if old.title != trimmed {
+                items[idx] = old.withTitle(trimmed)
+                memConversations = items
+                if let data = try? JSONEncoder().encode(items) {
+                    let fileURL = cacheDir.appendingPathComponent("conversations.json")
+                    ioQueue.async {
+                        try? data.write(to: fileURL, options: .atomic)
+                    }
                 }
             }
         }
@@ -305,6 +341,16 @@ public final class CacheManager: @unchecked Sendable {
         lock.lock()
         memSessions[session.cascadeId] = session
         lock.unlock()
+        
+        if let t = session.title?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines), !t.isEmpty, t != "未命名会话" {
+            updateConversationTitle(cascadeId: session.cascadeId, newTitle: t)
+        } else if let firstUserMsg = session.messages.first(where: { $0.isUser }),
+                  let prompt = firstUserMsg.content.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).components(separatedBy: CharacterSet.newlines).first(where: { !$0.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty }) {
+            let derived = String(prompt.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).prefix(36))
+            if !derived.isEmpty {
+                updateConversationTitle(cascadeId: session.cascadeId, newTitle: derived)
+            }
+        }
         
         guard let data = try? JSONEncoder().encode(session) else { return }
         let fileURL = cacheDir.appendingPathComponent("sessions/\(session.cascadeId).json")

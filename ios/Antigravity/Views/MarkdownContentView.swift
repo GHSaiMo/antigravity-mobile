@@ -383,6 +383,7 @@ public struct MarkdownContentView: View {
                         .foregroundColor(.secondary)
                         .padding(.top, 2)
                     paragraphView(text: item, size: 15)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }

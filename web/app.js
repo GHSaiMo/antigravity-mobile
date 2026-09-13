@@ -568,7 +568,7 @@ function renderConversationList(summaries) {
               : unreadDotHtml)));
       const title = item.annotations?.title || item.summary || "未命名会话";
       const wsUri = item.workspaceUris?.[0] || item.workspaces?.[0]?.workspaceFolderAbsoluteUri || "";
-      const wsName = wsUri.split("/").filter(Boolean).pop() || "workspace";
+      const wsName = wsUri.split("/").filter(Boolean).pop() || "Chat";
       const timeStr = formatRelativeTime(item.lastModifiedTime);
 
       return `
@@ -1291,9 +1291,15 @@ function updateChatControls(isRunning, wsUri, hasAction = false) {
   const chatInput = document.getElementById("chat-input");
   const wsText = document.getElementById("chat-workspace-text");
 
-  if (wsUri && wsText) {
-    const wsName = wsUri.split("/").filter(Boolean).pop() || "workspace";
-    wsText.textContent = `📁 ${wsName}`;
+  if (wsText) {
+    if (wsUri) {
+      const wsName = wsUri.split("/").filter(Boolean).pop() || "Chat";
+      wsText.textContent = wsName;
+      wsText.title = wsUri;
+    } else {
+      wsText.textContent = "Chat";
+      wsText.title = "新对话 · 不关联任何工作区";
+    }
   }
 
   if (sendBtn) {
@@ -2862,6 +2868,7 @@ async function openNewSheet() {
       discoveredProjects = await res.json();
       if (discoveredProjects && discoveredProjects.length > 0) {
         wsSelect.innerHTML = `<option value="">-- 请选择目标项目 (${discoveredProjects.length} 个可用) --</option>` +
+          `<option value="outside-of-project">💬 Chat (新对话 · 无工作区)</option>` +
           discoveredProjects.map(p => {
             const countStr = p.sessionCount > 0 ? ` (${p.sessionCount}个会话)` : "";
             const wsTag = p.isWorkspace ? " [工作区]" : "";
@@ -3093,11 +3100,13 @@ async function createConversation() {
   }
 
   try {
+    const isPure = ws === "outside-of-project" || ws.toLowerCase() === "chat";
     const res = await fetch("/gateway/cascade/new", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        workspaceUri: ws,
+        workspaceUri: isPure ? "" : ws,
+        projectId: isPure ? "outside-of-project" : undefined,
         prompt: prompt,
         model: model || undefined
       })

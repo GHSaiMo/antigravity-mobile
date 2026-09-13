@@ -44,6 +44,18 @@ public struct ProjectItem: Identifiable, Hashable, Codable, Sendable {
         if diff < 86400 { return "\(Int(diff / 3600))小时前" }
         return "\(Int(diff / 86400))天前"
     }
+    
+    public static let pureChat = ProjectItem(
+        rawId: "outside-of-project",
+        name: "Chat",
+        uri: "",
+        path: "新对话 · 不关联任何工作区",
+        isWorkspace: false
+    )
+    
+    public var isPureChat: Bool {
+        rawId == "outside-of-project" || name == "Chat" || (uri.isEmpty && path.contains("不关联任何工作区"))
+    }
 }
 
 public struct CreateCascadeResponsePayload: Codable, Sendable {

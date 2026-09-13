@@ -605,6 +605,31 @@ func isUserVisibleError(s TrajectoryStep) bool {
 	return false
 }
 
+func extractTitleFromUserInput(s TrajectoryStep) string {
+	if s.UserInput == nil {
+		return ""
+	}
+	prompt := strings.TrimSpace(s.UserInput.UserResponse)
+	if prompt == "" && len(s.UserInput.Items) > 0 {
+		prompt = strings.TrimSpace(s.UserInput.Items[0].Text)
+	}
+	if prompt == "" {
+		return ""
+	}
+	lines := strings.Split(prompt, "\n")
+	for _, l := range lines {
+		trimmed := strings.TrimSpace(l)
+		if trimmed != "" {
+			runes := []rune(trimmed)
+			if len(runes) > 36 {
+				return string(runes[:36])
+			}
+			return trimmed
+		}
+	}
+	return ""
+}
+
 // ParseTrajectoryDetails extracts messages, tools count, duration and metadata from raw response.
 func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) TrajectoryDetails {
 	steps := rawResp.Trajectory.Steps
@@ -811,6 +836,29 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 		title = rawResp.Trajectory.Annotations.Title
 	} else if rawResp.Trajectory.Summary != "" {
 		title = rawResp.Trajectory.Summary
+	}
+
+	if title == "" || title == "未命名会话" {
+		if t := readAnnotationTitle(rawResp.Trajectory.CascadeID); t != "" && t != "未命名会话" {
+			title = t
+		}
+	}
+
+	if title == "" || title == "未命名会话" {
+		for _, s := range steps {
+			if s.Type == "CORTEX_STEP_TYPE_USER_INPUT" {
+				if t := extractTitleFromUserInput(s); t != "" && t != "未命名会话" {
+					title = t
+					break
+				}
+			}
+		}
+	}
+
+	if title != "" && title != "未命名会话" && rawResp.Trajectory.CascadeID != "" {
+		defaultTrajCache.cascadeTitlesMu.Lock()
+		defaultTrajCache.cascadeTitles[rawResp.Trajectory.CascadeID] = title
+		defaultTrajCache.cascadeTitlesMu.Unlock()
 	}
 
 	// Detect if latest turn contains an artifact pending user feedback (Proceed)
@@ -1352,27 +1400,60 @@ func readAnnotationTitle(cascadeID string) string {
 	return ""
 }
 
+func writeAnnotationTitle(cascadeID, title string) {
+	if cascadeID == "" || strings.TrimSpace(title) == "" || title == "未命名会话" {
+		return
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	dir := filepath.Join(home, ".gemini", "antigravity", "annotations")
+	_ = os.MkdirAll(dir, 0755)
+	p := filepath.Join(dir, cascadeID+".pbtxt")
+	b, err := os.ReadFile(p)
+	if err != nil {
+		content := fmt.Sprintf("title: %q\n", title)
+		_ = os.WriteFile(p, []byte(content), 0644)
+		return
+	}
+	s := string(b)
+	if titleRegex.MatchString(s) {
+		newContent := titleRegex.ReplaceAllString(s, fmt.Sprintf("title: %q", title))
+		_ = os.WriteFile(p, []byte(newContent), 0644)
+	} else {
+		newContent := fmt.Sprintf("title: %q\n%s", title, s)
+		_ = os.WriteFile(p, []byte(newContent), 0644)
+	}
+}
+
 func (p *Proxy) lookupCascadeTitle(cascadeID string, port int, token string) string {
-	if cascadeID == "" || port == 0 {
+	if cascadeID == "" {
 		return ""
 	}
 
 	defaultTrajCache.cascadeTitlesMu.RLock()
 	cachedTitle, ok := defaultTrajCache.cascadeTitles[cascadeID]
-	cacheFresh := time.Since(defaultTrajCache.lastTitlesFetchTime) < 3*time.Second
 	defaultTrajCache.cascadeTitlesMu.RUnlock()
 
-	if ok && cachedTitle != "" && cachedTitle != "未命名会话" && cacheFresh {
+	if ok && cachedTitle != "" && cachedTitle != "未命名会话" {
 		return cachedTitle
 	}
 
-	if !cacheFresh {
+	if t := readAnnotationTitle(cascadeID); t != "" && t != "未命名会话" {
+		defaultTrajCache.cascadeTitlesMu.Lock()
+		defaultTrajCache.cascadeTitles[cascadeID] = t
+		defaultTrajCache.cascadeTitlesMu.Unlock()
+		return t
+	}
+
+	if port > 0 {
 		summaries, err := p.fetchTrajectoriesSummaryWithTitles(port, token)
 		if err == nil && len(summaries) > 0 {
 			defaultTrajCache.cascadeTitlesMu.Lock()
 			defaultTrajCache.lastTitlesFetchTime = time.Now()
 			for cid, t := range summaries {
-				if t != "" {
+				if t != "" && t != "未命名会话" {
 					defaultTrajCache.cascadeTitles[cid] = t
 				}
 			}
@@ -1384,14 +1465,24 @@ func (p *Proxy) lookupCascadeTitle(cascadeID string, port int, token string) str
 		}
 	}
 
-	if t := readAnnotationTitle(cascadeID); t != "" {
-		defaultTrajCache.cascadeTitlesMu.Lock()
-		defaultTrajCache.cascadeTitles[cascadeID] = t
-		defaultTrajCache.cascadeTitlesMu.Unlock()
-		return t
+	// Fallback to cached trajectory first user prompt
+	defaultTrajCache.trajCacheMu.Lock()
+	entry, hasEntry := defaultTrajCache.trajCache[cascadeID]
+	defaultTrajCache.trajCacheMu.Unlock()
+	if hasEntry && entry != nil && entry.data != nil {
+		for _, s := range entry.data.Trajectory.Steps {
+			if s.Type == "CORTEX_STEP_TYPE_USER_INPUT" {
+				if t := extractTitleFromUserInput(s); t != "" && t != "未命名会话" {
+					defaultTrajCache.cascadeTitlesMu.Lock()
+					defaultTrajCache.cascadeTitles[cascadeID] = t
+					defaultTrajCache.cascadeTitlesMu.Unlock()
+					return t
+				}
+			}
+		}
 	}
 
-	return cachedTitle
+	return ""
 }
 
 // LoadTrajectory asks upstream language_server to load a historical cascade into memory.
