@@ -1036,21 +1036,46 @@ public enum FileIconResolver {
         "zsh": "file_icon_shell",
     ]
 
+    private static let lineSuffixRegex = try? NSRegularExpression(pattern: #":(?:L?\d+(?:-[a-zA-Z]?\d+)?|\d+(?::\d+)?)$"#)
+
     /// Resolves the asset image name for a given file name, path, or URL.
     public static func resolveIcon(for pathOrName: String) -> String? {
-        let clean = pathOrName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !clean.isEmpty else { return nil }
+        var str = pathOrName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !str.isEmpty else { return nil }
+
+        // Strip enclosing backticks or quotes: `foo.swift`, "foo.swift", 'foo.swift'
+        str = str.trimmingCharacters(in: CharacterSet(charactersIn: "`'\""))
 
         // Strip URL scheme if present (e.g. file:///path/to/file.go -> /path/to/file.go)
-        let path: String
-        if clean.hasPrefix("file://") {
-            let stripped = clean.dropFirst(7)
-            path = String(stripped)
-        } else {
-            path = clean
+        if str.hasPrefix("file://") {
+            str = String(str.dropFirst(7))
+        } else if let schemeRange = str.range(of: #"^[a-zA-Z][a-zA-Z0-9+-.]*://"#, options: .regularExpression) {
+            str = String(str[schemeRange.upperBound...])
         }
 
-        let fileName = (path as NSString).lastPathComponent.lowercased()
+        // Strip URL fragments (#L173-L179, #anchor)
+        if let hashIdx = str.firstIndex(of: "#") {
+            str = String(str[..<hashIdx])
+        }
+
+        // Strip URL query parameters (?foo=bar)
+        if let queryIdx = str.firstIndex(of: "?") {
+            str = String(str[..<queryIdx])
+        }
+
+        // Strip trailing line/column specifiers (e.g. :123, :123:45, :L123-L145)
+        if let regex = lineSuffixRegex {
+            let nsStr = str as NSString
+            let range = NSRange(location: 0, length: nsStr.length)
+            if let match = regex.firstMatch(in: str, range: range) {
+                str = nsStr.substring(to: match.range.location)
+            }
+        }
+
+        str = str.trimmingCharacters(in: CharacterSet(charactersIn: "`'\" \t\n\r"))
+        guard !str.isEmpty else { return nil }
+
+        let fileName = (str as NSString).lastPathComponent.lowercased()
         if let icon = fileNames[fileName] {
             return icon
         }

@@ -171,7 +171,11 @@ public struct MarkdownContentView: View {
             let fullLinkMarkdown = nsText.substring(with: matchRange)
             
             if let icon = FileIconResolver.resolveIcon(for: linkText) ?? FileIconResolver.resolveIcon(for: linkUrl) {
-                combined = combined + Text(Image(icon)) + Text("\u{2009}")
+                // Vector file icons are 13.5pt tall. By default, SwiftUI aligns the icon bottom
+                // with the font baseline, causing the icon to float above lowercase/uppercase text.
+                // A negative baseline offset vertically centers the icon with the text.
+                let iconOffset: CGFloat = (size <= 13) ? -2.2 : -2.0
+                combined = combined + Text(Image(icon)).baselineOffset(iconOffset) + Text("\u{2009}")
             }
             
             combined = combined + Text(renderInlineMarkdown(fullLinkMarkdown, size: size, weight: weight))
