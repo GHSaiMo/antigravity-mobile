@@ -298,6 +298,14 @@ public final class ChatViewModel {
         let createdAt: Date
     }
     private var pendingOptimisticQueueItems: [PendingOptimisticQueueItem] = []
+    
+    private struct QueuedMessageTombstone: Equatable, Sendable {
+        let id: String?
+        let text: String
+        let deletedAt: Date
+    }
+    private var deletedQueueItemTombstones: [QueuedMessageTombstone] = []
+    private var inFlightDeletingQueueIds: Set<String> = []
     private var knownServerMessageIds: Set<String> = []
     private var pollTask: Task<Void, Never>?
     private var hasUserManuallySelectedModel: Bool = false
@@ -954,38 +962,54 @@ public final class ChatViewModel {
         // 1. Expire stale optimistic items older than 15 seconds
         pendingOptimisticQueueItems.removeAll(where: { now.timeIntervalSince($0.createdAt) > 15.0 })
         
-        // 2. Identify recent user messages in the active conversation
+        // 2. Expire stale tombstones older than 10 seconds
+        deletedQueueItemTombstones.removeAll(where: { now.timeIntervalSince($0.deletedAt) > 10.0 })
+        let tombstoneIds = Set(deletedQueueItemTombstones.compactMap(\.id))
+        let tombstoneTexts = Set(deletedQueueItemTombstones.map(\.text))
+        
+        // 3. Identify recent user messages in the active conversation
         let recentUserMessages = self.messages
             .filter { $0.sender == .user }
             .suffix(15)
             .map { $0.content.trimmingCharacters(in: .whitespacesAndNewlines) }
         let recentUserMessageSet = Set(recentUserMessages)
         
-        // 3. Clear optimistic items if server has incorporated them OR if their text has already entered the conversation
+        // 4. Clear optimistic items if server has incorporated them OR if entered chat OR if tombstoned
         pendingOptimisticQueueItems.removeAll { opt in
             let trimmed = opt.text.trimmingCharacters(in: .whitespacesAndNewlines)
             let inServer = serverQueue?.contains(where: { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == trimmed }) == true
             let inChat = recentUserMessageSet.contains(trimmed)
-            return inServer || inChat
+            let isTombstoned = tombstoneIds.contains(opt.id) || tombstoneTexts.contains(trimmed)
+            return inServer || inChat || isTombstoned
         }
         
-        // 4. Compute base queue from server if provided, otherwise filter existing queue
+        // 5. Compute base queue from server if provided, otherwise filter existing queue
         var baseQueue: [QueuedMessageItem]
         if let sq = serverQueue {
             baseQueue = sq.filter { sItem in
-                Self.isUserQueuedMessage(sItem.text) &&
-                !recentUserMessageSet.contains(sItem.text.trimmingCharacters(in: .whitespacesAndNewlines))
+                let trimmed = sItem.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                return Self.isUserQueuedMessage(sItem.text) &&
+                    !recentUserMessageSet.contains(trimmed) &&
+                    !tombstoneIds.contains(sItem.id) &&
+                    !tombstoneTexts.contains(trimmed)
             }
         } else {
             baseQueue = self.queuedMessages.filter { qm in
-                Self.isUserQueuedMessage(qm.text) &&
-                !qm.id.hasPrefix("queue-") && !recentUserMessageSet.contains(qm.text.trimmingCharacters(in: .whitespacesAndNewlines))
+                let trimmed = qm.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                return Self.isUserQueuedMessage(qm.text) &&
+                    !qm.id.hasPrefix("queue-") &&
+                    !recentUserMessageSet.contains(trimmed) &&
+                    !tombstoneIds.contains(qm.id) &&
+                    !tombstoneTexts.contains(trimmed)
             }
         }
         
-        // 5. Append unconfirmed optimistic items (not yet in server queue and not yet entered chat)
+        // 6. Append unconfirmed optimistic items (not yet in server queue, not entered chat, not tombstoned)
         let remainingOptItems = pendingOptimisticQueueItems.compactMap { opt -> QueuedMessageItem? in
             let trimmed = opt.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if tombstoneIds.contains(opt.id) || tombstoneTexts.contains(trimmed) {
+                return nil
+            }
             if baseQueue.contains(where: { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == trimmed }) {
                 return nil
             }
@@ -1081,6 +1105,7 @@ public final class ChatViewModel {
         // If agent is currently running and session already exists, queue follow-up message!
         if (self.isRunning || self.isAwaitingResponse) && !self.cascadeId.isEmpty {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            self.deletedQueueItemTombstones.removeAll(where: { $0.text == text })
             let queueItem = QueuedMessageItem(id: "queue-\(UUID().uuidString)", text: text)
             self.pendingOptimisticQueueItems.append(PendingOptimisticQueueItem(id: queueItem.id, text: text, createdAt: Date()))
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
@@ -1313,9 +1338,11 @@ public final class ChatViewModel {
         // Save original states for rollback on failure
         let originalQueued = self.queuedMessages
         let originalPending = self.pendingOptimisticQueueItems
+        let trimmedText = item.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.deletedQueueItemTombstones.append(QueuedMessageTombstone(id: item.id, text: trimmedText, deletedAt: Date()))
         
         // Remove from optimistic queue list
-        self.pendingOptimisticQueueItems.removeAll(where: { $0.id == item.id || $0.text == item.text })
+        self.pendingOptimisticQueueItems.removeAll(where: { $0.id == item.id || $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == trimmedText })
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
             self.queuedMessages.removeAll(where: { $0.id == item.id })
         }
@@ -1400,6 +1427,7 @@ public final class ChatViewModel {
             await self.loadMessages(isBackgroundPoll: true)
         } catch {
             print("❌ sendQueuedMessageNow error: \(error)")
+            self.deletedQueueItemTombstones.removeAll(where: { $0.id == item.id || $0.text == trimmedText })
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                 self.queuedMessages = originalQueued
                 self.pendingOptimisticQueueItems = originalPending
@@ -1414,30 +1442,62 @@ public final class ChatViewModel {
     
     @MainActor
     public func editQueuedMessage(item: QueuedMessageItem) {
+        guard !inFlightDeletingQueueIds.contains(item.id) else { return }
+        inFlightDeletingQueueIds.insert(item.id)
+        
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        self.pendingOptimisticQueueItems.removeAll(where: { $0.id == item.id || $0.text == item.text })
+        let trimmedText = item.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.deletedQueueItemTombstones.append(QueuedMessageTombstone(id: item.id, text: trimmedText, deletedAt: Date()))
+        self.pendingOptimisticQueueItems.removeAll(where: { $0.id == item.id || $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == trimmedText })
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
             self.queuedMessages.removeAll(where: { $0.id == item.id })
         }
         triggerScrollToBottom()
         
+        // Persist to local cache immediately
+        let toCache = self.messages.filter { $0.id != self.pendingOptimisticMessageId && !$0.id.hasPrefix("optimistic-") }
+        cacheManager.saveSession(CachedChatSession(
+            cascadeId: cascadeId,
+            status: isRunning ? "CASCADE_RUN_STATUS_RUNNING" : "CASCADE_RUN_STATUS_DONE",
+            duration: self.duration,
+            stepCount: self.stepCount,
+            totalTools: self.totalTools,
+            hasMore: self.hasMore,
+            nextOffset: self.nextOffset,
+            messages: toCache,
+            title: self.currentTitle,
+            cascadeConfigRaw: self.cascadeConfigRaw,
+            canProceed: self.canProceed,
+            proceedArtifactUri: self.proceedArtifactUri,
+            pendingInteraction: self.pendingInteraction,
+            queuedMessages: self.queuedMessages,
+            runningTasks: self.runningTasks
+        ))
+        
         if let url = settings.serverURL, !cascadeId.isEmpty {
-            Task { [weak self] in
+            Task { @MainActor [weak self] in
+                defer {
+                    self?.inFlightDeletingQueueIds.remove(item.id)
+                }
                 guard let self else { return }
                 var targetMsgId: String? = item.id.hasPrefix("queue-") ? nil : item.id
                 if targetMsgId == nil {
                     try? await Task.sleep(nanoseconds: 350_000_000)
                     if let currentMsgs = try? await self.apiClient.fetchMessages(cascadeId: self.cascadeId, limit: 15, offset: nil, baseURL: url) {
-                        let trimmedTarget = item.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if let match = currentMsgs.queuedMessages.first(where: { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == trimmedTarget }) {
+                        if let match = currentMsgs.queuedMessages.first(where: { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == trimmedText }) {
                             targetMsgId = match.id
+                            self.deletedQueueItemTombstones.append(QueuedMessageTombstone(id: match.id, text: trimmedText, deletedAt: Date()))
+                            self.inFlightDeletingQueueIds.insert(match.id)
                         }
                     }
                 }
                 if let msgId = targetMsgId, !msgId.hasPrefix("queue-") {
                     _ = try? await self.apiClient.deleteAgentMessage(messageId: msgId, cascadeId: self.cascadeId, baseURL: url)
+                    self.inFlightDeletingQueueIds.remove(msgId)
                 }
             }
+        } else {
+            inFlightDeletingQueueIds.remove(item.id)
         }
         
         self.inputText = item.text
@@ -1445,30 +1505,62 @@ public final class ChatViewModel {
     
     @MainActor
     public func deleteQueuedMessage(item: QueuedMessageItem) {
+        guard !inFlightDeletingQueueIds.contains(item.id) else { return }
+        inFlightDeletingQueueIds.insert(item.id)
+        
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        self.pendingOptimisticQueueItems.removeAll(where: { $0.id == item.id || $0.text == item.text })
+        let trimmedText = item.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.deletedQueueItemTombstones.append(QueuedMessageTombstone(id: item.id, text: trimmedText, deletedAt: Date()))
+        self.pendingOptimisticQueueItems.removeAll(where: { $0.id == item.id || $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == trimmedText })
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
             self.queuedMessages.removeAll(where: { $0.id == item.id })
         }
         triggerScrollToBottom()
         
+        // Persist to local cache immediately
+        let toCache = self.messages.filter { $0.id != self.pendingOptimisticMessageId && !$0.id.hasPrefix("optimistic-") }
+        cacheManager.saveSession(CachedChatSession(
+            cascadeId: cascadeId,
+            status: isRunning ? "CASCADE_RUN_STATUS_RUNNING" : "CASCADE_RUN_STATUS_DONE",
+            duration: self.duration,
+            stepCount: self.stepCount,
+            totalTools: self.totalTools,
+            hasMore: self.hasMore,
+            nextOffset: self.nextOffset,
+            messages: toCache,
+            title: self.currentTitle,
+            cascadeConfigRaw: self.cascadeConfigRaw,
+            canProceed: self.canProceed,
+            proceedArtifactUri: self.proceedArtifactUri,
+            pendingInteraction: self.pendingInteraction,
+            queuedMessages: self.queuedMessages,
+            runningTasks: self.runningTasks
+        ))
+        
         if let url = settings.serverURL, !cascadeId.isEmpty {
-            Task { [weak self] in
+            Task { @MainActor [weak self] in
+                defer {
+                    self?.inFlightDeletingQueueIds.remove(item.id)
+                }
                 guard let self else { return }
                 var targetMsgId: String? = item.id.hasPrefix("queue-") ? nil : item.id
                 if targetMsgId == nil {
                     try? await Task.sleep(nanoseconds: 350_000_000)
                     if let currentMsgs = try? await self.apiClient.fetchMessages(cascadeId: self.cascadeId, limit: 15, offset: nil, baseURL: url) {
-                        let trimmedTarget = item.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if let match = currentMsgs.queuedMessages.first(where: { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == trimmedTarget }) {
+                        if let match = currentMsgs.queuedMessages.first(where: { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == trimmedText }) {
                             targetMsgId = match.id
+                            self.deletedQueueItemTombstones.append(QueuedMessageTombstone(id: match.id, text: trimmedText, deletedAt: Date()))
+                            self.inFlightDeletingQueueIds.insert(match.id)
                         }
                     }
                 }
                 if let msgId = targetMsgId, !msgId.hasPrefix("queue-") {
                     _ = try? await self.apiClient.deleteAgentMessage(messageId: msgId, cascadeId: self.cascadeId, baseURL: url)
+                    self.inFlightDeletingQueueIds.remove(msgId)
                 }
             }
+        } else {
+            inFlightDeletingQueueIds.remove(item.id)
         }
     }
     
