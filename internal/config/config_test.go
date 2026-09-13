@@ -87,3 +87,35 @@ BARK_SOUND_ACTION=alarm
 		t.Errorf("unexpected icon: %s", cfg.IconURL)
 	}
 }
+
+func TestGetTunnelConfig(t *testing.T) {
+	os.Setenv("FRP_SERVER_ADDR", "198.51.100.1")
+	os.Setenv("FRP_SERVER_PORT", "7000")
+	os.Setenv("FRP_TOKEN", "TestToken123")
+	os.Setenv("FRP_REMOTE_PORT", "58900")
+	os.Setenv("FRP_ENABLED", "true")
+	defer func() {
+		os.Unsetenv("FRP_SERVER_ADDR")
+		os.Unsetenv("FRP_SERVER_PORT")
+		os.Unsetenv("FRP_TOKEN")
+		os.Unsetenv("FRP_REMOTE_PORT")
+		os.Unsetenv("FRP_ENABLED")
+	}()
+
+	cfg := GetTunnelConfig()
+	if !cfg.Enabled {
+		t.Errorf("expected Enabled true, got false")
+	}
+	if cfg.ServerAddr != "198.51.100.1" {
+		t.Errorf("expected 198.51.100.1, got %s", cfg.ServerAddr)
+	}
+	if cfg.ServerPort != 7000 {
+		t.Errorf("expected 7000, got %d", cfg.ServerPort)
+	}
+	if cfg.Token != "TestToken123" {
+		t.Errorf("expected TestToken123, got %s", cfg.Token)
+	}
+	if cfg.RemotePort != 58900 {
+		t.Errorf("expected 58900, got %d", cfg.RemotePort)
+	}
+}

@@ -80,8 +80,8 @@ public struct SettingsSheet: View {
                 }
 
                 Section(
-                    header: Text("已绑定的网络端点 (多网址自适应)"),
-                    footer: Text("扫码后会自动同步局域网 Wi-Fi 与公网 IPv6 双网址。在家同一 Wi-Fi 下优先走局域网（极速秒连），出门在外自动秒切 IPv6 直连。")
+                    header: Text("已绑定的网络端点 (多通道智能路由)"),
+                    footer: Text("扫码后自动同步局域网 Wi-Fi、外网 IPv6 与云服务器中继三层通道。在家优先走局域网（~1ms）；外出蜂窝网络默认走 IPv6 直连；连接公共 Wi-Fi 时自动走云服务器中继。")
                 ) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("局域网 Wi-Fi 地址 (LAN IPv4)")
@@ -112,6 +112,20 @@ public struct SettingsSheet: View {
                     .padding(.vertical, 2)
                     
                     VStack(alignment: .leading, spacing: 4) {
+                        Text("云服务器中继地址 (Cloud Relay IPv4)")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.secondary)
+                        TextField("未设置 (如 http://relay.example.com:58900)", text: Binding(
+                            get: { settings.relayServerURL ?? "" },
+                            set: { settings.relayServerURL = $0.isEmpty ? nil : $0 }
+                        ))
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                    }
+                    .padding(.vertical, 2)
+                    
+                    VStack(alignment: .leading, spacing: 4) {
                         Text("自定义域名 / DDNS / Tailscale")
                             .font(.system(size: 11, weight: .medium))
                             .foregroundColor(.secondary)
@@ -131,7 +145,7 @@ public struct SettingsSheet: View {
                                 Text("当前活动通道")
                                     .font(.system(size: 13))
                                 if let activeURL = URL(string: active) {
-                                    let isCellular = settings.preferCellularNetwork || NetworkTransport.shared.isCellular
+                                    let isCellular = NetworkTransport.shared.isCellular
                                     Text(AppSettings.describeEndpoint(url: activeURL, isCellular: isCellular))
                                         .font(.system(size: 11, weight: .medium))
                                         .foregroundColor(.blue)
@@ -169,36 +183,6 @@ public struct SettingsSheet: View {
                     }
                     .disabled(isTesting)
                 }
-                
-                Section(header: Text("网络直连策略"), footer: Text("同局域网下系统始终极速走局域网（~1ms）；外出连接无 IPv6 的外部公共 Wi-Fi 时，开启此项将在局域网不通时优先走蜂窝 IPv6 直连。提示：若外部 Wi-Fi 限制双网并发，在 iOS 控制中心临时断开 Wi-Fi 即可秒切 5G 极速直连。")) {
-                    Toggle("蜂窝网络优先", isOn: $settings.preferCellularNetwork)
-                    
-                    if settings.preferCellularNetwork {
-                        if let v6 = settings.ipv6ServerURL, !v6.isEmpty {
-                            HStack {
-                                Image(systemName: "antenna.radiowaves.left.and.right")
-                                    .foregroundColor(.blue)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("已绑定 IPv6 直连通道")
-                                        .font(.system(size: 13, weight: .medium))
-                                    Text(v6)
-                                        .font(.system(size: 11, design: .monospaced))
-                                        .foregroundColor(.secondary)
-                                        .lineLimit(1)
-                                }
-                            }
-                        } else {
-                            HStack(alignment: .top, spacing: 8) {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .foregroundColor(.orange)
-                                Text("未检测到已保存的 IPv6 地址。请在上方「外网直连地址」中填入 Mac 终端显示的 IPv6 地址，或重新扫码。")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                    }
-                }
-
                 
                 Section(header: Text("本地缓存"), footer: Text("已开启离线缓存与秒开机制。会话列表与对话历史自动保存到本地，二次进入 0 延迟秒开。")) {
                     Button(role: .destructive, action: {
@@ -247,7 +231,7 @@ public struct SettingsSheet: View {
         Task { @MainActor in
             do {
                 let status = try await APIClient.shared.testConnection(baseURL: url)
-                let isCellular = (status.usedInterface == "cellular") || (settings.preferCellularNetwork && !NetworkTransport.isLocalOrPrivateHost(url.host ?? "")) || (NetworkTransport.shared.isCellular && !NetworkTransport.shared.isWifi)
+                let isCellular = (status.usedInterface == "cellular") || (NetworkTransport.shared.isCellular && !NetworkTransport.shared.isWifi)
                 let ifaceDesc = status.connectionDescription ?? AppSettings.describeEndpoint(url: url, isCellular: isCellular)
                 
                 // Fetch latency from recent probe if available

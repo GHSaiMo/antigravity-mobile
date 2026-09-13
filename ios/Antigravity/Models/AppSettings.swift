@@ -24,10 +24,10 @@ public final class AppSettings {
     private let serverURLKey = "antigravity.server_url"
     private let lanServerURLKey = "antigravity.lan_server_url"
     private let ipv6ServerURLKey = "antigravity.ipv6_server_url"
+    private let relayServerURLKey = "antigravity.relay_server_url"
     private let customServerURLKey = "antigravity.custom_server_url"
     private let activeServerURLKey = "antigravity.active_server_url"
     private let enableLiveActivityKey = "antigravity.enable_live_activity"
-    private let preferCellularNetworkKey = "antigravity.prefer_cellular_network"
     private let activeModelKey = "antigravity.active_model"
     
     public var rawServerURL: String {
@@ -58,6 +58,16 @@ public final class AppSettings {
             }
         }
     }
+
+    public var relayServerURL: String? {
+        didSet {
+            if let val = relayServerURL {
+                UserDefaults.standard.set(val, forKey: relayServerURLKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: relayServerURLKey)
+            }
+        }
+    }
     
     public var customServerURL: String? {
         didSet {
@@ -82,31 +92,6 @@ public final class AppSettings {
     public var enableLiveActivities: Bool {
         didSet {
             UserDefaults.standard.set(enableLiveActivities, forKey: enableLiveActivityKey)
-        }
-    }
-    
-    public var preferCellularNetwork: Bool {
-        didSet {
-            UserDefaults.standard.set(preferCellularNetwork, forKey: preferCellularNetworkKey)
-            
-            // Automatically switch activeServerURL and rawServerURL to match the selected route strategy
-            if preferCellularNetwork {
-                if let v6 = ipv6ServerURL, !v6.isEmpty {
-                    self.activeServerURL = v6
-                    self.rawServerURL = v6
-                } else if let custom = customServerURL, !custom.isEmpty {
-                    self.activeServerURL = custom
-                    self.rawServerURL = custom
-                }
-            } else {
-                // If turning off cellular preference, only revert to LAN if not currently on cellular data
-                if !NetworkTransport.shared.isCellular, let lan = lanServerURL, !lan.isEmpty {
-                    self.activeServerURL = lan
-                    self.rawServerURL = lan
-                }
-            }
-            
-            NotificationCenter.default.post(name: .networkRoutingPreferenceChanged, object: nil)
         }
     }
     
@@ -153,7 +138,10 @@ public final class AppSettings {
         if let v6 = ipv6ServerURL, !v6.isEmpty {
             items.append(ServerEndpointItem(type: "ipv6", urlString: v6))
         }
-        if let custom = customServerURL, !custom.isEmpty {
+        if let relay = relayServerURL, !relay.isEmpty {
+            items.append(ServerEndpointItem(type: "relay", urlString: relay))
+        }
+        if let custom = customServerURL, !custom.isEmpty && custom != relayServerURL {
             items.append(ServerEndpointItem(type: "custom", urlString: custom))
         }
         if items.isEmpty && !rawServerURL.isEmpty {
@@ -169,23 +157,21 @@ public final class AppSettings {
         }
         let clean = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
         
-        // 1. Check if host is IPv6 (contains colons and is not link-local fe80 / ULA fc/fd)
         let isIPv6 = clean.contains(":") && !clean.hasPrefix("fe80") && !clean.hasPrefix("fc") && !clean.hasPrefix("fd")
-        
-        // 2. Check if host is LAN / private
         let isLAN = NetworkTransport.isLocalOrPrivateHost(clean)
-        
-        // 3. Check if host is Tailscale CGNAT
         let isTailscale = clean.hasPrefix("100.") || clean.contains("ts.net")
+        let isRelay = (AppSettings.shared.relayServerURL?.contains(clean) == true) || clean.contains("relay")
         
-        if isIPv6 {
-            return isCellular ? "蜂窝网络 IPv6" : "Wi-Fi IPv6 直连"
-        } else if isLAN {
+        if isLAN {
             return "Wi-Fi 局域网"
+        } else if isIPv6 {
+            return isCellular ? "蜂窝网络 IPv6 直连" : "Wi-Fi IPv6 直连"
+        } else if isRelay {
+            return isCellular ? "蜂窝网络 (云中继)" : "Wi-Fi (云中继)"
         } else if isTailscale {
             return isCellular ? "蜂窝网络 (Tailscale)" : "Wi-Fi (Tailscale)"
         } else {
-            return isCellular ? "蜂窝网络 (公网域名)" : "Wi-Fi (公网域名)"
+            return isCellular ? "蜂窝网络 (公网)" : "Wi-Fi (公网)"
         }
     }
     
@@ -239,39 +225,30 @@ public final class AppSettings {
             return url
         }
         
-        let shouldUseCellularOrRemote = preferCellularNetwork || NetworkTransport.shared.isCellular
-        if shouldUseCellularOrRemote {
-            // When on cellular or prioritizing cellular (IPv6 direct connection) without an active probe result:
-            // 1. If an IPv6 URL is configured, prioritize it
-            if let v6 = ipv6ServerURL, let url = Self.normalize(raw: v6) {
-                return url
-            }
-            // 2. If a custom DDNS URL is configured, use it
-            if let custom = customServerURL, let url = Self.normalize(raw: custom) {
-                return url
-            }
-            // 3. Fallback to LAN or raw
+        // 2. Default fallback priority:
+        // When not on cellular, check LAN first
+        if !NetworkTransport.shared.isCellular {
             if let lan = lanServerURL, let url = Self.normalize(raw: lan) {
                 return url
             }
-            return Self.normalize(raw: rawServerURL)
-        } else {
-            // Normal Wi-Fi / local routing mode without an active probe result:
-            // 1. If LAN URL is configured, prefer LAN
-            if let lan = lanServerURL, let url = Self.normalize(raw: lan) {
-                return url
-            }
-            // 2. If IPv6 URL is configured
-            if let v6 = ipv6ServerURL, let url = Self.normalize(raw: v6) {
-                return url
-            }
-            // 3. If custom DDNS URL is configured
-            if let custom = customServerURL, let url = Self.normalize(raw: custom) {
-                return url
-            }
-            // 4. Default fallback to rawServerURL
-            return Self.normalize(raw: rawServerURL)
         }
+        // Then public IPv6 direct
+        if let v6 = ipv6ServerURL, let url = Self.normalize(raw: v6) {
+            return url
+        }
+        // Then Cloud Relay
+        if let relay = relayServerURL, let url = Self.normalize(raw: relay) {
+            return url
+        }
+        // Then Custom DDNS
+        if let custom = customServerURL, let url = Self.normalize(raw: custom) {
+            return url
+        }
+        // LAN fallback if not already tried
+        if let lan = lanServerURL, let url = Self.normalize(raw: lan) {
+            return url
+        }
+        return Self.normalize(raw: rawServerURL)
     }
     
     public var gatewayURL: URL? {
@@ -291,12 +268,15 @@ public final class AppSettings {
         return true
     }
     
-    public func updateEndpoints(lan: String? = nil, ipv6: String? = nil, custom: String? = nil, active: String? = nil) {
+    public func updateEndpoints(lan: String? = nil, ipv6: String? = nil, relay: String? = nil, custom: String? = nil, active: String? = nil) {
         if let lan = lan, !lan.isEmpty {
             self.lanServerURL = lan
         }
         if let ipv6 = ipv6, !ipv6.isEmpty {
             self.ipv6ServerURL = ipv6
+        }
+        if let relay = relay, !relay.isEmpty {
+            self.relayServerURL = relay
         }
         if let custom = custom, !custom.isEmpty {
             self.customServerURL = custom
@@ -311,12 +291,15 @@ public final class AppSettings {
         KeychainHelper.shared.clearAll()
         self.lanServerURL = nil
         self.ipv6ServerURL = nil
+        self.relayServerURL = nil
         self.customServerURL = nil
         self.activeServerURL = nil
     }
     
     public init() {
-        // Clean up any legacy Cloudflare credentials from UserDefaults
+        // Clean up legacy keys
+        UserDefaults.standard.removeObject(forKey: "antigravity.prefer_cellular_network")
+        UserDefaults.standard.removeObject(forKey: "antigravity.prefer_cellular_v2_migrated")
         UserDefaults.standard.removeObject(forKey: "antigravity.cf_token")
         UserDefaults.standard.removeObject(forKey: "antigravity.cf_access_client_id")
         UserDefaults.standard.removeObject(forKey: "antigravity.cf_access_client_secret")
@@ -324,28 +307,18 @@ public final class AppSettings {
         let savedURL = UserDefaults.standard.string(forKey: serverURLKey) ?? "http://127.0.0.1:58900"
         let savedLan = UserDefaults.standard.string(forKey: lanServerURLKey)
         let savedIPv6 = UserDefaults.standard.string(forKey: ipv6ServerURLKey)
+        let savedRelay = UserDefaults.standard.string(forKey: relayServerURLKey)
         let savedCustom = UserDefaults.standard.string(forKey: customServerURLKey)
         let savedActive = UserDefaults.standard.string(forKey: activeServerURLKey)
         let savedLive = UserDefaults.standard.object(forKey: enableLiveActivityKey) as? Bool ?? false
         
-        let migrationKey = "antigravity.prefer_cellular_v2_migrated"
-        let isMigrated = UserDefaults.standard.bool(forKey: migrationKey)
-        let savedPreferCellular: Bool
-        if !isMigrated {
-            savedPreferCellular = false
-            UserDefaults.standard.set(false, forKey: preferCellularNetworkKey)
-            UserDefaults.standard.set(true, forKey: migrationKey)
-        } else {
-            savedPreferCellular = UserDefaults.standard.object(forKey: preferCellularNetworkKey) as? Bool ?? false
-        }
-        
         self.rawServerURL = savedURL
         self.lanServerURL = savedLan
         self.ipv6ServerURL = savedIPv6
+        self.relayServerURL = savedRelay
         self.customServerURL = savedCustom
         self.activeServerURL = savedActive
         self.enableLiveActivities = savedLive
-        self.preferCellularNetwork = savedPreferCellular
         
         let savedModel = UserDefaults.standard.string(forKey: activeModelKey) ?? "gemini-3.8-flash-high"
         self.activeModel = savedModel

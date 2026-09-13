@@ -39,6 +39,7 @@ type AuthHandler struct {
 	lanHost    string
 	ipv6Host   string
 	ddnsHost   string
+	relayURL   string
 }
 
 // NewAuthHandler creates a new AuthHandler.
@@ -57,6 +58,11 @@ func (h *AuthHandler) SetEndpoints(lanHost, ipv6Host, ddnsHost string) {
 	h.lanHost = strings.TrimSpace(lanHost)
 	h.ipv6Host = strings.TrimSpace(ipv6Host)
 	h.ddnsHost = strings.TrimSpace(ddnsHost)
+}
+
+// SetRelayURL sets the cloud relay URL (e.g. from embedded FRP tunnel) for pairing responses.
+func (h *AuthHandler) SetRelayURL(relayURL string) {
+	h.relayURL = strings.TrimSpace(relayURL)
 }
 
 // GetEndpoints returns candidate endpoint URLs for clients.
@@ -100,7 +106,15 @@ func (h *AuthHandler) GetEndpoints() []EndpointInfo {
 		})
 	}
 
-	// 4. Fallback primary if no other endpoints detected
+	// 4. Cloud Relay (embedded FRP tunnel)
+	if h.relayURL != "" {
+		endpoints = append(endpoints, EndpointInfo{
+			Type: "relay",
+			URL:  h.relayURL,
+		})
+	}
+
+	// 5. Fallback primary if no other endpoints detected
 	if len(endpoints) == 0 {
 		hStr := h.host
 		if hStr == "" {
