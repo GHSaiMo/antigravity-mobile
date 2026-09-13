@@ -482,3 +482,56 @@ func TestStreamUpdatePayloadFingerprintQueuedMessages(t *testing.T) {
 		t.Errorf("expected fingerprint to differ after modifying message text")
 	}
 }
+
+func TestDeletedMessageTombstonesAndCacheEviction(t *testing.T) {
+	cascadeID := "test-cascade-tombstone"
+	msgID := "msg-to-delete-123"
+
+	// 1. Initial state: not deleted
+	if IsMessageDeleted(cascadeID, msgID) {
+		t.Fatalf("expected message not deleted initially")
+	}
+
+	// 2. Record deleted
+	RecordDeletedMessage(cascadeID, msgID)
+	if !IsMessageDeleted(cascadeID, msgID) {
+		t.Fatalf("expected message to be marked as deleted")
+	}
+
+	// 3. Test filterTombstonedMessages
+	items := []QueuedMessageItem{
+		{ID: msgID, Text: "Will be deleted"},
+		{ID: "msg-keep-456", Text: "Keep me"},
+	}
+	filtered := filterTombstonedMessages(cascadeID, items)
+	if len(filtered) != 1 || filtered[0].ID != "msg-keep-456" {
+		t.Fatalf("expected only msg-keep-456, got: %+v", filtered)
+	}
+
+	// 4. Test RemovePendingMessageFromCache
+	pendingCacheMu.Lock()
+	pendingCache[cascadeID] = &pendingMessagesCacheEntry{
+		fetchedAt: time.Now(),
+		messages: []QueuedMessageItem{
+			{ID: msgID, Text: "Cached to delete"},
+			{ID: "msg-keep-456", Text: "Cached keep"},
+		},
+	}
+	pendingCacheMu.Unlock()
+
+	RemovePendingMessageFromCache(cascadeID, msgID)
+
+	pendingCacheMu.RLock()
+	cached := pendingCache[cascadeID]
+	pendingCacheMu.RUnlock()
+
+	if len(cached.messages) != 1 || cached.messages[0].ID != "msg-keep-456" {
+		t.Fatalf("expected msg-to-delete-123 evicted from cache, got: %+v", cached.messages)
+	}
+
+	// 5. Test RemoveDeletedMessageTombstone
+	RemoveDeletedMessageTombstone(cascadeID, msgID)
+	if IsMessageDeleted(cascadeID, msgID) {
+		t.Fatalf("expected tombstone removed")
+	}
+}
