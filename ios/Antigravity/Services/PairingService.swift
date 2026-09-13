@@ -211,10 +211,7 @@ public final class PairingService: Sendable {
             request.httpBody = bodyData
             
             do {
-                let (data, response) = try await NetworkTransport.shared.send(
-                    request: request,
-                    preferCellular: AppSettings.shared.preferCellularNetwork
-                )
+                let (data, response) = try await NetworkTransport.shared.send(request: request)
                 
                 guard let httpResponse = response as? HTTPURLResponse else {
                     continue
@@ -239,6 +236,7 @@ public final class PairingService: Sendable {
                     var lanURL: String? = info.lanBaseURL
                     var ipv6URL: String? = info.ipv6BaseURL
                     var customURL: String? = info.ddnsBaseURL
+                    var relayURL: String? = nil
                     
                     if let eps = decoded.endpoints {
                         for ep in eps {
@@ -247,6 +245,8 @@ public final class PairingService: Sendable {
                                 lanURL = ep.url
                             case "ipv6":
                                 ipv6URL = ep.url
+                            case "relay":
+                                relayURL = ep.url
                             case "ddns", "custom":
                                 customURL = ep.url
                             default:
@@ -258,6 +258,7 @@ public final class PairingService: Sendable {
                     AppSettings.shared.updateEndpoints(
                         lan: lanURL,
                         ipv6: ipv6URL,
+                        relay: relayURL,
                         custom: customURL,
                         active: baseURL
                     )

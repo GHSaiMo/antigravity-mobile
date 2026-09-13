@@ -49,7 +49,6 @@ public final class StreamWebSocketClient {
     private var activeURL: URL?
     private var activeCascadeId: String?
     private var isIntentionallyClosed: Bool = false
-    private var cellularWatchdogWork: DispatchWorkItem?
     
     public init() {}
     
@@ -65,8 +64,7 @@ public final class StreamWebSocketClient {
         self.activeCascadeId = cascadeId
         self.isIntentionallyClosed = false
         
-        let preferCellular = AppSettings.shared.preferCellularNetwork
-        startConnection(useCellular: preferCellular)
+        startConnection()
     }
     
     public func reconnect(force: Bool = true) {
@@ -74,7 +72,7 @@ public final class StreamWebSocketClient {
         connect(baseURL: baseURL, cascadeId: cascadeId, force: force)
     }
     
-    private func startConnection(useCellular: Bool) {
+    private func startConnection() {
         guard let baseURL = activeURL, let cascadeId = activeCascadeId, !isIntentionallyClosed else { return }
         
         guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: true) else {
@@ -137,75 +135,29 @@ public final class StreamWebSocketClient {
         }
         parameters.defaultProtocolStack.applicationProtocols.insert(wsOptions, at: 0)
         
-        cellularWatchdogWork?.cancel()
-        cellularWatchdogWork = nil
-        
-        if useCellular && NetworkTransport.shared.isWifi {
-            if let host = wsURL.host, !NetworkTransport.isLocalOrPrivateHost(host) {
-                parameters.requiredInterfaceType = .cellular
-                parameters.prohibitedInterfaceTypes = [.wifi]
-                parameters.prohibitExpensivePaths = false
-                parameters.prohibitConstrainedPaths = false
-                
-                // Watchdog: give iOS CommCenter up to 3.5s to wake cellular baseband
-                let work = DispatchWorkItem { [weak self] in
-                    guard let self = self, self.status != .connected, !self.isIntentionallyClosed else { return }
-                    print("[StreamWS] Cellular connection attempt timed out (3.5s)")
-                    self.cleanupCurrentSocket()
-                    let cleanHost = (wsURL.host ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
-                    let isIPv6Host = cleanHost.contains(":")
-                    if !isIPv6Host {
-                        // Only fall back to Wi-Fi for domain names; IPv6 cannot be routed over external Wi-Fi
-                        self.startConnection(useCellular: false)
-                    } else {
-                        self.handleConnectionLoss()
-                    }
-                }
-                self.cellularWatchdogWork = work
-                DispatchQueue.main.asyncAfter(deadline: .now() + 3.5, execute: work)
-            }
-        }
-        
         let conn = NWConnection(to: endpoint, using: parameters)
         self.connection = conn
         
         conn.stateUpdateHandler = { [weak self] state in
             guard let self = self else { return }
             Task { @MainActor in
-                self.handleStateUpdate(state: state, wsURL: wsURL, usedCellular: useCellular)
+                self.handleStateUpdate(state: state, wsURL: wsURL)
             }
         }
         
         conn.start(queue: .main)
     }
     
-    private func handleStateUpdate(state: NWConnection.State, wsURL: URL, usedCellular: Bool) {
+    private func handleStateUpdate(state: NWConnection.State, wsURL: URL) {
         switch state {
         case .ready:
-            cellularWatchdogWork?.cancel()
-            cellularWatchdogWork = nil
             updateStatus(.connected)
             receiveNextMessage()
         case .waiting(let error):
-            print("[StreamWS] Connection waiting for baseband wake (cellular=\(usedCellular)): \(error)")
-            // Per Apple docs: .waiting is non-fatal while baseband awakens.
-            // Do not abort immediately on ENETDOWN; allow watchdog to govern timeout.
+            print("[StreamWS] Connection waiting: \(error)")
         case .failed(let error):
-            print("[StreamWS] Connection failed (cellular=\(usedCellular)): \(error)")
-            if usedCellular && !isIntentionallyClosed {
-                let cleanHost = (wsURL.host ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
-                let isIPv6Host = cleanHost.contains(":")
-                cleanupCurrentSocket()
-                if !isIPv6Host {
-                    print("[StreamWS] Cellular attempt failed, falling back to standard interface for domain host")
-                    startConnection(useCellular: false)
-                } else {
-                    print("[StreamWS] Cellular attempt failed for IPv6 host, suppressing Wi-Fi fallback")
-                    handleConnectionLoss()
-                }
-            } else {
-                handleConnectionLoss()
-            }
+            print("[StreamWS] Connection failed: \(error)")
+            handleConnectionLoss()
         case .cancelled:
             if !isIntentionallyClosed {
                 updateStatus(.disconnected)
@@ -257,13 +209,11 @@ public final class StreamWebSocketClient {
             try? await Task.sleep(nanoseconds: 2_500_000_000)
             guard let self, !self.isIntentionallyClosed else { return }
             print("[StreamWS] Reconnecting to stream...")
-            self.startConnection(useCellular: AppSettings.shared.preferCellularNetwork)
+            self.startConnection()
         }
     }
     
     private func cleanupCurrentSocket() {
-        cellularWatchdogWork?.cancel()
-        cellularWatchdogWork = nil
         if let conn = connection {
             conn.stateUpdateHandler = nil
             conn.cancel()

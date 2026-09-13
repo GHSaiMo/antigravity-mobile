@@ -141,10 +141,7 @@ public final class APIClient: Sendable {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await transport.send(
-                request: request,
-                preferCellular: AppSettings.shared.preferCellularNetwork
-            )
+            (data, response) = try await transport.send(request: request)
         } catch {
             throw APIError.networkError(error.localizedDescription)
         }
@@ -302,10 +299,7 @@ public final class APIClient: Sendable {
         request.timeoutInterval = 10
         
         do {
-            let (data, response) = try await transport.send(
-                request: request,
-                preferCellular: AppSettings.shared.preferCellularNetwork
-            )
+            let (data, response) = try await transport.send(request: request)
             if let httpResp = response as? HTTPURLResponse, httpResp.statusCode == 200 {
                 let decoded = try JSONDecoder().decode(PaginatedMessagesResponse.self, from: data)
                 let chatMessages = decoded.messages.map { item -> ChatMessage in
@@ -755,10 +749,7 @@ public final class APIClient: Sendable {
         
         request.httpBody = try JSONEncoder().encode(payload)
         
-        let (data, response) = try await transport.send(
-            request: request,
-            preferCellular: AppSettings.shared.preferCellularNetwork
-        )
+        let (data, response) = try await transport.send(request: request)
         guard let httpResp = response as? HTTPURLResponse else {
             throw APIError.networkError("Invalid HTTP response")
         }
@@ -796,10 +787,7 @@ public final class APIClient: Sendable {
         request.timeoutInterval = 5.0
         
         do {
-            let (data, response) = try await transport.send(
-                request: request,
-                preferCellular: AppSettings.shared.preferCellularNetwork
-            )
+            let (data, response) = try await transport.send(request: request)
             guard let httpResp = response as? HTTPURLResponse else {
                 throw APIError.networkError("Invalid response type")
             }
@@ -836,10 +824,7 @@ public final class APIClient: Sendable {
         request.httpMethod = "GET"
         request.timeoutInterval = 10
         
-        let (data, response) = try await transport.send(
-            request: request,
-            preferCellular: AppSettings.shared.preferCellularNetwork
-        )
+        let (data, response) = try await transport.send(request: request)
         guard let httpResp = response as? HTTPURLResponse else {
             throw APIError.networkError("Invalid response type")
         }
@@ -899,10 +884,7 @@ public final class APIClient: Sendable {
             projectId: projectId
         ))
         
-        let (data, response) = try await transport.send(
-            request: request,
-            preferCellular: AppSettings.shared.preferCellularNetwork
-        )
+        let (data, response) = try await transport.send(request: request)
         guard let httpResp = response as? HTTPURLResponse else {
             throw APIError.networkError("Invalid response type")
         }
@@ -927,10 +909,7 @@ public final class APIClient: Sendable {
         request.httpMethod = "GET"
         request.timeoutInterval = 10
         
-        let (data, response) = try await transport.send(
-            request: request,
-            preferCellular: AppSettings.shared.preferCellularNetwork
-        )
+        let (data, response) = try await transport.send(request: request)
         guard let httpResp = response as? HTTPURLResponse else {
             throw APIError.networkError("Invalid response type")
         }
@@ -949,10 +928,7 @@ public final class APIClient: Sendable {
         request.httpMethod = "POST"
         request.timeoutInterval = 12
         
-        let (data, response) = try await transport.send(
-            request: request,
-            preferCellular: AppSettings.shared.preferCellularNetwork
-        )
+        let (data, response) = try await transport.send(request: request)
         guard let httpResp = response as? HTTPURLResponse else {
             throw APIError.networkError("Invalid response type")
         }
@@ -972,10 +948,7 @@ public final class APIClient: Sendable {
         request.httpBody = try JSONSerialization.data(withJSONObject: ["account_id": accountId])
         request.timeoutInterval = 10
         
-        let (data, response) = try await transport.send(
-            request: request,
-            preferCellular: AppSettings.shared.preferCellularNetwork
-        )
+        let (data, response) = try await transport.send(request: request)
         guard let httpResp = response as? HTTPURLResponse else {
             throw APIError.networkError("Invalid response type")
         }
@@ -1000,10 +973,7 @@ public final class APIClient: Sendable {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         request.timeoutInterval = 10
         
-        let (data, response) = try await transport.send(
-            request: request,
-            preferCellular: AppSettings.shared.preferCellularNetwork
-        )
+        let (data, response) = try await transport.send(request: request)
         guard let httpResp = response as? HTTPURLResponse else {
             throw APIError.networkError("Invalid response type")
         }
@@ -1028,10 +998,7 @@ public final class APIClient: Sendable {
         request.httpMethod = "GET"
         request.timeoutInterval = 15.0
         
-        let (data, response) = try await transport.send(
-            request: request,
-            preferCellular: AppSettings.shared.preferCellularNetwork
-        )
+        let (data, response) = try await transport.send(request: request)
         guard let httpResp = response as? HTTPURLResponse else {
             throw APIError.networkError("Invalid response type")
         }
