@@ -15,9 +15,7 @@ func StartQuotaAutoRefresher(ctx context.Context, defaultInterval time.Duration)
 
 	go func() {
 		configuredInterval := GetAutoRefreshInterval(defaultInterval)
-		log.Printf("[Cockpit] Auto refresher started (target interval: %v, heartbeat: 30s)", configuredInterval)
-
-		var lastTriggered time.Time
+		log.Printf("[Cockpit] Auto refresher started (target interval: %v, heartbeat: 15s)", configuredInterval)
 
 		checkAndRefresh := func() {
 			targetInterval := GetAutoRefreshInterval(defaultInterval)
@@ -30,16 +28,14 @@ func StartQuotaAutoRefresher(ctx context.Context, defaultInterval time.Duration)
 
 			now := time.Now()
 			isExpired := lastUpdated.IsZero() || now.Sub(lastUpdated) >= targetInterval
-			isRecentlyTriggered := !lastTriggered.IsZero() && now.Sub(lastTriggered) < 2*time.Minute
 
-			if isExpired && !isRecentlyTriggered {
+			if isExpired {
 				if lastUpdated.IsZero() {
-					log.Printf("[Cockpit] Quota data missing or uninitialized, triggering refresh...")
+					log.Printf("[Cockpit] Quota data missing or uninitialized, triggering refresh check...")
 				} else {
-					log.Printf("[Cockpit] Quota data is %v old (target: %v), triggering auto refresh...",
+					log.Printf("[Cockpit] Quota data is %v old (target: %v), triggering auto refresh check...",
 						now.Sub(lastUpdated).Round(time.Second), targetInterval)
 				}
-				lastTriggered = now
 				if err := TriggerRefresh(); err != nil {
 					log.Printf("[Cockpit] TriggerRefresh error: %v", err)
 				}
@@ -49,8 +45,8 @@ func StartQuotaAutoRefresher(ctx context.Context, defaultInterval time.Duration)
 		// Initial check on startup
 		checkAndRefresh()
 
-		// Heartbeat check every 30 seconds
-		heartbeatTicker := time.NewTicker(30 * time.Second)
+		// Heartbeat check every 15 seconds
+		heartbeatTicker := time.NewTicker(15 * time.Second)
 		defer heartbeatTicker.Stop()
 
 		for {
@@ -64,3 +60,4 @@ func StartQuotaAutoRefresher(ctx context.Context, defaultInterval time.Duration)
 		}
 	}()
 }
+
