@@ -58,20 +58,28 @@ type cockpitConfig struct {
 	AutoRefreshMinutes int    `json:"auto_refresh_minutes"`
 }
 
-// GetAutoRefreshInterval reads the configured auto_refresh_minutes from ~/.antigravity_cockpit/config.json.
-// If not configured or invalid, returns defaultInterval.
-func GetAutoRefreshInterval(defaultInterval time.Duration) time.Duration {
+func getCockpitConfig() (*cockpitConfig, error) {
 	dataDir, err := GetCockpitDataDir()
 	if err != nil {
-		return defaultInterval
+		return nil, err
 	}
 	configFile := filepath.Join(dataDir, "config.json")
 	cfgBytes, err := os.ReadFile(configFile)
 	if err != nil {
-		return defaultInterval
+		return nil, err
 	}
 	var cfg cockpitConfig
-	if err := json.Unmarshal(cfgBytes, &cfg); err == nil && cfg.AutoRefreshMinutes > 0 {
+	if err := json.Unmarshal(cfgBytes, &cfg); err != nil {
+		return nil, err
+	}
+	return &cfg, nil
+}
+
+// GetAutoRefreshInterval reads the configured auto_refresh_minutes from ~/.antigravity_cockpit/config.json.
+// If not configured or invalid, returns defaultInterval.
+func GetAutoRefreshInterval(defaultInterval time.Duration) time.Duration {
+	cfg, err := getCockpitConfig()
+	if err == nil && cfg.AutoRefreshMinutes > 0 {
 		return time.Duration(cfg.AutoRefreshMinutes) * time.Minute
 	}
 	return defaultInterval
@@ -353,7 +361,7 @@ func TriggerRefresh(force ...bool) error {
 	isRefreshing = true
 	refreshMutex.Unlock()
 
-	dataDir, err := GetCockpitDataDir()
+	cfg, err := getCockpitConfig()
 	if err != nil {
 		refreshMutex.Lock()
 		isRefreshing = false
@@ -361,51 +369,19 @@ func TriggerRefresh(force ...bool) error {
 		return err
 	}
 
-	configFile := filepath.Join(dataDir, "config.json")
-	cfgBytes, err := os.ReadFile(configFile)
-	if err == nil {
-		var cfg cockpitConfig
-		if err := json.Unmarshal(cfgBytes, &cfg); err == nil && cfg.ReportPort > 0 && cfg.ReportToken != "" {
-			go func(port int, token string) {
-				defer func() {
-					refreshMutex.Lock()
-					isRefreshing = false
-					refreshMutex.Unlock()
-				}()
+	if cfg.ReportPort > 0 && cfg.ReportToken != "" {
+		go func(port int, token string) {
+			defer func() {
+				refreshMutex.Lock()
+				isRefreshing = false
+				refreshMutex.Unlock()
+			}()
 
-				reqStart := time.Now()
-				url := fmt.Sprintf("http://127.0.0.1:%d/report?token=%s&format=yaml", port, token)
-				client := &http.Client{Timeout: 120 * time.Second}
-				resp, err := client.Get(url)
-				if err != nil {
-					log.Printf("[Cockpit] Report request error: %v", err)
-					return
-				}
-				defer resp.Body.Close()
-
-				buf := make([]byte, 1024)
-				n, _ := io.ReadFull(resp.Body, buf)
-				headerStr := string(buf[:n])
-				_, _ = io.Copy(io.Discard, resp.Body)
-
-				elapsed := time.Since(reqStart)
-				nextTrigger := ""
-				for _, line := range strings.Split(headerStr, "\n") {
-					line = strings.TrimSpace(line)
-					if strings.HasPrefix(line, "next_auth_refresh_trigger_time:") {
-						nextTrigger = strings.Trim(strings.TrimPrefix(line, "next_auth_refresh_trigger_time:"), ` "'`)
-						break
-					}
-				}
-
-				if elapsed > 2*time.Second {
-					log.Printf("[Cockpit] Refresh executed successfully in %v (next due in %s)", elapsed.Round(time.Millisecond), nextTrigger)
-				} else {
-					log.Printf("[Cockpit] Report queried in %v (not stale yet, next due in %s)", elapsed.Round(time.Millisecond), nextTrigger)
-				}
-			}(cfg.ReportPort, cfg.ReportToken)
-			return nil
-		}
+			if err := QueryReport(port, token); err != nil {
+				log.Printf("[Cockpit] Report request error: %v", err)
+			}
+		}(cfg.ReportPort, cfg.ReportToken)
+		return nil
 	}
 
 	refreshMutex.Lock()
@@ -414,8 +390,43 @@ func TriggerRefresh(force ...bool) error {
 	return nil
 }
 
+// QueryReport sends an HTTP GET request to the local Cockpit Tools report endpoint to trigger fresh quota collection.
+func QueryReport(port int, token string) error {
+	reqStart := time.Now()
+	url := fmt.Sprintf("http://127.0.0.1:%d/report?token=%s&format=yaml", port, token)
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	buf := make([]byte, 1024)
+	n, _ := io.ReadFull(resp.Body, buf)
+	headerStr := string(buf[:n])
+	_, _ = io.Copy(io.Discard, resp.Body)
+
+	elapsed := time.Since(reqStart)
+	nextTrigger := ""
+	for _, line := range strings.Split(headerStr, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "next_auth_refresh_trigger_time:") {
+			nextTrigger = strings.Trim(strings.TrimPrefix(line, "next_auth_refresh_trigger_time:"), ` "'`)
+			break
+		}
+	}
+
+	if elapsed > 2*time.Second {
+		log.Printf("[Cockpit] Refresh executed successfully in %v (next due in %s)", elapsed.Round(time.Millisecond), nextTrigger)
+	} else {
+		log.Printf("[Cockpit] Report queried in %v (not stale yet, next due in %s)", elapsed.Round(time.Millisecond), nextTrigger)
+	}
+	return nil
+}
+
 // RefreshQuotas triggers a refresh and polls up to 10 seconds for updated cache data.
 func RefreshQuotas(activeEmails ...string) (*CockpitQuotaResponse, error) {
+	ResetAutoRefreshCooldown()
 	currentQuotas, _ := GetQuotas(activeEmails...)
 	var initialUpdatedAt int64
 	if currentQuotas != nil {

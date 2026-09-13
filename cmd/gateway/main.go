@@ -145,8 +145,9 @@ func main() {
 		}
 	}()
 
+	var notif *notifier.Notifier
 	if notifCfg.Enabled {
-		notif := notifier.NewNotifier(notifCfg)
+		notif = notifier.NewNotifier(notifCfg)
 		p.SetNotificationSink(notif)
 
 		watcher := notifier.NewWatcher(p, notif)
@@ -172,8 +173,14 @@ func main() {
 	rootMux.HandleFunc("/api/v1/devices/", authHandler.HandleDevices)
 	rootMux.HandleFunc("/api/v1/devices", authHandler.HandleDevices)
 
-	// Start Cockpit quota auto-refresher (every 10 minutes)
-	cockpit.StartQuotaAutoRefresher(watcherCtx, 10*time.Minute)
+	// Start Cockpit quota auto-refresher (every 10 minutes, with auto-launch self-healing & Bark alert)
+	var cockpitAlertFn func(title, body string)
+	if notif != nil {
+		cockpitAlertFn = func(title, body string) {
+			_ = notif.NotifyCockpitAlert(title, body)
+		}
+	}
+	cockpit.StartQuotaAutoRefresher(watcherCtx, 10*time.Minute, cockpitAlertFn)
 
 	// Cockpit endpoints
 	rootMux.HandleFunc("GET /api/v1/cockpit/quotas", func(w http.ResponseWriter, r *http.Request) {
