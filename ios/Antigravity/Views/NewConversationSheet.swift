@@ -39,81 +39,66 @@ public struct NewConversationSheet: View {
             
             Divider()
             
-            Group {
-                if isLoading && projects.isEmpty {
-                    VStack(spacing: 14) {
-                        Spacer()
-                        ProgressView()
-                            .scaleEffect(1.1)
-                        Text("正在拉取上游项目列表...")
-                            .font(.system(size: 13.5))
+            VStack(spacing: 0) {
+                // Header description
+                HStack {
+                    Text("选择模式或工作区发起新会话")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    if !projects.isEmpty {
+                        Text("\(projects.count) 个工作区")
+                            .font(.system(size: 12))
                             .foregroundColor(.secondary)
-                        Spacer()
                     }
-                } else if let err = errorMessage, projects.isEmpty {
-                    VStack(spacing: 14) {
-                        Spacer()
-                        Image(systemName: "exclamationmark.triangle")
-                            .font(.system(size: 36))
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 14)
+                .padding(.bottom, 8)
+                
+                if let err = errorMessage {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundColor(.orange)
+                            .font(.system(size: 13))
                         Text(err)
-                            .font(.system(size: 13.5))
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 24)
-                        Button("重新拉取") {
-                            Task { await refreshProjectsInBackground() }
-                        }
-                        .buttonStyle(.bordered)
+                            .font(.system(size: 12.5))
+                            .foregroundColor(.primary)
+                            .lineLimit(2)
                         Spacer()
                     }
-                } else {
-                    VStack(spacing: 0) {
-                        // Header description
-                        HStack {
-                            Text("选择项目发起新会话")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(.secondary)
-                            Spacer()
-                            Text("\(projects.count) 个项目")
-                                .font(.system(size: 12))
-                                .foregroundColor(.secondary)
-                        }
-                        .padding(.horizontal, 20)
-                        .padding(.top, 14)
-                        .padding(.bottom, 8)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Color.orange.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 6)
+                }
+                
+                // Vertical cards list
+                ScrollView(.vertical, showsIndicators: true) {
+                    LazyVStack(spacing: 9) {
+                        chatCard
                         
-                        if let err = errorMessage {
-                            HStack(spacing: 8) {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .foregroundColor(.orange)
-                                    .font(.system(size: 13))
-                                Text(err)
+                        if isLoading && projects.isEmpty {
+                            VStack(spacing: 12) {
+                                ProgressView()
+                                    .scaleEffect(1.0)
+                                Text("正在拉取工作区列表...")
                                     .font(.system(size: 12.5))
-                                    .foregroundColor(.primary)
-                                    .lineLimit(2)
-                                Spacer()
+                                    .foregroundColor(.secondary)
                             }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
-                            .background(Color.orange.opacity(0.12))
-                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                            .padding(.horizontal, 16)
-                            .padding(.bottom, 6)
-                        }
-                        
-                        // Vertical project cards list
-                        ScrollView(.vertical, showsIndicators: true) {
-                            LazyVStack(spacing: 9) {
-                                ForEach(projects) { project in
-                                    projectCard(for: project)
-                                }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 28)
+                        } else {
+                            ForEach(projects) { project in
+                                projectCard(for: project)
                             }
-                            .padding(.horizontal, 16)
-                            .padding(.top, 4)
-                            .padding(.bottom, 24)
                         }
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 4)
+                    .padding(.bottom, 24)
                 }
             }
         }
@@ -121,6 +106,60 @@ public struct NewConversationSheet: View {
         .task {
             await refreshProjectsInBackground()
         }
+    }
+    
+    private var chatCard: some View {
+        Button {
+            selectProject(for: .pureChat)
+        } label: {
+            HStack(spacing: 14) {
+                ZStack {
+                    Circle()
+                        .fill(Color.indigo.opacity(0.14))
+                        .frame(width: 42, height: 42)
+                    Image(systemName: "bubble.left.and.bubble.right.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.indigo)
+                }
+                
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text("Chat")
+                            .font(.system(size: 15.5, weight: .semibold))
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                        
+                        Text("新对话")
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .foregroundColor(.indigo)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.indigo.opacity(0.12))
+                            .clipShape(Capsule())
+                    }
+                    
+                    Text("新对话 · 不关联任何工作区")
+                        .font(.system(size: 11.5))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+                
+                Spacer()
+                
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundColor(Color(uiColor: .tertiaryLabel))
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(Color(uiColor: .secondarySystemBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(Color.indigo.opacity(0.2), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
     }
     
     private func projectCard(for project: ProjectItem) -> some View {

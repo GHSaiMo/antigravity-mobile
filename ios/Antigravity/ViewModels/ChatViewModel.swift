@@ -83,6 +83,10 @@ public final class ChatViewModel {
         return ""
     }
     
+    public var isPureChat: Bool {
+        draftProject?.isPureChat == true || draftSession?.project.isPureChat == true || currentTitle == "新对话"
+    }
+    
     public func updateDraftImages(_ images: [Data]) {
         self.selectedImageData = images
         if var updated = draftSession {
@@ -365,8 +369,18 @@ public final class ChatViewModel {
             let recentUser = Set(healed.filter { $0.sender == .user }.suffix(15).map { $0.content.trimmingCharacters(in: .whitespacesAndNewlines) })
             self.queuedMessages = (cached.queuedMessages ?? []).filter { Self.isUserQueuedMessage($0.text) && !recentUser.contains($0.text.trimmingCharacters(in: .whitespacesAndNewlines)) }
             self.knownServerMessageIds = Set(healed.map(\.id))
-            if let cachedTitle = cached.title, !cachedTitle.isEmpty, cachedTitle != "未命名会话" {
+            if let cachedTitle = cached.title?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines), !cachedTitle.isEmpty, cachedTitle != "未命名会话" {
                 self.currentTitle = cachedTitle
+                resolvedCacheManager.updateConversationTitle(cascadeId: cascadeId, newTitle: cachedTitle)
+            } else if self.currentTitle == "未命名会话" || self.currentTitle.isEmpty {
+                if let firstUserMsg = healed.first(where: { $0.isUser }),
+                   let prompt = firstUserMsg.content.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).components(separatedBy: CharacterSet.newlines).first(where: { !$0.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty }) {
+                    let derived = String(prompt.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).prefix(36))
+                    if !derived.isEmpty {
+                        self.currentTitle = derived
+                        resolvedCacheManager.updateConversationTitle(cascadeId: cascadeId, newTitle: derived)
+                    }
+                }
             }
         }
     }
@@ -378,8 +392,10 @@ public final class ChatViewModel {
         cacheManager: CacheManager? = nil
     ) {
         self.cascadeId = ""
-        self.initialTitle = draftProject.name
-        self.currentTitle = draftProject.name
+        let isPure = draftProject.isPureChat
+        let title = isPure ? "新对话" : draftProject.name
+        self.initialTitle = title
+        self.currentTitle = title
         self.isNewConversation = true
         self.draftProject = draftProject
         let resolvedCacheManager = cacheManager ?? .shared
@@ -405,8 +421,10 @@ public final class ChatViewModel {
         cacheManager: CacheManager? = nil
     ) {
         self.cascadeId = ""
-        self.initialTitle = draftSession.project.name
-        self.currentTitle = draftSession.project.name
+        let isPure = draftSession.project.isPureChat
+        let title = isPure ? "新对话" : draftSession.project.name
+        self.initialTitle = title
+        self.currentTitle = title
         self.isNewConversation = true
         self.draftSession = draftSession
         self.draftProject = draftSession.project
@@ -506,6 +524,19 @@ public final class ChatViewModel {
                 self.nextOffset = result.nextOffset
                 if self.pendingOptimisticMessageId == nil {
                     self.knownServerMessageIds = Set(healed.map(\.id))
+                }
+            }
+            
+            if self.currentTitle == "未命名会话" || self.currentTitle.isEmpty {
+                if let firstUserMsg = self.messages.first(where: { $0.isUser }),
+                   let prompt = firstUserMsg.content.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).components(separatedBy: CharacterSet.newlines).first(where: { !$0.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty }) {
+                    let derived = String(prompt.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).prefix(36))
+                    if !derived.isEmpty {
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            self.currentTitle = derived
+                        }
+                        self.cacheManager.updateConversationTitle(cascadeId: self.cascadeId, newTitle: derived)
+                    }
                 }
             }
             
@@ -683,6 +714,7 @@ public final class ChatViewModel {
             if let title = result.title?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines), !title.isEmpty, title != "未命名会话" {
                 if self.currentTitle != title {
                     self.currentTitle = title
+                    self.cacheManager.updateConversationTitle(cascadeId: self.cascadeId, newTitle: title)
                 }
             }
             self.messages = result.messages + self.messages
@@ -1109,10 +1141,12 @@ public final class ChatViewModel {
         
         do {
             if cascadeId.isEmpty, let project = draftProject ?? draftSession?.project {
-                let pid = project.rawId ?? (project.id != project.uri ? project.id : nil)
+                let isPure = project.isPureChat
+                let pid = isPure ? "outside-of-project" : (project.rawId ?? (project.id != project.uri ? project.id : nil))
+                let wsUri = isPure ? "" : project.uri
                 let initialPrompt = (images == nil || images!.isEmpty) ? text : ""
                 let newCascadeId = try await apiClient.createCascade(
-                    workspaceUri: project.uri,
+                    workspaceUri: wsUri,
                     prompt: initialPrompt,
                     model: activeModelEnum,
                     projectId: pid,
@@ -1136,10 +1170,10 @@ public final class ChatViewModel {
                 // Immediately register new conversation item in cache
                 let newConv = ConversationItem(
                     id: newCascadeId,
-                    title: project.name,
+                    title: isPure ? "新对话" : project.name,
                     status: .running,
                     stepCount: 1,
-                    workspaceName: project.name,
+                    workspaceName: isPure ? "Chat" : project.name,
                     lastModified: Date()
                 )
                 self.cacheManager.upsertConversation(newConv)

@@ -131,6 +131,10 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         id.hasPrefix("local_draft_") || id.hasPrefix("draft_") || draftProject != nil
     }
     
+    public var isPureChat: Bool {
+        workspaceName == "Chat" || workspaceName.isEmpty || draftProject?.isPureChat == true
+    }
+    
     enum CodingKeys: String, CodingKey {
         case id
         case title
@@ -149,7 +153,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         self.title = try container.decode(String.self, forKey: .title)
         self.status = try container.decodeIfPresent(ConversationStatus.self, forKey: .status) ?? .unknown
         self.stepCount = try container.decodeIfPresent(Int.self, forKey: .stepCount) ?? 0
-        self.workspaceName = try container.decodeIfPresent(String.self, forKey: .workspaceName) ?? "workspace"
+        self.workspaceName = try container.decodeIfPresent(String.self, forKey: .workspaceName) ?? "Chat"
         self.lastModified = try container.decodeIfPresent(Date.self, forKey: .lastModified)
         self.isSubagent = try container.decodeIfPresent(Bool.self, forKey: .isSubagent) ?? false
         self.isUnread = try container.decodeIfPresent(Bool.self, forKey: .isUnread) ?? false
@@ -189,17 +193,41 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         }
     }
     
+    public func withTitle(_ newTitle: String) -> ConversationItem {
+        ConversationItem(
+            id: self.id,
+            title: newTitle,
+            status: self.status,
+            stepCount: self.stepCount,
+            workspaceName: self.workspaceName,
+            lastModified: self.lastModified,
+            isSubagent: self.isSubagent,
+            isUnread: self.isUnread,
+            draftProject: self.draftProject
+        )
+    }
+    
     public init(id: String, summary: TrajectorySummary) {
         self.id = id
         self.draftProject = nil
         
-        if let t = summary.annotations?.title, !t.isEmpty {
-            self.title = t
-        } else if let s = summary.summary, !s.isEmpty {
-            self.title = s
+        var resolvedTitle = ""
+        if let t = summary.annotations?.title?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines), !t.isEmpty && t != "未命名会话" {
+            resolvedTitle = t
+        } else if let s = summary.summary?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines), !s.isEmpty && s != "未命名会话" {
+            resolvedTitle = s
         } else {
-            self.title = "未命名会话"
+            if let cached = CacheManager.shared.loadSession(for: id) {
+                if let t = cached.title?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines), !t.isEmpty && t != "未命名会话" {
+                    resolvedTitle = t
+                } else if let firstUserMsg = cached.messages.first(where: { $0.isUser }),
+                          let prompt = firstUserMsg.content.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).components(separatedBy: CharacterSet.newlines).first(where: { !$0.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty }) {
+                    let trimmed = prompt.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+                    resolvedTitle = String(trimmed.prefix(36))
+                }
+            }
         }
+        self.title = resolvedTitle.isEmpty ? "未命名会话" : resolvedTitle
         
         if summary.needsInput == true {
             self.status = .action
@@ -219,7 +247,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
             ?? summary.workspaces?.first?.workspaceFolderAbsoluteUri
             ?? ""
         let parts = wsUri.split(separator: "/").filter { !$0.isEmpty }
-        self.workspaceName = parts.last.map(String.init) ?? "workspace"
+        self.workspaceName = parts.last.map(String.init) ?? "Chat"
         
         if let timeStr = summary.lastModifiedTime {
             let formatter = ISO8601DateFormatter()
@@ -344,20 +372,21 @@ public struct LocalDraftSession: Codable, Sendable, Identifiable, Hashable {
         let trimmed = draftText.trimmingCharacters(in: .whitespacesAndNewlines)
         let firstLine = trimmed.components(separatedBy: .newlines).first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let hasImages = !draftImages.isEmpty || CacheManager.shared.hasDraftImages(for: id)
+        let isPure = project.isPureChat
         let displayTitle: String
         if !firstLine.isEmpty {
             displayTitle = firstLine
         } else if hasImages {
-            displayTitle = "[图片] \(project.name)"
+            displayTitle = isPure ? "[图片] 新对话" : "[图片] \(project.name)"
         } else {
-            displayTitle = project.name
+            displayTitle = isPure ? "新对话" : project.name
         }
         return ConversationItem(
             id: id,
             title: displayTitle,
             status: .idle,
             stepCount: 0,
-            workspaceName: project.name,
+            workspaceName: isPure ? "Chat" : project.name,
             lastModified: updatedAt,
             isSubagent: false,
             isUnread: false,
