@@ -970,13 +970,10 @@ public final class ChatViewModel {
         
         let newQueue = baseQueue + remainingOptItems
         if newQueue != self.queuedMessages {
-            let oldCount = self.queuedMessages.count
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                 self.queuedMessages = newQueue
             }
-            if newQueue.count > oldCount {
-                triggerScrollToBottom()
-            }
+            triggerScrollToBottom()
         }
     }
     
@@ -1395,6 +1392,7 @@ public final class ChatViewModel {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
             self.queuedMessages.removeAll(where: { $0.id == item.id })
         }
+        triggerScrollToBottom()
         
         if let url = settings.serverURL, !cascadeId.isEmpty {
             Task { [weak self] in
@@ -1425,6 +1423,7 @@ public final class ChatViewModel {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
             self.queuedMessages.removeAll(where: { $0.id == item.id })
         }
+        triggerScrollToBottom()
         
         if let url = settings.serverURL, !cascadeId.isEmpty {
             Task { [weak self] in
