@@ -3,15 +3,18 @@ import SwiftUI
 public struct RunningTasksCardView: View {
     public let items: [RunningTaskItem]
     public let onStop: @MainActor @Sendable (RunningTaskItem) -> Void
+    public let onToggleExpand: (@MainActor @Sendable (Bool) -> Void)?
     
     @State private var isExpanded: Bool = true
     
     public init(
         items: [RunningTaskItem],
-        onStop: @escaping @MainActor @Sendable (RunningTaskItem) -> Void
+        onStop: @escaping @MainActor @Sendable (RunningTaskItem) -> Void,
+        onToggleExpand: (@MainActor @Sendable (Bool) -> Void)? = nil
     ) {
         self.items = items
         self.onStop = onStop
+        self.onToggleExpand = onToggleExpand
     }
     
     public var body: some View {
@@ -43,6 +46,7 @@ public struct RunningTasksCardView: View {
                     withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                         isExpanded.toggle()
                     }
+                    onToggleExpand?(isExpanded)
                 }) {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 13, weight: .bold))
