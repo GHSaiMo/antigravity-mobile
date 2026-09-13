@@ -216,9 +216,9 @@ public final class ConversationListViewModel {
             return
         }
         
-        // 2. Poll for updated data if background batch refresh across accounts takes longer
+        // 2. Poll for updated data if background batch refresh across accounts takes longer (e.g. 5 accounts take ~70-90s)
         let startTime = Date()
-        while Date().timeIntervalSince(startTime) < 20 {
+        while Date().timeIntervalSince(startTime) < 90 {
             try await Task.sleep(nanoseconds: 1_500_000_000)
             if let res = try? await apiClient.fetchCockpitQuotas(baseURL: url) {
                 if res.updatedAt > initialUpdatedAt {
