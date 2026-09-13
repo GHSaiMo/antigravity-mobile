@@ -1,7 +1,6 @@
 package cockpit
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -10,7 +9,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -103,8 +101,9 @@ type cachePayload struct {
 }
 
 var (
-	refreshMutex sync.Mutex
-	lastRefresh  time.Time
+	refreshMutex       sync.Mutex
+	isRefreshing       bool
+	lastRefreshAttempt time.Time
 )
 
 // GetCockpitDataDir returns the path to ~/.antigravity_cockpit.
@@ -337,18 +336,28 @@ func GetQuotas(activeEmails ...string) (*CockpitQuotaResponse, error) {
 }
 
 // TriggerRefresh triggers a fresh quota fetch across all accounts in Cockpit Tools.
-func TriggerRefresh() error {
+// Optional force parameter bypasses the attempt debounce if set to true.
+func TriggerRefresh(force ...bool) error {
 	refreshMutex.Lock()
-	defer refreshMutex.Unlock()
+	isForce := len(force) > 0 && force[0]
 
-	// Debounce if called within 3 seconds
-	if time.Since(lastRefresh) < 3*time.Second {
+	if isRefreshing {
+		refreshMutex.Unlock()
 		return nil
 	}
-	lastRefresh = time.Now()
+	if !isForce && time.Since(lastRefreshAttempt) < 10*time.Second {
+		refreshMutex.Unlock()
+		return nil
+	}
+	lastRefreshAttempt = time.Now()
+	isRefreshing = true
+	refreshMutex.Unlock()
 
 	dataDir, err := GetCockpitDataDir()
 	if err != nil {
+		refreshMutex.Lock()
+		isRefreshing = false
+		refreshMutex.Unlock()
 		return err
 	}
 
@@ -358,28 +367,50 @@ func TriggerRefresh() error {
 		var cfg cockpitConfig
 		if err := json.Unmarshal(cfgBytes, &cfg); err == nil && cfg.ReportPort > 0 && cfg.ReportToken != "" {
 			go func(port int, token string) {
+				defer func() {
+					refreshMutex.Lock()
+					isRefreshing = false
+					refreshMutex.Unlock()
+				}()
+
+				reqStart := time.Now()
 				url := fmt.Sprintf("http://127.0.0.1:%d/report?token=%s&format=yaml", port, token)
 				client := &http.Client{Timeout: 120 * time.Second}
 				resp, err := client.Get(url)
-				if err == nil && resp != nil && resp.Body != nil {
-					_, _ = io.Copy(io.Discard, resp.Body)
-					_ = resp.Body.Close()
+				if err != nil {
+					log.Printf("[Cockpit] Report request error: %v", err)
+					return
+				}
+				defer resp.Body.Close()
+
+				buf := make([]byte, 1024)
+				n, _ := io.ReadFull(resp.Body, buf)
+				headerStr := string(buf[:n])
+				_, _ = io.Copy(io.Discard, resp.Body)
+
+				elapsed := time.Since(reqStart)
+				nextTrigger := ""
+				for _, line := range strings.Split(headerStr, "\n") {
+					line = strings.TrimSpace(line)
+					if strings.HasPrefix(line, "next_auth_refresh_trigger_time:") {
+						nextTrigger = strings.Trim(strings.TrimPrefix(line, "next_auth_refresh_trigger_time:"), ` "'`)
+						break
+					}
+				}
+
+				if elapsed > 2*time.Second {
+					log.Printf("[Cockpit] Refresh executed successfully in %v (next due in %s)", elapsed.Round(time.Millisecond), nextTrigger)
+				} else {
+					log.Printf("[Cockpit] Report queried in %v (not stale yet, next due in %s)", elapsed.Round(time.Millisecond), nextTrigger)
 				}
 			}(cfg.ReportPort, cfg.ReportToken)
 			return nil
 		}
 	}
 
-	// Fallback to macOS AppleScript click tray refresh
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		script := `tell application "System Events" to tell process "Cockpit Tools" to click menu item "🔄 刷新配额" of menu 1 of menu bar item 1 of menu bar 2`
-		if err := exec.CommandContext(ctx, "osascript", "-e", script).Run(); err != nil {
-			log.Printf("[Cockpit] AppleScript refresh fallback failed: %v", err)
-		}
-	}()
-
+	refreshMutex.Lock()
+	isRefreshing = false
+	refreshMutex.Unlock()
 	return nil
 }
 
@@ -391,7 +422,7 @@ func RefreshQuotas(activeEmails ...string) (*CockpitQuotaResponse, error) {
 		initialUpdatedAt = currentQuotas.UpdatedAt
 	}
 
-	if err := TriggerRefresh(); err != nil {
+	if err := TriggerRefresh(true); err != nil {
 		return currentQuotas, err
 	}
 
