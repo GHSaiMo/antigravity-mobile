@@ -150,3 +150,111 @@ func TestAuthMiddleware_And_Handler(t *testing.T) {
 		t.Fatalf("expected 401 after revocation, got %d", rrRevoked.Code)
 	}
 }
+
+func TestIsWhitelistedPath(t *testing.T) {
+	tests := []struct {
+		path     string
+		expected bool
+	}{
+		{"/", true},
+		{"/index.html", true},
+		{"/web/index.html", true},
+		{"/icons/icon.png", true},
+		{"/gateway/status", true},
+		{"/api/v1/auth/pair", true},
+		{"/api/v1/devices", true},
+		{"/api/v1/devices/", true},
+		{"/api/v1/devices/dev-123", true},
+		// Paths that should NOT match
+		{"/api/v1/devices_bypass", false},
+		{"/api/v1/devices_unauthorized", false},
+		{"/codeium.cascade.test", false},
+		{"/unknown", false},
+	}
+
+	for _, tt := range tests {
+		got := IsWhitelistedPath(tt.path)
+		if got != tt.expected {
+			t.Errorf("IsWhitelistedPath(%q) = %v, expected %v", tt.path, got, tt.expected)
+		}
+	}
+}
+
+func TestAdminAuthorization(t *testing.T) {
+	tempDir := t.TempDir()
+	storePath := filepath.Join(tempDir, "auth_store.json")
+	store, err := NewAuthStore(storePath)
+	if err != nil {
+		t.Fatalf("failed to create auth store: %v", err)
+	}
+	deviceToken := "tok_secret1234567890abcdef"
+	dev := PairedDevice{
+		DeviceID:   "dev-1",
+		DeviceName: "Test Device",
+		Platform:   "ios",
+		TokenHash:  HashToken(deviceToken),
+		CreatedAt:  time.Now(),
+		LastSeenAt: time.Now(),
+	}
+	if err := store.AddDevice(dev); err != nil {
+		t.Fatalf("failed to add device: %v", err)
+	}
+
+	pm := NewPairingManager()
+	authHandler := NewAuthHandler(store, pm, "mac.local", 58900, false)
+
+	// Case 1: Device token does NOT grant admin access
+	reqDevToken := httptest.NewRequest(http.MethodGet, "/api/v1/devices", nil)
+	reqDevToken.RemoteAddr = "192.168.1.100:12345"
+	reqDevToken.Header.Set("Authorization", "Bearer "+deviceToken)
+	if authHandler.isAuthorizedAdmin(reqDevToken) {
+		t.Errorf("expected device token not to grant admin access")
+	}
+
+	// Case 2: Direct loopback without proxy headers grants admin
+	reqLoopback := httptest.NewRequest(http.MethodGet, "/api/v1/devices", nil)
+	reqLoopback.RemoteAddr = "127.0.0.1:12345"
+	if !authHandler.isAuthorizedAdmin(reqLoopback) {
+		t.Errorf("expected loopback to grant admin when no proxy headers present")
+	}
+
+	// Case 3: Loopback with X-Forwarded-For should be rejected
+	reqProxyXFF := httptest.NewRequest(http.MethodGet, "/api/v1/devices", nil)
+	reqProxyXFF.RemoteAddr = "127.0.0.1:12345"
+	reqProxyXFF.Header.Set("X-Forwarded-For", "203.0.113.195")
+	if authHandler.isAuthorizedAdmin(reqProxyXFF) {
+		t.Errorf("expected loopback with X-Forwarded-For to be rejected")
+	}
+
+	// Case 4: Loopback with X-Real-IP should be rejected
+	reqProxyRealIP := httptest.NewRequest(http.MethodGet, "/api/v1/devices", nil)
+	reqProxyRealIP.RemoteAddr = "127.0.0.1:12345"
+	reqProxyRealIP.Header.Set("X-Real-IP", "203.0.113.195")
+	if authHandler.isAuthorizedAdmin(reqProxyRealIP) {
+		t.Errorf("expected loopback with X-Real-IP to be rejected")
+	}
+
+	// Case 5: ADMIN_TOKEN via Bearer header
+	t.Setenv("ADMIN_TOKEN", "secret-admin-123")
+	reqAdminBearer := httptest.NewRequest(http.MethodGet, "/api/v1/devices", nil)
+	reqAdminBearer.RemoteAddr = "192.168.1.100:12345"
+	reqAdminBearer.Header.Set("Authorization", "Bearer secret-admin-123")
+	if !authHandler.isAuthorizedAdmin(reqAdminBearer) {
+		t.Errorf("expected ADMIN_TOKEN via Bearer header to be authorized")
+	}
+
+	// Case 6: ADMIN_TOKEN via query param
+	reqAdminQuery := httptest.NewRequest(http.MethodGet, "/api/v1/devices?admin_token=secret-admin-123", nil)
+	reqAdminQuery.RemoteAddr = "192.168.1.100:12345"
+	if !authHandler.isAuthorizedAdmin(reqAdminQuery) {
+		t.Errorf("expected ADMIN_TOKEN via query parameter to be authorized")
+	}
+
+	// Case 7: Invalid ADMIN_TOKEN
+	reqAdminBad := httptest.NewRequest(http.MethodGet, "/api/v1/devices?admin_token=wrong-token", nil)
+	reqAdminBad.RemoteAddr = "192.168.1.100:12345"
+	if authHandler.isAuthorizedAdmin(reqAdminBad) {
+		t.Errorf("expected invalid admin token to be rejected")
+	}
+}
+

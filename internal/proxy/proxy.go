@@ -766,7 +766,7 @@ func (p *Proxy) handleDeleteCascadeTrajectory(w http.ResponseWriter, r *http.Req
 	}
 	_ = json.Unmarshal(bodyBytes, &reqData)
 
-	if reqData.CascadeID != "" {
+	if reqData.CascadeID != "" && !strings.Contains(reqData.CascadeID, "..") && !strings.Contains(reqData.CascadeID, "/") && !strings.Contains(reqData.CascadeID, "\\") {
 		RecordDeletedCascade(reqData.CascadeID)
 		// Clean up ~/.gemini/antigravity/brain/<id> recursively BEFORE upstream tries os.Remove,
 		// preventing upstream from failing with "unlinkat ... directory not empty" due to subdirectories (.user_uploaded, .system_generated)
@@ -784,7 +784,7 @@ func (p *Proxy) handleDeleteCascadeTrajectory(w http.ResponseWriter, r *http.Req
 	rp.ServeHTTP(rec, fwdReq)
 
 	if rec.statusCode >= 200 && rec.statusCode < 300 {
-		if reqData.CascadeID != "" {
+		if reqData.CascadeID != "" && !strings.Contains(reqData.CascadeID, "..") && !strings.Contains(reqData.CascadeID, "/") && !strings.Contains(reqData.CascadeID, "\\") {
 			RecordDeletedCascade(reqData.CascadeID)
 			ClearTrajectoryCache(reqData.CascadeID)
 			// Clean up leftover .pbtxt annotation file and .db files if present

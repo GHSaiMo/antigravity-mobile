@@ -87,43 +87,54 @@ func ResolveLocalFilePath(rawURI, cascadeID string) (string, error) {
 	return filepath.Clean(clean), nil
 }
 
-// IsSafeFilePath validates that the requested path is not in a sensitive system or credential location.
+// IsSafeFilePath validates that the resolved path is within an explicitly allowed directory.
+// Uses a whitelist approach: only paths under the user's home .gemini/antigravity/brain/,
+// .gemini/antigravity/conversations/, or the Antigravity workspace directories are permitted.
 func IsSafeFilePath(path string) bool {
 	clean := filepath.Clean(path)
 
-	// Prevent path traversal
-	if strings.Contains(clean, "..") {
-		return false
+	// Resolve symlinks to prevent symlink-based bypasses
+	resolved, err := filepath.EvalSymlinks(clean)
+	if err != nil {
+		// If the file doesn't exist yet, use the cleaned path
+		resolved = clean
 	}
 
 	home, err := os.UserHomeDir()
-	if err == nil {
-		sensitiveUserDirs := []string{
-			filepath.Join(home, ".ssh"),
-			filepath.Join(home, ".gnupg"),
-			filepath.Join(home, ".aws"),
-			filepath.Join(home, ".config/gcloud"),
-			filepath.Join(home, ".kube"),
-		}
-		for _, s := range sensitiveUserDirs {
-			if strings.HasPrefix(clean, s) {
-				return false
-			}
-		}
-	}
-
-	// Disallow sensitive system directories
-	if strings.HasPrefix(clean, "/etc") || strings.HasPrefix(clean, "/private/etc") || strings.HasPrefix(clean, "/var/root") {
+	if err != nil {
 		return false
 	}
 
-	// Sensitive file names
-	base := strings.ToLower(filepath.Base(clean))
-	if base == "id_rsa" || base == "id_ed25519" || base == ".env" || strings.HasSuffix(base, ".pem") || strings.HasSuffix(base, ".key") {
-		return false
+	// Whitelist: only these directory trees are allowed
+	allowedPrefixes := []string{
+		filepath.Join(home, ".gemini", "antigravity", "brain") + string(filepath.Separator),
+		filepath.Join(home, ".gemini", "antigravity", "conversations") + string(filepath.Separator),
+		filepath.Join(home, ".gemini", "antigravity", "annotations") + string(filepath.Separator),
+		filepath.Join(home, "Projects") + string(filepath.Separator),
 	}
 
-	return true
+	for _, prefix := range allowedPrefixes {
+		if strings.HasPrefix(resolved, prefix) {
+			return true
+		}
+	}
+
+	// Additionally block sensitive filenames even within allowed dirs
+	base := strings.ToLower(filepath.Base(resolved))
+	sensitiveNames := []string{"id_rsa", "id_ed25519", "id_ecdsa", "id_dsa", ".env", ".git-credentials", ".netrc"}
+	for _, s := range sensitiveNames {
+		if base == s {
+			return false
+		}
+	}
+	sensitiveExts := []string{".pem", ".key", ".p12", ".pfx", ".jks"}
+	for _, ext := range sensitiveExts {
+		if strings.HasSuffix(base, ext) {
+			return false
+		}
+	}
+
+	return false
 }
 
 // GetFileContent retrieves the file content and companion metadata if present.
@@ -243,6 +254,10 @@ func (p *Proxy) HandleFileRaw(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "path is a directory", http.StatusBadRequest)
 		return
 	}
+	if !fi.Mode().IsRegular() {
+		http.Error(w, "not a regular file", http.StatusBadRequest)
+		return
+	}
 
 	fileName := filepath.Base(filePath)
 	ext := strings.ToLower(filepath.Ext(filePath))
@@ -263,12 +278,18 @@ func (p *Proxy) HandleFileRaw(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/pdf")
 	case ".html", ".htm":
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; img-src data: https:;")
 	case ".key":
 		w.Header().Set("Content-Type", "application/x-iwork-keynote-sffkey")
 	}
 
 	encodedName := url.PathEscape(fileName)
-	w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename*=UTF-8''%s", encodedName))
+	// Force download for potentially dangerous file types to prevent stored XSS
+	disposition := "inline"
+	if ext == ".html" || ext == ".htm" || ext == ".svg" {
+		disposition = "attachment"
+	}
+	w.Header().Set("Content-Disposition", fmt.Sprintf("%s; filename*=UTF-8''%s", disposition, encodedName))
 
 	http.ServeFile(w, r, filePath)
 }

@@ -1795,7 +1795,7 @@ function generateItemHtml(item, isRunning, isLastItem) {
       imagesHtml = `<div class="user-message-images">` +
         item.media.map(m => {
           const src = m.startsWith("data:") ? m : `data:image/jpeg;base64,${m}`;
-          return `<img src="${src}" class="bubble-image" onclick="window.open('${src}')" alt="上传图片" />`;
+          return `<img src="${src}" class="bubble-image" data-action="open-image" alt="上传图片" />`;
         }).join("") + `</div>`;
     }
     const textHtml = item.text ? `<div>${escapeHtml(item.text)}</div>` : "";
@@ -2143,7 +2143,7 @@ const RunningTasksManager = {
             <span class="task-item-desc">${desc}</span>
             <span class="task-item-cmd" title="${cmd}">${cmd}</span>
           </div>
-          <button class="task-stop-btn" onclick="RunningTasksManager.stopTask(${task.stepIndex}, '${idEsc}')" title="终止任务" aria-label="终止任务">
+          <button class="task-stop-btn" data-action="stop-task" data-step="${task.stepIndex}" data-id="${idEsc}" title="终止任务" aria-label="终止任务">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 -960 960 960" fill="currentColor">
               <path d="M330-330H630V-630H330v300ZM480.07-100q-78.84,0-148.2-29.92T211.18-211.13T129.93-331.76T100-479.93t29.92-148.2t81.21-120.68t120.63-81.25T479.93-860t148.2,29.92t120.68,81.21t81.25,120.63T860-480.07t-29.92,148.2T748.87-211.18T628.24-129.93T480.07-100ZM480-160q134,0 227-93t93-227T707-707T480-800T253-707T160-480t93,227t227,93Zm0-320Z"></path>
             </svg>
@@ -2478,17 +2478,17 @@ const LocalQueueManager = {
         ${thumbHtml}
         <span class="queued-item-text">${escapeHtml(item.text || (thumbHtml ? "图片" : ""))}</span>
         <div class="queued-actions" data-testid="queued-decorators">
-          <button class="queued-icon-btn btn-send-now" onclick="LocalQueueManager.sendNow('${item.id}')" title="立即发送" aria-label="立即发送">
+          <button class="queued-icon-btn btn-send-now" data-action="queue-send" data-id="${item.id}" title="立即发送" aria-label="立即发送">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 -960 960 960" fill="currentColor">
               <path d="M665.08-450H180v-60H665.08L437.23-737.85L480-780L780-480L480-180l-42.77-42.15L665.08-450Z"></path>
             </svg>
           </button>
-          <button class="queued-icon-btn btn-edit" onclick="LocalQueueManager.edit('${item.id}')" title="编辑" aria-label="编辑">
+          <button class="queued-icon-btn btn-edit" data-action="queue-edit" data-id="${item.id}" title="编辑" aria-label="编辑">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 -960 960 960" fill="currentColor">
               <path d="M200-200h50.46L659.92-609.46l-50.46-50.46L200-250.46V-200Zm-60,60V-275.38L667.62-802.77q9.07-8.24 20.04-12.74T710.65-820t23.31,4.27t19.97,13.58l48.85,49.46q9.31,8.69 13.27,20T820-710.07q0,12.07-4.12,23.03T802.77-667L275.38-140H140ZM760.38-710.15l-50.23-50.23l50.23,50.23Zm-126.13,75.9l-24.79-25.67l50.46,50.46l-25.67-24.79Z"></path>
             </svg>
           </button>
-          <button class="queued-icon-btn btn-delete" onclick="LocalQueueManager.remove('${item.id}')" title="删除" aria-label="删除">
+          <button class="queued-icon-btn btn-delete" data-action="queue-remove" data-id="${item.id}" title="删除" aria-label="删除">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 -960 960 960" fill="currentColor">
               <path d="M292.31-140q-29.92,0-51.11-21.19T220-212.31V-720H180v-60H360v-35.38H600V-780H780v60H740v507.69Q740-182 719-161t-51.31,21H292.31ZM680-720H280v507.69q0,5.39 3.46,8.85t8.85,3.46H667.69q4.62,0 8.46-3.85t3.85-8.46V-720ZM376.16-280h60V-640h-60v360Zm147.69,0h60V-640h-60v360ZM280-720v507.69q0,5.39 0,8.85t0,3.46q0,0 0-3.46t0-8.85V-720Z"></path>
             </svg>
@@ -3584,9 +3584,9 @@ function renderInlineMarkdown(text) {
     const extraClass = isPlan ? " plan-btn-link" : (isMd ? " markdown-file-link" : "");
     const arrowSvg = isPlan ? '<svg class="plan-btn-arrow" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>' : '';
     if (icon) {
-      return `<a href="${url}" class="file-link${extraClass}" data-md-url="${url}" data-md-title="${escapeHtml(linkText)}"><img src="/icons/files/${icon}.svg" class="file-icon" alt="" /><span>${linkText}</span>${arrowSvg}</a>`;
+      return `<a href="${encodeURI(url)}" class="file-link${extraClass}" data-md-url="${escapeHtml(url)}" data-md-title="${escapeHtml(linkText)}"><img src="/icons/files/${icon}.svg" class="file-icon" alt="" /><span>${linkText}</span>${arrowSvg}</a>`;
     }
-    return `<a href="${url}" class="text-link${extraClass}" data-md-url="${url}" data-md-title="${escapeHtml(linkText)}"><span>${linkText}</span>${arrowSvg}</a>`;
+    return `<a href="${encodeURI(url)}" class="text-link${extraClass}" data-md-url="${escapeHtml(url)}" data-md-title="${escapeHtml(linkText)}"><span>${linkText}</span>${arrowSvg}</a>`;
   });
 
   // Inline code (e.g. `foo`)
@@ -4015,7 +4015,7 @@ function initMermaidIfNeeded() {
       mermaid.initialize({
         startOnLoad: false,
         theme: isDark ? "dark" : "default",
-        securityLevel: "loose",
+        securityLevel: "strict",
         fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'PingFang SC', sans-serif"
       });
       mermaidInitialized = true;
@@ -4102,6 +4102,25 @@ function getCachedMarkdown(md) {
 // --- Initialization ---
 
 window.addEventListener("DOMContentLoaded", () => {
+  // === Security: Event delegation for dynamic UI actions (replaces inline onclick) ===
+  document.addEventListener("click", function(e) {
+    const btn = e.target.closest("[data-action]");
+    if (!btn) return;
+    const action = btn.dataset.action;
+    if (action === "open-image") {
+      const img = btn.tagName === "IMG" ? btn : btn.querySelector("img");
+      if (img && img.src) window.open(img.src);
+    } else if (action === "stop-task") {
+      RunningTasksManager.stopTask(Number(btn.dataset.step), btn.dataset.id);
+    } else if (action === "queue-send") {
+      LocalQueueManager.sendNow(btn.dataset.id);
+    } else if (action === "queue-edit") {
+      LocalQueueManager.edit(btn.dataset.id);
+    } else if (action === "queue-remove") {
+      LocalQueueManager.remove(btn.dataset.id);
+    }
+  });
+
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/sw.js").catch(() => {});
   }
