@@ -606,9 +606,15 @@ public struct ChatView: View {
         let clean = url.absoluteString.trimmingCharacters(in: .whitespacesAndNewlines)
         let unescaped = clean.removingPercentEncoding ?? clean
         let lower = unescaped.lowercased()
+        let pathLower = url.path.lowercased()
         
+        let uriParam = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "uri" })?.value
         let decodedFileName: String = {
-            if let last = url.lastPathComponent.removingPercentEncoding, !last.isEmpty {
+            if let param = uriParam, !param.isEmpty {
+                let fn = (param as NSString).lastPathComponent.removingPercentEncoding ?? (param as NSString).lastPathComponent
+                if !fn.isEmpty && fn != "raw" { return fn }
+            }
+            if let last = url.lastPathComponent.removingPercentEncoding, !last.isEmpty, last != "raw" {
                 return last
             }
             let fn = (unescaped as NSString).lastPathComponent
@@ -631,11 +637,18 @@ public struct ChatView: View {
             return .handled
         }
         
-        // 2. Presentations & Office documents (PPTX, PPT, KEY, DOCX, XLSX, PDF, HTML, etc.)
-        let pathLower = url.path.lowercased()
+        // 2. Images, Presentations & Office documents (PNG, JPG, WEBP, GIF, PPTX, PPT, KEY, DOCX, XLSX, PDF, HTML, etc.)
         let isHTML = lower.hasSuffix(".html") || lower.hasSuffix(".htm") || pathLower.hasSuffix(".html") || pathLower.hasSuffix(".htm")
-        let documentExtensions = [".pptx", ".ppt", ".key", ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".numbers", ".pages", ".html", ".htm"]
-        if documentExtensions.contains(where: { lower.hasSuffix($0) || pathLower.hasSuffix($0) }) {
+        let documentExtensions = [".pptx", ".ppt", ".key", ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".numbers", ".pages", ".html", ".htm", ".txt", ".csv", ".json", ".log"]
+        let imageExtensions = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".heic", ".heif", ".bmp", ".svg", ".ico", ".tiff", ".tif"]
+        let allPreviewExtensions = documentExtensions + imageExtensions
+        
+        let uriLower = (uriParam ?? "").lowercased()
+        let isPreviewableFile = allPreviewExtensions.contains { ext in
+            lower.hasSuffix(ext) || pathLower.hasSuffix(ext) || uriLower.hasSuffix(ext) || lower.contains(ext + "?") || lower.contains(ext + "#")
+        }
+        
+        if isPreviewableFile {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             viewModel.downloadAndPreviewDocument(uri: unescaped, fileName: decodedFileName, isHTML: isHTML)
             return .handled

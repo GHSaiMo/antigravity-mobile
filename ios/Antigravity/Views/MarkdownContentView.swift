@@ -151,6 +151,34 @@ public struct MarkdownContentView: View {
             text = text.replacingOccurrences(of: "task.md", with: "[task.md](task.md)")
         }
         
+        // Auto-link MEDIA: paths (e.g. MEDIA:/path/to/image.png) into clickable image links
+        if text.contains("MEDIA:") {
+            let mediaPattern = #"(?:^|\s|<br\s*/?>)MEDIA:\s*([^\s\)\<\>\"\'\`]+)"#
+            if let regex = try? NSRegularExpression(pattern: mediaPattern) {
+                let nsText = text as NSString
+                let matches = regex.matches(in: text, range: NSRange(location: 0, length: nsText.length))
+                if !matches.isEmpty {
+                    var replaced = ""
+                    var lastEnd = 0
+                    for match in matches {
+                        if match.range.location > lastEnd {
+                            replaced += nsText.substring(with: NSRange(location: lastEnd, length: match.range.location - lastEnd))
+                        }
+                        let rawPath = nsText.substring(with: match.range(at: 1))
+                        let clean = rawPath.trimmingCharacters(in: CharacterSet(charactersIn: "`\"'()[]<>"))
+                        let fn = (clean as NSString).lastPathComponent
+                        let linkTarget = (clean.hasPrefix("file://") || clean.hasPrefix("http://") || clean.hasPrefix("https://")) ? clean : "file://\(clean)"
+                        replaced += "\n[点击放大查看图片 (\(fn))](\(linkTarget))"
+                        lastEnd = match.range.location + match.range.length
+                    }
+                    if lastEnd < nsText.length {
+                        replaced += nsText.substring(with: NSRange(location: lastEnd, length: nsText.length - lastEnd))
+                    }
+                    text = replaced
+                }
+            }
+        }
+        
         let attr = renderInlineMarkdown(text, size: size, weight: weight)
         
         // Fast-path: If text does not contain markdown link signature `](`, return Text(attr) directly

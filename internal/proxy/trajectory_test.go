@@ -796,5 +796,41 @@ func TestAnnotationTitle_WriteAndRead(t *testing.T) {
 	}
 }
 
+func TestExtractImageURLsFromText(t *testing.T) {
+	input := `
+长图已成功发送至 **陶九镇** 微信！
+
+* **接收目标**：陶九镇（微信会话）
+* **发送状态**：` + "`成功 (posted)`" + `
+* **发送内容**：一岁半宝宝刷牙与龋齿风险干预指南（高清长图）
+
+---
+
+### 本地预览与放大查看：
+
+[![点击放大查看高清长图](file:///Users/hal9000/Downloads/baby-teeth-brushing-guide_thumb.png)](file:///Users/hal9000/Downloads/baby-teeth-brushing-guide.png)
+
+🔍 **[点击在编辑器中直接放大查看高清原图（1290×12882）](file:///Users/hal9000/Downloads/baby-teeth-brushing-guide.png)**
+
+MEDIA:/Users/hal9000/Downloads/baby-teeth-brushing-guide.png
+`
+	urls := extractImageURLsFromText(input)
+	if len(urls) == 0 {
+		t.Fatalf("expected extracted image URLs, got none")
+	}
+
+	hasOrig := false
+	for _, u := range urls {
+		if strings.Contains(u, "baby-teeth-brushing-guide.png") {
+			hasOrig = true
+			break
+		}
+	}
+	if !hasOrig {
+		t.Errorf("expected baby-teeth-brushing-guide.png to be extracted, got %v", urls)
+	}
+}
+
+
 
 
