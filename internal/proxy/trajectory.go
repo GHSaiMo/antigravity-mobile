@@ -167,7 +167,7 @@ func RemoveDeletedCascadeTombstone(cascadeID string) {
 	delete(defaultTrajCache.deletedCascades, cascadeID)
 }
 
-// IsDeletedCascade returns true if the cascade was recently deleted within tombstone TTL (60s).
+// IsDeletedCascade returns true if the cascade was recently deleted within tombstone TTL (10m).
 func IsDeletedCascade(cascadeID string) bool {
 	if cascadeID == "" {
 		return false
@@ -178,7 +178,7 @@ func IsDeletedCascade(cascadeID string) bool {
 	if !exists {
 		return false
 	}
-	if time.Since(deletedAt) < 60*time.Second {
+	if time.Since(deletedAt) < 10*time.Minute {
 		return true
 	}
 	// Expired tombstone, clean it up
@@ -435,6 +435,13 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
 		w.Write([]byte(`{"error":"Antigravity upstream not connected"}`))
+		return
+	}
+
+	if IsDeletedCascade(cascadeID) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(`{"error":"cascade trajectory has been deleted"}`))
 		return
 	}
 
@@ -1340,6 +1347,10 @@ func ClearTrajectoryCache(cascadeID string) {
 }
 
 func (p *Proxy) fetchUpstreamTrajectory(cascadeID string, port int, token string) (*upstreamTrajectoryResp, error) {
+	if IsDeletedCascade(cascadeID) {
+		return nil, fmt.Errorf("cascade trajectory %s has been deleted", cascadeID)
+	}
+
 	// Status-aware TTL: completed sessions rarely change, so cache them longer.
 	// But if title is missing or session has few/no steps, keep TTL short (1.5s)
 	// so newly generated titles/summaries are quickly discovered.
@@ -1546,7 +1557,7 @@ func (p *Proxy) SyncHistoricalTrajectories(port int, token string) error {
 			continue
 		}
 		cascadeID := strings.TrimSuffix(name, ".db")
-		if defaultTrajCache.loadedCascades[cascadeID] {
+		if defaultTrajCache.loadedCascades[cascadeID] || IsDeletedCascade(cascadeID) {
 			continue
 		}
 
@@ -1667,6 +1678,10 @@ func (p *Proxy) fetchTrajectoriesSummaryWithTitles(port int, token string) (map[
 }
 
 func (p *Proxy) fetchUpstreamTrajectoryWithMaxAge(cascadeID string, port int, token string, maxAge time.Duration) (*upstreamTrajectoryResp, error) {
+	if IsDeletedCascade(cascadeID) {
+		return nil, fmt.Errorf("cascade trajectory %s has been deleted", cascadeID)
+	}
+
 	defaultTrajCache.trajCacheMu.Lock()
 	if cached, ok := defaultTrajCache.trajCache[cascadeID]; ok {
 		if time.Since(cached.fetchedAt) < maxAge {
