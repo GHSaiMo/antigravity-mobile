@@ -718,12 +718,11 @@ public struct MarkdownContentView: View {
                     }
                 }
             }
-            .fixedSize(horizontal: false, vertical: true)
         }
     }
     
     private static let planRegex = try? NSRegularExpression(
-        pattern: #"(?:(?<!\!)\[([^\]]+)\]\(([^)]*(?:implementation_plan|walkthrough)\.md[^)]*)\)|(?<![a-zA-Z0-9_\-\.\/])((?:implementation_plan|walkthrough)\.md)(?![a-zA-Z0-9_\-\.\/]))"#,
+        pattern: #"(?:(?<!\!)\[([^\]]+)\]\(([^)]+)\)|(?<![a-zA-Z0-9_\-\.\/])((?:implementation_plan|walkthrough)\.md)(?![a-zA-Z0-9_\-\.\/]))"#,
         options: [.caseInsensitive]
     )
     
@@ -737,7 +736,20 @@ public struct MarkdownContentView: View {
         }
         
         let nsText = rawText as NSString
-        let matches = regex.matches(in: rawText, range: NSRange(location: 0, length: nsText.length))
+        let allMatches = regex.matches(in: rawText, range: NSRange(location: 0, length: nsText.length))
+        
+        let matches = allMatches.filter { m in
+            if m.range(at: 1).location != NSNotFound && m.range(at: 2).location != NSNotFound {
+                let g1 = nsText.substring(with: m.range(at: 1)).lowercased()
+                let g2 = nsText.substring(with: m.range(at: 2)).lowercased()
+                return g1.contains("implementation_plan") || g1.contains("walkthrough") ||
+                       g2.contains("implementation_plan") || g2.contains("walkthrough")
+            } else if m.range(at: 3).location != NSNotFound {
+                return true
+            }
+            return false
+        }
+        
         guard !matches.isEmpty else {
             return [.text(id: "text-0", content: rawText)]
         }
@@ -774,7 +786,8 @@ public struct MarkdownContentView: View {
                 strippedLength = 1
             }
             
-            if !prefix.isEmpty {
+            let trimmedPrefix = prefix.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedPrefix.isEmpty {
                 segments.append(.text(id: "seg-\(segIdx)", content: prefix))
                 segIdx += 1
             }
@@ -800,15 +813,11 @@ public struct MarkdownContentView: View {
         if lastEnd < nsText.length {
             let suffix = nsText.substring(with: NSRange(location: lastEnd, length: nsText.length - lastEnd))
             let punctChars: Set<Character> = ["。", ".", "，", ",", "！", "!", "？", "?", "；", ";", "：", ":"]
-            if let firstChar = suffix.first, punctChars.contains(firstChar) {
-                segments.append(.text(id: "seg-\(segIdx)", content: String(firstChar)))
-                segIdx += 1
-                let rest = String(suffix.dropFirst())
-                if !rest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    segments.append(.text(id: "seg-\(segIdx)", content: rest))
-                    segIdx += 1
-                }
-            } else {
+            let trimmedSuffix = suffix.trimmingCharacters(in: .whitespacesAndNewlines)
+            // If suffix only consists of trailing punctuation and whitespace, drop it to avoid dangling orphan punctuation.
+            // If it contains meaningful text, preserve it as a unified text segment.
+            let hasMeaningfulContent = trimmedSuffix.contains { !punctChars.contains($0) }
+            if hasMeaningfulContent {
                 segments.append(.text(id: "seg-\(segIdx)", content: suffix))
                 segIdx += 1
             }
@@ -1141,56 +1150,87 @@ public struct FlowLayout: Layout {
         self.verticalSpacing = verticalSpacing
     }
     
-    public func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+    public struct LayoutRow {
+        public var elements: [(subview: LayoutSubview, size: CGSize, origin: CGPoint)]
+        public var frame: CGRect
+    }
+    
+    public struct LayoutResult {
+        public var size: CGSize
+        public var rows: [LayoutRow]
+    }
+    
+    private func computeLayout(proposal: ProposedViewSize, subviews: Subviews) -> LayoutResult {
         let maxAvailableWidth = proposal.width ?? .infinity
+        var rows: [LayoutRow] = []
+        var currentRowElements: [(subview: LayoutSubview, size: CGSize, origin: CGPoint)] = []
+        
         var currentX: CGFloat = 0
         var currentY: CGFloat = 0
-        var lineHeight: CGFloat = 0
+        var currentLineHeight: CGFloat = 0
         var maxWidth: CGFloat = 0
         
         for subview in subviews {
             let size = subview.sizeThatFits(ProposedViewSize(width: maxAvailableWidth, height: nil))
-            if currentX + size.width > maxAvailableWidth && currentX > 0 {
+            
+            if currentX + size.width > maxAvailableWidth + 0.5 && currentX > 0 {
+                let rowFrame = CGRect(
+                    x: 0,
+                    y: currentY,
+                    width: max(0, currentX - horizontalSpacing),
+                    height: currentLineHeight
+                )
+                rows.append(LayoutRow(elements: currentRowElements, frame: rowFrame))
+                
+                currentRowElements = []
                 currentX = 0
-                currentY += lineHeight + verticalSpacing
-                lineHeight = 0
+                currentY += currentLineHeight + verticalSpacing
+                currentLineHeight = 0
             }
-            lineHeight = max(lineHeight, size.height)
+            
+            currentRowElements.append((subview: subview, size: size, origin: CGPoint(x: currentX, y: 0)))
+            currentLineHeight = max(currentLineHeight, size.height)
             currentX += size.width + horizontalSpacing
             maxWidth = max(maxWidth, currentX - horizontalSpacing)
         }
         
-        return CGSize(width: min(maxWidth, maxAvailableWidth), height: currentY + lineHeight)
+        if !currentRowElements.isEmpty {
+            let rowFrame = CGRect(
+                x: 0,
+                y: currentY,
+                width: max(0, currentX - horizontalSpacing),
+                height: currentLineHeight
+            )
+            rows.append(LayoutRow(elements: currentRowElements, frame: rowFrame))
+            currentY += currentLineHeight
+        }
+        
+        let totalWidth = min(maxWidth, maxAvailableWidth)
+        let totalHeight = currentY
+        
+        return LayoutResult(size: CGSize(width: totalWidth, height: totalHeight), rows: rows)
+    }
+    
+    public func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let result = computeLayout(proposal: proposal, subviews: subviews)
+        return result.size
     }
     
     public func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let maxAvailableWidth = bounds.width
-        var currentX: CGFloat = bounds.minX
-        var currentY: CGFloat = bounds.minY
-        var lineHeight: CGFloat = 0
-        var lineSubviews: [(subview: LayoutSubview, size: CGSize, x: CGFloat)] = []
+        let result = computeLayout(
+            proposal: ProposedViewSize(width: bounds.width, height: bounds.height),
+            subviews: subviews
+        )
         
-        func flushLine() {
-            for item in lineSubviews {
-                let y = currentY + (lineHeight - item.size.height) / 2
-                item.subview.place(at: CGPoint(x: item.x, y: y), proposal: ProposedViewSize(item.size))
+        for row in result.rows {
+            let rowY = bounds.minY + row.frame.origin.y
+            let rowHeight = row.frame.height
+            for item in row.elements {
+                let x = bounds.minX + item.origin.x
+                let y = rowY + (rowHeight - item.size.height) / 2
+                item.subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(item.size))
             }
-            lineSubviews.removeAll()
         }
-        
-        for subview in subviews {
-            let size = subview.sizeThatFits(ProposedViewSize(width: maxAvailableWidth, height: nil))
-            if currentX + size.width > bounds.maxX && currentX > bounds.minX {
-                flushLine()
-                currentX = bounds.minX
-                currentY += lineHeight + verticalSpacing
-                lineHeight = 0
-            }
-            lineSubviews.append((subview: subview, size: size, x: currentX))
-            lineHeight = max(lineHeight, size.height)
-            currentX += size.width + horizontalSpacing
-        }
-        flushLine()
     }
 }
 

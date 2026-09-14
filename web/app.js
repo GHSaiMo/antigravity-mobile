@@ -3566,6 +3566,194 @@ function processMathSymbols(text) {
   return text;
 }
 
+// --- Media & Image Handling ---
+
+/**
+ * Normalizes raw image paths/URIs into a URL loadable by the browser.
+ * Converts local filesystem paths (/Users/..., file:///..., etc.) into /api/v1/files/raw with auth token.
+ */
+function resolveMediaRawUrl(rawPath) {
+  if (!rawPath) return "";
+  let clean = String(rawPath).trim();
+  if (clean.startsWith("MEDIA:")) {
+    clean = clean.slice(6).trim();
+  }
+  // Strip enclosing quotes, backticks, or brackets
+  clean = clean.replace(/^[`"'<(\[]+|[`>"')\]]+$/g, "");
+  
+  if (clean.startsWith("data:image/") || clean.startsWith("blob:")) {
+    return clean;
+  }
+  if (clean.startsWith("http://") || clean.startsWith("https://")) {
+    // If it's our gateway files/raw endpoint and lacks auth_token, append it
+    if (clean.includes("/api/v1/files/raw") && !clean.includes("auth_token=") && !clean.includes("token=")) {
+      const token = localStorage.getItem("agy_device_token");
+      if (token) {
+        clean += (clean.includes("?") ? "&" : "?") + "auth_token=" + encodeURIComponent(token);
+      }
+    }
+    return clean;
+  }
+  if (clean.startsWith("file://")) {
+    clean = clean.slice(7);
+  }
+  
+  const token = localStorage.getItem("agy_device_token") || "";
+  const params = new URLSearchParams();
+  params.set("uri", clean);
+  if (token) {
+    params.set("auth_token", token);
+  }
+  return `/api/v1/files/raw?${params.toString()}`;
+}
+
+/**
+ * Returns candidate thumbnail URL. If original path does not have _thumb,
+ * replaces .ext with _thumb.ext.
+ */
+function resolveThumbnailRawUrl(originalPath) {
+  if (!originalPath) return "";
+  let clean = String(originalPath).trim();
+  if (clean.startsWith("MEDIA:")) clean = clean.slice(6).trim();
+  clean = clean.replace(/^[`"'<(\[]+|[`>"')\]]+$/g, "");
+
+  if (clean.startsWith("data:image/") || clean.startsWith("blob:")) {
+    return clean;
+  }
+  if (clean.startsWith("http://") || clean.startsWith("https://")) {
+    return resolveMediaRawUrl(clean);
+  }
+
+  // If path already contains _thumb, use as is
+  if (/_thumb\.[a-zA-Z0-9]+$/i.test(clean)) {
+    return resolveMediaRawUrl(clean);
+  }
+
+  // Try companion _thumb file
+  const thumbPath = clean.replace(/\.([a-zA-Z0-9]+)$/, "_thumb.$1");
+  return resolveMediaRawUrl(thumbPath);
+}
+
+/**
+ * Extracts a readable filename from an image path/URI.
+ */
+function extractImageFileName(rawPath) {
+  if (!rawPath) return "图片";
+  let clean = String(rawPath).trim();
+  if (clean.startsWith("MEDIA:")) clean = clean.slice(6).trim();
+  clean = clean.replace(/^[`"'<(\[]+|[`>"')\]]+$/g, "");
+  if (clean.startsWith("file://")) clean = clean.slice(7);
+  if (clean.includes("?")) clean = clean.split("?")[0];
+  const parts = clean.split("/");
+  const last = parts.pop() || "";
+  return last || "图片";
+}
+
+/**
+ * Checks if a URL or filename points to an image.
+ */
+function isImageResource(url) {
+  if (!url) return false;
+  const clean = url.split("?")[0].toLowerCase();
+  return clean.endsWith(".png") || clean.endsWith(".jpg") || clean.endsWith(".jpeg") ||
+         clean.endsWith(".webp") || clean.endsWith(".gif") || clean.endsWith(".svg") ||
+         clean.endsWith(".bmp") || clean.endsWith(".ico") || clean.startsWith("data:image/");
+}
+
+/**
+ * Generates the HTML for an image thumbnail card.
+ */
+function buildImageThumbnailCard(originalPath, thumbPath, altText) {
+  if (!originalPath) return "";
+  const origRawUrl = resolveMediaRawUrl(originalPath);
+  const thumbRawUrl = thumbPath ? resolveMediaRawUrl(thumbPath) : resolveThumbnailRawUrl(originalPath);
+  const fileName = extractImageFileName(originalPath);
+  const alt = altText ? altText.trim() : fileName;
+
+  return `
+    <div class="image-thumb-card" 
+         data-action="open-lightbox" 
+         data-original-url="${escapeHtml(origRawUrl)}" 
+         data-thumb-url="${escapeHtml(thumbRawUrl)}" 
+         data-title="${escapeHtml(fileName)}" 
+         data-alt="${escapeHtml(alt)}"
+         tabindex="0"
+         role="button"
+         aria-label="查看图片 ${escapeHtml(fileName)}">
+      <div class="image-thumb-media">
+        <img src="${escapeHtml(thumbRawUrl)}" 
+             data-original-src="${escapeHtml(origRawUrl)}" 
+             alt="${escapeHtml(alt)}" 
+             class="image-thumb-img" 
+             loading="lazy" 
+             onload="handleThumbnailLoad(this)" 
+             onerror="handleThumbnailError(this)" />
+        <div class="image-thumb-spinner">
+          <div class="ios-spinner small"></div>
+        </div>
+        <div class="image-thumb-error">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+            <circle cx="8.5" cy="8.5" r="1.5"></circle>
+            <polyline points="21 15 16 10 5 21"></polyline>
+          </svg>
+          <span>无法加载图片</span>
+        </div>
+      </div>
+      <div class="image-thumb-bar">
+        <div class="image-thumb-meta">
+          <span class="image-thumb-name" title="${escapeHtml(fileName)}">${escapeHtml(fileName)}</span>
+          <span class="image-thumb-dimensions"></span>
+          <span class="image-thumb-badge hidden">长图</span>
+        </div>
+        <div class="image-thumb-zoom-pill">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            <line x1="11" y1="8" x2="11" y2="14"></line>
+            <line x1="8" y1="11" x2="14" y2="11"></line>
+          </svg>
+          <span>放大查看</span>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+window.handleThumbnailLoad = function(img) {
+  if (!img) return;
+  img.classList.add("loaded");
+  const card = img.closest(".image-thumb-card");
+  if (!card) return;
+  card.classList.add("loaded");
+
+  const nw = img.naturalWidth || 0;
+  const nh = img.naturalHeight || 0;
+  if (nw > 0 && nh > 0) {
+    const dimEl = card.querySelector(".image-thumb-dimensions");
+    if (dimEl) dimEl.textContent = `${nw}×${nh}`;
+    if (nh / nw >= 1.8) {
+      const badgeEl = card.querySelector(".image-thumb-badge");
+      if (badgeEl) badgeEl.classList.remove("hidden");
+    }
+  }
+};
+
+window.handleThumbnailError = function(img) {
+  if (!img) return;
+  // If thumbnail fails, try falling back to original image
+  if (!img.dataset.fallback && img.dataset.originalSrc && img.src !== img.dataset.originalSrc) {
+    img.dataset.fallback = "1";
+    img.src = img.dataset.originalSrc;
+    return;
+  }
+  const card = img.closest(".image-thumb-card");
+  if (card) {
+    card.classList.remove("loaded");
+    card.classList.add("load-error");
+  }
+};
+
 function renderInlineMarkdown(text) {
   if (!text) return "";
   if (text.includes("implementation_plan.md") && !text.includes("[implementation_plan.md]") && !text.includes("](implementation_plan.md)")) {
@@ -3587,15 +3775,27 @@ function renderInlineMarkdown(text) {
   let html = escapeHtml(text);
   html = html.replace(/___HTML_BR___/g, "<br/>");
 
-  // Images (only allow safe URL protocols)
-  html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, url) => {
-    if (!isSafeURL(url)) return escapeHtml(`![${alt}](${url})`);
-    return `<img src="${url}" alt="${alt}" class="markdown-image" />`;
+  // 1. Linked images: [![alt](thumb)](orig)
+  html = html.replace(/\[!\[([^\]]*)\]\(([^)]+)\)\]\(([^)]+)\)/g, (_, alt, thumbUrl, origUrl) => {
+    return buildImageThumbnailCard(origUrl, thumbUrl, alt);
   });
 
-  // Markdown links with file icon support (only allow safe URL protocols)
+  // 2. Standard markdown images: ![alt](url)
+  html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, url) => {
+    return buildImageThumbnailCard(url, null, alt);
+  });
+
+  // 3. MEDIA: path anywhere in text
+  html = html.replace(/(?:^|\s|<br\/>)MEDIA:([^\s<"'\n]+)/g, (match, path) => {
+    return buildImageThumbnailCard(path, null, "");
+  });
+
+  // 4. Markdown links with file icon support (only allow safe URL protocols)
   html = html.replace(/(?<!\!)\[([^\]]+)\]\(([^)]+)\)/g, (_, linkText, url) => {
     if (!isSafeURL(url)) return `${linkText}`;
+    if (isImageResource(url)) {
+      return buildImageThumbnailCard(url, null, linkText);
+    }
     const icon = resolveFileIcon(linkText) || resolveFileIcon(url);
     const lower = url.toLowerCase();
     const isMd = lower.endsWith(".md") || lower.endsWith(".markdown") || lower.includes("/brain/") || lower.includes("implementation_plan") || lower.includes("walkthrough");
@@ -3940,6 +4140,14 @@ function renderMarkdown(md) {
       continue;
     }
 
+    // 6.5 Standalone MEDIA: or Image Block
+    if (trimmed.startsWith("MEDIA:") || /^(?:https?:\/\/[^\s]+\.(?:png|jpe?g|webp|gif|svg|bmp)|(?:\/|[a-zA-Z]:\\|file:\/\/)[^\s<"']+\.(?:png|jpe?g|webp|gif|svg|bmp))$/i.test(trimmed)) {
+      const imgPath = trimmed.startsWith("MEDIA:") ? trimmed.slice(6).trim() : trimmed;
+      blocks.push(buildImageThumbnailCard(imgPath, null, ""));
+      i++;
+      continue;
+    }
+
     // 7. Paragraph
     const paraLines = [line];
     i++;
@@ -3947,6 +4155,8 @@ function renderMarkdown(md) {
       const nextLine = lines[i];
       const nTrimmed = nextLine.trim();
       if (!nTrimmed ||
+          nTrimmed.startsWith("MEDIA:") ||
+          /^(?:https?:\/\/[^\s]+\.(?:png|jpe?g|webp|gif|svg|bmp)|(?:\/|[a-zA-Z]:\\|file:\/\/)[^\s<"']+\.(?:png|jpe?g|webp|gif|svg|bmp))$/i.test(nTrimmed) ||
           nTrimmed.startsWith("```") ||
           nTrimmed.startsWith("#") ||
           nTrimmed === "---" || nTrimmed === "***" || nTrimmed === "___" ||
@@ -4118,17 +4328,318 @@ function getCachedMarkdown(md) {
   return html;
 }
 
+// --- Full-Screen Image Lightbox Viewer Manager ---
+const ImageViewerManager = {
+  currentUrl: "",
+  currentTitle: "",
+  currentScale: 1.0,
+  minScale: 0.3,
+  maxScale: 6.0,
+  isDragging: false,
+  dragStartX: 0,
+  dragStartY: 0,
+  translateX: 0,
+  translateY: 0,
+  initialPinchDist: null,
+  initialPinchScale: 1.0,
+  isLongScreenshot: false,
+  naturalWidth: 0,
+  naturalHeight: 0,
+
+  init() {
+    const modal = document.getElementById("image-viewer-modal");
+    if (!modal || modal.dataset.initialized) return;
+    modal.dataset.initialized = "true";
+
+    // Close button & backdrop
+    document.getElementById("btn-image-viewer-close")?.addEventListener("click", () => this.close());
+    document.getElementById("image-viewer-backdrop")?.addEventListener("click", (e) => {
+      if (e.target === e.currentTarget) this.close();
+    });
+
+    // Action buttons
+    document.getElementById("btn-image-viewer-download")?.addEventListener("click", () => this.downloadImage());
+    document.getElementById("btn-image-viewer-external")?.addEventListener("click", () => this.openExternal());
+
+    // Zoom buttons
+    document.getElementById("btn-image-zoom-in")?.addEventListener("click", () => this.zoom(0.3));
+    document.getElementById("btn-image-zoom-out")?.addEventListener("click", () => this.zoom(-0.3));
+    document.getElementById("btn-image-zoom-fit")?.addEventListener("click", () => this.zoomFit());
+    document.getElementById("btn-image-zoom-actual")?.addEventListener("click", () => this.zoomActual());
+
+    // Keyboard navigation (Esc to close)
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !modal.classList.contains("hidden")) {
+        this.close();
+      }
+    });
+
+    // Viewport mouse wheel zoom & drag
+    const viewport = document.getElementById("image-viewer-viewport");
+    const img = document.getElementById("image-viewer-img");
+
+    if (viewport && img) {
+      viewport.addEventListener("wheel", (e) => {
+        if (modal.classList.contains("hidden")) return;
+        e.preventDefault();
+        const delta = e.deltaY < 0 ? 0.2 : -0.2;
+        this.zoom(delta);
+      }, { passive: false });
+
+      // Double-click to toggle fit / 2.5x
+      img.addEventListener("dblclick", (e) => {
+        e.preventDefault();
+        if (this.currentScale > 1.1) {
+          this.zoomFit();
+        } else {
+          this.zoomTo(2.5);
+        }
+      });
+
+      // Mouse drag panning
+      viewport.addEventListener("mousedown", (e) => {
+        if (modal.classList.contains("hidden") || e.button !== 0) return;
+        if (this.currentScale <= 1.05 && !this.isLongScreenshot) return;
+        this.isDragging = true;
+        this.dragStartX = e.clientX - this.translateX;
+        this.dragStartY = e.clientY - this.translateY;
+        viewport.style.cursor = "grabbing";
+      });
+
+      window.addEventListener("mousemove", (e) => {
+        if (!this.isDragging) return;
+        this.translateX = e.clientX - this.dragStartX;
+        this.translateY = e.clientY - this.dragStartY;
+        this.applyTransform();
+      });
+
+      window.addEventListener("mouseup", () => {
+        if (this.isDragging) {
+          this.isDragging = false;
+          if (viewport) viewport.style.cursor = "";
+        }
+      });
+
+      // Touch gestures: Pinch-to-zoom & Double-tap
+      let lastTapTime = 0;
+      viewport.addEventListener("touchstart", (e) => {
+        if (modal.classList.contains("hidden")) return;
+        if (e.touches.length === 2) {
+          this.initialPinchDist = Math.hypot(
+            e.touches[0].clientX - e.touches[1].clientX,
+            e.touches[0].clientY - e.touches[1].clientY
+          );
+          this.initialPinchScale = this.currentScale;
+        } else if (e.touches.length === 1) {
+          const now = Date.now();
+          if (now - lastTapTime < 300) {
+            // Double-tap
+            e.preventDefault();
+            if (this.currentScale > 1.1) {
+              this.zoomFit();
+            } else {
+              this.zoomTo(2.5);
+            }
+          }
+          lastTapTime = now;
+          if (this.currentScale > 1.05) {
+            this.isDragging = true;
+            this.dragStartX = e.touches[0].clientX - this.translateX;
+            this.dragStartY = e.touches[0].clientY - this.translateY;
+          }
+        }
+      }, { passive: false });
+
+      viewport.addEventListener("touchmove", (e) => {
+        if (modal.classList.contains("hidden")) return;
+        if (e.touches.length === 2 && this.initialPinchDist) {
+          e.preventDefault();
+          const dist = Math.hypot(
+            e.touches[0].clientX - e.touches[1].clientX,
+            e.touches[0].clientY - e.touches[1].clientY
+          );
+          const ratio = dist / this.initialPinchDist;
+          this.zoomTo(this.initialPinchScale * ratio);
+        } else if (e.touches.length === 1 && this.isDragging) {
+          e.preventDefault();
+          this.translateX = e.touches[0].clientX - this.dragStartX;
+          this.translateY = e.touches[0].clientY - this.dragStartY;
+          this.applyTransform();
+        }
+      }, { passive: false });
+
+      viewport.addEventListener("touchend", (e) => {
+        if (e.touches.length < 2) {
+          this.initialPinchDist = null;
+        }
+        if (e.touches.length === 0) {
+          this.isDragging = false;
+        }
+      });
+    }
+  },
+
+  open(originalUrl, title, thumbUrl) {
+    this.init();
+    const modal = document.getElementById("image-viewer-modal");
+    if (!modal) return;
+
+    this.currentUrl = originalUrl;
+    this.currentTitle = title || "原图预览";
+    this.currentScale = 1.0;
+    this.translateX = 0;
+    this.translateY = 0;
+
+    const titleEl = document.getElementById("image-viewer-filename");
+    const metaEl = document.getElementById("image-viewer-meta");
+    const loadingEl = document.getElementById("image-viewer-loading");
+    const img = document.getElementById("image-viewer-img");
+    const viewport = document.getElementById("image-viewer-viewport");
+
+    if (titleEl) titleEl.textContent = this.currentTitle;
+    if (metaEl) metaEl.textContent = "正在载入高清原图...";
+    if (loadingEl) loadingEl.classList.remove("hidden");
+    if (viewport) viewport.scrollTop = 0;
+
+    if (img) {
+      img.classList.remove("is-long-screenshot");
+      img.style.transform = "";
+      img.src = "";
+
+      const tempImg = new Image();
+      tempImg.onload = () => {
+        this.naturalWidth = tempImg.naturalWidth;
+        this.naturalHeight = tempImg.naturalHeight;
+        this.isLongScreenshot = (this.naturalHeight / this.naturalWidth) >= 1.8;
+
+        img.src = this.currentUrl;
+        if (this.isLongScreenshot) {
+          img.classList.add("is-long-screenshot");
+        }
+        if (loadingEl) loadingEl.classList.add("hidden");
+        if (metaEl) {
+          metaEl.textContent = `${this.naturalWidth} × ${this.naturalHeight} px${this.isLongScreenshot ? " · 高清长图" : ""}`;
+        }
+        this.zoomFit();
+      };
+      tempImg.onerror = () => {
+        if (loadingEl) loadingEl.classList.add("hidden");
+        if (metaEl) metaEl.textContent = "图片加载失败";
+        if (thumbUrl && thumbUrl !== this.currentUrl) {
+          img.src = thumbUrl;
+        }
+      };
+      tempImg.src = this.currentUrl;
+    }
+
+    modal.classList.remove("hidden");
+    triggerHaptic("selection");
+  },
+
+  close() {
+    const modal = document.getElementById("image-viewer-modal");
+    if (modal) modal.classList.add("hidden");
+    const img = document.getElementById("image-viewer-img");
+    if (img) {
+      img.src = "";
+      img.style.transform = "";
+    }
+  },
+
+  zoom(delta) {
+    this.zoomTo(this.currentScale + delta);
+  },
+
+  zoomTo(scale) {
+    this.currentScale = Math.max(this.minScale, Math.min(this.maxScale, scale));
+    this.applyTransform();
+  },
+
+  zoomFit() {
+    this.currentScale = 1.0;
+    this.translateX = 0;
+    this.translateY = 0;
+    this.applyTransform();
+    const viewport = document.getElementById("image-viewer-viewport");
+    if (viewport) viewport.scrollTop = 0;
+  },
+
+  zoomActual() {
+    this.currentScale = 1.0;
+    this.translateX = 0;
+    this.translateY = 0;
+    const img = document.getElementById("image-viewer-img");
+    if (img && this.naturalWidth > 0) {
+      const containerWidth = img.parentElement?.clientWidth || window.innerWidth;
+      this.currentScale = Math.max(1.0, this.naturalWidth / containerWidth);
+    }
+    this.applyTransform();
+  },
+
+  applyTransform() {
+    const img = document.getElementById("image-viewer-img");
+    const label = document.getElementById("image-viewer-zoom-label");
+    if (img) {
+      img.style.transform = `translate(${this.translateX}px, ${this.translateY}px) scale(${this.currentScale})`;
+    }
+    if (label) {
+      label.textContent = `${Math.round(this.currentScale * 100)}%`;
+    }
+  },
+
+  downloadImage() {
+    if (!this.currentUrl) return;
+    const a = document.createElement("a");
+    a.href = this.currentUrl;
+    a.download = this.currentTitle || "image.png";
+    a.target = "_blank";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  },
+
+  openExternal() {
+    if (this.currentUrl) {
+      window.open(this.currentUrl, "_blank");
+    }
+  }
+};
+
 // --- Initialization ---
 
 window.addEventListener("DOMContentLoaded", () => {
+  // Initialize Image Viewer Modal
+  ImageViewerManager.init();
+
   // === Security: Event delegation for dynamic UI actions (replaces inline onclick) ===
   document.addEventListener("click", function(e) {
+    // 1. Click on thumbnail card anywhere opens the lightbox
+    const thumbCard = e.target.closest(".image-thumb-card");
+    if (thumbCard) {
+      const origUrl = thumbCard.dataset.originalUrl;
+      const thumbUrl = thumbCard.dataset.thumbUrl;
+      const title = thumbCard.dataset.title;
+      if (origUrl) {
+        ImageViewerManager.open(origUrl, title, thumbUrl);
+      }
+      return;
+    }
+
     const btn = e.target.closest("[data-action]");
     if (!btn) return;
     const action = btn.dataset.action;
     if (action === "open-image") {
       const img = btn.tagName === "IMG" ? btn : btn.querySelector("img");
-      if (img && img.src) window.open(img.src);
+      if (img && img.src) {
+        ImageViewerManager.open(img.src, "上传图片", img.src);
+      }
+    } else if (action === "open-lightbox") {
+      const origUrl = btn.dataset.originalUrl;
+      const thumbUrl = btn.dataset.thumbUrl;
+      const title = btn.dataset.title;
+      if (origUrl) {
+        ImageViewerManager.open(origUrl, title, thumbUrl);
+      }
     } else if (action === "stop-task") {
       RunningTasksManager.stopTask(Number(btn.dataset.step), btn.dataset.id);
     } else if (action === "queue-send") {
