@@ -284,3 +284,109 @@ func jsonNumber(n int) string {
 	return string(b)
 }
 
+func TestWatcherTransientFetchFailureRetry(t *testing.T) {
+	var mu sync.Mutex
+	statusVal := "CASCADE_RUN_STATUS_RUNNING"
+	stepCountVal := 5
+	fetchFailCount := 1 // Simulate 1 transient failure on trajectory fetch
+
+	mockUpstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		mu.Lock()
+		curStatus := statusVal
+		curSteps := stepCountVal
+		fail := fetchFailCount > 0
+		if strings.HasSuffix(r.URL.Path, "/GetCascadeTrajectory") && fail {
+			fetchFailCount--
+			mu.Unlock()
+			http.Error(w, "transient error", http.StatusInternalServerError)
+			return
+		}
+		mu.Unlock()
+
+		if strings.HasSuffix(r.URL.Path, "/GetAllCascadeTrajectories") {
+			w.Write([]byte(`{
+				"trajectorySummaries": {
+					"cas_retry_1": {
+						"summary": "Retry test session",
+						"status": "` + curStatus + `",
+						"stepCount": ` + jsonNumber(curSteps) + `,
+						"lastModifiedTime": "2026-09-12T00:00:00Z"
+					}
+				}
+			}`))
+			return
+		}
+
+		if strings.HasSuffix(r.URL.Path, "/GetCascadeTrajectory") {
+			w.Write([]byte(`{
+				"status": "` + curStatus + `",
+				"trajectory": {
+					"trajectoryId": "cas_retry_1",
+					"cascadeId": "cas_retry_1",
+					"steps": [
+						{"type": "CORTEX_STEP_TYPE_USER_INPUT", "status": "CORTEX_STEP_STATUS_DONE"},
+						{"type": "CORTEX_STEP_TYPE_PLANNER_RESPONSE", "status": "CORTEX_STEP_STATUS_DONE", "plannerResponse": {"response": "Success after retry!"}}
+					]
+				}
+			}`))
+			return
+		}
+
+		http.NotFound(w, r)
+	}))
+	defer mockUpstream.Close()
+
+	port := mockUpstream.Listener.Addr().(*net.TCPAddr).Port
+
+	var barkRequestCount int
+	var barkMu sync.Mutex
+	mockBark := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		barkMu.Lock()
+		barkRequestCount++
+		barkMu.Unlock()
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"code":200,"message":"success"}`))
+	}))
+	defer mockBark.Close()
+
+	p := proxy.NewProxy(inspector.NewInspector(10 * time.Second))
+	p.SetTestUpstream(port, "test-token")
+
+	notifCfg := config.NotificationConfig{
+		Enabled:      true,
+		BarkEndpoint: mockBark.URL,
+	}
+	notif := NewNotifier(notifCfg)
+	watcher := NewWatcher(p, notif)
+
+	// Step 1: Baseline sync with RUNNING
+	watcher.scanOnce()
+
+	// Step 2: Transition from RUNNING -> IDLE, but first fetch will fail
+	time.Sleep(300 * time.Millisecond)
+	mu.Lock()
+	statusVal = "CASCADE_RUN_STATUS_IDLE"
+	stepCountVal = 6
+	mu.Unlock()
+
+	// First scan tick: fetch fails!
+	watcher.scanOnce()
+
+	barkMu.Lock()
+	if barkRequestCount != 0 {
+		t.Errorf("expected 0 notifications on failed fetch, got %d", barkRequestCount)
+	}
+	barkMu.Unlock()
+
+	// Second scan tick: fetch succeeds! Notification MUST be delivered!
+	time.Sleep(300 * time.Millisecond)
+	watcher.scanOnce()
+
+	barkMu.Lock()
+	if barkRequestCount != 1 {
+		t.Errorf("expected 1 notification delivered after retry, got %d", barkRequestCount)
+	}
+	barkMu.Unlock()
+}
+

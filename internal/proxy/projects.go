@@ -560,6 +560,21 @@ func (p *Proxy) HandleCreateCascade(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// CSRF Protection: Validate Origin or Referer if present
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		if ref := r.Header.Get("Referer"); ref != "" {
+			if u, err := url.Parse(ref); err == nil {
+				origin = fmt.Sprintf("%s://%s", u.Scheme, u.Host)
+			}
+		}
+	}
+	if origin != "" && !IsAllowedOrigin(origin, r.Host) {
+		log.Printf("[Proxy] Rejected CreateCascade from untrusted origin: %s (host: %s)", origin, r.Host)
+		http.Error(w, "Forbidden: untrusted origin", http.StatusForbidden)
+		return
+	}
+
 	p.mu.RLock()
 	port := p.activePort
 	token := p.activeToken
@@ -575,6 +590,7 @@ func (p *Proxy) HandleCreateCascade(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1024*1024) // 1MB limit to prevent DoS
 	var req CreateCascadeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request payload", http.StatusBadRequest)

@@ -454,7 +454,7 @@ func extractTextFromProto(data []byte, depth int) string {
 				break
 			}
 			idx += n
-			if idx+int(length) > len(data) {
+			if uint64(len(data)-idx) < length {
 				break
 			}
 			val := data[idx : idx+int(length)]
@@ -497,8 +497,14 @@ func extractTextFromProto(data []byte, depth int) string {
 			}
 			idx += n
 		} else if wireType == 1 {
+			if len(data)-idx < 8 {
+				break
+			}
 			idx += 8
 		} else if wireType == 5 {
+			if len(data)-idx < 4 {
+				break
+			}
 			idx += 4
 		} else {
 			break

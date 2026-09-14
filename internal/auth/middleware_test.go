@@ -94,12 +94,32 @@ func TestAuthMiddleware_And_Handler(t *testing.T) {
 		t.Errorf("expected protected handler to be hit")
 	}
 
-	// 5. Access with Query Param (?auth_token=...) -> 200
+	// 5. Access with Query Param on standard API endpoint -> 401 Unauthorized (CWE-598 mitigation)
 	req3 := httptest.NewRequest(http.MethodGet, "/codeium.cascade.test?auth_token="+pairResp.DeviceToken, nil)
 	rr3 := httptest.NewRecorder()
 	wrappedRouter.ServeHTTP(rr3, req3)
-	if rr3.Code != http.StatusOK {
-		t.Fatalf("expected 200 with query token, got %d", rr3.Code)
+	if rr3.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for query token on standard HTTP endpoint, got %d", rr3.Code)
+	}
+
+	// 5b. Access with Query Param on WebSocket Upgrade -> 200 OK (permitted for browser WS)
+	reqWS := httptest.NewRequest(http.MethodGet, "/codeium.cascade.test?auth_token="+pairResp.DeviceToken, nil)
+	reqWS.Header.Set("Upgrade", "websocket")
+	rrWS := httptest.NewRecorder()
+	wrappedRouter.ServeHTTP(rrWS, reqWS)
+	if rrWS.Code != http.StatusOK {
+		t.Fatalf("expected 200 for query token on WebSocket upgrade, got %d", rrWS.Code)
+	}
+
+	// 5c. Access with Query Param on /connect-websocket -> 200 OK
+	mux.HandleFunc("/connect-websocket", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	reqWSConnect := httptest.NewRequest(http.MethodGet, "/connect-websocket?token="+pairResp.DeviceToken, nil)
+	rrWSConnect := httptest.NewRecorder()
+	wrappedRouter.ServeHTTP(rrWSConnect, reqWSConnect)
+	if rrWSConnect.Code != http.StatusOK {
+		t.Fatalf("expected 200 for query token on /connect-websocket, got %d", rrWSConnect.Code)
 	}
 
 	// 6. Whitelisted path (/gateway/status) without token -> 200

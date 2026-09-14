@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"antigravity-mobile/internal/proxy"
@@ -15,11 +16,13 @@ type sessionTrackingState struct {
 	lastSteps            int
 	title                string
 	waitingForBackground bool
+	fetchRetryCount      int
 }
 
 // Watcher continuously monitors Antigravity sessions in the background
 // to detect when tasks complete or require user approvals.
 type Watcher struct {
+	mu             sync.RWMutex
 	proxy          *proxy.Proxy
 	notifier       *Notifier
 	knownSessions  map[string]*sessionTrackingState
@@ -83,6 +86,7 @@ func (w *Watcher) scanOnce() int {
 
 	// 1. Initial baseline synchronization:
 	// Record already-completed historical sessions so we don't spam notifications on startup.
+	w.mu.Lock()
 	if !w.hasInitialSync {
 		for id, s := range summaries {
 			status, _ := s["status"].(string)
@@ -101,9 +105,11 @@ func (w *Watcher) scanOnce() int {
 			}
 		}
 		w.hasInitialSync = true
+		w.mu.Unlock()
 		log.Printf("[Watcher] ✅ Initial baseline sync complete: %d sessions tracked", len(summaries))
 		return 0
 	}
+	w.mu.Unlock()
 
 	runningCount := 0
 
@@ -114,6 +120,7 @@ func (w *Watcher) scanOnce() int {
 		title := extractTitle(s)
 		hasSubagent := runningSubagents[id]
 
+		w.mu.Lock()
 		prev, exists := w.knownSessions[id]
 		if !exists {
 			prev = &sessionTrackingState{
@@ -123,10 +130,12 @@ func (w *Watcher) scanOnce() int {
 			}
 			w.knownSessions[id] = prev
 		}
+		w.mu.Unlock()
 
 		if status == "CASCADE_RUN_STATUS_RUNNING" {
 			runningCount++
 			prev.waitingForBackground = false
+			prev.fetchRetryCount = 0
 			// Fetch real-time trajectory to check for PendingInteraction or CanProceed
 			details, err := w.proxy.FetchTrajectoryDetails(id, 250*time.Millisecond)
 			if err == nil && details != nil {
@@ -140,7 +149,21 @@ func (w *Watcher) scanOnce() int {
 		} else if prev.lastStatus == "CASCADE_RUN_STATUS_RUNNING" && status != "CASCADE_RUN_STATUS_RUNNING" {
 			// Transition: Running -> Finished / Waiting / Idle
 			details, err := w.proxy.FetchTrajectoryDetails(id, 250*time.Millisecond)
-			if err == nil && details != nil {
+			if err != nil || details == nil {
+				prev.fetchRetryCount++
+				if prev.fetchRetryCount <= 3 {
+					log.Printf("[Watcher] ⚠️ Session %s status transitioned from RUNNING to %s, but FetchTrajectoryDetails failed (retry %d/3): %v", id, status, prev.fetchRetryCount, err)
+					runningCount++
+					// Do not advance prev.lastStatus yet so we retry on the next tick!
+					continue
+				}
+				log.Printf("[Watcher] ⚠️ Session %s transition retries exhausted, notifying based on summary status", id)
+				if steps > 0 {
+					_ = w.notifier.NotifyCompleted(id, title, steps)
+				}
+				prev.fetchRetryCount = 0
+			} else {
+				prev.fetchRetryCount = 0
 				if details.PendingInteraction != nil {
 					_ = w.notifier.NotifyAction(id, details.Title, details.PendingInteraction)
 				} else if details.CanProceed {

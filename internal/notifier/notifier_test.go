@@ -273,6 +273,15 @@ func TestNotifierOnTrajectoryUpdate_RunningInteraction(t *testing.T) {
 	}
 	n.OnTrajectoryUpdate(runningPIDetails)
 
+	// Await async notification dispatch
+	deadline := time.Now().Add(1 * time.Second)
+	for time.Now().Before(deadline) {
+		if requestCount == 1 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
 	if requestCount != 1 {
 		t.Errorf("expected 1 request for running pending interaction, got %d", requestCount)
 	}

@@ -3,6 +3,7 @@ package notifier
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -242,7 +243,8 @@ func (n *Notifier) NotifyCockpitAlert(title, message string) error {
 	return nil
 }
 
-// OnTrajectoryUpdate handles a real-time trajectory snapshot from WebSocket or polling.
+// OnTrajectoryUpdate handles a real-time trajectory snapshot from WebSocket or polling asynchronously
+// to prevent blocking streaming connections if the push server experiences latency.
 func (n *Notifier) OnTrajectoryUpdate(details *proxy.TrajectoryDetails) {
 	if !n.IsEnabled() || details == nil || details.CascadeID == "" {
 		return
@@ -250,7 +252,14 @@ func (n *Notifier) OnTrajectoryUpdate(details *proxy.TrajectoryDetails) {
 
 	// 1. Check for Pending Interaction (only while the cascade is actively RUNNING)
 	if details.Status == "CASCADE_RUN_STATUS_RUNNING" && details.PendingInteraction != nil {
-		_ = n.NotifyAction(details.CascadeID, details.Title, details.PendingInteraction)
+		cascadeID := details.CascadeID
+		title := details.Title
+		pi := *details.PendingInteraction
+		go func() {
+			if err := n.NotifyAction(cascadeID, title, &pi); err != nil {
+				log.Printf("[Notifier] Async NotifyAction error for cascade %s: %v", cascadeID, err)
+			}
+		}()
 		return
 	}
 
