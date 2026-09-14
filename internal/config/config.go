@@ -16,7 +16,7 @@ const DefaultAntigravityIcon = "https://raw.githubusercontent.com/GHSaiMo/antigr
 // NotificationConfig holds settings for push notifications (Bark / Webhook).
 type NotificationConfig struct {
 	Enabled       bool
-	BarkEndpoint  string // Normalized POST/GET endpoint, e.g. "https://api.day.app/REDACTED_BARK_DEVICE_KEY"
+	BarkEndpoint  string // Normalized POST/GET endpoint, e.g. "https://api.day.app/YOUR_DEVICE_KEY"
 	BarkRawURL    string
 	IconURL       string
 	Group         string
@@ -84,9 +84,9 @@ func parseEnvFile(filename string) {
 
 // NormalizeBarkEndpoint extracts the clean Bark API base device URL from various input formats.
 // Supported inputs:
-//   - "REDACTED_BARK_DEVICE_KEY" -> "https://api.day.app/REDACTED_BARK_DEVICE_KEY"
-//   - "https://api.day.app/REDACTED_BARK_DEVICE_KEY/" -> "https://api.day.app/REDACTED_BARK_DEVICE_KEY"
-//   - "https://api.day.app/REDACTED_BARK_DEVICE_KEY/xxx?icon=yyy" -> "https://api.day.app/REDACTED_BARK_DEVICE_KEY"
+//   - "myDeviceKey123" -> "https://api.day.app/myDeviceKey123"
+//   - "https://api.day.app/myDeviceKey123/" -> "https://api.day.app/myDeviceKey123"
+//   - "https://api.day.app/myDeviceKey123/xxx?icon=yyy" -> "https://api.day.app/myDeviceKey123"
 //   - "https://my-bark.com/mykey" -> "https://my-bark.com/mykey"
 func NormalizeBarkEndpoint(raw string) string {
 	raw = strings.TrimSpace(raw)

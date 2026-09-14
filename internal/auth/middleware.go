@@ -54,7 +54,7 @@ func IsWhitelistedPath(path string) bool {
 	}
 
 	// Auth and device management endpoints (handled by AuthHandler with its own permission checks)
-	if strings.HasPrefix(path, "/api/v1/auth/") || strings.HasPrefix(path, "/api/v1/devices") {
+	if strings.HasPrefix(path, "/api/v1/auth/") || path == "/api/v1/devices" || strings.HasPrefix(path, "/api/v1/devices/") {
 		return true
 	}
 

@@ -14,23 +14,23 @@ func TestNormalizeBarkEndpoint(t *testing.T) {
 	}{
 		{
 			name:     "User provided full example URL with query and Chinese path",
-			input:    "https://api.day.app/REDACTED_BARK_DEVICE_KEY/自定义推送图标（需iOS15或以上）?icon=https://day.app/assets/images/avatar.jpg",
-			expected: "https://api.day.app/REDACTED_BARK_DEVICE_KEY",
+			input:    "https://api.day.app/mock_test_device_key_abc123/自定义推送图标（需iOS15或以上）?icon=https://day.app/assets/images/avatar.jpg",
+			expected: "https://api.day.app/mock_test_device_key_abc123",
 		},
 		{
 			name:     "Standard URL with trailing slash",
-			input:    "https://api.day.app/REDACTED_BARK_DEVICE_KEY/",
-			expected: "https://api.day.app/REDACTED_BARK_DEVICE_KEY",
+			input:    "https://api.day.app/mock_test_device_key_abc123/",
+			expected: "https://api.day.app/mock_test_device_key_abc123",
 		},
 		{
 			name:     "Standard URL without trailing slash",
-			input:    "https://api.day.app/REDACTED_BARK_DEVICE_KEY",
-			expected: "https://api.day.app/REDACTED_BARK_DEVICE_KEY",
+			input:    "https://api.day.app/mock_test_device_key_abc123",
+			expected: "https://api.day.app/mock_test_device_key_abc123",
 		},
 		{
 			name:     "Bare key only",
-			input:    "REDACTED_BARK_DEVICE_KEY",
-			expected: "https://api.day.app/REDACTED_BARK_DEVICE_KEY",
+			input:    "mock_test_device_key_abc123",
+			expected: "https://api.day.app/mock_test_device_key_abc123",
 		},
 		{
 			name:     "Self-hosted server with key",
@@ -59,7 +59,7 @@ func TestLoadDotEnv(t *testing.T) {
 	envPath := filepath.Join(tempDir, ".env")
 	content := `
 # Comment line
-BARK_URL="https://api.day.app/REDACTED_BARK_DEVICE_KEY/"
+BARK_URL="https://api.day.app/mock_test_device_key_abc123/"
 BARK_GROUP='MyAntigravity'
 BARK_SOUND_ACTION=alarm
 `
@@ -77,7 +77,7 @@ BARK_SOUND_ACTION=alarm
 	if !cfg.Enabled {
 		t.Errorf("expected cfg.Enabled = true, got false")
 	}
-	if cfg.BarkEndpoint != "https://api.day.app/REDACTED_BARK_DEVICE_KEY" {
+	if cfg.BarkEndpoint != "https://api.day.app/mock_test_device_key_abc123" {
 		t.Errorf("unexpected endpoint: %s", cfg.BarkEndpoint)
 	}
 	if cfg.Group != "MyAntigravity" {
