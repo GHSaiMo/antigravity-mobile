@@ -114,8 +114,11 @@ var (
 	lastRefreshAttempt time.Time
 )
 
-// GetCockpitDataDir returns the path to ~/.antigravity_cockpit.
+// GetCockpitDataDir returns the path to ~/.antigravity_cockpit, or COCKPIT_DATA_DIR if set.
 func GetCockpitDataDir() (string, error) {
+	if override := os.Getenv("COCKPIT_DATA_DIR"); override != "" {
+		return override, nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
@@ -305,13 +308,13 @@ func GetQuotas(activeEmails ...string) (*CockpitQuotaResponse, error) {
 				for _, g := range cp.Payload.QuotaSummary.Groups {
 					for _, b := range g.Buckets {
 						switch b.BucketID {
-						case "gemini-5h":
+						case "gemini-5h", "gemini_5h":
 							item.Gemini5h = makeMetric(b.RemainingFraction, b.ResetTime)
-						case "gemini-weekly":
+						case "gemini-weekly", "gemini_weekly":
 							item.GeminiWeekly = makeMetric(b.RemainingFraction, b.ResetTime)
-						case "3p-5h":
+						case "3p-5h", "claude-5h", "claude_5h":
 							item.Claude5h = makeMetric(b.RemainingFraction, b.ResetTime)
-						case "3p-weekly":
+						case "3p-weekly", "claude-weekly", "claude_weekly":
 							item.ClaudeWeekly = makeMetric(b.RemainingFraction, b.ResetTime)
 						}
 					}

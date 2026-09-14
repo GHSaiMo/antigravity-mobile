@@ -286,3 +286,100 @@ func TestNotifierOnTrajectoryUpdate_RunningInteraction(t *testing.T) {
 		t.Errorf("expected 1 request for running pending interaction, got %d", requestCount)
 	}
 }
+
+func TestNotifier_NotifyFailed(t *testing.T) {
+	var received BarkPayload
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&received)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"code":200,"message":"success"}`))
+	}))
+	defer server.Close()
+
+	cfg := config.NotificationConfig{
+		Enabled:      true,
+		BarkEndpoint: server.URL,
+	}
+	n := NewNotifier(cfg)
+
+	err := n.NotifyFailed("cas_fail_1", "Failed task", 5)
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+
+	if received.Title != MsgTitleFailed {
+		t.Errorf("expected title %q, got %q", MsgTitleFailed, received.Title)
+	}
+	if received.Level != "timeSensitive" {
+		t.Errorf("expected level timeSensitive, got %q", received.Level)
+	}
+}
+
+func TestNotifier_NotifyCockpitAlert(t *testing.T) {
+	var received BarkPayload
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&received)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"code":200,"message":"success"}`))
+	}))
+	defer server.Close()
+
+	cfg := config.NotificationConfig{
+		Enabled:      true,
+		BarkEndpoint: server.URL,
+	}
+	n := NewNotifier(cfg)
+
+	err := n.NotifyCockpitAlert("自定义报警", "Cockpit 进程离线")
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+
+	if received.Title != "自定义报警" || received.Body != "Cockpit 进程离线" {
+		t.Errorf("unexpected alert content: %+v", received)
+	}
+}
+
+func TestNotifier_NotifyAction_Branches(t *testing.T) {
+	var payloads []BarkPayload
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var p BarkPayload
+		json.NewDecoder(r.Body).Decode(&p)
+		payloads = append(payloads, p)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"code":200,"message":"success"}`))
+	}))
+	defer server.Close()
+
+	cfg := config.NotificationConfig{
+		Enabled:      true,
+		BarkEndpoint: server.URL,
+	}
+	n := NewNotifier(cfg)
+
+	// 1. Permission for write/edit file
+	piFile := &proxy.PendingInteraction{
+		Type:      "permission",
+		Action:    "write_to_file",
+		Target:    "/path/to/main.go",
+		StepIndex: 1,
+	}
+	if err := n.NotifyAction("cas_act_1", "File Edit", piFile); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// 2. Question type
+	piQuestion := &proxy.PendingInteraction{
+		Type:      "question",
+		Target:    "Should we proceed with migration?",
+		StepIndex: 2,
+	}
+	if err := n.NotifyAction("cas_act_1", "Question", piQuestion); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(payloads) != 2 {
+		t.Fatalf("expected 2 notification payloads, got %d", len(payloads))
+	}
+}
+

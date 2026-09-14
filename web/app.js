@@ -36,6 +36,22 @@ let pollTimer = null;
 let currentTrajectories = {};
 let availableModels = [];
 const sessionStepsCache = {};
+const MAX_SESSION_STEPS_CACHE = 15;
+const sessionStepsLRU = [];
+
+function setSessionStepsCache(cascadeId, data) {
+  if (!cascadeId) return;
+  sessionStepsCache[cascadeId] = data;
+  const idx = sessionStepsLRU.indexOf(cascadeId);
+  if (idx !== -1) sessionStepsLRU.splice(idx, 1);
+  sessionStepsLRU.push(cascadeId);
+  while (sessionStepsLRU.length > MAX_SESSION_STEPS_CACHE) {
+    const oldest = sessionStepsLRU.shift();
+    if (oldest && oldest !== activeCascadeId) {
+      delete sessionStepsCache[oldest];
+    }
+  }
+}
 
 // --- Session Drafts Manager ---
 const DraftManager = {
@@ -772,6 +788,9 @@ async function confirmDeleteConversation() {
   }
 
   delete currentTrajectories[id];
+  delete sessionStepsCache[id];
+  const lruIdx = sessionStepsLRU.indexOf(id);
+  if (lruIdx !== -1) sessionStepsLRU.splice(lruIdx, 1);
   DraftManager.clear(id);
 
   try {
@@ -1920,7 +1939,7 @@ function renderMessages(steps, isRunning = false) {
   }
 
   if (activeCascadeId) {
-    sessionStepsCache[activeCascadeId] = { steps, isRunning };
+    setSessionStepsCache(activeCascadeId, { steps, isRunning });
   }
 
   const isLastError = checkLatestMessageIsError(steps, isRunning);
@@ -3584,7 +3603,7 @@ function renderInlineMarkdown(text) {
     const extraClass = isPlan ? " plan-btn-link" : (isMd ? " markdown-file-link" : "");
     const arrowSvg = isPlan ? '<svg class="plan-btn-arrow" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>' : '';
     if (icon) {
-      return `<a href="${encodeURI(url)}" class="file-link${extraClass}" data-md-url="${escapeHtml(url)}" data-md-title="${escapeHtml(linkText)}"><img src="/icons/files/${icon}.svg" class="file-icon" alt="" /><span>${linkText}</span>${arrowSvg}</a>`;
+      return `<a href="${encodeURI(url)}" class="file-link${extraClass}" data-md-url="${escapeHtml(url)}" data-md-title="${escapeHtml(linkText)}"><img src="/icons/files/${icon}.svg" class="file-icon" alt="" onerror="this.style.display='none'" /><span>${linkText}</span>${arrowSvg}</a>`;
     }
     return `<a href="${encodeURI(url)}" class="text-link${extraClass}" data-md-url="${escapeHtml(url)}" data-md-title="${escapeHtml(linkText)}"><span>${linkText}</span>${arrowSvg}</a>`;
   });
