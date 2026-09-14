@@ -10,8 +10,11 @@ public struct MarkdownFileViewerData: Identifiable, Sendable, Equatable {
     public var content: String
     public var summary: String?
     public var isLoading: Bool
+    public var isRefreshing: Bool
     public var errorMessage: String?
     public var canProceed: Bool
+    public var cachedFileURL: URL?
+    public var isCached: Bool
     
     public init(
         id: String,
@@ -20,8 +23,11 @@ public struct MarkdownFileViewerData: Identifiable, Sendable, Equatable {
         content: String = "",
         summary: String? = nil,
         isLoading: Bool = false,
+        isRefreshing: Bool = false,
         errorMessage: String? = nil,
-        canProceed: Bool = false
+        canProceed: Bool = false,
+        cachedFileURL: URL? = nil,
+        isCached: Bool = false
     ) {
         self.id = id
         self.title = title
@@ -29,8 +35,11 @@ public struct MarkdownFileViewerData: Identifiable, Sendable, Equatable {
         self.content = content
         self.summary = summary
         self.isLoading = isLoading
+        self.isRefreshing = isRefreshing
         self.errorMessage = errorMessage
         self.canProceed = canProceed
+        self.cachedFileURL = cachedFileURL
+        self.isCached = isCached
     }
 }
 
@@ -589,10 +598,9 @@ public final class ChatViewModel {
             }
             
             if !self.isRunning && !self.isAwaitingResponse {
-                self.canProceed = result.canProceed
-                self.proceedArtifactUri = result.proceedArtifactUri
+                self.updateProceedState(canProceed: result.canProceed, artifactUri: result.proceedArtifactUri)
             } else {
-                self.canProceed = false
+                self.updateProceedState(canProceed: false, artifactUri: nil)
             }
             
             if self.isRunning {
@@ -658,8 +666,7 @@ public final class ChatViewModel {
                         self.awaitingResponseSince = nil
                         if result.status != "CASCADE_RUN_STATUS_RUNNING" {
                             self.isRunning = false
-                            self.canProceed = result.canProceed
-                            self.proceedArtifactUri = result.proceedArtifactUri
+                            self.updateProceedState(canProceed: result.canProceed, artifactUri: result.proceedArtifactUri)
                             self.pendingInteraction = nil
                         }
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -1635,13 +1642,19 @@ public final class ChatViewModel {
     }
     
     @MainActor
-    public func openMarkdownViewer(uri: String, title: String? = nil) {
+    public func openMarkdownViewer(uri: String, title: String? = nil, forceRefresh: Bool = false) {
         let cleanURI = uri.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanURI.isEmpty else { return }
         
         let unescapedURI = cleanURI.removingPercentEncoding ?? cleanURI
         let rawFileName = (unescapedURI as NSString).lastPathComponent
-        let fileName = rawFileName.removingPercentEncoding ?? rawFileName
+        var fileName = rawFileName.removingPercentEncoding ?? rawFileName
+        if fileName.isEmpty || fileName == "/" {
+            fileName = "document.md"
+        } else if !(fileName as NSString).pathExtension.lowercased().contains("md") {
+            fileName = "\(fileName).md"
+        }
+        
         let isWalkthrough = unescapedURI.lowercased().contains("walkthrough") ||
                             (title?.lowercased().contains("walkthrough") == true)
         let isPlan = !isWalkthrough && (
@@ -1667,23 +1680,49 @@ public final class ChatViewModel {
             return cleanURI
         }()
         
+        // Fast-path: Check persistent local disk cache first (unless force refresh requested)
+        let cached = (!forceRefresh) ? DocumentCacheManager.shared.getCachedMarkdown(
+            for: targetURI,
+            fileName: fileName,
+            cascadeId: self.cascadeId
+        ) : nil
+        
+        let hasCache = cached != nil
+        let initialContent = cached?.response.content ?? ""
+        let initialSummary = cached?.response.summary
+        let initialProceed = isProceedActive || (cached?.response.requestFeedback == true && self.canProceed)
+        let initialFileURL = cached?.fileURL
+        let initialTitle: String = {
+            if !isWalkthrough && !isPlan, let fn = cached?.response.filename, !fn.isEmpty {
+                return fn
+            }
+            return resolvedTitle
+        }()
+        
+        let viewerId = targetURI + "_\(Date().timeIntervalSince1970)"
         let viewer = MarkdownFileViewerData(
-            id: targetURI + "_\(Date().timeIntervalSince1970)",
-            title: resolvedTitle,
+            id: viewerId,
+            title: initialTitle,
             uri: targetURI,
-            content: "",
-            summary: nil,
-            isLoading: true,
+            content: initialContent,
+            summary: initialSummary,
+            isLoading: !hasCache,
+            isRefreshing: hasCache,
             errorMessage: nil,
-            canProceed: isProceedActive
+            canProceed: initialProceed,
+            cachedFileURL: initialFileURL,
+            isCached: hasCache
         )
         self.viewingMarkdownFile = viewer
         
         Task {
             guard let url = settings.serverURL else {
-                if self.viewingMarkdownFile?.id == viewer.id {
-                    self.viewingMarkdownFile?.isLoading = false
-                    self.viewingMarkdownFile?.errorMessage = "未连接到网关服务器"
+                if self.viewingMarkdownFile?.id == viewerId {
+                    self.viewingMarkdownFile?.isRefreshing = false
+                    if !hasCache {
+                        self.viewingMarkdownFile?.isLoading = false
+                        self.viewingMarkdownFile?.errorMessage = "未连接到网关服务器"
+                    }
                 }
                 return
             }
@@ -1693,10 +1732,23 @@ public final class ChatViewModel {
                     cascadeId: self.cascadeId,
                     baseURL: url
                 )
-                if self.viewingMarkdownFile?.id == viewer.id {
+                
+                // Save persistently to local cache on phone
+                let (savedURL, _) = (try? DocumentCacheManager.shared.saveMarkdownToCache(
+                    response: resp,
+                    for: targetURI,
+                    fileName: fileName,
+                    cascadeId: self.cascadeId
+                )) ?? (initialFileURL ?? DocumentCacheManager.shared.cacheFileURL(for: targetURI, fileName: fileName, cascadeId: self.cascadeId), resp)
+                
+                if self.viewingMarkdownFile?.id == viewerId {
                     self.viewingMarkdownFile?.content = resp.content
                     self.viewingMarkdownFile?.summary = resp.summary
                     self.viewingMarkdownFile?.isLoading = false
+                    self.viewingMarkdownFile?.isRefreshing = false
+                    self.viewingMarkdownFile?.isCached = true
+                    self.viewingMarkdownFile?.cachedFileURL = savedURL
+                    self.viewingMarkdownFile?.errorMessage = nil
                     if !isWalkthrough && !isPlan && !resp.filename.isEmpty {
                         self.viewingMarkdownFile?.title = resp.filename
                     }
@@ -1705,11 +1757,56 @@ public final class ChatViewModel {
                     }
                 }
             } catch {
-                if self.viewingMarkdownFile?.id == viewer.id {
-                    self.viewingMarkdownFile?.isLoading = false
-                    self.viewingMarkdownFile?.errorMessage = "加载文档失败: \(error.localizedDescription)"
+                if self.viewingMarkdownFile?.id == viewerId {
+                    self.viewingMarkdownFile?.isRefreshing = false
+                    if !hasCache {
+                        self.viewingMarkdownFile?.isLoading = false
+                        self.viewingMarkdownFile?.errorMessage = "加载文档失败: \(error.localizedDescription)"
+                    }
                 }
             }
+        }
+    }
+    
+    @MainActor
+    public func prefetchMarkdownArtifact(uri: String) {
+        let cleanURI = uri.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanURI.isEmpty, let url = settings.serverURL else { return }
+        
+        let unescapedURI = cleanURI.removingPercentEncoding ?? cleanURI
+        let rawFileName = (unescapedURI as NSString).lastPathComponent
+        var fileName = rawFileName.removingPercentEncoding ?? rawFileName
+        if fileName.isEmpty || fileName == "/" {
+            fileName = "document.md"
+        } else if !(fileName as NSString).pathExtension.lowercased().contains("md") {
+            fileName = "\(fileName).md"
+        }
+        
+        Task {
+            do {
+                let resp = try await apiClient.fetchFileContent(
+                    uri: cleanURI,
+                    cascadeId: self.cascadeId,
+                    baseURL: url
+                )
+                try? DocumentCacheManager.shared.saveMarkdownToCache(
+                    response: resp,
+                    for: cleanURI,
+                    fileName: fileName,
+                    cascadeId: self.cascadeId
+                )
+            } catch {
+                // Background prefetch error is non-fatal
+            }
+        }
+    }
+    
+    @MainActor
+    fileprivate func updateProceedState(canProceed: Bool, artifactUri: String?) {
+        self.canProceed = canProceed
+        self.proceedArtifactUri = artifactUri
+        if canProceed, let uri = artifactUri, !uri.isEmpty {
+            self.prefetchMarkdownArtifact(uri: uri)
         }
     }
     
@@ -1992,10 +2089,9 @@ public final class ChatViewModel {
         
         if let cp = payload.canProceed {
             if !self.isRunning && !self.isAwaitingResponse {
-                self.canProceed = cp
-                self.proceedArtifactUri = payload.proceedArtifactUri
+                self.updateProceedState(canProceed: cp, artifactUri: payload.proceedArtifactUri)
             } else {
-                self.canProceed = false
+                self.updateProceedState(canProceed: false, artifactUri: nil)
             }
         }
         
@@ -2012,8 +2108,7 @@ public final class ChatViewModel {
                     if statusString != "CASCADE_RUN_STATUS_RUNNING" {
                         self.isRunning = false
                         if let cp = payload.canProceed {
-                            self.canProceed = cp
-                            self.proceedArtifactUri = payload.proceedArtifactUri
+                            self.updateProceedState(canProceed: cp, artifactUri: payload.proceedArtifactUri)
                         }
                     }
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()

@@ -12,6 +12,14 @@ public enum TableColumnAlignment: Sendable, Equatable {
         case .trailing: return .trailing
         }
     }
+    
+    public var textAlignment: TextAlignment {
+        switch self {
+        case .leading: return .leading
+        case .center: return .center
+        case .trailing: return .trailing
+        }
+    }
 }
 
 public enum MarkdownBlock: Identifiable {
@@ -128,6 +136,7 @@ public struct MarkdownContentView: View {
     
     public static func renderRichText(_ rawText: String, size: CGFloat = 15, weight: Font.Weight = .regular) -> Text {
         var text = MathSymbolProcessor.process(rawText)
+        text = replaceHtmlBreaks(in: text)
         
         // Auto-link bare implementation_plan.md, walkthrough.md, task.md if not already in markdown link
         if text.contains("implementation_plan.md") && !text.contains("[implementation_plan.md]") && !text.contains("](implementation_plan.md)") {
