@@ -222,6 +222,10 @@ public final class APIClient: Sendable {
     
     // Mark conversation as read both locally and report to upstream language_server
     public func markConversationAsRead(cascadeId: String, baseURL: URL) async {
+        guard !cascadeId.isEmpty else { return }
+        if CacheManager.shared.isDeletedConversation(cascadeId: cascadeId) {
+            return
+        }
         CacheManager.shared.markConversationAsRead(cascadeId: cascadeId)
         
         struct AnnotationsPayload: Encodable {

@@ -72,6 +72,44 @@ public final class CacheManager: @unchecked Sendable {
     private var memDrafts: [String: String] = [:]
     private var memDraftImages: [String: [Data]] = [:]
     private var memLocalDraftSessions: [String: LocalDraftSession]?
+    private var memDeletedConversations: [String: Date] = [:]
+    private let deletedTombstoneTTL: TimeInterval = 600.0 // 10 minutes
+
+    public func recordDeletedConversation(cascadeId: String) {
+        guard !cascadeId.isEmpty else { return }
+        lock.lock()
+        memDeletedConversations[cascadeId] = Date()
+        lock.unlock()
+
+        var dict = UserDefaults.standard.dictionary(forKey: "ag_deleted_conversations") as? [String: Double] ?? [:]
+        let now = Date().timeIntervalSince1970
+        dict[cascadeId] = now
+        dict = dict.filter { now - $0.value < deletedTombstoneTTL }
+        UserDefaults.standard.set(dict, forKey: "ag_deleted_conversations")
+    }
+
+    public func isDeletedConversation(cascadeId: String) -> Bool {
+        guard !cascadeId.isEmpty else { return false }
+        lock.lock()
+        defer { lock.unlock() }
+
+        let now = Date()
+        if let deletedAt = memDeletedConversations[cascadeId] {
+            if now.timeIntervalSince(deletedAt) < deletedTombstoneTTL {
+                return true
+            }
+            memDeletedConversations.removeValue(forKey: cascadeId)
+        }
+
+        if let dict = UserDefaults.standard.dictionary(forKey: "ag_deleted_conversations") as? [String: Double],
+           let timestamp = dict[cascadeId] {
+            if now.timeIntervalSince1970 - timestamp < deletedTombstoneTTL {
+                memDeletedConversations[cascadeId] = Date(timeIntervalSince1970: timestamp)
+                return true
+            }
+        }
+        return false
+    }
     
     public func getLastViewDate(for cascadeId: String) -> Date? {
         lock.lock()
@@ -138,7 +176,7 @@ public final class CacheManager: @unchecked Sendable {
     }
     
     public func saveConversations(_ items: [ConversationItem]) {
-        let clean = items.filter { !$0.isSubagent }
+        let clean = items.filter { !$0.isSubagent && !isDeletedConversation(cascadeId: $0.id) }
         lock.lock()
         let existingMap = Dictionary((memConversations ?? []).map { ($0.id, $0.title) }, uniquingKeysWith: { _, new in new })
         let protected = clean.map { item -> ConversationItem in
@@ -164,7 +202,7 @@ public final class CacheManager: @unchecked Sendable {
     public func loadConversations() -> [ConversationItem] {
         lock.lock()
         if let mem = memConversations {
-            let filtered = mem.filter { !$0.isSubagent }.map { healConversationTitleIfNeeded($0) }
+            let filtered = mem.filter { !$0.isSubagent && !isDeletedConversation(cascadeId: $0.id) }.map { healConversationTitleIfNeeded($0) }
             memConversations = filtered
             lock.unlock()
             return filtered
@@ -178,7 +216,7 @@ public final class CacheManager: @unchecked Sendable {
         }
         
         var hasChanges = false
-        let filtered = items.filter { !$0.isSubagent }.map { item -> ConversationItem in
+        let filtered = items.filter { !$0.isSubagent && !isDeletedConversation(cascadeId: $0.id) }.map { item -> ConversationItem in
             let healed = healConversationTitleIfNeeded(item)
             if healed.title != item.title {
                 hasChanges = true
@@ -301,6 +339,7 @@ public final class CacheManager: @unchecked Sendable {
     }
     
     public func deleteConversation(cascadeId: String) {
+        recordDeletedConversation(cascadeId: cascadeId)
         lock.lock()
         defer { lock.unlock() }
         
