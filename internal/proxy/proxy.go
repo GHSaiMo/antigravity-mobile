@@ -768,6 +768,12 @@ func (p *Proxy) handleDeleteCascadeTrajectory(w http.ResponseWriter, r *http.Req
 
 	if reqData.CascadeID != "" {
 		RecordDeletedCascade(reqData.CascadeID)
+		// Clean up ~/.gemini/antigravity/brain/<id> recursively BEFORE upstream tries os.Remove,
+		// preventing upstream from failing with "unlinkat ... directory not empty" due to subdirectories (.user_uploaded, .system_generated)
+		if home, err := os.UserHomeDir(); err == nil {
+			brainDir := filepath.Join(home, ".gemini", "antigravity", "brain", reqData.CascadeID)
+			_ = os.RemoveAll(brainDir)
+		}
 	}
 
 	fwdReq := r.Clone(r.Context())
@@ -790,6 +796,9 @@ func (p *Proxy) handleDeleteCascadeTrajectory(w http.ResponseWriter, r *http.Req
 				_ = os.Remove(filepath.Join(convDir, reqData.CascadeID+".db"))
 				_ = os.Remove(filepath.Join(convDir, reqData.CascadeID+".db-wal"))
 				_ = os.Remove(filepath.Join(convDir, reqData.CascadeID+".db-shm"))
+
+				brainDir := filepath.Join(home, ".gemini", "antigravity", "brain", reqData.CascadeID)
+				_ = os.RemoveAll(brainDir)
 			}
 			log.Printf("[Proxy] Deleted cascade trajectory: %s (cache, tombstone & files cleared)", reqData.CascadeID)
 		}
@@ -868,10 +877,24 @@ func (p *Proxy) handleUpdateConversationAnnotations(w http.ResponseWriter, r *ht
 		} `json:"annotations"`
 	}
 	if err := json.Unmarshal(bodyBytes, &payload); err == nil {
+		var activeIDs []string
+		for _, cid := range payload.CascadeIDs {
+			if !IsDeletedCascade(cid) {
+				activeIDs = append(activeIDs, cid)
+			}
+		}
+		if len(activeIDs) == 0 && len(payload.CascadeIDs) > 0 {
+			// All requested cascades are deleted tombstones; absorb without reviving upstream
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("{}"))
+			return
+		}
+
 		title := strings.TrimSpace(payload.Annotations.Title)
 		if title != "" && title != "未命名会话" {
 			defaultTrajCache.cascadeTitlesMu.Lock()
-			for _, cid := range payload.CascadeIDs {
+			for _, cid := range activeIDs {
 				if cid != "" {
 					defaultTrajCache.cascadeTitles[cid] = title
 					writeAnnotationTitle(cid, title)

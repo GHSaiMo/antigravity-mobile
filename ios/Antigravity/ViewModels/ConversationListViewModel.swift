@@ -18,7 +18,7 @@ public final class ConversationListViewModel {
     // Tombstones to prevent race conditions & data reflow from polling while deleting
     private var pendingDeleteCascadeIDs: Set<String> = []
     private var recentlyDeletedIDs: [String: Date] = [:]
-    private let tombstoneTTL: TimeInterval = 30.0
+    private let tombstoneTTL: TimeInterval = 600.0 // 10 minutes
     
     private var pollTask: Task<Void, Never>? = nil
     private var lastResumeTime: Date = .distantPast
@@ -62,7 +62,8 @@ public final class ConversationListViewModel {
         let nonSubagents = conversations.filter { item in
             !item.isSubagent &&
             !pendingDeleteCascadeIDs.contains(item.id) &&
-            (recentlyDeletedIDs[item.id] == nil)
+            (recentlyDeletedIDs[item.id] == nil) &&
+            !cacheManager.isDeletedConversation(cascadeId: item.id)
         }
         if q.isEmpty { return nonSubagents }
         return nonSubagents.filter {
@@ -139,7 +140,8 @@ public final class ConversationListViewModel {
             let cleaned = items.filter { item in
                 !item.isSubagent &&
                 !self.pendingDeleteCascadeIDs.contains(item.id) &&
-                (self.recentlyDeletedIDs[item.id] == nil)
+                (self.recentlyDeletedIDs[item.id] == nil) &&
+                !self.cacheManager.isDeletedConversation(cascadeId: item.id)
             }
             let existingMap = Dictionary(self.conversations.map { ($0.id, $0.title) }, uniquingKeysWith: { _, new in new })
             let enriched = cleaned.map { item -> ConversationItem in
