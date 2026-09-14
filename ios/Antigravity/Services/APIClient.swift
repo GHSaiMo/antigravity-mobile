@@ -280,6 +280,71 @@ public final class APIClient: Sendable {
         _ = try await rpc(method: "UpdateConversationAnnotations", body: body, baseURL: baseURL) as EmptyResp
     }
     
+    /// Resolves a raw media/image URI into an authenticated, loadable HTTP URL for the mobile client.
+    public func resolveMediaURL(_ raw: String, baseURL: URL) -> String {
+        var clean = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if clean.hasPrefix("MEDIA:") {
+            clean = String(clean.dropFirst(6)).trimmingCharacters(in: .whitespaces)
+        }
+        clean = clean.trimmingCharacters(in: CharacterSet(charactersIn: "`\"'()[]<>"))
+        
+        let token = KeychainHelper.shared.read(key: .deviceToken) ?? AppSettings.shared.deviceToken ?? ""
+        
+        if clean.hasPrefix("http://") || clean.hasPrefix("https://") {
+            if clean.contains("/api/v1/files/raw") && !clean.contains("auth_token=") && !clean.contains("token=") && !token.isEmpty {
+                let separator = clean.contains("?") ? "&" : "?"
+                return "\(clean)\(separator)auth_token=\(token)"
+            }
+            return clean
+        }
+        
+        if clean.hasPrefix("/static/") {
+            let base = baseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            return "\(base)\(clean)"
+        }
+        
+        if clean.hasPrefix("file://") {
+            clean = String(clean.dropFirst(7))
+        }
+        
+        var comps = URLComponents(url: baseURL.appendingPathComponent("api/v1/files/raw"), resolvingAgainstBaseURL: false)
+        var qItems = [URLQueryItem(name: "uri", value: clean)]
+        if !token.isEmpty {
+            qItems.append(URLQueryItem(name: "auth_token", value: token))
+        }
+        comps?.queryItems = qItems
+        return comps?.url?.absoluteString ?? clean
+    }
+
+    /// Extracts potential image URLs or media paths from text if not already populated.
+    public func extractImageURLs(from text: String) -> [String] {
+        guard !text.isEmpty else { return [] }
+        var urls: [String] = []
+        
+        let patterns = [
+            #"\[!\[.*?\]\((?:[^\s\)]+)\)\]\((https?://[^\s\)]+|/static/[^\s\)]+|file://[^\s\)]+|/[^\s\)]+)\)"#,
+            #"!\[.*?\]\((https?://[^\s\)]+|/static/[^\s\)]+|file://[^\s\)]+|/[^\s\)]+)\)"#,
+            #"(?:^|\s)MEDIA:([^\s\)\<\>\"\'\`]+)"#,
+            #"\[.*?\]\((https?://[^\s\)]+\.(?:png|jpg|jpeg|webp|gif|svg|bmp|heic|ico)|file://[^\s\)]+\.(?:png|jpg|jpeg|webp|gif|svg|bmp|heic|ico)|/[^\s\)]+\.(?:png|jpg|jpeg|webp|gif|svg|bmp|heic|ico))\)"#
+        ]
+        
+        for pat in patterns {
+            if let regex = try? NSRegularExpression(pattern: pat, options: [.caseInsensitive]) {
+                let nsRange = NSRange(text.startIndex..<text.endIndex, in: text)
+                let matches = regex.matches(in: text, range: nsRange)
+                for match in matches {
+                    if match.numberOfRanges > 1, let range = Range(match.range(at: 1), in: text) {
+                        let candidate = String(text[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !candidate.isEmpty && !urls.contains(candidate) {
+                            urls.append(candidate)
+                        }
+                    }
+                }
+            }
+        }
+        return urls
+    }
+
     // Fast lightweight paginated messages endpoint served by Go gateway
     public func fetchMessages(
         cascadeId: String,
@@ -318,6 +383,14 @@ public final class APIClient: Sendable {
                     
                     let imgDataList = (item.media ?? []).compactMap { Data(base64Encoded: $0) }
                     
+                    let resolvedImageUrls: [String] = {
+                        var rawList = item.imageUrls ?? []
+                        if rawList.isEmpty && item.type == "agent" {
+                            rawList = self.extractImageURLs(from: item.text)
+                        }
+                        return rawList.map { self.resolveMediaURL($0, baseURL: baseURL) }
+                    }()
+                    
                     return ChatMessage(
                         id: item.id,
                         sender: sender,
@@ -325,7 +398,7 @@ public final class APIClient: Sendable {
                         toolCount: item.toolCount ?? 0,
                         toolNames: item.toolNames ?? [],
                         imageDataList: imgDataList,
-                        imageUrls: item.imageUrls ?? []
+                        imageUrls: resolvedImageUrls
                     )
                 }
                 
@@ -456,43 +529,8 @@ public final class APIClient: Sendable {
                     flushTools()
                     
                     // Extract any image URLs in response markdown and MEDIA: tags
-                    var imageUrls: [String] = []
-                    let patterns = [
-                        #"!\[.*?\]\((https?://[^\s\)]+|/static/[^\s\)]+|file://[^\s\)]+|/[^\s\)]+)\)"#,
-                        #"(?:^|\s)MEDIA:([^\s\)]+)"#
-                    ]
-                    for pat in patterns {
-                        if let regex = try? NSRegularExpression(pattern: pat) {
-                            let nsRange = NSRange(response.startIndex..<response.endIndex, in: response)
-                            let matches = regex.matches(in: response, range: nsRange)
-                            for match in matches {
-                                if match.numberOfRanges > 1, let range = Range(match.range(at: 1), in: response) {
-                                    var imgUrl = String(response[range])
-                                    if imgUrl.hasPrefix("/static/") {
-                                        imgUrl = baseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + imgUrl
-                                    } else if imgUrl.hasPrefix("http://") || imgUrl.hasPrefix("https://") {
-                                        // Keep as is
-                                    } else {
-                                        var cleanPath = imgUrl
-                                        if cleanPath.hasPrefix("MEDIA:") { cleanPath = String(cleanPath.dropFirst(6)).trimmingCharacters(in: .whitespaces) }
-                                        if cleanPath.hasPrefix("file://") { cleanPath = String(cleanPath.dropFirst(7)) }
-                                        var comps = URLComponents(url: baseURL.appendingPathComponent("api/v1/files/raw"), resolvingAgainstBaseURL: false)
-                                        var qItems = [URLQueryItem(name: "uri", value: cleanPath)]
-                                        if let token = AppSettings.shared.deviceToken, !token.isEmpty {
-                                            qItems.append(URLQueryItem(name: "auth_token", value: token))
-                                        }
-                                        comps?.queryItems = qItems
-                                        if let fullUrl = comps?.url?.absoluteString {
-                                            imgUrl = fullUrl
-                                        }
-                                    }
-                                    if !imageUrls.contains(imgUrl) {
-                                        imageUrls.append(imgUrl)
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    let extracted = self.extractImageURLs(from: response)
+                    let imageUrls = extracted.map { self.resolveMediaURL($0, baseURL: baseURL) }
                     
                     messages.append(ChatMessage(
                         sender: .agent,
@@ -1043,7 +1081,7 @@ public final class APIClient: Sendable {
         }
     }
     
-    // Download raw file or document (e.g. PPTX, PDF, DOCX, HTML) from Gateway with progress reporting and local caching
+    // Download raw file or document (e.g. PPTX, PDF, DOCX, HTML, PNG, JPG) from Gateway with progress reporting and local caching
     public func downloadFile(
         uri: String,
         cascadeId: String? = nil,
@@ -1051,20 +1089,47 @@ public final class APIClient: Sendable {
         onProgress: (@Sendable (Double, Int64, Int64) -> Void)? = nil
     ) async throws -> (localURL: URL, fileName: String) {
         // Fast-path: Check persistent local cache first
-        let initialFileName = (uri as NSString).lastPathComponent.removingPercentEncoding ?? (uri as NSString).lastPathComponent
-        if !initialFileName.isEmpty, let cached = DocumentCacheManager.shared.getCachedFile(for: uri, fileName: initialFileName) {
+        let initialFileName: String = {
+            if let comps = URLComponents(string: uri),
+               let paramUri = comps.queryItems?.first(where: { $0.name == "uri" })?.value, !paramUri.isEmpty {
+                let fn = (paramUri as NSString).lastPathComponent.removingPercentEncoding ?? (paramUri as NSString).lastPathComponent
+                if !fn.isEmpty && fn != "raw" { return fn }
+            }
+            let last = (uri as NSString).lastPathComponent.removingPercentEncoding ?? (uri as NSString).lastPathComponent
+            return (last.isEmpty || last == "raw") ? "document" : last
+        }()
+        
+        if !initialFileName.isEmpty && initialFileName != "document",
+           let cached = DocumentCacheManager.shared.getCachedFile(for: uri, fileName: initialFileName) {
             return (cached, initialFileName)
         }
         
-        var components = URLComponents(url: baseURL.appendingPathComponent("api/v1/files/raw"), resolvingAgainstBaseURL: false)
-        var queryItems: [URLQueryItem] = [URLQueryItem(name: "uri", value: uri)]
-        if let cascadeId = cascadeId, !cascadeId.isEmpty {
-            queryItems.append(URLQueryItem(name: "cascade_id", value: cascadeId))
+        let endpoint: URL
+        let isDirectHttp = uri.hasPrefix("http://") || uri.hasPrefix("https://")
+        if isDirectHttp, let directURL = URL(string: uri) {
+            endpoint = directURL
+        } else {
+            var cleanPath = uri.trimmingCharacters(in: .whitespacesAndNewlines)
+            if cleanPath.hasPrefix("MEDIA:") {
+                cleanPath = String(cleanPath.dropFirst(6)).trimmingCharacters(in: .whitespaces)
+            }
+            if cleanPath.hasPrefix("file://") {
+                cleanPath = String(cleanPath.dropFirst(7))
+            }
+            cleanPath = cleanPath.trimmingCharacters(in: CharacterSet(charactersIn: "`\"'()[]<>"))
+            
+            var components = URLComponents(url: baseURL.appendingPathComponent("api/v1/files/raw"), resolvingAgainstBaseURL: false)
+            var queryItems: [URLQueryItem] = [URLQueryItem(name: "uri", value: cleanPath)]
+            if let cascadeId = cascadeId, !cascadeId.isEmpty {
+                queryItems.append(URLQueryItem(name: "cascade_id", value: cascadeId))
+            }
+            components?.queryItems = queryItems
+            guard let builtUrl = components?.url else {
+                throw APIError.invalidURL
+            }
+            endpoint = builtUrl
         }
-        components?.queryItems = queryItems
-        guard let endpoint = components?.url else {
-            throw APIError.invalidURL
-        }
+        
         var request = URLRequest(url: endpoint)
         request.httpMethod = "GET"
         request.timeoutInterval = 60.0
@@ -1105,7 +1170,7 @@ public final class APIClient: Sendable {
             }
         }
         if filename == nil || filename?.isEmpty == true {
-            filename = (uri as NSString).lastPathComponent.removingPercentEncoding ?? (uri as NSString).lastPathComponent
+            filename = initialFileName
         }
         let resolvedFileName = filename?.isEmpty == false ? filename! : "document"
         
