@@ -821,4 +821,55 @@ func TestExtractTextFromProto_VarintOverflowSafe(t *testing.T) {
 	}
 }
 
+func TestFilterQueuedMessagesAgainstTrajectory_ShortCommandPreserved(t *testing.T) {
+	p := &Proxy{}
+	cascadeID := "cas-short-cmd-test"
+
+	steps := []TrajectoryStep{
+		{
+			Type: "CORTEX_STEP_TYPE_USER_INPUT",
+			UserInput: &struct {
+				UserResponse string `json:"userResponse"`
+				Items        []struct {
+					Text string `json:"text"`
+				} `json:"items"`
+				Images []struct {
+					Base64Data string `json:"base64Data"`
+					MimeType   string `json:"mimeType"`
+				} `json:"images"`
+				Media []struct {
+					MimeType    string `json:"mimeType"`
+					Description string `json:"description"`
+					Thumbnail   string `json:"thumbnail"`
+					InlineData  string `json:"inlineData"`
+				} `json:"media"`
+			}{
+				UserResponse: "请你继续深入排查当前项目还有没有值得优化的地方，请列举",
+			},
+		},
+	}
+
+	allMessages := []CascadeMessageItem{
+		{
+			ID:   "step-0",
+			Type: "user",
+			Text: "请你继续深入排查当前项目还有没有值得优化的地方，请列举",
+		},
+	}
+
+	// Queued message contains "继续" which is a substring of the previous long turn.
+	// It MUST NOT be dropped!
+	queued := []QueuedMessageItem{
+		{ID: "q-continue", Text: "继续"},
+	}
+
+	filtered := p.FilterQueuedMessagesAgainstTrajectory(cascadeID, queued, steps, allMessages)
+	if len(filtered) != 1 {
+		t.Fatalf("expected 1 remaining queued item, got %d", len(filtered))
+	}
+	if filtered[0].ID != "q-continue" {
+		t.Errorf("expected short command '继续' to remain queued, got %+v", filtered[0])
+	}
+}
+
 

@@ -67,9 +67,9 @@ func GeneratePairingURI(host string, port int, code string, ssl bool) string {
 	})
 }
 
-// PrintPairingQRCode generates and renders an ANSI QR code to stdout encoding all candidate
-// network endpoints (e.g. public IPv6, LAN IPv4, Cloud Relay), and displays informative pairing instructions.
-func PrintPairingQRCode(primaryHost string, port int, code string, ssl bool, extraHosts ...string) {
+// BuildMultiHostPairingParams constructs MultiHostPairingParams by automatically classifying
+// candidate network endpoints (LAN IPv4, IPv6, DDNS, Cloud Relay) from primaryHost and extraHosts.
+func BuildMultiHostPairingParams(primaryHost string, port int, code string, ssl bool, extraHosts ...string) MultiHostPairingParams {
 	var lanHost, ipv6Host, ddnsHost, relayHost string
 
 	isPrivateIPv4 := func(ipStr string) bool {
@@ -118,7 +118,7 @@ func PrintPairingQRCode(primaryHost string, port int, code string, ssl bool, ext
 		classifyHost(eh)
 	}
 
-	params := MultiHostPairingParams{
+	return MultiHostPairingParams{
 		PrimaryHost: primaryHost,
 		Port:        port,
 		Code:        code,
@@ -128,7 +128,12 @@ func PrintPairingQRCode(primaryHost string, port int, code string, ssl bool, ext
 		DDNSHost:    ddnsHost,
 		RelayHost:   relayHost,
 	}
+}
 
+// PrintPairingQRCode generates and renders an ANSI QR code to stdout encoding all candidate
+// network endpoints (e.g. public IPv6, LAN IPv4, Cloud Relay), and displays informative pairing instructions.
+func PrintPairingQRCode(primaryHost string, port int, code string, ssl bool, extraHosts ...string) {
+	params := BuildMultiHostPairingParams(primaryHost, port, code, ssl, extraHosts...)
 	uri := GenerateMultiHostPairingURI(params)
 
 	qr, err := qrcode.New(uri, qrcode.Medium)
@@ -146,20 +151,20 @@ func PrintPairingQRCode(primaryHost string, port int, code string, ssl bool, ext
 	fmt.Printf("请使用 Antigravity 手机客户端扫描上方二维码 (5分钟内有效)\n\n")
 	fmt.Printf("🔗 复合配对 URI:          %s\n", uri)
 
-	if lanHost != "" {
-		lanURI := GeneratePairingURI(lanHost, port, code, ssl)
+	if params.LANHost != "" {
+		lanURI := GeneratePairingURI(params.LANHost, port, code, ssl)
 		fmt.Printf("🏠 局域网 Wi-Fi 直连 URI: %s\n", lanURI)
 	}
-	if ipv6Host != "" {
-		ipv6URI := GeneratePairingURI(ipv6Host, port, code, ssl)
+	if params.IPv6Host != "" {
+		ipv6URI := GeneratePairingURI(params.IPv6Host, port, code, ssl)
 		fmt.Printf("🌐 外网 IPv6 直连 URI:   %s\n", ipv6URI)
 	}
-	if relayHost != "" {
-		relayURI := GeneratePairingURI(relayHost, port, code, ssl)
+	if params.RelayHost != "" {
+		relayURI := GeneratePairingURI(params.RelayHost, port, code, ssl)
 		fmt.Printf("☁️ 云服务器中继 URI:     %s\n", relayURI)
 	}
-	if ddnsHost != "" {
-		ddnsURI := GeneratePairingURI(ddnsHost, port, code, ssl)
+	if params.DDNSHost != "" {
+		ddnsURI := GeneratePairingURI(params.DDNSHost, port, code, ssl)
 		fmt.Printf("⚡ DDNS / 域名直连 URI:  %s\n", ddnsURI)
 	}
 
@@ -169,11 +174,20 @@ func PrintPairingQRCode(primaryHost string, port int, code string, ssl bool, ext
 	fmt.Println()
 }
 
-// GenerateQRCodePNG generates a PNG byte slice for the pairing URI.
-func GenerateQRCodePNG(host string, port int, code string, ssl bool, size int) ([]byte, error) {
+// GenerateMultiHostQRCodePNG generates a PNG byte slice for the given multi-host pairing parameters.
+func GenerateMultiHostQRCodePNG(p MultiHostPairingParams, size int) ([]byte, error) {
 	if size <= 0 {
 		size = 256
 	}
-	uri := GeneratePairingURI(host, port, code, ssl)
+	uri := GenerateMultiHostPairingURI(p)
 	return qrcode.Encode(uri, qrcode.Medium, size)
+}
+
+// GenerateQRCodePNG generates a PNG byte slice for the pairing URI, supporting multi-endpoint resolution via extraHosts.
+func GenerateQRCodePNG(host string, port int, code string, ssl bool, size int, extraHosts ...string) ([]byte, error) {
+	if size <= 0 {
+		size = 256
+	}
+	params := BuildMultiHostPairingParams(host, port, code, ssl, extraHosts...)
+	return GenerateMultiHostQRCodePNG(params, size)
 }

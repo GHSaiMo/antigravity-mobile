@@ -980,11 +980,18 @@ func (p *Proxy) FilterQueuedMessagesAgainstTrajectory(cascadeID string, queued [
 					matchedID = u.ID
 					break
 				}
-				if len(normQm) >= 6 && len(u.NormText) >= 6 {
-					if strings.Contains(u.NormText, normQm) || strings.Contains(normQm, u.NormText) {
-						isEntered = true
-						matchedID = u.ID
-						break
+				// Substring match only for sufficiently long messages (>= 15 runes) to prevent short commands
+				// like "继续", "重试", "好" from accidentally matching longer prior conversation turns.
+				runeQm := utf8.RuneCountInString(normQm)
+				runeU := utf8.RuneCountInString(u.NormText)
+				if runeQm >= 15 && runeU >= 15 {
+					ratio := float64(runeQm) / float64(runeU)
+					if ratio >= 0.7 && ratio <= 1.3 {
+						if strings.Contains(u.NormText, normQm) || strings.Contains(normQm, u.NormText) {
+							isEntered = true
+							matchedID = u.ID
+							break
+						}
 					}
 				}
 			} else if qmHasMedia && u.HasMedia {

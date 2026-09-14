@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -22,6 +23,15 @@ type InstanceInfo struct {
 	CSRFToken    string    `json:"csrf_token"`
 	DiscoveredAt time.Time `json:"discovered_at"`
 	IsHealthy    bool      `json:"is_healthy"`
+}
+
+// UpstreamDiscoverer defines the contract for discovering and monitoring Antigravity language_server instances.
+type UpstreamDiscoverer interface {
+	Current() *InstanceInfo
+	Scan() *InstanceInfo
+	Start()
+	Stop()
+	OnUpdate(fn func(InstanceInfo))
 }
 
 // Inspector monitors and discovers Antigravity language_server instances.
@@ -106,7 +116,19 @@ var (
 )
 
 // Scan performs one inspection pass to detect and verify the language_server instance.
+// If an active instance is already known and healthy, a lightweight HTTP verification is
+// attempted first, avoiding unnecessary subprocess forks of ps and lsof.
 func (i *Inspector) Scan() *InstanceInfo {
+	i.mu.RLock()
+	curr := i.current
+	i.mu.RUnlock()
+
+	if curr != nil && curr.IsHealthy && curr.Port > 0 {
+		if i.verifyPort(curr.Port, curr.CSRFToken) {
+			return curr
+		}
+	}
+
 	pid, csrfToken, err := i.findProcess(context.Background())
 	if err != nil {
 		i.markUnhealthy()
@@ -195,6 +217,11 @@ func (i *Inspector) findProcess(ctx context.Context) (int, string, error) {
 
 	lines := strings.Split(string(out), "\n")
 	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.Contains(line, "grep") || strings.Contains(line, "<defunct>") {
+			continue
+		}
+
 		if strings.Contains(line, "language_server") && strings.Contains(line, "--csrf_token") {
 			fields := strings.Fields(line)
 			if len(fields) < 2 {
@@ -202,6 +229,13 @@ func (i *Inspector) findProcess(ctx context.Context) (int, string, error) {
 			}
 			pid, err := strconv.Atoi(fields[0])
 			if err != nil {
+				continue
+			}
+
+			// Verify the command actually executes language_server (not a shell wrapper or python script)
+			cmdPath := fields[1]
+			base := filepath.Base(cmdPath)
+			if !strings.Contains(base, "language_server") {
 				continue
 			}
 

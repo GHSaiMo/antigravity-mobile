@@ -42,8 +42,12 @@ func IsTransitionalProgressMessage(text string) bool {
 		return false
 	}
 
-	// Final reports with code fences or markdown tables are deliverables, not simple transitional sentences
-	if strings.Contains(t, "```") || strings.Contains(t, "| ---") {
+	// Final reports with code fences, markdown tables, or explicit completion statements
+	// are deliverables, not intermediate transitional sentences
+	if strings.Contains(t, "```") || strings.Contains(t, "| ---") ||
+		strings.Contains(t, "执行完毕") || strings.Contains(t, "更新完毕") || strings.Contains(t, "执行完成") ||
+		strings.Contains(t, "已完成") || strings.Contains(t, "处理完毕") || strings.Contains(t, "全部成功") ||
+		strings.Contains(t, "顺利完成") || strings.Contains(t, "已顺利执行完毕") || strings.Contains(t, "已成功") {
 		return false
 	}
 

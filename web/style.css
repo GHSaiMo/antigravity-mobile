@@ -73,6 +73,17 @@
   margin: 0;
   padding: 0;
   -webkit-tap-highlight-color: transparent;
+}
+
+/* Enable copy and long-press callout on chat text, code, and markdown */
+.bubble-text, .bubble-text *, pre, code, .md-viewer-markdown, .md-viewer-markdown *, .agent-error-message {
+  -webkit-touch-callout: default !important;
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+
+/* Prevent accidental callout on interactive controls */
+button, .nav-btn, .tab-btn, .sheet-grabber, .ios-bottom-nav {
   -webkit-touch-callout: none;
 }
 
@@ -2961,6 +2972,16 @@ body {
   color: var(--ios-label);
   margin: 0;
   letter-spacing: -0.2px;
+}
+
+.md-viewer-subtitle {
+  display: block;
+  font-size: 13px;
+  color: var(--ios-secondary-label);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .md-viewer-sheet-body {
