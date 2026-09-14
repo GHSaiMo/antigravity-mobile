@@ -734,8 +734,8 @@ public final class ChatViewModel {
             // Connect to WebSocket stream for real-time updates
             connectStream()
             
-            // Manage background polling fallback: only poll if WS is not actively connected
-            let shouldPoll = (self.isRunning || self.isAwaitingResponse) && streamClient.status != .connected
+            // Manage background polling fallback: if WS is not connected, keep polling as fallback!
+            let shouldPoll = streamClient.status != .connected
             if shouldPoll && pollTask == nil {
                 startPollingFallback()
             } else if !shouldPoll && pollTask != nil {
@@ -2148,13 +2148,10 @@ public final class ChatViewModel {
         switch status {
         case .connected:
             stopPollingFallback()
-        case .failed, .disconnected:
-            let shouldPoll = self.isRunning || self.isAwaitingResponse
-            if shouldPoll && pollTask == nil {
+        case .failed, .disconnected, .connecting:
+            if pollTask == nil {
                 startPollingFallback()
             }
-        default:
-            break
         }
     }
     
@@ -2509,8 +2506,10 @@ public final class ChatViewModel {
         guard pollTask == nil else { return }
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 1_500_000_000)
                 guard let self else { break }
+                let interval: UInt64 = (self.isRunning || self.isAwaitingResponse) ? 1_200_000_000 : 2_500_000_000
+                try? await Task.sleep(nanoseconds: interval)
+                guard !Task.isCancelled else { break }
                 await self.loadMessages(isBackgroundPoll: true)
             }
         }
