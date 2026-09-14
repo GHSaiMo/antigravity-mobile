@@ -1250,34 +1250,56 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 		hasTitle := false
 		if ann, ok := s["annotations"].(map[string]interface{}); ok {
 			if t, ok := ann["title"].(string); ok && strings.TrimSpace(t) != "" && t != "未命名会话" {
-				hasTitle = true
-			}
-		}
-		if !hasTitle {
-			if sm, ok := s["summary"].(string); ok && strings.TrimSpace(sm) != "" && sm != "未命名会话" {
-				hasTitle = true
+				cleanTitle := SanitizeTitle(t)
+				if cleanTitle != "" {
+					ann["title"] = cleanTitle
+					hasTitle = true
+				}
 			}
 		}
 		if !hasTitle {
 			if t := readAnnotationTitle(id); t != "" && t != "未命名会话" {
-				ann, _ := s["annotations"].(map[string]interface{})
-				if ann == nil {
-					ann = make(map[string]interface{})
+				cleanTitle := SanitizeTitle(t)
+				if cleanTitle != "" {
+					ann, _ := s["annotations"].(map[string]interface{})
+					if ann == nil {
+						ann = make(map[string]interface{})
+					}
+					ann["title"] = cleanTitle
+					s["annotations"] = ann
+					s["summary"] = cleanTitle
+					hasTitle = true
 				}
-				ann["title"] = t
-				s["annotations"] = ann
-				hasTitle = true
 			}
 		}
 		if !hasTitle {
 			if t := p.lookupCascadeTitle(id, port, token); t != "" && t != "未命名会话" {
-				ann, _ := s["annotations"].(map[string]interface{})
-				if ann == nil {
-					ann = make(map[string]interface{})
+				cleanTitle := SanitizeTitle(t)
+				if cleanTitle != "" {
+					ann, _ := s["annotations"].(map[string]interface{})
+					if ann == nil {
+						ann = make(map[string]interface{})
+					}
+					ann["title"] = cleanTitle
+					s["annotations"] = ann
+					s["summary"] = cleanTitle
+					hasTitle = true
 				}
-				ann["title"] = t
-				s["annotations"] = ann
-				hasTitle = true
+			}
+		}
+		if !hasTitle {
+			if sm, ok := s["summary"].(string); ok && strings.TrimSpace(sm) != "" && sm != "未命名会话" {
+				cleanTitle := SanitizeTitle(sm)
+				if cleanTitle != "" {
+					ann, _ := s["annotations"].(map[string]interface{})
+					if ann == nil {
+						ann = make(map[string]interface{})
+					}
+					ann["title"] = cleanTitle
+					s["annotations"] = ann
+					s["summary"] = cleanTitle
+					hasTitle = true
+				}
 			}
 		}
 

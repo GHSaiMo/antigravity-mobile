@@ -831,6 +831,54 @@ MEDIA:/Users/hal9000/Downloads/baby-teeth-brushing-guide.png
 	}
 }
 
+func TestSanitizeTitle(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "empty",
+			input:    "",
+			expected: "",
+		},
+		{
+			name:     "untitled session",
+			input:    "未命名会话",
+			expected: "",
+		},
+		{
+			name:     "normal short title",
+			input:    "雪球雷达扫描与反爬排查",
+			expected: "雪球雷达扫描与反爬排查",
+		},
+		{
+			name:     "long prompt with truncation",
+			input:    "刚才收到反爬提示我已经验证了，但是脚本没有自动反馈结果，请你排查下是没有识别到 cookie 更新还是没有发送提示",
+			expected: "刚才收到反爬提示我已经验证了，但是脚本没有自动反馈结果，请你排查下是没有...",
+		},
+		{
+			name: "xml wrapped prompt",
+			input: `<USER_REQUEST>
+查查雪球雷达进展
+</USER_REQUEST>
+<ADDITIONAL_METADATA>
+The current local time is: 2026-09-13T09:50:21+08:00.
+</ADDITIONAL_METADATA>`,
+			expected: "查查雪球雷达进展",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := SanitizeTitle(tc.input)
+			if got != tc.expected {
+				t.Errorf("SanitizeTitle(%q) = %q, want %q", tc.input, got, tc.expected)
+			}
+		})
+	}
+}
+
 
 
 

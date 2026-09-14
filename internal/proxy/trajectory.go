@@ -143,9 +143,11 @@ func NewTrajectoryCache() *TrajectoryCache {
 }
 
 var (
-	imgRegex   = regexp.MustCompile(`!\[.*?\]\((https?://[^\s\)]+|/static/[^\s\)]+)\)`)
-	titleRegex = regexp.MustCompile(`title:\s*"([^"]+)"`)
-	imgRegexes = []*regexp.Regexp{
+	imgRegex     = regexp.MustCompile(`!\[.*?\]\((https?://[^\s\)]+|/static/[^\s\)]+)\)`)
+	titleRegex   = regexp.MustCompile(`title:\s*"([^"]+)"`)
+	xmlMetaRegex = regexp.MustCompile(`(?s)<(?:ADDITIONAL_METADATA|USER_SETTINGS_CHANGE)>.*?</(?:ADDITIONAL_METADATA|USER_SETTINGS_CHANGE)>`)
+	xmlTagRegex  = regexp.MustCompile(`</?[a-zA-Z0-9_-]+(\s+[^>]*)?>`)
+	imgRegexes   = []*regexp.Regexp{
 		regexp.MustCompile(`\[!\[.*?\]\((?:[^\s\)]+)\)\]\((https?://[^\s\)]+|/static/[^\s\)]+|file://[^\s\)]+|/[^\s\)]+)\)`),
 		regexp.MustCompile(`!\[.*?\]\((https?://[^\s\)]+|/static/[^\s\)]+|file://[^\s\)]+|/[^\s\)]+)\)`),
 		regexp.MustCompile(`(?:^|\s|<br\s*/?>)MEDIA:\s*([^\s)<>"'\x60]+)`),
@@ -645,6 +647,32 @@ func isUserVisibleError(s TrajectoryStep) bool {
 	return false
 }
 
+// SanitizeTitle cleans and formats any raw prompt or title to a concise, single-line title (max 36 runes).
+func SanitizeTitle(raw string) string {
+	s := strings.TrimSpace(raw)
+	if s == "" || s == "未命名会话" {
+		return ""
+	}
+
+	// Strip meta XML sections and tags
+	s = xmlMetaRegex.ReplaceAllString(s, "")
+	s = xmlTagRegex.ReplaceAllString(s, "")
+	s = strings.TrimSpace(s)
+
+	lines := strings.Split(s, "\n")
+	for _, l := range lines {
+		line := strings.TrimSpace(l)
+		if line != "" {
+			runes := []rune(line)
+			if len(runes) > 36 {
+				return string(runes[:36]) + "..."
+			}
+			return line
+		}
+	}
+	return ""
+}
+
 func extractTitleFromUserInput(s TrajectoryStep) string {
 	if s.UserInput == nil {
 		return ""
@@ -653,21 +681,7 @@ func extractTitleFromUserInput(s TrajectoryStep) string {
 	if prompt == "" && len(s.UserInput.Items) > 0 {
 		prompt = strings.TrimSpace(s.UserInput.Items[0].Text)
 	}
-	if prompt == "" {
-		return ""
-	}
-	lines := strings.Split(prompt, "\n")
-	for _, l := range lines {
-		trimmed := strings.TrimSpace(l)
-		if trimmed != "" {
-			runes := []rune(trimmed)
-			if len(runes) > 36 {
-				return string(runes[:36])
-			}
-			return trimmed
-		}
-	}
-	return ""
+	return SanitizeTitle(prompt)
 }
 
 // ParseTrajectoryDetails extracts messages, tools count, duration and metadata from raw response.

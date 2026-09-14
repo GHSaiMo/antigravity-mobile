@@ -337,6 +337,18 @@ async function rescanGateway() {
 
 // --- Navigation & Routing ---
 
+function formatConversationTitle(annotations, summary, fallback = "未命名会话") {
+  const raw = annotations?.title || summary;
+  if (!raw || raw === "未命名会话") return fallback;
+  const cleaned = raw.replace(/<[^>]+>/g, "").trim();
+  const firstLine = cleaned.split("\n").map((l) => l.trim()).find((l) => l.length > 0) || "";
+  if (!firstLine) return fallback;
+  if (firstLine.length > 36) {
+    return firstLine.slice(0, 36) + "...";
+  }
+  return firstLine;
+}
+
 function navigateTo(hash) {
   window.location.hash = hash;
   renderRoute();
@@ -354,14 +366,13 @@ function renderRoute() {
   const wsText = document.getElementById("chat-workspace-text");
   const chatDot = document.getElementById("chat-status-dot");
 
-  const chatInput = document.getElementById("chat-input");
-
   if (pollTimer) {
     clearInterval(pollTimer);
     pollTimer = null;
   }
 
-  // Persist draft of previous session before route changes
+  // Persist current input text to memory draft before leaving the session
+  const chatInput = document.getElementById("chat-input");
   if (activeCascadeId && chatInput) {
     DraftManager.set(activeCascadeId, chatInput.value);
   }
@@ -385,7 +396,7 @@ function renderRoute() {
 
     // Title resolution
     const summary = currentTrajectories[activeCascadeId];
-    const title = summary?.annotations?.title || summary?.summary || "会话详情";
+    const title = formatConversationTitle(summary?.annotations, summary?.summary, "会话详情");
     const wsUri = summary?.workspaceUris?.[0] || summary?.workspaces?.[0]?.workspaceFolderAbsoluteUri || "";
     const wsName = wsUri.split("/").filter(Boolean).pop() || "";
 
@@ -549,7 +560,7 @@ function renderConversationList(summaries) {
     .sort((a, b) => new Date(b.lastModifiedTime || 0) - new Date(a.lastModifiedTime || 0))
     .filter((item) => {
       if (!query) return true;
-      const title = (item.annotations?.title || item.summary || "").toLowerCase();
+      const title = formatConversationTitle(item.annotations, item.summary, "").toLowerCase();
       const ws = (item.workspaceUris?.[0] || "").toLowerCase();
       return title.includes(query) || ws.includes(query) || item.id.includes(query);
     });
@@ -582,7 +593,7 @@ function renderConversationList(summaries) {
             : (hasDraft
               ? `<span class="badge badge-draft">DRAFT</span>`
               : unreadDotHtml)));
-      const title = item.annotations?.title || item.summary || "未命名会话";
+      const title = formatConversationTitle(item.annotations, item.summary, "未命名会话");
       const wsUri = item.workspaceUris?.[0] || item.workspaces?.[0]?.workspaceFolderAbsoluteUri || "";
       const wsName = wsUri.split("/").filter(Boolean).pop() || "Chat";
       const timeStr = formatRelativeTime(item.lastModifiedTime);
@@ -1532,7 +1543,7 @@ async function loadChat(cascadeId, isBackgroundPoll = false) {
     const isRunning = summary?.status === "CASCADE_RUN_STATUS_RUNNING";
     const wsUri = traj.workspaceUris?.[0] || "";
 
-    const dynamicTitle = traj.annotations?.title || traj.summary;
+    const dynamicTitle = formatConversationTitle(traj.annotations, traj.summary, "");
     if (dynamicTitle && document.getElementById("header-title")) {
       document.getElementById("header-title").textContent = dynamicTitle;
     }
