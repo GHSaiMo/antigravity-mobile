@@ -214,10 +214,10 @@ public final class ChatViewModel {
     /// ID of the first message of the latest response turn (e.g., tool batch or agent response following the last user message)
     public var latestTurnStartMessageId: String? {
         guard let lastUserIdx = messages.lastIndex(where: { $0.sender == .user }) else {
-            return messages.last(where: { $0.sender != .user })?.id ?? messages.last?.id
+            return messages.first(where: { $0.sender != .user })?.id ?? messages.first?.id
         }
         let subsequent = messages.suffix(from: lastUserIdx + 1)
-        return subsequent.first?.id ?? messages.last?.id
+        return subsequent.first?.id
     }
     
     public var isUnreadOnEntry: Bool = false
@@ -257,20 +257,31 @@ public final class ChatViewModel {
         canProceed || pendingInteraction != nil || (initialConversationStatus?.needsAction == true)
     }
     
-    /// Whether this conversation on entry has unread messages, error messages, or action messages
-    public var shouldScrollToTurnStartOnEntry: Bool {
-        isUnreadOnEntry || hasErrorState || hasActionState
+    /// Whether the conversation is currently actively running, executing tasks, or awaiting responses
+    public var isActivelyRunning: Bool {
+        isRunning || isAwaitingResponse || !runningTasks.isEmpty || (initialConversationStatus?.isRunning == true)
     }
     
-    /// ID of the latest agent response message (the actual text bubble from the agent, not tool batches)
+    /// Whether this conversation on entry has unread messages, error messages, or action messages
+    public var shouldScrollToTurnStartOnEntry: Bool {
+        guard !isActivelyRunning else { return false }
+        if messages.last?.sender == .user { return false }
+        if latestAgentMessageId == nil { return false }
+        return isUnreadOnEntry || hasErrorState || hasActionState
+    }
+    
+    /// ID of the latest agent response message (the actual text bubble from the agent, not tool batches).
+    /// If there are user messages in the chat, this strictly checks for an agent message AFTER the latest user message.
+    /// It NEVER falls back to an agent message from an earlier turn before the latest user message.
     public var latestAgentMessageId: String? {
         if let lastUserIdx = messages.lastIndex(where: { $0.sender == .user }) {
             let subsequent = messages.suffix(from: lastUserIdx + 1)
-            if let agentMsg = subsequent.last(where: { $0.sender == .agent }) {
+            if let agentMsg = subsequent.first(where: { $0.sender == .agent }) {
                 return agentMsg.id
             }
+            return nil
         }
-        return messages.last(where: { $0.sender == .agent })?.id
+        return messages.first(where: { $0.sender == .agent })?.id
     }
     
     public var activeModel: String {

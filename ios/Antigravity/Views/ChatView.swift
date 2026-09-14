@@ -259,8 +259,10 @@ public struct ChatView: View {
                     messagesScrollView(proxy: proxy, viewportWidth: geometry.size.width, viewportHeight: geometry.size.height)
                         .onChange(of: geometry.size.height) { oldHeight, newHeight in
                             if newHeight != oldHeight {
-                                if isNearBottom || !hasUserInteracted {
+                                if isNearBottom {
                                     performAdaptiveCardScroll(proxy: proxy)
+                                } else if !hasInitiallyAligned {
+                                    alignMessages(proxy: proxy, animated: false)
                                 }
                             }
                         }
@@ -995,26 +997,54 @@ public struct ChatView: View {
     }
     
     private func smartScroll(proxy: ScrollViewProxy, animated: Bool = false) {
+        // 1. 若会话正在运行、等待回复、或有活跃后台任务，必须保持在底部展示最新任务卡片与进展
+        let isActivelyRunning = viewModel.isActivelyRunning || (initialStatus?.isRunning == true)
+        if isActivelyRunning {
+            if !viewModel.runningTasks.isEmpty || !viewModel.queuedMessages.isEmpty {
+                performAdaptiveCardScroll(proxy: proxy)
+            } else {
+                scrollToBottom(proxy: proxy, animated: animated)
+            }
+            return
+        }
+        
+        // 2. 若最后一条消息是用户发送的，或最新一轮对话中尚无 Agent 文本回复，直接滚动到底部展示最新内容
+        if viewModel.messages.last?.sender == .user || viewModel.latestAgentMessageId == nil {
+            if !viewModel.runningTasks.isEmpty || !viewModel.queuedMessages.isEmpty {
+                performAdaptiveCardScroll(proxy: proxy)
+            } else {
+                scrollToBottom(proxy: proxy, animated: animated)
+            }
+            return
+        }
+        
+        // 3. 判断是否需要从本轮 Agent 回复开头展示：
+        // 仅在会话处于未读、报错或等待用户交互，且存在最新的 Agent 回复时，才定位到该回复开头
         let shouldScrollToTurnStart = viewModel.shouldScrollToTurnStartOnEntry
             || initialIsUnread
             || (initialStatus?.isError == true)
             || (initialStatus?.needsAction == true)
         
         if shouldScrollToTurnStart {
-            // 1. 若会话有未读消息、ERROR 消息或 ACTION 消息：
-            // 默认从 Agent 发起的最后一句会话的开头开始显示（保持现在的逻辑）
             scrollToTurnStart(proxy: proxy, animated: animated)
         } else {
-            // 2. 若会话为已读状态（即所有消息都已读过，且无 ERROR 消息、ACTION 消息等）：
-            // 默认拉到会话的最下面。
-            scrollToBottom(proxy: proxy, animated: animated)
+            // 已读状态下，默认拉到会话最下面
+            if !viewModel.runningTasks.isEmpty || !viewModel.queuedMessages.isEmpty {
+                performAdaptiveCardScroll(proxy: proxy)
+            } else {
+                scrollToBottom(proxy: proxy, animated: animated)
+            }
         }
     }
     
     private func scrollToTurnStart(proxy: ScrollViewProxy, animated: Bool = true) {
         // Target agent response message start when opening a chat with unread messages, error, or pending action
         guard let targetId = viewModel.latestAgentMessageId else {
-            scrollToBottom(proxy: proxy, animated: animated)
+            if !viewModel.runningTasks.isEmpty || !viewModel.queuedMessages.isEmpty {
+                performAdaptiveCardScroll(proxy: proxy)
+            } else {
+                scrollToBottom(proxy: proxy, animated: animated)
+            }
             return
         }
         
