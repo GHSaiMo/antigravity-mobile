@@ -206,19 +206,29 @@ func CleanIP(remoteAddr string) string {
 }
 
 // UpdateLastSeen asynchronously updates the last seen timestamp and IP for a device.
+// Uses a fast read-lock debounce path to prevent write-lock contention on high-frequency requests.
 func (s *AuthStore) UpdateLastSeen(deviceID, remoteAddr string) {
 	cleanIP := CleanIP(remoteAddr)
+	now := time.Now()
+
+	// Fast read check: if last seen was updated within the last 30s with unchanged IP, skip
+	s.mu.RLock()
+	dev, ok := s.devices[deviceID]
+	if !ok || (now.Sub(dev.LastSeenAt) < 30*time.Second && dev.LastSeenIP == cleanIP) {
+		s.mu.RUnlock()
+		return
+	}
+	s.mu.RUnlock()
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	dev, ok := s.devices[deviceID]
+	dev, ok = s.devices[deviceID]
 	if !ok {
 		return
 	}
 
-	// Throttle disk writes: only save to disk if last saved was more than 1 minute ago
-	now := time.Now()
+	// Throttle disk writes: only save to disk if last saved was more than 1 minute ago or IP changed
 	shouldSave := now.Sub(dev.LastSeenAt) > 1*time.Minute || dev.LastSeenIP != cleanIP
 
 	dev.LastSeenAt = now

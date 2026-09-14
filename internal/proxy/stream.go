@@ -68,7 +68,16 @@ func (p *StreamUpdatePayload) Fingerprint() string {
 	last := p.Steps[len(p.Steps)-1]
 	lastLen := 0
 	if last.PlannerResponse != nil {
-		lastLen = len(last.PlannerResponse.Response) + len(last.PlannerResponse.Thinking)
+		lastLen += len(last.PlannerResponse.Response) + len(last.PlannerResponse.Thinking)
+	}
+	if last.Content != "" {
+		lastLen += len(last.Content)
+	}
+	if last.ToolCall != nil {
+		lastLen += len(last.ToolCall.Name) + len(last.ToolCall.ToolSummary) + len(last.ToolCall.ArgumentsJson)
+	}
+	if last.ErrorMessage != nil {
+		lastLen += len(last.ErrorMessage.Error.ShortError) + len(last.ErrorMessage.Error.UserErrorMessage)
 	}
 	return fmt.Sprintf("%s:%t:%d:%d:%s:%s:%d:%t:%s:%s:%s:%s", p.Status, p.HasError, p.TotalSteps, p.TotalTools, last.Type, last.Status, lastLen, p.CanProceed, piKey, queuedKey, tasksKey, p.ActiveModel)
 }

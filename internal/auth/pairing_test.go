@@ -88,6 +88,30 @@ func TestGenerateQRCodePNG(t *testing.T) {
 	if len(pngData) == 0 {
 		t.Errorf("expected non-empty png bytes")
 	}
+
+	// Test with extra hosts (LAN & IPv6)
+	multiPngData, err := GenerateQRCodePNG("192.168.1.100", 58900, "abc123code", false, 128, "2001:db8::1", "mac.example.com")
+	if err != nil {
+		t.Fatalf("failed to generate multi-host qr png: %v", err)
+	}
+	if len(multiPngData) == 0 {
+		t.Errorf("expected non-empty multi-host png bytes")
+	}
+
+	// Test GenerateMultiHostQRCodePNG directly
+	directPng, err := GenerateMultiHostQRCodePNG(MultiHostPairingParams{
+		PrimaryHost: "192.168.1.100",
+		Port:        58900,
+		Code:        "abc123code",
+		LANHost:     "192.168.1.100",
+		IPv6Host:    "2001:db8::1",
+	}, 128)
+	if err != nil {
+		t.Fatalf("failed to generate direct multi-host qr png: %v", err)
+	}
+	if len(directPng) == 0 {
+		t.Errorf("expected non-empty direct multi-host png bytes")
+	}
 }
 
 func TestPrintPairingQRCode(t *testing.T) {

@@ -1,12 +1,16 @@
 {
+  "id": "/",
   "name": "Antigravity",
   "short_name": "Antigravity",
   "description": "Mobile companion and chat client for Antigravity AI Agent",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#0f172a",
   "theme_color": "#0f172a",
   "orientation": "portrait-primary",
+  "lang": "zh-CN",
+  "categories": ["utilities", "productivity", "developer"],
   "icons": [
     {
       "src": "/icons/icon-192.png",
@@ -24,6 +28,15 @@
       "src": "/icons/icon.svg",
       "sizes": "any",
       "type": "image/svg+xml"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "新建任务",
+      "short_name": "新建",
+      "description": "创建并启动新的 AI 任务",
+      "url": "/?action=new",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
     }
   ]
 }

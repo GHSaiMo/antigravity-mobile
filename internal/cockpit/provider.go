@@ -180,9 +180,42 @@ func makeMetric(fraction *float64, resetTime string) *QuotaMetric {
 	}
 }
 
+type quotaCacheEntry struct {
+	data      *CockpitQuotaResponse
+	expiresAt time.Time
+	emailKey  string
+}
+
+var (
+	quotaCacheMu  sync.RWMutex
+	quotaCache    *quotaCacheEntry
+	quotaCacheTTL = 3 * time.Second
+)
+
+// InvalidateQuotaCache clears the memory cache of quota information.
+func InvalidateQuotaCache() {
+	quotaCacheMu.Lock()
+	quotaCache = nil
+	quotaCacheMu.Unlock()
+}
+
 // GetQuotas reads Cockpit Tools' local storage and cache to construct the full quota snapshot.
+// Uses a short TTL in-memory cache to prevent disk I/O storms from high-frequency UI polling.
 // An optional activeEmail (e.g. from live Language Server) can be passed to prioritize the true runtime account.
 func GetQuotas(activeEmails ...string) (*CockpitQuotaResponse, error) {
+	emailKey := ""
+	if len(activeEmails) > 0 {
+		emailKey = strings.ToLower(strings.TrimSpace(activeEmails[0]))
+	}
+
+	quotaCacheMu.RLock()
+	if quotaCache != nil && time.Now().Before(quotaCache.expiresAt) && quotaCache.emailKey == emailKey {
+		cached := quotaCache.data
+		quotaCacheMu.RUnlock()
+		return cached, nil
+	}
+	quotaCacheMu.RUnlock()
+
 	dataDir, err := GetCockpitDataDir()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cockpit data dir: %w", err)
@@ -336,11 +369,21 @@ func GetQuotas(activeEmails ...string) (*CockpitQuotaResponse, error) {
 		maxUpdatedAt = time.Now().UnixMilli()
 	}
 
-	return &CockpitQuotaResponse{
+	resp := &CockpitQuotaResponse{
 		CurrentAccount: currentAcc,
 		Accounts:       ordered,
 		UpdatedAt:      maxUpdatedAt,
-	}, nil
+	}
+
+	quotaCacheMu.Lock()
+	quotaCache = &quotaCacheEntry{
+		data:      resp,
+		expiresAt: time.Now().Add(quotaCacheTTL),
+		emailKey:  emailKey,
+	}
+	quotaCacheMu.Unlock()
+
+	return resp, nil
 }
 
 // TriggerRefresh triggers a fresh quota fetch across all accounts in Cockpit Tools.
@@ -379,6 +422,8 @@ func TriggerRefresh(force ...bool) error {
 
 			if err := QueryReport(port, token); err != nil {
 				log.Printf("[Cockpit] Report request error: %v", err)
+			} else {
+				InvalidateQuotaCache()
 			}
 		}(cfg.ReportPort, cfg.ReportToken)
 		return nil

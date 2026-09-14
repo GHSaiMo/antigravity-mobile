@@ -171,12 +171,14 @@ func SwitchAccount(accountID string) error {
 			var p eventAccountSwitchedPayload
 			_ = json.Unmarshal(msg.Payload, &p)
 			if p.AccountID == accountID || (p.Email != "" && strings.EqualFold(p.Email, accountID)) {
+				InvalidateQuotaCache()
 				return nil
 			}
 		case "response.success":
 			var p responseSuccessPayload
 			_ = json.Unmarshal(msg.Payload, &p)
 			if p.RequestID == reqID {
+				InvalidateQuotaCache()
 				return nil
 			}
 		case "event.switch_error":
