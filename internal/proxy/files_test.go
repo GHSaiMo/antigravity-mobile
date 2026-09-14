@@ -176,4 +176,47 @@ func TestHandleFileRawChineseFilename(t *testing.T) {
 	}
 }
 
+func TestIsSafeFilePath_SymlinkAndSensitiveFiles(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Check direct sensitive files rejection
+	sensitiveFiles := []string{
+		filepath.Join(home, ".bash_history"),
+		filepath.Join(home, ".zsh_history"),
+		filepath.Join(home, ".git-credentials"),
+		filepath.Join(home, ".netrc"),
+		filepath.Join(home, ".docker", "config.json"),
+		filepath.Join(home, ".config", "gcloud", "credentials.db"),
+		filepath.Join(home, ".ssh", "id_ed25519"),
+		"/etc/passwd",
+		"/etc/shadow",
+	}
+
+	for _, sf := range sensitiveFiles {
+		if IsSafeFilePath(sf) {
+			t.Errorf("expected sensitive file to be rejected: %s", sf)
+		}
+	}
+
+	// 2. Test Symlink escape attempt from inside whitelisted dir
+	projectsBase := filepath.Join(home, "Projects")
+	if err := os.MkdirAll(projectsBase, 0755); err == nil {
+		tempDir, err := os.MkdirTemp(projectsBase, "symlink-test-*")
+		if err == nil {
+			defer os.RemoveAll(tempDir)
+			targetFile := "/etc/hosts"
+			linkPath := filepath.Join(tempDir, "evil_symlink_hosts")
+			if os.Symlink(targetFile, linkPath) == nil {
+				if IsSafeFilePath(linkPath) {
+					t.Errorf("expected symlink pointing outside whitelist to be rejected: %s -> %s", linkPath, targetFile)
+				}
+			}
+		}
+	}
+}
+
+
 

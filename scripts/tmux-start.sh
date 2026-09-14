@@ -5,6 +5,18 @@ SESSION_NAME="agy-gateway"
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 LOG_FILE="${PROJECT_DIR}/logs/gateway.log"
 
+mkdir -p "${PROJECT_DIR}/logs"
+
+# Load environment configuration if available
+if [ -f "${PROJECT_DIR}/.env" ]; then
+    set -a
+    # shellcheck source=/dev/null
+    source "${PROJECT_DIR}/.env" 2>/dev/null || true
+    set +a
+fi
+
+PORT="${GATEWAY_PORT:-58900}"
+
 # Check if session already exists
 if tmux has-session -t "${SESSION_NAME}" 2>/dev/null; then
     echo "⚠️  tmux session '${SESSION_NAME}' is already running."
@@ -13,17 +25,17 @@ if tmux has-session -t "${SESSION_NAME}" 2>/dev/null; then
     exit 0
 fi
 
-echo "🚀 Starting Antigravity Mobile Gateway in tmux session '${SESSION_NAME}'..."
+echo "🚀 Starting Antigravity Mobile Gateway on port ${PORT} in tmux session '${SESSION_NAME}'..."
 tmux new-session -d -s "${SESSION_NAME}" -c "${PROJECT_DIR}"
 
 # Start binary and tee output to logs/gateway.log
-tmux send-keys -t "${SESSION_NAME}" "./bin/gateway -port 58900 2>&1 | tee -a ${LOG_FILE}" Enter
+tmux send-keys -t "${SESSION_NAME}" "./bin/gateway -port ${PORT} 2>&1 | tee -a ${LOG_FILE}" Enter
 
 sleep 1
 
 if tmux has-session -t "${SESSION_NAME}" 2>/dev/null; then
     echo "✅ Gateway started successfully!"
-    echo "   Local URL: http://127.0.0.1:58900"
+    echo "   Local URL: http://127.0.0.1:${PORT}"
     echo "   Log file:  ${LOG_FILE}"
     echo "   Attach:    tmux attach -t ${SESSION_NAME}"
     echo "   Stop:      ./scripts/tmux-stop.sh"

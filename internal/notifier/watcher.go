@@ -61,6 +61,7 @@ func (w *Watcher) run(ctx context.Context) {
 			return
 		case <-cleanupTicker.C:
 			w.notifier.Dedup().Cleanup(4 * time.Hour)
+			w.cleanupKnownSessions()
 		case <-scanTicker.C:
 			runningCount := w.scanOnce()
 			// Adjust scan frequency: faster when tasks are running
@@ -242,3 +243,32 @@ func extractTitle(s map[string]interface{}) string {
 	}
 	return ""
 }
+
+// cleanupKnownSessions enforces a soft cap on tracked sessions to prevent unbounded memory growth.
+func (w *Watcher) cleanupKnownSessions() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	const maxTrackedSessions = 300
+	if len(w.knownSessions) <= maxTrackedSessions {
+		return
+	}
+
+	// Evict completed/non-running sessions first
+	for id, s := range w.knownSessions {
+		if s.lastStatus != "CASCADE_RUN_STATUS_RUNNING" && !s.waitingForBackground {
+			delete(w.knownSessions, id)
+			if len(w.knownSessions) <= maxTrackedSessions {
+				break
+			}
+		}
+	}
+}
+
+// TrackedSessionsCount returns the number of currently monitored sessions.
+func (w *Watcher) TrackedSessionsCount() int {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return len(w.knownSessions)
+}
+

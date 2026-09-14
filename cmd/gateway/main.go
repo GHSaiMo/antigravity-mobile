@@ -301,6 +301,111 @@ func main() {
 	log.Println("Gateway stopped gracefully.")
 }
 
+// buildRouter constructs and wraps the HTTP routing mux with middleware.
+func buildRouter(
+	authStore *auth.AuthStore,
+	authHandler *auth.AuthHandler,
+	p *proxy.Proxy,
+	insp inspector.UpstreamDiscoverer,
+	startTime time.Time,
+	webHandler http.Handler,
+) http.Handler {
+	rootMux := http.NewServeMux()
+
+	// Auth endpoints
+	rootMux.HandleFunc("/api/v1/auth/pair", authHandler.HandlePair)
+	rootMux.HandleFunc("/api/v1/auth/session", authHandler.HandleNewPairingSession)
+	rootMux.HandleFunc("/api/v1/devices/", authHandler.HandleDevices)
+	rootMux.HandleFunc("/api/v1/devices", authHandler.HandleDevices)
+
+	// Cockpit endpoints
+	rootMux.HandleFunc("GET /api/v1/cockpit/quotas", func(w http.ResponseWriter, r *http.Request) {
+		liveEmail, _, _ := p.GetActiveUserStatus()
+		quotas, err := cockpit.GetQuotas(liveEmail)
+		if err != nil {
+			log.Printf("[Cockpit] GetQuotas failed: %v", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, quotas)
+	})
+	rootMux.HandleFunc("POST /api/v1/cockpit/refresh", func(w http.ResponseWriter, r *http.Request) {
+		log.Println("[Cockpit] Triggering quota refresh...")
+		liveEmail, _, _ := p.GetActiveUserStatus()
+		quotas, err := cockpit.RefreshQuotas(liveEmail)
+		if err != nil {
+			log.Printf("[Cockpit] RefreshQuotas failed: %v", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		log.Println("[Cockpit] Quota refresh completed successfully")
+		writeJSON(w, http.StatusOK, quotas)
+	})
+	rootMux.HandleFunc("POST /api/v1/cockpit/switch", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			AccountID string `json:"account_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.AccountID) == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "account_id is required"})
+			return
+		}
+		targetID := strings.TrimSpace(req.AccountID)
+		log.Printf("[Cockpit] Switching account to: %s", targetID)
+		if err := cockpit.SwitchAccount(targetID); err != nil {
+			log.Printf("[Cockpit] SwitchAccount failed: %v", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		log.Printf("[Cockpit] Account switched successfully to: %s", targetID)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"status":     "ok",
+			"message":    "account switched successfully",
+			"account_id": targetID,
+		})
+	})
+
+	// File / Artifact reading endpoint
+	rootMux.HandleFunc("GET /api/v1/files/content", p.HandleFileContent)
+	rootMux.HandleFunc("GET /api/v1/files/raw", p.HandleFileRaw)
+
+	// Proxy routes: APIs, WebSocket, Artifacts, Gateway status
+	rootMux.Handle("/api/", p)
+	rootMux.Handle("/gateway/", p)
+	rootMux.Handle("/static/artifacts/", p)
+	rootMux.Handle("/connect-websocket", p)
+
+	// Health and readiness probes
+	rootMux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	})
+	rootMux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
+		cur := insp.Current()
+		isReady := cur != nil && cur.IsHealthy && cur.Port > 0
+		status := "ready"
+		httpCode := http.StatusOK
+		var port, pid int
+		if cur != nil {
+			port = cur.Port
+			pid = cur.PID
+		}
+		if !isReady {
+			status = "not_ready"
+			httpCode = http.StatusServiceUnavailable
+		}
+		writeJSON(w, httpCode, map[string]any{
+			"status":         status,
+			"upstream_port":  port,
+			"upstream_pid":   pid,
+			"uptime_seconds": int(time.Since(startTime).Seconds()),
+		})
+	})
+
+	// Web frontend (catch-all)
+	rootMux.Handle("/", webHandler)
+
+	return auth.SecurityHeadersMiddleware(auth.AuthMiddleware(authStore, rootMux))
+}
+
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	data, err := json.Marshal(v)
 	if err != nil {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"log"
-	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -67,7 +66,7 @@ func IsWhitelistedPath(path string) bool {
 	}
 
 	// Gateway basic status probe (allows health checks and connectivity testing)
-	if path == "/gateway/status" {
+	if path == "/gateway/status" || path == "/healthz" || path == "/readyz" {
 		return true
 	}
 
@@ -90,7 +89,7 @@ func AuthMiddleware(store *AuthStore, next http.Handler) http.Handler {
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if authDisabled && isLoopbackAddr(r.RemoteAddr) {
+		if authDisabled && IsLoopbackAddr(r.RemoteAddr) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -132,15 +131,14 @@ func AuthMiddleware(store *AuthStore, next http.Handler) http.Handler {
 	})
 }
 
-// isLoopbackAddr checks whether a remote address (host:port) is from localhost.
-func isLoopbackAddr(remoteAddr string) bool {
-	host, _, err := net.SplitHostPort(remoteAddr)
-	if err != nil {
-		host = remoteAddr
-	}
-	ip := net.ParseIP(host)
-	if ip == nil {
-		return false
-	}
-	return ip.IsLoopback()
+// SecurityHeadersMiddleware injects defensive HTTP security response headers.
+func SecurityHeadersMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+		w.Header().Set("X-XSS-Protection", "1; mode=block")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		next.ServeHTTP(w, r)
+	})
 }
+
