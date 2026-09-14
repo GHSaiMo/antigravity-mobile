@@ -23,6 +23,7 @@ type Config struct {
 	LocalPort  int
 	RemotePort int
 	ProxyName  string
+	TLSEnable  bool
 }
 
 // Tunnel manages an embedded FRP client connecting to a remote FRP server.
@@ -126,16 +127,21 @@ func (t *Tunnel) runSession(ctx context.Context) error {
 		tokenLine = fmt.Sprintf("auth.token = %q\n", t.cfg.Token)
 	}
 
+	var tlsLine string
+	if t.cfg.TLSEnable {
+		tlsLine = "transport.tls.enable = true\n"
+	}
+
 	tomlConfig := fmt.Sprintf(`serverAddr = %q
 serverPort = %d
-%s
+%s%s
 [[proxies]]
 name = %q
 type = "tcp"
 localIP = %q
 localPort = %d
 remotePort = %d
-`, t.cfg.ServerAddr, t.cfg.ServerPort, tokenLine, t.cfg.ProxyName, t.cfg.LocalIP, t.cfg.LocalPort, t.cfg.RemotePort)
+`, t.cfg.ServerAddr, t.cfg.ServerPort, tokenLine, tlsLine, t.cfg.ProxyName, t.cfg.LocalIP, t.cfg.LocalPort, t.cfg.RemotePort)
 
 	if _, err := tmpFile.WriteString(tomlConfig); err != nil {
 		tmpFile.Close()
@@ -157,14 +163,20 @@ remotePort = %d
 		return fmt.Errorf("initialize frp service: %w", err)
 	}
 
-	// Close service if context is cancelled
+	// Close service if context is cancelled, preventing goroutine leak when session ends
+	sessionDone := make(chan struct{})
+	defer close(sessionDone)
+
 	go func() {
-		<-ctx.Done()
-		svr.Close()
+		select {
+		case <-ctx.Done():
+			svr.Close()
+		case <-sessionDone:
+		}
 	}()
 
-	log.Printf("☁️ [Tunnel] Connecting to FRP relay %s:%d -> local 127.0.0.1:%d",
-		t.cfg.ServerAddr, t.cfg.RemotePort, t.cfg.LocalPort)
+	log.Printf("☁️ [Tunnel] Connecting to FRP relay %s:%d -> local 127.0.0.1:%d (TLS=%t)",
+		t.cfg.ServerAddr, t.cfg.RemotePort, t.cfg.LocalPort, t.cfg.TLSEnable)
 
 	return svr.Run(ctx)
 }

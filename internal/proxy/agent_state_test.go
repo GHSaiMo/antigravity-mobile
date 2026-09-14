@@ -795,4 +795,30 @@ func TestFilterQueuedMessagesAgainstTrajectory(t *testing.T) {
 	}
 }
 
+func TestExtractTextFromProto_VarintOverflowSafe(t *testing.T) {
+	// Malformed protobuf with huge varint length that would overflow signed 32-bit int
+	// Tag: field 19, wire type 2 -> (19 << 3) | 2 = 154 = 0x9a, 0x01
+	// Varint length: 0xFF, 0xFF, 0xFF, 0xFF, 0x7F (huge)
+	malformed := []byte{0x9a, 0x01, 0xff, 0xff, 0xff, 0xff, 0x7f, 0x01, 0x02}
+	// Should not panic, should return empty string
+	result := extractTextFromProto(malformed, 0)
+	if result != "" {
+		t.Errorf("expected empty string, got %q", result)
+	}
+
+	// Wire type 1 (64-bit) with truncated data (< 8 bytes)
+	wire1Truncated := []byte{0x09, 0x01, 0x02}
+	result = extractTextFromProto(wire1Truncated, 0)
+	if result != "" {
+		t.Errorf("expected empty string, got %q", result)
+	}
+
+	// Wire type 5 (32-bit) with truncated data (< 4 bytes)
+	wire5Truncated := []byte{0x0d, 0x01}
+	result = extractTextFromProto(wire5Truncated, 0)
+	if result != "" {
+		t.Errorf("expected empty string, got %q", result)
+	}
+}
+
 

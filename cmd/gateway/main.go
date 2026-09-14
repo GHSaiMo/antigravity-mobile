@@ -109,6 +109,7 @@ func main() {
 			LocalPort:  *port,
 			RemotePort: tunnelCfg.RemotePort,
 			ProxyName:  fmt.Sprintf("antigravity-%d", tunnelCfg.RemotePort),
+			TLSEnable:  tunnelCfg.TLSEnable,
 		})
 		tun.Start(context.Background())
 		defer tun.Stop()

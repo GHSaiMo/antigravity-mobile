@@ -32,8 +32,27 @@ type AuthStore struct {
 	filePath string
 }
 
-// HashToken computes SHA-256 hex string of raw token.
+// getTokenSalt returns the salt used to hash device authentication tokens.
+func getTokenSalt() string {
+	if s := os.Getenv("AUTH_SALT"); s != "" {
+		return s
+	}
+	return "antigravity-mobile-salt-v1"
+}
+
+// HashToken computes a salted SHA-256 hash of the raw token.
+// Format: "s256:" + hex(sha256(salt + ":" + rawToken))
 func HashToken(rawToken string) string {
+	salt := getTokenSalt()
+	h := sha256.New()
+	h.Write([]byte(salt))
+	h.Write([]byte(":"))
+	h.Write([]byte(rawToken))
+	return "s256:" + hex.EncodeToString(h.Sum(nil))
+}
+
+// LegacyHashToken computes unsalted SHA-256 for backward compatibility with existing devices.
+func LegacyHashToken(rawToken string) string {
 	sum := sha256.Sum256([]byte(rawToken))
 	return hex.EncodeToString(sum[:])
 }
@@ -133,6 +152,11 @@ func (s *AuthStore) AddDevice(dev PairedDevice) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// If updating an existing device, remove its previous token to prevent orphaned active credentials
+	if oldDev, exists := s.devices[dev.DeviceID]; exists && oldDev.TokenHash != "" {
+		delete(s.tokenMap, oldDev.TokenHash)
+	}
+
 	s.devices[dev.DeviceID] = dev
 	if dev.TokenHash != "" {
 		s.tokenMap[dev.TokenHash] = dev.DeviceID
@@ -142,6 +166,7 @@ func (s *AuthStore) AddDevice(dev PairedDevice) error {
 }
 
 // ValidateToken checks whether rawToken is valid and returns the paired device.
+// Supports both modern salted hashes and legacy unsalted hashes for seamless migration.
 func (s *AuthStore) ValidateToken(rawToken string) (*PairedDevice, bool) {
 	if rawToken == "" {
 		return nil, false
@@ -149,14 +174,20 @@ func (s *AuthStore) ValidateToken(rawToken string) (*PairedDevice, bool) {
 	hash := HashToken(rawToken)
 
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	deviceID, ok := s.tokenMap[hash]
 	if !ok {
+		// Fallback to legacy unsalted SHA-256 for backward compatibility
+		legacyHash := LegacyHashToken(rawToken)
+		deviceID, ok = s.tokenMap[legacyHash]
+	}
+	if !ok {
+		s.mu.RUnlock()
 		return nil, false
 	}
 
 	dev, exists := s.devices[deviceID]
+	s.mu.RUnlock()
+
 	if !exists {
 		return nil, false
 	}

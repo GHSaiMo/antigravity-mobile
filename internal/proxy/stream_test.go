@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -173,5 +174,70 @@ func TestWebSocketUpgradeWithMangledHeaders(t *testing.T) {
 
 	if !strings.Contains(statusLine, "101") {
 		t.Errorf("expected status 101 Switching Protocols, got: %s", statusLine)
+	}
+}
+
+func TestIsAllowedOrigin(t *testing.T) {
+	// 1. Empty origin (native apps, CLI, curl) must be allowed
+	if !IsAllowedOrigin("", "127.0.0.1:58900") {
+		t.Errorf("expected empty origin to be allowed")
+	}
+
+	// 2. Localhost and loopback origins must be allowed
+	loopbackOrigins := []string{
+		"http://localhost",
+		"http://localhost:58900",
+		"http://127.0.0.1",
+		"http://127.0.0.1:58900",
+		"http://[::1]:58900",
+		"https://localhost",
+	}
+	for _, orig := range loopbackOrigins {
+		if !IsAllowedOrigin(orig, "localhost:58900") {
+			t.Errorf("expected %s to be allowed", orig)
+		}
+	}
+
+	// 3. Private LAN IP origins must be allowed
+	lanOrigins := []string{
+		"http://192.168.1.100:58900",
+		"http://10.0.0.50:58900",
+		"http://172.20.0.1:58900",
+	}
+	for _, orig := range lanOrigins {
+		if !IsAllowedOrigin(orig, "192.168.1.100:58900") {
+			t.Errorf("expected LAN origin %s to be allowed", orig)
+		}
+	}
+
+	// 4. Malicious external origins MUST BE REJECTED!
+	evilOrigins := []string{
+		"http://evil.com",
+		"http://evil.com:58900",
+		"https://attacker.site",
+		"http://127.0.0.1.evil.com",
+		"http://localhost.evil.com",
+	}
+	for _, orig := range evilOrigins {
+		// Even if attacker sets Host to evil.com, it must be rejected!
+		if IsAllowedOrigin(orig, "evil.com") {
+			t.Errorf("CRITICAL: expected evil origin %s to be REJECTED, but was allowed!", orig)
+		}
+		if IsAllowedOrigin(orig, "127.0.0.1:58900") {
+			t.Errorf("CRITICAL: expected evil origin %s to be REJECTED against loopback host, but was allowed!", orig)
+		}
+	}
+
+	// 5. Configured DDNS / Gateway host origins
+	os.Setenv("DDNS_HOST", "my-mac.example.com")
+	defer os.Unsetenv("DDNS_HOST")
+
+	if !IsAllowedOrigin("https://my-mac.example.com:58900", "my-mac.example.com:58900") {
+		t.Errorf("expected DDNS host origin to be allowed")
+	}
+
+	// Subdomains of DDNS host should also match
+	if !IsAllowedOrigin("https://sub.my-mac.example.com:58900", "sub.my-mac.example.com:58900") {
+		t.Errorf("expected DDNS subdomain origin to be allowed")
 	}
 }

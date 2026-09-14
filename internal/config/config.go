@@ -182,6 +182,7 @@ type TunnelConfig struct {
 	ServerPort int
 	Token      string
 	RemotePort int
+	TLSEnable  bool
 }
 
 // GetTunnelConfig parses environment variables for the embedded FRP tunnel.
@@ -217,11 +218,21 @@ func GetTunnelConfig() TunnelConfig {
 		enabled = (vLower == "1" || vLower == "true" || vLower == "yes")
 	}
 
+	tlsEnable := true
+	if v := os.Getenv("FRP_TLS_ENABLE"); v != "" {
+		vLower := strings.ToLower(v)
+		tlsEnable = (vLower == "1" || vLower == "true" || vLower == "yes")
+	} else if v := os.Getenv("FRP_TLS"); v != "" {
+		vLower := strings.ToLower(v)
+		tlsEnable = (vLower == "1" || vLower == "true" || vLower == "yes")
+	}
+
 	return TunnelConfig{
 		Enabled:    enabled,
 		ServerAddr: serverAddr,
 		ServerPort: serverPort,
 		Token:      token,
 		RemotePort: remotePort,
+		TLSEnable:  tlsEnable,
 	}
 }
