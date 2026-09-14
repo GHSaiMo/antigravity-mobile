@@ -2044,6 +2044,9 @@ function renderMessages(steps, isRunning = false) {
   if (isRunning && hasDOMChanges && userIsNearBottom && !isUserTouching) {
     streamEl.scrollTop = streamEl.scrollHeight;
   }
+
+  // Render any new mermaid diagram blocks in messages stream
+  renderAllMermaidDiagrams(streamEl);
 }
 
 // --- Running Background Tasks Manager (Desktop Antigravity Parity) ---
@@ -2744,7 +2747,10 @@ async function openMarkdownViewer(uri, title) {
     currentViewerData = cached;
     if (loadingEl) loadingEl.classList.add("hidden");
     if (errorEl) errorEl.classList.add("hidden");
-    if (contentEl) contentEl.innerHTML = renderMarkdown(cached.content || "");
+    if (contentEl) {
+      contentEl.innerHTML = renderMarkdown(cached.content || "");
+      renderAllMermaidDiagrams(contentEl);
+    }
     if (cached.filename) {
       if (subtitleEl) subtitleEl.textContent = cached.filename;
       if (titleEl && (!displayTitle || displayTitle.includes("%") || displayTitle === "Markdown 文档")) {
@@ -2793,6 +2799,7 @@ async function openMarkdownViewer(uri, title) {
     // Render markdown content using chat's rich markdown parser
     if (contentEl) {
       contentEl.innerHTML = renderMarkdown(data.content || "");
+      renderAllMermaidDiagrams(contentEl);
     }
 
     // Check proceed capability
@@ -3674,9 +3681,51 @@ function renderMarkdown(md) {
         codeLines.push(lines[i]);
         i++;
       }
+      const rawCode = codeLines.join("\n");
       const langClean = (lang || "").toLowerCase();
       const displayLang = langClean ? langClean.toUpperCase() : "CODE";
-      const codeEscaped = escapeHtml(codeLines.join("\n"));
+      const codeEscaped = escapeHtml(rawCode);
+
+      if (langClean === "mermaid") {
+        blocks.push(`
+          <div class="mermaid-card">
+            <div class="mermaid-header">
+              <span class="mermaid-title">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="3" width="7" height="7"></rect>
+                  <rect x="14" y="3" width="7" height="7"></rect>
+                  <rect x="14" y="14" width="7" height="7"></rect>
+                  <rect x="3" y="14" width="7" height="7"></rect>
+                </svg>
+                MERMAID
+              </span>
+              <div class="mermaid-actions">
+                <div class="mermaid-toggle-group">
+                  <button class="mermaid-toggle-btn active" data-mode="diagram" onclick="toggleMermaidCard(this, 'diagram')" type="button">图表</button>
+                  <button class="mermaid-toggle-btn" data-mode="code" onclick="toggleMermaidCard(this, 'code')" type="button">代码</button>
+                </div>
+                <button class="code-copy-btn" onclick="copyMermaidCode(this)" type="button" aria-label="复制代码">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                  </svg>
+                  <span>复制</span>
+                </button>
+              </div>
+            </div>
+            <div class="mermaid-viewport">
+              <div class="mermaid-diagram-wrap">
+                <div class="mermaid-render-target" data-processed="false" data-raw-code="${encodeURIComponent(rawCode)}">
+                  <span style="font-size:12px;color:var(--ios-tertiary-label);">正在渲染图表...</span>
+                </div>
+              </div>
+              <pre class="mermaid-code-wrap" style="display: none;"><code>${codeEscaped}</code></pre>
+            </div>
+          </div>
+        `);
+        continue;
+      }
+
       blocks.push(`
         <div class="code-block-card">
           <div class="code-block-header">
@@ -3883,6 +3932,112 @@ window.copyCode = function(btn) {
     }
   }).catch(() => {});
 };
+
+window.copyMermaidCode = function(btn) {
+  const card = btn.closest(".mermaid-card");
+  if (!card) return;
+  const codeEl = card.querySelector(".mermaid-code-wrap code");
+  if (!codeEl) return;
+  const text = codeEl.innerText;
+  navigator.clipboard.writeText(text).then(() => {
+    const span = btn.querySelector("span");
+    if (span) {
+      const orig = span.textContent;
+      span.textContent = "已复制";
+      btn.classList.add("copied");
+      setTimeout(() => {
+        span.textContent = orig;
+        btn.classList.remove("copied");
+      }, 1500);
+    }
+  }).catch(() => {});
+};
+
+window.toggleMermaidCard = function(btn, mode) {
+  const card = btn.closest(".mermaid-card");
+  if (!card) return;
+  const toggleBtns = card.querySelectorAll(".mermaid-toggle-btn");
+  toggleBtns.forEach(b => b.classList.remove("active"));
+  btn.classList.add("active");
+
+  const diagWrap = card.querySelector(".mermaid-diagram-wrap");
+  const codeWrap = card.querySelector(".mermaid-code-wrap");
+
+  if (mode === "code") {
+    if (diagWrap) diagWrap.style.display = "none";
+    if (codeWrap) codeWrap.style.display = "block";
+  } else {
+    if (diagWrap) diagWrap.style.display = "flex";
+    if (codeWrap) codeWrap.style.display = "none";
+  }
+};
+
+let mermaidInitialized = false;
+function initMermaidIfNeeded() {
+  if (typeof mermaid === "undefined") return false;
+  if (!mermaidInitialized) {
+    const isDark = !(window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches);
+    try {
+      mermaid.initialize({
+        startOnLoad: false,
+        theme: isDark ? "dark" : "default",
+        securityLevel: "loose",
+        fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'PingFang SC', sans-serif"
+      });
+      mermaidInitialized = true;
+    } catch (e) {
+      console.warn("Failed to initialize mermaid:", e);
+    }
+  }
+  return mermaidInitialized;
+}
+
+let mermaidRenderCounter = 0;
+async function renderAllMermaidDiagrams(root = document) {
+  if (typeof mermaid === "undefined") return;
+  initMermaidIfNeeded();
+
+  const targets = (root && root.querySelectorAll) ? root.querySelectorAll('.mermaid-render-target[data-processed="false"]') : [];
+  if (!targets || targets.length === 0) return;
+
+  for (const target of targets) {
+    if (!target.isConnected) continue;
+    target.setAttribute("data-processed", "true");
+    const rawEncoded = target.getAttribute("data-raw-code");
+    if (!rawEncoded) continue;
+    let code = "";
+    try {
+      code = decodeURIComponent(rawEncoded);
+    } catch {
+      code = rawEncoded;
+    }
+
+    const uniqueId = `mermaid-svg-${Date.now()}-${++mermaidRenderCounter}`;
+    try {
+      const result = await mermaid.render(uniqueId, code);
+      if (!target.isConnected) return;
+      target.innerHTML = result.svg;
+      if (typeof result.bindFunctions === "function") {
+        result.bindFunctions(target);
+      }
+    } catch (err) {
+      if (!target.isConnected) return;
+      console.warn("Mermaid render error:", err);
+      const tempErr = document.getElementById("d" + uniqueId);
+      if (tempErr) tempErr.remove();
+      const bodySvgs = document.querySelectorAll(`body > svg[id="${uniqueId}"], body > svg#d${uniqueId}`);
+      bodySvgs.forEach(s => s.remove());
+
+      target.innerHTML = `
+        <div class="mermaid-error">
+          <div style="font-weight:600;margin-bottom:4px;">图表解析错误</div>
+          <div style="font-size:11px;opacity:0.85;">${escapeHtml(err.message || String(err))}</div>
+        </div>
+      `;
+    }
+  }
+}
+window.renderAllMermaidDiagrams = renderAllMermaidDiagrams;
 
 // Markdown & LaTeX Parsing Memory Cache (LRU)
 const markdownCache = new Map();

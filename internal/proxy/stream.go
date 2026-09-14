@@ -164,6 +164,7 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			} else if details.QueuedMessages == nil {
 				details.QueuedMessages = []QueuedMessageItem{}
 			}
+			details.QueuedMessages = p.FilterQueuedMessagesAgainstTrajectory(cascadeID, details.QueuedMessages, rawResp.Trajectory.Steps, details.AllMessages)
 
 			if sink := p.NotificationSink(); sink != nil {
 				sink.OnTrajectoryUpdate(&details)
