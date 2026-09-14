@@ -261,6 +261,23 @@ func (p *Proxy) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 
+	// Active server-side heartbeat ping to keep connections alive through reverse proxies
+	stopHeartbeat := make(chan struct{})
+	defer close(stopHeartbeat)
+	go func() {
+		ticker := time.NewTicker(20 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopHeartbeat:
+				return
+			case <-ticker.C:
+				_ = clientConn.WriteControl(websocket.PingMessage, []byte("ping"), time.Now().Add(5*time.Second))
+				_ = upstreamConn.WriteControl(websocket.PingMessage, []byte("ping"), time.Now().Add(5*time.Second))
+			}
+		}
+	}()
+
 	// Pump: Client -> Upstream
 	go func() {
 		defer wg.Done()

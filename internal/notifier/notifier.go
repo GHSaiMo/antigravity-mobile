@@ -11,25 +11,44 @@ import (
 	"antigravity-mobile/internal/proxy"
 )
 
-// Notifier dispatches alerts to push notification channels (Bark, etc.)
-type Notifier struct {
-	cfg   config.NotificationConfig
-	bark  *BarkClient
-	dedup *DedupCache
+// NotificationSender defines the interface for dispatching notification payloads.
+type NotificationSender interface {
+	Send(ctx context.Context, payload BarkPayload) error
 }
 
-// NewNotifier creates an initialized Notifier instance.
+// Notifier dispatches alerts to push notification channels (Bark, Webhook, etc.)
+type Notifier struct {
+	cfg    config.NotificationConfig
+	sender NotificationSender
+	dedup  *DedupCache
+}
+
+// NewNotifier creates an initialized Notifier instance using the default Bark client.
 func NewNotifier(cfg config.NotificationConfig) *Notifier {
 	return &Notifier{
-		cfg:   cfg,
-		bark:  NewBarkClient(cfg),
-		dedup: NewDedupCache(),
+		cfg:    cfg,
+		sender: NewBarkClient(cfg),
+		dedup:  NewDedupCache(),
 	}
+}
+
+// NewNotifierWithSender creates an initialized Notifier instance with a custom sender.
+func NewNotifierWithSender(cfg config.NotificationConfig, sender NotificationSender) *Notifier {
+	return &Notifier{
+		cfg:    cfg,
+		sender: sender,
+		dedup:  NewDedupCache(),
+	}
+}
+
+// SetSender updates the notification sender (e.g. for testing or alternative channels).
+func (n *Notifier) SetSender(sender NotificationSender) {
+	n.sender = sender
 }
 
 // IsEnabled reports whether notifications are actively configured.
 func (n *Notifier) IsEnabled() bool {
-	return n != nil && n.cfg.Enabled && n.bark != nil && n.cfg.BarkEndpoint != ""
+	return n != nil && n.cfg.Enabled && n.sender != nil && n.cfg.BarkEndpoint != ""
 }
 
 // Dedup returns the deduplication cache.
@@ -93,7 +112,7 @@ func (n *Notifier) NotifyAction(cascadeID, title string, pi *proxy.PendingIntera
 		Category: "antigravity_action",
 	}
 
-	if err := n.bark.Send(context.Background(), payload); err != nil {
+	if err := n.sender.Send(context.Background(), payload); err != nil {
 		n.dedup.Remove(dedupKey)
 		return err
 	}
@@ -129,7 +148,7 @@ func (n *Notifier) NotifyProceed(cascadeID, title string, totalSteps int) error 
 		Category: "antigravity_proceed",
 	}
 
-	if err := n.bark.Send(context.Background(), payload); err != nil {
+	if err := n.sender.Send(context.Background(), payload); err != nil {
 		n.dedup.Remove(dedupKey)
 		return err
 	}
@@ -165,7 +184,7 @@ func (n *Notifier) NotifyCompleted(cascadeID, title string, totalSteps int) erro
 		Category: "antigravity_complete",
 	}
 
-	if err := n.bark.Send(context.Background(), payload); err != nil {
+	if err := n.sender.Send(context.Background(), payload); err != nil {
 		n.dedup.Remove(dedupKey)
 		return err
 	}
@@ -201,7 +220,7 @@ func (n *Notifier) NotifyFailed(cascadeID, title string, totalSteps int) error {
 		Category: "antigravity_error",
 	}
 
-	if err := n.bark.Send(context.Background(), payload); err != nil {
+	if err := n.sender.Send(context.Background(), payload); err != nil {
 		n.dedup.Remove(dedupKey)
 		return err
 	}
@@ -236,7 +255,7 @@ func (n *Notifier) NotifyCockpitAlert(title, message string) error {
 		Category: "cockpit_alert",
 	}
 
-	if err := n.bark.Send(context.Background(), payload); err != nil {
+	if err := n.sender.Send(context.Background(), payload); err != nil {
 		n.dedup.Remove(dedupKey)
 		return err
 	}

@@ -38,7 +38,7 @@ type NotificationSink interface {
 
 // Proxy routes and proxies HTTP/RPC requests to the Antigravity language_server.
 type Proxy struct {
-	insp      *inspector.Inspector
+	insp      inspector.UpstreamDiscoverer
 	transport *http.Transport
 	startTime time.Time
 
@@ -136,7 +136,7 @@ func (p *Proxy) GetActiveUserStatus() (email string, name string, err error) {
 }
 
 // NewProxy creates a new reverse proxy backed by the inspector.
-func NewProxy(insp *inspector.Inspector) *Proxy {
+func NewProxy(insp inspector.UpstreamDiscoverer) *Proxy {
 	tr := &http.Transport{
 		TLSClientConfig:    &tls.Config{InsecureSkipVerify: true},
 		DisableCompression: true,
@@ -1326,14 +1326,38 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 	}
 
 	// Check recent sessions for CanProceed / PendingInteraction:
-	// Always check up to 10 most recent sessions regardless of age, and up to 25 if within 7 days
+	// Check up to 10 most recent sessions (within 48 hours) to prevent upstream N+1 RPC storms.
+	// For any session already cached with terminal status and within 60s TTL, parse directly without RPC.
 	if len(recentItems) > 0 {
 		sort.Slice(recentItems, func(i, j int) bool {
 			return recentItems[i].t.After(recentItems[j].t)
 		})
-		for i := 0; i < len(recentItems) && i < 25; i++ {
-			if i < 10 || time.Since(recentItems[i].t) < 7*24*time.Hour {
-				candidates[recentItems[i].id] = true
+		for i := 0; i < len(recentItems) && i < 10; i++ {
+			if i < 5 || time.Since(recentItems[i].t) < 48*time.Hour {
+				cid := recentItems[i].id
+				// Fast path: if already cached, non-running, and within TTL, reuse directly
+				defaultTrajCache.trajCacheMu.Lock()
+				cached, ok := defaultTrajCache.trajCache[cid]
+				if ok && cached != nil && cached.data != nil {
+					if cached.data.Status != "" && cached.data.Status != "CASCADE_RUN_STATUS_RUNNING" && time.Since(cached.fetchedAt) < 60*time.Second {
+						details := p.ParseTrajectoryDetails(cached.data)
+						if details.PendingInteraction != nil || details.CanProceed {
+							if summaries[cid] != nil {
+								summaries[cid]["needsInput"] = true
+							}
+						}
+						if details.HasError {
+							if summaries[cid] != nil {
+								summaries[cid]["hasError"] = true
+								summaries[cid]["errorMessage"] = details.ErrorMessage
+							}
+						}
+						defaultTrajCache.trajCacheMu.Unlock()
+						continue
+					}
+				}
+				defaultTrajCache.trajCacheMu.Unlock()
+				candidates[cid] = true
 			}
 		}
 	}

@@ -1,10 +1,11 @@
-const CACHE_NAME = "antigravity-mobile-v6";
+const CACHE_NAME = "antigravity-mobile-v7";
 const ASSETS = [
   "/",
   "/index.html",
   "/style.css",
   "/app.js",
   "/manifest.json",
+  "/mermaid.min.js",
   "/icons/icon.svg",
   "/icons/icon-192.png",
   "/icons/icon-512.png"
@@ -36,24 +37,27 @@ self.addEventListener("fetch", (event) => {
     url.pathname.startsWith("/api/") ||
     url.pathname.startsWith("/gateway/") ||
     url.pathname.startsWith("/static/") ||
-    url.pathname === "/connect-websocket"
+    url.pathname === "/connect-websocket" ||
+    event.request.method !== "GET"
   ) {
     return;
   }
 
-  // Cache-first, fallback to network for app shell
+  // Stale-While-Revalidate strategy for app shell assets
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      return (
-        cached ||
-        fetch(event.request).then((response) => {
-          if (response.ok && event.request.method === "GET") {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+    caches.open(CACHE_NAME).then(async (cache) => {
+      const cachedResponse = await cache.match(event.request);
+      const networkFetch = fetch(event.request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.ok) {
+            cache.put(event.request, networkResponse.clone());
           }
-          return response;
+          return networkResponse;
         })
-      );
+        .catch(() => cachedResponse);
+
+      // Return cached response immediately if available, while updating cache in background
+      return cachedResponse || networkFetch;
     })
   );
 });
