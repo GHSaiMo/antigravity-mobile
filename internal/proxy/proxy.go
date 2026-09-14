@@ -59,6 +59,9 @@ type Proxy struct {
 	activeStreamCascadeID string
 	activeStreamTitle     string
 
+	streamListenersMu sync.Mutex
+	streamListeners   map[string][]chan struct{}
+
 	msgDedupMu   sync.Mutex
 	msgDedup     map[string]time.Time
 	cascadeDedup map[string]cascadeDedupEntry
@@ -322,6 +325,45 @@ func (p *Proxy) ActiveStream() (string, string) {
 	return p.activeStreamCascadeID, p.activeStreamTitle
 }
 
+func (p *Proxy) registerStreamTouchListener(cascadeID string) (<-chan struct{}, func()) {
+	p.streamListenersMu.Lock()
+	defer p.streamListenersMu.Unlock()
+	if p.streamListeners == nil {
+		p.streamListeners = make(map[string][]chan struct{})
+	}
+	ch := make(chan struct{}, 1)
+	p.streamListeners[cascadeID] = append(p.streamListeners[cascadeID], ch)
+	cleanup := func() {
+		p.streamListenersMu.Lock()
+		defer p.streamListenersMu.Unlock()
+		listeners := p.streamListeners[cascadeID]
+		for i, l := range listeners {
+			if l == ch {
+				p.streamListeners[cascadeID] = append(listeners[:i], listeners[i+1:]...)
+				break
+			}
+		}
+		if len(p.streamListeners[cascadeID]) == 0 {
+			delete(p.streamListeners, cascadeID)
+		}
+	}
+	return ch, cleanup
+}
+
+func (p *Proxy) notifyStreamTouch(cascadeID string) {
+	p.streamListenersMu.Lock()
+	defer p.streamListenersMu.Unlock()
+	if p.streamListeners == nil {
+		return
+	}
+	for _, ch := range p.streamListeners[cascadeID] {
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
+	}
+}
+
 func (p *Proxy) handleStatus(w http.ResponseWriter, r *http.Request) {
 	cur := p.insp.Current()
 	status := "disconnected"
@@ -360,7 +402,8 @@ func (p *Proxy) handleCascadeTouch(w http.ResponseWriter, r *http.Request) {
 	if cascadeID != "" {
 		ClearTrajectoryCache(cascadeID)
 		ClearPendingMessagesCache(cascadeID)
-		log.Printf("[Proxy] Cascade cache invalidated via touch API: %s", cascadeID)
+		p.notifyStreamTouch(cascadeID)
+		log.Printf("[Proxy] Cascade cache invalidated and stream notified via touch API: %s", cascadeID)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

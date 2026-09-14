@@ -110,6 +110,9 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 	}
 	defer clientConn.Close()
 
+	log.Printf("[Stream] WS client connected: cascadeId=%s remote=%s client=%s format=%s", cascadeID, r.RemoteAddr, clientType, format)
+	defer log.Printf("[Stream] WS client disconnected: cascadeId=%s remote=%s", cascadeID, r.RemoteAddr)
+
 	cur := p.insp.Current()
 	var curPort int
 	var curToken string
@@ -123,6 +126,9 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 	}
 	p.SetActiveStream(cascadeID, streamTitle)
 	defer p.ClearActiveStream(cascadeID)
+
+	touchCh, cleanupTouch := p.registerStreamTouchListener(cascadeID)
+	defer cleanupTouch()
 
 	var writeMu sync.Mutex
 	writeJSON := func(v interface{}) error {
@@ -164,6 +170,9 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-closeCh:
 			return
+		case <-touchCh:
+			// Instant wake-up upon external touch/message injection without waiting for ticker!
+			ticker.Reset(10 * time.Millisecond)
 		case <-pingTicker.C:
 			writeMu.Lock()
 			clientConn.SetWriteDeadline(time.Now().Add(5 * time.Second))
