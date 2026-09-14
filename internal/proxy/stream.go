@@ -53,7 +53,7 @@ func (p *StreamUpdatePayload) Fingerprint() string {
 			qb.WriteString(";")
 			qb.WriteString(qm.ID)
 			qb.WriteString(":")
-			qb.WriteString(fmt.Sprintf("%d", len(qm.Text)))
+			qb.WriteString(fmt.Sprintf("%d:%d", len(qm.Text), len(qm.Media)))
 		}
 		queuedKey = qb.String()
 	}

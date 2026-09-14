@@ -2427,9 +2427,19 @@ const LocalQueueManager = {
       arrowEl?.classList.add("collapsed");
     }
 
-    listEl.innerHTML = this.queue.map(item => `
+    listEl.innerHTML = this.queue.map(item => {
+      let thumbHtml = "";
+      if (item.media && item.media.length > 0) {
+        const raw = item.media[0];
+        const src = raw.startsWith("data:") ? raw : `data:image/jpeg;base64,${raw}`;
+        thumbHtml = `<img class="queued-item-thumb" src="${src}" alt="attachment" />`;
+      } else if (item.imageUrls && item.imageUrls.length > 0) {
+        thumbHtml = `<img class="queued-item-thumb" src="${escapeHtml(item.imageUrls[0])}" alt="attachment" />`;
+      }
+      return `
       <div class="queued-item-row" data-id="${item.id}">
-        <span class="queued-item-text">${escapeHtml(item.text)}</span>
+        ${thumbHtml}
+        <span class="queued-item-text">${escapeHtml(item.text || (thumbHtml ? "图片" : ""))}</span>
         <div class="queued-actions" data-testid="queued-decorators">
           <button class="queued-icon-btn btn-send-now" onclick="LocalQueueManager.sendNow('${item.id}')" title="立即发送" aria-label="立即发送">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 -960 960 960" fill="currentColor">
@@ -2448,7 +2458,7 @@ const LocalQueueManager = {
           </button>
         </div>
       </div>
-    `).join("");
+    `;}).join("");
   }
 };
 
@@ -3508,7 +3518,14 @@ function renderInlineMarkdown(text) {
     text = text.replace(/task\.md/g, "[task.md](task.md)");
   }
 
+  // Normalize HTML <br> tags outside of inline code spans
+  text = text.replace(/`[^`]+`|[ \t]*<(?:\/br|br\b[^>]*\/?)>[ \t]*\n?/gi, (match) => {
+    if (match.startsWith("`")) return match;
+    return "___HTML_BR___";
+  });
+
   let html = escapeHtml(text);
+  html = html.replace(/___HTML_BR___/g, "<br/>");
 
   // Images (only allow safe URL protocols)
   html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, url) => {
