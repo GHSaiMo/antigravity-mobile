@@ -136,8 +136,6 @@ public struct MarkdownContentView: View {
         }
     }
     
-    private static let linkRegex = try? NSRegularExpression(pattern: #"(?<!\!)\[([^\]]+)\]\(([^)]+)\)"#)
-    
     public static func renderRichText(_ rawText: String, size: CGFloat = 15, weight: Font.Weight = .regular) -> Text {
         var text = MathSymbolProcessor.process(rawText)
         text = replaceHtmlBreaks(in: text)
@@ -153,51 +151,65 @@ public struct MarkdownContentView: View {
             text = text.replacingOccurrences(of: "task.md", with: "[task.md](task.md)")
         }
         
-        // Fast-path: If text does not contain markdown link signature `](`, avoid regex inspection entirely
+        let attr = renderInlineMarkdown(text, size: size, weight: weight)
+        
+        // Fast-path: If text does not contain markdown link signature `](`, return Text(attr) directly
         guard text.contains("[") && text.contains("](") else {
-            return Text(renderInlineMarkdown(text, size: size, weight: weight))
+            return Text(attr)
         }
         
-        guard let regex = Self.linkRegex else {
-            return Text(renderInlineMarkdown(text, size: size, weight: weight))
+        var iconInsertions: [(icon: String, index: AttributedString.Index)] = []
+        var currentLinkUrl: URL? = nil
+        var currentLinkRunsText = ""
+        var currentLinkStartIndex: AttributedString.Index? = nil
+        
+        func finishCurrentLink() {
+            guard let url = currentLinkUrl, let startIdx = currentLinkStartIndex else { return }
+            let linkText = currentLinkRunsText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let icon = FileIconResolver.resolveIcon(for: linkText) ?? FileIconResolver.resolveIcon(for: url.absoluteString) {
+                iconInsertions.append((icon: icon, index: startIdx))
+            }
+            currentLinkUrl = nil
+            currentLinkRunsText = ""
+            currentLinkStartIndex = nil
         }
         
-        let nsText = text as NSString
-        let matches = regex.matches(in: text, range: NSRange(location: 0, length: nsText.length))
+        for run in attr.runs {
+            if let link = run.link {
+                if let activeUrl = currentLinkUrl, activeUrl == link {
+                    currentLinkRunsText += String(attr[run.range].characters)
+                } else {
+                    finishCurrentLink()
+                    currentLinkUrl = link
+                    currentLinkRunsText = String(attr[run.range].characters)
+                    currentLinkStartIndex = run.range.lowerBound
+                }
+            } else {
+                finishCurrentLink()
+            }
+        }
+        finishCurrentLink()
         
-        if matches.isEmpty {
-            return Text(renderInlineMarkdown(text, size: size, weight: weight))
+        if iconInsertions.isEmpty {
+            return Text(attr)
         }
         
         var combined = Text("")
-        var lastEnd = 0
+        var currentIndex = attr.startIndex
+        let iconOffset: CGFloat = (size <= 13) ? -2.2 : -2.0
         
-        for match in matches {
-            let matchRange = match.range
-            if matchRange.location > lastEnd {
-                let leading = nsText.substring(with: NSRange(location: lastEnd, length: matchRange.location - lastEnd))
-                combined = combined + Text(renderInlineMarkdown(leading, size: size, weight: weight))
+        for ins in iconInsertions {
+            if ins.index > currentIndex {
+                let leading = AttributedString(attr[currentIndex..<ins.index])
+                combined = combined + Text(leading)
             }
-            
-            let linkText = nsText.substring(with: match.range(at: 1))
-            let linkUrl = nsText.substring(with: match.range(at: 2))
-            let fullLinkMarkdown = nsText.substring(with: matchRange)
-            
-            if let icon = FileIconResolver.resolveIcon(for: linkText) ?? FileIconResolver.resolveIcon(for: linkUrl) {
-                // Vector file icons are 13.5pt tall. By default, SwiftUI aligns the icon bottom
-                // with the font baseline, causing the icon to float above lowercase/uppercase text.
-                // A negative baseline offset vertically centers the icon with the text.
-                let iconOffset: CGFloat = (size <= 13) ? -2.2 : -2.0
-                combined = combined + Text(Image(icon)).baselineOffset(iconOffset) + Text("\u{2009}")
-            }
-            
-            combined = combined + Text(renderInlineMarkdown(fullLinkMarkdown, size: size, weight: weight))
-            lastEnd = matchRange.location + matchRange.length
+            combined = combined + Text(Image(ins.icon)).baselineOffset(iconOffset) + Text("\u{2009}")
+            currentIndex = ins.index
         }
         
-        if lastEnd < nsText.length {
-            let trailing = nsText.substring(with: NSRange(location: lastEnd, length: nsText.length - lastEnd))
-            combined = combined + Text(renderInlineMarkdown(trailing, size: size, weight: weight))
+        if currentIndex < attr.endIndex {
+            let trailing = AttributedString(attr[currentIndex..<attr.endIndex])
+            combined = combined + Text(trailing)
         }
         
         return combined
@@ -310,6 +322,57 @@ public struct MarkdownContentView: View {
         }.joined()
     }
     
+    // Normalizes inner whitespace in bold markdown, e.g. "** text **" -> " **text** "
+    private static let boldPairRegex = try? NSRegularExpression(
+        pattern: #"(?<!\*)\*\*((?:[^\*]|\*(?!\*))+?)\*\*(?!\*)"#
+    )
+    
+    private static func normalizeBoldSpaces(in text: String) -> String {
+        guard text.contains("**"), let regex = boldPairRegex else { return text }
+        let nsText = text as NSString
+        let matches = regex.matches(in: text, range: NSRange(location: 0, length: nsText.length))
+        guard !matches.isEmpty else { return text }
+        
+        var result = ""
+        var lastEnd = 0
+        
+        for match in matches {
+            let fullRange = match.range
+            if fullRange.location > lastEnd {
+                result += nsText.substring(with: NSRange(location: lastEnd, length: fullRange.location - lastEnd))
+            }
+            
+            let inner = nsText.substring(with: match.range(at: 1))
+            
+            var leadingSpaces = ""
+            var trailingSpaces = ""
+            var trimmed = inner
+            
+            while let first = trimmed.first, first == " " || first == "\t" {
+                leadingSpaces.append(first)
+                trimmed.removeFirst()
+            }
+            while let last = trimmed.last, last == " " || last == "\t" {
+                trailingSpaces.append(last)
+                trimmed.removeLast()
+            }
+            
+            if trimmed.isEmpty {
+                result += nsText.substring(with: fullRange)
+            } else {
+                result += leadingSpaces + "**" + trimmed + "**" + trailingSpaces
+            }
+            
+            lastEnd = fullRange.location + fullRange.length
+        }
+        
+        if lastEnd < nsText.length {
+            result += nsText.substring(with: NSRange(location: lastEnd, length: nsText.length - lastEnd))
+        }
+        
+        return result
+    }
+
     /// Fixes CommonMark delimiter bounding rules for CJK text.
     /// Under CommonMark 0.30 specification, delimiter runs adjacent to punctuation
     /// (e.g. **“bold”** or **(bold)**text) fail left-flanking or right-flanking checks
@@ -331,7 +394,8 @@ public struct MarkdownContentView: View {
                 continue
             }
             
-            let (processed, marked) = processDelimitersInSegment(segment.content)
+            let normalizedContent = normalizeBoldSpaces(in: segment.content)
+            let (processed, marked) = processDelimitersInSegment(normalizedContent)
             if marked { hasMarkers = true }
             processedSegments.append(processed)
         }
@@ -432,11 +496,14 @@ public struct MarkdownContentView: View {
         let codeFgColor = Color(red: 229/255, green: 192/255, blue: 123/255)
         
         for run in attr.runs {
+            let isBold = (run.inlinePresentationIntent?.contains(.stronglyEmphasized) == true) || weight == .bold
+            let runWeight: Font.Weight = isBold ? .bold : .medium
+            
             if let intent = run.inlinePresentationIntent, intent.contains(.code) {
                 attr[run.range].foregroundColor = codeFgColor
-                attr[run.range].font = .system(size: size * 0.9, weight: .medium, design: .monospaced)
+                attr[run.range].font = .system(size: size * 0.9, weight: runWeight, design: .monospaced)
             } else if run.link != nil {
-                attr[run.range].font = .system(size: size * 0.9, weight: .medium, design: .monospaced)
+                attr[run.range].font = .system(size: size * 0.9, weight: runWeight, design: .monospaced)
                 attr[run.range].foregroundColor = Color.blue
                 let linkStr = (run.link?.absoluteString ?? "").lowercased()
                 if linkStr.contains("implementation_plan") || linkStr.contains("walkthrough") {
@@ -679,10 +746,35 @@ public struct MarkdownContentView: View {
         var lastEnd = 0
         var segIdx = 0
         
-        for match in matches {
+        for (idx, match) in matches.enumerated() {
             let matchRange = match.range
+            var prefix = ""
             if matchRange.location > lastEnd {
-                let prefix = nsText.substring(with: NSRange(location: lastEnd, length: matchRange.location - lastEnd))
+                prefix = nsText.substring(with: NSRange(location: lastEnd, length: matchRange.location - lastEnd))
+            }
+            
+            let nextIndex = matchRange.location + matchRange.length
+            let suffixLength = (idx + 1 < matches.count) ? (matches[idx + 1].range.location - nextIndex) : (nsText.length - nextIndex)
+            let suffixPreview = nsText.substring(with: NSRange(location: nextIndex, length: suffixLength))
+            
+            // If the plan link was wrapped in markdown delimiters (e.g. **[implementation_plan.md](...)**),
+            // strip them from prefix and suffix so no dangling asterisks/ticks surround the button.
+            var strippedLength = 0
+            if prefix.hasSuffix("**") && suffixPreview.hasPrefix("**") {
+                prefix = String(prefix.dropLast(2))
+                strippedLength = 2
+            } else if prefix.hasSuffix("*") && suffixPreview.hasPrefix("*") {
+                prefix = String(prefix.dropLast(1))
+                strippedLength = 1
+            } else if prefix.hasSuffix("__") && suffixPreview.hasPrefix("__") {
+                prefix = String(prefix.dropLast(2))
+                strippedLength = 2
+            } else if prefix.hasSuffix("`") && suffixPreview.hasPrefix("`") {
+                prefix = String(prefix.dropLast(1))
+                strippedLength = 1
+            }
+            
+            if !prefix.isEmpty {
                 segments.append(.text(id: "seg-\(segIdx)", content: prefix))
                 segIdx += 1
             }
@@ -702,7 +794,7 @@ public struct MarkdownContentView: View {
             segments.append(.planButton(id: "seg-\(segIdx)", title: title, uri: uri))
             segIdx += 1
             
-            lastEnd = matchRange.location + matchRange.length
+            lastEnd = matchRange.location + matchRange.length + strippedLength
         }
         
         if lastEnd < nsText.length {
@@ -943,7 +1035,7 @@ public enum MarkdownParser {
             while i < lines.count {
                 let nextLine = lines[i]
                 let nTrimmed = nextLine.trimmingCharacters(in: .whitespaces)
-                if nTrimmed.isEmpty || nTrimmed.hasPrefix("```") || nTrimmed.hasPrefix("#") || nTrimmed == "---" || (nTrimmed.hasPrefix("|") && nTrimmed.hasSuffix("|")) || nTrimmed.hasPrefix("- ") || nTrimmed.hasPrefix("* ") {
+                if nTrimmed.isEmpty || nTrimmed.hasPrefix("```") || nTrimmed.hasPrefix("#") || nTrimmed == "---" || (nTrimmed.hasPrefix("|") && nTrimmed.hasSuffix("|")) || nTrimmed.hasPrefix("- ") || nTrimmed.hasPrefix("* ") || nTrimmed.hasPrefix("• ") {
                     break
                 }
                 paraLines.append(nextLine)
