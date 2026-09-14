@@ -207,23 +207,35 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         )
     }
     
+    public static func sanitizeTitle(_ raw: String) -> String {
+        let s = raw.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        if let firstLine = s.components(separatedBy: CharacterSet.newlines).first(where: { !$0.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty }) {
+            let trimmed = firstLine.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+            if trimmed.count > 36 {
+                return String(trimmed.prefix(36)) + "..."
+            }
+            return trimmed
+        }
+        return "未命名会话"
+    }
+
     public init(id: String, summary: TrajectorySummary) {
         self.id = id
         self.draftProject = nil
         
         var resolvedTitle = ""
         if let t = summary.annotations?.title?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines), !t.isEmpty && t != "未命名会话" {
-            resolvedTitle = t
+            resolvedTitle = ConversationItem.sanitizeTitle(t)
         } else if let s = summary.summary?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines), !s.isEmpty && s != "未命名会话" {
-            resolvedTitle = s
+            resolvedTitle = ConversationItem.sanitizeTitle(s)
         } else {
             if let cached = CacheManager.shared.loadSession(for: id) {
                 if let t = cached.title?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines), !t.isEmpty && t != "未命名会话" {
-                    resolvedTitle = t
+                    resolvedTitle = ConversationItem.sanitizeTitle(t)
                 } else if let firstUserMsg = cached.messages.first(where: { $0.isUser }),
                           let prompt = firstUserMsg.content.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).components(separatedBy: CharacterSet.newlines).first(where: { !$0.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty }) {
-                    let trimmed = prompt.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-                    resolvedTitle = String(trimmed.prefix(36))
+                    resolvedTitle = ConversationItem.sanitizeTitle(prompt)
                 }
             }
         }
