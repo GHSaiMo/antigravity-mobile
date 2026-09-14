@@ -44,7 +44,7 @@ func IsWhitelistedPath(path string) bool {
 	// Root and standard static web files
 	if path == "/" || path == "/index.html" || path == "/manifest.json" ||
 		path == "/sw.js" || path == "/style.css" || path == "/app.js" ||
-		path == "/favicon.ico" {
+		path == "/mermaid.min.js" || path == "/favicon.ico" {
 		return true
 	}
 

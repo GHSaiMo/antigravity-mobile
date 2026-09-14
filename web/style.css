@@ -1091,6 +1091,119 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
   border: none;
 }
 
+/* Mermaid Diagram Card (Interactive Diagram / Code Toggle) */
+.mermaid-card {
+  background-color: var(--ios-tertiary-bg);
+  border: 0.5px solid var(--ios-separator);
+  border-radius: 10px;
+  margin: 12px 0;
+  overflow: hidden;
+}
+
+.mermaid-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background-color: rgba(255, 255, 255, 0.04);
+  border-bottom: 0.5px solid var(--ios-separator-subtle);
+  gap: 8px;
+}
+
+.mermaid-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--ios-secondary-label);
+  letter-spacing: 0.5px;
+}
+
+.mermaid-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mermaid-toggle-group {
+  display: inline-flex;
+  background-color: var(--ios-fill);
+  border-radius: 6px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.mermaid-toggle-btn {
+  background: none;
+  border: none;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ios-secondary-label);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.mermaid-toggle-btn.active {
+  background-color: var(--ios-bg-elevated);
+  color: var(--ios-label);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+  font-weight: 600;
+}
+
+.mermaid-viewport {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.mermaid-diagram-wrap {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 14px 10px;
+  min-height: 120px;
+}
+
+.mermaid-render-target {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.mermaid-render-target svg {
+  max-width: 100%;
+  height: auto !important;
+  display: block;
+}
+
+.mermaid-code-wrap {
+  margin: 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.mermaid-code-wrap code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--ios-label);
+}
+
+.mermaid-error {
+  padding: 10px 12px;
+  font-size: 11.5px;
+  color: #f87171;
+  background-color: rgba(239, 68, 68, 0.08);
+  border-radius: 6px;
+  border: 0.5px solid rgba(239, 68, 68, 0.2);
+}
+
 /* iOS Tables with Horizontal Scrolling & Zebra Striping */
 .table-wrapper {
   width: 100%;

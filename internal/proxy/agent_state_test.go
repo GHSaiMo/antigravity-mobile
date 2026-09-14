@@ -661,3 +661,138 @@ func TestParseAgentStateQueuedMessages_WithMedia(t *testing.T) {
 	}
 }
 
+func TestNormalizeTextForComparison(t *testing.T) {
+	cases := []struct {
+		input    string
+		expected string
+	}{
+		{"  Hello \r\n World  ", "helloworld"},
+		{"\u3000中文\u200b测试\ufeff  ", "中文测试"},
+		{"MD 能都渲染这些图？有没有通用的开源的渲染方案，先找找看\n", "md能都渲染这些图？有没有通用的开源的渲染方案，先找找看"},
+		{"", ""},
+	}
+	for _, tc := range cases {
+		got := normalizeTextForComparison(tc.input)
+		if got != tc.expected {
+			t.Errorf("normalizeTextForComparison(%q) = %q; expected %q", tc.input, got, tc.expected)
+		}
+	}
+}
+
+func TestFilterQueuedMessagesAgainstTrajectory(t *testing.T) {
+	p := &Proxy{}
+	cascadeID := "test-dedup-cascade"
+
+	// Setup pendingCache entry
+	pendingCacheMu.Lock()
+	pendingCache[cascadeID] = &pendingMessagesCacheEntry{
+		fetchedAt: time.Now(),
+		messages: []QueuedMessageItem{
+			{ID: "q1", Text: "md 能都渲染这些图？有没有通用的开源的渲染方案，先找找看"},
+			{ID: "q2", Text: "这是下一个排队任务，尚未执行"},
+			{ID: "q3", Media: []string{"img-base64-only"}},
+		},
+	}
+	pendingCacheMu.Unlock()
+
+	steps := []TrajectoryStep{
+		{
+			Type: "CORTEX_STEP_TYPE_USER_INPUT",
+			UserInput: &struct {
+				UserResponse string `json:"userResponse"`
+				Items        []struct {
+					Text string `json:"text"`
+				} `json:"items"`
+				Images []struct {
+					Base64Data string `json:"base64Data"`
+					MimeType   string `json:"mimeType"`
+				} `json:"images"`
+				Media []struct {
+					MimeType    string `json:"mimeType"`
+					Description string `json:"description"`
+					Thumbnail   string `json:"thumbnail"`
+					InlineData  string `json:"inlineData"`
+				} `json:"media"`
+			}{
+				UserResponse: "md 能都渲染这些图？有没有通用的开源的渲染方案，先找找看\n",
+			},
+		},
+		{
+			Type: "CORTEX_STEP_TYPE_USER_INPUT",
+			UserInput: &struct {
+				UserResponse string `json:"userResponse"`
+				Items        []struct {
+					Text string `json:"text"`
+				} `json:"items"`
+				Images []struct {
+					Base64Data string `json:"base64Data"`
+					MimeType   string `json:"mimeType"`
+				} `json:"images"`
+				Media []struct {
+					MimeType    string `json:"mimeType"`
+					Description string `json:"description"`
+					Thumbnail   string `json:"thumbnail"`
+					InlineData  string `json:"inlineData"`
+				} `json:"media"`
+			}{
+				Media: []struct {
+					MimeType    string `json:"mimeType"`
+					Description string `json:"description"`
+					Thumbnail   string `json:"thumbnail"`
+					InlineData  string `json:"inlineData"`
+				}{
+					{Thumbnail: "img-base64-only"},
+				},
+			},
+		},
+	}
+
+	allMessages := []CascadeMessageItem{
+		{
+			ID:   "step-0",
+			Type: "user",
+			Text: "md 能都渲染这些图？有没有通用的开源的渲染方案，先找找看\n",
+		},
+		{
+			ID:    "step-1",
+			Type:  "user",
+			Media: []string{"img-base64-only"},
+		},
+	}
+
+	queued := []QueuedMessageItem{
+		{ID: "q1", Text: "md 能都渲染这些图？有没有通用的开源的渲染方案，先找找看"},
+		{ID: "q2", Text: "这是下一个排队任务，尚未执行"},
+		{ID: "q3", Media: []string{"img-base64-only"}},
+	}
+
+	filtered := p.FilterQueuedMessagesAgainstTrajectory(cascadeID, queued, steps, allMessages)
+
+	// q1 and q3 should be filtered out, q2 must remain!
+	if len(filtered) != 1 {
+		t.Fatalf("expected 1 remaining queued item, got %d: %+v", len(filtered), filtered)
+	}
+	if filtered[0].ID != "q2" {
+		t.Fatalf("expected q2 to remain, got %+v", filtered[0])
+	}
+
+	// Verify q1 and q3 are tombstoned
+	if !IsMessageDeleted(cascadeID, "q1") {
+		t.Errorf("expected q1 to be tombstoned")
+	}
+	if !IsMessageDeleted(cascadeID, "q3") {
+		t.Errorf("expected q3 to be tombstoned")
+	}
+
+	// Verify pendingCache was purged of q1 and q3
+	pendingCacheMu.RLock()
+	cached := pendingCache[cascadeID].messages
+	pendingCacheMu.RUnlock()
+	for _, m := range cached {
+		if m.ID == "q1" || m.ID == "q3" {
+			t.Errorf("expected %s to be evicted from pendingCache", m.ID)
+		}
+	}
+}
+
+

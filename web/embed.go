@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-//go:embed index.html style.css app.js manifest.json sw.js icons
+//go:embed index.html style.css app.js manifest.json sw.js icons mermaid.min.js
 var staticFiles embed.FS
 
 // Handler returns an http.Handler that serves the embedded web assets with SPA fallback to index.html.
