@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"bytes"
-	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -1247,16 +1246,16 @@ func (p *Proxy) CancelCascadeStep(cascadeID string, stepIndex int, port int, tok
 		return fmt.Errorf("no active Antigravity upstream")
 	}
 
-	bodyData, err := json.Marshal(map[string]interface{}{
-		"cascadeId":   cascadeID,
-		"stepIndices": []int{stepIndex},
-	})
-	if err != nil {
-		return err
-	}
+	buf := GetSmallBuffer()
+	defer PutSmallBuffer(buf)
+	buf.WriteString(`{"cascadeId":`)
+	buf.WriteString(strconv.Quote(cascadeID))
+	buf.WriteString(`,"stepIndices":[`)
+	buf.WriteString(strconv.Itoa(stepIndex))
+	buf.WriteString(`]}`)
 
 	url := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/CancelCascadeSteps", port)
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(bodyData))
+	req, err := http.NewRequest(http.MethodPost, url, buf)
 	if err != nil {
 		return err
 	}
@@ -1660,7 +1659,7 @@ func (p *Proxy) SyncHistoricalTrajectories(port int, token string) error {
 
 func (p *Proxy) fetchTrajectoriesSummaryWithTitles(port int, token string) (map[string]string, error) {
 	url := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories", port)
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader([]byte("{}")))
+	req, err := http.NewRequest(http.MethodPost, url, strings.NewReader("{}"))
 	if err != nil {
 		return nil, err
 	}
@@ -1728,10 +1727,14 @@ func (p *Proxy) fetchUpstreamTrajectoryWithMaxAge(cascadeID string, port int, to
 	}
 	defaultTrajCache.trajCacheMu.Unlock()
 
-	bodyBytes, _ := json.Marshal(map[string]string{"cascadeId": cascadeID})
+	buf := GetSmallBuffer()
+	defer PutSmallBuffer(buf)
+	buf.WriteString(`{"cascadeId":`)
+	buf.WriteString(strconv.Quote(cascadeID))
+	buf.WriteString(`}`)
 	url := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetCascadeTrajectory", port)
 
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(bodyBytes))
+	req, err := http.NewRequest(http.MethodPost, url, buf)
 	if err != nil {
 		return nil, err
 	}
@@ -1754,11 +1757,11 @@ func (p *Proxy) fetchUpstreamTrajectoryWithMaxAge(cascadeID string, port int, to
 
 	var reader io.Reader = resp.Body
 	if strings.EqualFold(resp.Header.Get("Content-Encoding"), "gzip") {
-		gzReader, err := gzip.NewReader(resp.Body)
+		gzReader, err := GetGzipReader(resp.Body)
 		if err != nil {
 			return nil, fmt.Errorf("gzip reader failed: %w", err)
 		}
-		defer gzReader.Close()
+		defer PutGzipReader(gzReader)
 		reader = gzReader
 	}
 
@@ -1828,7 +1831,7 @@ func (p *Proxy) FetchRawCascadeSummaries() (map[string]map[string]interface{}, m
 	}
 
 	url := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories", port)
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader([]byte("{}")))
+	req, err := http.NewRequest(http.MethodPost, url, strings.NewReader("{}"))
 	if err != nil {
 		return nil, nil, err
 	}

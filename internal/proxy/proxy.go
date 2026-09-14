@@ -107,7 +107,7 @@ func (p *Proxy) GetActiveUserStatus() (email string, name string, err error) {
 	}
 
 	url := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetUserStatus", port)
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader([]byte("{}")))
+	req, err := http.NewRequest(http.MethodPost, url, strings.NewReader("{}"))
 	if err != nil {
 		return "", "", err
 	}
@@ -144,8 +144,14 @@ func (p *Proxy) GetActiveUserStatus() (email string, name string, err error) {
 // NewProxy creates a new reverse proxy backed by the inspector.
 func NewProxy(insp inspector.UpstreamDiscoverer) *Proxy {
 	tr := &http.Transport{
-		TLSClientConfig:    &tls.Config{InsecureSkipVerify: true},
-		DisableCompression: true,
+		TLSClientConfig:       &tls.Config{InsecureSkipVerify: true},
+		DisableCompression:    true,
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   50,
+		MaxConnsPerHost:       100,
+		IdleConnTimeout:       90 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
 	}
 
 	p := &Proxy{
