@@ -191,14 +191,15 @@ public struct SettingsSheet: View {
                     Toggle("自动批准权限 (Always Allow)", isOn: $settings.autoApprovePermissions)
                 }
                 
-                Section(header: Text("本地缓存"), footer: Text("已开启离线缓存与秒开机制。会话列表与对话历史自动保存到本地，二次进入 0 延迟秒开。")) {
+                Section(header: Text("本地缓存"), footer: Text("已开启离线缓存与秒开机制。会话历史、方案 Markdown、PPTX 及 HTML 文档均自动保存到本地，二次进入 0 延迟秒开。")) {
                     Button(role: .destructive, action: {
                         CacheManager.shared.clearCache()
+                        DocumentCacheManager.shared.clearCache()
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                     }) {
                         HStack {
                             Image(systemName: "trash")
-                            Text("清空本地会话与历史缓存")
+                            Text("清空本地会话与文档缓存")
                         }
                     }
                 }
