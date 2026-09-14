@@ -460,6 +460,8 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 	} else if details.QueuedMessages == nil {
 		details.QueuedMessages = []QueuedMessageItem{}
 	}
+	details.QueuedMessages = p.FilterQueuedMessagesAgainstTrajectory(cascadeID, details.QueuedMessages, rawResp.Trajectory.Steps, details.AllMessages)
+
 	totalMsgs := len(details.AllMessages)
 	var sliced []CascadeMessageItem
 	hasMore := false
@@ -1089,6 +1091,7 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 			})
 		}
 	}
+	queuedMessages = p.FilterQueuedMessagesAgainstTrajectory(rawResp.Trajectory.CascadeID, queuedMessages, steps, allMessages)
 
 	var runningTasks []RunningTaskItem
 	for idx, s := range steps {

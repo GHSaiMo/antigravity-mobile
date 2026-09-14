@@ -8,10 +8,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -835,3 +837,167 @@ func (p *Proxy) GetCachedOrFetchPendingMessages(cascadeID string, port int, toke
 
 	return filtered
 }
+
+// normalizeTextForComparison strips all whitespace, newlines, zero-width chars, and control chars, lowercasing for fuzzy-safe comparison.
+func normalizeTextForComparison(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if unicode.IsSpace(r) || unicode.IsControl(r) || r == '\u200b' || r == '\ufeff' || r == '\u3000' {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// EvictMatchingPendingMessagesFromCache removes pending messages matching ID or normalized text from cache.
+func EvictMatchingPendingMessagesFromCache(cascadeID, messageID, text string) {
+	normText := normalizeTextForComparison(text)
+	if messageID == "" && normText == "" {
+		return
+	}
+	pendingCacheMu.Lock()
+	defer pendingCacheMu.Unlock()
+	for cID, entry := range pendingCache {
+		if cascadeID == "" || cID == cascadeID {
+			if entry != nil && len(entry.messages) > 0 {
+				filtered := make([]QueuedMessageItem, 0, len(entry.messages))
+				for _, m := range entry.messages {
+					matchID := messageID != "" && m.ID == messageID
+					matchText := normText != "" && normalizeTextForComparison(m.Text) == normText
+					if !matchID && !matchText {
+						filtered = append(filtered, m)
+					}
+				}
+				entry.messages = filtered
+			}
+		}
+	}
+}
+
+// FilterQueuedMessagesAgainstTrajectory filters out queued messages that have already
+// been incorporated into the trajectory's user steps or conversation messages.
+func (p *Proxy) FilterQueuedMessagesAgainstTrajectory(cascadeID string, queued []QueuedMessageItem, steps []TrajectoryStep, allMessages []CascadeMessageItem) []QueuedMessageItem {
+	if len(queued) == 0 {
+		return queued
+	}
+
+	type userTurnInfo struct {
+		ID        string
+		Text      string
+		NormText  string
+		HasMedia  bool
+		CreatedAt time.Time
+	}
+
+	var userTurns []userTurnInfo
+	for _, msg := range allMessages {
+		if msg.Type == "user" {
+			userTurns = append(userTurns, userTurnInfo{
+				ID:       msg.ID,
+				Text:     msg.Text,
+				NormText: normalizeTextForComparison(msg.Text),
+				HasMedia: len(msg.Media) > 0 || len(msg.ImageURLs) > 0,
+			})
+		}
+	}
+
+	if len(steps) > 0 {
+		for idx, s := range steps {
+			if s.Type == "CORTEX_STEP_TYPE_USER_INPUT" {
+				text := ""
+				hasMedia := false
+				if s.UserInput != nil {
+					text = s.UserInput.UserResponse
+					if text == "" && len(s.UserInput.Items) > 0 {
+						text = s.UserInput.Items[0].Text
+					}
+					hasMedia = len(s.UserInput.Media) > 0 || len(s.UserInput.Images) > 0
+				}
+				stepID := fmt.Sprintf("step-%d", idx)
+				var t time.Time
+				if s.Metadata.CreatedAt != "" {
+					t, _ = time.Parse(time.RFC3339, s.Metadata.CreatedAt)
+				}
+				found := false
+				for i := range userTurns {
+					if userTurns[i].ID == stepID {
+						userTurns[i].CreatedAt = t
+						if userTurns[i].Text == "" && text != "" {
+							userTurns[i].Text = text
+							userTurns[i].NormText = normalizeTextForComparison(text)
+						}
+						if hasMedia {
+							userTurns[i].HasMedia = true
+						}
+						found = true
+						break
+					}
+				}
+				if !found && (strings.TrimSpace(text) != "" || hasMedia) {
+					userTurns = append(userTurns, userTurnInfo{
+						ID:        stepID,
+						Text:      text,
+						NormText:  normalizeTextForComparison(text),
+						HasMedia:  hasMedia,
+						CreatedAt: t,
+					})
+				}
+			}
+		}
+	}
+
+	filtered := make([]QueuedMessageItem, 0, len(queued))
+	for _, qm := range queued {
+		normQm := normalizeTextForComparison(qm.Text)
+		qmHasMedia := len(qm.Media) > 0 || len(qm.ImageURLs) > 0
+		var qmTime time.Time
+		if qm.CreatedAt != "" {
+			qmTime, _ = time.Parse(time.RFC3339, qm.CreatedAt)
+		}
+
+		isEntered := false
+		var matchedID string
+
+		// Iterate backwards from the latest user turn
+		for i := len(userTurns) - 1; i >= 0; i-- {
+			u := userTurns[i]
+
+			// If both timestamps are available, ensure user step was not created significantly before qm
+			if !qmTime.IsZero() && !u.CreatedAt.IsZero() && u.CreatedAt.Before(qmTime.Add(-2*time.Second)) {
+				continue
+			}
+
+			if normQm != "" {
+				if normQm == u.NormText {
+					isEntered = true
+					matchedID = u.ID
+					break
+				}
+				if len(normQm) >= 6 && len(u.NormText) >= 6 {
+					if strings.Contains(u.NormText, normQm) || strings.Contains(normQm, u.NormText) {
+						isEntered = true
+						matchedID = u.ID
+						break
+					}
+				}
+			} else if qmHasMedia && u.HasMedia {
+				isEntered = true
+				matchedID = u.ID
+				break
+			}
+		}
+
+		if isEntered {
+			log.Printf("[Proxy] Queued message %s (%q) has already entered conversation as %s; dropping from queue", qm.ID, qm.Text, matchedID)
+			RecordDeletedMessage(cascadeID, qm.ID)
+			RemovePendingMessageFromCache(cascadeID, qm.ID)
+			EvictMatchingPendingMessagesFromCache(cascadeID, qm.ID, qm.Text)
+		} else {
+			filtered = append(filtered, qm)
+		}
+	}
+
+	return filtered
+}
+

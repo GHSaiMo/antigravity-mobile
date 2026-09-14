@@ -94,7 +94,11 @@ public struct MarkdownContentView: View {
                         .padding(.vertical, 4)
                     
                 case .codeBlock(_, let lang, let code):
-                    codeBlockView(lang: lang, code: code)
+                    if lang.trimmingCharacters(in: .whitespaces).lowercased() == "mermaid" {
+                        MermaidDiagramView(code: code)
+                    } else {
+                        codeBlockView(lang: lang, code: code)
+                    }
                     
                 case .table(_, let headers, let rows, let alignments):
                     tableView(headers: headers, rows: rows, alignments: alignments)
