@@ -9,6 +9,11 @@ public struct InteractionCardView: View {
     @State private var selectedOptionId: String
     @State private var writeInText: String = ""
     @State private var targetText: String
+    @State private var settings = AppSettings.shared
+    
+    private var isPermissionType: Bool {
+        interaction.type == "permission" || interaction.type == "file_permission"
+    }
     
     public init(
         interaction: PendingInteraction,
@@ -20,7 +25,15 @@ public struct InteractionCardView: View {
         self.isSubmitting = isSubmitting
         self.onSubmit = onSubmit
         self.onSkip = onSkip
-        _selectedOptionId = State(initialValue: interaction.defaultOptionId ?? interaction.options.first?.id ?? "1")
+        if AppSettings.shared.autoApprovePermissions && (interaction.type == "permission" || interaction.type == "file_permission") {
+            if let opt4 = interaction.options.first(where: { $0.id == "4" || $0.scope == 4 || $0.text.localizedCaseInsensitiveContains("always allow") }) {
+                _selectedOptionId = State(initialValue: opt4.id)
+            } else {
+                _selectedOptionId = State(initialValue: interaction.defaultOptionId ?? interaction.options.first?.id ?? "1")
+            }
+        } else {
+            _selectedOptionId = State(initialValue: interaction.defaultOptionId ?? interaction.options.first?.id ?? "1")
+        }
         _targetText = State(initialValue: interaction.target ?? "")
     }
     
@@ -158,8 +171,36 @@ public struct InteractionCardView: View {
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
             
-            // Bottom Action Bar: Skip & Submit (Blue Background)
-            HStack(spacing: 10) {
+            // Bottom Action Bar: Auto-Approve Toggle & Skip & Submit (Blue Background)
+            HStack(spacing: 8) {
+                if isPermissionType {
+                    Button {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            settings.autoApprovePermissions.toggle()
+                            if settings.autoApprovePermissions {
+                                if let opt4 = interaction.options.first(where: { $0.id == "4" || $0.scope == 4 || $0.text.localizedCaseInsensitiveContains("always allow") }) {
+                                    selectedOptionId = opt4.id
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: settings.autoApprovePermissions ? "bolt.fill" : "bolt")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(settings.autoApprovePermissions ? .yellow : .secondary)
+                            Text(settings.autoApprovePermissions ? "自动审批: 开" : "自动审批: 关")
+                                .font(.system(size: 11.5, weight: .medium))
+                                .foregroundColor(settings.autoApprovePermissions ? .primary : .secondary)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .background(settings.autoApprovePermissions ? Color.yellow.opacity(0.15) : Color(uiColor: .tertiarySystemFill))
+                        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                }
+                
                 Spacer()
                 
                 // Skip Button

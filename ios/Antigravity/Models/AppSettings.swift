@@ -29,6 +29,7 @@ public final class AppSettings {
     private let activeServerURLKey = "antigravity.active_server_url"
     private let enableLiveActivityKey = "antigravity.enable_live_activity"
     private let activeModelKey = "antigravity.active_model"
+    private let autoApprovePermissionsKey = "antigravity.auto_approve_permissions"
     
     public var rawServerURL: String {
         didSet {
@@ -98,6 +99,12 @@ public final class AppSettings {
     public var activeModel: String {
         didSet {
             UserDefaults.standard.set(activeModel, forKey: activeModelKey)
+        }
+    }
+    
+    public var autoApprovePermissions: Bool {
+        didSet {
+            UserDefaults.standard.set(autoApprovePermissions, forKey: autoApprovePermissionsKey)
         }
     }
     
@@ -322,5 +329,8 @@ public final class AppSettings {
         
         let savedModel = UserDefaults.standard.string(forKey: activeModelKey) ?? "gemini-3.8-flash-high"
         self.activeModel = savedModel
+        
+        let savedAutoApprove = UserDefaults.standard.bool(forKey: autoApprovePermissionsKey)
+        self.autoApprovePermissions = savedAutoApprove
     }
 }
