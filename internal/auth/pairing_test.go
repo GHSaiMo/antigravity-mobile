@@ -135,7 +135,7 @@ func TestGenerateMultiHostPairingURI(t *testing.T) {
 	if !strings.Contains(uri, "host=192.168.1.100") {
 		t.Errorf("missing primary host in %s", uri)
 	}
-	if !strings.Contains(uri, "ipv6=240e%3A3a1%3A1c3%3A4e80%3A%3A1") && !strings.Contains(uri, "ipv6=2001:db8:abcd::1") {
+	if !strings.Contains(uri, "ipv6=2001%3Adb8%3Aabcd%3A%3A1") && !strings.Contains(uri, "ipv6=2001:db8:abcd::1") {
 		t.Errorf("missing ipv6 in %s", uri)
 	}
 	if !strings.Contains(uri, "ddns=mac.example.com") {

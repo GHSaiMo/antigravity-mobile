@@ -60,8 +60,16 @@ func TestIsSafeFilePath(t *testing.T) {
 }
 
 func TestGetFileContentAndHandler(t *testing.T) {
-	// Create temporary test artifact with metadata
-	tmpDir, err := os.MkdirTemp("", "antigravity-test-*")
+	// Create temporary test artifact within the whitelisted brain directory
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	brainBase := filepath.Join(home, ".gemini", "antigravity", "brain")
+	if err := os.MkdirAll(brainBase, 0755); err != nil {
+		t.Fatal(err)
+	}
+	tmpDir, err := os.MkdirTemp(brainBase, "antigravity-test-*")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +136,20 @@ func TestGetFileContentAndHandler(t *testing.T) {
 }
 
 func TestHandleFileRawChineseFilename(t *testing.T) {
-	tempDir := t.TempDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Use ~/Projects/ which is in the whitelist
+	projectsBase := filepath.Join(home, "Projects")
+	if err := os.MkdirAll(projectsBase, 0755); err != nil {
+		t.Fatal(err)
+	}
+	tempDir, err := os.MkdirTemp(projectsBase, "antigravity-filetest-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tempDir)
 	chineseFileName := "五矿证券转训课件测试.pptx"
 	filePath := filepath.Join(tempDir, chineseFileName)
 	content := []byte("PK\x03\x04test_zip_content")

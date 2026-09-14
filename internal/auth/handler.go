@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -323,16 +324,32 @@ func isLoopback(remoteAddr string) bool {
 	return ip.IsLoopback()
 }
 
-// isAuthorizedAdmin checks if the request is from localhost or carries a valid device token.
+// isAuthorizedAdmin checks if the request carries a valid admin token,
+// or is genuinely from localhost (not behind a reverse proxy).
 func (h *AuthHandler) isAuthorizedAdmin(r *http.Request) bool {
-	if isLoopback(r.RemoteAddr) {
-		return true
-	}
-	token := ExtractToken(r)
-	if token != "" {
-		if _, ok := h.store.ValidateToken(token); ok {
+	// 1. Check dedicated admin token (env: ADMIN_TOKEN)
+	if adminToken := os.Getenv("ADMIN_TOKEN"); adminToken != "" {
+		// From Authorization header
+		if authHeader := r.Header.Get("Authorization"); authHeader != "" {
+			parts := strings.SplitN(authHeader, " ", 2)
+			if len(parts) == 2 && strings.EqualFold(parts[0], "bearer") && strings.TrimSpace(parts[1]) == adminToken {
+				return true
+			}
+		}
+		// From query parameter
+		if r.URL.Query().Get("admin_token") == adminToken {
 			return true
 		}
 	}
+
+	// 2. Loopback fallback: only trust RemoteAddr if NOT behind a reverse proxy.
+	//    If X-Forwarded-For or X-Real-IP headers are present, a proxy is in front
+	//    and RemoteAddr is the proxy's address, not the real client.
+	if r.Header.Get("X-Forwarded-For") == "" && r.Header.Get("X-Real-IP") == "" {
+		if isLoopback(r.RemoteAddr) {
+			return true
+		}
+	}
+
 	return false
 }
