@@ -16,7 +16,7 @@ test:
 
 # Clean artifacts
 clean:
-	rm -rf bin logs/*.log
+	rm -rf bin dist build logs/*.log
 
 # Launch gateway in a detached tmux session with log tee
 tmux-start: build
