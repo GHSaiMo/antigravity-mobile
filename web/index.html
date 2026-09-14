@@ -466,9 +466,76 @@
         </div>
       </div>
     </div>
+
+    <!-- Full-Screen Image Viewer Modal (Lightbox with Zoom & Pan) -->
+    <div id="image-viewer-modal" class="image-viewer-modal hidden" role="dialog" aria-modal="true" aria-label="全屏查看图片">
+      <div class="image-viewer-backdrop" id="image-viewer-backdrop"></div>
+      
+      <!-- Top Navigation Bar (iOS Translucent Header) -->
+      <div class="image-viewer-navbar">
+        <button id="btn-image-viewer-close" class="image-viewer-nav-btn" aria-label="关闭" title="关闭 (Esc)">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+
+        <div class="image-viewer-title-group">
+          <span id="image-viewer-filename" class="image-viewer-title">原图预览</span>
+          <span id="image-viewer-meta" class="image-viewer-meta">正在载入高清原图...</span>
+        </div>
+
+        <div class="image-viewer-nav-actions">
+          <button id="btn-image-viewer-download" class="image-viewer-nav-btn" aria-label="下载原图" title="保存/下载原图">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+          </button>
+          <button id="btn-image-viewer-external" class="image-viewer-nav-btn" aria-label="新标签页打开" title="在新标签页中打开">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+              <polyline points="15 3 21 3 21 9"></polyline>
+              <line x1="10" y1="14" x2="21" y2="3"></line>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Scrollable Viewport & Interactive Stage -->
+      <div class="image-viewer-viewport" id="image-viewer-viewport">
+        <div class="image-viewer-stage" id="image-viewer-stage">
+          <div class="image-viewer-loading" id="image-viewer-loading">
+            <div class="ios-spinner"></div>
+            <span>加载高清原图中...</span>
+          </div>
+          <img id="image-viewer-img" class="image-viewer-img" src="" alt="原图预览" draggable="false" />
+        </div>
+      </div>
+
+      <!-- Floating Bottom Toolbar -->
+      <div class="image-viewer-toolbar">
+        <button id="btn-image-zoom-out" class="image-viewer-tool-btn" aria-label="缩小" title="缩小">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round">
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+        </button>
+        <span id="image-viewer-zoom-label" class="image-viewer-zoom-label">100%</span>
+        <button id="btn-image-zoom-in" class="image-viewer-tool-btn" aria-label="放大" title="放大">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+        </button>
+        <div class="image-viewer-tool-divider"></div>
+        <button id="btn-image-zoom-fit" class="image-viewer-tool-btn text-btn" type="button">适应</button>
+        <button id="btn-image-zoom-actual" class="image-viewer-tool-btn text-btn" type="button">1:1</button>
+      </div>
+    </div>
   </div>
 
   <script src="/mermaid.min.js"></script>
-  <script src="/app.js?v=20"></script>
+  <script src="/app.js?v=21"></script>
 </body>
 </html>

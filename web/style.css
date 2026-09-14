@@ -3084,4 +3084,388 @@ body {
   box-shadow: 0 2px 8px rgba(0, 122, 255, 0.35);
 }
 
+/* ==========================================================================
+   Image Thumbnail Card & Full-Screen Image Lightbox Viewer
+   ========================================================================== */
+
+/* 1. Image Thumbnail Card (Inside Chat Bubbles) */
+.image-thumb-card {
+  display: block;
+  width: 100%;
+  max-width: 320px;
+  background: var(--ios-secondary-bg);
+  border: 0.5px solid var(--ios-separator);
+  border-radius: 14px;
+  overflow: hidden;
+  margin: 10px 0;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+  transition: transform 0.16s ease, box-shadow 0.16s ease;
+  position: relative;
+}
+
+.image-thumb-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.1);
+}
+
+.image-thumb-card:active {
+  transform: scale(0.98);
+  opacity: 0.92;
+}
+
+.image-thumb-media {
+  position: relative;
+  width: 100%;
+  height: 200px;
+  max-height: 240px;
+  background: rgba(120, 120, 128, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.image-thumb-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+  display: block;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+.image-thumb-img.loaded {
+  opacity: 1;
+}
+
+.image-thumb-spinner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.image-thumb-card.loaded .image-thumb-spinner {
+  display: none;
+}
+
+.image-thumb-error {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--ios-secondary-label);
+  font-size: 12px;
+  width: 100%;
+  height: 100%;
+  background: rgba(120, 120, 128, 0.05);
+}
+
+.image-thumb-card.load-error .image-thumb-error {
+  display: flex;
+}
+
+.image-thumb-card.load-error .image-thumb-img,
+.image-thumb-card.load-error .image-thumb-spinner {
+  display: none;
+}
+
+.image-thumb-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--ios-bg);
+  border-top: 0.5px solid var(--ios-separator);
+  gap: 8px;
+}
+
+.image-thumb-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.image-thumb-name {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ios-label);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.image-thumb-dimensions {
+  font-size: 11px;
+  color: var(--ios-secondary-label);
+  white-space: nowrap;
+}
+
+.image-thumb-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 2.5px 5px;
+  border-radius: 4px;
+  background: rgba(0, 122, 255, 0.12);
+  color: var(--ios-blue);
+  flex-shrink: 0;
+}
+
+.image-thumb-zoom-pill {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ios-blue);
+  background: rgba(0, 122, 255, 0.08);
+  padding: 4px 8px;
+  border-radius: 12px;
+  flex-shrink: 0;
+}
+
+/* 2. Full-Screen Image Lightbox Viewer Modal */
+.image-viewer-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  display: flex;
+  flex-direction: column;
+  background: rgba(10, 10, 12, 0.96);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.25s;
+}
+
+.image-viewer-modal.hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.image-viewer-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+.image-viewer-navbar {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  padding-top: max(12px, env(safe-area-inset-top));
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.6) 0%, transparent 100%);
+  gap: 12px;
+}
+
+.image-viewer-nav-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  border: 0.5px solid rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.image-viewer-nav-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.image-viewer-nav-btn:active {
+  transform: scale(0.92);
+}
+
+.image-viewer-title-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  flex: 1;
+  text-align: center;
+}
+
+.image-viewer-title {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+
+.image-viewer-meta {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.65);
+  margin-top: 1px;
+}
+
+.image-viewer-nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.image-viewer-viewport {
+  position: relative;
+  z-index: 5;
+  flex: 1;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px;
+}
+
+.image-viewer-stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 100%;
+  min-height: 100%;
+}
+
+.image-viewer-loading {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 12px;
+  pointer-events: none;
+  z-index: 8;
+  transition: opacity 0.2s ease;
+}
+
+.image-viewer-loading.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.image-viewer-img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  transition: transform 0.15s ease-out;
+  transform-origin: center center;
+  cursor: grab;
+}
+
+.image-viewer-img.is-long-screenshot {
+  max-height: none !important;
+  width: 100%;
+  max-width: 900px;
+  align-self: flex-start;
+  margin: auto;
+}
+
+.image-viewer-img:active {
+  cursor: grabbing;
+}
+
+.image-viewer-toolbar {
+  position: relative;
+  z-index: 10;
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  margin-bottom: max(16px, env(safe-area-inset-bottom));
+  background: rgba(30, 30, 36, 0.75);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  border: 0.5px solid rgba(255, 255, 255, 0.15);
+  border-radius: 30px;
+  padding: 4px 8px;
+  gap: 4px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+}
+
+.image-viewer-tool-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: transparent;
+  border: none;
+  color: #ffffff;
+  cursor: pointer;
+  transition: background 0.12s ease, transform 0.1s ease;
+  padding: 0;
+}
+
+.image-viewer-tool-btn.text-btn {
+  width: auto;
+  padding: 0 10px;
+  height: 28px;
+  border-radius: 14px;
+  font-size: 11.5px;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.image-viewer-tool-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.image-viewer-tool-btn:active {
+  transform: scale(0.92);
+}
+
+.image-viewer-zoom-label {
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #ffffff;
+  min-width: 44px;
+  text-align: center;
+}
+
+.image-viewer-tool-divider {
+  width: 1px;
+  height: 16px;
+  background: rgba(255, 255, 255, 0.2);
+  margin: 0 2px;
+}
+
 

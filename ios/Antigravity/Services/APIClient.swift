@@ -455,18 +455,41 @@ public final class APIClient: Sendable {
                 if !response.isEmpty || (thinking != nil && !thinking!.isEmpty) {
                     flushTools()
                     
-                    // Extract any image URLs in response markdown
+                    // Extract any image URLs in response markdown and MEDIA: tags
                     var imageUrls: [String] = []
-                    if let regex = try? NSRegularExpression(pattern: #"!\[.*?\]\((https?://[^\s\)]+|/static/[^\s\)]+)\)"#) {
-                        let nsRange = NSRange(response.startIndex..<response.endIndex, in: response)
-                        let matches = regex.matches(in: response, range: nsRange)
-                        for match in matches {
-                            if match.numberOfRanges > 1, let range = Range(match.range(at: 1), in: response) {
-                                var imgUrl = String(response[range])
-                                if imgUrl.hasPrefix("/static/") {
-                                    imgUrl = baseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + imgUrl
+                    let patterns = [
+                        #"!\[.*?\]\((https?://[^\s\)]+|/static/[^\s\)]+|file://[^\s\)]+|/[^\s\)]+)\)"#,
+                        #"(?:^|\s)MEDIA:([^\s\)]+)"#
+                    ]
+                    for pat in patterns {
+                        if let regex = try? NSRegularExpression(pattern: pat) {
+                            let nsRange = NSRange(response.startIndex..<response.endIndex, in: response)
+                            let matches = regex.matches(in: response, range: nsRange)
+                            for match in matches {
+                                if match.numberOfRanges > 1, let range = Range(match.range(at: 1), in: response) {
+                                    var imgUrl = String(response[range])
+                                    if imgUrl.hasPrefix("/static/") {
+                                        imgUrl = baseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + imgUrl
+                                    } else if imgUrl.hasPrefix("http://") || imgUrl.hasPrefix("https://") {
+                                        // Keep as is
+                                    } else {
+                                        var cleanPath = imgUrl
+                                        if cleanPath.hasPrefix("MEDIA:") { cleanPath = String(cleanPath.dropFirst(6)).trimmingCharacters(in: .whitespaces) }
+                                        if cleanPath.hasPrefix("file://") { cleanPath = String(cleanPath.dropFirst(7)) }
+                                        var comps = URLComponents(url: baseURL.appendingPathComponent("api/v1/files/raw"), resolvingAgainstBaseURL: false)
+                                        var qItems = [URLQueryItem(name: "uri", value: cleanPath)]
+                                        if let token = AppSettings.shared.deviceToken, !token.isEmpty {
+                                            qItems.append(URLQueryItem(name: "auth_token", value: token))
+                                        }
+                                        comps?.queryItems = qItems
+                                        if let fullUrl = comps?.url?.absoluteString {
+                                            imgUrl = fullUrl
+                                        }
+                                    }
+                                    if !imageUrls.contains(imgUrl) {
+                                        imageUrls.append(imgUrl)
+                                    }
                                 }
-                                imageUrls.append(imgUrl)
                             }
                         }
                     }

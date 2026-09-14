@@ -111,19 +111,18 @@ func IsSafeFilePath(path string) bool {
 		filepath.Join(home, ".gemini", "antigravity", "conversations") + string(filepath.Separator),
 		filepath.Join(home, ".gemini", "antigravity", "annotations") + string(filepath.Separator),
 		filepath.Join(home, "Projects") + string(filepath.Separator),
+		filepath.Join(home, "Downloads") + string(filepath.Separator),
+		filepath.Join(home, "Desktop") + string(filepath.Separator),
+		filepath.Join(home, "Documents") + string(filepath.Separator),
+		filepath.Join(home, "Pictures") + string(filepath.Separator),
+		filepath.Clean(os.TempDir()) + string(filepath.Separator),
 	}
 
-	for _, prefix := range allowedPrefixes {
-		if strings.HasPrefix(resolved, prefix) {
-			return true
-		}
-	}
-
-	// Additionally block sensitive filenames even within allowed dirs
+	// Always block sensitive filenames even within allowed dirs
 	base := strings.ToLower(filepath.Base(resolved))
 	sensitiveNames := []string{"id_rsa", "id_ed25519", "id_ecdsa", "id_dsa", ".env", ".git-credentials", ".netrc"}
 	for _, s := range sensitiveNames {
-		if base == s {
+		if base == s || strings.HasPrefix(base, ".env.") {
 			return false
 		}
 	}
@@ -131,6 +130,12 @@ func IsSafeFilePath(path string) bool {
 	for _, ext := range sensitiveExts {
 		if strings.HasSuffix(base, ext) {
 			return false
+		}
+	}
+
+	for _, prefix := range allowedPrefixes {
+		if strings.HasPrefix(resolved, prefix) {
+			return true
 		}
 	}
 
@@ -281,6 +286,20 @@ func (p *Proxy) HandleFileRaw(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; img-src data: https:;")
 	case ".key":
 		w.Header().Set("Content-Type", "application/x-iwork-keynote-sffkey")
+	case ".png":
+		w.Header().Set("Content-Type", "image/png")
+	case ".jpg", ".jpeg":
+		w.Header().Set("Content-Type", "image/jpeg")
+	case ".gif":
+		w.Header().Set("Content-Type", "image/gif")
+	case ".webp":
+		w.Header().Set("Content-Type", "image/webp")
+	case ".svg":
+		w.Header().Set("Content-Type", "image/svg+xml")
+	case ".bmp":
+		w.Header().Set("Content-Type", "image/bmp")
+	case ".ico":
+		w.Header().Set("Content-Type", "image/x-icon")
 	}
 
 	encodedName := url.PathEscape(fileName)
