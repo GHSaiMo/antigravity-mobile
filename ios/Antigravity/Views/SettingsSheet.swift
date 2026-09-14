@@ -184,6 +184,13 @@ public struct SettingsSheet: View {
                     .disabled(isTesting)
                 }
                 
+                Section(
+                    header: Text("权限与自动化"),
+                    footer: Text("开启后，当 Agent 请求外部 URL、网页抓取或文件路径读写权限时，将自动选择「Yes, and always allow」并提交，免去手动确认，适合无人值守连续执行。")
+                ) {
+                    Toggle("自动批准权限 (Always Allow)", isOn: $settings.autoApprovePermissions)
+                }
+                
                 Section(header: Text("本地缓存"), footer: Text("已开启离线缓存与秒开机制。会话列表与对话历史自动保存到本地，二次进入 0 延迟秒开。")) {
                     Button(role: .destructive, action: {
                         CacheManager.shared.clearCache()

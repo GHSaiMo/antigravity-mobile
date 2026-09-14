@@ -1081,6 +1081,7 @@ function checkLatestMessageIsError(steps, isRunning) {
 }
 
 // --- Floating Interaction Card Management ---
+let autoApprovePermissions = localStorage.getItem("agy_auto_approve_permissions") === "true";
 let currentPendingInteraction = null;
 let selectedInteractionOptionId = null;
 let isSubmittingInteraction = false;
@@ -1103,10 +1104,30 @@ function updatePendingInteraction(interaction, isRunning) {
 
   currentPendingInteraction = interaction;
   if (isDifferent || !selectedInteractionOptionId) {
-    selectedInteractionOptionId = interaction.options[0]?.id || "";
+    const isPermissionType = interaction.type === "permission" || interaction.type === "file_permission";
+    if (autoApprovePermissions && isPermissionType) {
+      const opt4 = interaction.options.find(o => o.scope === 4 || o.id === "4" || (o.text && o.text.toLowerCase().includes("always allow")));
+      selectedInteractionOptionId = opt4 ? opt4.id : (interaction.options[0]?.id || "");
+    } else {
+      selectedInteractionOptionId = interaction.options[0]?.id || "";
+    }
   }
 
   renderInteractionCard();
+
+  // Trigger auto-approve if enabled and this is a permission request
+  const isPermissionType = interaction.type === "permission" || interaction.type === "file_permission";
+  if (autoApprovePermissions && isPermissionType && !isSubmittingInteraction) {
+    const opt4 = interaction.options.find(o => o.scope === 4 || o.id === "4" || (o.text && o.text.toLowerCase().includes("always allow")));
+    if (opt4) {
+      selectedInteractionOptionId = opt4.id;
+      setTimeout(() => {
+        if (currentPendingInteraction && currentPendingInteraction.stepIndex === interaction.stepIndex && !isSubmittingInteraction) {
+          handleInteractionSubmit(false);
+        }
+      }, 250);
+    }
+  }
 }
 
 function renderInteractionCard() {
@@ -1159,6 +1180,12 @@ function renderInteractionCard() {
       </div>
 
       <div class="interaction-card-actions">
+        ${(interaction.type === "permission" || interaction.type === "file_permission") ? `
+          <button type="button" id="btn-interaction-auto-approve" class="btn-interaction-auto ${autoApprovePermissions ? 'active' : ''}" style="border: 1px solid var(--border-color); border-radius: 6px; padding: 4px 8px; font-size: 11px; background: ${autoApprovePermissions ? 'rgba(234, 179, 8, 0.15)' : 'transparent'}; color: ${autoApprovePermissions ? '#ca8a04' : 'var(--text-secondary)'}; cursor: pointer;">
+            <span>⚡️ ${autoApprovePermissions ? '自动审批: 开' : '自动审批: 关'}</span>
+          </button>
+        ` : ''}
+        <div style="flex: 1;"></div>
         <button type="button" id="btn-interaction-skip" class="btn-interaction-skip" ${isSubmittingInteraction ? 'disabled' : ''}>Skip</button>
         <button type="button" id="btn-interaction-submit" class="btn-interaction-submit" ${isSubmittingInteraction ? 'disabled' : ''}>
           <span>${isSubmittingInteraction ? '提交中...' : 'Submit'}</span>
@@ -1180,6 +1207,21 @@ function renderInteractionCard() {
       }
     });
   });
+
+  const autoApproveBtn = container.querySelector("#btn-interaction-auto-approve");
+  if (autoApproveBtn) {
+    autoApproveBtn.addEventListener("click", () => {
+      autoApprovePermissions = !autoApprovePermissions;
+      localStorage.setItem("agy_auto_approve_permissions", autoApprovePermissions ? "true" : "false");
+      if (autoApprovePermissions && currentPendingInteraction) {
+        const opt4 = currentPendingInteraction.options?.find(o => o.scope === 4 || o.id === "4" || (o.text && o.text.toLowerCase().includes("always allow")));
+        if (opt4) {
+          selectedInteractionOptionId = opt4.id;
+        }
+      }
+      renderInteractionCard();
+    });
+  }
 
   const writeInInput = container.querySelector("#interaction-write-in-input");
   if (writeInInput) {
@@ -1211,14 +1253,20 @@ async function handleInteractionSubmit(isSkip) {
   try {
     const writeInInput = document.getElementById("interaction-write-in-input");
     const writeInText = writeInInput ? writeInInput.value.trim() : "";
+    const selectedOpt = currentPendingInteraction.options?.find(o => o.id === (isSkip ? "" : selectedInteractionOptionId));
+    const isDeny = selectedOpt?.isDeny || selectedInteractionOptionId === "5" || selectedInteractionOptionId === "__write_in__";
 
     const payload = {
       cascadeId: activeCascadeId,
+      trajectoryId: currentPendingInteraction.trajectoryId || "",
       stepIndex: currentPendingInteraction.stepIndex,
       substepIndex: currentPendingInteraction.substepIndex || 0,
       type: currentPendingInteraction.type,
       optionId: isSkip ? "" : (selectedInteractionOptionId || ""),
-      writeInText: isSkip ? "" : writeInText,
+      scope: selectedOpt?.scope || 1,
+      allow: isSkip ? false : !isDeny,
+      writeInResponse: isSkip ? "" : writeInText,
+      target: currentPendingInteraction.target || "",
       skipped: isSkip
     };
 
