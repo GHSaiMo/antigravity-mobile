@@ -17,6 +17,7 @@ type sessionTrackingState struct {
 	title                string
 	waitingForBackground bool
 	fetchRetryCount      int
+	lastUpdated          time.Time
 }
 
 // Watcher continuously monitors Antigravity sessions in the background
@@ -95,9 +96,10 @@ func (w *Watcher) scanOnce() int {
 			title := extractTitle(s)
 
 			w.knownSessions[id] = &sessionTrackingState{
-				lastStatus: status,
-				lastSteps:  steps,
-				title:      title,
+				lastStatus:  status,
+				lastSteps:   steps,
+				title:       title,
+				lastUpdated: time.Now(),
 			}
 
 			// Pre-mark completed sessions in dedup cache
@@ -125,9 +127,10 @@ func (w *Watcher) scanOnce() int {
 		prev, exists := w.knownSessions[id]
 		if !exists {
 			prev = &sessionTrackingState{
-				lastStatus: "CASCADE_RUN_STATUS_INITIAL",
-				lastSteps:  0,
-				title:      title,
+				lastStatus:  "CASCADE_RUN_STATUS_INITIAL",
+				lastSteps:   0,
+				title:       title,
+				lastUpdated: time.Now(),
 			}
 			w.knownSessions[id] = prev
 		}
@@ -208,6 +211,7 @@ func (w *Watcher) scanOnce() int {
 
 		prev.lastStatus = status
 		prev.lastSteps = steps
+		prev.lastUpdated = time.Now()
 		if title != "" && title != MsgUntitledSession {
 			prev.title = title
 		}
@@ -235,16 +239,21 @@ func extractStepCount(v interface{}) int {
 func extractTitle(s map[string]interface{}) string {
 	if ann, ok := s["annotations"].(map[string]interface{}); ok {
 		if t, ok := ann["title"].(string); ok && strings.TrimSpace(t) != "" {
-			return strings.TrimSpace(t)
+			if clean := proxy.SanitizeTitle(t); clean != "" {
+				return clean
+			}
 		}
 	}
 	if sm, ok := s["summary"].(string); ok && strings.TrimSpace(sm) != "" {
-		return strings.TrimSpace(sm)
+		if clean := proxy.SanitizeTitle(sm); clean != "" {
+			return clean
+		}
 	}
 	return ""
 }
 
 // cleanupKnownSessions enforces a soft cap on tracked sessions to prevent unbounded memory growth.
+// Only evicts sessions that are non-running AND have been in a terminal state for over 24 hours.
 func (w *Watcher) cleanupKnownSessions() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -254,9 +263,12 @@ func (w *Watcher) cleanupKnownSessions() {
 		return
 	}
 
-	// Evict completed/non-running sessions first
+	const staleAge = 24 * time.Hour
+	now := time.Now()
+
+	// Evict completed/non-running sessions that have been stale for over 24 hours
 	for id, s := range w.knownSessions {
-		if s.lastStatus != "CASCADE_RUN_STATUS_RUNNING" && !s.waitingForBackground {
+		if s.lastStatus != "CASCADE_RUN_STATUS_RUNNING" && !s.waitingForBackground && now.Sub(s.lastUpdated) > staleAge {
 			delete(w.knownSessions, id)
 			if len(w.knownSessions) <= maxTrackedSessions {
 				break
