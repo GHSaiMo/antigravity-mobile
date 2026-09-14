@@ -165,15 +165,6 @@ func main() {
 	// 5. Web frontend handler
 	webHandler := web.Handler()
 
-	// 6. Combined Root Router (Go 1.22+ ServeMux with method-aware patterns)
-	rootMux := http.NewServeMux()
-
-	// Auth endpoints
-	rootMux.HandleFunc("/api/v1/auth/pair", authHandler.HandlePair)
-	rootMux.HandleFunc("/api/v1/auth/session", authHandler.HandleNewPairingSession)
-	rootMux.HandleFunc("/api/v1/devices/", authHandler.HandleDevices)
-	rootMux.HandleFunc("/api/v1/devices", authHandler.HandleDevices)
-
 	// Start Cockpit quota auto-refresher (every 10 minutes, with auto-launch self-healing & Bark alert)
 	var cockpitAlertFn func(title, body string)
 	if notif != nil {
@@ -183,67 +174,8 @@ func main() {
 	}
 	cockpit.StartQuotaAutoRefresher(watcherCtx, 10*time.Minute, cockpitAlertFn)
 
-	// Cockpit endpoints
-	rootMux.HandleFunc("GET /api/v1/cockpit/quotas", func(w http.ResponseWriter, r *http.Request) {
-		liveEmail, _, _ := p.GetActiveUserStatus()
-		quotas, err := cockpit.GetQuotas(liveEmail)
-		if err != nil {
-			log.Printf("[Cockpit] GetQuotas failed: %v", err)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-			return
-		}
-		writeJSON(w, http.StatusOK, quotas)
-	})
-	rootMux.HandleFunc("POST /api/v1/cockpit/refresh", func(w http.ResponseWriter, r *http.Request) {
-		log.Println("[Cockpit] Triggering quota refresh...")
-		liveEmail, _, _ := p.GetActiveUserStatus()
-		quotas, err := cockpit.RefreshQuotas(liveEmail)
-		if err != nil {
-			log.Printf("[Cockpit] RefreshQuotas failed: %v", err)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-			return
-		}
-		log.Println("[Cockpit] Quota refresh completed successfully")
-		writeJSON(w, http.StatusOK, quotas)
-	})
-	rootMux.HandleFunc("POST /api/v1/cockpit/switch", func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			AccountID string `json:"account_id"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.AccountID) == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "account_id is required"})
-			return
-		}
-		targetID := strings.TrimSpace(req.AccountID)
-		log.Printf("[Cockpit] Switching account to: %s", targetID)
-		if err := cockpit.SwitchAccount(targetID); err != nil {
-			log.Printf("[Cockpit] SwitchAccount failed: %v", err)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-			return
-		}
-		log.Printf("[Cockpit] Account switched successfully to: %s", targetID)
-		writeJSON(w, http.StatusOK, map[string]any{
-			"status":     "ok",
-			"message":    "account switched successfully",
-			"account_id": targetID,
-		})
-	})
-
-	// File / Artifact reading endpoint
-	rootMux.HandleFunc("GET /api/v1/files/content", p.HandleFileContent)
-	rootMux.HandleFunc("GET /api/v1/files/raw", p.HandleFileRaw)
-
-	// Proxy routes: APIs, WebSocket, Artifacts, Gateway status
-	rootMux.Handle("/api/", p)
-	rootMux.Handle("/gateway/", p)
-	rootMux.Handle("/static/artifacts/", p)
-	rootMux.Handle("/connect-websocket", p)
-
-	// Web frontend (catch-all)
-	rootMux.Handle("/", webHandler)
-
-	// 7. Wrap with AuthMiddleware
-	router := auth.AuthMiddleware(authStore, rootMux)
+	// 6 & 7. Build combined Root Router with Middleware
+	router := buildRouter(authStore, authHandler, p, insp, time.Now(), webHandler)
 
 	server := &http.Server{
 		Addr:        fmt.Sprintf("%s:%d", *host, *port),
