@@ -2186,75 +2186,109 @@ const LocalQueueManager = {
     this.render();
   },
 
+  normalizeForComparison(txt) {
+    if (!txt) return '';
+    return String(txt)
+      .toLowerCase()
+      .replace(/[\s\u200B\uFEFF\u3000]/g, '');
+  },
+
+  isQueuedItemInMessages(item, userItems) {
+    const normText = this.normalizeForComparison(item.text);
+    const hasAttachments = (item.media && item.media.length > 0) || (item.imageUrls && item.imageUrls.length > 0);
+    
+    for (let i = userItems.length - 1; i >= 0; i--) {
+      const u = userItems[i];
+      const normMsg = this.normalizeForComparison(u.text);
+      const msgHasAttachments = u.hasAttachments;
+      
+      if (normText) {
+        if (normText === normMsg) return true;
+        if (normText.length >= 6 && normMsg.length >= 6 && (normText.includes(normMsg) || normMsg.includes(normText))) {
+          return true;
+        }
+      } else if (hasAttachments && msgHasAttachments) {
+        return true;
+      }
+    }
+    return false;
+  },
+
   syncFromServer(serverQueue, currentStepsOrMessages = []) {
-    const recentUserContents = [];
+    const userItems = [];
     if (Array.isArray(currentStepsOrMessages)) {
       for (const item of currentStepsOrMessages) {
         if (item && item.type === 'CORTEX_STEP_TYPE_USER_INPUT' && item.userInput) {
           const t = (item.userInput.userResponse || item.userInput.response || '').trim();
-          if (t) recentUserContents.push(t);
+          const hasMedia = (item.userInput.media && item.userInput.media.length > 0) || (item.userInput.images && item.userInput.images.length > 0);
+          userItems.push({ text: t, hasAttachments: hasMedia });
         } else if (item && (item.sender === 'user' || item.role === 'user' || item.type === 'user')) {
           const t = (item.content || item.text || '').trim();
-          if (t) recentUserContents.push(t);
+          const hasMedia = (item.media && item.media.length > 0) || (item.imageUrls && item.imageUrls.length > 0);
+          userItems.push({ text: t, hasAttachments: hasMedia });
         }
       }
     }
-    const recentUserSet = new Set(recentUserContents.slice(-15));
 
     const now = Date.now();
     this.deletedTombstones = (this.deletedTombstones || []).filter(t => (now - t.deletedAt) < 10000);
     const tombstoneIds = new Set(this.deletedTombstones.filter(t => t.id).map(t => t.id));
-    const tombstoneTexts = new Set(this.deletedTombstones.map(t => (t.text || '').trim()));
+    const tombstoneTexts = new Set(this.deletedTombstones.map(t => this.normalizeForComparison(t.text)));
+
+    const isUserMsg = (txt, item) => {
+      const t = (txt || '').trim();
+      const hasMedia = item && ((item.media && item.media.length > 0) || (item.imageUrls && item.imageUrls.length > 0));
+      if (!t && !hasMedia) return false;
+      if (t.startsWith('Task id "') || t.startsWith('Task "') || t.includes('was canceled with result:') || t.includes('completed with result:') || t.includes('Tool execution was canceled')) {
+        return false;
+      }
+      return true;
+    };
 
     if (Array.isArray(serverQueue)) {
-      const pendingOpt = this.queue.filter(it => 
-        it.id && it.id.startsWith('queue-') &&
-        (now - new Date(it.createdAt).getTime() < 15000) &&
-        !recentUserSet.has((it.text || '').trim()) &&
-        !tombstoneIds.has(it.id) &&
-        !tombstoneTexts.has((it.text || '').trim()) &&
-        !serverQueue.some(s => (s.text || '').trim() === (it.text || '').trim())
-      );
-
-      const isUserMsg = (txt) => {
-        const t = (txt || '').trim();
-        if (!t) return false;
-        if (t.startsWith('Task id "') || t.startsWith('Task "') || t.includes('was canceled with result:') || t.includes('completed with result:') || t.includes('Tool execution was canceled')) {
+      const pendingOpt = this.queue.filter(it => {
+        if (!it.id || !it.id.startsWith('queue-')) return false;
+        if (now - new Date(it.createdAt).getTime() >= 15000) return false;
+        const norm = this.normalizeForComparison(it.text);
+        if (tombstoneIds.has(it.id) || (norm && tombstoneTexts.has(norm))) return false;
+        if (this.isQueuedItemInMessages(it, userItems)) {
+          this.deletedTombstones.push({ id: it.id, text: it.text, deletedAt: now });
           return false;
         }
+        if (serverQueue.some(s => this.normalizeForComparison(s.text) === norm)) return false;
         return true;
-      };
+      });
 
       const baseQueue = serverQueue
         .filter(item => {
-          const t = (item.text || '').trim();
-          return isUserMsg(item.text) &&
-            !recentUserSet.has(t) &&
-            !tombstoneIds.has(item.id) &&
-            !tombstoneTexts.has(t);
+          const norm = this.normalizeForComparison(item.text);
+          if (!isUserMsg(item.text, item)) return false;
+          if (tombstoneIds.has(item.id) || (norm && tombstoneTexts.has(norm))) return false;
+          if (this.isQueuedItemInMessages(item, userItems)) {
+            this.deletedTombstones.push({ id: item.id, text: item.text, deletedAt: now });
+            return false;
+          }
+          return true;
         })
         .map(item => ({
           id: item.id || `server-${Date.now()}`,
           text: item.text,
+          media: item.media,
+          imageUrls: item.imageUrls,
           createdAt: item.createdAt || new Date().toISOString()
         }));
 
       this.queue = [...baseQueue, ...pendingOpt];
     } else {
-      const isUserMsg = (txt) => {
-        const t = (txt || '').trim();
-        if (!t) return false;
-        if (t.startsWith('Task id "') || t.startsWith('Task "') || t.includes('was canceled with result:') || t.includes('completed with result:') || t.includes('Tool execution was canceled')) {
+      this.queue = this.queue.filter(item => {
+        const norm = this.normalizeForComparison(item.text);
+        if (!isUserMsg(item.text, item)) return false;
+        if (tombstoneIds.has(item.id) || (norm && tombstoneTexts.has(norm))) return false;
+        if (this.isQueuedItemInMessages(item, userItems)) {
+          this.deletedTombstones.push({ id: item.id, text: item.text, deletedAt: now });
           return false;
         }
         return true;
-      };
-      this.queue = this.queue.filter(item => {
-        const t = (item.text || '').trim();
-        return isUserMsg(item.text) &&
-          !recentUserSet.has(t) &&
-          !tombstoneIds.has(item.id) &&
-          !tombstoneTexts.has(t);
       });
     }
     this.save();
