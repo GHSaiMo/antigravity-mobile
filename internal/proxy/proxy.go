@@ -576,6 +576,15 @@ func (p *Proxy) setCascadeDedup(key string, cascadeID string) {
 	}
 }
 
+func isSpaceOnly(b []byte) bool {
+	for _, c := range b {
+		if c != ' ' && c != '\t' && c != '\n' && c != '\r' {
+			return false
+		}
+	}
+	return true
+}
+
 func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Request, rp http.Handler, reqPath string, port int, token string) {
 	clientMsgID := strings.TrimSpace(r.Header.Get("X-Client-Message-Id"))
 	if clientMsgID == "" {
@@ -593,7 +602,8 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
-	bodyBytes, err := io.ReadAll(r.Body)
+	// Protect against OOM for extremely large requests by limiting to 50MB
+	bodyBytes, err := io.ReadAll(io.LimitReader(r.Body, 50*1024*1024))
 	if err != nil {
 		http.Error(w, "Failed to read request body", http.StatusBadRequest)
 		return
@@ -747,7 +757,7 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 	if rw.statusCode >= 200 && rw.statusCode < 300 {
 		// Ensure ConnectRPC empty responses always return valid JSON "{}"
 		// to prevent any client JSONDecoder from crashing on 0-byte data
-		if len(bytes.TrimSpace(respBody)) == 0 {
+		if isSpaceOnly(respBody) {
 			respBody = []byte("{}")
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -763,7 +773,8 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 }
 
 func (p *Proxy) handleJetboxWriteState(w http.ResponseWriter, r *http.Request, rp http.Handler, reqPath string) {
-	bodyBytes, err := io.ReadAll(r.Body)
+	// Protect against OOM for excessively large state requests by limiting to 5MB
+	bodyBytes, err := io.ReadAll(io.LimitReader(r.Body, 5*1024*1024))
 	if err != nil {
 		http.Error(w, `{"error":"failed to read request body"}`, http.StatusBadRequest)
 		return
@@ -834,7 +845,7 @@ func (p *Proxy) handleArtifactProxy(w http.ResponseWriter, r *http.Request) {
 }
 
 func (p *Proxy) handleStartCascadeProxy(w http.ResponseWriter, r *http.Request, rp http.Handler, reqPath string) {
-	bodyBytes, err := io.ReadAll(r.Body)
+	bodyBytes, err := io.ReadAll(io.LimitReader(r.Body, 5*1024*1024))
 	if err != nil {
 		http.Error(w, "Failed to read request body", http.StatusBadRequest)
 		return
@@ -862,7 +873,7 @@ func (p *Proxy) handleStartCascadeProxy(w http.ResponseWriter, r *http.Request, 
 }
 
 func (p *Proxy) handleDeleteCascadeTrajectory(w http.ResponseWriter, r *http.Request, rp http.Handler, reqPath string) {
-	bodyBytes, err := io.ReadAll(r.Body)
+	bodyBytes, err := io.ReadAll(io.LimitReader(r.Body, 5*1024*1024))
 	if err != nil {
 		http.Error(w, "Failed to read request body", http.StatusBadRequest)
 		return
@@ -924,7 +935,7 @@ func (p *Proxy) handleDeleteCascadeTrajectory(w http.ResponseWriter, r *http.Req
 }
 
 func (p *Proxy) handleDeleteAgentMessage(w http.ResponseWriter, r *http.Request, rp http.Handler, reqPath string) {
-	bodyBytes, err := io.ReadAll(r.Body)
+	bodyBytes, err := io.ReadAll(io.LimitReader(r.Body, 5*1024*1024))
 	if err != nil {
 		http.Error(w, "Failed to read request body", http.StatusBadRequest)
 		return
@@ -971,7 +982,7 @@ func (p *Proxy) handleDeleteAgentMessage(w http.ResponseWriter, r *http.Request,
 }
 
 func (p *Proxy) handleUpdateConversationAnnotations(w http.ResponseWriter, r *http.Request, rp http.Handler, reqPath string) {
-	bodyBytes, err := io.ReadAll(r.Body)
+	bodyBytes, err := io.ReadAll(io.LimitReader(r.Body, 5*1024*1024))
 	if err != nil {
 		http.Error(w, "Failed to read request body", http.StatusBadRequest)
 		return
@@ -1242,7 +1253,7 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 	}
 
 	url := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories", port)
-	bodyBytes, _ := io.ReadAll(r.Body)
+	bodyBytes, _ := io.ReadAll(io.LimitReader(r.Body, 5*1024*1024))
 	if len(bodyBytes) == 0 {
 		bodyBytes = []byte("{}")
 	}
