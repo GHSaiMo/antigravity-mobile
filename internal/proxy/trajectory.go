@@ -1398,7 +1398,7 @@ func (p *Proxy) fetchUpstreamTrajectory(cascadeID string, port int, token string
 			hasTitle := (cached.data.Trajectory.Annotations != nil && cached.data.Trajectory.Annotations.Title != "") ||
 				cached.data.Trajectory.Summary != ""
 			if hasTitle && len(cached.data.Trajectory.Steps) > 0 {
-				maxAge = 30 * time.Second
+				maxAge = 2 * time.Second
 			} else {
 				maxAge = 1500 * time.Millisecond
 			}

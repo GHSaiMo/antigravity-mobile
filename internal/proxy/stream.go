@@ -26,8 +26,8 @@ type StreamUpdatePayload struct {
 	HasMore            bool                 `json:"hasMore"`
 	NextOffset         int                  `json:"nextOffset"`
 	WorkspaceURI       string               `json:"workspaceUri"`
-	Steps              []TrajectoryStep     `json:"steps"`
-	Messages           []CascadeMessageItem `json:"messages"`
+	Steps              []TrajectoryStep     `json:"steps,omitempty"`
+	Messages           []CascadeMessageItem `json:"messages,omitempty"`
 	QueuedMessages     []QueuedMessageItem  `json:"queuedMessages"`
 	RunningTasks       []RunningTaskItem    `json:"runningTasks,omitempty"`
 	IsFullSnapshot     bool                 `json:"isFullSnapshot"`
@@ -62,8 +62,13 @@ func (p *StreamUpdatePayload) Fingerprint() string {
 		lastTask := p.RunningTasks[len(p.RunningTasks)-1]
 		tasksKey = fmt.Sprintf("%d:%s:%d", len(p.RunningTasks), lastTask.ID, lastTask.StepIndex)
 	}
+	msgsKey := fmt.Sprintf("%d", p.TotalMessages)
+	if len(p.Messages) > 0 {
+		lastMsg := p.Messages[len(p.Messages)-1]
+		msgsKey = fmt.Sprintf("%d:%s:%d", p.TotalMessages, lastMsg.ID, len(lastMsg.Text))
+	}
 	if len(p.Steps) == 0 {
-		return fmt.Sprintf("%s:%t:0:0:%t:%s:%s:%s:%s", p.Status, p.HasError, p.CanProceed, piKey, queuedKey, tasksKey, p.ActiveModel)
+		return fmt.Sprintf("%s:%t:%s:%t:%s:%s:%s:%s:%s", p.Status, p.HasError, msgsKey, p.CanProceed, piKey, queuedKey, tasksKey, p.ActiveModel, p.Title)
 	}
 	last := p.Steps[len(p.Steps)-1]
 	lastLen := 0
@@ -79,7 +84,7 @@ func (p *StreamUpdatePayload) Fingerprint() string {
 	if last.ErrorMessage != nil {
 		lastLen += len(last.ErrorMessage.Error.ShortError) + len(last.ErrorMessage.Error.UserErrorMessage)
 	}
-	return fmt.Sprintf("%s:%t:%d:%d:%s:%s:%d:%t:%s:%s:%s:%s", p.Status, p.HasError, p.TotalSteps, p.TotalTools, last.Type, last.Status, lastLen, p.CanProceed, piKey, queuedKey, tasksKey, p.ActiveModel)
+	return fmt.Sprintf("%s:%t:%d:%d:%s:%s:%d:%s:%t:%s:%s:%s:%s:%s", p.Status, p.HasError, p.TotalSteps, p.TotalTools, last.Type, last.Status, lastLen, msgsKey, p.CanProceed, piKey, queuedKey, tasksKey, p.ActiveModel, p.Title)
 }
 
 // HandleCascadeStream serves a WebSocket connection for continuous real-time trajectory updates.
@@ -89,6 +94,12 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing cascadeId", http.StatusBadRequest)
 		return
 	}
+
+	format := r.URL.Query().Get("format")
+	clientType := r.URL.Query().Get("client")
+	ua := r.UserAgent()
+	isMessagesOnly := format == "messages" || clientType == "ios" ||
+		((strings.Contains(ua, "CFNetwork") || strings.Contains(ua, "Darwin") || strings.Contains(ua, "Antigravity")) && !strings.Contains(ua, "Mozilla"))
 
 	sanitizeWebSocketHeaders(r)
 
@@ -215,7 +226,6 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 				HasMore:            hasMore,
 				NextOffset:         streamStart,
 				WorkspaceURI:       details.WorkspaceURI,
-				Steps:              details.Steps,
 				Messages:           slicedMessages,
 				QueuedMessages:     details.QueuedMessages,
 				RunningTasks:       details.RunningTasks,
@@ -226,6 +236,10 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 				PendingInteraction: details.PendingInteraction,
 				ActiveModel:        details.ActiveModel,
 				ModelDisplayName:   details.ModelDisplayName,
+			}
+
+			if !isMessagesOnly {
+				payload.Steps = details.Steps
 			}
 
 			if firstPush {
