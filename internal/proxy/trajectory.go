@@ -145,7 +145,36 @@ func NewTrajectoryCache() *TrajectoryCache {
 var (
 	imgRegex   = regexp.MustCompile(`!\[.*?\]\((https?://[^\s\)]+|/static/[^\s\)]+)\)`)
 	titleRegex = regexp.MustCompile(`title:\s*"([^"]+)"`)
+	imgRegexes = []*regexp.Regexp{
+		regexp.MustCompile(`\[!\[.*?\]\((?:[^\s\)]+)\)\]\((https?://[^\s\)]+|/static/[^\s\)]+|file://[^\s\)]+|/[^\s\)]+)\)`),
+		regexp.MustCompile(`!\[.*?\]\((https?://[^\s\)]+|/static/[^\s\)]+|file://[^\s\)]+|/[^\s\)]+)\)`),
+		regexp.MustCompile(`(?:^|\s|<br\s*/?>)MEDIA:\s*([^\s)<>"'\x60]+)`),
+		regexp.MustCompile(`\[.*?\]\((https?://[^\s\)]+\.(?:png|jpg|jpeg|webp|gif|svg|bmp|heic|ico)|file://[^\s\)]+\.(?:png|jpg|jpeg|webp|gif|svg|bmp|heic|ico)|/[^\s\)]+\.(?:png|jpg|jpeg|webp|gif|svg|bmp|heic|ico))\)`),
+	}
 )
+
+func extractImageURLsFromText(text string) []string {
+	if text == "" {
+		return nil
+	}
+	var imgURLs []string
+	seen := make(map[string]bool)
+
+	for _, re := range imgRegexes {
+		matches := re.FindAllStringSubmatch(text, -1)
+		for _, m := range matches {
+			if len(m) > 1 {
+				u := strings.TrimSpace(m[1])
+				u = strings.Trim(u, "`\"'()[]<>")
+				if u != "" && !seen[u] {
+					seen[u] = true
+					imgURLs = append(imgURLs, u)
+				}
+			}
+		}
+	}
+	return imgURLs
+}
 
 // RecordDeletedCascade marks a cascade as recently deleted with a TTL.
 func RecordDeletedCascade(cascadeID string) {
@@ -722,13 +751,7 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 				flushTools()
 
 				// Extract image URLs
-				var imgURLs []string
-				matches := imgRegex.FindAllStringSubmatch(respText, -1)
-				for _, m := range matches {
-					if len(m) > 1 {
-						imgURLs = append(imgURLs, m[1])
-					}
-				}
+				imgURLs := extractImageURLsFromText(respText)
 
 				allMessages = append(allMessages, CascadeMessageItem{
 					ID:        fmt.Sprintf("step-%d", idx),

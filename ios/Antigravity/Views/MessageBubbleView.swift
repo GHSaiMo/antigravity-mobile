@@ -46,6 +46,7 @@ public struct AgentActivityDotsView: View {
 }
 
 public struct MessageBubbleView: View {
+    @Environment(\.openURL) private var openURL
     public let message: ChatMessage
     public let isActiveToolBatch: Bool
     @State private var isThinkingExpanded: Bool = false
@@ -211,21 +212,36 @@ public struct MessageBubbleView: View {
                                     .frame(maxWidth: .infinity, minHeight: 120)
                             case .success(let image):
                                 Button(action: {
-                                    previewImage = IdentifiableImage(url: url)
+                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                    openURL(url)
                                 }) {
                                     image
                                         .resizable()
                                         .scaledToFit()
                                         .clipShape(RoundedRectangle(cornerRadius: 12))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 12)
+                                                .stroke(Color.primary.opacity(0.1), lineWidth: 0.8)
+                                        )
                                 }
                                 .buttonStyle(.plain)
                             case .failure:
-                                HStack {
-                                    Image(systemName: "photo")
-                                    Text("图片加载失败")
+                                Button(action: {
+                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                    openURL(url)
+                                }) {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "photo")
+                                        Text("点击打开查看图片")
+                                    }
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundColor(.blue)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .background(Color.blue.opacity(0.1))
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
                                 }
-                                .font(.footnote)
-                                .foregroundColor(.secondary)
+                                .buttonStyle(.plain)
                             @unknown default:
                                 EmptyView()
                             }
