@@ -32,7 +32,9 @@ func ExtractToken(r *http.Request) string {
 	// Restricted strictly to:
 	// - WebSocket upgrade requests (browsers cannot set headers on WebSocket connections)
 	// - File/media raw download endpoints (e.g. <img> or file downloads where headers cannot be set)
-	isWS := strings.EqualFold(r.Header.Get("Upgrade"), "websocket") || r.URL.Path == "/connect-websocket"
+	isWS := strings.Contains(strings.ToLower(r.Header.Get("Upgrade")), "websocket") ||
+		r.URL.Path == "/connect-websocket" ||
+		strings.HasPrefix(r.URL.Path, "/gateway/cascade/stream")
 	isRawFile := strings.HasPrefix(r.URL.Path, "/api/v1/files/raw")
 	if isWS || isRawFile {
 		if token := r.URL.Query().Get("auth_token"); token != "" {
