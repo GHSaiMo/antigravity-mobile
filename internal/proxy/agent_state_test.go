@@ -535,3 +535,129 @@ func TestDeletedMessageTombstonesAndCacheEviction(t *testing.T) {
 		t.Fatalf("expected tombstone removed")
 	}
 }
+
+func TestExtractQueuedMessageMedia(t *testing.T) {
+	// Case 1: Direct pam.Media and pam.Images
+	msg1 := upstreamAgentMessage{
+		ID: "m1",
+		Content: "Direct media",
+		Media: []struct {
+			MimeType   string `json:"mimeType"`
+			Thumbnail  string `json:"thumbnail"`
+			InlineData string `json:"inlineData"`
+			URI        string `json:"uri"`
+		}{
+			{Thumbnail: "thumb-b64-1", URI: "https://example.com/img1.png"},
+			{InlineData: "inline-b64-2"},
+		},
+		Images: []struct {
+			Base64Data string `json:"base64Data"`
+			MimeType   string `json:"mimeType"`
+		}{
+			{Base64Data: "img-b64-3"},
+		},
+	}
+	mediaList1, urls1 := extractQueuedMessageMedia(msg1)
+	if len(mediaList1) != 3 {
+		t.Errorf("expected 3 media items, got %d: %+v", len(mediaList1), mediaList1)
+	}
+	if len(urls1) != 1 || urls1[0] != "https://example.com/img1.png" {
+		t.Errorf("expected 1 url, got %+v", urls1)
+	}
+
+	// Case 2: Protobuf-ES Step schema with userInput.media
+	msg2 := upstreamAgentMessage{
+		ID: "m2",
+		StepPayload: json.RawMessage(`{
+			"step": {
+				"case": "userInput",
+				"value": {
+					"items": [{"text": "With payload media"}],
+					"media": [
+						{"thumbnail": "step-thumb-123"}
+					],
+					"images": [
+						{"base64Data": "step-img-456"}
+					]
+				}
+			}
+		}`),
+	}
+	mediaList2, _ := extractQueuedMessageMedia(msg2)
+	if len(mediaList2) != 2 || mediaList2[0] != "step-thumb-123" || mediaList2[1] != "step-img-456" {
+		t.Errorf("expected 2 media items from StepPayload, got %+v", mediaList2)
+	}
+
+	// Case 3: Generic recursive map with media
+	msg3 := upstreamAgentMessage{
+		ID: "m3",
+		StepPayload: json.RawMessage(`{
+			"customWrapper": {
+				"nested": {
+					"media": [
+						{"inlineData": "nested-inline-789", "uri": "http://img.png"}
+					]
+				}
+			}
+		}`),
+	}
+	mediaList3, urls3 := extractQueuedMessageMedia(msg3)
+	if len(mediaList3) != 1 || mediaList3[0] != "nested-inline-789" {
+		t.Errorf("expected nested media, got %+v", mediaList3)
+	}
+	if len(urls3) != 1 || urls3[0] != "http://img.png" {
+		t.Errorf("expected 1 nested url, got %+v", urls3)
+	}
+}
+
+func TestParseAgentStateQueuedMessages_WithMedia(t *testing.T) {
+	updateJSON := `{
+		"update": {
+			"conversationId": "casc-media-test",
+			"status": "CASCADE_RUN_STATUS_RUNNING",
+			"pendingAgentMessages": [
+				{
+					"id": "msg-media-1",
+					"content": "Message with image",
+					"deliveryStrategy": 2,
+					"media": [
+						{"thumbnail": "thumb-data-1"}
+					]
+				},
+				{
+					"id": "msg-media-2",
+					"deliveryStrategy": 2,
+					"stepPayload": {
+						"step": {
+							"case": "userInput",
+							"value": {
+								"media": [
+									{"thumbnail": "only-image-no-text"}
+								]
+							}
+						}
+					}
+				}
+			]
+		}
+	}`
+
+	var state upstreamAgentStateUpdate
+	if err := json.Unmarshal([]byte(updateJSON), &state); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+
+	items := parseAgentStateQueuedMessages(&state)
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d: %+v", len(items), items)
+	}
+
+	if items[0].Text != "Message with image" || len(items[0].Media) != 1 || items[0].Media[0] != "thumb-data-1" {
+		t.Errorf("unexpected item 0: %+v", items[0])
+	}
+	// Verify image-only message is not dropped
+	if len(items[1].Media) != 1 || items[1].Media[0] != "only-image-no-text" {
+		t.Errorf("unexpected item 1: %+v", items[1])
+	}
+}
+

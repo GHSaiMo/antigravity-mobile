@@ -217,18 +217,19 @@ public struct MarkdownContentView: View {
         }
     }()
     
-    /// Fixes CommonMark delimiter bounding rules for CJK text.
-    /// Under CommonMark 0.30 specification, delimiter runs adjacent to punctuation
-    /// (e.g. **“bold”** or **(bold)**text) fail left-flanking or right-flanking checks
-    /// because CJK characters preceding or following the delimiters are letters (not whitespace or punctuation).
-    /// Inserting a temporary Unicode punctuation marker (U+FE50) on the non-punctuation side
-    /// satisfies CommonMark flanking rules, and the marker is cleanly stripped from the AttributedString.
-    private static func fixCJKDelimiters(in text: String) -> (fixed: String, hasMarkers: Bool) {
-        guard text.contains("*") || text.contains("_") || text.contains("~") else {
-            return (text, false)
+    // MARK: - HTML Line Break & Inline Code Processor
+    
+    private static let htmlBreakRegex = try? NSRegularExpression(
+        pattern: #"[ \t]*<(?:\/br|br\b[^>]*\/?)>[ \t]*\n?"#,
+        options: [.caseInsensitive]
+    )
+    
+    /// Splits text into inline code segments (wrapped in backticks) and regular markdown text segments.
+    public static func splitCodeSpans(in text: String) -> [(content: String, isCode: Bool)] {
+        guard text.contains("`") else {
+            return [(content: text, isCode: false)]
         }
         
-        // Protect inline code spans from modification
         var segments: [(content: String, isCode: Bool)] = []
         let chars = Array(text)
         var i = 0
@@ -275,7 +276,48 @@ public struct MarkdownContentView: View {
         if lastIdx < chars.count {
             segments.append((String(chars[lastIdx..<chars.count]), false))
         }
+        return segments
+    }
+    
+    /// Replaces HTML line breaks (<br>, <br/>, <br />, </br>) with newlines while protecting inline code spans.
+    public static func replaceHtmlBreaks(in text: String) -> String {
+        guard text.localizedCaseInsensitiveContains("<br") else {
+            return text
+        }
         
+        let replaceInString = { (s: String) -> String in
+            guard let regex = htmlBreakRegex else {
+                return s.replacingOccurrences(of: "<br>", with: "\n", options: .caseInsensitive)
+                        .replacingOccurrences(of: "<br/>", with: "\n", options: .caseInsensitive)
+                        .replacingOccurrences(of: "<br />", with: "\n", options: .caseInsensitive)
+                        .replacingOccurrences(of: "</br>", with: "\n", options: .caseInsensitive)
+            }
+            let range = NSRange(location: 0, length: (s as NSString).length)
+            return regex.stringByReplacingMatches(in: s, options: [], range: range, withTemplate: "\n")
+        }
+        
+        guard text.contains("`") else {
+            return replaceInString(text)
+        }
+        
+        let segments = splitCodeSpans(in: text)
+        return segments.map { segment in
+            segment.isCode ? segment.content : replaceInString(segment.content)
+        }.joined()
+    }
+    
+    /// Fixes CommonMark delimiter bounding rules for CJK text.
+    /// Under CommonMark 0.30 specification, delimiter runs adjacent to punctuation
+    /// (e.g. **“bold”** or **(bold)**text) fail left-flanking or right-flanking checks
+    /// because CJK characters preceding or following the delimiters are letters (not whitespace or punctuation).
+    /// Inserting a temporary Unicode punctuation marker (U+FE50) on the non-punctuation side
+    /// satisfies CommonMark flanking rules, and the marker is cleanly stripped from the AttributedString.
+    private static func fixCJKDelimiters(in text: String) -> (fixed: String, hasMarkers: Bool) {
+        guard text.contains("*") || text.contains("_") || text.contains("~") else {
+            return (text, false)
+        }
+        
+        let segments = splitCodeSpans(in: text)
         var hasMarkers = false
         var processedSegments: [String] = []
         
@@ -365,12 +407,13 @@ public struct MarkdownContentView: View {
             return cached
         }
         
-        let (preprocessedText, hasMarkers) = fixCJKDelimiters(in: text)
+        let textWithBreaks = replaceHtmlBreaks(in: text)
+        let (preprocessedText, hasMarkers) = fixCJKDelimiters(in: textWithBreaks)
         
         var options = AttributedString.MarkdownParsingOptions()
         options.interpretedSyntax = .inlineOnlyPreservingWhitespace
         guard var attr = try? AttributedString(markdown: preprocessedText, options: options) else {
-            let fallback = AttributedString(text)
+            let fallback = AttributedString(textWithBreaks)
             InlineMarkdownCache.shared.set(cacheKey, value: fallback)
             return fallback
         }
@@ -482,11 +525,14 @@ public struct MarkdownContentView: View {
                         GridRow {
                             ForEach(0..<columnCount, id: \.self) { colIdx in
                                 let headerText = colIdx < headers.count ? headers[colIdx] : ""
-                                let align = (colIdx < alignments.count ? alignments[colIdx] : .leading).swiftUIAlignment
+                                let colAlignment = colIdx < alignments.count ? alignments[colIdx] : .leading
+                                let align = colAlignment.swiftUIAlignment
+                                let textAlignment = colAlignment.textAlignment
                                 
                                 Self.renderRichText(headerText, size: 13, weight: .bold)
                                     .font(.system(size: 13, weight: .bold))
                                     .foregroundColor(.primary)
+                                    .multilineTextAlignment(textAlignment)
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 8)
                                     .frame(minWidth: 80, maxWidth: .infinity, maxHeight: .infinity, alignment: align)
@@ -512,12 +558,16 @@ public struct MarkdownContentView: View {
                         GridRow {
                             ForEach(0..<columnCount, id: \.self) { colIdx in
                                 let cellText = colIdx < row.count ? row[colIdx] : ""
-                                let align = (colIdx < alignments.count ? alignments[colIdx] : .leading).swiftUIAlignment
+                                let colAlignment = colIdx < alignments.count ? alignments[colIdx] : .leading
+                                let align = colAlignment.swiftUIAlignment
+                                let textAlignment = colAlignment.textAlignment
                                 let isEven = rowIdx % 2 == 0
                                 
                                 Self.renderRichText(cellText, size: 13)
                                     .font(.system(size: 13))
                                     .foregroundColor(.primary.opacity(0.9))
+                                    .multilineTextAlignment(textAlignment)
+                                    .lineSpacing(2.5)
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 8)
                                     .frame(minWidth: 80, maxWidth: .infinity, maxHeight: .infinity, alignment: align)
@@ -572,7 +622,7 @@ public struct MarkdownContentView: View {
     
     @ViewBuilder
     private func paragraphView(text: String, size: CGFloat = 15) -> some View {
-        let cleanText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanText = Self.replaceHtmlBreaks(in: text).trimmingCharacters(in: .whitespacesAndNewlines)
         let segments = Self.parsePlanSegments(cleanText)
         if segments.count <= 1 && (segments.first?.isPlanButton != true) {
             Self.renderRichText(cleanText, size: size)

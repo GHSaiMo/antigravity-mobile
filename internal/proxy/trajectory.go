@@ -30,9 +30,11 @@ type CascadeMessageItem struct {
 
 // QueuedMessageItem represents a pending follow-up user message queued for execution.
 type QueuedMessageItem struct {
-	ID        string `json:"id"`
-	Text      string `json:"text"`
-	CreatedAt string `json:"createdAt,omitempty"`
+	ID        string   `json:"id"`
+	Text      string   `json:"text"`
+	CreatedAt string   `json:"createdAt,omitempty"`
+	Media     []string `json:"media,omitempty"`     // Base64 thumbnails or image data
+	ImageURLs []string `json:"imageUrls,omitempty"` // Image URLs
 }
 
 // RunningTaskItem represents an asynchronous background task currently running in Antigravity.
@@ -1065,37 +1067,25 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 		if pam.DeliveryStrategy != nil && !isQueuedDeliveryStrategy(pam.DeliveryStrategy) {
 			continue
 		}
-		text := pam.Content
-		if text == "" && len(pam.StepPayload) > 0 {
-			var parsedPayload struct {
-				Step struct {
-					Case  string `json:"case"`
-					Value struct {
-						Items []struct {
-							Text  string `json:"text"`
-							Chunk *struct {
-								Case  string `json:"case"`
-								Value string `json:"value"`
-							} `json:"chunk"`
-						} `json:"items"`
-					} `json:"value"`
-				} `json:"step"`
-			}
-			if err := json.Unmarshal(pam.StepPayload, &parsedPayload); err == nil {
-				for _, it := range parsedPayload.Step.Value.Items {
-					if it.Text != "" {
-						text += it.Text
-					} else if it.Chunk != nil && it.Chunk.Value != "" {
-						text += it.Chunk.Value
-					}
-				}
-			}
+		uMsg := upstreamAgentMessage{
+			ID:               pam.ID,
+			Sender:           pam.Sender,
+			Timestamp:        pam.Timestamp,
+			HideFromUser:     pam.HideFromUser,
+			Content:          pam.Content,
+			StepPayload:      pam.StepPayload,
+			DeliveryStrategy: pam.DeliveryStrategy,
+			SourceMetadata:   pam.SourceMetadata,
 		}
-		if text != "" && !isInternalAgentMessage(false, "", nil, text) {
+		text := extractQueuedMessageText(uMsg)
+		media, imageUrls := extractQueuedMessageMedia(uMsg)
+		if (text != "" || len(media) > 0 || len(imageUrls) > 0) && !isInternalAgentMessage(false, "", nil, text) {
 			queuedMessages = append(queuedMessages, QueuedMessageItem{
 				ID:        pam.ID,
 				Text:      text,
 				CreatedAt: parseAgentMessageTimestamp(pam.Timestamp),
+				Media:     media,
+				ImageURLs: imageUrls,
 			})
 		}
 	}
