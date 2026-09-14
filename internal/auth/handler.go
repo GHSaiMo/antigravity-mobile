@@ -3,7 +3,6 @@ package auth
 import (
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -131,13 +130,6 @@ func (h *AuthHandler) GetEndpoints() []EndpointInfo {
 	}
 
 	return endpoints
-}
-
-// SetNetworkInfo updates the host, port, and ssl settings used for QR generation.
-func (h *AuthHandler) SetNetworkInfo(host string, port int, ssl bool) {
-	h.host = host
-	h.port = port
-	h.ssl = ssl
 }
 
 // HandlePair handles POST /api/v1/auth/pair.
@@ -314,16 +306,6 @@ func (h *AuthHandler) HandleNewPairingSession(w http.ResponseWriter, r *http.Req
 	PrintPairingQRCode(h.host, h.port, session.Code, h.ssl, extraHosts...)
 }
 
-// isLoopback checks whether the incoming address is from localhost.
-func isLoopback(remoteAddr string) bool {
-	clean := CleanIP(remoteAddr)
-	ip := net.ParseIP(clean)
-	if ip == nil {
-		return false
-	}
-	return ip.IsLoopback()
-}
-
 // isAuthorizedAdmin checks if the request carries a valid admin token,
 // or is genuinely from localhost (not behind a reverse proxy).
 func (h *AuthHandler) isAuthorizedAdmin(r *http.Request) bool {
@@ -346,7 +328,7 @@ func (h *AuthHandler) isAuthorizedAdmin(r *http.Request) bool {
 	//    If X-Forwarded-For or X-Real-IP headers are present, a proxy is in front
 	//    and RemoteAddr is the proxy's address, not the real client.
 	if r.Header.Get("X-Forwarded-For") == "" && r.Header.Get("X-Real-IP") == "" {
-		if isLoopback(r.RemoteAddr) {
+		if IsLoopbackAddr(r.RemoteAddr) {
 			return true
 		}
 	}

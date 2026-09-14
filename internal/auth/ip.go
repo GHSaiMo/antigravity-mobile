@@ -72,3 +72,14 @@ func DetectNetworkAddresses() NetworkAddresses {
 
 	return result
 }
+
+// IsLoopbackAddr checks whether a remote address (host:port or bare IP) is from localhost.
+func IsLoopbackAddr(remoteAddr string) bool {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		host = remoteAddr
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+

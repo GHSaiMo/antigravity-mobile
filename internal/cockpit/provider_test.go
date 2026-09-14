@@ -1,6 +1,10 @@
 package cockpit
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -8,13 +12,12 @@ import (
 func TestGetQuotas(t *testing.T) {
 	resp, err := GetQuotas()
 	if err != nil {
-		t.Fatalf("GetQuotas failed: %v", err)
+		t.Skipf("Local Cockpit installation not available: %v, skipping local integration test", err)
+		return
 	}
-	if resp.CurrentAccount == nil {
-		t.Fatalf("Expected CurrentAccount to be non-nil")
-	}
-	if len(resp.Accounts) == 0 {
-		t.Fatalf("Expected Accounts to have items")
+	if resp.CurrentAccount == nil || len(resp.Accounts) == 0 {
+		t.Skip("No active accounts found in local Cockpit, skipping local integration test")
+		return
 	}
 	t.Logf("Current Account: %s (%s)", resp.CurrentAccount.Email, resp.CurrentAccount.Name)
 	t.Logf("Total Accounts: %d", len(resp.Accounts))
@@ -26,6 +29,75 @@ func TestGetQuotas(t *testing.T) {
 		t.Logf("    Weekly -> Gemini: %.1f%% (%s) | Claude: %.1f%% (%s)",
 			a.GeminiWeekly.RemainingPercent, a.GeminiWeekly.ResetFriendly,
 			a.ClaudeWeekly.RemainingPercent, a.ClaudeWeekly.ResetFriendly)
+	}
+}
+
+func TestGetQuotas_Hermetic(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("COCKPIT_DATA_DIR", tmpDir)
+	InvalidateQuotaCache()
+
+	// 1. Create accounts.json
+	accountsJSON := `{
+		"current_account_id": "acc-mock-1",
+		"accounts": [
+			{"id": "acc-mock-1", "email": "hermetic@example.com", "name": "Hermetic Tester"}
+		]
+	}`
+	if err := os.WriteFile(filepath.Join(tmpDir, "accounts.json"), []byte(accountsJSON), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 2. Create mock cache
+	cacheDir := filepath.Join(tmpDir, "cache", "quota_api_v1_desktop", "authorized")
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	emailNorm := "hermetic@example.com"
+	h := sha256.Sum256([]byte(emailNorm))
+	hashHex := hex.EncodeToString(h[:])
+	cacheFile := filepath.Join(cacheDir, hashHex+".json")
+
+	mockCache := `{
+		"updatedAt": 1720000000,
+		"payload": {
+			"quota_summary": {
+				"groups": [
+					{
+						"buckets": [
+							{"bucketId": "gemini-5h", "remainingFraction": 0.85, "resetTime": "2026-09-14T20:00:00Z"},
+							{"bucketId": "3p-5h", "remainingFraction": 0.42, "resetTime": "2026-09-14T21:00:00Z"}
+						]
+					}
+				]
+			}
+		}
+	}`
+	if err := os.WriteFile(cacheFile, []byte(mockCache), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := GetQuotas()
+	if err != nil {
+		t.Fatalf("GetQuotas failed in hermetic test: %v", err)
+	}
+
+	if resp.CurrentAccount == nil {
+		t.Fatalf("expected CurrentAccount to be non-nil")
+	}
+	if resp.CurrentAccount.Email != "hermetic@example.com" {
+		t.Errorf("expected email hermetic@example.com, got %s", resp.CurrentAccount.Email)
+	}
+	if len(resp.Accounts) != 1 {
+		t.Fatalf("expected 1 account, got %d", len(resp.Accounts))
+	}
+	acc := resp.Accounts[0]
+	if acc.Gemini5h == nil || acc.Gemini5h.RemainingPercent != 85.0 {
+		t.Errorf("expected Gemini5h 85%%, got %+v", acc.Gemini5h)
+	}
+	if acc.Claude5h == nil || acc.Claude5h.RemainingPercent != 42.0 {
+		t.Errorf("expected Claude5h 42%%, got %+v", acc.Claude5h)
 	}
 }
 
