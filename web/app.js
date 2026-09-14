@@ -2664,6 +2664,7 @@ async function cancelCurrentTask() {
 // --- Markdown File Viewer Sheet ---
 let currentViewerData = null;
 let currentViewerUri = null;
+const mdContentCache = new Map();
 
 async function fetchFileContent(uri, cascadeId) {
   const params = new URLSearchParams();
@@ -2721,18 +2722,44 @@ async function openMarkdownViewer(uri, title) {
   if (titleEl) titleEl.textContent = displayTitle;
   if (subtitleEl) subtitleEl.textContent = displaySubtitle;
 
-  // Reset state
-  if (contentEl) contentEl.innerHTML = "";
-  if (errorEl) errorEl.classList.add("hidden");
-  if (loadingEl) loadingEl.classList.remove("hidden");
-
-  // Initial proceed bar check - only implementation_plan requires proceed approval, walkthrough never does
   const isPlan = (filename.includes("implementation_plan") || (title && title.includes("实施方案"))) && !filename.includes("walkthrough");
-  if (proceedBar) {
-    if (currentCanProceed && isPlan) {
-      proceedBar.classList.remove("hidden");
-    } else {
-      proceedBar.classList.add("hidden");
+
+  // Fast-path: Check memory cache first
+  const cacheKey = `${activeCascadeId || ""}_${currentViewerUri}`;
+  const cached = mdContentCache.get(cacheKey);
+  let hasCache = false;
+
+  if (cached && cached.content) {
+    hasCache = true;
+    currentViewerData = cached;
+    if (loadingEl) loadingEl.classList.add("hidden");
+    if (errorEl) errorEl.classList.add("hidden");
+    if (contentEl) contentEl.innerHTML = renderMarkdown(cached.content || "");
+    if (cached.filename) {
+      if (subtitleEl) subtitleEl.textContent = cached.filename;
+      if (titleEl && (!displayTitle || displayTitle.includes("%") || displayTitle === "Markdown 文档")) {
+        titleEl.textContent = cached.filename;
+      }
+    }
+    if (proceedBar) {
+      const canProceedThis = currentCanProceed && isPlan && (cached.request_feedback || isPlan);
+      if (canProceedThis) {
+        proceedBar.classList.remove("hidden");
+      } else {
+        proceedBar.classList.add("hidden");
+      }
+    }
+  } else {
+    // Reset state when not cached
+    if (contentEl) contentEl.innerHTML = "";
+    if (errorEl) errorEl.classList.add("hidden");
+    if (loadingEl) loadingEl.classList.remove("hidden");
+    if (proceedBar) {
+      if (currentCanProceed && isPlan) {
+        proceedBar.classList.remove("hidden");
+      } else {
+        proceedBar.classList.add("hidden");
+      }
     }
   }
 
@@ -2742,6 +2769,7 @@ async function openMarkdownViewer(uri, title) {
   try {
     const data = await fetchFileContent(currentViewerUri, activeCascadeId);
     currentViewerData = data;
+    mdContentCache.set(cacheKey, data);
 
     if (loadingEl) loadingEl.classList.add("hidden");
 
@@ -2751,7 +2779,6 @@ async function openMarkdownViewer(uri, title) {
         titleEl.textContent = data.filename;
       }
     }
-
 
     // Render markdown content using chat's rich markdown parser
     if (contentEl) {
@@ -2769,7 +2796,7 @@ async function openMarkdownViewer(uri, title) {
     }
   } catch (err) {
     if (loadingEl) loadingEl.classList.add("hidden");
-    if (errorEl) {
+    if (!hasCache && errorEl) {
       errorEl.classList.remove("hidden");
       const errText = document.getElementById("md-viewer-error-text");
       if (errText) errText.textContent = `加载失败: ${err.message}`;

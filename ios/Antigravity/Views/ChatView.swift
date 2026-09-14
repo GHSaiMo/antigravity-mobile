@@ -660,7 +660,10 @@ public struct ChatView: View {
                 viewModel.proceedFromViewer()
             },
             onRetry: {
-                viewModel.openMarkdownViewer(uri: data.uri, title: data.title)
+                viewModel.openMarkdownViewer(uri: data.uri, title: data.title, forceRefresh: true)
+            },
+            onRefresh: {
+                viewModel.openMarkdownViewer(uri: data.uri, title: data.title, forceRefresh: true)
             }
         )
     }
@@ -1131,17 +1134,21 @@ public struct MarkdownViewerSheet: View {
     public let onDismiss: () -> Void
     public let onProceed: (() -> Void)?
     public let onRetry: (() -> Void)?
+    public let onRefresh: (() -> Void)?
+    @State private var isSharing: Bool = false
     
     public init(
         data: MarkdownFileViewerData,
         onDismiss: @escaping () -> Void,
         onProceed: (() -> Void)? = nil,
-        onRetry: (() -> Void)? = nil
+        onRetry: (() -> Void)? = nil,
+        onRefresh: (() -> Void)? = nil
     ) {
         self.data = data
         self.onDismiss = onDismiss
         self.onProceed = onProceed
         self.onRetry = onRetry
+        self.onRefresh = onRefresh
     }
     
     public var body: some View {
@@ -1151,16 +1158,74 @@ public struct MarkdownViewerSheet: View {
                 .fill(Color(uiColor: .tertiaryLabel))
                 .frame(width: 38, height: 5)
                 .padding(.top, 10)
-                .padding(.bottom, 20)
-            
-            // Header title (clean centered, dismiss via pull-down gesture)
-            Text(data.title.isEmpty ? "文档详情" : data.title)
-                .font(.system(size: 17, weight: .bold))
-                .foregroundColor(.primary)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 16)
                 .padding(.bottom, 12)
+            
+            // Header bar
+            HStack(alignment: .center) {
+                Button("完成") {
+                    onDismiss()
+                }
+                .font(.system(size: 16, weight: .semibold))
+                .frame(width: 50, alignment: .leading)
+                
+                Spacer()
+                
+                VStack(spacing: 2) {
+                    Text(data.title.isEmpty ? "文档详情" : data.title)
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                    
+                    if data.isRefreshing {
+                        HStack(spacing: 4) {
+                            ProgressView()
+                                .scaleEffect(0.6)
+                            Text("正在同步最新...")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                        }
+                    } else if data.isCached {
+                        HStack(spacing: 3) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 10))
+                                .foregroundColor(.green)
+                            Text("已缓存到手机")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+                
+                Spacer()
+                
+                HStack(spacing: 12) {
+                    if let refreshAction = onRefresh ?? onRetry {
+                        Button {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            refreshAction()
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 15, weight: .semibold))
+                        }
+                        .disabled(data.isLoading || data.isRefreshing)
+                        .accessibilityLabel("刷新")
+                    }
+                    
+                    if let _ = data.cachedFileURL {
+                        Button {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            isSharing = true
+                        } label: {
+                            Image(systemName: "square.and.arrow.up")
+                                .font(.system(size: 15, weight: .semibold))
+                        }
+                        .accessibilityLabel("分享文档")
+                    }
+                }
+                .frame(width: 60, alignment: .trailing)
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 10)
             
             Divider()
             
@@ -1257,6 +1322,11 @@ public struct MarkdownViewerSheet: View {
             }
         }
         .presentationDragIndicator(.hidden)
+        .sheet(isPresented: $isSharing) {
+            if let fileURL = data.cachedFileURL {
+                ShareSheetView(activityItems: [fileURL])
+            }
+        }
     }
 }
 
