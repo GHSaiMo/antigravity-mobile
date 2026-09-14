@@ -57,6 +57,14 @@ func TestIsSafeFilePath(t *testing.T) {
 	if !IsSafeFilePath(filepath.Join(home, ".gemini/antigravity/brain/abc/plan.md")) {
 		t.Errorf("expected artifact file to be safe")
 	}
+
+	if !IsSafeFilePath(filepath.Join(home, "Downloads/sample.png")) {
+		t.Errorf("expected Downloads image to be safe")
+	}
+
+	if IsSafeFilePath(filepath.Join(home, "Downloads/.env")) {
+		t.Errorf("expected Downloads .env to be blocked")
+	}
 }
 
 func TestGetFileContentAndHandler(t *testing.T) {
