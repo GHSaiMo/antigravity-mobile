@@ -45,6 +45,7 @@ public final class StreamWebSocketClient {
     
     private var connection: NWConnection?
     private var reconnectTask: Task<Void, Never>?
+    private var connectionWatchdogTask: Task<Void, Never>?
     
     private var activeURL: URL?
     private var activeCascadeId: String?
@@ -150,11 +151,23 @@ public final class StreamWebSocketClient {
         }
         
         conn.start(queue: .main)
+        
+        connectionWatchdogTask?.cancel()
+        connectionWatchdogTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 3_500_000_000)
+            guard let self, !Task.isCancelled else { return }
+            if self.status != .connected && !self.isIntentionallyClosed {
+                print("[StreamWS] Connection attempt timed out (3.5s), triggering retry...")
+                self.handleConnectionLoss()
+            }
+        }
     }
     
     private func handleStateUpdate(state: NWConnection.State, wsURL: URL) {
         switch state {
         case .ready:
+            connectionWatchdogTask?.cancel()
+            connectionWatchdogTask = nil
             updateStatus(.connected)
             receiveNextMessage()
         case .waiting(let error):
@@ -210,7 +223,7 @@ public final class StreamWebSocketClient {
         
         reconnectTask?.cancel()
         reconnectTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
             guard let self, !self.isIntentionallyClosed else { return }
             print("[StreamWS] Reconnecting to stream...")
             self.startConnection()
@@ -218,6 +231,8 @@ public final class StreamWebSocketClient {
     }
     
     private func cleanupCurrentSocket() {
+        connectionWatchdogTask?.cancel()
+        connectionWatchdogTask = nil
         if let conn = connection {
             conn.stateUpdateHandler = nil
             conn.cancel()
@@ -227,6 +242,8 @@ public final class StreamWebSocketClient {
     
     public func disconnect(intentional: Bool = true) {
         self.isIntentionallyClosed = intentional
+        connectionWatchdogTask?.cancel()
+        connectionWatchdogTask = nil
         reconnectTask?.cancel()
         reconnectTask = nil
         cleanupCurrentSocket()
