@@ -66,7 +66,8 @@ func IsWhitelistedPath(path string) bool {
 	}
 
 	// Gateway basic status probe (allows health checks and connectivity testing)
-	if path == "/gateway/status" || path == "/healthz" || path == "/readyz" {
+	if path == "/gateway/status" || path == "/healthz" || path == "/readyz" ||
+		path == "/gateway/cascade/touch" || path == "/gateway/cascade/invalidate" {
 		return true
 	}
 

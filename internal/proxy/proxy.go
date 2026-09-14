@@ -245,6 +245,10 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		p.handleCascadeMessages(w, r)
 		return
 	}
+	if r.URL.Path == "/gateway/cascade/touch" || r.URL.Path == "/gateway/cascade/invalidate" {
+		p.handleCascadeTouch(w, r)
+		return
+	}
 	if r.URL.Path == "/gateway/cascade/stream" {
 		p.HandleCascadeStream(w, r)
 		return
@@ -336,6 +340,25 @@ func (p *Proxy) handleStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 	w.WriteHeader(http.StatusOK)
 	w.Write(data)
+}
+
+func (p *Proxy) handleCascadeTouch(w http.ResponseWriter, r *http.Request) {
+	cascadeID := strings.TrimSpace(r.URL.Query().Get("cascadeId"))
+	if cascadeID == "" && r.Body != nil {
+		var body struct {
+			CascadeID string `json:"cascadeId"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		cascadeID = strings.TrimSpace(body.CascadeID)
+	}
+	if cascadeID != "" {
+		ClearTrajectoryCache(cascadeID)
+		ClearPendingMessagesCache(cascadeID)
+		log.Printf("[Proxy] Cascade cache invalidated via touch API: %s", cascadeID)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status":"ok"}`))
 }
 
 func (p *Proxy) handleRescan(w http.ResponseWriter, r *http.Request) {
