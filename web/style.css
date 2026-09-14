@@ -2128,6 +2128,16 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
   border-top: 0.5px solid var(--ios-separator-subtle);
 }
 
+.queued-item-thumb {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex-shrink: 0;
+  border: 0.5px solid var(--ios-separator-subtle);
+  background: var(--ios-tertiary-bg);
+}
+
 .queued-item-text {
   flex: 1;
   font-size: 14px;

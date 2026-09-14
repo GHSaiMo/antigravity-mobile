@@ -30,6 +30,16 @@ type upstreamAgentMessage struct {
 		Case  string          `json:"case"`
 		Value json.RawMessage `json:"value"`
 	} `json:"payload"`
+	Media []struct {
+		MimeType   string `json:"mimeType"`
+		Thumbnail  string `json:"thumbnail"`
+		InlineData string `json:"inlineData"`
+		URI        string `json:"uri"`
+	} `json:"media,omitempty"`
+	Images []struct {
+		Base64Data string `json:"base64Data"`
+		MimeType   string `json:"mimeType"`
+	} `json:"images,omitempty"`
 }
 
 // upstreamAgentStateUpdate represents the envelope returned by StreamAgentStateUpdates.
@@ -495,6 +505,193 @@ func extractTextFromProto(data []byte, depth int) string {
 	return ""
 }
 
+// extractQueuedMessageMedia extracts base64 image data / thumbnails and image URLs from an upstreamAgentMessage.
+func extractQueuedMessageMedia(pam upstreamAgentMessage) ([]string, []string) {
+	var mediaList []string
+	var imageURLs []string
+	seenMedia := make(map[string]bool)
+	seenURL := make(map[string]bool)
+
+	addMedia := func(m string) {
+		m = strings.TrimSpace(m)
+		if m != "" && !seenMedia[m] {
+			seenMedia[m] = true
+			mediaList = append(mediaList, m)
+		}
+	}
+	addImageURL := func(u string) {
+		u = strings.TrimSpace(u)
+		if u != "" && !seenURL[u] {
+			seenURL[u] = true
+			imageURLs = append(imageURLs, u)
+		}
+	}
+
+	// 1. Direct fields on pam
+	for _, m := range pam.Media {
+		if m.Thumbnail != "" {
+			addMedia(m.Thumbnail)
+		} else if m.InlineData != "" {
+			addMedia(m.InlineData)
+		}
+		if m.URI != "" && (strings.HasPrefix(m.URI, "http://") || strings.HasPrefix(m.URI, "https://")) {
+			addImageURL(m.URI)
+		}
+	}
+	for _, img := range pam.Images {
+		if img.Base64Data != "" {
+			addMedia(img.Base64Data)
+		}
+	}
+
+	rawCandidates := make([]json.RawMessage, 0, 2)
+	if pam.Payload != nil {
+		if pam.Payload.Case == "stepPayload" && len(pam.Payload.Value) > 0 {
+			rawCandidates = append(rawCandidates, pam.Payload.Value)
+		} else if pam.Payload.Case == "userInput" && len(pam.Payload.Value) > 0 {
+			rawCandidates = append(rawCandidates, pam.Payload.Value)
+		} else if len(pam.Payload.Value) > 0 {
+			rawCandidates = append(rawCandidates, pam.Payload.Value)
+		}
+	}
+	if len(pam.StepPayload) > 0 {
+		rawCandidates = append(rawCandidates, pam.StepPayload)
+	}
+
+	for _, raw := range rawCandidates {
+		// Try structured JSON schemas
+		var structured struct {
+			Step struct {
+				Case  string `json:"case"`
+				Value struct {
+					Media []struct {
+						Thumbnail  string `json:"thumbnail"`
+						InlineData string `json:"inlineData"`
+						URI        string `json:"uri"`
+					} `json:"media"`
+					Images []struct {
+						Base64Data string `json:"base64Data"`
+					} `json:"images"`
+				} `json:"value"`
+			} `json:"step"`
+			UserInput struct {
+				Media []struct {
+					Thumbnail  string `json:"thumbnail"`
+					InlineData string `json:"inlineData"`
+					URI        string `json:"uri"`
+				} `json:"media"`
+				Images []struct {
+					Base64Data string `json:"base64Data"`
+				} `json:"images"`
+			} `json:"userInput"`
+			Media []struct {
+				Thumbnail  string `json:"thumbnail"`
+				InlineData string `json:"inlineData"`
+				URI        string `json:"uri"`
+			} `json:"media"`
+			Images []struct {
+				Base64Data string `json:"base64Data"`
+			} `json:"images"`
+		}
+
+		if err := json.Unmarshal(raw, &structured); err == nil {
+			// Check Step.Value
+			for _, m := range structured.Step.Value.Media {
+				if m.Thumbnail != "" {
+					addMedia(m.Thumbnail)
+				} else if m.InlineData != "" {
+					addMedia(m.InlineData)
+				}
+				if m.URI != "" && (strings.HasPrefix(m.URI, "http://") || strings.HasPrefix(m.URI, "https://")) {
+					addImageURL(m.URI)
+				}
+			}
+			for _, img := range structured.Step.Value.Images {
+				if img.Base64Data != "" {
+					addMedia(img.Base64Data)
+				}
+			}
+			// Check UserInput
+			for _, m := range structured.UserInput.Media {
+				if m.Thumbnail != "" {
+					addMedia(m.Thumbnail)
+				} else if m.InlineData != "" {
+					addMedia(m.InlineData)
+				}
+				if m.URI != "" && (strings.HasPrefix(m.URI, "http://") || strings.HasPrefix(m.URI, "https://")) {
+					addImageURL(m.URI)
+				}
+			}
+			for _, img := range structured.UserInput.Images {
+				if img.Base64Data != "" {
+					addMedia(img.Base64Data)
+				}
+			}
+			// Check direct Media & Images
+			for _, m := range structured.Media {
+				if m.Thumbnail != "" {
+					addMedia(m.Thumbnail)
+				} else if m.InlineData != "" {
+					addMedia(m.InlineData)
+				}
+				if m.URI != "" && (strings.HasPrefix(m.URI, "http://") || strings.HasPrefix(m.URI, "https://")) {
+					addImageURL(m.URI)
+				}
+			}
+			for _, img := range structured.Images {
+				if img.Base64Data != "" {
+					addMedia(img.Base64Data)
+				}
+			}
+		}
+
+		// Generic recursive map fallback if nothing found yet
+		if len(mediaList) == 0 && len(imageURLs) == 0 {
+			var genericMap map[string]interface{}
+			if err := json.Unmarshal(raw, &genericMap); err == nil {
+				findMediaInGenericMap(genericMap, &mediaList, &imageURLs, seenMedia, seenURL)
+			}
+		}
+	}
+
+	return mediaList, imageURLs
+}
+
+func findMediaInGenericMap(m map[string]interface{}, mediaList *[]string, imageURLs *[]string, seenMedia map[string]bool, seenURL map[string]bool) {
+	if mediaArr, ok := m["media"].([]interface{}); ok {
+		for _, item := range mediaArr {
+			if itemMap, ok := item.(map[string]interface{}); ok {
+				if thumb, ok := itemMap["thumbnail"].(string); ok && thumb != "" && !seenMedia[thumb] {
+					seenMedia[thumb] = true
+					*mediaList = append(*mediaList, thumb)
+				} else if inline, ok := itemMap["inlineData"].(string); ok && inline != "" && !seenMedia[inline] {
+					seenMedia[inline] = true
+					*mediaList = append(*mediaList, inline)
+				}
+				if uri, ok := itemMap["uri"].(string); ok && (strings.HasPrefix(uri, "http://") || strings.HasPrefix(uri, "https://")) && !seenURL[uri] {
+					seenURL[uri] = true
+					*imageURLs = append(*imageURLs, uri)
+				}
+			}
+		}
+	}
+	if imgArr, ok := m["images"].([]interface{}); ok {
+		for _, item := range imgArr {
+			if itemMap, ok := item.(map[string]interface{}); ok {
+				if b64, ok := itemMap["base64Data"].(string); ok && b64 != "" && !seenMedia[b64] {
+					seenMedia[b64] = true
+					*mediaList = append(*mediaList, b64)
+				}
+			}
+		}
+	}
+	for _, v := range m {
+		if subMap, ok := v.(map[string]interface{}); ok {
+			findMediaInGenericMap(subMap, mediaList, imageURLs, seenMedia, seenURL)
+		}
+	}
+}
+
 // parseAgentStateQueuedMessages parses QueuedMessageItem list from upstreamAgentStateUpdate.
 func parseAgentStateQueuedMessages(state *upstreamAgentStateUpdate) []QueuedMessageItem {
 	if state == nil {
@@ -517,7 +714,8 @@ func parseAgentStateQueuedMessages(state *upstreamAgentStateUpdate) []QueuedMess
 			continue
 		}
 		text := extractQueuedMessageText(pam)
-		if text == "" || isInternalAgentMessage(false, "", nil, text) {
+		media, imageUrls := extractQueuedMessageMedia(pam)
+		if (text == "" && len(media) == 0 && len(imageUrls) == 0) || isInternalAgentMessage(false, "", nil, text) {
 			continue
 		}
 		createdAt := parseAgentMessageTimestamp(pam.Timestamp)
@@ -525,6 +723,8 @@ func parseAgentStateQueuedMessages(state *upstreamAgentStateUpdate) []QueuedMess
 			ID:        pam.ID,
 			Text:      text,
 			CreatedAt: createdAt,
+			Media:     media,
+			ImageURLs: imageUrls,
 		})
 	}
 	return items

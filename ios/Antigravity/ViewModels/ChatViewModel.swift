@@ -305,6 +305,8 @@ public final class ChatViewModel {
     private struct PendingOptimisticQueueItem {
         let id: String
         let text: String
+        let media: [String]?
+        let imageUrls: [String]?
         let createdAt: Date
     }
     private var pendingOptimisticQueueItems: [PendingOptimisticQueueItem] = []
@@ -392,7 +394,7 @@ public final class ChatViewModel {
             self.proceedArtifactUri = cached.proceedArtifactUri
             self.pendingInteraction = cached.pendingInteraction
             let recentUser = Set(healed.filter { $0.sender == .user }.suffix(15).map { $0.content.trimmingCharacters(in: .whitespacesAndNewlines) })
-            self.queuedMessages = (cached.queuedMessages ?? []).filter { Self.isUserQueuedMessage($0.text) && !recentUser.contains($0.text.trimmingCharacters(in: .whitespacesAndNewlines)) }
+            self.queuedMessages = (cached.queuedMessages ?? []).filter { Self.isUserQueuedItem($0) && !recentUser.contains($0.text.trimmingCharacters(in: .whitespacesAndNewlines)) }
             self.knownServerMessageIds = Set(healed.map(\.id))
             if let cachedTitle = cached.title?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines), !cachedTitle.isEmpty, cachedTitle != "未命名会话" {
                 self.currentTitle = cachedTitle
@@ -492,7 +494,7 @@ public final class ChatViewModel {
             self.proceedArtifactUri = nil
             self.pendingInteraction = cached.pendingInteraction
             let recentUser = Set(healed.filter { $0.sender == .user }.suffix(15).map { $0.content.trimmingCharacters(in: .whitespacesAndNewlines) })
-            self.queuedMessages = (cached.queuedMessages ?? []).filter { Self.isUserQueuedMessage($0.text) && !recentUser.contains($0.text.trimmingCharacters(in: .whitespacesAndNewlines)) }
+            self.queuedMessages = (cached.queuedMessages ?? []).filter { Self.isUserQueuedItem($0) && !recentUser.contains($0.text.trimmingCharacters(in: .whitespacesAndNewlines)) }
             self.runningTasks = cached.runningTasks ?? []
             self.knownServerMessageIds = Set(healed.map(\.id))
         }
@@ -966,6 +968,17 @@ public final class ChatViewModel {
         return true
     }
     
+    public static func isUserQueuedItem(_ item: QueuedMessageItem) -> Bool {
+        let trimmed = item.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty && !item.hasAttachments { return false }
+        if trimmed.hasPrefix("Task id \"") || trimmed.hasPrefix("Task \"") ||
+           trimmed.contains("was canceled with result:") || trimmed.contains("completed with result:") ||
+           trimmed.contains("Tool execution was canceled") {
+            return false
+        }
+        return true
+    }
+    
     private func syncQueuedMessages(serverQueue: [QueuedMessageItem]?) {
         let now = Date()
         // 1. Expire stale optimistic items older than 15 seconds
@@ -986,9 +999,14 @@ public final class ChatViewModel {
         // 4. Clear optimistic items if server has incorporated them OR if entered chat OR if tombstoned
         pendingOptimisticQueueItems.removeAll { opt in
             let trimmed = opt.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            let inServer = serverQueue?.contains(where: { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == trimmed }) == true
-            let inChat = recentUserMessageSet.contains(trimmed)
-            let isTombstoned = tombstoneIds.contains(opt.id) || tombstoneTexts.contains(trimmed)
+            let inServer = serverQueue?.contains(where: {
+                if !trimmed.isEmpty {
+                    return $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == trimmed
+                }
+                return $0.id == opt.id
+            }) == true
+            let inChat = !trimmed.isEmpty && recentUserMessageSet.contains(trimmed)
+            let isTombstoned = tombstoneIds.contains(opt.id) || (!trimmed.isEmpty && tombstoneTexts.contains(trimmed))
             return inServer || inChat || isTombstoned
         }
         
@@ -997,35 +1015,45 @@ public final class ChatViewModel {
         if let sq = serverQueue {
             baseQueue = sq.filter { sItem in
                 let trimmed = sItem.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                return Self.isUserQueuedMessage(sItem.text) &&
-                    !recentUserMessageSet.contains(trimmed) &&
+                return Self.isUserQueuedItem(sItem) &&
+                    (trimmed.isEmpty || !recentUserMessageSet.contains(trimmed)) &&
                     !tombstoneIds.contains(sItem.id) &&
-                    !tombstoneTexts.contains(trimmed)
+                    (trimmed.isEmpty || !tombstoneTexts.contains(trimmed))
             }
         } else {
             baseQueue = self.queuedMessages.filter { qm in
                 let trimmed = qm.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                return Self.isUserQueuedMessage(qm.text) &&
+                return Self.isUserQueuedItem(qm) &&
                     !qm.id.hasPrefix("queue-") &&
-                    !recentUserMessageSet.contains(trimmed) &&
+                    (trimmed.isEmpty || !recentUserMessageSet.contains(trimmed)) &&
                     !tombstoneIds.contains(qm.id) &&
-                    !tombstoneTexts.contains(trimmed)
+                    (trimmed.isEmpty || !tombstoneTexts.contains(trimmed))
             }
         }
         
         // 6. Append unconfirmed optimistic items (not yet in server queue, not entered chat, not tombstoned)
         let remainingOptItems = pendingOptimisticQueueItems.compactMap { opt -> QueuedMessageItem? in
             let trimmed = opt.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if tombstoneIds.contains(opt.id) || tombstoneTexts.contains(trimmed) {
+            if tombstoneIds.contains(opt.id) || (!trimmed.isEmpty && tombstoneTexts.contains(trimmed)) {
                 return nil
             }
-            if baseQueue.contains(where: { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == trimmed }) {
+            if baseQueue.contains(where: {
+                if !trimmed.isEmpty {
+                    return $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == trimmed
+                }
+                return $0.id == opt.id
+            }) {
                 return nil
             }
-            if recentUserMessageSet.contains(trimmed) {
+            if !trimmed.isEmpty && recentUserMessageSet.contains(trimmed) {
                 return nil
             }
-            return QueuedMessageItem(id: opt.id, text: opt.text)
+            return QueuedMessageItem(
+                id: opt.id,
+                text: opt.text,
+                media: opt.media,
+                imageUrls: opt.imageUrls
+            )
         }
         
         let newQueue = baseQueue + remainingOptItems
@@ -1114,9 +1142,22 @@ public final class ChatViewModel {
         // If agent is currently running and session already exists, queue follow-up message!
         if (self.isRunning || self.isAwaitingResponse) && !self.cascadeId.isEmpty {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-            self.deletedQueueItemTombstones.removeAll(where: { $0.text == text })
-            let queueItem = QueuedMessageItem(id: "queue-\(UUID().uuidString)", text: text)
-            self.pendingOptimisticQueueItems.append(PendingOptimisticQueueItem(id: queueItem.id, text: text, createdAt: Date()))
+            if !text.isEmpty {
+                self.deletedQueueItemTombstones.removeAll(where: { $0.text == text })
+            }
+            let mediaBase64 = images?.map { $0.base64EncodedString() }
+            let queueItem = QueuedMessageItem(
+                id: "queue-\(UUID().uuidString)",
+                text: text,
+                media: mediaBase64
+            )
+            self.pendingOptimisticQueueItems.append(PendingOptimisticQueueItem(
+                id: queueItem.id,
+                text: text,
+                media: mediaBase64,
+                imageUrls: nil,
+                createdAt: Date()
+            ))
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                 self.queuedMessages.append(queueItem)
             }
@@ -1359,11 +1400,21 @@ public final class ChatViewModel {
         // Snapshot known server message IDs before sending (excluding any optimistic items)
         self.knownServerMessageIds = Set(messages.filter { $0.id != pendingOptimisticMessageId && !$0.id.hasPrefix("optimistic-") }.map(\.id))
         
+        let imgDataList = (item.media ?? []).compactMap { raw -> Data? in
+            let cleaned: String
+            if let commaIndex = raw.firstIndex(of: ",") {
+                cleaned = String(raw[raw.index(after: commaIndex)...])
+            } else {
+                cleaned = raw
+            }
+            return Data(base64Encoded: cleaned)
+        }
+        
         // Optimistic user chat bubble
         let clientMessageId = UUID().uuidString
         let optId = "optimistic-\(clientMessageId)"
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-            self.messages.append(ChatMessage(id: optId, sender: .user, content: item.text))
+            self.messages.append(ChatMessage(id: optId, sender: .user, content: item.text, imageDataList: imgDataList))
         }
         triggerScrollToBottom()
         self.pendingOptimisticMessageId = optId
@@ -1407,6 +1458,7 @@ public final class ChatViewModel {
                 cascadeId: cascadeId,
                 text: item.text,
                 model: activeModelEnum,
+                images: imgDataList.isEmpty ? nil : imgDataList,
                 deliveryStrategy: 1,
                 cascadeConfigRaw: cascadeConfigRaw,
                 clientMessageId: clientMessageId,
@@ -1510,6 +1562,20 @@ public final class ChatViewModel {
         }
         
         self.inputText = item.text
+        if let media = item.media, !media.isEmpty {
+            let images = media.compactMap { raw -> Data? in
+                let cleaned: String
+                if let commaIndex = raw.firstIndex(of: ",") {
+                    cleaned = String(raw[raw.index(after: commaIndex)...])
+                } else {
+                    cleaned = raw
+                }
+                return Data(base64Encoded: cleaned)
+            }
+            if !images.isEmpty {
+                self.selectedImageData = images
+            }
+        }
     }
     
     @MainActor
