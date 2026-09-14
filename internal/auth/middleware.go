@@ -17,7 +17,8 @@ const (
 	DeviceContextKey contextKey = "auth_device"
 )
 
-// ExtractToken retrieves the bearer token from the Authorization header or query parameter.
+// ExtractToken retrieves the bearer token from the Authorization header,
+// or from query parameters for WebSocket upgrade and media download routes where custom headers cannot be set.
 func ExtractToken(r *http.Request) string {
 	// 1. Authorization: Bearer <token>
 	authHeader := r.Header.Get("Authorization")
@@ -29,11 +30,18 @@ func ExtractToken(r *http.Request) string {
 	}
 
 	// 2. Query parameter (?auth_token=... or ?token=...)
-	if token := r.URL.Query().Get("auth_token"); token != "" {
-		return strings.TrimSpace(token)
-	}
-	if token := r.URL.Query().Get("token"); token != "" {
-		return strings.TrimSpace(token)
+	// Restricted strictly to:
+	// - WebSocket upgrade requests (browsers cannot set headers on WebSocket connections)
+	// - File/media raw download endpoints (e.g. <img> or file downloads where headers cannot be set)
+	isWS := strings.EqualFold(r.Header.Get("Upgrade"), "websocket") || r.URL.Path == "/connect-websocket"
+	isRawFile := strings.HasPrefix(r.URL.Path, "/api/v1/files/raw")
+	if isWS || isRawFile {
+		if token := r.URL.Query().Get("auth_token"); token != "" {
+			return strings.TrimSpace(token)
+		}
+		if token := r.URL.Query().Get("token"); token != "" {
+			return strings.TrimSpace(token)
+		}
 	}
 
 	return ""

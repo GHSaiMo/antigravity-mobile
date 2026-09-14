@@ -6,7 +6,9 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -30,42 +32,103 @@ func init() {
 	}
 }
 
+// IsAllowedOrigin validates that an Origin header represents a trusted caller.
+// It blocks Cross-Site WebSocket Hijacking (CSWSH) from malicious third-party websites.
+func IsAllowedOrigin(origin string, requestHost string) bool {
+	// Allow requests with no Origin header (native mobile apps, CLI, curl)
+	if origin == "" {
+		return true
+	}
+
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+
+	originHost := strings.Trim(u.Hostname(), "[]")
+	lowerOrigin := strings.ToLower(origin)
+
+	// 1. Loopback addresses
+	if originHost == "127.0.0.1" || originHost == "localhost" || originHost == "::1" {
+		return true
+	}
+
+	// 2. Private LAN IPs (RFC 1918 IPv4 & ULA / Link-local IPv6)
+	if ip := net.ParseIP(originHost); ip != nil {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
+			return true
+		}
+	}
+
+	// 3. Configured host / DDNS domains from environment
+	var trustedHosts []string
+	if dh := strings.TrimSpace(os.Getenv("DDNS_HOST")); dh != "" {
+		trustedHosts = append(trustedHosts, strings.ToLower(dh))
+	}
+	if gh := strings.TrimSpace(os.Getenv("GATEWAY_HOST")); gh != "" {
+		trustedHosts = append(trustedHosts, strings.ToLower(gh))
+	}
+	if fa := strings.TrimSpace(os.Getenv("FRP_SERVER_ADDR")); fa != "" {
+		trustedHosts = append(trustedHosts, strings.ToLower(fa))
+	}
+
+	for _, th := range trustedHosts {
+		if originHost == th || strings.HasSuffix(originHost, "."+th) {
+			return true
+		}
+	}
+
+	// 4. Check explicitly configured allowed origins (ALLOWED_ORIGINS env var)
+	for _, allowed := range allowedOrigins {
+		if lowerOrigin == allowed || strings.HasPrefix(lowerOrigin, allowed+":") {
+			return true
+		}
+	}
+
+	// 5. Match requestHost ONLY IF requestHost itself is a verified private/loopback IP or configured domain
+	if requestHost != "" {
+		reqHostname, _, err := net.SplitHostPort(requestHost)
+		if err != nil {
+			reqHostname = requestHost
+		}
+		reqHostname = strings.Trim(reqHostname, "[]")
+
+		isSafeReqHost := false
+		if reqHostname == "localhost" || reqHostname == "127.0.0.1" || reqHostname == "::1" {
+			isSafeReqHost = true
+		} else if ip := net.ParseIP(reqHostname); ip != nil && (ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast()) {
+			isSafeReqHost = true
+		} else {
+			for _, th := range trustedHosts {
+				if reqHostname == th || strings.HasSuffix(reqHostname, "."+th) {
+					isSafeReqHost = true
+					break
+				}
+			}
+		}
+
+		if isSafeReqHost {
+			for _, scheme := range []string{"http://", "https://"} {
+				if lowerOrigin == scheme+strings.ToLower(requestHost) {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
+}
+
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  32768,
 	WriteBufferSize: 32768,
 	CheckOrigin: func(r *http.Request) bool {
 		origin := r.Header.Get("Origin")
-		// Allow requests with no Origin header (native apps, curl, same-origin navigations)
-		if origin == "" {
-			return true
+		allowed := IsAllowedOrigin(origin, r.Host)
+		if !allowed {
+			log.Printf("[WS] Rejected WebSocket connection from untrusted origin: %s (host: %s)", origin, r.Host)
 		}
-		// Validate origin against trusted loopback/localhost patterns
-		lower := strings.ToLower(origin)
-		for _, prefix := range []string{
-			"http://127.0.0.1", "https://127.0.0.1",
-			"http://[::1]", "https://[::1]",
-			"http://localhost", "https://localhost",
-		} {
-			if lower == prefix || strings.HasPrefix(lower, prefix+":") {
-				return true
-			}
-		}
-		// Also allow if Origin matches the request's Host (same-origin via tunnel/proxy)
-		if r.Host != "" {
-			for _, scheme := range []string{"http://", "https://"} {
-				if lower == scheme+strings.ToLower(r.Host) {
-					return true
-				}
-			}
-		}
-		// Check against configured allowed origins (from ALLOWED_ORIGINS env var)
-		for _, allowed := range allowedOrigins {
-			if lower == allowed || strings.HasPrefix(lower, allowed+":") {
-				return true
-			}
-		}
-		log.Printf("[WS] Rejected WebSocket connection from untrusted origin: %s", origin)
-		return false
+		return allowed
 	},
 }
 
