@@ -308,6 +308,7 @@ public final class ChatViewModel {
         let media: [String]?
         let imageUrls: [String]?
         let createdAt: Date
+        let enqueuedAfterMessageId: String?
     }
     private var pendingOptimisticQueueItems: [PendingOptimisticQueueItem] = []
     
@@ -393,8 +394,10 @@ public final class ChatViewModel {
             self.canProceed = cached.canProceed ?? false
             self.proceedArtifactUri = cached.proceedArtifactUri
             self.pendingInteraction = cached.pendingInteraction
-            let recentUser = Set(healed.filter { $0.sender == .user }.suffix(15).map { $0.content.trimmingCharacters(in: .whitespacesAndNewlines) })
-            self.queuedMessages = (cached.queuedMessages ?? []).filter { Self.isUserQueuedItem($0) && !recentUser.contains($0.text.trimmingCharacters(in: .whitespacesAndNewlines)) }
+            let userMsgs = healed.filter { $0.isUser }
+            self.queuedMessages = (cached.queuedMessages ?? []).filter { qm in
+                Self.isUserQueuedItem(qm) && !Self.isQueuedItemInMessages(qm, userMessages: userMsgs)
+            }
             self.knownServerMessageIds = Set(healed.map(\.id))
             if let cachedTitle = cached.title?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines), !cachedTitle.isEmpty, cachedTitle != "未命名会话" {
                 self.currentTitle = cachedTitle
@@ -493,8 +496,10 @@ public final class ChatViewModel {
             self.canProceed = false
             self.proceedArtifactUri = nil
             self.pendingInteraction = cached.pendingInteraction
-            let recentUser = Set(healed.filter { $0.sender == .user }.suffix(15).map { $0.content.trimmingCharacters(in: .whitespacesAndNewlines) })
-            self.queuedMessages = (cached.queuedMessages ?? []).filter { Self.isUserQueuedItem($0) && !recentUser.contains($0.text.trimmingCharacters(in: .whitespacesAndNewlines)) }
+            let userMsgs = healed.filter { $0.isUser }
+            self.queuedMessages = (cached.queuedMessages ?? []).filter { qm in
+                Self.isUserQueuedItem(qm) && !Self.isQueuedItemInMessages(qm, userMessages: userMsgs)
+            }
             self.runningTasks = cached.runningTasks ?? []
             self.knownServerMessageIds = Set(healed.map(\.id))
         }
@@ -979,6 +984,59 @@ public final class ChatViewModel {
         return true
     }
     
+    public static func normalizeForComparison(_ text: String) -> String {
+        let stripped = text.unicodeScalars.filter { scalar in
+            !CharacterSet.whitespacesAndNewlines.contains(scalar) &&
+            !CharacterSet.controlCharacters.contains(scalar) &&
+            scalar.value != 0x200B && // zero-width space
+            scalar.value != 0xFEFF && // zero-width no-break space
+            scalar.value != 0x3000    // ideographic space
+        }
+        return String(String.UnicodeScalarView(stripped)).lowercased()
+    }
+    
+    public static func isQueuedItemInMessages(
+        text: String,
+        media: [String]?,
+        imageUrls: [String]?,
+        enqueuedAfterMessageId: String? = nil,
+        userMessages: [ChatMessage]
+    ) -> Bool {
+        let normText = normalizeForComparison(text)
+        let hasAttachments = (media != nil && !media!.isEmpty) || (imageUrls != nil && !imageUrls!.isEmpty)
+        
+        for uMsg in userMessages.reversed() {
+            if let afterId = enqueuedAfterMessageId, uMsg.id == afterId {
+                break
+            }
+            
+            let normMsg = normalizeForComparison(uMsg.content)
+            let msgHasAttachments = !uMsg.imageDataList.isEmpty || !uMsg.imageUrls.isEmpty
+            
+            if !normText.isEmpty {
+                if normText == normMsg {
+                    return true
+                }
+                if normText.count >= 6 && normMsg.count >= 6 && (normText.contains(normMsg) || normMsg.contains(normText)) {
+                    return true
+                }
+            } else if hasAttachments && msgHasAttachments {
+                return true
+            }
+        }
+        return false
+    }
+    
+    public static func isQueuedItemInMessages(_ item: QueuedMessageItem, userMessages: [ChatMessage]) -> Bool {
+        return isQueuedItemInMessages(
+            text: item.text,
+            media: item.media,
+            imageUrls: item.imageUrls,
+            enqueuedAfterMessageId: nil,
+            userMessages: userMessages
+        )
+    }
+    
     private func syncQueuedMessages(serverQueue: [QueuedMessageItem]?) {
         let now = Date()
         // 1. Expire stale optimistic items older than 15 seconds
@@ -987,26 +1045,32 @@ public final class ChatViewModel {
         // 2. Expire stale tombstones older than 10 seconds
         deletedQueueItemTombstones.removeAll(where: { now.timeIntervalSince($0.deletedAt) > 10.0 })
         let tombstoneIds = Set(deletedQueueItemTombstones.compactMap(\.id))
-        let tombstoneTexts = Set(deletedQueueItemTombstones.map(\.text))
+        let tombstoneTexts = Set(deletedQueueItemTombstones.map { Self.normalizeForComparison($0.text) })
         
-        // 3. Identify recent user messages in the active conversation
-        let recentUserMessages = self.messages
-            .filter { $0.sender == .user }
-            .suffix(15)
-            .map { $0.content.trimmingCharacters(in: .whitespacesAndNewlines) }
-        let recentUserMessageSet = Set(recentUserMessages)
+        // 3. Identify user messages in the active conversation
+        let userMessages = self.messages.filter { $0.isUser }
         
         // 4. Clear optimistic items if server has incorporated them OR if entered chat OR if tombstoned
         pendingOptimisticQueueItems.removeAll { opt in
             let trimmed = opt.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let normOpt = Self.normalizeForComparison(opt.text)
             let inServer = serverQueue?.contains(where: {
-                if !trimmed.isEmpty {
-                    return $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == trimmed
+                if !normOpt.isEmpty {
+                    return Self.normalizeForComparison($0.text) == normOpt
                 }
                 return $0.id == opt.id
             }) == true
-            let inChat = !trimmed.isEmpty && recentUserMessageSet.contains(trimmed)
-            let isTombstoned = tombstoneIds.contains(opt.id) || (!trimmed.isEmpty && tombstoneTexts.contains(trimmed))
+            let inChat = Self.isQueuedItemInMessages(
+                text: opt.text,
+                media: opt.media,
+                imageUrls: opt.imageUrls,
+                enqueuedAfterMessageId: opt.enqueuedAfterMessageId,
+                userMessages: userMessages
+            )
+            let isTombstoned = tombstoneIds.contains(opt.id) || (!normOpt.isEmpty && tombstoneTexts.contains(normOpt))
+            if inChat {
+                self.deletedQueueItemTombstones.append(QueuedMessageTombstone(id: opt.id, text: trimmed, deletedAt: Date()))
+            }
             return inServer || inChat || isTombstoned
         }
         
@@ -1015,37 +1079,61 @@ public final class ChatViewModel {
         if let sq = serverQueue {
             baseQueue = sq.filter { sItem in
                 let trimmed = sItem.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                return Self.isUserQueuedItem(sItem) &&
-                    (trimmed.isEmpty || !recentUserMessageSet.contains(trimmed)) &&
-                    !tombstoneIds.contains(sItem.id) &&
-                    (trimmed.isEmpty || !tombstoneTexts.contains(trimmed))
+                let normItem = Self.normalizeForComparison(sItem.text)
+                let inChat = Self.isQueuedItemInMessages(
+                    text: sItem.text,
+                    media: sItem.media,
+                    imageUrls: sItem.imageUrls,
+                    enqueuedAfterMessageId: nil,
+                    userMessages: userMessages
+                )
+                let isTombstoned = tombstoneIds.contains(sItem.id) || (!normItem.isEmpty && tombstoneTexts.contains(normItem))
+                if inChat {
+                    self.deletedQueueItemTombstones.append(QueuedMessageTombstone(id: sItem.id, text: trimmed, deletedAt: Date()))
+                }
+                return Self.isUserQueuedItem(sItem) && !inChat && !isTombstoned
             }
         } else {
             baseQueue = self.queuedMessages.filter { qm in
                 let trimmed = qm.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                return Self.isUserQueuedItem(qm) &&
-                    !qm.id.hasPrefix("queue-") &&
-                    (trimmed.isEmpty || !recentUserMessageSet.contains(trimmed)) &&
-                    !tombstoneIds.contains(qm.id) &&
-                    (trimmed.isEmpty || !tombstoneTexts.contains(trimmed))
+                let normItem = Self.normalizeForComparison(qm.text)
+                let inChat = Self.isQueuedItemInMessages(
+                    text: qm.text,
+                    media: qm.media,
+                    imageUrls: qm.imageUrls,
+                    enqueuedAfterMessageId: nil,
+                    userMessages: userMessages
+                )
+                let isTombstoned = tombstoneIds.contains(qm.id) || (!normItem.isEmpty && tombstoneTexts.contains(normItem))
+                if inChat {
+                    self.deletedQueueItemTombstones.append(QueuedMessageTombstone(id: qm.id, text: trimmed, deletedAt: Date()))
+                }
+                return Self.isUserQueuedItem(qm) && !qm.id.hasPrefix("queue-") && !inChat && !isTombstoned
             }
         }
         
         // 6. Append unconfirmed optimistic items (not yet in server queue, not entered chat, not tombstoned)
         let remainingOptItems = pendingOptimisticQueueItems.compactMap { opt -> QueuedMessageItem? in
-            let trimmed = opt.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if tombstoneIds.contains(opt.id) || (!trimmed.isEmpty && tombstoneTexts.contains(trimmed)) {
+            let normOpt = Self.normalizeForComparison(opt.text)
+            if tombstoneIds.contains(opt.id) || (!normOpt.isEmpty && tombstoneTexts.contains(normOpt)) {
                 return nil
             }
             if baseQueue.contains(where: {
-                if !trimmed.isEmpty {
-                    return $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == trimmed
+                if !normOpt.isEmpty {
+                    return Self.normalizeForComparison($0.text) == normOpt
                 }
                 return $0.id == opt.id
             }) {
                 return nil
             }
-            if !trimmed.isEmpty && recentUserMessageSet.contains(trimmed) {
+            let inChat = Self.isQueuedItemInMessages(
+                text: opt.text,
+                media: opt.media,
+                imageUrls: opt.imageUrls,
+                enqueuedAfterMessageId: opt.enqueuedAfterMessageId,
+                userMessages: userMessages
+            )
+            if inChat {
                 return nil
             }
             return QueuedMessageItem(
@@ -1064,6 +1152,7 @@ public final class ChatViewModel {
             triggerScrollToBottom()
         }
     }
+
     
     private func updateCascadeConfigRawModel(_ modelEnum: String, modelName: String) {
         guard let raw = cascadeConfigRaw, let data = raw.data(using: .utf8) else { return }
@@ -1151,12 +1240,14 @@ public final class ChatViewModel {
                 text: text,
                 media: mediaBase64
             )
+            let lastUserMsgId = self.messages.last(where: { $0.isUser })?.id
             self.pendingOptimisticQueueItems.append(PendingOptimisticQueueItem(
                 id: queueItem.id,
                 text: text,
                 media: mediaBase64,
                 imageUrls: nil,
-                createdAt: Date()
+                createdAt: Date(),
+                enqueuedAfterMessageId: lastUserMsgId
             ))
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                 self.queuedMessages.append(queueItem)
