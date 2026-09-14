@@ -26,9 +26,11 @@ import (
 
 // GatewayStatus represents the public status of the gateway.
 type GatewayStatus struct {
-	Status    string                  `json:"status"`
-	Upstream  *inspector.InstanceInfo `json:"upstream,omitempty"`
-	Timestamp time.Time               `json:"timestamp"`
+	Status                string                  `json:"status"`
+	Upstream              *inspector.InstanceInfo `json:"upstream,omitempty"`
+	ActiveStreamCascadeID string                  `json:"active_stream_cascade_id,omitempty"`
+	ActiveStreamTitle     string                  `json:"active_stream_title,omitempty"`
+	Timestamp             time.Time               `json:"timestamp"`
 }
 
 // NotificationSink receives real-time trajectory status updates.
@@ -52,6 +54,10 @@ type Proxy struct {
 	activePort  int
 	activeToken string
 	notifier    NotificationSink
+
+	activeStreamMu        sync.RWMutex
+	activeStreamCascadeID string
+	activeStreamTitle     string
 
 	msgDedupMu   sync.Mutex
 	msgDedup     map[string]time.Time
@@ -281,6 +287,31 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	http.NotFound(w, r)
 }
 
+// SetActiveStream records the currently connected active cascade stream on mobile.
+func (p *Proxy) SetActiveStream(cascadeID, title string) {
+	p.activeStreamMu.Lock()
+	defer p.activeStreamMu.Unlock()
+	p.activeStreamCascadeID = cascadeID
+	p.activeStreamTitle = title
+}
+
+// ClearActiveStream clears the active cascade stream if matching the disconnecting cascade.
+func (p *Proxy) ClearActiveStream(cascadeID string) {
+	p.activeStreamMu.Lock()
+	defer p.activeStreamMu.Unlock()
+	if p.activeStreamCascadeID == cascadeID {
+		p.activeStreamCascadeID = ""
+		p.activeStreamTitle = ""
+	}
+}
+
+// ActiveStream returns the currently active cascade ID and title, if any.
+func (p *Proxy) ActiveStream() (string, string) {
+	p.activeStreamMu.RLock()
+	defer p.activeStreamMu.RUnlock()
+	return p.activeStreamCascadeID, p.activeStreamTitle
+}
+
 func (p *Proxy) handleStatus(w http.ResponseWriter, r *http.Request) {
 	cur := p.insp.Current()
 	status := "disconnected"
@@ -288,10 +319,14 @@ func (p *Proxy) handleStatus(w http.ResponseWriter, r *http.Request) {
 		status = "connected"
 	}
 
+	activeID, activeTitle := p.ActiveStream()
+
 	data, err := json.Marshal(GatewayStatus{
-		Status:    status,
-		Upstream:  cur,
-		Timestamp: time.Now(),
+		Status:                status,
+		Upstream:              cur,
+		ActiveStreamCascadeID: activeID,
+		ActiveStreamTitle:     activeTitle,
+		Timestamp:             time.Now(),
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

@@ -99,6 +99,20 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 	}
 	defer clientConn.Close()
 
+	cur := p.insp.Current()
+	var curPort int
+	var curToken string
+	if cur != nil {
+		curPort = cur.Port
+		curToken = cur.CSRFToken
+	}
+	streamTitle := p.lookupCascadeTitle(cascadeID, curPort, curToken)
+	if streamTitle == "" {
+		streamTitle = "当前会话"
+	}
+	p.SetActiveStream(cascadeID, streamTitle)
+	defer p.ClearActiveStream(cascadeID)
+
 	var writeMu sync.Mutex
 	writeJSON := func(v interface{}) error {
 		writeMu.Lock()
