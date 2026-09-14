@@ -186,6 +186,7 @@ public final class ChatViewModel {
     public var proceedArtifactUri: String? = nil
     public var pendingInteraction: PendingInteraction? = nil
     public var isSubmittingInteraction: Bool = false
+    private var lastAutoApprovedInteractionId: String? = nil
     public var queuedMessages: [QueuedMessageItem] = []
     public var runningTasks: [RunningTaskItem] = []
     public var isSending: Bool = false
@@ -596,6 +597,7 @@ public final class ChatViewModel {
             
             if self.isRunning {
                 self.pendingInteraction = result.pendingInteraction
+                self.checkAutoApproveInteractionIfNeeded(result.pendingInteraction)
             } else {
                 self.pendingInteraction = nil
             }
@@ -2045,6 +2047,7 @@ public final class ChatViewModel {
         if self.isRunning {
             if let pi = payload.pendingInteraction {
                 self.pendingInteraction = pi
+                self.checkAutoApproveInteractionIfNeeded(pi)
             }
         } else {
             self.pendingInteraction = nil
@@ -2171,6 +2174,34 @@ public final class ChatViewModel {
         } catch {
             isSubmittingInteraction = false
             errorMessage = "跳过失败: \(error.localizedDescription)"
+        }
+    }
+    
+    // Auto-approve permission requests with "Yes, and always allow" (Scope 4) if enabled in settings
+    @MainActor
+    private func checkAutoApproveInteractionIfNeeded(_ interaction: PendingInteraction?) {
+        guard let interaction = interaction else { return }
+        guard AppSettings.shared.autoApprovePermissions else { return }
+        guard !isSubmittingInteraction else { return }
+        guard lastAutoApprovedInteractionId != interaction.id else { return }
+        
+        let isPermissionType = interaction.type == "permission" || interaction.type == "file_permission"
+        guard isPermissionType else { return }
+        
+        // Find option 4 or option with scope 4 or text containing "always allow"
+        guard let opt = interaction.options.first(where: {
+            $0.scope == 4 || $0.id == "4" || $0.text.localizedCaseInsensitiveContains("always allow")
+        }) else {
+            return
+        }
+        
+        lastAutoApprovedInteractionId = interaction.id
+        
+        Task { @MainActor in
+            // Small delay to allow any current render cycle to settle
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            guard self.pendingInteraction?.id == interaction.id, !self.isSubmittingInteraction else { return }
+            await self.submitInteraction(optionId: opt.id, writeInText: nil, target: interaction.target)
         }
     }
     
