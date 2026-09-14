@@ -384,10 +384,7 @@ public final class APIClient: Sendable {
                     let imgDataList = (item.media ?? []).compactMap { Data(base64Encoded: $0) }
                     
                     let resolvedImageUrls: [String] = {
-                        var rawList = item.imageUrls ?? []
-                        if rawList.isEmpty && item.type == "agent" {
-                            rawList = self.extractImageURLs(from: item.text)
-                        }
+                        let rawList = item.imageUrls ?? []
                         return rawList.map { self.resolveMediaURL($0, baseURL: baseURL) }
                     }()
                     
@@ -528,15 +525,11 @@ public final class APIClient: Sendable {
                 if !response.isEmpty || (thinking != nil && !thinking!.isEmpty) {
                     flushTools()
                     
-                    // Extract any image URLs in response markdown and MEDIA: tags
-                    let extracted = self.extractImageURLs(from: response)
-                    let imageUrls = extracted.map { self.resolveMediaURL($0, baseURL: baseURL) }
-                    
                     messages.append(ChatMessage(
                         sender: .agent,
                         content: response.isEmpty ? "（已完成思考，准备下发指令）" : response,
                         thinking: thinking?.isEmpty == false ? thinking : nil,
-                        imageUrls: imageUrls
+                        imageUrls: []
                     ))
                 }
             } else if type == "CORTEX_STEP_TYPE_ERROR_MESSAGE" {

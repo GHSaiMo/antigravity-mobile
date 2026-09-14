@@ -201,56 +201,6 @@ public struct MessageBubbleView: View {
     
     private var agentBubble: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Attached / parsed images if present
-            if !message.imageUrls.isEmpty {
-                ForEach(message.imageUrls, id: \.self) { urlString in
-                    if let url = URL(string: urlString) {
-                        AsyncImage(url: url) { phase in
-                            switch phase {
-                            case .empty:
-                                ProgressView()
-                                    .frame(maxWidth: .infinity, minHeight: 120)
-                            case .success(let image):
-                                Button(action: {
-                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                                    openURL(url)
-                                }) {
-                                    image
-                                        .resizable()
-                                        .scaledToFit()
-                                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 12)
-                                                .stroke(Color.primary.opacity(0.1), lineWidth: 0.8)
-                                        )
-                                }
-                                .buttonStyle(.plain)
-                            case .failure:
-                                Button(action: {
-                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                                    openURL(url)
-                                }) {
-                                    HStack(spacing: 6) {
-                                        Image(systemName: "photo")
-                                        Text("点击打开查看图片")
-                                    }
-                                    .font(.system(size: 13, weight: .medium))
-                                    .foregroundColor(.blue)
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 8)
-                                    .background(Color.blue.opacity(0.1))
-                                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                                }
-                                .buttonStyle(.plain)
-                            @unknown default:
-                                EmptyView()
-                            }
-                        }
-                        .frame(maxHeight: 260)
-                    }
-                }
-            }
-            
             // Rich Markdown content (Headings, horizontal-scroll tables, code blocks, lists)
             MarkdownContentView(content: message.content)
         }
