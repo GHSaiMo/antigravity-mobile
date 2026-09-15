@@ -1957,7 +1957,7 @@ public final class ChatViewModel {
                     cascadeId: self.cascadeId,
                     baseURL: url
                 )
-                try? DocumentCacheManager.shared.saveMarkdownToCache(
+                _ = try? DocumentCacheManager.shared.saveMarkdownToCache(
                     response: resp,
                     for: cleanURI,
                     fileName: fileName,
@@ -2013,8 +2013,9 @@ public final class ChatViewModel {
         self.downloadBytesWritten = 0
         self.downloadBytesTotal = 0
         
-        documentDownloadTask = Task {
-            guard let url = settings.serverURL else {
+        documentDownloadTask = Task { [weak self] in
+            guard let self else { return }
+            guard let url = self.settings.serverURL else {
                 self.isDownloadingDocument = false
                 self.errorMessage = "未连接到网关服务器"
                 return

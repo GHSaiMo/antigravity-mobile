@@ -1,5 +1,5 @@
 import Foundation
-@preconcurrency import ActivityKit
+import ActivityKit
 
 @MainActor
 public final class ActivityManager {
