@@ -102,6 +102,12 @@ type trajectoryCacheEntry struct {
 
 const maxTrajCacheSize = 50 // Maximum number of cached trajectory entries to prevent unbounded memory growth
 
+// metadataCacheEntry caches the result of reading a .metadata.json file.
+type metadataCacheEntry struct {
+	requestFeedback bool
+	fetchedAt       time.Time
+}
+
 // TrajectoryCache encapsulates all mutable trajectory-related state with proper synchronization.
 // It replaces scattered package-level vars, enabling clean lifecycle management and testability.
 type TrajectoryCache struct {
@@ -127,6 +133,11 @@ type TrajectoryCache struct {
 
 	deletedCascades   map[string]time.Time
 	deletedCascadesMu sync.RWMutex
+
+	// metadataCache caches .metadata.json requestFeedback results (TTL: 10s) to avoid
+	// repeated os.ReadFile calls during the 250ms WebSocket stream polling loop.
+	metadataCache   map[string]*metadataCacheEntry
+	metadataCacheMu sync.RWMutex
 }
 
 // NewTrajectoryCache creates a new TrajectoryCache with initialized maps.
@@ -138,8 +149,10 @@ func NewTrajectoryCache() *TrajectoryCache {
 		cascadeModels:   make(map[string]string),
 		loadedCascades:  make(map[string]bool),
 		deletedCascades: make(map[string]time.Time),
+		metadataCache:   make(map[string]*metadataCacheEntry),
 	}
 }
+
 
 var (
 	imgRegex     = regexp.MustCompile(`!\[.*?\]\((https?://[^\s\)]+|/static/[^\s\)]+)\)`)
@@ -263,7 +276,53 @@ func (tc *TrajectoryCache) evictTrajCacheLocked() {
 // It is initialized here and assigned as a field of Proxy in NewProxy.
 var defaultTrajCache = NewTrajectoryCache()
 
+
+// readMetadataRequestFeedback reads the requestFeedback field from a .metadata.json file,
+// caching results for metadataCacheTTL to avoid repeated os.ReadFile calls during stream polling.
+const metadataCacheTTL = 10 * time.Second
+
+func readMetadataRequestFeedback(filePath string) bool {
+	defaultTrajCache.metadataCacheMu.RLock()
+	if entry, ok := defaultTrajCache.metadataCache[filePath]; ok {
+		if time.Since(entry.fetchedAt) < metadataCacheTTL {
+			defaultTrajCache.metadataCacheMu.RUnlock()
+			return entry.requestFeedback
+		}
+	}
+	defaultTrajCache.metadataCacheMu.RUnlock()
+
+	result := false
+	if metaData, err := os.ReadFile(filePath); err == nil {
+		var meta struct {
+			RequestFeedback bool `json:"requestFeedback"`
+		}
+		if err := json.Unmarshal(metaData, &meta); err == nil {
+			result = meta.RequestFeedback
+		}
+	}
+	defaultTrajCache.metadataCacheMu.Lock()
+	if defaultTrajCache.metadataCache == nil {
+		defaultTrajCache.metadataCache = make(map[string]*metadataCacheEntry)
+	}
+	// Evict stale entries if map is large
+	if len(defaultTrajCache.metadataCache) > 256 {
+		now := time.Now()
+		for k, v := range defaultTrajCache.metadataCache {
+			if now.Sub(v.fetchedAt) > metadataCacheTTL {
+				delete(defaultTrajCache.metadataCache, k)
+			}
+		}
+	}
+	defaultTrajCache.metadataCache[filePath] = &metadataCacheEntry{
+		requestFeedback: result,
+		fetchedAt:       time.Now(),
+	}
+	defaultTrajCache.metadataCacheMu.Unlock()
+	return result
+}
+
 type TrajectoryStep struct {
+
 	Type     string `json:"type"`
 	Status   string `json:"status"`
 	Metadata struct {
@@ -964,27 +1023,18 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 							filePath = strings.TrimPrefix(filePath, "file://")
 						}
 
-						// If step metadata was missing but this is an artifact step in the current turn, check its specific metadata file
-						if !reqFeedback && filePath != "" {
-							if metaData, err := os.ReadFile(filePath + ".metadata.json"); err == nil {
-								var meta struct {
-									RequestFeedback bool `json:"requestFeedback"`
-								}
-								if err := json.Unmarshal(metaData, &meta); err == nil && meta.RequestFeedback {
+							// If step metadata was missing but this is an artifact step in the current turn, check its specific metadata file
+							if !reqFeedback && filePath != "" {
+								if readMetadataRequestFeedback(filePath + ".metadata.json") {
 									reqFeedback = true
 								}
 							}
-						}
 
-						// Fallback: ONLY check implementation_plan.md.metadata.json if this step actually targets implementation_plan.md
-						if !reqFeedback && isPlan && rawResp.Trajectory.CascadeID != "" {
-							if home, err := os.UserHomeDir(); err == nil && home != "" {
-								planMetaPath := filepath.Join(home, ".gemini/antigravity/brain", rawResp.Trajectory.CascadeID, "implementation_plan.md.metadata.json")
-								if metaData, err := os.ReadFile(planMetaPath); err == nil {
-									var meta struct {
-										RequestFeedback bool `json:"requestFeedback"`
-									}
-									if err := json.Unmarshal(metaData, &meta); err == nil && meta.RequestFeedback {
+							// Fallback: ONLY check implementation_plan.md.metadata.json if this step actually targets implementation_plan.md
+							if !reqFeedback && isPlan && rawResp.Trajectory.CascadeID != "" {
+								if home, err := os.UserHomeDir(); err == nil && home != "" {
+									planMetaPath := filepath.Join(home, ".gemini/antigravity/brain", rawResp.Trajectory.CascadeID, "implementation_plan.md.metadata.json")
+									if readMetadataRequestFeedback(planMetaPath) {
 										reqFeedback = true
 										if uri == "" {
 											uri = "file://" + filepath.Join(home, ".gemini/antigravity/brain", rawResp.Trajectory.CascadeID, "implementation_plan.md")
@@ -993,7 +1043,6 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 								}
 							}
 						}
-					}
 
 					if reqFeedback && uri != "" && !isWalkthrough {
 						canProceed = true
@@ -1544,12 +1593,7 @@ func (p *Proxy) LoadTrajectory(cascadeID string, port int, token string) error {
 		req.Header.Set("x-codeium-csrf-token", token)
 	}
 
-	client := &http.Client{
-		Timeout:   3 * time.Second,
-		Transport: p.transport,
-	}
-
-	resp, err := client.Do(req)
+	resp, err := p.shortClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -1634,6 +1678,8 @@ func (p *Proxy) SyncHistoricalTrajectories(port int, token string) error {
 	}
 	close(workCh)
 
+	// Collect successful loads via a buffered channel to batch-write under a single lock.
+	successCh := make(chan string, len(candidates))
 	var wg sync.WaitGroup
 	for i := 0; i < concurrency; i++ {
 		wg.Add(1)
@@ -1642,9 +1688,7 @@ func (p *Proxy) SyncHistoricalTrajectories(port int, token string) error {
 			for cid := range workCh {
 				err := p.LoadTrajectory(cid, port, token)
 				if err == nil {
-					defaultTrajCache.loadedCascadesMu.Lock()
-					defaultTrajCache.loadedCascades[cid] = true
-					defaultTrajCache.loadedCascadesMu.Unlock()
+					successCh <- cid
 				} else {
 					log.Printf("[Proxy] Failed to load historical trajectory %s: %v", cid, err)
 				}
@@ -1652,6 +1696,14 @@ func (p *Proxy) SyncHistoricalTrajectories(port int, token string) error {
 		}()
 	}
 	wg.Wait()
+	close(successCh)
+
+	// Batch-write all successes under a single lock acquisition instead of per-item locking.
+	defaultTrajCache.loadedCascadesMu.Lock()
+	for cid := range successCh {
+		defaultTrajCache.loadedCascades[cid] = true
+	}
+	defaultTrajCache.loadedCascadesMu.Unlock()
 
 	log.Printf("[Proxy] Finished syncing historical trajectories")
 	return nil
@@ -1670,12 +1722,7 @@ func (p *Proxy) fetchTrajectoriesSummaryWithTitles(port int, token string) (map[
 		req.Header.Set("x-codeium-csrf-token", token)
 	}
 
-	client := &http.Client{
-		Timeout:   3 * time.Second,
-		Transport: p.transport,
-	}
-
-	resp, err := client.Do(req)
+	resp, err := p.shortClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -1841,11 +1888,7 @@ func (p *Proxy) FetchRawCascadeSummaries() (map[string]map[string]interface{}, m
 		req.Header.Set("x-codeium-csrf-token", token)
 	}
 
-	client := &http.Client{
-		Timeout:   4 * time.Second,
-		Transport: p.transport,
-	}
-	resp, err := client.Do(req)
+	resp, err := p.mediumClient.Do(req)
 	if err != nil {
 		return nil, nil, err
 	}
