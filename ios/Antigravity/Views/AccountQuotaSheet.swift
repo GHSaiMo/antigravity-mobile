@@ -4,6 +4,8 @@ public struct AccountQuotaSheet: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("cockpit_email_masked") private var isMasked: Bool = false
     @State private var switchingAccountId: String? = nil
+    @State private var pendingSwitch: CockpitAccountQuota? = nil
+    @State private var showSwitchConfirm: Bool = false
     @State private var isRefreshing: Bool = false
     @State private var errorMessage: String? = nil
     @State private var alertTitle: String = "操作失败"
@@ -12,8 +14,7 @@ public struct AccountQuotaSheet: View {
     public let onRefresh: (() async throws -> Void)?
     public let onAppearFetch: (() async -> Void)?
     
-    /// 功能参数：是否在 Cockpit Tools 页面显示账号切换按钮。
-    /// 由于切换功能暂不可用，默认设为 false 隐藏；后期若调整就绪，直接将此参数修改为 true 即可恢复切换按钮。
+    /// 是否显示账号切换按钮。网关会先退出电脑上的 Antigravity 再注入新账号。
     public let enableSwitchButton: Bool
     
     public init(
@@ -21,7 +22,7 @@ public struct AccountQuotaSheet: View {
         onSwitch: ((String) async throws -> Void)? = nil,
         onRefresh: (() async throws -> Void)? = nil,
         onAppearFetch: (() async -> Void)? = nil,
-        enableSwitchButton: Bool = false
+        enableSwitchButton: Bool = true
     ) {
         self._quotaResponse = quotaResponse
         self.onSwitch = onSwitch
@@ -168,6 +169,27 @@ public struct AccountQuotaSheet: View {
                     Text(msg)
                 }
             }
+            .confirmationDialog(
+                "确认切换账号",
+                isPresented: $showSwitchConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("切换并重启 Antigravity") {
+                    if let acc = pendingSwitch {
+                        Task { await performSwitch(to: acc) }
+                    }
+                    pendingSwitch = nil
+                }
+                Button("取消", role: .cancel) {
+                    pendingSwitch = nil
+                }
+            } message: {
+                if let acc = pendingSwitch {
+                    Text("切换到 \(acc.email) 将关闭并重启电脑上的 Antigravity。")
+                } else {
+                    Text("切换账号将关闭并重启电脑上的 Antigravity。")
+                }
+            }
         }
     }
     
@@ -217,9 +239,8 @@ public struct AccountQuotaSheet: View {
                 
                 if !isCurrent && enableSwitchButton && onSwitch != nil {
                     Button(action: {
-                        Task {
-                            await performSwitch(to: acc)
-                        }
+                        pendingSwitch = acc
+                        showSwitchConfirm = true
                     }) {
                         if switchingAccountId == acc.id {
                             ProgressView()
