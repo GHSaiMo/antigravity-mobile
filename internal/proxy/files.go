@@ -63,7 +63,17 @@ func ResolveLocalFilePath(rawURI, cascadeID string) (string, error) {
 
 	// 4. Bare filename like "implementation_plan.md" or "walkthrough.md" with cascadeID
 	if !strings.Contains(clean, "/") && cascadeID != "" {
-		return filepath.Join(home, ".gemini/antigravity/brain", filepath.Clean(cascadeID), filepath.Clean(clean)), nil
+		planPath := filepath.Join(home, ".gemini/antigravity/brain", filepath.Clean(cascadeID), filepath.Clean(clean))
+		if _, err := os.Stat(planPath); err == nil {
+			return planPath, nil
+		}
+		// If not in brain, check if it exists in Projects
+		projPath := filepath.Join(home, "Projects", filepath.Clean(clean))
+		if _, err := os.Stat(projPath); err == nil {
+			return projPath, nil
+		}
+		// Default to brain artifact path
+		return planPath, nil
 	}
 
 	// 5. If clean path starts with "~"
@@ -88,8 +98,8 @@ func ResolveLocalFilePath(rawURI, cascadeID string) (string, error) {
 }
 
 // IsSafeFilePath validates that the resolved path is within an explicitly allowed directory.
-// Uses a whitelist approach: only paths under the user's home .gemini/antigravity/brain/,
-// .gemini/antigravity/conversations/, or the Antigravity workspace directories are permitted.
+// Uses a whitelist approach: only paths under the user's home .gemini/antigravity/,
+// .gemini/config/, .gemini/skills/, .agents/, Projects, and standard workspace directories are permitted.
 func IsSafeFilePath(path string) bool {
 	clean := filepath.Clean(path)
 
@@ -105,22 +115,30 @@ func IsSafeFilePath(path string) bool {
 		return false
 	}
 
-	// Whitelist: only these directory trees are allowed
-	allowedPrefixes := []string{
-		filepath.Join(home, ".gemini", "antigravity", "brain") + string(filepath.Separator),
-		filepath.Join(home, ".gemini", "antigravity", "conversations") + string(filepath.Separator),
-		filepath.Join(home, ".gemini", "antigravity", "annotations") + string(filepath.Separator),
-		filepath.Join(home, "Projects") + string(filepath.Separator),
-		filepath.Join(home, "Downloads") + string(filepath.Separator),
-		filepath.Join(home, "Desktop") + string(filepath.Separator),
-		filepath.Join(home, "Documents") + string(filepath.Separator),
-		filepath.Join(home, "Pictures") + string(filepath.Separator),
-		filepath.Clean(os.TempDir()) + string(filepath.Separator),
+	// Always block sensitive directories regardless of parent
+	sensitiveDirs := []string{
+		"/.ssh/",
+		"/.gnupg/",
+		"/.aws/",
+		"/.docker/",
+		"/Library/Keychains/",
+	}
+	slashPath := filepath.ToSlash(resolved)
+	for _, sd := range sensitiveDirs {
+		if strings.Contains(slashPath, sd) || strings.HasSuffix(slashPath, strings.TrimSuffix(sd, "/")) {
+			return false
+		}
 	}
 
 	// Always block sensitive filenames even within allowed dirs
 	base := strings.ToLower(filepath.Base(resolved))
-	sensitiveNames := []string{"id_rsa", "id_ed25519", "id_ecdsa", "id_dsa", ".env", ".git-credentials", ".netrc"}
+	sensitiveNames := []string{
+		"id_rsa", "id_ed25519", "id_ecdsa", "id_dsa",
+		".env", ".git-credentials", ".netrc", ".dockercfg",
+		".bash_history", ".zsh_history",
+		"oauth_creds.json", "jetski-standalone-oauth-token", "google_accounts.json",
+		"auth_store.json", "credentials.db",
+	}
 	for _, s := range sensitiveNames {
 		if base == s || strings.HasPrefix(base, ".env.") {
 			return false
@@ -131,6 +149,45 @@ func IsSafeFilePath(path string) bool {
 		if strings.HasSuffix(base, ext) {
 			return false
 		}
+	}
+
+	// Whitelist: only these directory trees are allowed
+	allowedPrefixes := []string{
+		// Antigravity & Agent directories
+		filepath.Join(home, ".gemini", "antigravity") + string(filepath.Separator),
+		filepath.Join(home, ".gemini", "config") + string(filepath.Separator),
+		filepath.Join(home, ".gemini", "skills") + string(filepath.Separator),
+		filepath.Join(home, ".agents") + string(filepath.Separator),
+		filepath.Join(home, ".hermes") + string(filepath.Separator),
+		filepath.Join(home, ".clawpilot") + string(filepath.Separator),
+		filepath.Join(home, ".antigravity_tools") + string(filepath.Separator),
+
+		// User workspace & code project directories
+		filepath.Join(home, "Projects") + string(filepath.Separator),
+		filepath.Join(home, "Developer") + string(filepath.Separator),
+		filepath.Join(home, "Workspace") + string(filepath.Separator),
+		filepath.Join(home, "Articles") + string(filepath.Separator),
+		filepath.Join(home, "Websites") + string(filepath.Separator),
+		filepath.Join(home, "Weflow") + string(filepath.Separator),
+		filepath.Join(home, "weflow-mac") + string(filepath.Separator),
+		filepath.Join(home, "WorkBuddy") + string(filepath.Separator),
+		filepath.Join(home, "docker") + string(filepath.Separator),
+		filepath.Join(home, "go") + string(filepath.Separator),
+		filepath.Join(home, "mba") + string(filepath.Separator),
+		filepath.Join(home, "wkzq") + string(filepath.Separator),
+
+		// Standard user media & document folders
+		filepath.Join(home, "Downloads") + string(filepath.Separator),
+		filepath.Join(home, "Desktop") + string(filepath.Separator),
+		filepath.Join(home, "Documents") + string(filepath.Separator),
+		filepath.Join(home, "Pictures") + string(filepath.Separator),
+		filepath.Join(home, "Movies") + string(filepath.Separator),
+		filepath.Join(home, "Music") + string(filepath.Separator),
+
+		// System temporary directories
+		filepath.Clean(os.TempDir()) + string(filepath.Separator),
+		"/tmp" + string(filepath.Separator),
+		"/private/tmp" + string(filepath.Separator),
 	}
 
 	for _, prefix := range allowedPrefixes {
@@ -300,6 +357,34 @@ func (p *Proxy) HandleFileRaw(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/bmp")
 	case ".ico":
 		w.Header().Set("Content-Type", "image/x-icon")
+	case ".json":
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	case ".log", ".txt":
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	case ".csv":
+		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	case ".md", ".markdown":
+		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+	case ".xml":
+		w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+	case ".yaml", ".yml":
+		w.Header().Set("Content-Type", "text/yaml; charset=utf-8")
+	case ".zip":
+		w.Header().Set("Content-Type", "application/zip")
+	case ".tar":
+		w.Header().Set("Content-Type", "application/x-tar")
+	case ".gz":
+		w.Header().Set("Content-Type", "application/gzip")
+	case ".mp3":
+		w.Header().Set("Content-Type", "audio/mpeg")
+	case ".wav":
+		w.Header().Set("Content-Type", "audio/wav")
+	case ".m4a":
+		w.Header().Set("Content-Type", "audio/mp4")
+	case ".mp4":
+		w.Header().Set("Content-Type", "video/mp4")
+	case ".mov":
+		w.Header().Set("Content-Type", "video/quicktime")
 	}
 
 	encodedName := url.PathEscape(fileName)
@@ -308,7 +393,7 @@ func (p *Proxy) HandleFileRaw(w http.ResponseWriter, r *http.Request) {
 	if ext == ".html" || ext == ".htm" || ext == ".svg" {
 		disposition = "attachment"
 	}
-	w.Header().Set("Content-Disposition", fmt.Sprintf("%s; filename*=UTF-8''%s", disposition, encodedName))
+	w.Header().Set("Content-Disposition", fmt.Sprintf("%s; filename=%q; filename*=UTF-8''%s", disposition, fileName, encodedName))
 
 	http.ServeFile(w, r, filePath)
 }
