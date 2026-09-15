@@ -65,6 +65,28 @@ func TestIsSafeFilePath(t *testing.T) {
 	if IsSafeFilePath(filepath.Join(home, "Downloads/.env")) {
 		t.Errorf("expected Downloads .env to be blocked")
 	}
+
+	// Verify .agents skills, logs, and data files are allowed
+	if !IsSafeFilePath(filepath.Join(home, ".agents/skills/xueqiu-radar/data/discovered_cubes_full.json")) {
+		t.Errorf("expected .agents json data file to be safe")
+	}
+	if !IsSafeFilePath(filepath.Join(home, ".agents/skills/xueqiu-radar/scanner.log")) {
+		t.Errorf("expected .agents scanner log file to be safe")
+	}
+	if !IsSafeFilePath(filepath.Join(home, ".gemini/config/skills/my-skill/SKILL.md")) {
+		t.Errorf("expected .gemini/config skill file to be safe")
+	}
+
+	// Verify sensitive auth files are blocked even in allowed dirs
+	if IsSafeFilePath(filepath.Join(home, ".gemini/oauth_creds.json")) {
+		t.Errorf("expected oauth_creds.json to be blocked")
+	}
+	if IsSafeFilePath(filepath.Join(home, ".gemini/jetski-standalone-oauth-token")) {
+		t.Errorf("expected jetski-standalone-oauth-token to be blocked")
+	}
+	if IsSafeFilePath(filepath.Join(home, ".antigravity-mobile/auth_store.json")) {
+		t.Errorf("expected auth_store.json to be blocked")
+	}
 }
 
 func TestGetFileContentAndHandler(t *testing.T) {
@@ -223,6 +245,62 @@ func TestIsSafeFilePath_SymlinkAndSensitiveFiles(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestHandleFileRaw_JSONAndLog(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectsBase := filepath.Join(home, "Projects")
+	tempDir, err := os.MkdirTemp(projectsBase, "antigravity-jsonlogtest-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// 1. Test JSON file
+	jsonFile := filepath.Join(tempDir, "discovered_cubes_full.json")
+	jsonContent := `[{"symbol":"ZH123","name":"Test Cube"}]`
+	if err := os.WriteFile(jsonFile, []byte(jsonContent), 0644); err != nil {
+		t.Fatalf("failed to write json: %v", err)
+	}
+
+	proxy := &Proxy{}
+	uriJSON := "file://" + filepath.ToSlash(jsonFile)
+	reqJSON := httptest.NewRequest(http.MethodGet, "/api/v1/files/raw?uri="+uriJSON, nil)
+	rrJSON := httptest.NewRecorder()
+	proxy.HandleFileRaw(rrJSON, reqJSON)
+
+	if rrJSON.Code != http.StatusOK {
+		t.Fatalf("expected 200 for json download, got %d: %s", rrJSON.Code, rrJSON.Body.String())
+	}
+	if ct := rrJSON.Header().Get("Content-Type"); !strings.Contains(ct, "application/json") {
+		t.Errorf("expected application/json, got: %s", ct)
+	}
+	disp := rrJSON.Header().Get("Content-Disposition")
+	if !strings.Contains(disp, `filename="discovered_cubes_full.json"`) {
+		t.Errorf("expected filename in Content-Disposition, got: %s", disp)
+	}
+
+	// 2. Test Log file
+	logFile := filepath.Join(tempDir, "scanner.log")
+	logContent := "2026-09-15 00:00:01 INFO: scan progress 92%"
+	if err := os.WriteFile(logFile, []byte(logContent), 0644); err != nil {
+		t.Fatalf("failed to write log: %v", err)
+	}
+
+	uriLog := "file://" + filepath.ToSlash(logFile)
+	reqLog := httptest.NewRequest(http.MethodGet, "/api/v1/files/raw?uri="+uriLog, nil)
+	rrLog := httptest.NewRecorder()
+	proxy.HandleFileRaw(rrLog, reqLog)
+
+	if rrLog.Code != http.StatusOK {
+		t.Fatalf("expected 200 for log download, got %d: %s", rrLog.Code, rrLog.Body.String())
+	}
+	if ct := rrLog.Header().Get("Content-Type"); !strings.Contains(ct, "text/plain") {
+		t.Errorf("expected text/plain, got: %s", ct)
 	}
 }
 
