@@ -171,7 +171,7 @@ public final class NetworkTransport: Sendable {
     private static func waitUntilReady(_ connection: NWConnection, timeout: TimeInterval) async throws {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             let finished = OSAllocatedUnfairLock(initialState: false)
-            func complete(_ result: Result<Void, Error>) {
+            @Sendable func complete(_ result: Result<Void, Error>) {
                 let go = finished.withLock { flag -> Bool in
                     if flag { return false }
                     flag = true

@@ -1,7 +1,7 @@
 import Foundation
 import ActivityKit
 
-public struct AgentActivityAttributes: ActivityAttributes {
+nonisolated public struct AgentActivityAttributes: ActivityAttributes, Sendable {
     public struct ContentState: Codable, Hashable, Sendable {
         public var status: String       // "RUNNING", "IDLE", "COMPLETED"
         public var stepCount: Int       // e.g. 14
