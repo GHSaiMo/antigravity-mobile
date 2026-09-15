@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -11,6 +12,11 @@ import (
 	"strings"
 	"sync"
 	"time"
+)
+
+var (
+	saltOnce   sync.Once
+	cachedSalt string
 )
 
 // PairedDevice represents an authorized device paired with the gateway.
@@ -32,12 +38,40 @@ type AuthStore struct {
 	filePath string
 }
 
-// getTokenSalt returns the salt used to hash device authentication tokens.
 func getTokenSalt() string {
-	if s := os.Getenv("AUTH_SALT"); s != "" {
+	if s := strings.TrimSpace(os.Getenv("AUTH_SALT")); s != "" {
 		return s
 	}
-	return "antigravity-mobile-salt-v1"
+	saltOnce.Do(func() {
+		cachedSalt = loadOrCreateAuthSalt("")
+	})
+	if cachedSalt != "" {
+		return cachedSalt
+	}
+	return loadOrCreateAuthSalt("")
+}
+
+func loadOrCreateAuthSalt(storePath string) string {
+	dir := ""
+	if storePath != "" {
+		dir = filepath.Dir(storePath)
+	} else {
+		dir = ResolvePath("~/.antigravity-mobile")
+	}
+	saltPath := filepath.Join(dir, "auth_salt")
+	if b, err := os.ReadFile(saltPath); err == nil {
+		if s := strings.TrimSpace(string(b)); s != "" {
+			return s
+		}
+	}
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return hex.EncodeToString([]byte("antigravity-mobile-fallback-salt"))
+	}
+	s := hex.EncodeToString(raw)
+	_ = os.MkdirAll(dir, 0700)
+	_ = os.WriteFile(saltPath, []byte(s+"\n"), 0600)
+	return s
 }
 
 // HashToken computes a salted SHA-256 hash of the raw token.
@@ -85,8 +119,16 @@ func NewAuthStore(filePath string) (*AuthStore, error) {
 		filePath: resolved,
 	}
 
+	saltOnce.Do(func() {
+		cachedSalt = loadOrCreateAuthSalt(resolved)
+	})
+
 	if err := store.load(); err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("failed to load auth store from %s: %w", resolved, err)
+	}
+
+	if err := os.Chmod(resolved, 0600); err != nil && !os.IsNotExist(err) {
+		// best-effort; ignore missing file
 	}
 
 	return store, nil

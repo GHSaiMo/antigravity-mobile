@@ -53,14 +53,7 @@ func IsAllowedOrigin(origin string, requestHost string) bool {
 		return true
 	}
 
-	// 2. Private LAN IPs (RFC 1918 IPv4 & ULA / Link-local IPv6)
-	if ip := net.ParseIP(originHost); ip != nil {
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
-			return true
-		}
-	}
-
-	// 3. Configured host / DDNS domains from environment
+	// 2. Configured host / DDNS domains from environment
 	var trustedHosts []string
 	if dh := strings.TrimSpace(os.Getenv("DDNS_HOST")); dh != "" {
 		trustedHosts = append(trustedHosts, strings.ToLower(dh))

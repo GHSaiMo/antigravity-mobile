@@ -54,8 +54,16 @@ func ExtractToken(r *http.Request) string {
 		}
 	}
 
+	if c, err := r.Cookie(DeviceCookieName); err == nil {
+		if tok := strings.TrimSpace(c.Value); tok != "" {
+			return tok
+		}
+	}
+
 	return ""
 }
+
+const DeviceCookieName = "agy_dt"
 
 // IsWhitelistedPath checks if a request path should bypass authentication.
 func IsWhitelistedPath(path string) bool {
@@ -182,10 +190,9 @@ func AuthMiddlewareWithPolicy(store *AuthStore, next http.Handler, policy AuthPo
 func SecurityHeadersMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("X-Frame-Options", "SAMEORIGIN")
-		w.Header().Set("X-XSS-Protection", "1; mode=block")
+		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'")
 		next.ServeHTTP(w, r)
 	})
 }
-

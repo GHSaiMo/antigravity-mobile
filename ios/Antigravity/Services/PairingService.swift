@@ -247,6 +247,9 @@ public final class PairingService: Sendable {
                     
                     if let eps = decoded.endpoints {
                         for ep in eps {
+                            guard Self.isTrustedEndpoint(ep.url, pairing: info, usedBase: baseURL) else {
+                                continue
+                            }
                             switch ep.type.lowercased() {
                             case "lan":
                                 lanURL = ep.url
@@ -291,6 +294,23 @@ public final class PairingService: Sendable {
         }
         
         throw PairingError.networkError("连接网关失败")
+    }
+    
+    /// Accept endpoints that match the QR hosts, the URL we just paired with, or private/loopback addresses.
+    nonisolated static func isTrustedEndpoint(_ urlString: String, pairing info: PairingInfo, usedBase: String) -> Bool {
+        guard let url = URL(string: urlString), let host = url.host else { return false }
+        let h = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
+        var allowed: [String] = [info.host.lowercased()]
+        if let lan = info.lanHost { allowed.append(lan.lowercased()) }
+        if let v6 = info.ipv6Host { allowed.append(v6.lowercased()) }
+        if let ddns = info.ddnsHost { allowed.append(ddns.lowercased()) }
+        if let used = URL(string: usedBase)?.host {
+            allowed.append(used.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased())
+        }
+        if allowed.contains(h) {
+            return true
+        }
+        return NetworkTransport.isLocalOrPrivateHost(h)
     }
     
     /// Clears saved credentials.

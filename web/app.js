@@ -3337,19 +3337,16 @@ async function createConversation() {
 /** Validates that a URL uses a safe protocol scheme. Blocks javascript:, data:, vbscript: etc. */
 function isSafeURL(url) {
   if (!url) return false;
-  const trimmed = url.replace(/^[\s\u00A0]+/, "").toLowerCase();
-  // Allow relative URLs, anchors, and protocol-relative URLs
-  if (trimmed.startsWith("/") || trimmed.startsWith("#") || trimmed.startsWith("./") || trimmed.startsWith("../")) return true;
-  // Allow only safe protocols
-  const safeProtocols = ["http:", "https:", "file:", "mailto:"];
-  for (const proto of safeProtocols) {
-    if (trimmed.startsWith(proto)) return true;
+  const trimmed = String(url).replace(/^[\s\u00A0]+/, "");
+  if (trimmed.startsWith("//") || trimmed.startsWith("\\\\")) return false;
+  if (trimmed.startsWith("/") || trimmed.startsWith("#") || trimmed.startsWith("./")) return true;
+  try {
+    const parsed = new URL(trimmed);
+    const proto = parsed.protocol.toLowerCase();
+    return proto === "http:" || proto === "https:";
+  } catch (_) {
+    return false;
   }
-  // Block if it looks like a protocol (contains ":" before any "/")
-  const colonIdx = trimmed.indexOf(":");
-  if (colonIdx > 0 && colonIdx < trimmed.indexOf("/")) return false;
-  // Allow bare URLs without protocol (e.g. "example.com/path")
-  return colonIdx === -1;
 }
 
 function escapeHtml(str) {
@@ -3360,6 +3357,16 @@ function escapeHtml(str) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+function htmlUnescape(str) {
+  if (!str) return "";
+  return String(str)
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
 }
 
 function formatRelativeTime(dateStr) {
@@ -3810,20 +3817,22 @@ function renderInlineMarkdown(text) {
 
   // 4. Markdown links with file icon support (only allow safe URL protocols)
   html = html.replace(/(?<!\!)\[([^\]]+)\]\(([^)]+)\)/g, (_, linkText, url) => {
-    if (!isSafeURL(url)) return `${linkText}`;
-    if (isImageResource(url)) {
-      return buildImageThumbnailCard(url, null, linkText);
+    const rawUrl = htmlUnescape(url);
+    if (!isSafeURL(rawUrl)) return `${linkText}`;
+    if (isImageResource(rawUrl)) {
+      return buildImageThumbnailCard(rawUrl, null, htmlUnescape(linkText));
     }
-    const icon = resolveFileIcon(linkText) || resolveFileIcon(url);
-    const lower = url.toLowerCase();
+    const icon = resolveFileIcon(htmlUnescape(linkText)) || resolveFileIcon(rawUrl);
+    const lower = rawUrl.toLowerCase();
     const isMd = lower.endsWith(".md") || lower.endsWith(".markdown") || lower.includes("/brain/") || lower.includes("implementation_plan") || lower.includes("walkthrough");
     const isPlan = lower.includes("implementation_plan") || linkText.toLowerCase().includes("implementation_plan") || lower.includes("walkthrough") || linkText.toLowerCase().includes("walkthrough");
     const extraClass = isPlan ? " plan-btn-link" : (isMd ? " markdown-file-link" : "");
     const arrowSvg = isPlan ? '<svg class="plan-btn-arrow" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>' : '';
+    const href = escapeHtml(rawUrl);
     if (icon) {
-      return `<a href="${encodeURI(url)}" class="file-link${extraClass}" data-md-url="${escapeHtml(url)}" data-md-title="${escapeHtml(linkText)}"><img src="/icons/files/${icon}.svg" class="file-icon" alt="" onerror="this.style.display='none'" /><span>${linkText}</span>${arrowSvg}</a>`;
+      return `<a href="${href}" class="file-link${extraClass}" data-md-url="${href}" data-md-title="${escapeHtml(linkText)}"><img src="/icons/files/${icon}.svg" class="file-icon" alt="" /><span>${linkText}</span>${arrowSvg}</a>`;
     }
-    return `<a href="${encodeURI(url)}" class="text-link${extraClass}" data-md-url="${escapeHtml(url)}" data-md-title="${escapeHtml(linkText)}"><span>${linkText}</span>${arrowSvg}</a>`;
+    return `<a href="${href}" class="text-link${extraClass}" data-md-url="${href}" data-md-title="${escapeHtml(linkText)}"><span>${linkText}</span>${arrowSvg}</a>`;
   });
 
   // Inline code (e.g. `foo`)

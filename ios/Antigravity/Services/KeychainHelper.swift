@@ -49,22 +49,11 @@ public final class KeychainHelper: Sendable {
             kSecAttrAccount as String: key
         ]
         
-        let updateAttributes: [String: Any] = [
-            kSecValueData as String: data
-        ]
-        
-        let status = SecItemUpdate(query as CFDictionary, updateAttributes as CFDictionary)
-        if status == errSecSuccess {
-            return true
-        } else if status == errSecItemNotFound {
-            // Item does not exist, insert it
-            var insertQuery = query
-            insertQuery[kSecValueData as String] = data
-            insertQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-            let insertStatus = SecItemAdd(insertQuery as CFDictionary, nil)
-            return insertStatus == errSecSuccess
-        }
-        return false
+        _ = SecItemDelete(query as CFDictionary)
+        var insertQuery = query
+        insertQuery[kSecValueData as String] = data
+        insertQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        return SecItemAdd(insertQuery as CFDictionary, nil) == errSecSuccess
     }
     
     private func read(key: String) -> Data? {

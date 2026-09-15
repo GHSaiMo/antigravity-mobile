@@ -205,6 +205,16 @@ func (h *AuthHandler) HandlePair(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	http.SetCookie(w, &http.Cookie{
+		Name:     DeviceCookieName,
+		Value:    deviceToken,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+		Secure:   h.ssl,
+		MaxAge:   86400 * 400,
+	})
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(PairResponse{

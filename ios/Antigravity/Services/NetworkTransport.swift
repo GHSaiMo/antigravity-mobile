@@ -38,9 +38,9 @@ public final class NetworkTransport: Sendable {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 15
         config.timeoutIntervalForResource = 30
-        config.httpShouldSetCookies = true
-        config.httpCookieAcceptPolicy = .always
-        config.httpCookieStorage = HTTPCookieStorage.shared
+        config.httpShouldSetCookies = false
+        config.httpCookieAcceptPolicy = .never
+        config.httpCookieStorage = nil
         self.fallbackSession = URLSession(configuration: config)
         
         pathMonitor.pathUpdateHandler = { [weak self] path in

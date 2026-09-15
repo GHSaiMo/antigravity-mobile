@@ -58,23 +58,22 @@ func TestIsSafeFilePath(t *testing.T) {
 		t.Errorf("expected artifact file to be safe")
 	}
 
-	if !IsSafeFilePath(filepath.Join(home, "Downloads/sample.png")) {
-		t.Errorf("expected Downloads image to be safe")
+	if IsSafeFilePath(filepath.Join(home, "Downloads/sample.png")) {
+		t.Errorf("expected Downloads to be outside the default allowlist")
 	}
 
 	if IsSafeFilePath(filepath.Join(home, "Downloads/.env")) {
 		t.Errorf("expected Downloads .env to be blocked")
 	}
 
-	// Verify .agents skills, logs, and data files are allowed
-	if !IsSafeFilePath(filepath.Join(home, ".agents/skills/xueqiu-radar/data/discovered_cubes_full.json")) {
-		t.Errorf("expected .agents json data file to be safe")
-	}
-	if !IsSafeFilePath(filepath.Join(home, ".agents/skills/xueqiu-radar/scanner.log")) {
-		t.Errorf("expected .agents scanner log file to be safe")
+	if IsSafeFilePath(filepath.Join(home, ".agents/skills/xueqiu-radar/data/discovered_cubes_full.json")) {
+		t.Errorf("expected .agents to be outside the default allowlist")
 	}
 	if !IsSafeFilePath(filepath.Join(home, ".gemini/config/skills/my-skill/SKILL.md")) {
 		t.Errorf("expected .gemini/config skill file to be safe")
+	}
+	if !IsSafeFilePath(filepath.Join(home, "Projects/demo/readme.md")) {
+		t.Errorf("expected Projects files to be safe")
 	}
 
 	// Verify sensitive auth files are blocked even in allowed dirs
@@ -248,6 +247,28 @@ func TestIsSafeFilePath_SymlinkAndSensitiveFiles(t *testing.T) {
 	}
 }
 
+func TestJoinUnderRejectsDotDot(t *testing.T) {
+	home, _ := os.UserHomeDir()
+	root := filepath.Join(home, ".gemini", "antigravity", "brain")
+	if _, err := joinUnder(root, "../../../.ssh/id_rsa"); err == nil {
+		t.Fatalf("expected joinUnder to reject .. escape")
+	}
+}
+
+func TestAllowedWorkspaceRootsEnv(t *testing.T) {
+	home, _ := os.UserHomeDir()
+	t.Setenv("ALLOWED_WORKSPACE_ROOTS", filepath.Join(home, "Downloads"))
+	resetWorkspaceRootsForTest()
+	t.Cleanup(resetWorkspaceRootsForTest)
+
+	if !IsSafeFilePath(filepath.Join(home, "Downloads/sample.png")) {
+		t.Errorf("expected Downloads to be allowed when listed in ALLOWED_WORKSPACE_ROOTS")
+	}
+	if IsSafeFilePath(filepath.Join(home, "Movies/secret.mov")) {
+		t.Errorf("expected Movies to remain blocked")
+	}
+}
+
 func TestHandleFileRaw_JSONAndLog(t *testing.T) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -303,6 +324,3 @@ func TestHandleFileRaw_JSONAndLog(t *testing.T) {
 		t.Errorf("expected text/plain, got: %s", ct)
 	}
 }
-
-
-

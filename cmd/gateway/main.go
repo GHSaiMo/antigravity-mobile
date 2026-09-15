@@ -2,10 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
-	"encoding/json"
 	"net/http"
 	"os"
 	"os/signal"
@@ -127,6 +127,10 @@ func main() {
 
 	// 3.5. Initialize Embedded FRP Cloud Relay Tunnel
 	var tun *tunnel.Tunnel
+	if tunnelOn && strings.TrimSpace(tunnelCfg.Token) == "" {
+		log.Fatalf("FRP_TOKEN is required when the cloud relay tunnel is enabled")
+	}
+
 	if tunnelOn {
 		tun = tunnel.New(tunnel.Config{
 			Enabled:    true,
@@ -149,9 +153,12 @@ func main() {
 		log.Printf("ℹ️  Cloud Relay Tunnel disabled (set FRP_SERVER_ADDR in .env to enable)")
 	}
 
-	// Print initial pairing QR code
-	if initialSession, err := pairingMgr.GenerateSession(5 * time.Minute); err == nil {
-		auth.PrintPairingQRCode(qrHost, *port, initialSession.Code, *enableSSL, extraHosts...)
+	if !authStore.HasDevices() {
+		if initialSession, err := pairingMgr.GenerateSession(5 * time.Minute); err == nil {
+			auth.PrintPairingQRCode(qrHost, *port, initialSession.Code, *enableSSL, extraHosts...)
+		}
+	} else {
+		log.Printf("ℹ️  Devices already paired — skipping startup QR. Run `make pair` or POST /api/v1/auth/session to mint a new code.")
 	}
 
 	// 4. Initialize Push Notification & Background Watcher
