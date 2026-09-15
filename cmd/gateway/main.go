@@ -50,6 +50,15 @@ func main() {
 
 	tunnelCfg := config.GetTunnelConfig()
 	tunnelOn := tunnelCfg.Enabled && tunnelCfg.ServerAddr != ""
+	if tokPath, generated, err := auth.EnsureAdminToken(tunnelOn); err != nil {
+		log.Fatalf("❌ Failed to initialize ADMIN_TOKEN: %v", err)
+	} else if tokPath != "" {
+		if generated {
+			log.Printf("🔐 Generated ADMIN_TOKEN at %s (required because FRP is enabled). `make pair` reads this file.", tokPath)
+		} else {
+			log.Printf("🔐 Loaded ADMIN_TOKEN from %s", tokPath)
+		}
+	}
 	includePublicIPv6 := config.AdvertisePublicIPv6(*enableSSL)
 	if tunnelOn && strings.TrimSpace(*host) == "" && !includePublicIPv6 {
 		*host = "127.0.0.1"
