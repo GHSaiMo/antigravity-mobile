@@ -1179,6 +1179,8 @@ public struct MarkdownViewerSheet: View {
     public let onRetry: (() -> Void)?
     public let onRefresh: (() -> Void)?
     
+    @State private var previewImage: IdentifiableImage? = nil
+    
     public init(
         data: MarkdownFileViewerData,
         onDismiss: (() -> Void)? = nil,
@@ -1257,7 +1259,9 @@ public struct MarkdownViewerSheet: View {
                             }
                             .frame(maxWidth: .infinity, minHeight: 200)
                         } else {
-                            MarkdownContentView(content: data.content)
+                            MarkdownContentView(content: data.content, onImageTap: { url in
+                                previewImage = IdentifiableImage(url: url)
+                            })
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
@@ -1309,6 +1313,9 @@ public struct MarkdownViewerSheet: View {
             }
         }
         .presentationDragIndicator(.hidden)
+        .fullScreenCover(item: $previewImage) { item in
+            ImageViewerSheet(item: item)
+        }
     }
 }
 

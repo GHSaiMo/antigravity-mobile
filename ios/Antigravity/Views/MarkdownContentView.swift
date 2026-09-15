@@ -30,6 +30,7 @@ public enum MarkdownBlock: Identifiable {
     case table(id: String, headers: [String], rows: [[String]], alignments: [TableColumnAlignment] = [])
     case list(id: String, items: [String])
     case paragraph(id: String, text: String)
+    case image(id: String, alt: String, url: String)
     
     public var id: String {
         switch self {
@@ -40,6 +41,7 @@ public enum MarkdownBlock: Identifiable {
         case .table(let id, _, _, _): return id
         case .list(let id, _): return id
         case .paragraph(let id, _): return id
+        case .image(let id, _, _): return id
         }
     }
 }
@@ -71,10 +73,14 @@ private final class MarkdownBlockCache: @unchecked Sendable {
 
 public struct MarkdownContentView: View {
     public let content: String
+    public let onImageTap: ((URL) -> Void)?
     private let blocks: [MarkdownBlock]
     
-    public init(content: String) {
+    @State private var internalPreviewImage: IdentifiableImage? = nil
+    
+    public init(content: String, onImageTap: ((URL) -> Void)? = nil) {
         self.content = content
+        self.onImageTap = onImageTap
         self.blocks = MarkdownBlockCache.shared.blocks(for: content)
     }
     
@@ -108,9 +114,78 @@ public struct MarkdownContentView: View {
                     
                 case .paragraph(_, let text):
                     paragraphView(text: text, size: 15)
+                    
+                case .image(_, let alt, let url):
+                    markdownImageView(alt: alt, urlString: url)
                 }
             }
         }
+        .fullScreenCover(item: $internalPreviewImage) { item in
+            ImageViewerSheet(item: item)
+        }
+    }
+    
+    // MARK: - Embedded Markdown Images
+    
+    private func resolvedImageURL(from raw: String) -> URL? {
+        if let base = AppSettings.shared.gatewayURL {
+            let resolved = APIClient.shared.resolveMediaURL(raw, baseURL: base)
+            if let url = URL(string: resolved) {
+                return url
+            }
+        }
+        return URL(string: raw)
+    }
+    
+    private func handleImageTap(url: URL) {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        if let onImageTap {
+            onImageTap(url)
+        } else {
+            internalPreviewImage = IdentifiableImage(url: url)
+        }
+    }
+    
+    @ViewBuilder
+    private func markdownImageView(alt: String, urlString: String) -> some View {
+        if let url = resolvedImageURL(from: urlString) {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .empty:
+                    ProgressView()
+                        .frame(maxWidth: .infinity, minHeight: 120, maxHeight: 160, alignment: .leading)
+                case .success(let image):
+                    Button {
+                        handleImageTap(url: url)
+                    } label: {
+                        image
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxWidth: .infinity, maxHeight: 280, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(alt.isEmpty ? "图片" : alt)
+                case .failure:
+                    markdownImageFailure(alt: alt)
+                @unknown default:
+                    EmptyView()
+                }
+            }
+        } else {
+            markdownImageFailure(alt: alt)
+        }
+    }
+    
+    private func markdownImageFailure(alt: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "photo")
+            Text(alt.isEmpty ? "图片加载失败" : alt)
+                .lineLimit(2)
+        }
+        .font(.footnote)
+        .foregroundColor(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityLabel(alt.isEmpty ? "图片加载失败" : alt)
     }
     
     // MARK: - Rich Text with File Icons and Inline Code Styler
@@ -1061,8 +1136,15 @@ public enum MarkdownParser {
                         break
                     }
                 }
-                blocks.append(.list(id: "block-\(blockIdx)", items: listItems))
+                appendListOrSplitImages(listItems, into: &blocks, blockIdx: &blockIdx)
+                continue
+            }
+            
+            // Standalone image line: ![alt](url), [![alt](thumb)](url), MEDIA:url
+            if let img = parseStandaloneImage(trimmed) {
+                blocks.append(.image(id: "block-\(blockIdx)", alt: img.alt, url: img.url))
                 blockIdx += 1
+                i += 1
                 continue
             }
             
@@ -1072,17 +1154,190 @@ public enum MarkdownParser {
             while i < lines.count {
                 let nextLine = lines[i]
                 let nTrimmed = nextLine.trimmingCharacters(in: .whitespaces)
-                if nTrimmed.isEmpty || nTrimmed.hasPrefix("```") || nTrimmed.hasPrefix("#") || nTrimmed == "---" || (nTrimmed.hasPrefix("|") && nTrimmed.hasSuffix("|")) || nTrimmed.hasPrefix("- ") || nTrimmed.hasPrefix("* ") || nTrimmed.hasPrefix("• ") {
+                if nTrimmed.isEmpty || nTrimmed.hasPrefix("```") || nTrimmed.hasPrefix("#") || nTrimmed == "---" || (nTrimmed.hasPrefix("|") && nTrimmed.hasSuffix("|")) || nTrimmed.hasPrefix("- ") || nTrimmed.hasPrefix("* ") || nTrimmed.hasPrefix("• ") || parseStandaloneImage(nTrimmed) != nil {
                     break
                 }
                 paraLines.append(nextLine)
                 i += 1
             }
-            blocks.append(.paragraph(id: "block-\(blockIdx)", text: paraLines.joined(separator: "\n")))
-            blockIdx += 1
+            let paraText = paraLines.joined(separator: "\n")
+            let split = splitParagraphIntoBlocks(text: paraText, blockIdx: &blockIdx)
+            blocks.append(contentsOf: split)
         }
         
         return blocks
+    }
+    
+    // MARK: - Image syntax
+    
+    /// `[![alt](thumb)](orig)` — linked thumbnail; capture alt, thumb, original.
+    private static let linkedImageRegex = try? NSRegularExpression(
+        pattern: #"\[!\[(.*?)\]\(([^\s\)]+)(?:\s+"[^"]*")?\)\]\(([^\s\)]+)(?:\s+"[^"]*")?\)"#
+    )
+    
+    /// `![alt](url)` — standard markdown image.
+    private static let markdownImageRegex = try? NSRegularExpression(
+        pattern: #"!\[(.*?)\]\(([^\s\)]+)(?:\s+"[^"]*")?\)"#
+    )
+    
+    /// `MEDIA:/path/to/file.png` (optionally preceded by whitespace or `<br>`).
+    private static let mediaPrefixRegex = try? NSRegularExpression(
+        pattern: #"(?:^|\s|<br\s*/?>)MEDIA:\s*([^\s)<>"'`]+)"#,
+        options: [.caseInsensitive]
+    )
+    
+    private static let wrappingURLChars = CharacterSet(charactersIn: "`\"'()[]<>")
+    
+    private static func cleanImageURL(_ raw: String) -> String {
+        raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: wrappingURLChars)
+    }
+    
+    private static func filenameAlt(for url: String) -> String {
+        let trimmed = cleanImageURL(url)
+        if let parsed = URL(string: trimmed), !parsed.lastPathComponent.isEmpty {
+            return parsed.lastPathComponent
+        }
+        return (trimmed as NSString).lastPathComponent
+    }
+    
+    private static func codeSpanIndexSet(in text: String) -> IndexSet {
+        var occupied = IndexSet()
+        var loc = 0
+        for seg in MarkdownContentView.splitCodeSpans(in: text) {
+            let len = (seg.content as NSString).length
+            if seg.isCode && len > 0 {
+                occupied.insert(integersIn: loc ..< (loc + len))
+            }
+            loc += len
+        }
+        return occupied
+    }
+    
+    fileprivate static func findImages(in text: String) -> [(alt: String, url: String, range: NSRange)] {
+        guard !text.isEmpty else { return [] }
+        let ns = text as NSString
+        let full = NSRange(location: 0, length: ns.length)
+        let codeSpans = text.contains("`") ? codeSpanIndexSet(in: text) : IndexSet()
+        var occupied = IndexSet()
+        var results: [(alt: String, url: String, range: NSRange)] = []
+        
+        func overlapsCode(_ range: NSRange) -> Bool {
+            guard range.length > 0 else { return false }
+            return !codeSpans.intersection(IndexSet(integersIn: range.location ..< (range.location + range.length))).isEmpty
+        }
+        
+        func add(alt: String, url: String, range: NSRange) {
+            guard range.location != NSNotFound, range.length > 0 else { return }
+            let cleaned = cleanImageURL(url)
+            guard !cleaned.isEmpty else { return }
+            if overlapsCode(range) { return }
+            let indices = IndexSet(integersIn: range.location ..< (range.location + range.length))
+            guard occupied.intersection(indices).isEmpty else { return }
+            occupied.formUnion(indices)
+            results.append((alt.trimmingCharacters(in: .whitespacesAndNewlines), cleaned, range))
+        }
+        
+        if let regex = linkedImageRegex {
+            for match in regex.matches(in: text, range: full) {
+                let alt = match.range(at: 1).location != NSNotFound ? ns.substring(with: match.range(at: 1)) : ""
+                let orig = match.range(at: 3).location != NSNotFound ? ns.substring(with: match.range(at: 3)) : ""
+                add(alt: alt, url: orig, range: match.range)
+            }
+        }
+        
+        if let regex = markdownImageRegex {
+            for match in regex.matches(in: text, range: full) {
+                let alt = match.range(at: 1).location != NSNotFound ? ns.substring(with: match.range(at: 1)) : ""
+                let url = match.range(at: 2).location != NSNotFound ? ns.substring(with: match.range(at: 2)) : ""
+                add(alt: alt, url: url, range: match.range)
+            }
+        }
+        
+        if let regex = mediaPrefixRegex {
+            for match in regex.matches(in: text, range: full) {
+                let url = match.range(at: 1).location != NSNotFound ? ns.substring(with: match.range(at: 1)) : ""
+                add(alt: filenameAlt(for: url), url: url, range: match.range)
+            }
+        }
+        
+        results.sort { $0.range.location < $1.range.location }
+        return results
+    }
+    
+    fileprivate static func parseStandaloneImage(_ trimmed: String) -> (alt: String, url: String)? {
+        let images = findImages(in: trimmed)
+        guard images.count == 1 else { return nil }
+        let img = images[0]
+        let ns = trimmed as NSString
+        let before = ns.substring(to: img.range.location)
+        let afterStart = img.range.location + img.range.length
+        let after = afterStart < ns.length ? ns.substring(from: afterStart) : ""
+        guard before.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              after.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return (img.alt, img.url)
+    }
+    
+    fileprivate static func splitParagraphIntoBlocks(text: String, blockIdx: inout Int) -> [MarkdownBlock] {
+        let images = findImages(in: text)
+        if images.isEmpty {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return [] }
+            let block = MarkdownBlock.paragraph(id: "block-\(blockIdx)", text: text)
+            blockIdx += 1
+            return [block]
+        }
+        
+        var blocks: [MarkdownBlock] = []
+        let ns = text as NSString
+        var cursor = 0
+        
+        for img in images {
+            if img.range.location > cursor {
+                let prefix = ns.substring(with: NSRange(location: cursor, length: img.range.location - cursor))
+                if !prefix.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    blocks.append(.paragraph(id: "block-\(blockIdx)", text: prefix.trimmingCharacters(in: .whitespacesAndNewlines)))
+                    blockIdx += 1
+                }
+            }
+            blocks.append(.image(id: "block-\(blockIdx)", alt: img.alt, url: img.url))
+            blockIdx += 1
+            cursor = img.range.location + img.range.length
+        }
+        
+        if cursor < ns.length {
+            let suffix = ns.substring(from: cursor)
+            if !suffix.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                blocks.append(.paragraph(id: "block-\(blockIdx)", text: suffix.trimmingCharacters(in: .whitespacesAndNewlines)))
+                blockIdx += 1
+            }
+        }
+        
+        return blocks
+    }
+    
+    private static func appendListOrSplitImages(_ listItems: [String], into blocks: inout [MarkdownBlock], blockIdx: inout Int) {
+        var currentPlain: [String] = []
+        
+        func flushPlainList() {
+            guard !currentPlain.isEmpty else { return }
+            blocks.append(.list(id: "block-\(blockIdx)", items: currentPlain))
+            blockIdx += 1
+            currentPlain.removeAll(keepingCapacity: true)
+        }
+        
+        for item in listItems {
+            if findImages(in: item).isEmpty {
+                currentPlain.append(item)
+            } else {
+                flushPlainList()
+                let split = splitParagraphIntoBlocks(text: item, blockIdx: &blockIdx)
+                blocks.append(contentsOf: split)
+            }
+        }
+        flushPlainList()
     }
 }
 

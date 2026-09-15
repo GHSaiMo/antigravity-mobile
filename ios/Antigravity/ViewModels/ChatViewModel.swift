@@ -2200,6 +2200,11 @@ public final class ChatViewModel {
                     }
                 }()
                 let imgDataList = (item.media ?? []).compactMap { Data(base64Encoded: $0) }
+                let resolvedImageUrls: [String] = {
+                    let rawList = item.imageUrls ?? []
+                    guard let baseURL = self.settings.gatewayURL else { return rawList }
+                    return rawList.map { self.apiClient.resolveMediaURL($0, baseURL: baseURL) }
+                }()
                 return ChatMessage(
                     id: item.id,
                     sender: sender,
@@ -2207,7 +2212,7 @@ public final class ChatViewModel {
                     toolCount: item.toolCount ?? 0,
                     toolNames: item.toolNames ?? [],
                     imageDataList: imgDataList,
-                    imageUrls: item.imageUrls ?? []
+                    imageUrls: resolvedImageUrls
                 )
             }
             let hasExpandedHistory = self.messages.count > parsedMessages.count

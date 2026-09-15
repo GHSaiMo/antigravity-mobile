@@ -400,7 +400,9 @@ public final class APIClient: Sendable {
                 let matches = regex.matches(in: text, range: nsRange)
                 for match in matches {
                     if match.numberOfRanges > 1, let range = Range(match.range(at: 1), in: text) {
-                        let candidate = String(text[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+                        let candidate = String(text[range])
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                            .trimmingCharacters(in: CharacterSet(charactersIn: "`\"'()[]<>"))
                         if !candidate.isEmpty && !urls.contains(candidate) {
                             urls.append(candidate)
                         }
@@ -591,11 +593,14 @@ public final class APIClient: Sendable {
                 if !response.isEmpty || (thinking != nil && !thinking!.isEmpty) {
                     flushTools()
                     
+                    let extracted = extractImageURLs(from: response)
+                    let resolved = extracted.map { resolveMediaURL($0, baseURL: baseURL) }
+                    
                     messages.append(ChatMessage(
                         sender: .agent,
                         content: response.isEmpty ? "（已完成思考，准备下发指令）" : response,
                         thinking: thinking?.isEmpty == false ? thinking : nil,
-                        imageUrls: []
+                        imageUrls: resolved
                     ))
                 }
             } else if type == "CORTEX_STEP_TYPE_ERROR_MESSAGE" {
