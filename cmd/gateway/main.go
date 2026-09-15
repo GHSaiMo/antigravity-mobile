@@ -175,6 +175,9 @@ func main() {
 	watcherCtx, cancelWatcher := context.WithCancel(context.Background())
 	defer cancelWatcher()
 
+	// Start desktop focus watcher (annotations filesystem poller)
+	go p.StartDesktopFocusWatcher(watcherCtx)
+
 	// Periodically cleanup expired pairing sessions
 	go func() {
 		ticker := time.NewTicker(2 * time.Minute)

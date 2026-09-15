@@ -47,11 +47,38 @@ public struct GatewayStatusResponse: Codable, Sendable {
     public let upstream: UpstreamInfo?
     public var usedInterface: String?
     public var connectionDescription: String?
+    public var unifiedCursor: UnifiedCursorInfo?
+    
+    enum CodingKeys: String, CodingKey {
+        case status
+        case upstream
+        case usedInterface
+        case connectionDescription
+        case unifiedCursor = "unified_cursor"
+    }
     
     public struct UpstreamInfo: Codable, Sendable {
         public let pid: Int?
         public let port: Int?
         public let is_healthy: Bool?
+    }
+    
+    public struct UnifiedCursorInfo: Codable, Sendable {
+        public let cascadeId: String
+        public let title: String?
+        public let source: String
+        public let updatedAt: String?
+        public let isSticky: Bool?
+        public let timeSkewMs: Int64?
+        
+        enum CodingKeys: String, CodingKey {
+            case cascadeId = "cascade_id"
+            case title
+            case source
+            case updatedAt = "updated_at"
+            case isSticky = "is_sticky"
+            case timeSkewMs = "time_skew_ms"
+        }
     }
 }
 
@@ -230,6 +257,28 @@ public final class APIClient: Sendable {
             return s
         }
         return nil
+    }
+    
+    // Report session focus to gateway immediately on tap (0ms latency, fire-and-forget)
+    public func notifySessionFocus(cascadeId: String, baseURL: URL) {
+        guard !cascadeId.isEmpty else { return }
+        let endpoint = baseURL.appendingPathComponent("gateway/cascade/focus")
+        var req = URLRequest(url: endpoint)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 3.0
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let payload: [String: String] = [
+            "cascadeId": cascadeId,
+            "source": "ios"
+        ]
+        req.httpBody = try? JSONEncoder().encode(payload)
+        
+        // Conforms to Swift 6 Sendable concurrency and NetworkTransport
+        // Automatically injects Bearer token and bypasses iOS ATS on raw IPv6 literals
+        Task { [transport] in
+            _ = try? await transport.send(request: req)
+        }
     }
     
     // Mark conversation as read both locally and report to upstream language_server
