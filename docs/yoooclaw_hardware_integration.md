@@ -124,13 +124,18 @@
 # Antigravity 消息注入标准契约
 POST http://127.0.0.1:58900/api/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage
 Content-Type: application/json
-Authorization: Bearer <device_token>
+Authorization: Bearer <admin_token>
 
 {
   "cascadeId": "<ARBITRATED_CASCADE_ID>",
   "items": [{"text": "清理无用依赖并重新打包"}]
 }
 ```
+
+### 3.3 第三层：YoooClaw App 界面闭环与交互回显
+当消息成功拦截并注入反重力底层后，插件需向手机 App 及时发送回显并结束本轮交互：
+1. **即时回显文本**：向当前会话发送 `📌 已成功投递至反重力会话【...】` 或 `✨ 已开启新反重力会话【...】`；
+2. **收尾 Pending 状态**：发送 `run.complete`（status: `success`），通知客户端重置输入框状态（由红色的停止按钮恢复为录音/发送状态），消除界面悬挂卡死感。
 
 ---
 
@@ -188,8 +193,12 @@ Authorization: Bearer <device_token>
    * 集成 `antigravity-mobile` 网关 HTTP RPC 接口 (`SendUserCascadeMessage`)；
    * 实施幽灵会话三重防御（过滤空标题、临时未初始化标签页、校验 `brain` 目录物理存在）；
    * 实现注入失败安全回退保障（返回 False，不丢失任何用户输入）。
-3. **阶段 3：Follow-Me 跨端统一游标与协同感知（🚀 实施中）**
+3. **阶段 3：Follow-Me 跨端统一游标与协同感知（✅ 已上线实测）**
    * 详见规范文档：`docs/unified_active_session_cursor_design.md`；
    * 手机端 `POST /gateway/cascade/focus` 毫秒级上报（Swift 6 / NetworkTransport）；
    * 桌面端 `annotations/*.pbtxt` 内核监听与防自反机制（消除手机已读触发的反向误判）；
    * 息屏 30 分钟 Sticky 粘性游标保持。
+4. **阶段 4：Gateway-First 代理注入与双重端口容灾（✅ 已修复上线）**
+   * 网关优先调用：改走 Mobile Gateway HTTP API（端口 58900），内置 Admin Token 鉴权，免除 SSL 握手超时与 CSRF 拼接负担；
+   * 探针安全加固：修复 `lsof` 缺少 `-a` 导致误匹配系统进程 `rapportd`（49325）的缺陷，并增加 `GetStatus` 端口自验；
+   * 前端体验闭环：向 YoooClaw App 回显投递目标会话标题，并触发 `run.complete` 结束 pending 等待。
