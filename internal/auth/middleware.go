@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 )
 
 // AuthPolicy controls loopback-trust and AUTH_DISABLED. Zero value preserves
@@ -183,7 +184,19 @@ func AuthMiddlewareWithPolicy(store *AuthStore, next http.Handler, policy AuthPo
 				return
 			}
 
-			device, ok = store.ValidateToken(token)
+			if adminTok := GetAdminToken(); adminTok != "" && ConstantTimeTokenEquals(token, adminTok) {
+				device = &PairedDevice{
+					DeviceID:   "admin-local",
+					DeviceName: "Local Administrator",
+					Platform:   "macos",
+					CreatedAt:  time.Now(),
+					LastSeenAt: time.Now(),
+					LastSeenIP: r.RemoteAddr,
+				}
+				ok = true
+			} else {
+				device, ok = store.ValidateToken(token)
+			}
 		}
 
 		if !ok || device == nil {

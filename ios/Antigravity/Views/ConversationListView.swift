@@ -95,6 +95,9 @@ public struct ConversationListView: View {
                     .id(item.id)
                     .onAppear {
                         guard !item.isDraft else { return }
+                        if let url = AppSettings.shared.gatewayURL {
+                            APIClient.shared.notifySessionFocus(cascadeId: item.id, baseURL: url)
+                        }
                         Task {
                             if let url = AppSettings.shared.gatewayURL {
                                 await APIClient.shared.markConversationAsRead(cascadeId: item.id, baseURL: url)

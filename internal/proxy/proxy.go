@@ -31,6 +31,7 @@ type GatewayStatus struct {
 	ActiveStreamCascadeID string                  `json:"active_stream_cascade_id,omitempty"`
 	ActiveStreamTitle     string                  `json:"active_stream_title,omitempty"`
 	Timestamp             time.Time               `json:"timestamp"`
+	UnifiedCursor         *UnifiedCursor          `json:"unified_cursor,omitempty"`
 }
 
 // NotificationSink receives real-time trajectory status updates.
@@ -65,6 +66,16 @@ type Proxy struct {
 	msgDedupMu   sync.Mutex
 	msgDedup     map[string]time.Time
 	cascadeDedup map[string]cascadeDedupEntry
+
+	cursorMu                  sync.RWMutex
+	mobileCascadeID           string
+	mobileTitle               string
+	mobileFocusedAt           time.Time
+	desktopCascadeID          string
+	desktopTitle              string
+	desktopFocusedAt          time.Time
+	suppressDesktopFocusUntil time.Time
+	mobileStickyDuration      time.Duration
 }
 
 type cascadeDedupEntry struct {
@@ -176,6 +187,7 @@ func NewProxy(insp inspector.UpstreamDiscoverer) *Proxy {
 			Timeout:   60 * time.Second,
 			Transport: tr,
 		},
+		mobileStickyDuration: DefaultMobileStickyDuration,
 	}
 
 	insp.OnUpdate(func(info inspector.InstanceInfo) {
@@ -257,6 +269,10 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/gateway/cascade/touch" || r.URL.Path == "/gateway/cascade/invalidate" {
 		p.handleCascadeTouch(w, r)
+		return
+	}
+	if r.URL.Path == "/gateway/cascade/focus" {
+		p.handleFocusSession(w, r)
 		return
 	}
 	if r.URL.Path == "/gateway/cascade/stream" {
@@ -389,6 +405,7 @@ func (p *Proxy) handleStatus(w http.ResponseWriter, r *http.Request) {
 		ActiveStreamCascadeID: activeID,
 		ActiveStreamTitle:     activeTitle,
 		Timestamp:             time.Now(),
+		UnifiedCursor:         p.ArbitrateCursor(),
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -1047,6 +1064,8 @@ func (p *Proxy) handleUpdateConversationAnnotations(w http.ResponseWriter, r *ht
 			defaultTrajCache.cascadeTitlesMu.Unlock()
 		}
 	}
+
+	p.SuppressDesktopFocus(AntiReflectionDuration)
 
 	fwdReq := r.Clone(r.Context())
 	fwdReq.URL.Path = reqPath
