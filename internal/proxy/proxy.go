@@ -504,15 +504,23 @@ func (p *Proxy) handleRpcProxy(w http.ResponseWriter, r *http.Request) {
 
 type bufferedResponseWriter struct {
 	header     http.Header
-	body       bytes.Buffer
+	body       *bytes.Buffer
 	statusCode int
 }
 
 func newBufferedResponseWriter() *bufferedResponseWriter {
 	return &bufferedResponseWriter{
 		header:     make(http.Header),
+		body:       GetLargeBuffer(), // P3: reuse pooled buffer instead of heap-allocating
 		statusCode: http.StatusOK,
 	}
+}
+
+// release returns the body buffer to the pool. Must be called after the response body
+// has been fully consumed (i.e. after w.Write(rec.body.Bytes())).
+func (b *bufferedResponseWriter) release() {
+	PutLargeBuffer(b.body)
+	b.body = nil
 }
 
 func (b *bufferedResponseWriter) Header() http.Header {
@@ -590,6 +598,15 @@ func isSpaceOnly(b []byte) bool {
 	return len(bytes.TrimSpace(b)) == 0
 }
 
+// writeJSONError writes a properly JSON-encoded error response.
+// S6: using json.Marshal prevents injection when err.Error() contains quotes or backslashes.
+func writeJSONError(w http.ResponseWriter, msg string, status int) {
+	body, _ := json.Marshal(map[string]string{"error": msg})
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	w.Write(body)
+}
+
 func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Request, rp http.Handler, reqPath string, port int, token string) {
 	clientMsgID := strings.TrimSpace(r.Header.Get("X-Client-Message-Id"))
 	if clientMsgID == "" {
@@ -607,8 +624,15 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
+	// P6: fast-reject oversized requests using Content-Length before reading any bytes.
+	const maxBodySize = 50 * 1024 * 1024
+	if cl := r.ContentLength; cl > maxBodySize {
+		http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+
 	// Protect against OOM for extremely large requests by limiting to 50MB
-	bodyBytes, err := io.ReadAll(io.LimitReader(r.Body, 50*1024*1024))
+	bodyBytes, err := io.ReadAll(io.LimitReader(r.Body, maxBodySize))
 	if err != nil {
 		http.Error(w, "Failed to read request body", http.StatusBadRequest)
 		return
@@ -749,6 +773,7 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 	r.URL.Path = reqPath
 
 	rw := newBufferedResponseWriter()
+	defer rw.release()
 	rp.ServeHTTP(rw, r)
 
 	// Copy headers from upstream
@@ -881,14 +906,16 @@ func (p *Proxy) handleDeleteCascadeTrajectory(w http.ResponseWriter, r *http.Req
 	}
 	_ = json.Unmarshal(bodyBytes, &reqData)
 
-	if reqData.CascadeID != "" && !strings.Contains(reqData.CascadeID, "..") && !strings.Contains(reqData.CascadeID, "/") && !strings.Contains(reqData.CascadeID, "\\") {
+	isSafeCascadeID := reqData.CascadeID != "" &&
+		!strings.Contains(reqData.CascadeID, "..") &&
+		!strings.Contains(reqData.CascadeID, "/") &&
+		!strings.Contains(reqData.CascadeID, "\\")
+
+	// S3 fix: only set the in-memory tombstone pre-emptively (so stream/list filters
+	// hide the cascade immediately). File deletion is deferred to the success branch
+	// below — doing it here would permanently destroy local files if upstream rejects.
+	if isSafeCascadeID {
 		RecordDeletedCascade(reqData.CascadeID)
-		// Clean up ~/.gemini/antigravity/brain/<id> recursively BEFORE upstream tries os.Remove,
-		// preventing upstream from failing with "unlinkat ... directory not empty" due to subdirectories (.user_uploaded, .system_generated)
-		if home, err := os.UserHomeDir(); err == nil {
-			brainDir := filepath.Join(home, ".gemini", "antigravity", "brain", reqData.CascadeID)
-			_ = os.RemoveAll(brainDir)
-		}
 	}
 
 	fwdReq := r.Clone(r.Context())
@@ -896,13 +923,14 @@ func (p *Proxy) handleDeleteCascadeTrajectory(w http.ResponseWriter, r *http.Req
 	fwdReq.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 
 	rec := newBufferedResponseWriter()
+	defer rec.release()
 	rp.ServeHTTP(rec, fwdReq)
 
 	if rec.statusCode >= 200 && rec.statusCode < 300 {
-		if reqData.CascadeID != "" && !strings.Contains(reqData.CascadeID, "..") && !strings.Contains(reqData.CascadeID, "/") && !strings.Contains(reqData.CascadeID, "\\") {
+		if isSafeCascadeID {
 			RecordDeletedCascade(reqData.CascadeID)
 			ClearTrajectoryCache(reqData.CascadeID)
-			// Clean up leftover .pbtxt annotation file and .db files if present
+			// Clean up local files only after upstream confirms deletion.
 			if home, err := os.UserHomeDir(); err == nil {
 				annPath := filepath.Join(home, ".gemini", "antigravity", "annotations", reqData.CascadeID+".pbtxt")
 				_ = os.Remove(annPath)
@@ -918,8 +946,8 @@ func (p *Proxy) handleDeleteCascadeTrajectory(w http.ResponseWriter, r *http.Req
 			log.Printf("[Proxy] Deleted cascade trajectory: %s (cache, tombstone & files cleared)", reqData.CascadeID)
 		}
 	} else if rec.statusCode >= 400 {
-		// Upstream explicitly rejected deletion; release the tombstone
-		if reqData.CascadeID != "" {
+		// Upstream explicitly rejected deletion; release the tombstone so the cascade reappears.
+		if isSafeCascadeID {
 			RemoveDeletedCascadeTombstone(reqData.CascadeID)
 		}
 	}
@@ -958,6 +986,7 @@ func (p *Proxy) handleDeleteAgentMessage(w http.ResponseWriter, r *http.Request,
 	fwdReq.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 
 	rec := newBufferedResponseWriter()
+	defer rec.release()
 	rp.ServeHTTP(rec, fwdReq)
 
 	if rec.statusCode >= 200 && rec.statusCode < 300 {
@@ -1048,7 +1077,7 @@ func (p *Proxy) HandleCascadeInteraction(w http.ResponseWriter, r *http.Request)
 
 	var req InteractionSubmitRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":"invalid request: %s"}`, err.Error()), http.StatusBadRequest)
+		writeJSONError(w, "invalid request: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -1153,14 +1182,14 @@ func (p *Proxy) HandleCascadeInteraction(w http.ResponseWriter, r *http.Request)
 
 	bodyBytes, err := json.Marshal(rpcReq)
 	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":"failed to encode: %s"}`, err.Error()), http.StatusInternalServerError)
+		writeJSONError(w, "failed to encode: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	url := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/HandleCascadeUserInteraction", port)
 	upstreamReq, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(bodyBytes))
 	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":"failed to create upstream request: %s"}`, err.Error()), http.StatusInternalServerError)
+		writeJSONError(w, "failed to create upstream request: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -1172,7 +1201,7 @@ func (p *Proxy) HandleCascadeInteraction(w http.ResponseWriter, r *http.Request)
 
 	resp, err := p.mediumClient.Do(upstreamReq)
 	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":"upstream call failed: %s"}`, err.Error()), http.StatusBadGateway)
+		writeJSONError(w, "upstream call failed: "+err.Error(), http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
@@ -1206,7 +1235,7 @@ func (p *Proxy) handleCascadeTaskStop(w http.ResponseWriter, r *http.Request) {
 		TaskID    string `json:"taskId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":"invalid request: %s"}`, err.Error()), http.StatusBadRequest)
+		writeJSONError(w, "invalid request: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -1227,7 +1256,7 @@ func (p *Proxy) handleCascadeTaskStop(w http.ResponseWriter, r *http.Request) {
 
 	if err := p.CancelCascadeStep(req.CascadeID, req.StepIndex, port, token); err != nil {
 		log.Printf("[Proxy] CancelCascadeStep failed (cascade: %s, step: %d): %v", req.CascadeID, req.StepIndex, err)
-		http.Error(w, fmt.Sprintf(`{"error":"cancel step failed: %s"}`, err.Error()), http.StatusInternalServerError)
+		writeJSONError(w, "cancel step failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -1250,7 +1279,11 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 		bodyBytes = []byte("{}")
 	}
 
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, url, bytes.NewReader(bodyBytes))
+	// P4: reuse p.mediumClient; enforce the 4s budget via a context deadline
+	// instead of allocating a new http.Client struct on every request.
+	listCtx, listCancel := context.WithTimeout(r.Context(), 4*time.Second)
+	defer listCancel()
+	req, err := http.NewRequestWithContext(listCtx, http.MethodPost, url, bytes.NewReader(bodyBytes))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -1261,11 +1294,7 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 		req.Header.Set("x-codeium-csrf-token", token)
 	}
 
-	client := &http.Client{
-		Timeout:   4 * time.Second,
-		Transport: p.transport,
-	}
-	resp, err := client.Do(req)
+	resp, err := p.mediumClient.Do(req)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
@@ -1467,28 +1496,34 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 		for i := 0; i < len(recentItems) && i < 10; i++ {
 			if i < 5 || time.Since(recentItems[i].t) < 48*time.Hour {
 				cid := recentItems[i].id
-				// Fast path: if already cached, non-running, and within TTL, reuse directly
-				defaultTrajCache.trajCacheMu.Lock()
+				// Fast path: if already cached, non-running, and within TTL, reuse directly.
+				// P2 fix: copy the data pointer under a short RLock, then parse outside the lock.
+				defaultTrajCache.trajCacheMu.RLock()
 				cached, ok := defaultTrajCache.trajCache[cid]
+				var cachedData *upstreamTrajectoryResp
 				if ok && cached != nil && cached.data != nil {
 					if cached.data.Status != "" && cached.data.Status != "CASCADE_RUN_STATUS_RUNNING" && time.Since(cached.fetchedAt) < 60*time.Second {
-						details := p.ParseTrajectoryDetails(cached.data)
-						if details.PendingInteraction != nil || details.CanProceed {
-							if summaries[cid] != nil {
-								summaries[cid]["needsInput"] = true
-							}
-						}
-						if details.HasError {
-							if summaries[cid] != nil {
-								summaries[cid]["hasError"] = true
-								summaries[cid]["errorMessage"] = details.ErrorMessage
-							}
-						}
-						defaultTrajCache.trajCacheMu.Unlock()
-						continue
+						cachedData = cached.data
 					}
 				}
-				defaultTrajCache.trajCacheMu.Unlock()
+				defaultTrajCache.trajCacheMu.RUnlock()
+
+				if cachedData != nil {
+					// ParseTrajectoryDetails does significant JSON work — keep it outside any lock.
+					details := p.ParseTrajectoryDetails(cachedData)
+					if details.PendingInteraction != nil || details.CanProceed {
+						if summaries[cid] != nil {
+							summaries[cid]["needsInput"] = true
+						}
+					}
+					if details.HasError {
+						if summaries[cid] != nil {
+							summaries[cid]["hasError"] = true
+							summaries[cid]["errorMessage"] = details.ErrorMessage
+						}
+					}
+					continue
+				}
 				candidates[cid] = true
 			}
 		}
@@ -1532,18 +1567,28 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 	}
 
 	// Also check any cascade in trajCache that has PendingInteraction, CanProceed, or HasError.
-	defaultTrajCache.trajCacheMu.Lock()
+	// P2 fix: snapshot entries under RLock, then parse outside the lock.
+	defaultTrajCache.trajCacheMu.RLock()
+	type snapEntry struct {
+		cid  string
+		data *upstreamTrajectoryResp
+	}
+	var snapshots []snapEntry
 	for cid, entry := range defaultTrajCache.trajCache {
 		if entry != nil && entry.data != nil {
-			details := p.ParseTrajectoryDetails(entry.data)
-			if details.PendingInteraction != nil || details.CanProceed || details.HasError {
-				if _, exists := summaries[cid]; exists {
-					candidates[cid] = true
-				}
+			snapshots = append(snapshots, snapEntry{cid: cid, data: entry.data})
+		}
+	}
+	defaultTrajCache.trajCacheMu.RUnlock()
+
+	for _, sn := range snapshots {
+		details := p.ParseTrajectoryDetails(sn.data)
+		if details.PendingInteraction != nil || details.CanProceed || details.HasError {
+			if _, exists := summaries[sn.cid]; exists {
+				candidates[sn.cid] = true
 			}
 		}
 	}
-	defaultTrajCache.trajCacheMu.Unlock()
 
 	if len(candidates) > 0 {
 		var mu sync.Mutex

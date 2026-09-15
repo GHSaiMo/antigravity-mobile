@@ -302,6 +302,7 @@ func buildRouter(
 	// Auth endpoints
 	rootMux.HandleFunc("/api/v1/auth/pair", authHandler.HandlePair)
 	rootMux.HandleFunc("/api/v1/auth/session", authHandler.HandleNewPairingSession)
+	rootMux.HandleFunc("POST /api/v1/auth/ws-ticket", authHandler.HandleWSTicket)
 	rootMux.HandleFunc("/api/v1/devices/", authHandler.HandleDevices)
 	rootMux.HandleFunc("/api/v1/devices", authHandler.HandleDevices)
 

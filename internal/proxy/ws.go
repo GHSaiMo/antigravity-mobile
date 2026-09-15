@@ -62,9 +62,9 @@ func IsAllowedOrigin(origin string, requestHost string) bool {
 	if gh := strings.TrimSpace(os.Getenv("GATEWAY_HOST")); gh != "" {
 		trustedHosts = append(trustedHosts, strings.ToLower(gh))
 	}
-	if fa := strings.TrimSpace(os.Getenv("FRP_SERVER_ADDR")); fa != "" {
-		trustedHosts = append(trustedHosts, strings.ToLower(fa))
-	}
+	// S5: FRP_SERVER_ADDR intentionally excluded — it is a tunnel server address, not a
+	// browser origin. Including it would allow CSWSH from any page on that domain.
+	// Add it to ALLOWED_ORIGINS if truly needed.
 
 	for _, th := range trustedHosts {
 		if originHost == th || strings.HasSuffix(originHost, "."+th) {

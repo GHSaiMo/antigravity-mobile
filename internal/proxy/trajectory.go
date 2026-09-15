@@ -112,7 +112,7 @@ type metadataCacheEntry struct {
 // It replaces scattered package-level vars, enabling clean lifecycle management and testability.
 type TrajectoryCache struct {
 	trajCache   map[string]*trajectoryCacheEntry
-	trajCacheMu sync.Mutex
+	trajCacheMu sync.RWMutex
 
 	cascadeTitles       map[string]string
 	cascadeTitlesMu     sync.RWMutex
@@ -128,7 +128,7 @@ type TrajectoryCache struct {
 	cascadeModelsMu sync.RWMutex
 
 	loadedCascades   map[string]bool
-	loadedCascadesMu sync.Mutex
+	loadedCascadesMu sync.RWMutex
 	lastSyncedPort   int
 
 	deletedCascades   map[string]time.Time
@@ -159,12 +159,17 @@ var (
 	titleRegex   = regexp.MustCompile(`title:\s*"([^"]+)"`)
 	xmlMetaRegex = regexp.MustCompile(`(?s)<(?:ADDITIONAL_METADATA|USER_SETTINGS_CHANGE)>.*?</(?:ADDITIONAL_METADATA|USER_SETTINGS_CHANGE)>`)
 	xmlTagRegex  = regexp.MustCompile(`</?[a-zA-Z0-9_-]+(\s+[^>]*)?>`)
-	imgRegexes   = []*regexp.Regexp{
-		regexp.MustCompile(`\[!\[.*?\]\((?:[^\s\)]+)\)\]\((https?://[^\s\)]+|/static/[^\s\)]+|file://[^\s\)]+|/[^\s\)]+)\)`),
-		regexp.MustCompile(`!\[.*?\]\((https?://[^\s\)]+|/static/[^\s\)]+|file://[^\s\)]+|/[^\s\)]+)\)`),
-		regexp.MustCompile(`(?:^|\s|<br\s*/?>)MEDIA:\s*([^\s)<>"'\x60]+)`),
-		regexp.MustCompile(`\[.*?\]\((https?://[^\s\)]+\.(?:png|jpg|jpeg|webp|gif|svg|bmp|heic|ico)|file://[^\s\)]+\.(?:png|jpg|jpeg|webp|gif|svg|bmp|heic|ico)|/[^\s\)]+\.(?:png|jpg|jpeg|webp|gif|svg|bmp|heic|ico))\)`),
-	}
+
+	// P8: single combined regex replaces 4 sequential scans. Groups:
+	//   1 = badge-style image link    [![...](...)](/url)
+	//   2 = standard markdown image   ![...](url)
+	//   3 = MEDIA: prefix             MEDIA: url
+	//   4 = link to image file ext    [...](url.png)
+	combinedImgRegex = regexp.MustCompile(
+		`\[!\[.*?\]\([^\s\)]+\)\]\((https?://[^\s\)]+|/static/[^\s\)]+|file://[^\s\)]+|/[^\s\)]+)\)` +
+			`|!\[.*?\]\((https?://[^\s\)]+|/static/[^\s\)]+|file://[^\s\)]+|/[^\s\)]+)\)` +
+			`|(?:^|\s|<br\s*/?>)MEDIA:\s*([^\s)<>"'` + "`" + `]+)` +
+			`|\[.*?\]\((https?://[^\s\)]+\.(?:png|jpg|jpeg|webp|gif|svg|bmp|heic|ico)|file://[^\s\)]+\.(?:png|jpg|jpeg|webp|gif|svg|bmp|heic|ico)|/[^\s\)]+\.(?:png|jpg|jpeg|webp|gif|svg|bmp|heic|ico))\)`)
 )
 
 func extractImageURLsFromText(text string) []string {
@@ -174,17 +179,21 @@ func extractImageURLsFromText(text string) []string {
 	var imgURLs []string
 	seen := make(map[string]bool)
 
-	for _, re := range imgRegexes {
-		matches := re.FindAllStringSubmatch(text, -1)
-		for _, m := range matches {
-			if len(m) > 1 {
-				u := strings.TrimSpace(m[1])
+	// P8: single combined pass over the text instead of 4 separate regex scans.
+	matches := combinedImgRegex.FindAllStringSubmatch(text, -1)
+	for _, m := range matches {
+		// Find the first non-empty capture group (groups 1–4 correspond to the 4 alternatives).
+		u := ""
+		for i := 1; i < len(m); i++ {
+			if m[i] != "" {
+				u = strings.TrimSpace(m[i])
 				u = strings.Trim(u, "`\"'()[]<>")
-				if u != "" && !seen[u] {
-					seen[u] = true
-					imgURLs = append(imgURLs, u)
-				}
+				break
 			}
+		}
+		if u != "" && !seen[u] {
+			seen[u] = true
+			imgURLs = append(imgURLs, u)
 		}
 	}
 	return imgURLs
@@ -242,8 +251,8 @@ func ResetHistoricalSyncState() {
 
 // HasSyncedHistoricalTrajectories returns whether historical trajectories have already been synced for this port.
 func HasSyncedHistoricalTrajectories(port int) bool {
-	defaultTrajCache.loadedCascadesMu.Lock()
-	defer defaultTrajCache.loadedCascadesMu.Unlock()
+	defaultTrajCache.loadedCascadesMu.RLock()
+	defer defaultTrajCache.loadedCascadesMu.RUnlock()
 	return port > 0 && port == defaultTrajCache.lastSyncedPort
 }
 
@@ -1440,7 +1449,7 @@ func (p *Proxy) fetchUpstreamTrajectory(cascadeID string, port int, token string
 	// But if title is missing or session has few/no steps, keep TTL short (1.5s)
 	// so newly generated titles/summaries are quickly discovered.
 	maxAge := 800 * time.Millisecond
-	defaultTrajCache.trajCacheMu.Lock()
+	defaultTrajCache.trajCacheMu.RLock()
 	if cached, ok := defaultTrajCache.trajCache[cascadeID]; ok {
 		if cached.data.Status != "" && cached.data.Status != "CASCADE_RUN_STATUS_RUNNING" {
 			hasTitle := (cached.data.Trajectory.Annotations != nil && cached.data.Trajectory.Annotations.Title != "") ||
@@ -1452,7 +1461,7 @@ func (p *Proxy) fetchUpstreamTrajectory(cascadeID string, port int, token string
 			}
 		}
 	}
-	defaultTrajCache.trajCacheMu.Unlock()
+	defaultTrajCache.trajCacheMu.RUnlock()
 
 	resp, err := p.fetchUpstreamTrajectoryWithMaxAge(cascadeID, port, token, maxAge)
 	// Fallback: If not found or empty steps, try loading from disk via LoadTrajectory and retry once
@@ -1555,9 +1564,9 @@ func (p *Proxy) lookupCascadeTitle(cascadeID string, port int, token string) str
 	}
 
 	// Fallback to cached trajectory first user prompt
-	defaultTrajCache.trajCacheMu.Lock()
+	defaultTrajCache.trajCacheMu.RLock()
 	entry, hasEntry := defaultTrajCache.trajCache[cascadeID]
-	defaultTrajCache.trajCacheMu.Unlock()
+	defaultTrajCache.trajCacheMu.RUnlock()
 	if hasEntry && entry != nil && entry.data != nil {
 		for _, s := range entry.data.Trajectory.Steps {
 			if s.Type == "CORTEX_STEP_TYPE_USER_INPUT" {
@@ -1765,14 +1774,14 @@ func (p *Proxy) fetchUpstreamTrajectoryWithMaxAge(cascadeID string, port int, to
 		return nil, fmt.Errorf("cascade trajectory %s has been deleted", cascadeID)
 	}
 
-	defaultTrajCache.trajCacheMu.Lock()
+	defaultTrajCache.trajCacheMu.RLock()
 	if cached, ok := defaultTrajCache.trajCache[cascadeID]; ok {
 		if time.Since(cached.fetchedAt) < maxAge {
-			defaultTrajCache.trajCacheMu.Unlock()
+			defaultTrajCache.trajCacheMu.RUnlock()
 			return cached.data, nil
 		}
 	}
-	defaultTrajCache.trajCacheMu.Unlock()
+	defaultTrajCache.trajCacheMu.RUnlock()
 
 	buf := GetSmallBuffer()
 	defer PutSmallBuffer(buf)
