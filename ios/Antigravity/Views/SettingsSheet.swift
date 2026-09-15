@@ -101,7 +101,7 @@ public struct SettingsSheet: View {
                         Text("外网直连地址 (Public IPv6)")
                             .font(.system(size: 11, weight: .medium))
                             .foregroundColor(.secondary)
-                        TextField("未设置 (如 http://[240e:...]:58900)", text: Binding(
+                        TextField("未设置 (如 http://[2001:db8::1]:58900)", text: Binding(
                             get: { settings.ipv6ServerURL ?? "" },
                             set: { settings.ipv6ServerURL = $0.isEmpty ? nil : $0 }
                         ))

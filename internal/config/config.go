@@ -236,3 +236,14 @@ func GetTunnelConfig() TunnelConfig {
 		TLSEnable:  tlsEnable,
 	}
 }
+
+// AdvertisePublicIPv6 reports whether pairing QR / endpoints should include the
+// machine's global unicast IPv6. TLS/GATEWAY_SSL implies yes; otherwise the
+// operator must set INCLUDE_PUBLIC_IPV6=1.
+func AdvertisePublicIPv6(sslEnabled bool) bool {
+	if sslEnabled {
+		return true
+	}
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("INCLUDE_PUBLIC_IPV6")))
+	return v == "1" || v == "true" || v == "yes"
+}
