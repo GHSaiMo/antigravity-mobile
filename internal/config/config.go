@@ -122,6 +122,23 @@ func NormalizeBarkEndpoint(raw string) string {
 	return fmt.Sprintf("%s://%s", u.Scheme, u.Host)
 }
 
+// RedactBarkEndpoint hides the device key path segment for logs.
+func RedactBarkEndpoint(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return "(redacted)"
+	}
+	u.RawQuery = ""
+	u.Fragment = ""
+	u.Path = ""
+	u.RawPath = ""
+	return fmt.Sprintf("%s://%s/***", u.Scheme, u.Host)
+}
+
 // GetNotificationConfig parses environment variables and returns a NotificationConfig.
 func GetNotificationConfig() NotificationConfig {
 	barkRaw := os.Getenv("BARK_URL")

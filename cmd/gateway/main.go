@@ -189,7 +189,7 @@ func main() {
 		watcher.Start(watcherCtx)
 
 		log.Printf("🔔 Bark notifications ENABLED")
-		log.Printf("   🎯 Target: %s", notifCfg.BarkEndpoint)
+		log.Printf("   🎯 Target: %s", config.RedactBarkEndpoint(notifCfg.BarkEndpoint))
 		log.Printf("   🎨 Icon:   %s", notifCfg.IconURL)
 		log.Printf("   📁 Group:  %s", notifCfg.Group)
 	} else {

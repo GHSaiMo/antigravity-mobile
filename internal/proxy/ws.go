@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"crypto/rand"
-	"crypto/tls"
 	"encoding/base64"
 	"fmt"
 	"log"
@@ -13,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"antigravity-mobile/internal/localtls"
 
 	"github.com/gorilla/websocket"
 )
@@ -218,8 +219,9 @@ func (p *Proxy) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Dial upstream language_server
 	upstreamURL := fmt.Sprintf("wss://127.0.0.1:%d/connect-websocket", cur.Port)
 	dialer := websocket.Dialer{
-		TLSClientConfig:  &tls.Config{InsecureSkipVerify: true},
-		HandshakeTimeout: 5 * time.Second,
+		TLSClientConfig:   localtls.ClientConfig(),
+		NetDialTLSContext: localtls.DialTLSContext,
+		HandshakeTimeout:  5 * time.Second,
 	}
 
 	reqHeader := make(http.Header)

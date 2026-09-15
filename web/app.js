@@ -4748,16 +4748,18 @@ window.addEventListener("DOMContentLoaded", () => {
   initEdgeSwipeBack();
   initVisualViewportHandling();
 
-  // Check URL parameters for auto pairing
+  // Pairing codes in the URL must never silently replace an existing device token.
   const urlParams = new URLSearchParams(window.location.search);
   const autoPairCode = urlParams.get("pair_code") || urlParams.get("code");
   if (autoPairCode) {
-    pairWithCode(autoPairCode).then(() => {
-      window.history.replaceState({}, document.title, window.location.pathname);
-      loadConversations();
-    }).catch(err => {
-      openPairingSheet(err.message);
-    });
+    window.history.replaceState({}, document.title, window.location.pathname + window.location.hash);
+    const alreadyPaired = !!localStorage.getItem("agy_device_token");
+    const hint = alreadyPaired
+      ? "链接包含配对码。当前设备已配对，确认后才会替换现有凭据。"
+      : "链接包含配对码，请确认后再配对。";
+    openPairingSheet(hint);
+    const inputEl = document.getElementById("input-pairing-code");
+    if (inputEl) inputEl.value = autoPairCode;
   }
 
   updateAuthUI();
