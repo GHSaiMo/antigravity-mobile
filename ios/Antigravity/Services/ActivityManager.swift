@@ -9,6 +9,14 @@ public final class ActivityManager {
     
     public init() {}
     
+    /// Lock-screen Live Activities must not echo conversation or tool output.
+    public static func lockScreenSummary(stepCount: Int) -> String {
+        if stepCount > 0 {
+            return "正在执行 · \(stepCount) 步"
+        }
+        return "正在执行..."
+    }
+    
     public var isLiveActivityEnabled: Bool {
         ActivityAuthorizationInfo().areActivitiesEnabled
     }
@@ -46,9 +54,10 @@ public final class ActivityManager {
         let updatedState = AgentActivityAttributes.ContentState(
             status: status,
             stepCount: stepCount,
-            latestAction: latestAction,
+            latestAction: Self.lockScreenSummary(stepCount: stepCount),
             lastUpdated: Date()
         )
+        _ = latestAction
         
         Task {
             await activity.update(.init(state: updatedState, staleDate: nil))

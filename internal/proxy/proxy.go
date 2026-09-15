@@ -5,7 +5,6 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -22,6 +21,7 @@ import (
 	"time"
 
 	"antigravity-mobile/internal/inspector"
+	"antigravity-mobile/internal/localtls"
 )
 
 // GatewayStatus represents the public status of the gateway.
@@ -147,7 +147,8 @@ func (p *Proxy) GetActiveUserStatus() (email string, name string, err error) {
 // NewProxy creates a new reverse proxy backed by the inspector.
 func NewProxy(insp inspector.UpstreamDiscoverer) *Proxy {
 	tr := &http.Transport{
-		TLSClientConfig:       &tls.Config{InsecureSkipVerify: true},
+		TLSClientConfig:       localtls.ClientConfig(),
+		DialTLSContext:        localtls.DialTLSContext,
 		DisableCompression:    true,
 		MaxIdleConns:          100,
 		MaxIdleConnsPerHost:   50,

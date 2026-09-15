@@ -1,6 +1,7 @@
 import Foundation
 import Network
 import os
+import Security
 
 extension Notification.Name {
     public static let deviceTokenRevoked = Notification.Name("antigravity.device_token_revoked")
@@ -21,6 +22,7 @@ public final class NetworkTransport: Sendable {
     public static let shared = NetworkTransport()
     
     private let fallbackSession: URLSession
+    private let trustDelegate: SystemTrustDelegate
     private let pathMonitor = NWPathMonitor()
     private let monitorQueue = DispatchQueue(label: "antigravity.network_transport_monitor", qos: .utility)
     private let _isCellular = OSAllocatedUnfairLock(initialState: false)
@@ -41,7 +43,9 @@ public final class NetworkTransport: Sendable {
         config.httpShouldSetCookies = false
         config.httpCookieAcceptPolicy = .never
         config.httpCookieStorage = nil
-        self.fallbackSession = URLSession(configuration: config)
+        let delegate = SystemTrustDelegate()
+        self.trustDelegate = delegate
+        self.fallbackSession = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
         
         pathMonitor.pathUpdateHandler = { [weak self] path in
             guard let self = self else { return }
@@ -316,5 +320,26 @@ public final class NetworkTransport: Sendable {
         let response = HTTPURLResponse(url: url, statusCode: code, httpVersion: "HTTP/1.1", headerFields: fields)
             ?? URLResponse(url: url, mimeType: nil, expectedContentLength: body.count, textEncodingName: nil)
         return (body, response)
+    }
+}
+
+/// Public HTTPS uses the system trust store. There is no InsecureSkipVerify path on URLSession.
+private final class SystemTrustDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
+    func urlSession(
+        _ session: URLSession,
+        didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
+        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+              let trust = challenge.protectionSpace.serverTrust else {
+            completionHandler(.performDefaultHandling, nil)
+            return
+        }
+        var cfError: CFError?
+        if SecTrustEvaluateWithError(trust, &cfError) {
+            completionHandler(.useCredential, URLCredential(trust: trust))
+        } else {
+            completionHandler(.cancelAuthenticationChallenge, nil)
+        }
     }
 }

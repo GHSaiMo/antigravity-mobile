@@ -95,6 +95,17 @@ func TestSecurityHeaders(t *testing.T) {
 	if rr.Header().Get("Referrer-Policy") != "strict-origin-when-cross-origin" {
 		t.Errorf("expected Referrer-Policy: strict-origin-when-cross-origin, got %q", rr.Header().Get("Referrer-Policy"))
 	}
+	if rr.Header().Get("Strict-Transport-Security") != "" {
+		t.Errorf("HSTS must not be set on plaintext HTTP, got %q", rr.Header().Get("Strict-Transport-Security"))
+	}
+
+	httpsReq := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	httpsReq.Header.Set("X-Forwarded-Proto", "https")
+	httpsRR := httptest.NewRecorder()
+	router.ServeHTTP(httpsRR, httpsReq)
+	if httpsRR.Header().Get("Strict-Transport-Security") == "" {
+		t.Errorf("expected HSTS when X-Forwarded-Proto is https")
+	}
 }
 
 func TestGatewayStatusRequiresAuth(t *testing.T) {
