@@ -167,7 +167,14 @@ public final class PairingService: Sendable {
     
     /// Sends pairing request to the gateway, trying candidate endpoints and saving credentials upon success.
     public func pair(with info: PairingInfo) async throws -> (deviceId: String, deviceToken: String) {
-        let candidates = info.candidateBaseURLs
+        var candidates = info.candidateBaseURLs
+        if NetworkTransport.shared.isCellular {
+            let ipv6 = candidates.filter { url in
+                url.contains("[") || url.filter { $0 == ":" }.count >= 2
+            }
+            let rest = candidates.filter { cand in !ipv6.contains(cand) }
+            candidates = ipv6 + rest
+        }
         guard !candidates.isEmpty else {
             throw PairingError.invalidURI("无可用网关端点地址")
         }

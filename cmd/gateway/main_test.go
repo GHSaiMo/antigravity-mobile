@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,7 +30,7 @@ func setupTestRouter(t *testing.T) http.Handler {
 	startTime := time.Now()
 	webHandler := web.Handler()
 
-	return buildRouter(authStore, authHandler, p, insp, startTime, webHandler)
+	return buildRouter(authStore, authHandler, p, insp, startTime, webHandler, auth.AuthPolicy{})
 }
 
 func TestHealthzEndpoint(t *testing.T) {
@@ -90,6 +91,22 @@ func TestSecurityHeaders(t *testing.T) {
 	}
 	if rr.Header().Get("Referrer-Policy") != "strict-origin-when-cross-origin" {
 		t.Errorf("expected Referrer-Policy: strict-origin-when-cross-origin, got %q", rr.Header().Get("Referrer-Policy"))
+	}
+}
+
+func TestGatewayStatusRequiresAuth(t *testing.T) {
+	router := setupTestRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/gateway/status", nil)
+	req.RemoteAddr = "192.168.1.50:12345"
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 from unauthenticated /gateway/status, got %d body=%s", rr.Code, rr.Body.String())
+	}
+	if strings.Contains(rr.Body.String(), "csrf_token") {
+		t.Errorf("unauthenticated status must not leak csrf_token: %s", rr.Body.String())
 	}
 }
 

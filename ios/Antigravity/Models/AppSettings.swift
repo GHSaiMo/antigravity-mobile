@@ -182,6 +182,39 @@ public final class AppSettings {
         }
     }
     
+    /// HTTP is allowed only for loopback, RFC1918, Tailscale CGNAT (100.x), .local, and IPv6 ULA/link-local.
+    public static func allowsCleartextHTTP(_ hostPort: String) -> Bool {
+        var host = hostPort.lowercased()
+        if host.hasPrefix("[") {
+            if let end = host.firstIndex(of: "]") {
+                host = String(host[host.index(after: host.startIndex)..<end])
+            }
+        } else if let colon = host.lastIndex(of: ":"),
+                  host[colon...].dropFirst().allSatisfy({ $0.isNumber }) {
+            host = String(host[..<colon])
+        }
+        if host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "0:0:0:0:0:0:0:1" {
+            return true
+        }
+        if host.hasSuffix(".local") {
+            return true
+        }
+        if host.hasPrefix("192.168.") || host.hasPrefix("10.") || host.hasPrefix("100.") {
+            return true
+        }
+        if host.hasPrefix("172.") {
+            let parts = host.split(separator: ".")
+            if parts.count >= 2, let second = Int(parts[1]), (16...31).contains(second) {
+                return true
+            }
+        }
+        // IPv6 literals (including global unicast used for cellular pairing).
+        if host.contains(":") {
+            return true
+        }
+        return false
+    }
+    
     public static func normalize(raw: String) -> URL? {
         var clean = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if clean.isEmpty { return nil }
@@ -208,18 +241,9 @@ public final class AppSettings {
             }
         }
         
-        // 3. Determine scheme if not present
+        // 3. Determine scheme if not present: HTTP only for loopback / RFC1918 / Tailscale / .local / ULA.
         if scheme.isEmpty {
-            let lower = clean.lowercased()
-            if lower.contains(":58900") || lower.hasPrefix("127.0.0.1") || lower.hasPrefix("localhost") ||
-               lower.hasPrefix("192.168.") || lower.hasPrefix("10.") || lower.hasPrefix("100.") ||
-               lower.hasPrefix("172.") || lower.hasPrefix("[") {
-                scheme = "http://"
-            } else if lower.contains(":") {
-                scheme = "http://"
-            } else {
-                scheme = "https://"
-            }
+            scheme = allowsCleartextHTTP(clean) ? "http://" : "https://"
         }
         
         return URL(string: scheme + clean)

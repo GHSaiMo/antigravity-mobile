@@ -132,7 +132,7 @@ public final class ConnectionManager {
     /// Tests a single endpoint's reachability and latency.
     public static func testSingleEndpoint(urlString: String) async -> EndpointHealthStatus {
         guard let baseURL = AppSettings.normalize(raw: urlString),
-              let probeURL = URL(string: "\(baseURL.absoluteString)/gateway/status") else {
+              let probeURL = URL(string: "\(baseURL.absoluteString)/healthz") else {
             return EndpointHealthStatus(
                 id: urlString,
                 urlString: urlString,
@@ -161,8 +161,8 @@ public final class ConnectionManager {
                 )
             }
             
-            // Status 200 or 401 (auth required) both confirm the gateway is alive
-            if httpResponse.statusCode == 200 || httpResponse.statusCode == 401 {
+            // /healthz returns 200 when the gateway process is up (no secrets).
+            if httpResponse.statusCode == 200 {
                 return EndpointHealthStatus(
                     id: urlString,
                     urlString: urlString,
