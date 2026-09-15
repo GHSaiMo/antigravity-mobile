@@ -30,12 +30,24 @@ type PairedDevice struct {
 	LastSeenIP string    `json:"last_seen_ip"`
 }
 
+// lastSeenUpdate is a lightweight event sent to the AuthStore's background worker.
+type lastSeenUpdate struct {
+	deviceID   string
+	remoteAddr string
+}
+
 // AuthStore manages paired devices and persists them to disk.
 type AuthStore struct {
 	mu       sync.RWMutex
 	devices  map[string]PairedDevice // device_id -> PairedDevice
 	tokenMap map[string]string       // token_hash -> device_id
 	filePath string
+
+	// P5: channel-based worker for UpdateLastSeen, avoiding per-request goroutine spawns.
+	lastSeenCh chan lastSeenUpdate
+
+	// S9: ticket store for short-lived one-time WebSocket / media authorization.
+	wsTickets *WSTicketStore
 }
 
 func getTokenSalt() string {
@@ -45,10 +57,8 @@ func getTokenSalt() string {
 	saltOnce.Do(func() {
 		cachedSalt = loadOrCreateAuthSalt("")
 	})
-	if cachedSalt != "" {
-		return cachedSalt
-	}
-	return loadOrCreateAuthSalt("")
+	// S7: if salt is empty (rand.Read failed), return "" so HashToken can surface the failure.
+	return cachedSalt
 }
 
 func loadOrCreateAuthSalt(storePath string) string {
@@ -65,8 +75,10 @@ func loadOrCreateAuthSalt(storePath string) string {
 		}
 	}
 	raw := make([]byte, 32)
+	// S7: if rand.Read fails we must not fall back to a predictable value — log and return
+	// an empty string so callers can detect the failure and abort rather than use a weak salt.
 	if _, err := rand.Read(raw); err != nil {
-		return hex.EncodeToString([]byte("antigravity-mobile-fallback-salt"))
+		return ""
 	}
 	s := hex.EncodeToString(raw)
 	_ = os.MkdirAll(dir, 0700)
@@ -114,9 +126,11 @@ func NewAuthStore(filePath string) (*AuthStore, error) {
 	resolved := ResolvePath(filePath)
 
 	store := &AuthStore{
-		devices:  make(map[string]PairedDevice),
-		tokenMap: make(map[string]string),
-		filePath: resolved,
+		devices:    make(map[string]PairedDevice),
+		tokenMap:   make(map[string]string),
+		filePath:   resolved,
+		lastSeenCh: make(chan lastSeenUpdate, 64), // P5: buffered channel; drops when full (debounce handles correctness)
+		wsTickets:  NewWSTicketStore(),             // S9: one-time WS ticket store
 	}
 
 	saltOnce.Do(func() {
@@ -131,7 +145,55 @@ func NewAuthStore(filePath string) (*AuthStore, error) {
 		// best-effort; ignore missing file
 	}
 
+	// P5: single background worker drains lastSeenCh so the hot auth middleware path
+	// never needs to spawn a goroutine per request.
+	go store.lastSeenWorker()
+
 	return store, nil
+}
+
+// lastSeenWorker drains the lastSeenCh channel and calls UpdateLastSeen sequentially.
+func (s *AuthStore) lastSeenWorker() {
+	for upd := range s.lastSeenCh {
+		s.UpdateLastSeen(upd.deviceID, upd.remoteAddr)
+	}
+}
+
+// EnqueueLastSeen sends a non-blocking update to the background worker.
+// If the channel is full the update is silently dropped — the debounce logic
+// in UpdateLastSeen ensures eventual consistency without data loss.
+func (s *AuthStore) EnqueueLastSeen(deviceID, remoteAddr string) {
+	select {
+	case s.lastSeenCh <- lastSeenUpdate{deviceID: deviceID, remoteAddr: remoteAddr}:
+	default: // channel full — drop; the 30s debounce means we'll catch it next time
+	}
+}
+
+// IssueWSTicket creates a short-lived one-time ticket for a device.
+func (s *AuthStore) IssueWSTicket(deviceID string) (string, error) {
+	if s.wsTickets == nil {
+		s.wsTickets = NewWSTicketStore()
+	}
+	return s.wsTickets.Issue(deviceID)
+}
+
+// ValidateWSTicket validates and consumes a one-time ticket, returning the paired device.
+func (s *AuthStore) ValidateWSTicket(ticket string) (*PairedDevice, bool) {
+	if s.wsTickets == nil || ticket == "" {
+		return nil, false
+	}
+	deviceID, ok := s.wsTickets.Validate(ticket)
+	if !ok || deviceID == "" {
+		return nil, false
+	}
+	s.mu.RLock()
+	dev, exists := s.devices[deviceID]
+	s.mu.RUnlock()
+	if !exists {
+		return nil, false
+	}
+	devCopy := dev
+	return &devCopy, true
 }
 
 // load reads the store JSON from disk.
@@ -217,10 +279,14 @@ func (s *AuthStore) ValidateToken(rawToken string) (*PairedDevice, bool) {
 
 	s.mu.RLock()
 	deviceID, ok := s.tokenMap[hash]
+	isLegacy := false
 	if !ok {
 		// Fallback to legacy unsalted SHA-256 for backward compatibility
 		legacyHash := LegacyHashToken(rawToken)
 		deviceID, ok = s.tokenMap[legacyHash]
+		if ok {
+			isLegacy = true
+		}
 	}
 	if !ok {
 		s.mu.RUnlock()
@@ -232,6 +298,23 @@ func (s *AuthStore) ValidateToken(rawToken string) (*PairedDevice, bool) {
 
 	if !exists {
 		return nil, false
+	}
+
+	// S8: Transparent in-place migration — upgrade legacy unsalted hash to modern salted hash.
+	// The next call to ValidateToken will find the salted hash directly, removing the legacy path.
+	if isLegacy && hash != "" {
+		go func() {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			if d, ok := s.devices[deviceID]; ok {
+				legacyHash := LegacyHashToken(rawToken)
+				delete(s.tokenMap, legacyHash)
+				d.TokenHash = hash
+				s.devices[deviceID] = d
+				s.tokenMap[hash] = deviceID
+				_ = s.save()
+			}
+		}()
 	}
 
 	devCopy := dev

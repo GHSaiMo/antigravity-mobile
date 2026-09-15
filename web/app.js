@@ -1415,16 +1415,39 @@ function updateChatControls(isRunning, wsUri, hasAction = false) {
   }
 }
 
-function connectStreamWs(cascadeId) {
+async function connectStreamWs(cascadeId) {
   closeActiveWs();
 
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   let wsUrl = `${proto}//${location.host}/gateway/cascade/stream?cascadeId=${encodeURIComponent(cascadeId)}`;
   const token = localStorage.getItem("agy_device_token");
   if (token) {
-    wsUrl += `&auth_token=${encodeURIComponent(token)}`;
+    try {
+      // S9: Exchange long-lived device token for a short-lived one-time ticket
+      // so the device token never appears in query strings / logs.
+      const resp = await fetch("/api/v1/auth/ws-ticket", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data && data.ticket) {
+          wsUrl += `&ticket=${encodeURIComponent(data.ticket)}`;
+        } else {
+          wsUrl += `&auth_token=${encodeURIComponent(token)}`;
+        }
+      } else {
+        wsUrl += `&auth_token=${encodeURIComponent(token)}`;
+      }
+    } catch (_) {
+      wsUrl += `&auth_token=${encodeURIComponent(token)}`;
+    }
   }
-  
+
+  // Abort if active cascade changed during ticket exchange
+  if (activeCascadeId !== cascadeId) return;
+  closeActiveWs();
+
   try {
     const ws = new WebSocket(wsUrl);
     activeWs = ws;

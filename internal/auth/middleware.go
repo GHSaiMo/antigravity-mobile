@@ -157,18 +157,36 @@ func AuthMiddlewareWithPolicy(store *AuthStore, next http.Handler, policy AuthPo
 			return
 		}
 
-		token := ExtractToken(r)
-		if token == "" {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "unauthorized: missing authentication token",
-			})
-			return
+		var device *PairedDevice
+		var ok bool
+
+		// S9: Support short-lived one-time ticket for WebSocket and raw file requests
+		// to avoid putting long-lived device tokens into URLs/query strings.
+		isWS := strings.Contains(strings.ToLower(r.Header.Get("Upgrade")), "websocket") ||
+			r.URL.Path == "/connect-websocket" ||
+			strings.HasPrefix(r.URL.Path, "/gateway/cascade/stream")
+		isRawFile := strings.HasPrefix(r.URL.Path, "/api/v1/files/raw")
+
+		if (isWS || isRawFile) && r.URL.Query().Get("ticket") != "" {
+			ticket := strings.TrimSpace(r.URL.Query().Get("ticket"))
+			device, ok = store.ValidateWSTicket(ticket)
 		}
 
-		device, ok := store.ValidateToken(token)
-		if !ok {
+		if !ok || device == nil {
+			token := ExtractToken(r)
+			if token == "" {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				json.NewEncoder(w).Encode(map[string]string{
+					"error": "unauthorized: missing authentication token",
+				})
+				return
+			}
+
+			device, ok = store.ValidateToken(token)
+		}
+
+		if !ok || device == nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			json.NewEncoder(w).Encode(map[string]string{
@@ -177,8 +195,8 @@ func AuthMiddlewareWithPolicy(store *AuthStore, next http.Handler, policy AuthPo
 			return
 		}
 
-		// Asynchronously update device last seen metadata
-		go store.UpdateLastSeen(device.DeviceID, r.RemoteAddr)
+		// P5: non-blocking channel send to background worker — no goroutine spawn per request
+		store.EnqueueLastSeen(device.DeviceID, r.RemoteAddr)
 
 		// Attach authenticated device to request context
 		ctx := context.WithValue(r.Context(), DeviceContextKey, device)
@@ -192,7 +210,10 @@ func SecurityHeadersMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'")
+		// S4: 'unsafe-inline' removed; replace with explicit SHA-256 hashes of known static scripts.
+		// Regenerate hashes with: openssl dgst -sha256 -binary <file> | base64
+		// app.js, mermaid.min.js, sw.js hashes must be updated whenever those files change.
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'sha256-Xk1+itJeFRvwjzt1EHd9xXCB+HwHPF80YyAScWAl3Q8=' 'sha256-YbM1pG3wWnzhyYN49g5fPnen+2CKEFaZfopkkwSpNtY=' 'sha256-XKqsbto5R82BOuH6aUtFveBZbz4d08CZ8KPyGnkeoaY='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'")
 		if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
 			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		}

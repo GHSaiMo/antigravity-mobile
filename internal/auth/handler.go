@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 )
@@ -352,7 +351,7 @@ func (h *AuthHandler) HandleNewPairingSession(w http.ResponseWriter, r *http.Req
 // isAuthorizedAdmin checks if the request carries a valid admin token,
 // or is genuinely from localhost (not behind a reverse proxy or tunnel).
 func (h *AuthHandler) isAuthorizedAdmin(r *http.Request) bool {
-	adminToken := strings.TrimSpace(os.Getenv("ADMIN_TOKEN"))
+	adminToken := strings.TrimSpace(GetAdminToken())
 	if adminToken != "" {
 		// Query-string admin tokens are rejected (they leak via logs/Referer).
 		return ConstantTimeTokenEquals(BearerToken(r), adminToken)
@@ -372,4 +371,45 @@ func (h *AuthHandler) isAuthorizedAdmin(r *http.Request) bool {
 	}
 
 	return false
+}
+
+// HandleWSTicket issues a short-lived (30s) one-time ticket for WebSocket connections.
+// S9: Authenticated clients exchange their device token (via Authorization: Bearer or Cookie)
+// for a single-use ticket, so the real token never appears in query strings.
+func (h *AuthHandler) HandleWSTicket(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	token := ExtractToken(r)
+	if token == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized: missing token"})
+		return
+	}
+
+	dev, ok := h.store.ValidateToken(token)
+	if !ok || dev == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized: invalid token"})
+		return
+	}
+
+	ticket, err := h.store.IssueWSTicket(dev.DeviceID)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to generate ticket"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]any{
+		"ticket":     ticket,
+		"expires_in": 30,
+	})
 }

@@ -11,6 +11,11 @@ import (
 
 const adminTokenFileName = "admin_token"
 
+// GetAdminToken returns the currently configured admin token from the environment.
+func GetAdminToken() string {
+	return strings.TrimSpace(os.Getenv("ADMIN_TOKEN"))
+}
+
 // DefaultAdminTokenPath is where a generated admin token is stored.
 func DefaultAdminTokenPath() string {
 	return filepath.Join(ResolvePath("~/.antigravity-mobile"), adminTokenFileName)

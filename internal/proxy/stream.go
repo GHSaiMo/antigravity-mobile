@@ -157,7 +157,9 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	ticker := time.NewTicker(50 * time.Millisecond) // immediate first check
+	// P7: do the first fetch synchronously before entering the select loop to
+	// eliminate the 50ms latency on initial stream push.
+	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
 
 	pingTicker := time.NewTicker(20 * time.Second)
@@ -165,6 +167,107 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 
 	lastFingerprint := ""
 	firstPush := true
+
+	// fetchAndSend does one poll + send cycle. Returns false if the connection should close.
+	fetchAndSend := func() bool {
+		p.mu.RLock()
+		port := p.activePort
+		token := p.activeToken
+		p.mu.RUnlock()
+
+		if port == 0 {
+			ticker.Reset(1000 * time.Millisecond)
+			return true
+		}
+
+		maxAge := 200 * time.Millisecond
+		rawResp, err := p.fetchUpstreamTrajectoryWithMaxAge(cascadeID, port, token, maxAge)
+		if err != nil {
+			ticker.Reset(1000 * time.Millisecond)
+			return true
+		}
+
+		details := p.ParseTrajectoryDetails(rawResp)
+		if details.Title == "" || details.Title == "未命名会话" {
+			if t := p.lookupCascadeTitle(cascadeID, port, token); t != "" {
+				details.Title = t
+			}
+		}
+		if qm := p.GetCachedOrFetchPendingMessages(cascadeID, port, token); qm != nil {
+			details.QueuedMessages = qm
+		} else if details.QueuedMessages == nil {
+			details.QueuedMessages = []QueuedMessageItem{}
+		}
+		details.QueuedMessages = p.FilterQueuedMessagesAgainstTrajectory(cascadeID, details.QueuedMessages, rawResp.Trajectory.Steps, details.AllMessages)
+
+		if sink := p.NotificationSink(); sink != nil {
+			sink.OnTrajectoryUpdate(&details)
+		}
+		totalMsgs := len(details.AllMessages)
+		streamLimit := 15
+		streamStart := totalMsgs - streamLimit
+		if streamStart < 0 {
+			streamStart = 0
+		}
+		slicedMessages := details.AllMessages[streamStart:totalMsgs]
+		hasMore := streamStart > 0
+
+		payload := StreamUpdatePayload{
+			Type:               "update",
+			CascadeID:          details.CascadeID,
+			Title:              details.Title,
+			Status:             details.Status,
+			HasError:           details.HasError,
+			ErrorMessage:       details.ErrorMessage,
+			Duration:           details.Duration,
+			TotalSteps:         details.TotalSteps,
+			TotalTools:         details.TotalTools,
+			TotalMessages:      totalMsgs,
+			HasMore:            hasMore,
+			NextOffset:         streamStart,
+			WorkspaceURI:       details.WorkspaceURI,
+			Messages:           slicedMessages,
+			QueuedMessages:     details.QueuedMessages,
+			RunningTasks:       details.RunningTasks,
+			IsFullSnapshot:     !hasMore,
+			CascadeConfigRaw:   details.CascadeConfigRaw,
+			CanProceed:         details.CanProceed,
+			ProceedArtifactURI: details.ProceedArtifactURI,
+			PendingInteraction: details.PendingInteraction,
+			ActiveModel:        details.ActiveModel,
+			ModelDisplayName:   details.ModelDisplayName,
+		}
+
+		if !isMessagesOnly {
+			payload.Steps = details.Steps
+		}
+
+		if firstPush {
+			payload.Type = "init"
+		}
+
+		fp := payload.Fingerprint()
+		if firstPush || fp != lastFingerprint {
+			lastFingerprint = fp
+			firstPush = false
+			if err := writeJSON(payload); err != nil {
+				return false
+			}
+		}
+
+		// Adjust poll interval dynamically: fast when executing or queued messages exist, slower when idle
+		if details.Status == "CASCADE_RUN_STATUS_RUNNING" || len(details.QueuedMessages) > 0 {
+			ticker.Reset(250 * time.Millisecond)
+		} else {
+			ticker.Reset(1200 * time.Millisecond)
+		}
+		return true
+	}
+
+	// Immediate first push — no ticker wait needed.
+	if !fetchAndSend() {
+		return
+	}
 
 	for {
 		select {
@@ -179,96 +282,8 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			_ = clientConn.WriteMessage(websocket.PingMessage, []byte{})
 			writeMu.Unlock()
 		case <-ticker.C:
-			p.mu.RLock()
-			port := p.activePort
-			token := p.activeToken
-			p.mu.RUnlock()
-
-			if port == 0 {
-				ticker.Reset(1000 * time.Millisecond)
-				continue
-			}
-
-			maxAge := 200 * time.Millisecond
-			rawResp, err := p.fetchUpstreamTrajectoryWithMaxAge(cascadeID, port, token, maxAge)
-			if err != nil {
-				ticker.Reset(1000 * time.Millisecond)
-				continue
-			}
-
-			details := p.ParseTrajectoryDetails(rawResp)
-			if details.Title == "" || details.Title == "未命名会话" {
-				if t := p.lookupCascadeTitle(cascadeID, port, token); t != "" {
-					details.Title = t
-				}
-			}
-			if qm := p.GetCachedOrFetchPendingMessages(cascadeID, port, token); qm != nil {
-				details.QueuedMessages = qm
-			} else if details.QueuedMessages == nil {
-				details.QueuedMessages = []QueuedMessageItem{}
-			}
-			details.QueuedMessages = p.FilterQueuedMessagesAgainstTrajectory(cascadeID, details.QueuedMessages, rawResp.Trajectory.Steps, details.AllMessages)
-
-			if sink := p.NotificationSink(); sink != nil {
-				sink.OnTrajectoryUpdate(&details)
-			}
-			totalMsgs := len(details.AllMessages)
-			streamLimit := 15
-			streamStart := totalMsgs - streamLimit
-			if streamStart < 0 {
-				streamStart = 0
-			}
-			slicedMessages := details.AllMessages[streamStart:totalMsgs]
-			hasMore := streamStart > 0
-
-			payload := StreamUpdatePayload{
-				Type:               "update",
-				CascadeID:          details.CascadeID,
-				Title:              details.Title,
-				Status:             details.Status,
-				HasError:           details.HasError,
-				ErrorMessage:       details.ErrorMessage,
-				Duration:           details.Duration,
-				TotalSteps:         details.TotalSteps,
-				TotalTools:         details.TotalTools,
-				TotalMessages:      totalMsgs,
-				HasMore:            hasMore,
-				NextOffset:         streamStart,
-				WorkspaceURI:       details.WorkspaceURI,
-				Messages:           slicedMessages,
-				QueuedMessages:     details.QueuedMessages,
-				RunningTasks:       details.RunningTasks,
-				IsFullSnapshot:     !hasMore,
-				CascadeConfigRaw:   details.CascadeConfigRaw,
-				CanProceed:         details.CanProceed,
-				ProceedArtifactURI: details.ProceedArtifactURI,
-				PendingInteraction: details.PendingInteraction,
-				ActiveModel:        details.ActiveModel,
-				ModelDisplayName:   details.ModelDisplayName,
-			}
-
-			if !isMessagesOnly {
-				payload.Steps = details.Steps
-			}
-
-			if firstPush {
-				payload.Type = "init"
-			}
-
-			fp := payload.Fingerprint()
-			if firstPush || fp != lastFingerprint {
-				lastFingerprint = fp
-				firstPush = false
-				if err := writeJSON(payload); err != nil {
-					return
-				}
-			}
-
-			// Adjust poll interval dynamically: fast when executing or queued messages exist, slower when idle
-			if details.Status == "CASCADE_RUN_STATUS_RUNNING" || len(details.QueuedMessages) > 0 {
-				ticker.Reset(250 * time.Millisecond)
-			} else {
-				ticker.Reset(1200 * time.Millisecond)
+			if !fetchAndSend() {
+				return
 			}
 		}
 	}
