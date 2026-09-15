@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -105,6 +106,10 @@ func SwitchAccount(accountID string) error {
 		}
 	}
 
+	if err := quitAntigravityBeforeSwitch(); err != nil {
+		return fmt.Errorf("quit Antigravity before switch: %w", err)
+	}
+
 	serverInfo, err := GetCockpitServerInfo()
 	if err != nil {
 		return fmt.Errorf("cannot connect to Cockpit Tools: %w", err)
@@ -146,9 +151,10 @@ func SwitchAccount(accountID string) error {
 	if err := conn.WriteMessage(websocket.TextMessage, reqBytes); err != nil {
 		return fmt.Errorf("failed to send switch request: %w", err)
 	}
+	log.Printf("[Cockpit] Sent request.switch_account account_id=%s", accountID)
 
-	// Read messages until success or failure or timeout
-	deadline := time.Now().Add(6 * time.Second)
+	// Token refresh + inject + relaunch commonly takes >6s.
+	deadline := time.Now().Add(90 * time.Second)
 	_ = conn.SetReadDeadline(deadline)
 
 	var lastErr string

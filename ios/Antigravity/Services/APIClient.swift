@@ -1021,7 +1021,7 @@ public final class APIClient: Sendable {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: ["account_id": accountId])
-        request.timeoutInterval = 10
+        request.timeoutInterval = 120
         
         let (data, response) = try await transport.send(request: request)
         guard let httpResp = response as? HTTPURLResponse else {

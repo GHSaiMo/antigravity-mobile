@@ -337,7 +337,7 @@ func buildRouter(
 			return
 		}
 		targetID := strings.TrimSpace(req.AccountID)
-		log.Printf("[Cockpit] Switching account to: %s", targetID)
+		log.Printf("[Cockpit] Switching account to: %s (quit Antigravity first, then Cockpit inject+relaunch)", targetID)
 		if err := cockpit.SwitchAccount(targetID); err != nil {
 			log.Printf("[Cockpit] SwitchAccount failed: %v", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})

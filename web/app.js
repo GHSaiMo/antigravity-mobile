@@ -4952,8 +4952,8 @@ window.addEventListener("DOMContentLoaded", () => {
 // Cockpit Quota Monitor Module
 // ==========================================================================
 // 功能参数：是否在 Cockpit Tools 页面显示账号切换按钮。
-// 当前切换后端逻辑暂不可用，因此默认隐藏（false）；后期调通就绪后，将此参数修改为 true 即可恢复切换按钮。
-const ENABLE_COCKPIT_SWITCH = false;
+// 网关会先退出电脑上的 Antigravity，再让 Cockpit 注入 token 并重启 IDE。
+const ENABLE_COCKPIT_SWITCH = true;
 
 function isCockpitSwitchEnabled() {
   if (typeof window !== "undefined" && typeof window.ENABLE_COCKPIT_SWITCH === "boolean") {
@@ -5208,6 +5208,10 @@ function buildAccountQuotaCard(acc, isCurrent) {
 
 async function switchCockpitAccount(accountId, accountEmail, btn) {
   if (!accountId) return;
+  const label = accountEmail || accountId;
+  if (!confirm("切换到 " + label + " 将关闭并重启电脑上的 Antigravity，是否继续？")) {
+    return;
+  }
   const originalText = btn ? btn.textContent : "切换";
   if (btn) {
     btn.disabled = true;

@@ -65,7 +65,8 @@ public struct ConversationListView: View {
                     },
                     onAppearFetch: {
                         await viewModel.fetchQuotas(force: true)
-                    }
+                    },
+                    enableSwitchButton: true
                 )
             }
             .alert("重命名会话", isPresented: $showRenameAlert) {

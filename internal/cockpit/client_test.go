@@ -14,6 +14,14 @@ import (
 )
 
 func TestSwitchAccountMockWS(t *testing.T) {
+	origQuit := quitAntigravityBeforeSwitch
+	quitCalled := 0
+	quitAntigravityBeforeSwitch = func() error {
+		quitCalled++
+		return nil
+	}
+	t.Cleanup(func() { quitAntigravityBeforeSwitch = origQuit })
+
 	upgrader := websocket.Upgrader{}
 
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -104,6 +112,9 @@ func TestSwitchAccountMockWS(t *testing.T) {
 	err := SwitchAccount("valid-id")
 	if err != nil {
 		t.Fatalf("expected nil error on valid switch, got: %v", err)
+	}
+	if quitCalled == 0 {
+		t.Fatal("expected Antigravity to be quit before switch")
 	}
 
 	// Test failure
