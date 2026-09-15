@@ -278,11 +278,13 @@ async function checkGatewayStatus() {
   const statusPill = document.getElementById("settings-status-pill");
   const portEl = document.getElementById("settings-upstream-port");
   const pidEl = document.getElementById("settings-upstream-pid");
-  const tokenEl = document.getElementById("settings-csrf-token");
   const chatDot = document.getElementById("chat-status-dot");
 
   try {
     const resp = await fetch("/gateway/status");
+    if (resp.status === 401) {
+      throw new Error("unauthorized");
+    }
     const data = await resp.json();
 
     if (data.status === "connected" && data.upstream) {
@@ -292,7 +294,6 @@ async function checkGatewayStatus() {
       }
       if (portEl) portEl.textContent = data.upstream.port;
       if (pidEl) pidEl.textContent = data.upstream.pid;
-      if (tokenEl) tokenEl.textContent = data.upstream.csrf_token || "-";
       if (chatDot) {
         chatDot.classList.add("active");
         chatDot.title = `已连接 :${data.upstream.port}`;
@@ -3596,8 +3597,14 @@ function resolveMediaRawUrl(rawPath) {
     return clean;
   }
   if (clean.startsWith("http://") || clean.startsWith("https://")) {
-    // If it's our gateway files/raw endpoint and lacks auth_token, append it
-    if (clean.includes("/api/v1/files/raw") && !clean.includes("auth_token=") && !clean.includes("token=")) {
+    // Never attach credentials to a third-party origin, even if the path looks like /files/raw.
+    let sameOrigin = false;
+    try {
+      sameOrigin = new URL(clean, location.href).origin === location.origin;
+    } catch (_) {
+      sameOrigin = false;
+    }
+    if (sameOrigin && clean.includes("/api/v1/files/raw") && !clean.includes("auth_token=") && !clean.includes("token=")) {
       const token = localStorage.getItem("agy_device_token");
       if (token) {
         clean += (clean.includes("?") ? "&" : "?") + "auth_token=" + encodeURIComponent(token);

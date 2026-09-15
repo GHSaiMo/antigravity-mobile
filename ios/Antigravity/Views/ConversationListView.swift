@@ -16,6 +16,9 @@ public struct ConversationListView: View {
     @State private var renameText = ""
     @State private var showRenameAlert = false
     @State private var draftsVersion: Int = 0
+    @State private var pendingPairing: PairingInfo?
+    @State private var showPairingConfirm = false
+    @State private var pairingErrorMessage: String?
     
     public init() {
         _ = SwipeActionAdjuster.activateOnce
@@ -142,6 +145,30 @@ public struct ConversationListView: View {
             }
             .onOpenURL { url in
                 handleDeepLink(url)
+            }
+            .confirmationDialog(
+                "确认配对网关",
+                isPresented: $showPairingConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("配对") {
+                    Task { await confirmPendingPairing() }
+                }
+                Button("取消", role: .cancel) {
+                    pendingPairing = nil
+                }
+            } message: {
+                Text(pendingPairingConfirmText)
+            }
+            .alert("配对失败", isPresented: Binding(
+                get: { pairingErrorMessage != nil },
+                set: { if !$0 { pairingErrorMessage = nil } }
+            )) {
+                Button("确定") { pairingErrorMessage = nil }
+            } message: {
+                if let msg = pairingErrorMessage {
+                    Text(msg)
+                }
             }
             .sheet(isPresented: $showQRScanner) {
                 QRScannerView { _ in
@@ -354,6 +381,26 @@ public struct ConversationListView: View {
         showQRScanner = true
     }
     
+    private var pendingPairingConfirmText: String {
+        guard let info = pendingPairing else {
+            return "请确认这是你自己的 Mac 网关，不要配对来历不明的链接。"
+        }
+        let scheme = info.ssl ? "HTTPS" : "HTTP"
+        return "目标 \(info.host):\(info.port)（\(scheme)）。请确认这是你自己的 Mac 网关，不要配对来历不明的链接。"
+    }
+    
+    @MainActor
+    private func confirmPendingPairing() async {
+        guard let info = pendingPairing else { return }
+        pendingPairing = nil
+        do {
+            _ = try await PairingService.shared.pair(with: info)
+            await viewModel.fetchConversations()
+        } catch {
+            pairingErrorMessage = error.localizedDescription
+        }
+    }
+    
     private func handleDeepLink(_ url: URL) {
         guard url.scheme == "antigravity" || url.scheme == "agy" else { return }
         
@@ -361,16 +408,10 @@ public struct ConversationListView: View {
         if url.host == "pair" {
             switch PairingService.shared.parsePairingURI(url.absoluteString) {
             case .success(let info):
-                Task {
-                    do {
-                        _ = try await PairingService.shared.pair(with: info)
-                        await viewModel.fetchConversations()
-                    } catch {
-                        // Pairing failed
-                    }
-                }
-            case .failure:
-                break
+                pendingPairing = info
+                showPairingConfirm = true
+            case .failure(let err):
+                pairingErrorMessage = err.localizedDescription
             }
             return
         }

@@ -119,3 +119,17 @@ func TestGetTunnelConfig(t *testing.T) {
 		t.Errorf("expected 58900, got %d", cfg.RemotePort)
 	}
 }
+
+func TestAdvertisePublicIPv6(t *testing.T) {
+	t.Setenv("INCLUDE_PUBLIC_IPV6", "")
+	if AdvertisePublicIPv6(false) {
+		t.Errorf("expected false when unset and ssl disabled")
+	}
+	if !AdvertisePublicIPv6(true) {
+		t.Errorf("expected true when ssl enabled")
+	}
+	t.Setenv("INCLUDE_PUBLIC_IPV6", "1")
+	if !AdvertisePublicIPv6(false) {
+		t.Errorf("expected true when INCLUDE_PUBLIC_IPV6=1")
+	}
+}

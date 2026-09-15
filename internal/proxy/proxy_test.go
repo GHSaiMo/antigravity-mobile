@@ -12,6 +12,47 @@ import (
 	"antigravity-mobile/internal/inspector"
 )
 
+type stubDiscoverer struct {
+	info *inspector.InstanceInfo
+}
+
+func (s *stubDiscoverer) Current() *inspector.InstanceInfo { return s.info }
+func (s *stubDiscoverer) Scan() *inspector.InstanceInfo    { return s.info }
+func (s *stubDiscoverer) Start()                           {}
+func (s *stubDiscoverer) Stop()                            {}
+func (s *stubDiscoverer) OnUpdate(fn func(inspector.InstanceInfo)) {
+	if s.info != nil {
+		fn(*s.info)
+	}
+}
+
+func TestHandleStatusStripsCSRFToken(t *testing.T) {
+	secret := "super-secret-csrf-token-do-not-leak"
+	insp := &stubDiscoverer{info: &inspector.InstanceInfo{
+		PID:          4242,
+		Port:         12345,
+		CSRFToken:    secret,
+		DiscoveredAt: time.Now(),
+		IsHealthy:    true,
+	}}
+	p := NewProxy(insp)
+
+	req := httptest.NewRequest(http.MethodGet, "/gateway/status", nil)
+	rec := httptest.NewRecorder()
+	p.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, secret) {
+		t.Fatalf("status JSON leaked csrf token: %s", body)
+	}
+	if strings.Contains(body, `"csrf_token":"`) && strings.Contains(body, secret) {
+		t.Fatalf("csrf_token field still populated: %s", body)
+	}
+}
+
 func TestProxyStatusAndRpc(t *testing.T) {
 	insp := inspector.NewInspector(5 * time.Second)
 	info := insp.Scan()

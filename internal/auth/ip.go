@@ -83,3 +83,18 @@ func IsLoopbackAddr(remoteAddr string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
+// IsListenAddrLoopback reports whether the gateway listen host is loopback-only.
+// Empty host, 0.0.0.0, :: and [::] bind all interfaces and are not loopback.
+func IsListenAddrLoopback(host string) bool {
+	h := strings.TrimSpace(host)
+	h = strings.Trim(h, "[]")
+	if h == "" || h == "0.0.0.0" || h == "::" {
+		return false
+	}
+	if strings.EqualFold(h, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(h)
+	return ip != nil && ip.IsLoopback()
+}
+

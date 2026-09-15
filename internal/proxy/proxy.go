@@ -364,6 +364,15 @@ func (p *Proxy) notifyStreamTouch(cascadeID string) {
 	}
 }
 
+func publicInstanceInfo(info *inspector.InstanceInfo) *inspector.InstanceInfo {
+	if info == nil {
+		return nil
+	}
+	cp := *info
+	cp.CSRFToken = ""
+	return &cp
+}
+
 func (p *Proxy) handleStatus(w http.ResponseWriter, r *http.Request) {
 	cur := p.insp.Current()
 	status := "disconnected"
@@ -375,7 +384,7 @@ func (p *Proxy) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 	data, err := json.Marshal(GatewayStatus{
 		Status:                status,
-		Upstream:              cur,
+		Upstream:              publicInstanceInfo(cur),
 		ActiveStreamCascadeID: activeID,
 		ActiveStreamTitle:     activeTitle,
 		Timestamp:             time.Now(),
@@ -423,7 +432,7 @@ func (p *Proxy) handleRescan(w http.ResponseWriter, r *http.Request) {
 
 	data, err := json.Marshal(GatewayStatus{
 		Status:    status,
-		Upstream:  info,
+		Upstream:  publicInstanceInfo(info),
 		Timestamp: time.Now(),
 	})
 	if err != nil {

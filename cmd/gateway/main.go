@@ -48,8 +48,23 @@ func main() {
 	tlsKey := flag.String("tls-key", os.Getenv("TLS_KEY_FILE"), "Path to TLS private key file for HTTPS (optional)")
 	flag.Parse()
 
+	tunnelCfg := config.GetTunnelConfig()
+	tunnelOn := tunnelCfg.Enabled && tunnelCfg.ServerAddr != ""
+	includePublicIPv6 := config.AdvertisePublicIPv6(*enableSSL)
+	if tunnelOn && strings.TrimSpace(*host) == "" && !includePublicIPv6 {
+		*host = "127.0.0.1"
+		log.Printf("🔒 FRP tunnel enabled with empty GATEWAY_HOST — binding 127.0.0.1 (set GATEWAY_HOST or INCLUDE_PUBLIC_IPV6=1 to keep dual-stack / IPv6 pairing)")
+	}
+	if includePublicIPv6 && tunnelOn && strings.TrimSpace(*host) == "" {
+		log.Printf("📱 INCLUDE_PUBLIC_IPV6=1: keeping dual-stack listen so phones can pair over public IPv6 (FRP still dials 127.0.0.1)")
+	}
+	hasTLSFiles := *tlsCert != "" && *tlsKey != ""
+	if !auth.IsListenAddrLoopback(*host) && !hasTLSFiles {
+		log.Printf("⚠️  Gateway listening on a non-loopback address without TLS. LAN HTTP is supported; do not advertise this port on the public Internet. Set TLS_CERT_FILE/TLS_KEY_FILE or GATEWAY_SSL=1 for public access.")
+	}
+
 	log.Printf("==================================================")
-	log.Printf("🚀 Antigravity starting on :%d", *port)
+	log.Printf("🚀 Antigravity starting on %s:%d", *host, *port)
 	log.Printf("==================================================")
 
 	// 1. Initialize Inspector
@@ -70,17 +85,21 @@ func main() {
 	netAddrs := auth.DetectNetworkAddresses()
 	qrHost := *ddnsHost
 	var extraHosts []string
+	publicIPv6 := ""
+	if includePublicIPv6 {
+		publicIPv6 = netAddrs.PublicIPv6
+	}
 
 	if qrHost == "" {
 		if *host != "" && *host != "0.0.0.0" && *host != "::" && *host != "[::]" {
 			qrHost = *host
 		} else if netAddrs.LANIPv4 != "" {
 			qrHost = netAddrs.LANIPv4
-			if netAddrs.PublicIPv6 != "" {
-				extraHosts = append(extraHosts, netAddrs.PublicIPv6)
+			if publicIPv6 != "" {
+				extraHosts = append(extraHosts, publicIPv6)
 			}
-		} else if netAddrs.PublicIPv6 != "" {
-			qrHost = netAddrs.PublicIPv6
+		} else if publicIPv6 != "" {
+			qrHost = publicIPv6
 		} else {
 			qrHost = "127.0.0.1"
 		}
@@ -88,19 +107,27 @@ func main() {
 		if netAddrs.LANIPv4 != "" && netAddrs.LANIPv4 != qrHost {
 			extraHosts = append(extraHosts, netAddrs.LANIPv4)
 		}
-		if netAddrs.PublicIPv6 != "" && netAddrs.PublicIPv6 != qrHost {
-			extraHosts = append(extraHosts, netAddrs.PublicIPv6)
+		if publicIPv6 != "" && publicIPv6 != qrHost {
+			extraHosts = append(extraHosts, publicIPv6)
 		}
 	}
 
 	pairingMgr := auth.NewPairingManager()
 	authHandler := auth.NewAuthHandler(authStore, pairingMgr, qrHost, *port, *enableSSL)
-	authHandler.SetEndpoints(netAddrs.LANIPv4, netAddrs.PublicIPv6, *ddnsHost)
+	authHandler.SetEndpoints(netAddrs.LANIPv4, publicIPv6, *ddnsHost)
+	if publicIPv6 != "" {
+		scheme := "http"
+		if *enableSSL {
+			scheme = "https"
+		}
+		log.Printf("📱 IPv6 pairing endpoint: %s://[%s]:%d  (phone cellular should reach this address)", scheme, publicIPv6, *port)
+	} else if includePublicIPv6 {
+		log.Printf("⚠️  INCLUDE_PUBLIC_IPV6 is set but no global unicast IPv6 was found on this Mac")
+	}
 
 	// 3.5. Initialize Embedded FRP Cloud Relay Tunnel
-	tunnelCfg := config.GetTunnelConfig()
 	var tun *tunnel.Tunnel
-	if tunnelCfg.Enabled && tunnelCfg.ServerAddr != "" {
+	if tunnelOn {
 		tun = tunnel.New(tunnel.Config{
 			Enabled:    true,
 			ServerAddr: tunnelCfg.ServerAddr,
@@ -174,8 +201,19 @@ func main() {
 	}
 	cockpit.StartQuotaAutoRefresher(watcherCtx, 10*time.Minute, cockpitAlertFn)
 
+	listenLoopback := auth.IsListenAddrLoopback(*host)
+	authPolicy := auth.AuthPolicy{
+		TunnelEnabled:  tun != nil,
+		ListenLoopback: listenLoopback,
+	}
+	authHandler.SetAuthPolicy(authPolicy)
+
+	if auth.AuthDisabledRequested() && (authPolicy.TunnelEnabled || !authPolicy.ListenLoopback) {
+		log.Fatalf("AUTH_DISABLED is not allowed when a tunnel is enabled or the gateway is not loopback-only")
+	}
+
 	// 6 & 7. Build combined Root Router with Middleware
-	router := buildRouter(authStore, authHandler, p, insp, time.Now(), webHandler)
+	router := buildRouter(authStore, authHandler, p, insp, time.Now(), webHandler, authPolicy)
 
 	server := &http.Server{
 		Addr:        fmt.Sprintf("%s:%d", *host, *port),
@@ -241,6 +279,7 @@ func buildRouter(
 	insp inspector.UpstreamDiscoverer,
 	startTime time.Time,
 	webHandler http.Handler,
+	authPolicy auth.AuthPolicy,
 ) http.Handler {
 	rootMux := http.NewServeMux()
 
@@ -315,19 +354,12 @@ func buildRouter(
 		isReady := cur != nil && cur.IsHealthy && cur.Port > 0
 		status := "ready"
 		httpCode := http.StatusOK
-		var port, pid int
-		if cur != nil {
-			port = cur.Port
-			pid = cur.PID
-		}
 		if !isReady {
 			status = "not_ready"
 			httpCode = http.StatusServiceUnavailable
 		}
 		writeJSON(w, httpCode, map[string]any{
 			"status":         status,
-			"upstream_port":  port,
-			"upstream_pid":   pid,
 			"uptime_seconds": int(time.Since(startTime).Seconds()),
 		})
 	})
@@ -335,7 +367,7 @@ func buildRouter(
 	// Web frontend (catch-all)
 	rootMux.Handle("/", webHandler)
 
-	return auth.SecurityHeadersMiddleware(auth.AuthMiddleware(authStore, rootMux))
+	return auth.SecurityHeadersMiddleware(auth.AuthMiddlewareWithPolicy(authStore, rootMux, authPolicy))
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
