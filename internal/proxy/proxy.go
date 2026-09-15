@@ -577,12 +577,7 @@ func (p *Proxy) setCascadeDedup(key string, cascadeID string) {
 }
 
 func isSpaceOnly(b []byte) bool {
-	for _, c := range b {
-		if c != ' ' && c != '\t' && c != '\n' && c != '\r' {
-			return false
-		}
-	}
-	return true
+	return len(bytes.TrimSpace(b)) == 0
 }
 
 func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Request, rp http.Handler, reqPath string, port int, token string) {
@@ -1173,12 +1168,7 @@ func (p *Proxy) HandleCascadeInteraction(w http.ResponseWriter, r *http.Request)
 		upstreamReq.Header.Set("x-codeium-csrf-token", token)
 	}
 
-	client := &http.Client{
-		Timeout:   10 * time.Second,
-		Transport: p.transport,
-	}
-
-	resp, err := client.Do(upstreamReq)
+	resp, err := p.mediumClient.Do(upstreamReq)
 	if err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":"upstream call failed: %s"}`, err.Error()), http.StatusBadGateway)
 		return
@@ -1503,29 +1493,43 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 	}
 
 	// Fast disk inspection: If ~/.gemini/antigravity/brain/<id>/implementation_plan.md.metadata.json has requestFeedback == true
-	// and walkthrough.md does not yet exist (plan not yet delivered)
+	// and walkthrough.md does not yet exist (plan not yet delivered).
+	// Both file reads are served from metadataCache (TTL: 10s) to avoid per-request syscalls.
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
 		for cid := range summaries {
 			if candidates[cid] {
 				continue
 			}
 			walkthroughFile := filepath.Join(home, ".gemini/antigravity/brain", cid, "walkthrough.md")
-			if _, err := os.Stat(walkthroughFile); err == nil {
+			// Cache os.Stat result via metadataCache using a "stat:" key prefix.
+			walkthroughStatKey := "stat:" + walkthroughFile
+			defaultTrajCache.metadataCacheMu.RLock()
+			statEntry, statCached := defaultTrajCache.metadataCache[walkthroughStatKey]
+			defaultTrajCache.metadataCacheMu.RUnlock()
+			walkthroughExists := false
+			if statCached && time.Since(statEntry.fetchedAt) < metadataCacheTTL {
+				walkthroughExists = statEntry.requestFeedback // re-purposed: true = file exists
+			} else {
+				_, serr := os.Stat(walkthroughFile)
+				walkthroughExists = serr == nil
+				defaultTrajCache.metadataCacheMu.Lock()
+				defaultTrajCache.metadataCache[walkthroughStatKey] = &metadataCacheEntry{
+					requestFeedback: walkthroughExists,
+					fetchedAt:       time.Now(),
+				}
+				defaultTrajCache.metadataCacheMu.Unlock()
+			}
+			if walkthroughExists {
 				continue
 			}
 			metaFile := filepath.Join(home, ".gemini/antigravity/brain", cid, "implementation_plan.md.metadata.json")
-			if metaData, err := os.ReadFile(metaFile); err == nil {
-				var meta struct {
-					RequestFeedback bool `json:"requestFeedback"`
-				}
-				if err := json.Unmarshal(metaData, &meta); err == nil && meta.RequestFeedback {
-					candidates[cid] = true
-				}
+			if readMetadataRequestFeedback(metaFile) {
+				candidates[cid] = true
 			}
 		}
 	}
 
-	// Also check any cascade in trajCache that has PendingInteraction, CanProceed, or HasError
+	// Also check any cascade in trajCache that has PendingInteraction, CanProceed, or HasError.
 	defaultTrajCache.trajCacheMu.Lock()
 	for cid, entry := range defaultTrajCache.trajCache {
 		if entry != nil && entry.data != nil {
