@@ -1,7 +1,5 @@
-const CACHE_NAME = "antigravity-mobile-v7";
+const CACHE_NAME = "antigravity-mobile-v8";
 const ASSETS = [
-  "/",
-  "/index.html",
   "/style.css",
   "/app.js",
   "/manifest.json",
@@ -32,13 +30,16 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
 
-  // Network-only for dynamic endpoints and websocket
+  // Network-only for HTML, APIs, websocket — never persist documents that can steal tokens.
   if (
     url.pathname.startsWith("/api/") ||
     url.pathname.startsWith("/gateway/") ||
     url.pathname.startsWith("/static/") ||
     url.pathname === "/connect-websocket" ||
-    event.request.method !== "GET"
+    url.pathname === "/" ||
+    url.pathname === "/index.html" ||
+    event.request.method !== "GET" ||
+    (event.request.mode === "navigate")
   ) {
     return;
   }
