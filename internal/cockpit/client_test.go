@@ -22,6 +22,10 @@ func TestSwitchAccountMockWS(t *testing.T) {
 	}
 	t.Cleanup(func() { quitAntigravityBeforeSwitch = origQuit })
 
+	origApply := applyLanguageServerOAuth
+	applyLanguageServerOAuth = func(string) error { return nil }
+	t.Cleanup(func() { applyLanguageServerOAuth = origApply })
+
 	upgrader := websocket.Upgrader{}
 
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -52,6 +56,9 @@ func TestSwitchAccountMockWS(t *testing.T) {
 
 		var p switchAccountPayload
 		_ = json.Unmarshal(req.Payload, &p)
+		if p.RuntimeTarget != "antigravity" && p.RuntimeTargetCamel != "antigravity" {
+			t.Errorf("expected runtime_target=antigravity, got %q / %q", p.RuntimeTarget, p.RuntimeTargetCamel)
+		}
 
 		if p.AccountID == "valid-id" {
 			_ = conn.WriteJSON(map[string]any{

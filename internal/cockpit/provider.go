@@ -56,6 +56,9 @@ type cockpitConfig struct {
 	ReportPort         int    `json:"report_port"`
 	ReportToken        string `json:"report_token"`
 	AutoRefreshMinutes int    `json:"auto_refresh_minutes"`
+	GlobalProxyEnabled bool   `json:"global_proxy_enabled"`
+	GlobalProxyURL     string `json:"global_proxy_url"`
+	GlobalProxyNoProxy string `json:"global_proxy_no_proxy"`
 }
 
 func getCockpitConfig() (*cockpitConfig, error) {
@@ -237,21 +240,24 @@ func GetQuotas(activeEmails ...string) (*CockpitQuotaResponse, error) {
 
 	resolvedCurrentID := ""
 
-	// 1. Cockpit accounts.json current_account_id (Priority 1: User's explicitly chosen Cockpit active account)
-	if strings.TrimSpace(idx.CurrentAccountID) != "" {
+	// 1. Live Language Server email — this is the account Antigravity is actually
+	// running as. Cockpit's current_account_id can be updated even when token
+	// injection fails to change the runtime identity.
+	if len(activeEmails) > 0 && strings.TrimSpace(activeEmails[0]) != "" {
+		targetEmail := strings.ToLower(strings.TrimSpace(activeEmails[0]))
 		for _, acc := range idx.Accounts {
-			if acc.ID == strings.TrimSpace(idx.CurrentAccountID) {
+			if strings.ToLower(strings.TrimSpace(acc.Email)) == targetEmail {
 				resolvedCurrentID = acc.ID
 				break
 			}
 		}
 	}
 
-	// 2. Live Language Server active email (Priority 2 fallback)
-	if resolvedCurrentID == "" && len(activeEmails) > 0 && strings.TrimSpace(activeEmails[0]) != "" {
-		targetEmail := strings.ToLower(strings.TrimSpace(activeEmails[0]))
+	// 2. Cockpit accounts.json current_account_id (intended account, if live
+	// identity is unavailable)
+	if resolvedCurrentID == "" && strings.TrimSpace(idx.CurrentAccountID) != "" {
 		for _, acc := range idx.Accounts {
-			if strings.ToLower(strings.TrimSpace(acc.Email)) == targetEmail {
+			if acc.ID == strings.TrimSpace(idx.CurrentAccountID) {
 				resolvedCurrentID = acc.ID
 				break
 			}

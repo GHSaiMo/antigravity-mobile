@@ -101,6 +101,34 @@ func TestGetQuotas_Hermetic(t *testing.T) {
 	}
 }
 
+func TestGetQuotas_LiveEmailOverridesCockpitCurrent(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("COCKPIT_DATA_DIR", tmpDir)
+	InvalidateQuotaCache()
+
+	accountsJSON := `{
+		"current_account_id": "acc-cockpit",
+		"accounts": [
+			{"id": "acc-cockpit", "email": "cockpit@example.com", "name": "Cockpit"},
+			{"id": "acc-live", "email": "live@example.com", "name": "Live"}
+		]
+	}`
+	if err := os.WriteFile(filepath.Join(tmpDir, "accounts.json"), []byte(accountsJSON), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := GetQuotas("live@example.com")
+	if err != nil {
+		t.Fatalf("GetQuotas: %v", err)
+	}
+	if resp.CurrentAccount == nil {
+		t.Fatal("expected CurrentAccount")
+	}
+	if resp.CurrentAccount.Email != "live@example.com" {
+		t.Fatalf("current email = %s, want live@example.com (runtime identity must beat Cockpit current_account_id)", resp.CurrentAccount.Email)
+	}
+}
+
 func TestFormatResetFriendly(t *testing.T) {
 	now := time.Now()
 
