@@ -118,6 +118,18 @@ public final class APIClient: Sendable {
         self.transport = transport
     }
     
+    /// True when `candidate` is the same host as the paired gateway (ignore port).
+    public static func isSameGatewayHost(_ candidate: URL, gateway: URL) -> Bool {
+        func normalizedHost(_ url: URL) -> String {
+            (url.host ?? "")
+                .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+                .lowercased()
+        }
+        let remote = normalizedHost(candidate)
+        let local = normalizedHost(gateway)
+        return !remote.isEmpty && remote == local
+    }
+    
     // Core ConnectRPC POST request
     public func rpc<Req: Encodable, Resp: Decodable>(
         method: String,
@@ -291,7 +303,12 @@ public final class APIClient: Sendable {
         let token = KeychainHelper.shared.read(key: .deviceToken) ?? AppSettings.shared.deviceToken ?? ""
         
         if clean.hasPrefix("http://") || clean.hasPrefix("https://") {
-            if clean.contains("/api/v1/files/raw") && !clean.contains("auth_token=") && !clean.contains("token=") && !token.isEmpty {
+            if let remote = URL(string: clean),
+               Self.isSameGatewayHost(remote, gateway: baseURL),
+               remote.path.contains("/api/v1/files/raw"),
+               !clean.contains("auth_token="),
+               !clean.contains("token="),
+               !token.isEmpty {
                 let separator = clean.contains("?") ? "&" : "?"
                 return "\(clean)\(separator)auth_token=\(token)"
             }
@@ -1127,7 +1144,9 @@ public final class APIClient: Sendable {
         request.httpMethod = "GET"
         request.timeoutInterval = 60.0
         
-        if let token = KeychainHelper.shared.read(key: .deviceToken), !token.isEmpty {
+        let attachCredentials = !isDirectHttp || Self.isSameGatewayHost(endpoint, gateway: baseURL)
+        if attachCredentials,
+           let token = KeychainHelper.shared.read(key: .deviceToken), !token.isEmpty {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         

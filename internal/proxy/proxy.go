@@ -5,7 +5,6 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -22,6 +21,7 @@ import (
 	"time"
 
 	"antigravity-mobile/internal/inspector"
+	"antigravity-mobile/internal/localtls"
 )
 
 // GatewayStatus represents the public status of the gateway.
@@ -147,7 +147,8 @@ func (p *Proxy) GetActiveUserStatus() (email string, name string, err error) {
 // NewProxy creates a new reverse proxy backed by the inspector.
 func NewProxy(insp inspector.UpstreamDiscoverer) *Proxy {
 	tr := &http.Transport{
-		TLSClientConfig:       &tls.Config{InsecureSkipVerify: true},
+		TLSClientConfig:       localtls.ClientConfig(),
+		DialTLSContext:        localtls.DialTLSContext,
 		DisableCompression:    true,
 		MaxIdleConns:          100,
 		MaxIdleConnsPerHost:   50,
@@ -158,8 +159,8 @@ func NewProxy(insp inspector.UpstreamDiscoverer) *Proxy {
 	}
 
 	p := &Proxy{
-		insp:      insp,
-		transport: tr,
+		insp:         insp,
+		transport:    tr,
 		startTime:    time.Now(),
 		msgDedup:     make(map[string]time.Time),
 		cascadeDedup: make(map[string]cascadeDedupEntry),
@@ -364,6 +365,15 @@ func (p *Proxy) notifyStreamTouch(cascadeID string) {
 	}
 }
 
+func publicInstanceInfo(info *inspector.InstanceInfo) *inspector.InstanceInfo {
+	if info == nil {
+		return nil
+	}
+	cp := *info
+	cp.CSRFToken = ""
+	return &cp
+}
+
 func (p *Proxy) handleStatus(w http.ResponseWriter, r *http.Request) {
 	cur := p.insp.Current()
 	status := "disconnected"
@@ -375,7 +385,7 @@ func (p *Proxy) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 	data, err := json.Marshal(GatewayStatus{
 		Status:                status,
-		Upstream:              cur,
+		Upstream:              publicInstanceInfo(cur),
 		ActiveStreamCascadeID: activeID,
 		ActiveStreamTitle:     activeTitle,
 		Timestamp:             time.Now(),
@@ -423,7 +433,7 @@ func (p *Proxy) handleRescan(w http.ResponseWriter, r *http.Request) {
 
 	data, err := json.Marshal(GatewayStatus{
 		Status:    status,
-		Upstream:  info,
+		Upstream:  publicInstanceInfo(info),
 		Timestamp: time.Now(),
 	})
 	if err != nil {
@@ -815,7 +825,6 @@ func (p *Proxy) handleJetboxWriteState(w http.ResponseWriter, r *http.Request, r
 func (p *Proxy) handleArtifactProxy(w http.ResponseWriter, r *http.Request) {
 	p.mu.RLock()
 	rp := p.activeProxy
-	token := p.activeToken
 	p.mu.RUnlock()
 
 	if rp == nil {
@@ -827,13 +836,6 @@ func (p *Proxy) handleArtifactProxy(w http.ResponseWriter, r *http.Request) {
 		}
 		http.Error(w, "Antigravity instance unavailable", http.StatusServiceUnavailable)
 		return
-	}
-
-	// Inject csrf query parameter if not present
-	q := r.URL.Query()
-	if q.Get("csrf") == "" && token != "" {
-		q.Set("csrf", token)
-		r.URL.RawQuery = q.Encode()
 	}
 
 	rp.ServeHTTP(w, r)
@@ -1660,6 +1662,3 @@ func isSubagentTrajectoryMap(s map[string]interface{}, id string) bool {
 
 	return false
 }
-
-
-

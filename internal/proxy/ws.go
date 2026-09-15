@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"crypto/rand"
-	"crypto/tls"
 	"encoding/base64"
 	"fmt"
 	"log"
@@ -13,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"antigravity-mobile/internal/localtls"
 
 	"github.com/gorilla/websocket"
 )
@@ -53,14 +54,7 @@ func IsAllowedOrigin(origin string, requestHost string) bool {
 		return true
 	}
 
-	// 2. Private LAN IPs (RFC 1918 IPv4 & ULA / Link-local IPv6)
-	if ip := net.ParseIP(originHost); ip != nil {
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
-			return true
-		}
-	}
-
-	// 3. Configured host / DDNS domains from environment
+	// 2. Configured host / DDNS domains from environment
 	var trustedHosts []string
 	if dh := strings.TrimSpace(os.Getenv("DDNS_HOST")); dh != "" {
 		trustedHosts = append(trustedHosts, strings.ToLower(dh))
@@ -225,8 +219,9 @@ func (p *Proxy) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Dial upstream language_server
 	upstreamURL := fmt.Sprintf("wss://127.0.0.1:%d/connect-websocket", cur.Port)
 	dialer := websocket.Dialer{
-		TLSClientConfig:  &tls.Config{InsecureSkipVerify: true},
-		HandshakeTimeout: 5 * time.Second,
+		TLSClientConfig:   localtls.ClientConfig(),
+		NetDialTLSContext: localtls.DialTLSContext,
+		HandshakeTimeout:  5 * time.Second,
 	}
 
 	reqHeader := make(http.Header)

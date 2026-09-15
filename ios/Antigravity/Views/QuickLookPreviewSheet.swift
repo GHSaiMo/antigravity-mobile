@@ -594,11 +594,14 @@ public struct HTMLWebViewRepresentable: UIViewRepresentable {
     
     public func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
-        config.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
+        config.preferences.setValue(false, forKey: "allowFileAccessFromFileURLs")
+        let prefs = WKWebpagePreferences()
+        prefs.allowsContentJavaScript = false
+        config.defaultWebpagePreferences = prefs
         let webView = WKWebView(frame: .zero, configuration: config)
-        webView.allowsBackForwardNavigationGestures = true
+        webView.allowsBackForwardNavigationGestures = false
         webView.scrollView.contentInsetAdjustmentBehavior = .automatic
-        webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+        webView.loadFileURL(url, allowingReadAccessTo: url)
         return webView
     }
     

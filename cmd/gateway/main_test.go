@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,7 +30,7 @@ func setupTestRouter(t *testing.T) http.Handler {
 	startTime := time.Now()
 	webHandler := web.Handler()
 
-	return buildRouter(authStore, authHandler, p, insp, startTime, webHandler)
+	return buildRouter(authStore, authHandler, p, insp, startTime, webHandler, auth.AuthPolicy{})
 }
 
 func TestHealthzEndpoint(t *testing.T) {
@@ -85,11 +86,41 @@ func TestSecurityHeaders(t *testing.T) {
 	if rr.Header().Get("X-Content-Type-Options") != "nosniff" {
 		t.Errorf("expected X-Content-Type-Options: nosniff, got %q", rr.Header().Get("X-Content-Type-Options"))
 	}
-	if rr.Header().Get("X-Frame-Options") != "SAMEORIGIN" {
-		t.Errorf("expected X-Frame-Options: SAMEORIGIN, got %q", rr.Header().Get("X-Frame-Options"))
+	if rr.Header().Get("X-Frame-Options") != "DENY" {
+		t.Errorf("expected X-Frame-Options: DENY, got %q", rr.Header().Get("X-Frame-Options"))
+	}
+	if rr.Header().Get("Content-Security-Policy") == "" {
+		t.Errorf("expected Content-Security-Policy header")
 	}
 	if rr.Header().Get("Referrer-Policy") != "strict-origin-when-cross-origin" {
 		t.Errorf("expected Referrer-Policy: strict-origin-when-cross-origin, got %q", rr.Header().Get("Referrer-Policy"))
+	}
+	if rr.Header().Get("Strict-Transport-Security") != "" {
+		t.Errorf("HSTS must not be set on plaintext HTTP, got %q", rr.Header().Get("Strict-Transport-Security"))
+	}
+
+	httpsReq := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	httpsReq.Header.Set("X-Forwarded-Proto", "https")
+	httpsRR := httptest.NewRecorder()
+	router.ServeHTTP(httpsRR, httpsReq)
+	if httpsRR.Header().Get("Strict-Transport-Security") == "" {
+		t.Errorf("expected HSTS when X-Forwarded-Proto is https")
+	}
+}
+
+func TestGatewayStatusRequiresAuth(t *testing.T) {
+	router := setupTestRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/gateway/status", nil)
+	req.RemoteAddr = "192.168.1.50:12345"
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 from unauthenticated /gateway/status, got %d body=%s", rr.Code, rr.Body.String())
+	}
+	if strings.Contains(rr.Body.String(), "csrf_token") {
+		t.Errorf("unauthenticated status must not leak csrf_token: %s", rr.Body.String())
 	}
 }
 

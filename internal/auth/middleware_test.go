@@ -122,17 +122,30 @@ func TestAuthMiddleware_And_Handler(t *testing.T) {
 		t.Fatalf("expected 200 for query token on /connect-websocket, got %d", rrWSConnect.Code)
 	}
 
-	// 6. Whitelisted path (/gateway/status) without token -> 200
-	statusHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// 6. Public health probe (/healthz) without token -> 200
+	healthHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status":"ok"}`))
 	})
-	mux.Handle("/gateway/status", statusHandler)
+	mux.Handle("/healthz", healthHandler)
+	reqHealth := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	rrHealth := httptest.NewRecorder()
+	wrappedRouter.ServeHTTP(rrHealth, reqHealth)
+	if rrHealth.Code != http.StatusOK {
+		t.Fatalf("expected 200 for whitelisted /healthz, got %d", rrHealth.Code)
+	}
+
+	// 6b. /gateway/status is no longer public
+	mux.Handle("/gateway/status", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"ok"}`))
+	}))
 	reqStatus := httptest.NewRequest(http.MethodGet, "/gateway/status", nil)
+	reqStatus.RemoteAddr = "192.168.1.50:12345"
 	rrStatus := httptest.NewRecorder()
 	wrappedRouter.ServeHTTP(rrStatus, reqStatus)
-	if rrStatus.Code != http.StatusOK {
-		t.Fatalf("expected 200 for whitelisted /gateway/status, got %d", rrStatus.Code)
+	if rrStatus.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for unauthenticated /gateway/status, got %d", rrStatus.Code)
 	}
 
 	// 7. Device list via Loopback
@@ -180,7 +193,11 @@ func TestIsWhitelistedPath(t *testing.T) {
 		{"/index.html", true},
 		{"/web/index.html", true},
 		{"/icons/icon.png", true},
-		{"/gateway/status", true},
+		{"/gateway/status", false},
+		{"/healthz", true},
+		{"/readyz", true},
+		{"/gateway/cascade/touch", false},
+		{"/gateway/cascade/invalidate", false},
 		{"/api/v1/auth/pair", true},
 		{"/api/v1/devices", true},
 		{"/api/v1/devices/", true},
@@ -263,18 +280,105 @@ func TestAdminAuthorization(t *testing.T) {
 		t.Errorf("expected ADMIN_TOKEN via Bearer header to be authorized")
 	}
 
-	// Case 6: ADMIN_TOKEN via query param
+	// Case 6: ADMIN_TOKEN via query param is rejected (leaks in logs/Referer)
 	reqAdminQuery := httptest.NewRequest(http.MethodGet, "/api/v1/devices?admin_token=secret-admin-123", nil)
 	reqAdminQuery.RemoteAddr = "192.168.1.100:12345"
-	if !authHandler.isAuthorizedAdmin(reqAdminQuery) {
-		t.Errorf("expected ADMIN_TOKEN via query parameter to be authorized")
+	if authHandler.isAuthorizedAdmin(reqAdminQuery) {
+		t.Errorf("expected ADMIN_TOKEN via query parameter to be rejected")
 	}
 
 	// Case 7: Invalid ADMIN_TOKEN
-	reqAdminBad := httptest.NewRequest(http.MethodGet, "/api/v1/devices?admin_token=wrong-token", nil)
+	reqAdminBad := httptest.NewRequest(http.MethodGet, "/api/v1/devices", nil)
 	reqAdminBad.RemoteAddr = "192.168.1.100:12345"
+	reqAdminBad.Header.Set("Authorization", "Bearer wrong-token")
 	if authHandler.isAuthorizedAdmin(reqAdminBad) {
 		t.Errorf("expected invalid admin token to be rejected")
+	}
+
+	// Case 8: ADMIN_TOKEN configured — loopback fallback is disabled
+	reqLoopbackWithAdminEnv := httptest.NewRequest(http.MethodGet, "/api/v1/devices", nil)
+	reqLoopbackWithAdminEnv.RemoteAddr = "127.0.0.1:12345"
+	if authHandler.isAuthorizedAdmin(reqLoopbackWithAdminEnv) {
+		t.Errorf("expected loopback fallback to be disabled when ADMIN_TOKEN is set")
+	}
+}
+
+func TestAdminAuthorization_TunnelDisablesLoopback(t *testing.T) {
+	tempDir := t.TempDir()
+	store, err := NewAuthStore(filepath.Join(tempDir, "auth_store.json"))
+	if err != nil {
+		t.Fatalf("failed to create auth store: %v", err)
+	}
+	pm := NewPairingManager()
+	authHandler := NewAuthHandler(store, pm, "127.0.0.1", 58900, false)
+	authHandler.SetAuthPolicy(AuthPolicy{TunnelEnabled: true, ListenLoopback: true})
+
+	reqLoopback := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", nil)
+	reqLoopback.RemoteAddr = "127.0.0.1:12345"
+	if authHandler.isAuthorizedAdmin(reqLoopback) {
+		t.Errorf("expected loopback admin to be denied when tunnel is enabled")
+	}
+
+	t.Setenv("ADMIN_TOKEN", "frp-admin-token")
+	reqWithToken := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", nil)
+	reqWithToken.RemoteAddr = "127.0.0.1:12345"
+	reqWithToken.Header.Set("Authorization", "Bearer frp-admin-token")
+	if !authHandler.isAuthorizedAdmin(reqWithToken) {
+		t.Errorf("expected ADMIN_TOKEN bearer to work even when tunnel is enabled")
+	}
+}
+
+func TestNewPairingSessionMethodNotAllowed(t *testing.T) {
+	tempDir := t.TempDir()
+	store, err := NewAuthStore(filepath.Join(tempDir, "auth_store.json"))
+	if err != nil {
+		t.Fatalf("failed to create auth store: %v", err)
+	}
+	pm := NewPairingManager()
+	authHandler := NewAuthHandler(store, pm, "127.0.0.1", 58900, false)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/session", nil)
+	req.RemoteAddr = "127.0.0.1:1"
+	rr := httptest.NewRecorder()
+	authHandler.HandleNewPairingSession(rr, req)
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405 for GET /api/v1/auth/session, got %d", rr.Code)
+	}
+}
+
+func TestAuthDisabledIgnoredWhenTunnelEnabled(t *testing.T) {
+	t.Setenv("AUTH_DISABLED", "1")
+	tempDir := t.TempDir()
+	store, err := NewAuthStore(filepath.Join(tempDir, "auth_store.json"))
+	if err != nil {
+		t.Fatalf("failed to create auth store: %v", err)
+	}
+
+	hit := false
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hit = true
+		w.WriteHeader(http.StatusOK)
+	})
+	wrapped := AuthMiddlewareWithPolicy(store, next, AuthPolicy{TunnelEnabled: true, ListenLoopback: true})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/secret", nil)
+	req.RemoteAddr = "127.0.0.1:9"
+	rr := httptest.NewRecorder()
+	wrapped.ServeHTTP(rr, req)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 when AUTH_DISABLED is ignored due to tunnel, got %d", rr.Code)
+	}
+	if hit {
+		t.Fatalf("protected handler must not run")
+	}
+}
+
+func TestIsListenAddrLoopback(t *testing.T) {
+	if IsListenAddrLoopback("") || IsListenAddrLoopback("0.0.0.0") || IsListenAddrLoopback("::") {
+		t.Errorf("wildcard/empty listen addrs must not be treated as loopback")
+	}
+	if !IsListenAddrLoopback("127.0.0.1") || !IsListenAddrLoopback("localhost") || !IsListenAddrLoopback("[::1]") {
+		t.Errorf("loopback listen addrs must be detected")
 	}
 }
 

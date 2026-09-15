@@ -246,11 +246,8 @@ public struct MermaidWebView: UIViewRepresentable {
     
     private func loadContent(into webView: WKWebView) {
         let html = MermaidHTMLTemplate.buildHTML(code: code, isDark: isDark, isFullscreen: false)
-        
+        // Limit file-URL access to the mermaid engine directory, not the whole bundle.
         let baseURL = Bundle.main.url(forResource: "mermaid.min", withExtension: "js")?.deletingLastPathComponent()
-            ?? Bundle.main.resourceURL
-            ?? Bundle.main.bundleURL
-        
         webView.loadHTMLString(html, baseURL: baseURL)
     }
     
@@ -423,7 +420,7 @@ private enum MermaidHTMLTemplate {
               try {
                 mermaid.initialize({
                   startOnLoad: false,
-                  securityLevel: 'loose',
+                  securityLevel: 'strict',
                   theme: isDark ? 'dark' : 'default',
                   themeVariables: isDark ? {
                     darkMode: true,

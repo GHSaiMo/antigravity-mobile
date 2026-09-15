@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -61,6 +62,11 @@ func (t *Tunnel) Start(ctx context.Context) {
 		t.mu.Unlock()
 		return
 	}
+	if strings.TrimSpace(t.cfg.Token) == "" {
+		t.mu.Unlock()
+		log.Printf("❌ [Tunnel] FRP_TOKEN is required; refusing to start tunnel")
+		return
+	}
 	t.running = true
 	tunnelCtx, cancel := context.WithCancel(ctx)
 	t.cancelFunc = cancel
@@ -115,11 +121,17 @@ func (t *Tunnel) Stop() {
 
 // runSession generates a temporary TOML configuration and executes an FRP client service session.
 func (t *Tunnel) runSession(ctx context.Context) error {
-	tmpFile, err := os.CreateTemp("", "agy-frpc-*.toml")
+	cfgDir := os.TempDir()
+	if home, err := os.UserHomeDir(); err == nil {
+		cfgDir = filepath.Join(home, ".antigravity-mobile")
+		_ = os.MkdirAll(cfgDir, 0700)
+	}
+	tmpFile, err := os.CreateTemp(cfgDir, "frpc-*.toml")
 	if err != nil {
 		return fmt.Errorf("create temp config: %w", err)
 	}
 	tmpPath := tmpFile.Name()
+	_ = os.Chmod(tmpPath, 0600)
 	defer os.Remove(tmpPath)
 
 	var tokenLine string

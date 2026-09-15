@@ -198,16 +198,12 @@ func TestIsAllowedOrigin(t *testing.T) {
 		}
 	}
 
-	// 3. Private LAN IP origins must be allowed
-	lanOrigins := []string{
-		"http://192.168.1.100:58900",
-		"http://10.0.0.50:58900",
-		"http://172.20.0.1:58900",
+	// 3. Same-host LAN origins are allowed; a different private IP is not.
+	if !IsAllowedOrigin("http://192.168.1.100:58900", "192.168.1.100:58900") {
+		t.Errorf("expected same-host LAN origin to be allowed")
 	}
-	for _, orig := range lanOrigins {
-		if !IsAllowedOrigin(orig, "192.168.1.100:58900") {
-			t.Errorf("expected LAN origin %s to be allowed", orig)
-		}
+	if IsAllowedOrigin("http://10.0.0.50:58900", "192.168.1.100:58900") {
+		t.Errorf("expected mismatched LAN origin to be rejected")
 	}
 
 	// 4. Malicious external origins MUST BE REJECTED!

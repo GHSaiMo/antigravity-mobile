@@ -101,7 +101,7 @@ public struct SettingsSheet: View {
                         Text("外网直连地址 (Public IPv6)")
                             .font(.system(size: 11, weight: .medium))
                             .foregroundColor(.secondary)
-                        TextField("未设置 (如 http://[240e:...]:58900)", text: Binding(
+                        TextField("未设置 (如 http://[2001:db8::1]:58900)", text: Binding(
                             get: { settings.ipv6ServerURL ?? "" },
                             set: { settings.ipv6ServerURL = $0.isEmpty ? nil : $0 }
                         ))
@@ -186,9 +186,14 @@ public struct SettingsSheet: View {
                 
                 Section(
                     header: Text("权限与自动化"),
-                    footer: Text("开启后，当 Agent 请求外部 URL、网页抓取或文件路径读写权限时，将自动选择「Yes, and always allow」并提交，免去手动确认，适合无人值守连续执行。")
+                    footer: Text("默认关闭。开启后，Agent 申请的文件读写与外连权限会被自动批准为「始终允许」，等同于把本机文件与网络交给该会话。仅在你完全信任当前任务时打开。")
                 ) {
                     Toggle("自动批准权限 (Always Allow)", isOn: $settings.autoApprovePermissions)
+                        .onChange(of: settings.autoApprovePermissions) { _, enabled in
+                            if enabled {
+                                UINotificationFeedbackGenerator().notificationOccurred(.warning)
+                            }
+                        }
                 }
                 
                 Section(header: Text("本地缓存"), footer: Text("已开启离线缓存与秒开机制。会话历史、方案 Markdown、PPTX 及 HTML 文档均自动保存到本地，二次进入 0 延迟秒开。")) {

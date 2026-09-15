@@ -3,7 +3,6 @@ package inspector
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"fmt"
 	"log"
 	"net/http"
@@ -14,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"antigravity-mobile/internal/localtls"
 )
 
 // InstanceInfo contains discovered runtime information about Antigravity language_server.
@@ -52,7 +53,8 @@ func NewInspector(pollInterval time.Duration) *Inspector {
 	}
 
 	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		TLSClientConfig: localtls.ClientConfig(),
+		DialTLSContext:  localtls.DialTLSContext,
 	}
 
 	return &Inspector{
