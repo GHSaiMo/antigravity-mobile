@@ -1,36 +1,69 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+ADMIN_TOKEN_FILE="${HOME}/.antigravity-mobile/admin_token"
 
-# Read GATEWAY_PORT from .env if present, otherwise default to 58900
+# Read GATEWAY_PORT / ADMIN_TOKEN from .env if present
 PORT="58900"
 if [ -f "${PROJECT_DIR}/.env" ]; then
-    ENV_PORT=$(grep -E '^GATEWAY_PORT=' "${PROJECT_DIR}/.env" | cut -d'=' -f2 | tr -d ' "\r\n')
-    if [ -n "$ENV_PORT" ]; then
+    set -a
+    # shellcheck source=/dev/null
+    source "${PROJECT_DIR}/.env" 2>/dev/null || true
+    set +a
+    ENV_PORT=$(grep -E '^GATEWAY_PORT=' "${PROJECT_DIR}/.env" | cut -d'=' -f2 | tr -d ' "\r\n' || true)
+    if [ -n "${ENV_PORT:-}" ]; then
         PORT="$ENV_PORT"
     fi
 fi
-if [ -n "$GATEWAY_PORT" ]; then
+if [ -n "${GATEWAY_PORT:-}" ]; then
     PORT="$GATEWAY_PORT"
 fi
 
-# Request new pairing session from running gateway
-RESP=$(curl -s -f -X POST "http://127.0.0.1:${PORT}/api/v1/auth/session" 2>/dev/null || true)
+if [ -z "${ADMIN_TOKEN:-}" ] && [ -f "${ADMIN_TOKEN_FILE}" ]; then
+    ADMIN_TOKEN="$(tr -d ' \r\n' < "${ADMIN_TOKEN_FILE}")"
+fi
 
-if [ -z "$RESP" ]; then
+AUTH_ARGS=()
+if [ -n "${ADMIN_TOKEN:-}" ]; then
+    AUTH_ARGS=(-H "Authorization: Bearer ${ADMIN_TOKEN}")
+fi
+
+TMP_BODY="$(mktemp)"
+trap 'rm -f "${TMP_BODY}"' EXIT
+
+HTTP_CODE="$(curl -sS -o "${TMP_BODY}" -w '%{http_code}' -X POST \
+    "${AUTH_ARGS[@]}" \
+    "http://127.0.0.1:${PORT}/api/v1/auth/session" || true)"
+
+if [ -z "${HTTP_CODE}" ] || [ "${HTTP_CODE}" = "000" ]; then
     echo "❌ 无法连接到网关 (http://127.0.0.1:${PORT})，请确认网关是否已启动。"
     echo "   启动网关: make run 或 make tmux-start"
     exit 1
 fi
 
-# Parse JSON and render QR Code
+RESP="$(cat "${TMP_BODY}")"
+
+if [ "${HTTP_CODE}" != "200" ]; then
+    echo "❌ 网关拒绝签发配对码 (HTTP ${HTTP_CODE})"
+    if [ -n "${RESP}" ]; then
+        echo "   ${RESP}"
+    fi
+    if [ "${HTTP_CODE}" = "401" ]; then
+        echo
+        echo "   开了 FRP 之后，本机 127.0.0.1 不再自动算管理员。"
+        echo "   请把 ADMIN_TOKEN 写进 .env，或使用网关生成的:"
+        echo "     ${ADMIN_TOKEN_FILE}"
+        echo "   然后重启网关，再执行 make pair。"
+    fi
+    exit 1
+fi
+
 python3 -c '
-import json, sys, os
+import json, sys
 
 try:
-    resp_raw = sys.argv[1]
-    data = json.loads(resp_raw)
+    data = json.loads(sys.argv[1])
 except Exception as e:
     print(f"❌ 解析网关返回失败: {e}", file=sys.stderr)
     sys.exit(1)
@@ -40,6 +73,7 @@ uri = data.get("uri", "")
 
 if not code or not uri:
     print("❌ 返回数据中缺少 code 或 uri", file=sys.stderr)
+    print(sys.argv[1], file=sys.stderr)
     sys.exit(1)
 
 print("==================================================")
