@@ -2,12 +2,21 @@ package auth
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"log"
 	"net/http"
 	"os"
 	"strings"
 )
+
+// AuthPolicy controls loopback-trust and AUTH_DISABLED. Zero value preserves
+// historical local-dev behavior (loopback may administer; AUTH_DISABLED honored
+// only when the process is actually listening on loopback with no tunnel).
+type AuthPolicy struct {
+	TunnelEnabled  bool
+	ListenLoopback bool
+}
 
 type contextKey string
 
@@ -45,8 +54,16 @@ func ExtractToken(r *http.Request) string {
 		}
 	}
 
+	if c, err := r.Cookie(DeviceCookieName); err == nil {
+		if tok := strings.TrimSpace(c.Value); tok != "" {
+			return tok
+		}
+	}
+
 	return ""
 }
+
+const DeviceCookieName = "agy_dt"
 
 // IsWhitelistedPath checks if a request path should bypass authentication.
 func IsWhitelistedPath(path string) bool {
@@ -67,9 +84,8 @@ func IsWhitelistedPath(path string) bool {
 		return true
 	}
 
-	// Gateway basic status probe (allows health checks and connectivity testing)
-	if path == "/gateway/status" || path == "/healthz" || path == "/readyz" ||
-		path == "/gateway/cascade/touch" || path == "/gateway/cascade/invalidate" {
+	// Public health probe only. /gateway/status, cascade touch/invalidate require a device token.
+	if path == "/healthz" || path == "/readyz" {
 		return true
 	}
 
@@ -82,17 +98,53 @@ func DeviceFromContext(ctx context.Context) (*PairedDevice, bool) {
 	return dev, ok
 }
 
+// BearerToken extracts the raw token from Authorization: Bearer only (never query).
+func BearerToken(r *http.Request) string {
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		return ""
+	}
+	parts := strings.SplitN(authHeader, " ", 2)
+	if len(parts) == 2 && strings.EqualFold(parts[0], "bearer") {
+		return strings.TrimSpace(parts[1])
+	}
+	return ""
+}
+
+// ConstantTimeTokenEquals compares two tokens in constant time.
+func ConstantTimeTokenEquals(got, want string) bool {
+	if want == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
+}
+
+// AuthDisabledRequested reports whether AUTH_DISABLED is set in the environment.
+func AuthDisabledRequested() bool {
+	v := os.Getenv("AUTH_DISABLED")
+	return v == "true" || v == "1"
+}
+
 // AuthMiddleware creates an HTTP middleware that verifies device authentication.
 func AuthMiddleware(store *AuthStore, next http.Handler) http.Handler {
-	// AUTH_DISABLED only bypasses auth for loopback (localhost) requests.
-	// Remote requests always require authentication regardless of this flag.
-	authDisabled := os.Getenv("AUTH_DISABLED") == "true" || os.Getenv("AUTH_DISABLED") == "1"
-	if authDisabled {
+	return AuthMiddlewareWithPolicy(store, next, AuthPolicy{})
+}
+
+// AuthMiddlewareWithPolicy is AuthMiddleware with explicit loopback/tunnel policy.
+func AuthMiddlewareWithPolicy(store *AuthStore, next http.Handler, policy AuthPolicy) http.Handler {
+	// AUTH_DISABLED only bypasses auth for genuine loopback listeners with no tunnel.
+	// RemoteAddr==127.0.0.1 is not sufficient: FRP/SSH -L make internet clients look local.
+	authDisabled := AuthDisabledRequested()
+	effectiveDisabled := authDisabled && !policy.TunnelEnabled && policy.ListenLoopback
+	if authDisabled && !effectiveDisabled {
+		log.Println("⚠️  AUTH_DISABLED ignored: tunnel is enabled or gateway is not loopback-only")
+	}
+	if effectiveDisabled {
 		log.Println("⚠️⚠️⚠️  WARNING: AUTH_DISABLED is set — authentication is bypassed for LOOPBACK requests only ⚠️⚠️⚠️")
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if authDisabled && IsLoopbackAddr(r.RemoteAddr) {
+		if effectiveDisabled && IsLoopbackAddr(r.RemoteAddr) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -138,10 +190,12 @@ func AuthMiddleware(store *AuthStore, next http.Handler) http.Handler {
 func SecurityHeadersMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("X-Frame-Options", "SAMEORIGIN")
-		w.Header().Set("X-XSS-Protection", "1; mode=block")
+		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'")
+		if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		}
 		next.ServeHTTP(w, r)
 	})
 }
-

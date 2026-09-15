@@ -119,3 +119,27 @@ func TestGetTunnelConfig(t *testing.T) {
 		t.Errorf("expected 58900, got %d", cfg.RemotePort)
 	}
 }
+
+func TestAdvertisePublicIPv6(t *testing.T) {
+	t.Setenv("INCLUDE_PUBLIC_IPV6", "")
+	if AdvertisePublicIPv6(false) {
+		t.Errorf("expected false when unset and ssl disabled")
+	}
+	if !AdvertisePublicIPv6(true) {
+		t.Errorf("expected true when ssl enabled")
+	}
+	t.Setenv("INCLUDE_PUBLIC_IPV6", "1")
+	if !AdvertisePublicIPv6(false) {
+		t.Errorf("expected true when INCLUDE_PUBLIC_IPV6=1")
+	}
+}
+
+func TestRedactBarkEndpoint(t *testing.T) {
+	got := RedactBarkEndpoint("https://api.day.app/supersecretkey123/")
+	if got != "https://api.day.app/***" {
+		t.Errorf("unexpected redaction: %s", got)
+	}
+	if RedactBarkEndpoint("") != "" {
+		t.Errorf("empty should stay empty")
+	}
+}

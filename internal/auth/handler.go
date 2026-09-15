@@ -40,6 +40,8 @@ type AuthHandler struct {
 	ipv6Host   string
 	ddnsHost   string
 	relayURL   string
+	policy     AuthPolicy
+	limiter    *RateLimiter
 }
 
 // NewAuthHandler creates a new AuthHandler.
@@ -47,6 +49,7 @@ func NewAuthHandler(store *AuthStore, pairingMgr *PairingManager, host string, p
 	return &AuthHandler{
 		store:      store,
 		pairingMgr: pairingMgr,
+		limiter:    NewRateLimiter(),
 		host:       host,
 		port:       port,
 		ssl:        ssl,
@@ -63,6 +66,11 @@ func (h *AuthHandler) SetEndpoints(lanHost, ipv6Host, ddnsHost string) {
 // SetRelayURL sets the cloud relay URL (e.g. from embedded FRP tunnel) for pairing responses.
 func (h *AuthHandler) SetRelayURL(relayURL string) {
 	h.relayURL = strings.TrimSpace(relayURL)
+}
+
+// SetAuthPolicy sets loopback-trust / tunnel policy used by admin authorization.
+func (h *AuthHandler) SetAuthPolicy(policy AuthPolicy) {
+	h.policy = policy
 }
 
 // GetEndpoints returns candidate endpoint URLs for clients.
@@ -147,6 +155,14 @@ func (h *AuthHandler) HandlePair(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.limiter != nil && !h.limiter.Allow("pair:"+CleanIP(r.RemoteAddr), 8, time.Minute) {
+		w.Header().Set("Retry-After", "60")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		json.NewEncoder(w).Encode(map[string]string{"error": "too many pairing attempts"})
+		return
+	}
+
 	req.PairingCode = strings.TrimSpace(req.PairingCode)
 	if req.PairingCode == "" {
 		w.Header().Set("Content-Type", "application/json")
@@ -198,6 +214,16 @@ func (h *AuthHandler) HandlePair(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": "failed to persist device"})
 		return
 	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     DeviceCookieName,
+		Value:    deviceToken,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+		Secure:   h.ssl,
+		MaxAge:   86400 * 400,
+	})
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -260,10 +286,27 @@ func (h *AuthHandler) HandleDevices(w http.ResponseWriter, r *http.Request) {
 
 // HandleNewPairingSession handles POST /api/v1/auth/session to generate a new pairing code.
 func (h *AuthHandler) HandleNewPairingSession(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+
+	if h.limiter != nil && !h.limiter.Allow("session:"+CleanIP(r.RemoteAddr), 5, time.Minute) {
+		w.Header().Set("Retry-After", "60")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		json.NewEncoder(w).Encode(map[string]string{"error": "too many pairing session requests"})
+		return
+	}
+
 	if !h.isAuthorizedAdmin(r) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+		msg := "unauthorized"
+		if h.policy.TunnelEnabled {
+			msg = "unauthorized: FRP tunnel is enabled, send Authorization: Bearer <ADMIN_TOKEN> (see ~/.antigravity-mobile/admin_token)"
+		}
+		json.NewEncoder(w).Encode(map[string]string{"error": msg})
 		return
 	}
 
@@ -307,26 +350,21 @@ func (h *AuthHandler) HandleNewPairingSession(w http.ResponseWriter, r *http.Req
 }
 
 // isAuthorizedAdmin checks if the request carries a valid admin token,
-// or is genuinely from localhost (not behind a reverse proxy).
+// or is genuinely from localhost (not behind a reverse proxy or tunnel).
 func (h *AuthHandler) isAuthorizedAdmin(r *http.Request) bool {
-	// 1. Check dedicated admin token (env: ADMIN_TOKEN)
-	if adminToken := os.Getenv("ADMIN_TOKEN"); adminToken != "" {
-		// From Authorization header
-		if authHeader := r.Header.Get("Authorization"); authHeader != "" {
-			parts := strings.SplitN(authHeader, " ", 2)
-			if len(parts) == 2 && strings.EqualFold(parts[0], "bearer") && strings.TrimSpace(parts[1]) == adminToken {
-				return true
-			}
-		}
-		// From query parameter
-		if r.URL.Query().Get("admin_token") == adminToken {
-			return true
-		}
+	adminToken := strings.TrimSpace(os.Getenv("ADMIN_TOKEN"))
+	if adminToken != "" {
+		// Query-string admin tokens are rejected (they leak via logs/Referer).
+		return ConstantTimeTokenEquals(BearerToken(r), adminToken)
 	}
 
-	// 2. Loopback fallback: only trust RemoteAddr if NOT behind a reverse proxy.
-	//    If X-Forwarded-For or X-Real-IP headers are present, a proxy is in front
-	//    and RemoteAddr is the proxy's address, not the real client.
+	// Loopback fallback is incompatible with FRP/SSH tunnels: those dial 127.0.0.1,
+	// so every remote client appears local. Never trust RemoteAddr when a tunnel is on.
+	if h.policy.TunnelEnabled {
+		return false
+	}
+
+	// Only trust RemoteAddr if NOT behind a reverse proxy.
 	if r.Header.Get("X-Forwarded-For") == "" && r.Header.Get("X-Real-IP") == "" {
 		if IsLoopbackAddr(r.RemoteAddr) {
 			return true
