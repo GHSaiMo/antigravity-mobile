@@ -3,11 +3,14 @@ package proxy
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"syscall"
 )
 
 // FileContentResult represents the structured response of file reading.
@@ -47,7 +50,7 @@ func ResolveLocalFilePath(rawURI, cascadeID string) (string, error) {
 	// 1. Artifact static route: /static/artifacts/<cascadeId>/<filename>
 	if strings.HasPrefix(clean, "/static/artifacts/") {
 		sub := strings.TrimPrefix(clean, "/static/artifacts/")
-		return filepath.Join(home, ".gemini/antigravity/brain", filepath.Clean(sub)), nil
+		return joinUnder(filepath.Join(home, ".gemini", "antigravity", "brain"), sub)
 	}
 
 	// 2. file:// protocol
@@ -58,21 +61,18 @@ func ResolveLocalFilePath(rawURI, cascadeID string) (string, error) {
 	// 3. Brain path detection: if it points to .gemini/antigravity/brain or /brain/
 	if idx := strings.Index(clean, "/brain/"); idx != -1 {
 		sub := clean[idx+len("/brain/"):]
-		return filepath.Join(home, ".gemini/antigravity/brain", filepath.Clean(sub)), nil
+		return joinUnder(filepath.Join(home, ".gemini", "antigravity", "brain"), sub)
 	}
 
 	// 4. Bare filename like "implementation_plan.md" or "walkthrough.md" with cascadeID
 	if !strings.Contains(clean, "/") && cascadeID != "" {
-		planPath := filepath.Join(home, ".gemini/antigravity/brain", filepath.Clean(cascadeID), filepath.Clean(clean))
+		planPath, err := joinUnder(filepath.Join(home, ".gemini", "antigravity", "brain"), filepath.Join(cascadeID, clean))
+		if err != nil {
+			return "", err
+		}
 		if _, err := os.Stat(planPath); err == nil {
 			return planPath, nil
 		}
-		// If not in brain, check if it exists in Projects
-		projPath := filepath.Join(home, "Projects", filepath.Clean(clean))
-		if _, err := os.Stat(projPath); err == nil {
-			return projPath, nil
-		}
-		// Default to brain artifact path
 		return planPath, nil
 	}
 
@@ -88,13 +88,76 @@ func ResolveLocalFilePath(rawURI, cascadeID string) (string, error) {
 
 	// 7. If relative path and cascadeID is provided, check brain directory first
 	if cascadeID != "" {
-		planPath := filepath.Join(home, ".gemini/antigravity/brain", filepath.Clean(cascadeID), filepath.Clean(clean))
-		if _, err := os.Stat(planPath); err == nil {
-			return planPath, nil
+		planPath, err := joinUnder(filepath.Join(home, ".gemini", "antigravity", "brain"), filepath.Join(cascadeID, clean))
+		if err == nil {
+			if _, err := os.Stat(planPath); err == nil {
+				return planPath, nil
+			}
 		}
 	}
 
 	return filepath.Clean(clean), nil
+}
+
+func joinUnder(root, extra string) (string, error) {
+	root = filepath.Clean(root)
+	cleaned := filepath.Clean(extra)
+	if cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("path escapes allowlisted root")
+	}
+	full := filepath.Join(root, cleaned)
+	rel, err := filepath.Rel(root, full)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("path escapes allowlisted root")
+	}
+	return full, nil
+}
+
+var (
+	workspaceRootsOnce sync.Once
+	workspaceRoots     []string
+)
+
+// AllowedWorkspaceRoots returns directory prefixes that may be served via the file APIs.
+// ~/.gemini/antigravity is always included. Extra roots come from ALLOWED_WORKSPACE_ROOTS
+// (colon-separated) or, if unset, a small default set of project folders.
+func AllowedWorkspaceRoots() []string {
+	workspaceRootsOnce.Do(func() {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return
+		}
+		sep := string(filepath.Separator)
+		always := []string{filepath.Join(home, ".gemini", "antigravity") + sep}
+		if extra := strings.TrimSpace(os.Getenv("ALLOWED_WORKSPACE_ROOTS")); extra != "" {
+			workspaceRoots = always
+			for _, raw := range strings.Split(extra, ":") {
+				raw = strings.TrimSpace(raw)
+				if raw == "" {
+					continue
+				}
+				if strings.HasPrefix(raw, "~/") {
+					raw = filepath.Join(home, raw[2:])
+				}
+				workspaceRoots = append(workspaceRoots, filepath.Clean(raw)+sep)
+			}
+			return
+		}
+		workspaceRoots = append(always,
+			filepath.Join(home, ".gemini", "config")+sep,
+			filepath.Join(home, ".gemini", "skills")+sep,
+			filepath.Join(home, "Projects")+sep,
+			filepath.Join(home, "Developer")+sep,
+			filepath.Join(home, "Workspace")+sep,
+			filepath.Join(home, "Documents")+sep,
+		)
+	})
+	return workspaceRoots
+}
+
+func resetWorkspaceRootsForTest() {
+	workspaceRootsOnce = sync.Once{}
+	workspaceRoots = nil
 }
 
 // IsSafeFilePath validates that the resolved path is within an explicitly allowed directory.
@@ -103,100 +166,54 @@ func ResolveLocalFilePath(rawURI, cascadeID string) (string, error) {
 func IsSafeFilePath(path string) bool {
 	clean := filepath.Clean(path)
 
-	// Resolve symlinks to prevent symlink-based bypasses
 	resolved, err := filepath.EvalSymlinks(clean)
 	if err != nil {
-		// If the file doesn't exist yet, use the cleaned path
 		resolved = clean
 	}
 
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return false
-	}
-
-	// Always block sensitive directories regardless of parent
-	sensitiveDirs := []string{
-		"/.ssh/",
-		"/.gnupg/",
-		"/.aws/",
-		"/.docker/",
-		"/Library/Keychains/",
-	}
 	slashPath := filepath.ToSlash(resolved)
+	sensitiveDirs := []string{
+		"/.ssh/", "/.gnupg/", "/.aws/", "/.docker/", "/Library/Keychains/",
+		"/.kube/", "/.config/gcloud/",
+	}
 	for _, sd := range sensitiveDirs {
 		if strings.Contains(slashPath, sd) || strings.HasSuffix(slashPath, strings.TrimSuffix(sd, "/")) {
 			return false
 		}
 	}
 
-	// Always block sensitive filenames even within allowed dirs
 	base := strings.ToLower(filepath.Base(resolved))
 	sensitiveNames := []string{
 		"id_rsa", "id_ed25519", "id_ecdsa", "id_dsa",
-		".env", ".git-credentials", ".netrc", ".dockercfg",
+		".env", ".envrc", ".git-credentials", ".netrc", ".dockercfg", ".npmrc", ".pypirc",
 		".bash_history", ".zsh_history",
 		"oauth_creds.json", "jetski-standalone-oauth-token", "google_accounts.json",
-		"auth_store.json", "credentials.db",
+		"auth_store.json", "credentials.db", "credentials.json",
 	}
 	for _, s := range sensitiveNames {
 		if base == s || strings.HasPrefix(base, ".env.") {
 			return false
 		}
 	}
-	sensitiveExts := []string{".pem", ".key", ".p12", ".pfx", ".jks"}
-	for _, ext := range sensitiveExts {
+	if strings.HasPrefix(base, "id_rsa") || strings.HasPrefix(base, "id_ed25519") {
+		return false
+	}
+	for _, ext := range []string{".pem", ".key", ".p12", ".pfx", ".jks"} {
 		if strings.HasSuffix(base, ext) {
 			return false
 		}
 	}
 
-	// Whitelist: only these directory trees are allowed
-	allowedPrefixes := []string{
-		// Antigravity & Agent directories
-		filepath.Join(home, ".gemini", "antigravity") + string(filepath.Separator),
-		filepath.Join(home, ".gemini", "config") + string(filepath.Separator),
-		filepath.Join(home, ".gemini", "skills") + string(filepath.Separator),
-		filepath.Join(home, ".agents") + string(filepath.Separator),
-		filepath.Join(home, ".hermes") + string(filepath.Separator),
-		filepath.Join(home, ".clawpilot") + string(filepath.Separator),
-		filepath.Join(home, ".antigravity_tools") + string(filepath.Separator),
-
-		// User workspace & code project directories
-		filepath.Join(home, "Projects") + string(filepath.Separator),
-		filepath.Join(home, "Developer") + string(filepath.Separator),
-		filepath.Join(home, "Workspace") + string(filepath.Separator),
-		filepath.Join(home, "Articles") + string(filepath.Separator),
-		filepath.Join(home, "Websites") + string(filepath.Separator),
-		filepath.Join(home, "Weflow") + string(filepath.Separator),
-		filepath.Join(home, "weflow-mac") + string(filepath.Separator),
-		filepath.Join(home, "WorkBuddy") + string(filepath.Separator),
-		filepath.Join(home, "docker") + string(filepath.Separator),
-		filepath.Join(home, "go") + string(filepath.Separator),
-		filepath.Join(home, "mba") + string(filepath.Separator),
-		filepath.Join(home, "wkzq") + string(filepath.Separator),
-
-		// Standard user media & document folders
-		filepath.Join(home, "Downloads") + string(filepath.Separator),
-		filepath.Join(home, "Desktop") + string(filepath.Separator),
-		filepath.Join(home, "Documents") + string(filepath.Separator),
-		filepath.Join(home, "Pictures") + string(filepath.Separator),
-		filepath.Join(home, "Movies") + string(filepath.Separator),
-		filepath.Join(home, "Music") + string(filepath.Separator),
-
-		// System temporary directories
-		filepath.Clean(os.TempDir()) + string(filepath.Separator),
-		"/tmp" + string(filepath.Separator),
-		"/private/tmp" + string(filepath.Separator),
-	}
-
-	for _, prefix := range allowedPrefixes {
+	for _, prefix := range AllowedWorkspaceRoots() {
 		if strings.HasPrefix(resolved, prefix) {
 			return true
 		}
 	}
-
 	return false
+}
+
+func openRegularNoFollow(path string) (*os.File, error) {
+	return os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
 }
 
 // GetFileContent retrieves the file content and companion metadata if present.
@@ -210,24 +227,32 @@ func GetFileContent(rawURI, cascadeID string) (*FileContentResult, error) {
 		return nil, fmt.Errorf("failed to resolve file path: %w", err)
 	}
 
+	if resolved, err := filepath.EvalSymlinks(filePath); err == nil {
+		filePath = resolved
+	}
 	if !IsSafeFilePath(filePath) {
-		return nil, fmt.Errorf("access to file is restricted for security: %s", filePath)
+		return nil, fmt.Errorf("access to file is restricted")
 	}
 
-	fi, err := os.Stat(filePath)
+	f, err := openRegularNoFollow(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("file not found: %s", filePath)
+		return nil, fmt.Errorf("file not found")
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("file not found")
 	}
 	if fi.IsDir() {
-		return nil, fmt.Errorf("path is a directory: %s", filePath)
+		return nil, fmt.Errorf("path is a directory")
 	}
 	if fi.Size() > maxReadSizeBytes {
-		return nil, fmt.Errorf("file size exceeds 10MB limit: %d bytes", fi.Size())
+		return nil, fmt.Errorf("file size exceeds 10MB limit")
 	}
 
-	contentBytes, err := os.ReadFile(filePath)
+	contentBytes, err := io.ReadAll(io.LimitReader(f, maxReadSizeBytes+1))
 	if err != nil {
-		return nil, fmt.Errorf("failed to read file: %w", err)
+		return nil, fmt.Errorf("failed to read file")
 	}
 
 	res := &FileContentResult{
@@ -302,12 +327,21 @@ func (p *Proxy) HandleFileRaw(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if resolved, err := filepath.EvalSymlinks(filePath); err == nil {
+		filePath = resolved
+	}
 	if !IsSafeFilePath(filePath) {
-		http.Error(w, "access to file is restricted for security", http.StatusForbidden)
+		http.Error(w, "access to file is restricted", http.StatusForbidden)
 		return
 	}
 
-	fi, err := os.Stat(filePath)
+	f, err := openRegularNoFollow(filePath)
+	if err != nil {
+		http.Error(w, "file not found", http.StatusNotFound)
+		return
+	}
+	defer f.Close()
+	fi, err := f.Stat()
 	if err != nil {
 		http.Error(w, "file not found", http.StatusNotFound)
 		return
@@ -395,6 +429,5 @@ func (p *Proxy) HandleFileRaw(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Disposition", fmt.Sprintf("%s; filename=%q; filename*=UTF-8''%s", disposition, fileName, encodedName))
 
-	http.ServeFile(w, r, filePath)
+	http.ServeContent(w, r, fileName, fi.ModTime(), f)
 }
-

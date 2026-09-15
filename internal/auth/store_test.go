@@ -7,6 +7,11 @@ import (
 	"time"
 )
 
+func TestMain(m *testing.M) {
+	_ = os.Setenv("AUTH_SALT", "unit-test-auth-salt")
+	os.Exit(m.Run())
+}
+
 func TestAuthStore_AddAndValidate(t *testing.T) {
 	tempDir := t.TempDir()
 	storePath := filepath.Join(tempDir, "auth_store.json")

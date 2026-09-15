@@ -86,8 +86,11 @@ func TestSecurityHeaders(t *testing.T) {
 	if rr.Header().Get("X-Content-Type-Options") != "nosniff" {
 		t.Errorf("expected X-Content-Type-Options: nosniff, got %q", rr.Header().Get("X-Content-Type-Options"))
 	}
-	if rr.Header().Get("X-Frame-Options") != "SAMEORIGIN" {
-		t.Errorf("expected X-Frame-Options: SAMEORIGIN, got %q", rr.Header().Get("X-Frame-Options"))
+	if rr.Header().Get("X-Frame-Options") != "DENY" {
+		t.Errorf("expected X-Frame-Options: DENY, got %q", rr.Header().Get("X-Frame-Options"))
+	}
+	if rr.Header().Get("Content-Security-Policy") == "" {
+		t.Errorf("expected Content-Security-Policy header")
 	}
 	if rr.Header().Get("Referrer-Policy") != "strict-origin-when-cross-origin" {
 		t.Errorf("expected Referrer-Policy: strict-origin-when-cross-origin, got %q", rr.Header().Get("Referrer-Policy"))
