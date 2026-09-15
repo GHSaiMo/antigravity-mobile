@@ -41,6 +41,7 @@ type AuthHandler struct {
 	ddnsHost   string
 	relayURL   string
 	policy     AuthPolicy
+	limiter    *RateLimiter
 }
 
 // NewAuthHandler creates a new AuthHandler.
@@ -48,6 +49,7 @@ func NewAuthHandler(store *AuthStore, pairingMgr *PairingManager, host string, p
 	return &AuthHandler{
 		store:      store,
 		pairingMgr: pairingMgr,
+		limiter:    NewRateLimiter(),
 		host:       host,
 		port:       port,
 		ssl:        ssl,
@@ -150,6 +152,14 @@ func (h *AuthHandler) HandlePair(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": "invalid json body"})
+		return
+	}
+
+	if h.limiter != nil && !h.limiter.Allow("pair:"+CleanIP(r.RemoteAddr), 8, time.Minute) {
+		w.Header().Set("Retry-After", "60")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		json.NewEncoder(w).Encode(map[string]string{"error": "too many pairing attempts"})
 		return
 	}
 
@@ -278,6 +288,14 @@ func (h *AuthHandler) HandleDevices(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) HandleNewPairingSession(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+
+	if h.limiter != nil && !h.limiter.Allow("session:"+CleanIP(r.RemoteAddr), 5, time.Minute) {
+		w.Header().Set("Retry-After", "60")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		json.NewEncoder(w).Encode(map[string]string{"error": "too many pairing session requests"})
 		return
 	}
 

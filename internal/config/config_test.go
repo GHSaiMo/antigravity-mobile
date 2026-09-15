@@ -133,3 +133,13 @@ func TestAdvertisePublicIPv6(t *testing.T) {
 		t.Errorf("expected true when INCLUDE_PUBLIC_IPV6=1")
 	}
 }
+
+func TestRedactBarkEndpoint(t *testing.T) {
+	got := RedactBarkEndpoint("https://api.day.app/supersecretkey123/")
+	if got != "https://api.day.app/***" {
+		t.Errorf("unexpected redaction: %s", got)
+	}
+	if RedactBarkEndpoint("") != "" {
+		t.Errorf("empty should stay empty")
+	}
+}
