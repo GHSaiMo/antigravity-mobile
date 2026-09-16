@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -25,7 +26,10 @@ import (
 )
 
 func main() {
-	// 0. Load .env configuration
+	// 0. Initialize console output synchronization so concurrent logs don't tear terminal output
+	auth.InitConsoleSync()
+
+	// 0.1. Load .env configuration
 	config.LoadDotEnv()
 
 	// ==============================================================================
@@ -212,19 +216,6 @@ func main() {
 		}
 	}
 
-	// 默认打印配对二维码（无论此前是否已有设备配对，均默认输出一次供新设备扫码接入，可通过 -qr=false 关闭）
-	if *printQR {
-		if initialSession, err := pairingMgr.GenerateSession(5 * time.Minute); err == nil {
-			if authStore.HasDevices() {
-				log.Printf("ℹ️  检测到已有 %d 台已配对设备，默认打印一次新配对二维码供新客户端接入（可通过 -qr=false 关闭）", len(authStore.ListDevices()))
-			}
-			auth.PrintPairingQRCode(qrHost, *port, initialSession.Code, *enableSSL, extraHosts...)
-		} else {
-			log.Printf("⚠️  无法生成初始配对二维码: %v", err)
-		}
-	} else {
-		log.Printf("ℹ️  已跳过启动配对二维码打印（已指定 -qr=false；如需配对可执行 `make pair`）")
-	}
 
 	// 4. Initialize Push Notification & Background Watcher
 	notifCfg := config.GetNotificationConfig()
@@ -310,6 +301,13 @@ func main() {
 		log.Printf("⚠️  Upstream Antigravity instance not detected yet, waiting...")
 	}
 
+	// Synchronously bind the network listener so we verify port availability immediately
+	listener, err := net.Listen("tcp", server.Addr)
+	if err != nil {
+		log.Fatalf("❌ Failed to bind server address %s: %v", server.Addr, err)
+	}
+	defer listener.Close()
+
 	// Graceful shutdown channel
 	stopCh := make(chan os.Signal, 1)
 	signal.Notify(stopCh, os.Interrupt, syscall.SIGTERM)
@@ -318,9 +316,9 @@ func main() {
 		var err error
 		if *tlsCert != "" && *tlsKey != "" {
 			log.Printf("🔒 TLS enabled with cert=%s key=%s", *tlsCert, *tlsKey)
-			err = server.ListenAndServeTLS(*tlsCert, *tlsKey)
+			err = server.ServeTLS(listener, *tlsCert, *tlsKey)
 		} else {
-			err = server.ListenAndServe()
+			err = server.Serve(listener)
 		}
 		if err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Server error: %v", err)
@@ -331,6 +329,24 @@ func main() {
 		log.Printf("📱 Mobile Web UI ready at: http://%s:%d (LAN) | http://127.0.0.1:%d (Local)", qrHost, *port, *port)
 	} else {
 		log.Printf("📱 Mobile Web UI ready at: http://127.0.0.1:%d", *port)
+	}
+
+	// Settle briefly so asynchronous startup logs (e.g. FRP tunnel connect, baseline sync)
+	// are printed in the boot logs area before rendering the QR code.
+	time.Sleep(150 * time.Millisecond)
+
+	// 默认打印配对二维码（网关已确认启动就绪，输出配对二维码供新客户端接入）
+	if *printQR {
+		if initialSession, err := pairingMgr.GenerateSession(5 * time.Minute); err == nil {
+			if authStore.HasDevices() {
+				log.Printf("ℹ️  检测到已有 %d 台已配对设备，打印一次新配对二维码供新客户端接入（可通过 -qr=false 关闭）", len(authStore.ListDevices()))
+			}
+			auth.PrintPairingQRCode(qrHost, *port, initialSession.Code, *enableSSL, extraHosts...)
+		} else {
+			log.Printf("⚠️  无法生成初始配对二维码: %v", err)
+		}
+	} else {
+		log.Printf("ℹ️  已跳过启动配对二维码打印（已指定 -qr=false；如需配对可执行 `make pair`）")
 	}
 
 	<-stopCh

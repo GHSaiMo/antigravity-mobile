@@ -2,12 +2,45 @@ package auth
 
 import (
 	"fmt"
+	"io"
+	"log"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/skip2/go-qrcode"
 )
+
+var consoleMu sync.Mutex
+
+type synchronizedWriter struct {
+	mu *sync.Mutex
+	w  io.Writer
+}
+
+func (sw *synchronizedWriter) Write(p []byte) (n int, err error) {
+	sw.mu.Lock()
+	defer sw.mu.Unlock()
+	return sw.w.Write(p)
+}
+
+// InitConsoleSync configures the standard logger to synchronize with terminal QR code output,
+// preventing concurrent background log messages from tearing or cutting into the QR code.
+func InitConsoleSync() {
+	cur := log.Writer()
+	log.SetOutput(&synchronizedWriter{
+		mu: &consoleMu,
+		w:  cur,
+	})
+}
+
+// ConsoleLock acquires the console lock to safely print uninterrupted text.
+func ConsoleLock() func() {
+	consoleMu.Lock()
+	return consoleMu.Unlock
+}
 
 // MultiHostPairingParams specifies parameters for generating multi-endpoint pairing URIs.
 type MultiHostPairingParams struct {
@@ -130,48 +163,64 @@ func BuildMultiHostPairingParams(primaryHost string, port int, code string, ssl 
 	}
 }
 
-// PrintPairingQRCode generates and renders an ANSI QR code to stdout encoding all candidate
-// network endpoints (e.g. public IPv6, LAN IPv4, Cloud Relay), and displays informative pairing instructions.
-func PrintPairingQRCode(primaryHost string, port int, code string, ssl bool, extraHosts ...string) {
+// FormatPairingQRCode renders the complete pairing banner, ANSI QR code, and URI instructions
+// into a single formatted string.
+func FormatPairingQRCode(primaryHost string, port int, code string, ssl bool, extraHosts ...string) string {
 	params := BuildMultiHostPairingParams(primaryHost, port, code, ssl, extraHosts...)
 	uri := GenerateMultiHostPairingURI(params)
 
+	var b strings.Builder
+
 	qr, err := qrcode.New(uri, qrcode.Medium)
 	if err != nil {
-		fmt.Printf("⚠️  无法生成配对二维码: %v\n", err)
-		fmt.Printf("🔗 配对链接: %s\n", uri)
-		return
+		fmt.Fprintf(&b, "\n⚠️  无法生成配对二维码: %v\n🔗 配对链接: %s\n\n", err, uri)
+		return b.String()
 	}
 
-	fmt.Println()
-	fmt.Println("==================================================")
-	fmt.Println("📱 Antigravity Mobile 客户端扫码一键配对")
-	fmt.Println("==================================================")
-	fmt.Println(qr.ToSmallString(false))
-	fmt.Printf("请使用 Antigravity 手机客户端扫描上方二维码 (5分钟内有效)\n\n")
-	fmt.Printf("🔗 复合配对 URI:          %s\n", uri)
+	b.WriteString("\n==================================================\n")
+	b.WriteString("📱 Antigravity Mobile 客户端扫码一键配对\n")
+	b.WriteString("==================================================\n")
+	qrStr := qr.ToSmallString(false)
+	b.WriteString(qrStr)
+	if !strings.HasSuffix(qrStr, "\n") {
+		b.WriteString("\n")
+	}
+	b.WriteString("请使用 Antigravity 手机客户端扫描上方二维码 (5分钟内有效)\n\n")
+	fmt.Fprintf(&b, "🔗 复合配对 URI:          %s\n", uri)
 
 	if params.LANHost != "" {
 		lanURI := GeneratePairingURI(params.LANHost, port, code, ssl)
-		fmt.Printf("🏠 局域网 Wi-Fi 直连 URI: %s\n", lanURI)
+		fmt.Fprintf(&b, "🏠 局域网 Wi-Fi 直连 URI: %s\n", lanURI)
 	}
 	if params.IPv6Host != "" {
 		ipv6URI := GeneratePairingURI(params.IPv6Host, port, code, ssl)
-		fmt.Printf("🌐 外网 IPv6 直连 URI:   %s\n", ipv6URI)
+		fmt.Fprintf(&b, "🌐 外网 IPv6 直连 URI:   %s\n", ipv6URI)
 	}
 	if params.RelayHost != "" {
 		relayURI := GeneratePairingURI(params.RelayHost, port, code, ssl)
-		fmt.Printf("☁️ 云服务器中继 URI:     %s\n", relayURI)
+		fmt.Fprintf(&b, "☁️ 云服务器中继 URI:     %s\n", relayURI)
 	}
 	if params.DDNSHost != "" {
 		ddnsURI := GeneratePairingURI(params.DDNSHost, port, code, ssl)
-		fmt.Printf("⚡ DDNS / 域名直连 URI:  %s\n", ddnsURI)
+		fmt.Fprintf(&b, "⚡ DDNS / 域名直连 URI:  %s\n", ddnsURI)
 	}
 
-	fmt.Println()
-	fmt.Println("💡 提示: 扫码会自动同步局域网、IPv6 与云服务器中继网址，局域网极速秒连，外网智能自适应。")
-	fmt.Println("==================================================")
-	fmt.Println()
+	b.WriteString("\n💡 提示: 扫码会自动同步局域网、IPv6 与云服务器中继网址，局域网极速秒连，外网智能自适应。\n")
+	b.WriteString("==================================================\n\n")
+
+	return b.String()
+}
+
+// PrintPairingQRCode generates and renders an ANSI QR code to stdout encoding all candidate
+// network endpoints (e.g. public IPv6, LAN IPv4, Cloud Relay), and displays informative pairing instructions.
+// It executes atomically under console synchronization to prevent concurrent log statements from corrupting the QR code.
+func PrintPairingQRCode(primaryHost string, port int, code string, ssl bool, extraHosts ...string) {
+	output := FormatPairingQRCode(primaryHost, port, code, ssl, extraHosts...)
+
+	consoleMu.Lock()
+	defer consoleMu.Unlock()
+
+	_, _ = os.Stdout.WriteString(output)
 }
 
 // GenerateMultiHostQRCodePNG generates a PNG byte slice for the given multi-host pairing parameters.

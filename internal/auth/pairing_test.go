@@ -2,9 +2,11 @@ package auth
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -120,6 +122,58 @@ func TestGenerateQRCodePNG(t *testing.T) {
 func TestPrintPairingQRCode(t *testing.T) {
 	// Ensure print does not panic with single or multiple hosts
 	PrintPairingQRCode("192.168.50.9", 58900, "abc123code", false, "2001:db8::1")
+}
+
+func TestFormatPairingQRCode(t *testing.T) {
+	out := FormatPairingQRCode("192.168.50.9", 58900, "abc123code", false, "2001:db8::1", "124.222.226.143")
+	if !strings.Contains(out, "Antigravity Mobile 客户端扫码一键配对") {
+		t.Errorf("expected header banner in output")
+	}
+	if !strings.Contains(out, "agy://pair?code=abc123code") {
+		t.Errorf("expected pairing URI in output")
+	}
+	if !strings.Contains(out, "局域网 Wi-Fi 直连 URI:") {
+		t.Errorf("expected LAN URI in output")
+	}
+	if !strings.Contains(out, "外网 IPv6 直连 URI:") {
+		t.Errorf("expected IPv6 URI in output")
+	}
+	if !strings.Contains(out, "云服务器中继 URI:") {
+		t.Errorf("expected relay URI in output")
+	}
+	if !strings.Contains(out, "请使用 Antigravity 手机客户端扫描上方二维码") {
+		t.Errorf("expected footer instructions in output")
+	}
+}
+
+func TestInitConsoleSyncAndConcurrentLogging(t *testing.T) {
+	InitConsoleSync()
+
+	unlock := ConsoleLock()
+	unlock()
+
+	var wg sync.WaitGroup
+	// Run concurrent log writers
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			for j := 0; j < 10; j++ {
+				log.Printf("[Test] Concurrent log from worker %d-%d", idx, j)
+			}
+		}(i)
+	}
+
+	// Run concurrent QR code printers
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			PrintPairingQRCode("127.0.0.1", 58900, "testcode", false)
+		}()
+	}
+
+	wg.Wait()
 }
 
 func TestPairingManager_CleanupAndLatest(t *testing.T) {
