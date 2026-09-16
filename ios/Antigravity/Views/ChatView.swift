@@ -1,5 +1,6 @@
 import SwiftUI
 import PhotosUI
+import AVFoundation
 
 private struct ChatBottomAnchorOffsetPreferenceKey: PreferenceKey {
     static var defaultValue: CGFloat = .infinity
@@ -17,6 +18,10 @@ public struct ChatView: View {
     @State private var isNearBottom = true
     @State private var cardToggleTrigger = 0
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
+    @State private var showPhotoPicker = false
+    @State private var showCameraPicker = false
+    @State private var showCameraUnavailableAlert = false
+    @State private var showCameraPermissionAlert = false
     private let shouldAutoFocus: Bool
     private let initialConversation: ConversationItem?
     private let initialIsUnread: Bool
@@ -141,28 +146,11 @@ public struct ChatView: View {
                 var loaded: [Data] = []
                 for item in items {
                     if let data = try? await item.loadTransferable(type: Data.self) {
-                        if let uiImage = UIImage(data: data) {
-                            let maxDim: CGFloat = 2048
-                            let size = uiImage.size
-                            let targetImage: UIImage
-                            if size.width > maxDim || size.height > maxDim {
-                                let ratio = min(maxDim / size.width, maxDim / size.height)
-                                let newSize = CGSize(width: size.width * ratio, height: size.height * ratio)
-                                let format = UIGraphicsImageRendererFormat()
-                                format.scale = 1.0
-                                let renderer = UIGraphicsImageRenderer(size: newSize, format: format)
-                                targetImage = renderer.image { _ in
-                                    uiImage.draw(in: CGRect(origin: .zero, size: newSize))
-                                }
-                            } else {
-                                targetImage = uiImage
-                            }
-                            if let jpeg = targetImage.jpegData(compressionQuality: 0.8) {
-                                loaded.append(jpeg)
-                                continue
-                            }
+                        if let uiImage = UIImage(data: data), let compressed = compressAndResizeImage(uiImage) {
+                            loaded.append(compressed)
+                        } else {
+                            loaded.append(data)
                         }
-                        loaded.append(data)
                     }
                 }
                 guard !loaded.isEmpty else { return }
@@ -244,6 +232,28 @@ public struct ChatView: View {
                 .transition(.opacity)
                 .animation(.easeInOut(duration: 0.15), value: viewModel.isDownloadingDocument)
             }
+        }
+        .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhotoItems, maxSelectionCount: 5, matching: .images)
+        .fullScreenCover(isPresented: $showCameraPicker) {
+            CameraPickerView { capturedImage in
+                handleCapturedImage(capturedImage)
+            }
+            .ignoresSafeArea()
+        }
+        .alert("无法使用相机", isPresented: $showCameraUnavailableAlert) {
+            Button("好", role: .cancel) {}
+        } message: {
+            Text("当前设备或模拟器未检测到可用相机。")
+        }
+        .alert("需要相机权限", isPresented: $showCameraPermissionAlert) {
+            Button("前往设置") {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("请在系统设置中允许 Antigravity 访问相机以拍照。")
         }
     }
     
@@ -688,8 +698,20 @@ public struct ChatView: View {
             // Quick action chips at top of input box (➕ and Model Switch placed in front of Commit and Push)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    // 1. Add Image ➕ (PhotosPicker)
-                    PhotosPicker(selection: $selectedPhotoItems, maxSelectionCount: 5, matching: .images) {
+                    // 1. Add Image ➕ Menu (Camera / Photo Library)
+                    Menu {
+                        Button {
+                            handleCameraAction()
+                        } label: {
+                            Label("拍照", systemImage: "camera")
+                        }
+                        
+                        Button {
+                            showPhotoPicker = true
+                        } label: {
+                            Label("从相册选择", systemImage: "photo.on.rectangle")
+                        }
+                    } label: {
                         Image(systemName: "plus")
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundColor(.indigo)
@@ -931,6 +953,56 @@ public struct ChatView: View {
         viewModel.removeDraftImage(at: index)
         if index < selectedPhotoItems.count {
             selectedPhotoItems.remove(at: index)
+        }
+    }
+    
+    private func compressAndResizeImage(_ uiImage: UIImage) -> Data? {
+        let maxDim: CGFloat = 2048
+        let size = uiImage.size
+        let targetImage: UIImage
+        if size.width > maxDim || size.height > maxDim {
+            let ratio = min(maxDim / size.width, maxDim / size.height)
+            let newSize = CGSize(width: size.width * ratio, height: size.height * ratio)
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1.0
+            let renderer = UIGraphicsImageRenderer(size: newSize, format: format)
+            targetImage = renderer.image { _ in
+                uiImage.draw(in: CGRect(origin: .zero, size: newSize))
+            }
+        } else {
+            targetImage = uiImage
+        }
+        return targetImage.jpegData(compressionQuality: 0.8)
+    }
+    
+    private func handleCapturedImage(_ uiImage: UIImage) {
+        if let data = compressAndResizeImage(uiImage) {
+            viewModel.appendDraftImages([data])
+        }
+    }
+    
+    private func handleCameraAction() {
+        guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
+            showCameraUnavailableAlert = true
+            return
+        }
+        
+        let status = AVCaptureDevice.authorizationStatus(for: .video)
+        switch status {
+        case .authorized:
+            showCameraPicker = true
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .video) { granted in
+                DispatchQueue.main.async {
+                    if granted {
+                        showCameraPicker = true
+                    }
+                }
+            }
+        case .denied, .restricted:
+            showCameraPermissionAlert = true
+        @unknown default:
+            showCameraPicker = true
         }
     }
     

@@ -44,7 +44,7 @@
 		<true/>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>Antigravity 需要使用相机扫描 Mac 终端中的配对二维码进行设备直连鉴权</string>
+	<string>Antigravity 需要使用相机扫描配对二维码以及拍照发送图片</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Antigravity 需要访问局域网以直连 Mac 网关并同步会话</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
