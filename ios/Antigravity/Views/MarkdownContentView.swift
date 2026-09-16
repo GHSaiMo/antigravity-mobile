@@ -709,8 +709,7 @@ public struct MarkdownContentView: View {
                                     .multilineTextAlignment(textAlignment)
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 8)
-                                    .frame(minWidth: 80, alignment: align)
-                                    .frame(maxHeight: .infinity, alignment: align)
+                                    .frame(minWidth: 80, maxWidth: .infinity, maxHeight: .infinity, alignment: align)
                                     .background(Color(uiColor: .tertiarySystemBackground))
                                     .overlay(alignment: .trailing) {
                                         if colIdx < columnCount - 1 {
@@ -744,8 +743,7 @@ public struct MarkdownContentView: View {
                                     .lineSpacing(2.5)
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 8)
-                                    .frame(minWidth: 80, alignment: align)
-                                    .frame(maxHeight: .infinity, alignment: align)
+                                    .frame(minWidth: 80, maxWidth: .infinity, maxHeight: .infinity, alignment: align)
                                     .background(isEven ? Color.clear : Color(uiColor: .tertiarySystemBackground).opacity(0.3))
                                     .overlay(alignment: .trailing) {
                                         if colIdx < columnCount - 1 {
