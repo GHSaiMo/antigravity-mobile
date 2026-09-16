@@ -137,3 +137,36 @@ func TestAuthMiddleware_WSTicketAuth(t *testing.T) {
 	// Give background worker a moment to finish any async last-seen updates before TempDir cleanup
 	time.Sleep(30 * time.Millisecond)
 }
+
+func TestWSTicketStore_DeviceQuotaEviction(t *testing.T) {
+	store := NewWSTicketStore()
+	deviceID := "dev-overflow"
+
+	// Issue maxTicketsPerDevice tickets
+	var tickets []string
+	for i := 0; i < maxTicketsPerDevice; i++ {
+		tkt, err := store.Issue(deviceID)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		tickets = append(tickets, tkt)
+		time.Sleep(2 * time.Millisecond) // ensure distinct created times
+	}
+
+	// 6th ticket should evict the 1st ticket (oldest)
+	tkt6, err := store.Issue(deviceID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// First ticket must now be invalid
+	if _, ok := store.Validate(tickets[0]); ok {
+		t.Fatalf("expected oldest ticket to be evicted")
+	}
+
+	// 6th ticket must be valid
+	if id, ok := store.Validate(tkt6); !ok || id != deviceID {
+		t.Fatalf("expected newest ticket to be valid")
+	}
+}
+

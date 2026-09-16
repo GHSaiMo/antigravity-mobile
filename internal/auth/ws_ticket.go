@@ -10,6 +10,12 @@ import (
 // wsTicketTTL is how long a WS ticket is valid after issuance.
 const wsTicketTTL = 30 * time.Second
 
+// maxTicketsPerDevice limits concurrent active tickets per device, preventing stockpiling.
+const maxTicketsPerDevice = 5
+
+// maxTotalWSTickets caps the overall size of the in-memory ticket map.
+const maxTotalWSTickets = 1000
+
 // wsTicket represents a short-lived, one-time-use token for WebSocket authentication.
 // S9: replaces the long-lived auth_token in WebSocket URLs so the real token
 // never appears in query strings (which leak via logs, Referer, browser history).
@@ -43,11 +49,53 @@ func (s *WSTicketStore) Issue(deviceID string) (string, error) {
 	ticket := hex.EncodeToString(raw)
 
 	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// 1. Evict oldest ticket for this device if exceeding maxTicketsPerDevice
+	var oldestDeviceTicketKey string
+	var oldestDeviceTicketTime time.Time
+	deviceCount := 0
+
+	for k, t := range s.tickets {
+		if t.deviceID == deviceID {
+			deviceCount++
+			if oldestDeviceTicketTime.IsZero() || t.createdAt.Before(oldestDeviceTicketTime) {
+				oldestDeviceTicketTime = t.createdAt
+				oldestDeviceTicketKey = k
+			}
+		}
+	}
+	if deviceCount >= maxTicketsPerDevice && oldestDeviceTicketKey != "" {
+		delete(s.tickets, oldestDeviceTicketKey)
+	}
+
+	// 2. Global capacity safety net: prune expired or oldest if exceeding maxTotalWSTickets
+	if len(s.tickets) >= maxTotalWSTickets {
+		cutoff := time.Now().Add(-wsTicketTTL)
+		for k, t := range s.tickets {
+			if t.createdAt.Before(cutoff) {
+				delete(s.tickets, k)
+			}
+		}
+		if len(s.tickets) >= maxTotalWSTickets {
+			var oldestKey string
+			var oldestTime time.Time
+			for k, t := range s.tickets {
+				if oldestTime.IsZero() || t.createdAt.Before(oldestTime) {
+					oldestTime = t.createdAt
+					oldestKey = k
+				}
+			}
+			if oldestKey != "" {
+				delete(s.tickets, oldestKey)
+			}
+		}
+	}
+
 	s.tickets[ticket] = &wsTicket{
 		deviceID:  deviceID,
 		createdAt: time.Now(),
 	}
-	s.mu.Unlock()
 
 	return ticket, nil
 }

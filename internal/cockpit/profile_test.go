@@ -14,6 +14,44 @@ func TestSQLiteQuote(t *testing.T) {
 	}
 }
 
+func TestValidateSQLiteKey(t *testing.T) {
+	validKeys := []string{
+		"antigravityAuthStatus",
+		"antigravityUnifiedStateSync.userStatus",
+		"history.recentlyOpenedPathsList",
+		"item_123",
+		"my-key",
+	}
+	for _, k := range validKeys {
+		if err := validateSQLiteKey(k); err != nil {
+			t.Errorf("expected valid key %q, got error: %v", k, err)
+		}
+	}
+
+	invalidKeys := []string{
+		"key'; DROP TABLE ItemTable; --",
+		"key OR 1=1",
+		"key\"--",
+		"key with spaces",
+		"key\nnewline",
+	}
+	for _, k := range invalidKeys {
+		if err := validateSQLiteKey(k); err == nil {
+			t.Errorf("expected error for malicious key %q, got nil", k)
+		}
+	}
+}
+
+func TestExecSQLiteDatabaseValidation(t *testing.T) {
+	// Attempting to run on arbitrary file like /etc/passwd or script.sh must be rejected
+	if err := execSQLite("/etc/passwd", "SELECT 1;"); err == nil {
+		t.Errorf("expected error for non-sqlite db extension, got nil")
+	}
+	if err := execSQLite("/tmp/script.sh", "SELECT 1;"); err == nil {
+		t.Errorf("expected error for non-sqlite db extension, got nil")
+	}
+}
+
 func TestClearStaleAntigravityIdentity(t *testing.T) {
 	if _, err := exec.LookPath("sqlite3"); err != nil {
 		t.Skip("sqlite3 not available")

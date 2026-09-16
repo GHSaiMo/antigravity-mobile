@@ -81,7 +81,8 @@ func IsWhitelistedPath(path string) bool {
 	}
 
 	// Auth and device management endpoints (handled by AuthHandler with its own permission checks)
-	if strings.HasPrefix(path, "/api/v1/auth/") || path == "/api/v1/devices" || strings.HasPrefix(path, "/api/v1/devices/") {
+	if path == "/api/v1/auth/pair" || path == "/api/v1/auth/session" || path == "/api/v1/auth/ws-ticket" ||
+		path == "/api/v1/devices" || path == "/api/v1/devices/" || strings.HasPrefix(path, "/api/v1/devices/") {
 		return true
 	}
 
@@ -176,6 +177,7 @@ func AuthMiddlewareWithPolicy(store *AuthStore, next http.Handler, policy AuthPo
 		if !ok || device == nil {
 			token := ExtractToken(r)
 			if token == "" {
+				log.Printf("[AUDIT:AUTH_FAILURE] reason=missing_token ip=%s path=%s", CleanIP(r.RemoteAddr), r.URL.Path)
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusUnauthorized)
 				json.NewEncoder(w).Encode(map[string]string{
@@ -200,6 +202,7 @@ func AuthMiddlewareWithPolicy(store *AuthStore, next http.Handler, policy AuthPo
 		}
 
 		if !ok || device == nil {
+			log.Printf("[AUDIT:AUTH_FAILURE] reason=invalid_or_revoked_token ip=%s path=%s", CleanIP(r.RemoteAddr), r.URL.Path)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			json.NewEncoder(w).Encode(map[string]string{
@@ -223,6 +226,7 @@ func SecurityHeadersMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 		// S4: 'unsafe-inline' removed; replace with explicit SHA-256 hashes of known static scripts.
 		// Regenerate hashes with: openssl dgst -sha256 -binary <file> | base64
 		// app.js, mermaid.min.js, sw.js hashes must be updated whenever those files change.

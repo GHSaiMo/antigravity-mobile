@@ -90,6 +90,20 @@ func TestIsSafeFilePath(t *testing.T) {
 		t.Errorf("expected Projects files to be safe")
 	}
 
+	// M-2: Check server.key, domain.key, and acme.sh
+	if IsSafeFilePath(filepath.Join(home, "Projects/demo/server.key")) {
+		t.Errorf("expected server.key to be rejected")
+	}
+	if IsSafeFilePath(filepath.Join(home, "Projects/demo/domain.key")) {
+		t.Errorf("expected domain.key to be rejected")
+	}
+	if IsSafeFilePath(filepath.Join(home, "Projects/demo/tls.key")) {
+		t.Errorf("expected tls.key to be rejected")
+	}
+	if IsSafeFilePath(filepath.Join(home, ".acme.sh/example.com/fullchain.cer")) {
+		t.Errorf("expected .acme.sh directory to be rejected")
+	}
+
 	// Verify sensitive auth files are blocked even in allowed dirs
 	if IsSafeFilePath(filepath.Join(home, ".gemini/oauth_creds.json")) {
 		t.Errorf("expected oauth_creds.json to be blocked")
@@ -99,6 +113,57 @@ func TestIsSafeFilePath(t *testing.T) {
 	}
 	if IsSafeFilePath(filepath.Join(home, ".antigravity-mobile/auth_store.json")) {
 		t.Errorf("expected auth_store.json to be blocked")
+	}
+}
+
+func TestResolveLocalFilePathUnsafePathsRejected(t *testing.T) {
+	resetWorkspaceRootsForTest()
+	t.Cleanup(resetWorkspaceRootsForTest)
+	home, _ := os.UserHomeDir()
+
+	// M-1: ResolveLocalFilePath must reject /etc/passwd and ~/.ssh/id_rsa directly
+	if _, err := ResolveLocalFilePath("/etc/passwd", ""); err == nil {
+		t.Errorf("expected error resolving /etc/passwd")
+	}
+	if _, err := ResolveLocalFilePath(filepath.Join(home, ".ssh/id_rsa"), ""); err == nil {
+		t.Errorf("expected error resolving ~/.ssh/id_rsa")
+	}
+	if _, err := ResolveLocalFilePath(filepath.Join(home, ".antigravity-mobile/auth_store.json"), ""); err == nil {
+		t.Errorf("expected error resolving auth_store.json")
+	}
+}
+
+func TestPrivateKeyHeaderDetection(t *testing.T) {
+	// Create a temporary .key file containing private key banner
+	tmpDir := t.TempDir()
+	keyFile := filepath.Join(tmpDir, "presentation.key")
+	if err := os.WriteFile(keyFile, []byte("-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA...\n"), 0600); err != nil {
+		t.Fatalf("failed to write dummy key file: %v", err)
+	}
+
+	f, err := os.Open(keyFile)
+	if err != nil {
+		t.Fatalf("failed to open dummy key file: %v", err)
+	}
+	defer f.Close()
+
+	if !isPrivateKeyFileHeader(f) {
+		t.Errorf("expected isPrivateKeyFileHeader to detect PEM private key banner")
+	}
+
+	// Normal text / binary should not trigger
+	normFile := filepath.Join(tmpDir, "normal.key")
+	if err := os.WriteFile(normFile, []byte("Keynote dummy slide data"), 0600); err != nil {
+		t.Fatalf("failed to write dummy file: %v", err)
+	}
+	fNorm, err := os.Open(normFile)
+	if err != nil {
+		t.Fatalf("failed to open dummy file: %v", err)
+	}
+	defer fNorm.Close()
+
+	if isPrivateKeyFileHeader(fNorm) {
+		t.Errorf("expected isPrivateKeyFileHeader to be false for non-key data")
 	}
 }
 

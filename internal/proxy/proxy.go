@@ -88,6 +88,15 @@ type cascadeDedupEntry struct {
 // Cascade IDs are UUID-like strings: alphanumeric, hyphens, and underscores only.
 var cascadeIDRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$`)
 
+// shortCascadeID truncates a cascade ID for log redaction/sanitization.
+func shortCascadeID(id string) string {
+	id = strings.TrimSpace(id)
+	if len(id) <= 12 {
+		return id
+	}
+	return id[:8] + "..."
+}
+
 // SetNotificationSink registers a sink to receive real-time trajectory updates.
 func (p *Proxy) SetNotificationSink(sink NotificationSink) {
 	p.mu.Lock()
@@ -436,7 +445,7 @@ func (p *Proxy) handleCascadeTouch(w http.ResponseWriter, r *http.Request) {
 		ClearTrajectoryCache(cascadeID)
 		ClearPendingMessagesCache(cascadeID)
 		p.notifyStreamTouch(cascadeID)
-		log.Printf("[Proxy] Cascade cache invalidated and stream notified via touch API: %s", cascadeID)
+		log.Printf("[Proxy] Cascade cache invalidated and stream notified via touch API: %s", shortCascadeID(cascadeID))
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -708,7 +717,7 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 			strategyKey := fmt.Sprintf("%v", rawMap["deliveryStrategy"])
 			dedupKey := fmt.Sprintf("%s:%s:%x", cascadeID, strategyKey, sha256.Sum256([]byte(textContent.String())))
 			if p.checkAndRecordMessageDedup(dedupKey, 15*time.Second) {
-				log.Printf("[Proxy] Deduplicated repeat SendUserCascadeMessage for cascade %s (textLen=%d, hashDedup)", cascadeID, textContent.Len())
+				log.Printf("[Proxy] Deduplicated repeat SendUserCascadeMessage for cascade %s (textLen=%d, hashDedup)", shortCascadeID(cascadeID), textContent.Len())
 				w.Header().Set("Content-Type", "application/json")
 				w.Header().Set("Content-Length", "2")
 				w.WriteHeader(http.StatusOK)
@@ -778,7 +787,7 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 						if updatedBytes, err := json.Marshal(cfgObj); err == nil {
 							configToUse = updatedBytes
 						}
-						log.Printf("[Proxy] SendUserCascadeMessage: applied model %s (%s) to cascade %s", targetModel, modelEnum, cascadeID)
+						log.Printf("[Proxy] SendUserCascadeMessage: applied model %s (%s) to cascade %s", targetModel, modelEnum, shortCascadeID(cascadeID))
 					}
 					rawMap["cascadeConfig"] = cfgObj
 				}
@@ -793,7 +802,7 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 					SetLastKnownCascadeConfig(updatedBytes)
 					SetCascadeModel(cascadeID, canonicalName, updatedBytes)
 				}
-				log.Printf("[Proxy] SendUserCascadeMessage: synthesized cascadeConfig with model %s (%s) for cascade %s", targetModel, modelEnum, cascadeID)
+				log.Printf("[Proxy] SendUserCascadeMessage: synthesized cascadeConfig with model %s (%s) for cascade %s", targetModel, modelEnum, shortCascadeID(cascadeID))
 			}
 
 			delete(rawMap, "cascadeConfigRaw")
@@ -809,7 +818,7 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
-	log.Printf("[Proxy] SendUserCascadeMessage: cascadeId=%s payloadLen=%d", cascadeID, len(bodyBytes))
+	log.Printf("[Proxy] SendUserCascadeMessage: cascadeId=%s payloadLen=%d", shortCascadeID(cascadeID), len(bodyBytes))
 
 	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 	r.GetBody = func() (io.ReadCloser, error) {
@@ -884,7 +893,7 @@ func (p *Proxy) handleJetboxWriteState(w http.ResponseWriter, r *http.Request, r
 					ClearTrajectoryCache(cascadeID)
 				}
 			}
-			log.Printf("[Proxy] JetboxWriteState: cached active model %s (%s) cascadeId=%s", canonicalName, modelEnum, cascadeID)
+			log.Printf("[Proxy] JetboxWriteState: cached active model %s (%s) cascadeId=%s", canonicalName, modelEnum, shortCascadeID(cascadeID))
 		}
 	}
 
@@ -989,7 +998,7 @@ func (p *Proxy) handleDeleteCascadeTrajectory(w http.ResponseWriter, r *http.Req
 				brainDir := filepath.Join(home, ".gemini", "antigravity", "brain", reqData.CascadeID)
 				_ = os.RemoveAll(brainDir)
 			}
-			log.Printf("[Proxy] Deleted cascade trajectory: %s (cache, tombstone & files cleared)", reqData.CascadeID)
+			log.Printf("[Proxy] Deleted cascade trajectory: %s (cache, tombstone & files cleared)", shortCascadeID(reqData.CascadeID))
 		}
 	} else if rec.statusCode >= 400 {
 		// Upstream explicitly rejected deletion; release the tombstone so the cascade reappears.

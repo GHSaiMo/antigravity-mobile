@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -14,6 +15,16 @@ import (
 var antigravityIdentityKeys = []string{
 	"antigravityAuthStatus",
 	"antigravityUnifiedStateSync.userStatus",
+}
+
+var validSQLiteKeyPattern = regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`)
+
+// validateSQLiteKey ensures a key string only contains standard alphanumeric, dot, underscore, or hyphen characters.
+func validateSQLiteKey(key string) error {
+	if !validSQLiteKeyPattern.MatchString(key) {
+		return fmt.Errorf("invalid sqlite key: %q", key)
+	}
+	return nil
 }
 
 func antigravityStateDBPaths() []string {
@@ -43,7 +54,14 @@ func prepareAntigravityProfileForSwitch(accountID string) {
 func clearStaleAntigravityIdentity() {
 	inList := make([]string, 0, len(antigravityIdentityKeys))
 	for _, key := range antigravityIdentityKeys {
+		if err := validateSQLiteKey(key); err != nil {
+			log.Printf("[Cockpit] skipping invalid key %q: %v", key, err)
+			continue
+		}
 		inList = append(inList, sqliteQuote(key))
+	}
+	if len(inList) == 0 {
+		return
 	}
 	sql := "DELETE FROM ItemTable WHERE key IN (" + strings.Join(inList, ",") + ");"
 
@@ -60,7 +78,11 @@ func clearStaleAntigravityIdentity() {
 }
 
 func execSQLite(dbPath, sql string) error {
-	cmd := exec.Command("sqlite3", dbPath, sql)
+	cleanDB := filepath.Clean(dbPath)
+	if !strings.HasSuffix(cleanDB, ".vscdb") && !strings.HasSuffix(cleanDB, ".db") {
+		return fmt.Errorf("invalid sqlite database path: %q", dbPath)
+	}
+	cmd := exec.Command("sqlite3", cleanDB, sql)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))

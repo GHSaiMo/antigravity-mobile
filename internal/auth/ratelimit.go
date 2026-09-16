@@ -9,14 +9,22 @@ import (
 // this can be safely evicted from the hits map.
 const maxRateLimitWindow = 5 * time.Minute
 
+// maxRateLimiterEntries caps the number of keys held in memory to prevent memory
+// exhaustion under IP rotation or high-cardinality distributed attacks.
+const maxRateLimiterEntries = 10000
+
 // RateLimiter is a small in-memory sliding-window limiter keyed by string (usually IP + route).
 type RateLimiter struct {
-	mu   sync.Mutex
-	hits map[string][]time.Time
+	mu         sync.Mutex
+	hits       map[string][]time.Time
+	maxEntries int
 }
 
 func NewRateLimiter() *RateLimiter {
-	l := &RateLimiter{hits: make(map[string][]time.Time)}
+	l := &RateLimiter{
+		hits:       make(map[string][]time.Time),
+		maxEntries: maxRateLimiterEntries,
+	}
 	go l.gc()
 	return l
 }
@@ -50,7 +58,26 @@ func (l *RateLimiter) Allow(key string, max int, window time.Duration) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	q := l.hits[key]
+	limitMax := l.maxEntries
+	if limitMax <= 0 {
+		limitMax = maxRateLimiterEntries
+	}
+
+	q, exists := l.hits[key]
+	if !exists && len(l.hits) >= limitMax {
+		// Capacity reached: perform an immediate eviction pass of expired entries
+		cutoffOld := now.Add(-maxRateLimitWindow)
+		for k, ts := range l.hits {
+			if len(ts) == 0 || ts[len(ts)-1].Before(cutoffOld) {
+				delete(l.hits, k)
+			}
+		}
+		// If still at or above capacity, deny new keys to prevent OOM
+		if len(l.hits) >= limitMax {
+			return false
+		}
+	}
+
 	kept := q[:0]
 	for _, ts := range q {
 		if ts.After(cutoff) {

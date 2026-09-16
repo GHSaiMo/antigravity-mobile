@@ -51,6 +51,21 @@ func signalAntigravity(sig syscall.Signal) {
 	}
 }
 
+var allowedQuitAppNames = map[string]bool{
+	antigravityAppName:    true,
+	antigravityIDEAppName: true,
+}
+
+// quitAppDarwin safely tells a whitelisted application to quit via osascript.
+// It enforces an explicit allowlist to prevent arbitrary AppleScript injection.
+func quitAppDarwin(name string) error {
+	if !allowedQuitAppNames[name] {
+		return fmt.Errorf("application %q is not in the allowed quit list", name)
+	}
+	script := fmt.Sprintf("tell application %q to quit", name)
+	return exec.Command("osascript", "-e", script).Run()
+}
+
 // quitRunningAntigravity stops the live Antigravity app so Cockpit can inject
 // tokens into a cold profile. Cockpit's own closer looks at
 // "Application Support/Antigravity IDE", which misses the running
@@ -64,8 +79,7 @@ func quitRunningAntigravity() error {
 	log.Printf("[Cockpit] Quitting Antigravity before account switch")
 	if runtime.GOOS == "darwin" {
 		for _, name := range []string{antigravityAppName, antigravityIDEAppName} {
-			script := fmt.Sprintf("tell application %q to quit", name)
-			_ = exec.Command("osascript", "-e", script).Run()
+			_ = quitAppDarwin(name)
 		}
 	}
 	if waitUntilAntigravityExited(8 * time.Second) {

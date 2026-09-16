@@ -162,6 +162,8 @@ remotePort = %d
 	tmpFile.Close()
 
 	common, proxyCfgs, visitorCfgs, _, err := config.LoadClientConfig(tmpPath, true)
+	// Purge temporary config file containing token from disk immediately after loading into memory
+	_ = os.Remove(tmpPath)
 	if err != nil {
 		return fmt.Errorf("load client config: %w", err)
 	}

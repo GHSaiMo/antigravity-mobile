@@ -3,6 +3,7 @@ package auth
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -183,6 +184,7 @@ func (h *AuthHandler) HandlePair(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.limiter != nil && !h.limiter.Allow("pair:"+CleanIP(r.RemoteAddr), 8, time.Minute) {
+		log.Printf("[AUDIT:RATE_LIMIT] action=pair ip=%s", CleanIP(r.RemoteAddr))
 		w.Header().Set("Retry-After", "60")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusTooManyRequests)
@@ -200,6 +202,7 @@ func (h *AuthHandler) HandlePair(w http.ResponseWriter, r *http.Request) {
 
 	// Validate and consume code immediately (prevent replay)
 	if !h.pairingMgr.ValidateAndConsume(req.PairingCode) {
+		log.Printf("[AUDIT:PAIR_FAILURE] reason=invalid_or_expired_code ip=%s", CleanIP(r.RemoteAddr))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(map[string]string{"error": "invalid or expired pairing code"})
@@ -264,6 +267,7 @@ func (h *AuthHandler) HandlePair(w http.ResponseWriter, r *http.Request) {
 // HandleDevices handles GET /api/v1/devices and DELETE /api/v1/devices/{id}.
 func (h *AuthHandler) HandleDevices(w http.ResponseWriter, r *http.Request) {
 	if !h.isAuthorizedAdmin(r) {
+		log.Printf("[AUDIT:AUTH_FAILURE] action=devices_management ip=%s path=%s", CleanIP(r.RemoteAddr), r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
@@ -336,6 +340,7 @@ func (h *AuthHandler) HandleNewPairingSession(w http.ResponseWriter, r *http.Req
 	}
 
 	if h.limiter != nil && !h.limiter.Allow("session:"+CleanIP(r.RemoteAddr), 5, time.Minute) {
+		log.Printf("[AUDIT:RATE_LIMIT] action=session ip=%s", CleanIP(r.RemoteAddr))
 		w.Header().Set("Retry-After", "60")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusTooManyRequests)
@@ -344,6 +349,7 @@ func (h *AuthHandler) HandleNewPairingSession(w http.ResponseWriter, r *http.Req
 	}
 
 	if !h.isAuthorizedAdmin(r) {
+		log.Printf("[AUDIT:AUTH_FAILURE] action=create_pairing_session ip=%s", CleanIP(r.RemoteAddr))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		msg := "unauthorized"
@@ -441,6 +447,7 @@ func (h *AuthHandler) HandleWSTicket(w http.ResponseWriter, r *http.Request) {
 
 	// SEC-5: Rate-limit ticket issuance to 60 per minute per IP.
 	if h.limiter != nil && !h.limiter.Allow("wsticket:"+CleanIP(r.RemoteAddr), 60, time.Minute) {
+		log.Printf("[AUDIT:RATE_LIMIT] action=wsticket ip=%s", CleanIP(r.RemoteAddr))
 		w.Header().Set("Retry-After", "60")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusTooManyRequests)
@@ -450,6 +457,7 @@ func (h *AuthHandler) HandleWSTicket(w http.ResponseWriter, r *http.Request) {
 
 	token := ExtractToken(r)
 	if token == "" {
+		log.Printf("[AUDIT:AUTH_FAILURE] action=issue_wsticket reason=missing_token ip=%s", CleanIP(r.RemoteAddr))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized: missing token"})
@@ -458,6 +466,7 @@ func (h *AuthHandler) HandleWSTicket(w http.ResponseWriter, r *http.Request) {
 
 	dev, ok := h.store.ValidateToken(token)
 	if !ok || dev == nil {
+		log.Printf("[AUDIT:AUTH_FAILURE] action=issue_wsticket reason=invalid_token ip=%s", CleanIP(r.RemoteAddr))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized: invalid token"})

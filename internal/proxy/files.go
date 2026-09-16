@@ -84,7 +84,11 @@ func ResolveLocalFilePath(rawURI, cascadeID string) (string, error) {
 
 	// 6. Absolute path on local filesystem
 	if filepath.IsAbs(clean) {
-		return filepath.Clean(clean), nil
+		cleanPath := filepath.Clean(clean)
+		if !IsSafeFilePath(cleanPath) {
+			return "", fmt.Errorf("access to file is restricted")
+		}
+		return cleanPath, nil
 	}
 
 	// 7. If relative path and cascadeID is provided, check brain directory first
@@ -92,12 +96,19 @@ func ResolveLocalFilePath(rawURI, cascadeID string) (string, error) {
 		planPath, err := joinUnder(filepath.Join(home, ".gemini", "antigravity", "brain"), filepath.Join(cascadeID, clean))
 		if err == nil {
 			if _, err := os.Stat(planPath); err == nil {
+				if !IsSafeFilePath(planPath) {
+					return "", fmt.Errorf("access to file is restricted")
+				}
 				return planPath, nil
 			}
 		}
 	}
 
-	return filepath.Clean(clean), nil
+	cleanPath := filepath.Clean(clean)
+	if !IsSafeFilePath(cleanPath) {
+		return "", fmt.Errorf("access to file is restricted")
+	}
+	return cleanPath, nil
 }
 
 func joinUnder(root, extra string) (string, error) {
@@ -172,6 +183,7 @@ func IsSafeFilePath(path string) bool {
 		"/Library/Application Support/",
 		"/.kube/", "/.config/gcloud/",
 		"/.antigravity-mobile/",
+		"/.acme.sh/", "/.lego/", "/.certbot/",
 	}
 	for _, sd := range sensitiveDirs {
 		if strings.Contains(slashPath, sd) || strings.HasSuffix(slashPath, strings.TrimSuffix(sd, "/")) {
@@ -186,6 +198,8 @@ func IsSafeFilePath(path string) bool {
 		".bash_history", ".zsh_history",
 		"oauth_creds.json", "jetski-standalone-oauth-token", "google_accounts.json",
 		"auth_store.json", "credentials.db", "credentials.json",
+		"server.key", "client.key", "ca.key", "tls.key", "ssl.key", "privkey.key",
+		"privkey.pem", "domain.key", "host.key", "cert.key", "root.key",
 	}
 	for _, s := range sensitiveNames {
 		if base == s || strings.HasPrefix(base, ".env.") {
@@ -201,9 +215,16 @@ func IsSafeFilePath(path string) bool {
 			return false
 		}
 	}
-	if strings.HasSuffix(base, ".key") && (strings.Contains(base, "id_") ||
-		strings.Contains(base, "private") || strings.Contains(base, "secret")) {
-		return false
+	if strings.HasSuffix(base, ".key") {
+		sensitiveKeyKeywords := []string{
+			"id_", "private", "secret", "tls", "ssl", "server", "client",
+			"cert", "ca", "rsa", "ecdsa", "ed25519", "dsa", "priv", "domain", "host",
+		}
+		for _, kw := range sensitiveKeyKeywords {
+			if strings.Contains(base, kw) {
+				return false
+			}
+		}
 	}
 
 	for _, prefix := range AllowedWorkspaceRoots() {
@@ -216,6 +237,18 @@ func IsSafeFilePath(path string) bool {
 
 func openRegularNoFollow(path string) (*os.File, error) {
 	return os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+}
+
+// isPrivateKeyFileHeader probes the start of a regular file to detect PEM/OpenSSH private key banners.
+func isPrivateKeyFileHeader(f *os.File) bool {
+	buf := make([]byte, 256)
+	n, err := f.ReadAt(buf, 0)
+	if err != nil && err != io.EOF {
+		return false
+	}
+	sample := string(buf[:n])
+	return strings.Contains(sample, "-----BEGIN ") ||
+		strings.Contains(sample, "PRIVATE KEY")
 }
 
 // GetFileContent retrieves the file content and companion metadata if present.
@@ -241,6 +274,9 @@ func GetFileContent(rawURI, cascadeID string) (*FileContentResult, error) {
 		return nil, fmt.Errorf("file not found")
 	}
 	defer f.Close()
+	if strings.HasSuffix(strings.ToLower(filePath), ".key") && isPrivateKeyFileHeader(f) {
+		return nil, fmt.Errorf("access to file is restricted")
+	}
 	fi, err := f.Stat()
 	if err != nil {
 		return nil, fmt.Errorf("file not found")
@@ -344,6 +380,11 @@ func (p *Proxy) HandleFileRaw(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer f.Close()
+	if strings.HasSuffix(strings.ToLower(filePath), ".key") && isPrivateKeyFileHeader(f) {
+		log.Printf("[Files] denied raw download of private key header in %s", filePath)
+		http.Error(w, "access to file is restricted", http.StatusForbidden)
+		return
+	}
 	fi, err := f.Stat()
 	if err != nil {
 		http.Error(w, "file not found", http.StatusNotFound)

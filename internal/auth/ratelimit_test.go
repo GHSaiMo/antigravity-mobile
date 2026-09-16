@@ -29,3 +29,27 @@ func TestRateLimiterWindowExpiry(t *testing.T) {
 		t.Fatal("after window should be allowed again")
 	}
 }
+
+func TestRateLimiterMaxEntriesCapacity(t *testing.T) {
+	l := NewRateLimiter()
+	l.maxEntries = 5 // low limit for testing
+
+	// Add 5 distinct keys
+	for i := 0; i < 5; i++ {
+		key := "ip:" + string(rune('a'+i))
+		if !l.Allow(key, 10, time.Minute) {
+			t.Fatalf("key %s should be allowed under capacity", key)
+		}
+	}
+
+	// 6th key exceeds capacity when no keys expired -> should be denied
+	if l.Allow("ip:z_exceed", 10, time.Minute) {
+		t.Fatal("new key exceeding maxEntries should be denied")
+	}
+
+	// Existing keys within capacity should still be allowed if quota permits
+	if !l.Allow("ip:a", 10, time.Minute) {
+		t.Fatal("existing key should still proceed")
+	}
+}
+

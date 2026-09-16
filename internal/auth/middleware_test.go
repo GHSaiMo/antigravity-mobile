@@ -199,10 +199,14 @@ func TestIsWhitelistedPath(t *testing.T) {
 		{"/gateway/cascade/touch", false},
 		{"/gateway/cascade/invalidate", false},
 		{"/api/v1/auth/pair", true},
+		{"/api/v1/auth/session", true},
+		{"/api/v1/auth/ws-ticket", true},
 		{"/api/v1/devices", true},
 		{"/api/v1/devices/", true},
 		{"/api/v1/devices/dev-123", true},
-		// Paths that should NOT match
+		// Paths that should NOT match (M-5 fix)
+		{"/api/v1/auth/fake", false},
+		{"/api/v1/auth/bypass", false},
 		{"/api/v1/devices_bypass", false},
 		{"/api/v1/devices_unauthorized", false},
 		{"/codeium.cascade.test", false},
@@ -381,4 +385,24 @@ func TestIsListenAddrLoopback(t *testing.T) {
 		t.Errorf("loopback listen addrs must be detected")
 	}
 }
+
+func TestSecurityHeadersMiddlewarePermissionsPolicy(t *testing.T) {
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := SecurityHeadersMiddleware(next)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	policy := rr.Header().Get("Permissions-Policy")
+	if policy == "" {
+		t.Errorf("expected Permissions-Policy header to be present")
+	}
+	if policy != "camera=(), microphone=(), geolocation=()" {
+		t.Errorf("unexpected Permissions-Policy: %q", policy)
+	}
+}
+
 

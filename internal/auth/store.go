@@ -51,10 +51,11 @@ type AuthStore struct {
 }
 
 func getTokenSalt() string {
-	if s := strings.TrimSpace(os.Getenv("AUTH_SALT")); s != "" {
-		return s
-	}
 	saltOnce.Do(func() {
+		if s := strings.TrimSpace(os.Getenv("AUTH_SALT")); s != "" {
+			cachedSalt = s
+			return
+		}
 		cachedSalt = loadOrCreateAuthSalt("")
 	})
 	// S7: if salt is empty (rand.Read failed), return "" so HashToken can surface the failure.
@@ -134,6 +135,10 @@ func NewAuthStore(filePath string) (*AuthStore, error) {
 	}
 
 	saltOnce.Do(func() {
+		if s := strings.TrimSpace(os.Getenv("AUTH_SALT")); s != "" {
+			cachedSalt = s
+			return
+		}
 		cachedSalt = loadOrCreateAuthSalt(resolved)
 	})
 
