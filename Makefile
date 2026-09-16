@@ -1,4 +1,4 @@
-.PHONY: build run test clean tmux-start tmux-stop pair
+.PHONY: build run test clean tmux-start tmux-stop pair list clear clear-all
 
 # Build the unified single binary with embedded web assets
 build:
@@ -66,4 +66,21 @@ tmux-stop:
 # Display a fresh pairing QR code and URI in the terminal
 pair:
 	@./scripts/pair.sh
+
+# List all paired mobile devices (works online & offline)
+list:
+	@./scripts/devices-list.sh
+
+# Clear paired devices (supports: make clear all, make clear-all, make clear)
+clear-all:
+	@./scripts/devices-clear.sh all
+
+clear:
+	@./scripts/devices-clear.sh $(if $(DEVICE),$(DEVICE),$(filter-out clear,$(MAKECMDGOALS)))
+
+# Prevent make error when user executes `make clear all`
+ifeq (clear,$(firstword $(MAKECMDGOALS)))
+  all:
+	@:
+endif
 

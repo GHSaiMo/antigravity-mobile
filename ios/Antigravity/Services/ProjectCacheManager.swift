@@ -62,6 +62,9 @@ public final class ProjectCacheManager: @unchecked Sendable {
     /// Asynchronously fetches upstream projects from the gateway and saves them to local cache.
     @discardableResult
     public func fetchAndCacheProjects(baseURL: URL? = nil) async -> [ProjectItem] {
+        guard AppSettings.shared.isPaired else {
+            return loadProjects()
+        }
         guard let url = baseURL ?? AppSettings.shared.gatewayURL else {
             return loadProjects()
         }

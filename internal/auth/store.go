@@ -395,6 +395,21 @@ func (s *AuthStore) RemoveDevice(deviceID string) error {
 	return s.save()
 }
 
+// ClearAll removes all paired devices. Returns the number of removed devices.
+func (s *AuthStore) ClearAll() (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	count := len(s.devices)
+	s.devices = make(map[string]PairedDevice)
+	s.tokenMap = make(map[string]string)
+
+	if err := s.save(); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 // HasDevices returns whether any devices are currently paired.
 func (s *AuthStore) HasDevices() bool {
 	s.mu.RLock()

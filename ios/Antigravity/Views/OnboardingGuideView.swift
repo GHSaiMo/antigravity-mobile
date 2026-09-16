@@ -19,23 +19,17 @@ public struct OnboardingGuideView: View {
             VStack(spacing: 28) {
                 // Header & Branding
                 VStack(spacing: 12) {
-                    ZStack {
-                        Circle()
-                            .fill(
-                                LinearGradient(
-                                    colors: [Color.indigo.opacity(0.8), Color.purple.opacity(0.8)],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                            .frame(width: 80, height: 80)
-                            .shadow(color: Color.indigo.opacity(0.3), radius: 12, x: 0, y: 6)
-                        
-                        Image(systemName: "sparkles")
-                            .font(.system(size: 38, weight: .semibold))
-                            .foregroundColor(.white)
-                    }
-                    .padding(.top, 24)
+                    Image("AppLogo")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 80, height: 80)
+                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                        )
+                        .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
+                        .padding(.top, 24)
                     
                     Text("欢迎使用 Antigravity")
                         .font(.system(size: 26, weight: .bold))

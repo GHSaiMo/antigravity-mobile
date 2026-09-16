@@ -117,6 +117,9 @@ func TestAuthStore_LegacyTokenCompatibility(t *testing.T) {
 	if dev.DeviceID != "dev_legacy_01" {
 		t.Errorf("expected device ID dev_legacy_01, got %s", dev.DeviceID)
 	}
+
+	// Wait for background in-place migration goroutine to finish writing
+	time.Sleep(150 * time.Millisecond)
 }
 
 func TestAuthStore_TokenRotation(t *testing.T) {
@@ -159,3 +162,59 @@ func TestAuthStore_TokenRotation(t *testing.T) {
 		t.Errorf("expected new token to be valid after rotation")
 	}
 }
+
+func TestAuthStore_ClearAll(t *testing.T) {
+	tempDir := t.TempDir()
+	storePath := filepath.Join(tempDir, "auth_store_clear.json")
+
+	store, err := NewAuthStore(storePath)
+	if err != nil {
+		t.Fatalf("failed to create auth store: %v", err)
+	}
+
+	for i := 1; i <= 3; i++ {
+		token := "tok_device_" + string(rune('0'+i))
+		dev := PairedDevice{
+			DeviceID:   "dev_0" + string(rune('0'+i)),
+			DeviceName: "Phone " + string(rune('0'+i)),
+			Platform:   "ios",
+			TokenHash:  HashToken(token),
+			CreatedAt:  time.Now(),
+		}
+		if err := store.AddDevice(dev); err != nil {
+			t.Fatalf("failed to add device: %v", err)
+		}
+	}
+
+	if len(store.ListDevices()) != 3 {
+		t.Fatalf("expected 3 devices, got %d", len(store.ListDevices()))
+	}
+	if !store.HasDevices() {
+		t.Fatalf("expected HasDevices to be true")
+	}
+
+	// Test ClearAll
+	cleared, err := store.ClearAll()
+	if err != nil {
+		t.Fatalf("ClearAll failed: %v", err)
+	}
+	if cleared != 3 {
+		t.Errorf("expected cleared count 3, got %d", cleared)
+	}
+	if len(store.ListDevices()) != 0 {
+		t.Errorf("expected 0 devices after ClearAll, got %d", len(store.ListDevices()))
+	}
+	if store.HasDevices() {
+		t.Errorf("expected HasDevices to be false after ClearAll")
+	}
+
+	// Verify persistence
+	store2, err := NewAuthStore(storePath)
+	if err != nil {
+		t.Fatalf("failed to reload auth store: %v", err)
+	}
+	if len(store2.ListDevices()) != 0 {
+		t.Errorf("expected 0 devices in reloaded store, got %d", len(store2.ListDevices()))
+	}
+}
+

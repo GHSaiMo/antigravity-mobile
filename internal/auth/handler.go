@@ -286,10 +286,27 @@ func (h *AuthHandler) HandleDevices(w http.ResponseWriter, r *http.Request) {
 		if targetID == "" {
 			targetID = r.URL.Query().Get("id")
 		}
+
+		if targetID == "all" || r.URL.Query().Get("all") == "true" {
+			count, err := h.store.ClearAll()
+			if err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusInternalServerError)
+				json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{
+				"status":  "cleared",
+				"cleared": count,
+			})
+			return
+		}
+
 		if targetID == "" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "device_id is required"})
+			json.NewEncoder(w).Encode(map[string]string{"error": "device_id is required, or use id=all"})
 			return
 		}
 

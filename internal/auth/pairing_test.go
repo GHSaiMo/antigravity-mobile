@@ -317,3 +317,59 @@ func TestAuthHandler_GetEndpoints_SSLOmitsIPLiterals(t *testing.T) {
 		t.Fatalf("unexpected endpoint %s", endpoints[0].URL)
 	}
 }
+
+func TestAuthHandler_HandleDevices_ClearAll(t *testing.T) {
+	t.Setenv("ADMIN_TOKEN", "test-admin-secret")
+	store, err := NewAuthStore(t.TempDir() + "/auth.json")
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	pm := NewPairingManager()
+	h := NewAuthHandler(store, pm, "127.0.0.1", 58900, false)
+
+	// Add 2 devices
+	_ = store.AddDevice(PairedDevice{DeviceID: "dev_1", DeviceName: "Phone 1"})
+	_ = store.AddDevice(PairedDevice{DeviceID: "dev_2", DeviceName: "Phone 2"})
+
+	// 1. GET /api/v1/devices
+	reqGet := httptest.NewRequest(http.MethodGet, "/api/v1/devices", nil)
+	reqGet.Header.Set("Authorization", "Bearer test-admin-secret")
+	rrGet := httptest.NewRecorder()
+	h.HandleDevices(rrGet, reqGet)
+	if rrGet.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rrGet.Code, rrGet.Body.String())
+	}
+	var devList []PairedDevice
+	if err := json.Unmarshal(rrGet.Body.Bytes(), &devList); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(devList) != 2 {
+		t.Fatalf("expected 2 devices, got %d", len(devList))
+	}
+
+	// 2. DELETE /api/v1/devices/all
+	reqDel := httptest.NewRequest(http.MethodDelete, "/api/v1/devices/all", nil)
+	reqDel.Header.Set("Authorization", "Bearer test-admin-secret")
+	rrDel := httptest.NewRecorder()
+	h.HandleDevices(rrDel, reqDel)
+	if rrDel.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rrDel.Code, rrDel.Body.String())
+	}
+	var delResp map[string]any
+	if err := json.Unmarshal(rrDel.Body.Bytes(), &delResp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if delResp["status"] != "cleared" || delResp["cleared"].(float64) != 2 {
+		t.Fatalf("unexpected delete resp: %+v", delResp)
+	}
+
+	// 3. GET /api/v1/devices should now be empty
+	rrGet2 := httptest.NewRecorder()
+	h.HandleDevices(rrGet2, reqGet)
+	var devList2 []PairedDevice
+	_ = json.Unmarshal(rrGet2.Body.Bytes(), &devList2)
+	if len(devList2) != 0 {
+		t.Fatalf("expected 0 devices after clear, got %d", len(devList2))
+	}
+}
+

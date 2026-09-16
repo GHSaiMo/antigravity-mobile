@@ -177,7 +177,10 @@ antigravity-mobile/
 │       └── Views/              # 会话列表、聊天界面、配额看板、扫码配对、卡片式交互
 ├── scripts/
 │   ├── tmux-start.sh           # 后台守护进程启动脚本
-│   └── tmux-stop.sh            # 后台守护进程终止脚本
+│   ├── tmux-stop.sh            # 后台守护进程终止脚本
+│   ├── pair.sh                 # 终端生成与打印配对二维码与链接
+│   ├── devices-list.sh         # 查看已配对设备列表 (支持在线/离线双模)
+│   └── devices-clear.sh        # 清除已配对设备 (支持安全二次确认)
 └── logs/
     └── .gitkeep                # 运行时日志目录
 ```
@@ -211,6 +214,12 @@ tail -f logs/gateway.log
 
 # 随时重新在终端生成并打印配对二维码与配对链接
 make pair
+
+# 查看所有已配对设备列表（支持网关在线实时或离线读取）
+make list
+
+# 清除所有已配对设备（支持 make clear all 或 make clear-all，带二次安全确认）
+make clear all
 
 # 停止后台服务
 make tmux-stop

@@ -92,6 +92,7 @@ public final class ConversationListViewModel {
     }
     
     public func startAutoRefresh() {
+        guard settings.isPaired else { return }
         guard pollTask == nil else { return }
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -99,6 +100,7 @@ public final class ConversationListViewModel {
                 let delaySeconds: UInt64 = hasRunning ? 4 : 10
                 try? await Task.sleep(nanoseconds: delaySeconds * 1_000_000_000)
                 guard let self, !Task.isCancelled else { break }
+                guard self.settings.isPaired else { break }
                 await self.fetchConversations(isBackgroundPoll: true)
             }
         }
@@ -118,6 +120,10 @@ public final class ConversationListViewModel {
                 self.conversations = drafts + cached
                 self.cacheManager.prewarmSessions(for: cached.prefix(15).map(\.id))
             }
+        }
+        
+        guard settings.isPaired else {
+            return
         }
         
         guard let url = settings.serverURL else {
@@ -185,6 +191,7 @@ public final class ConversationListViewModel {
     
     @MainActor
     public func fetchQuotas(force: Bool = false) async {
+        guard settings.isPaired else { return }
         let now = Date()
         if !force && now.timeIntervalSince(lastQuotaFetchTime) < quotaRefreshInterval && quotaResponse != nil {
             return

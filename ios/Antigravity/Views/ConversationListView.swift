@@ -121,12 +121,14 @@ public struct ConversationListView: View {
             }
             .onAppear {
                 viewModel.reloadFromCache()
-                viewModel.startAutoRefresh()
-                Task {
-                    await viewModel.fetchConversations(isBackgroundPoll: !viewModel.conversations.isEmpty)
-                }
-                Task {
-                    await ProjectCacheManager.shared.fetchAndCacheProjects()
+                if AppSettings.shared.isPaired {
+                    viewModel.startAutoRefresh()
+                    Task {
+                        await viewModel.fetchConversations(isBackgroundPoll: !viewModel.conversations.isEmpty)
+                    }
+                    Task {
+                        await ProjectCacheManager.shared.fetchAndCacheProjects()
+                    }
                 }
             }
             .onDisappear {
@@ -177,7 +179,9 @@ public struct ConversationListView: View {
             .sheet(isPresented: $showQRScanner) {
                 QRScannerView { _ in
                     Task {
+                        viewModel.startAutoRefresh()
                         await viewModel.fetchConversations()
+                        await ProjectCacheManager.shared.fetchAndCacheProjects()
                     }
                 }
             }
@@ -362,10 +366,12 @@ public struct ConversationListView: View {
     
     private func handleScenePhaseChange(_ newPhase: ScenePhase) {
         if newPhase == .active {
-            viewModel.startAutoRefresh()
-            Task {
-                await viewModel.resumeActive()
-                await ProjectCacheManager.shared.fetchAndCacheProjects()
+            if AppSettings.shared.isPaired {
+                viewModel.startAutoRefresh()
+                Task {
+                    await viewModel.resumeActive()
+                    await ProjectCacheManager.shared.fetchAndCacheProjects()
+                }
             }
         } else if newPhase == .background {
             viewModel.stopAutoRefresh()
@@ -373,16 +379,17 @@ public struct ConversationListView: View {
     }
     
     private func handleAppDidBecomeActive() {
-        viewModel.startAutoRefresh()
-        Task {
-            await viewModel.resumeActive()
-            await ProjectCacheManager.shared.fetchAndCacheProjects()
+        if AppSettings.shared.isPaired {
+            viewModel.startAutoRefresh()
+            Task {
+                await viewModel.resumeActive()
+                await ProjectCacheManager.shared.fetchAndCacheProjects()
+            }
         }
     }
     
     private func handleTokenRevoked() {
         AppSettings.shared.unpair()
-        showQRScanner = true
     }
     
     private var pendingPairingConfirmText: String {
@@ -399,7 +406,9 @@ public struct ConversationListView: View {
         pendingPairing = nil
         do {
             _ = try await PairingService.shared.pair(with: info)
+            viewModel.startAutoRefresh()
             await viewModel.fetchConversations()
+            await ProjectCacheManager.shared.fetchAndCacheProjects()
         } catch {
             pairingErrorMessage = error.localizedDescription
         }
