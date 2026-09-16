@@ -879,6 +879,112 @@ The current local time is: 2026-09-13T09:50:21+08:00.
 	}
 }
 
+func TestAnnotationTitleCache_TTL(t *testing.T) {
+	testID := "perf-test-annotation-cache"
+	defer func() {
+		ClearTrajectoryCache(testID)
+		home, _ := os.UserHomeDir()
+		_ = os.Remove(filepath.Join(home, ".gemini", "antigravity", "annotations", testID+".pbtxt"))
+	}()
+
+	writeAnnotationTitle(testID, "Initial Cached Title")
+	title1 := readAnnotationTitle(testID)
+	if title1 != "Initial Cached Title" {
+		t.Fatalf("expected 'Initial Cached Title', got %q", title1)
+	}
+
+	// Overwrite disk directly behind the cache's back
+	home, _ := os.UserHomeDir()
+	p := filepath.Join(home, ".gemini", "antigravity", "annotations", testID+".pbtxt")
+	_ = os.WriteFile(p, []byte("title: \"Direct Disk Title\"\n"), 0600)
+
+	// Within TTL, readAnnotationTitle should return cached title
+	title2 := readAnnotationTitle(testID)
+	if title2 != "Initial Cached Title" {
+		t.Fatalf("expected cached title 'Initial Cached Title', got %q", title2)
+	}
+
+	// Clearing cache should force read from disk
+	ClearTrajectoryCache(testID)
+	title3 := readAnnotationTitle(testID)
+	if title3 != "Direct Disk Title" {
+		t.Fatalf("expected refreshed disk title 'Direct Disk Title', got %q", title3)
+	}
+}
+
+func TestIsValidCascade_CacheTTL(t *testing.T) {
+	testID := "perf-test-valid-cascade"
+	home, _ := os.UserHomeDir()
+	brainDir := filepath.Join(home, ".gemini", "antigravity", "brain", testID)
+	_ = os.MkdirAll(brainDir, 0700)
+	defer func() {
+		_ = os.RemoveAll(brainDir)
+		InvalidateCascadeValidCache(testID)
+	}()
+
+	if !isValidCascade(testID) {
+		t.Fatalf("expected cascade to be valid")
+	}
+
+	// Remove directory behind cache
+	_ = os.RemoveAll(brainDir)
+
+	// Should still be valid from cache within TTL
+	if !isValidCascade(testID) {
+		t.Fatalf("expected cascade to be valid from cache")
+	}
+
+	// Invalidate cache
+	InvalidateCascadeValidCache(testID)
+
+	// Now should be invalid
+	if isValidCascade(testID) {
+		t.Fatalf("expected cascade to be invalid after cache invalidation")
+	}
+}
+
+func TestCheckAndRecordMessageDedup_LazyExpiry(t *testing.T) {
+	p := &Proxy{
+		msgDedup:     make(map[string]time.Time),
+		cascadeDedup: make(map[string]cascadeDedupEntry),
+	}
+
+	key := "test-msg-key"
+	if p.checkAndRecordMessageDedup(key, 50*time.Millisecond) {
+		t.Fatalf("first check should not be duplicate")
+	}
+	if !p.checkAndRecordMessageDedup(key, 50*time.Millisecond) {
+		t.Fatalf("second check within TTL should be duplicate")
+	}
+
+	time.Sleep(60 * time.Millisecond)
+
+	// After expiry, should not be duplicate and should reset
+	if p.checkAndRecordMessageDedup(key, 50*time.Millisecond) {
+		t.Fatalf("check after TTL should not be duplicate")
+	}
+}
+
+func TestCascadeDedup_LazyExpiry(t *testing.T) {
+	p := &Proxy{
+		msgDedup:     make(map[string]time.Time),
+		cascadeDedup: make(map[string]cascadeDedupEntry),
+	}
+
+	key := "test-cascade-key"
+	p.setCascadeDedup(key, "cascade-123")
+	if got := p.getCascadeDedup(key, 50*time.Millisecond); got != "cascade-123" {
+		t.Fatalf("expected cascade-123, got %q", got)
+	}
+
+	time.Sleep(60 * time.Millisecond)
+
+	// After expiry, getCascadeDedup should return empty string and lazy-expire
+	if got := p.getCascadeDedup(key, 50*time.Millisecond); got != "" {
+		t.Fatalf("expected empty string after expiry, got %q", got)
+	}
+}
+
 
 
 

@@ -167,6 +167,8 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 
 	lastFingerprint := ""
 	firstPush := true
+	cachedStreamTitle := streamTitle
+	lastTitleLookupTime := time.Time{}
 
 	// fetchAndSend does one poll + send cycle. Returns false if the connection should close.
 	fetchAndSend := func() bool {
@@ -188,9 +190,15 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 		}
 
 		details := p.ParseTrajectoryDetails(rawResp)
-		if details.Title == "" || details.Title == "未命名会话" {
+		if details.Title != "" && details.Title != "未命名会话" {
+			cachedStreamTitle = details.Title
+		} else if cachedStreamTitle != "" && cachedStreamTitle != "未命名会话" && cachedStreamTitle != "当前会话" {
+			details.Title = cachedStreamTitle
+		} else if firstPush || time.Since(lastTitleLookupTime) >= 2*time.Second {
+			lastTitleLookupTime = time.Now()
 			if t := p.lookupCascadeTitle(cascadeID, port, token); t != "" {
 				details.Title = t
+				cachedStreamTitle = t
 			}
 		}
 		if qm := p.GetCachedOrFetchPendingMessages(cascadeID, port, token); qm != nil {

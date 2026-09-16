@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -177,21 +178,78 @@ func (p *Proxy) ArbitrateCursor() *UnifiedCursor {
 	return nil
 }
 
+type cascadeValidCacheEntry struct {
+	valid     bool
+	checkedAt time.Time
+}
+
+var (
+	cascadeValidCacheMu sync.RWMutex
+	cascadeValidCache   = make(map[string]cascadeValidCacheEntry)
+)
+
+const (
+	validCascadeTTL   = 30 * time.Second
+	invalidCascadeTTL = 5 * time.Second
+)
+
+// InvalidateCascadeValidCache evicts a cascade ID from the validation cache.
+func InvalidateCascadeValidCache(cascadeID string) {
+	if cascadeID == "" {
+		return
+	}
+	cascadeValidCacheMu.Lock()
+	delete(cascadeValidCache, cascadeID)
+	cascadeValidCacheMu.Unlock()
+}
+
 // isValidCascade verifies that a cascade ID is not deleted, has a brain directory, and is not a ghost.
 func isValidCascade(cascadeID string) bool {
 	if cascadeID == "" || IsDeletedCascade(cascadeID) {
 		return false
 	}
+
+	cascadeValidCacheMu.RLock()
+	if entry, ok := cascadeValidCache[cascadeID]; ok {
+		ttl := validCascadeTTL
+		if !entry.valid {
+			ttl = invalidCascadeTTL
+		}
+		if time.Since(entry.checkedAt) < ttl {
+			cascadeValidCacheMu.RUnlock()
+			return entry.valid
+		}
+	}
+	cascadeValidCacheMu.RUnlock()
+
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return false
 	}
 	brainDir := filepath.Join(home, ".gemini", "antigravity", "brain", cascadeID)
 	fi, err := os.Stat(brainDir)
-	if err != nil || !fi.IsDir() {
-		return false
+	valid := err == nil && fi.IsDir()
+
+	cascadeValidCacheMu.Lock()
+	if len(cascadeValidCache) > 512 {
+		now := time.Now()
+		for k, v := range cascadeValidCache {
+			ttl := validCascadeTTL
+			if !v.valid {
+				ttl = invalidCascadeTTL
+			}
+			if now.Sub(v.checkedAt) > ttl {
+				delete(cascadeValidCache, k)
+			}
+		}
 	}
-	return true
+	cascadeValidCache[cascadeID] = cascadeValidCacheEntry{
+		valid:     valid,
+		checkedAt: time.Now(),
+	}
+	cascadeValidCacheMu.Unlock()
+
+	return valid
 }
 
 // parseAnnotationFile parses title and last_user_view_time from a .pbtxt file.

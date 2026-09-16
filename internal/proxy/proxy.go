@@ -64,9 +64,10 @@ type Proxy struct {
 	streamListenersMu sync.Mutex
 	streamListeners   map[string][]chan struct{}
 
-	msgDedupMu   sync.Mutex
-	msgDedup     map[string]time.Time
-	cascadeDedup map[string]cascadeDedupEntry
+	msgDedupMu     sync.Mutex
+	msgDedup       map[string]time.Time
+	cascadeDedupMu sync.Mutex
+	cascadeDedup   map[string]cascadeDedupEntry
 
 	cursorMu                  sync.RWMutex
 	mobileCascadeID           string
@@ -86,7 +87,10 @@ type cascadeDedupEntry struct {
 
 // cascadeIDRe is a strict allowlist for cascade IDs used in filesystem operations.
 // Cascade IDs are UUID-like strings: alphanumeric, hyphens, and underscores only.
-var cascadeIDRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$`)
+var (
+	cascadeIDRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$`)
+	verboseRPC  = os.Getenv("GATEWAY_VERBOSE_RPC") != "" || os.Getenv("GATEWAY_LOG_RPC") != ""
+)
 
 // shortCascadeID truncates a cascade ID for log redaction/sanitization.
 func shortCascadeID(id string) string {
@@ -498,7 +502,13 @@ func (p *Proxy) handleRpcProxy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	reqPath := strings.TrimPrefix(r.URL.Path, "/api")
-	log.Printf("[Proxy] RPC: %s %s", r.Method, reqPath)
+	if verboseRPC || (r.Method != http.MethodGet && (strings.HasSuffix(reqPath, "/SendUserCascadeMessage") ||
+		strings.HasSuffix(reqPath, "/StartCascade") ||
+		strings.HasSuffix(reqPath, "/DeleteCascadeTrajectory") ||
+		strings.HasSuffix(reqPath, "/DeleteAgentMessage") ||
+		strings.HasSuffix(reqPath, "/UpdateConversationAnnotations"))) {
+		log.Printf("[Proxy] RPC: %s %s", r.Method, reqPath)
+	}
 	if strings.HasSuffix(reqPath, "/SendUserCascadeMessage") && r.Method == http.MethodPost {
 		p.handleSendUserCascadeMessage(w, r, rp, reqPath, port, token)
 		return
@@ -574,7 +584,14 @@ func (p *Proxy) checkAndRecordMessageDedup(key string, ttl time.Duration) bool {
 		p.msgDedup = make(map[string]time.Time)
 	}
 	now := time.Now()
-	// Periodic cleanup of stale entries
+	if lastTime, exists := p.msgDedup[key]; exists {
+		if now.Sub(lastTime) < ttl {
+			return true // is duplicate within TTL
+		}
+		// Lazy expiry: remove stale key immediately
+		delete(p.msgDedup, key)
+	}
+	// Periodic cleanup of stale entries if map expands
 	if len(p.msgDedup) > 128 {
 		for k, t := range p.msgDedup {
 			if now.Sub(t) > 120*time.Second {
@@ -582,23 +599,25 @@ func (p *Proxy) checkAndRecordMessageDedup(key string, ttl time.Duration) bool {
 			}
 		}
 	}
-	if lastTime, exists := p.msgDedup[key]; exists {
-		if now.Sub(lastTime) < ttl {
-			return true // is duplicate within TTL
-		}
-	}
 	p.msgDedup[key] = now
 	return false
 }
 
 func (p *Proxy) getCascadeDedup(key string, ttl time.Duration) string {
-	p.msgDedupMu.Lock()
-	defer p.msgDedupMu.Unlock()
+	p.cascadeDedupMu.Lock()
+	defer p.cascadeDedupMu.Unlock()
 	if p.cascadeDedup == nil {
 		p.cascadeDedup = make(map[string]cascadeDedupEntry)
 		return ""
 	}
 	now := time.Now()
+	if entry, exists := p.cascadeDedup[key]; exists {
+		if now.Sub(entry.createdAt) < ttl {
+			return entry.cascadeID
+		}
+		// Lazy expiry
+		delete(p.cascadeDedup, key)
+	}
 	if len(p.cascadeDedup) > 64 {
 		for k, v := range p.cascadeDedup {
 			if now.Sub(v.createdAt) > 120*time.Second {
@@ -606,17 +625,12 @@ func (p *Proxy) getCascadeDedup(key string, ttl time.Duration) string {
 			}
 		}
 	}
-	if entry, exists := p.cascadeDedup[key]; exists {
-		if now.Sub(entry.createdAt) < ttl {
-			return entry.cascadeID
-		}
-	}
 	return ""
 }
 
 func (p *Proxy) setCascadeDedup(key string, cascadeID string) {
-	p.msgDedupMu.Lock()
-	defer p.msgDedupMu.Unlock()
+	p.cascadeDedupMu.Lock()
+	defer p.cascadeDedupMu.Unlock()
 	if p.cascadeDedup == nil {
 		p.cascadeDedup = make(map[string]cascadeDedupEntry)
 	}
@@ -706,7 +720,11 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 			for _, img := range images {
 				if imgMap, ok := img.(map[string]interface{}); ok {
 					if b64, ok := imgMap["base64Data"].(string); ok && len(b64) > 0 {
-						h := sha256.Sum256([]byte(b64))
+						prefix := b64
+						if len(prefix) > 1024 {
+							prefix = prefix[:1024]
+						}
+						h := sha256.Sum256([]byte(fmt.Sprintf("%d:%s", len(b64), prefix)))
 						textContent.WriteString(fmt.Sprintf(":img:%x", h[:8]))
 					}
 				}

@@ -753,18 +753,26 @@ func (p *Proxy) fetchUpstreamPendingMessages(cascadeID string, port int, token s
 		"initialExecutorMetadatasPageBounds":  map[string]int{"startIndex": 0, "endIndexExclusive": 0},
 	}
 
-	reqBytes, err := json.Marshal(reqPayload)
-	if err != nil {
+	buf := GetSmallBuffer()
+	defer PutSmallBuffer(buf)
+
+	// Reserve 5 bytes for Connect frame header
+	var header [5]byte
+	header[0] = 0
+	buf.Write(header[:])
+
+	if err := json.NewEncoder(buf).Encode(reqPayload); err != nil {
 		return nil, err
 	}
+	payloadLen := buf.Len() - 5
+	binary.BigEndian.PutUint32(buf.Bytes()[1:5], uint32(payloadLen))
 
-	envelope := encodeConnectEnvelope(reqBytes)
 	url := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/StreamAgentStateUpdates", port)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(envelope))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(buf.Bytes()))
 	if err != nil {
 		return nil, err
 	}

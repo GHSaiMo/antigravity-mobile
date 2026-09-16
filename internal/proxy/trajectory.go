@@ -110,6 +110,17 @@ type metadataCacheEntry struct {
 	fetchedAt       time.Time
 }
 
+// annotationTitleCacheEntry caches the parsed title from an annotation .pbtxt file.
+type annotationTitleCacheEntry struct {
+	title     string
+	fetchedAt time.Time
+}
+
+const (
+	maxMetadataMapSize = 256
+	annotationCacheTTL = 5 * time.Second
+)
+
 // TrajectoryCache encapsulates all mutable trajectory-related state with proper synchronization.
 // It replaces scattered package-level vars, enabling clean lifecycle management and testability.
 type TrajectoryCache struct {
@@ -140,18 +151,24 @@ type TrajectoryCache struct {
 	// repeated os.ReadFile calls during the 250ms WebSocket stream polling loop.
 	metadataCache   map[string]*metadataCacheEntry
 	metadataCacheMu sync.RWMutex
+
+	// annotationTitleCache caches parsed .pbtxt annotation titles (TTL: 5s) to eliminate
+	// hot-path disk I/O during stream polling and status inquiries.
+	annotationTitleCache   map[string]*annotationTitleCacheEntry
+	annotationTitleCacheMu sync.RWMutex
 }
 
 // NewTrajectoryCache creates a new TrajectoryCache with initialized maps.
 func NewTrajectoryCache() *TrajectoryCache {
 	return &TrajectoryCache{
-		trajCache:       make(map[string]*trajectoryCacheEntry),
-		cascadeTitles:   make(map[string]string),
-		cascadeConfigs:  make(map[string]json.RawMessage),
-		cascadeModels:   make(map[string]string),
-		loadedCascades:  make(map[string]bool),
-		deletedCascades: make(map[string]time.Time),
-		metadataCache:   make(map[string]*metadataCacheEntry),
+		trajCache:            make(map[string]*trajectoryCacheEntry),
+		cascadeTitles:        make(map[string]string),
+		cascadeConfigs:       make(map[string]json.RawMessage),
+		cascadeModels:        make(map[string]string),
+		loadedCascades:       make(map[string]bool),
+		deletedCascades:      make(map[string]time.Time),
+		metadataCache:        make(map[string]*metadataCacheEntry),
+		annotationTitleCache: make(map[string]*annotationTitleCacheEntry),
 	}
 }
 
@@ -209,6 +226,20 @@ func RecordDeletedCascade(cascadeID string) {
 	if cascadeID == "" {
 		return
 	}
+	InvalidateCascadeValidCache(cascadeID)
+
+	defaultTrajCache.cascadeModelsMu.Lock()
+	if defaultTrajCache.cascadeModels != nil {
+		delete(defaultTrajCache.cascadeModels, cascadeID)
+	}
+	defaultTrajCache.cascadeModelsMu.Unlock()
+
+	defaultTrajCache.cascadeConfigsMu.Lock()
+	if defaultTrajCache.cascadeConfigs != nil {
+		delete(defaultTrajCache.cascadeConfigs, cascadeID)
+	}
+	defaultTrajCache.cascadeConfigsMu.Unlock()
+
 	defaultTrajCache.deletedCascadesMu.Lock()
 	defer defaultTrajCache.deletedCascadesMu.Unlock()
 	// PERF-2: evict expired tombstones when map grows too large.
@@ -735,10 +766,25 @@ func SanitizeTitle(raw string) string {
 		return ""
 	}
 
-	// Strip meta XML sections and tags
-	s = xmlMetaRegex.ReplaceAllString(s, "")
-	s = xmlTagRegex.ReplaceAllString(s, "")
-	s = strings.TrimSpace(s)
+	// Fast-path: strip XML metadata blocks if present
+	if strings.Contains(s, "<ADDITIONAL_METADATA>") || strings.Contains(s, "<USER_SETTINGS_CHANGE>") {
+		s = xmlMetaRegex.ReplaceAllString(s, "")
+		s = strings.TrimSpace(s)
+	}
+
+	// Bound input length before regex/line scanning since the maximum title is only 36 runes
+	if len(s) > 512 {
+		r := []rune(s)
+		if len(r) > 150 {
+			s = string(r[:150])
+		}
+	}
+
+	// Fast-path: only execute tag-stripping regex if '<' character exists
+	if strings.IndexByte(s, '<') >= 0 {
+		s = xmlTagRegex.ReplaceAllString(s, "")
+		s = strings.TrimSpace(s)
+	}
 
 	lines := strings.Split(s, "\n")
 	for _, l := range lines {
@@ -1380,6 +1426,17 @@ func SetCascadeModel(cascadeID, modelName string, cfg json.RawMessage) {
 		if defaultTrajCache.cascadeModels == nil {
 			defaultTrajCache.cascadeModels = make(map[string]string)
 		}
+		if len(defaultTrajCache.cascadeModels) > maxMetadataMapSize {
+			// Trim half of entries when bound is reached
+			count := 0
+			for k := range defaultTrajCache.cascadeModels {
+				delete(defaultTrajCache.cascadeModels, k)
+				count++
+				if count >= maxMetadataMapSize/2 {
+					break
+				}
+			}
+		}
 		defaultTrajCache.cascadeModels[cascadeID] = modelName
 		defaultTrajCache.cascadeModelsMu.Unlock()
 	}
@@ -1387,6 +1444,16 @@ func SetCascadeModel(cascadeID, modelName string, cfg json.RawMessage) {
 		defaultTrajCache.cascadeConfigsMu.Lock()
 		if defaultTrajCache.cascadeConfigs == nil {
 			defaultTrajCache.cascadeConfigs = make(map[string]json.RawMessage)
+		}
+		if len(defaultTrajCache.cascadeConfigs) > maxMetadataMapSize {
+			count := 0
+			for k := range defaultTrajCache.cascadeConfigs {
+				delete(defaultTrajCache.cascadeConfigs, k)
+				count++
+				if count >= maxMetadataMapSize/2 {
+					break
+				}
+			}
 		}
 		defaultTrajCache.cascadeConfigs[cascadeID] = cfg
 		defaultTrajCache.cascadeConfigsMu.Unlock()
@@ -1462,6 +1529,14 @@ func ClearTrajectoryCache(cascadeID string) {
 	defaultTrajCache.loadedCascadesMu.Lock()
 	delete(defaultTrajCache.loadedCascades, cascadeID)
 	defaultTrajCache.loadedCascadesMu.Unlock()
+
+	defaultTrajCache.annotationTitleCacheMu.Lock()
+	if defaultTrajCache.annotationTitleCache != nil {
+		delete(defaultTrajCache.annotationTitleCache, cascadeID)
+	}
+	defaultTrajCache.annotationTitleCacheMu.Unlock()
+
+	InvalidateCascadeValidCache(cascadeID)
 }
 
 func (p *Proxy) fetchUpstreamTrajectory(cascadeID string, port int, token string) (*upstreamTrajectoryResp, error) {
@@ -1506,20 +1581,51 @@ func readAnnotationTitle(cascadeID string) string {
 	if cascadeID == "" {
 		return ""
 	}
+
+	// 1. Check in-memory annotation title cache (TTL: 5s)
+	defaultTrajCache.annotationTitleCacheMu.RLock()
+	if entry, ok := defaultTrajCache.annotationTitleCache[cascadeID]; ok {
+		if time.Since(entry.fetchedAt) < annotationCacheTTL {
+			defaultTrajCache.annotationTitleCacheMu.RUnlock()
+			return entry.title
+		}
+	}
+	defaultTrajCache.annotationTitleCacheMu.RUnlock()
+
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
 	p := filepath.Join(home, ".gemini", "antigravity", "annotations", cascadeID+".pbtxt")
 	b, err := os.ReadFile(p)
-	if err != nil {
-		return ""
+	title := ""
+	if err == nil {
+		m := titleRegex.FindSubmatch(b)
+		if len(m) > 1 {
+			title = string(m[1])
+		}
 	}
-	m := titleRegex.FindSubmatch(b)
-	if len(m) > 1 {
-		return string(m[1])
+
+	// Update cache
+	defaultTrajCache.annotationTitleCacheMu.Lock()
+	if defaultTrajCache.annotationTitleCache == nil {
+		defaultTrajCache.annotationTitleCache = make(map[string]*annotationTitleCacheEntry)
 	}
-	return ""
+	if len(defaultTrajCache.annotationTitleCache) > maxMetadataMapSize {
+		cutoff := time.Now().Add(-annotationCacheTTL)
+		for k, v := range defaultTrajCache.annotationTitleCache {
+			if v.fetchedAt.Before(cutoff) {
+				delete(defaultTrajCache.annotationTitleCache, k)
+			}
+		}
+	}
+	defaultTrajCache.annotationTitleCache[cascadeID] = &annotationTitleCacheEntry{
+		title:     title,
+		fetchedAt: time.Now(),
+	}
+	defaultTrajCache.annotationTitleCacheMu.Unlock()
+
+	return title
 }
 
 func writeAnnotationTitle(cascadeID, title string) {
@@ -1538,16 +1644,26 @@ func writeAnnotationTitle(cascadeID, title string) {
 		content := fmt.Sprintf("title: %q\n", title)
 		// SEC-8: 0600 — annotation files contain conversation titles, owner-only.
 		_ = os.WriteFile(p, []byte(content), 0600)
-		return
-	}
-	s := string(b)
-	if titleRegex.MatchString(s) {
-		newContent := titleRegex.ReplaceAllString(s, fmt.Sprintf("title: %q", title))
-		_ = os.WriteFile(p, []byte(newContent), 0600)
 	} else {
-		newContent := fmt.Sprintf("title: %q\n%s", title, s)
-		_ = os.WriteFile(p, []byte(newContent), 0600)
+		s := string(b)
+		if titleRegex.MatchString(s) {
+			newContent := titleRegex.ReplaceAllString(s, fmt.Sprintf("title: %q", title))
+			_ = os.WriteFile(p, []byte(newContent), 0600)
+		} else {
+			newContent := fmt.Sprintf("title: %q\n%s", title, s)
+			_ = os.WriteFile(p, []byte(newContent), 0600)
+		}
 	}
+
+	// Immediately update annotationTitleCache
+	defaultTrajCache.annotationTitleCacheMu.Lock()
+	if defaultTrajCache.annotationTitleCache != nil {
+		defaultTrajCache.annotationTitleCache[cascadeID] = &annotationTitleCacheEntry{
+			title:     title,
+			fetchedAt: time.Now(),
+		}
+	}
+	defaultTrajCache.annotationTitleCacheMu.Unlock()
 }
 
 func (p *Proxy) lookupCascadeTitle(cascadeID string, port int, token string) string {
@@ -1565,25 +1681,54 @@ func (p *Proxy) lookupCascadeTitle(cascadeID string, port int, token string) str
 
 	if t := readAnnotationTitle(cascadeID); t != "" && t != "未命名会话" {
 		defaultTrajCache.cascadeTitlesMu.Lock()
+		if len(defaultTrajCache.cascadeTitles) > maxMetadataMapSize {
+			count := 0
+			for k := range defaultTrajCache.cascadeTitles {
+				delete(defaultTrajCache.cascadeTitles, k)
+				count++
+				if count >= maxMetadataMapSize/2 {
+					break
+				}
+			}
+		}
 		defaultTrajCache.cascadeTitles[cascadeID] = t
 		defaultTrajCache.cascadeTitlesMu.Unlock()
 		return t
 	}
 
 	if port > 0 {
-		summaries, err := p.fetchTrajectoriesSummaryWithTitles(port, token)
-		if err == nil && len(summaries) > 0 {
+		defaultTrajCache.cascadeTitlesMu.RLock()
+		lastFetch := defaultTrajCache.lastTitlesFetchTime
+		defaultTrajCache.cascadeTitlesMu.RUnlock()
+
+		// Rate limit: do not re-scan all trajectories if checked within the last 5 seconds
+		if time.Since(lastFetch) >= 5*time.Second {
+			summaries, err := p.fetchTrajectoriesSummaryWithTitles(port, token)
 			defaultTrajCache.cascadeTitlesMu.Lock()
 			defaultTrajCache.lastTitlesFetchTime = time.Now()
-			for cid, t := range summaries {
-				if t != "" && t != "未命名会话" {
-					defaultTrajCache.cascadeTitles[cid] = t
+			if err == nil && len(summaries) > 0 {
+				if len(defaultTrajCache.cascadeTitles) > maxMetadataMapSize {
+					count := 0
+					for k := range defaultTrajCache.cascadeTitles {
+						delete(defaultTrajCache.cascadeTitles, k)
+						count++
+						if count >= maxMetadataMapSize/2 {
+							break
+						}
+					}
 				}
-			}
-			newTitle := defaultTrajCache.cascadeTitles[cascadeID]
-			defaultTrajCache.cascadeTitlesMu.Unlock()
-			if newTitle != "" && newTitle != "未命名会话" {
-				return newTitle
+				for cid, t := range summaries {
+					if t != "" && t != "未命名会话" {
+						defaultTrajCache.cascadeTitles[cid] = t
+					}
+				}
+				newTitle := defaultTrajCache.cascadeTitles[cascadeID]
+				defaultTrajCache.cascadeTitlesMu.Unlock()
+				if newTitle != "" && newTitle != "未命名会话" {
+					return newTitle
+				}
+			} else {
+				defaultTrajCache.cascadeTitlesMu.Unlock()
 			}
 		}
 	}
@@ -1932,19 +2077,16 @@ func (p *Proxy) FetchRawCascadeSummaries() (map[string]map[string]interface{}, m
 		return nil, nil, fmt.Errorf("upstream status %d", resp.StatusCode)
 	}
 
-	var rawMap map[string]json.RawMessage
-	if err := json.NewDecoder(resp.Body).Decode(&rawMap); err != nil {
+	var envelope struct {
+		TrajectorySummaries map[string]map[string]interface{} `json:"trajectorySummaries"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&envelope); err != nil {
 		return nil, nil, err
 	}
 
-	summariesRaw, ok := rawMap["trajectorySummaries"]
-	if !ok {
-		return make(map[string]map[string]interface{}), make(map[string]bool), nil
-	}
-
-	var summaries map[string]map[string]interface{}
-	if err := json.Unmarshal(summariesRaw, &summaries); err != nil {
-		return nil, nil, err
+	summaries := envelope.TrajectorySummaries
+	if summaries == nil {
+		summaries = make(map[string]map[string]interface{})
 	}
 
 	runningSubagents := make(map[string]bool)
