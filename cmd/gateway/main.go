@@ -28,24 +28,39 @@ func main() {
 	// 0. Load .env configuration
 	config.LoadDotEnv()
 
-	// Default to dual-stack socket binding (default "" binds to all IPv4 and IPv6 interfaces); override with -host flag or GATEWAY_HOST env var
+	// ==============================================================================
+	// 启动项配置参数定义与中文说明
+	// 1. host: 监听主机/IP 地址。默认 "" 双栈监听本机所有 IPv4 与 IPv6 接口；设为 127.0.0.1 则仅限本机访问
 	defaultHost := ""
 	if envHost := os.Getenv("GATEWAY_HOST"); envHost != "" {
 		defaultHost = envHost
 	}
+
+	// 2. port: 网关服务 HTTP/WebSocket 监听端口，默认 58900 (可通过 GATEWAY_PORT 环境变量覆盖)
 	defaultPort := 58900
 	if envPort := os.Getenv("GATEWAY_PORT"); envPort != "" {
 		if p, err := strconv.Atoi(envPort); err == nil && p > 0 {
 			defaultPort = p
 		}
 	}
-	host := flag.String("host", defaultHost, "Host/IP for Mobile Gateway to listen on (default \"\" binds to all IPv4 and IPv6 interfaces)")
-	port := flag.Int("port", defaultPort, "Port for Mobile Gateway to listen on")
-	pollSec := flag.Int("poll", 5, "Polling interval in seconds for Antigravity instance discovery")
-	ddnsHost := flag.String("ddns", os.Getenv("DDNS_HOST"), "Public DDNS domain or IPv6 address for pairing QR code")
-	enableSSL := flag.Bool("ssl", os.Getenv("GATEWAY_SSL") == "1" || os.Getenv("GATEWAY_SSL") == "true", "Indicate SSL mode in pairing QR code")
-	tlsCert := flag.String("tls-cert", os.Getenv("TLS_CERT_FILE"), "Path to TLS certificate file for HTTPS (optional)")
-	tlsKey := flag.String("tls-key", os.Getenv("TLS_KEY_FILE"), "Path to TLS private key file for HTTPS (optional)")
+
+	// 3. qr: 是否在启动时在终端默认打印一次扫码配对二维码，默认 true (可通过 GATEWAY_QR 环境变量或 -qr=false 控制)
+	defaultQR := true
+	if envQR := os.Getenv("GATEWAY_QR"); envQR != "" {
+		if envQR == "0" || strings.ToLower(envQR) == "false" || strings.ToLower(envQR) == "no" {
+			defaultQR = false
+		}
+	}
+
+	// 命令行 Flags 定义与中文说明
+	host := flag.String("host", defaultHost, "网关监听的主机/IP 地址（默认 \"\" 双栈绑定所有 IPv4/IPv6 网卡，设为 127.0.0.1 仅限本机访问）")
+	port := flag.Int("port", defaultPort, "网关 HTTP/WebSocket 监听端口（默认 58900）")
+	printQR := flag.Bool("qr", defaultQR, "启动时是否在终端默认打印一次配对二维码（默认 true）")
+	pollSec := flag.Int("poll", 5, "探测本地 Antigravity 实例与健康检查的轮询间隔秒数（默认 5 秒）")
+	ddnsHost := flag.String("ddns", os.Getenv("DDNS_HOST"), "公网 DDNS 域名或固定 IPv6 地址，用于生成扫码配对链接及外部直连")
+	enableSSL := flag.Bool("ssl", os.Getenv("GATEWAY_SSL") == "1" || os.Getenv("GATEWAY_SSL") == "true", "是否开启 SSL/HTTPS 模式（默认 false，开启需配合 -tls-cert 与 -tls-key）")
+	tlsCert := flag.String("tls-cert", os.Getenv("TLS_CERT_FILE"), "HTTPS 服务 TLS 证书文件路径 (.cer/.crt/.pem)")
+	tlsKey := flag.String("tls-key", os.Getenv("TLS_KEY_FILE"), "HTTPS 服务 TLS 私钥文件路径 (.key)")
 	flag.Parse()
 
 	tunnelCfg := config.GetTunnelConfig()
@@ -78,8 +93,23 @@ func main() {
 		log.Printf("⚠️  Gateway listening on a non-loopback address without TLS. LAN HTTP is supported; do not advertise this port on the public Internet. Set TLS_CERT_FILE/TLS_KEY_FILE or GATEWAY_SSL=1 for public access.")
 	}
 
+	listenDesc := *host
+	if listenDesc == "" {
+		listenDesc = "0.0.0.0 / [::] (双栈绑定所有网络接口)"
+	}
 	log.Printf("==================================================")
-	log.Printf("🚀 Antigravity starting on %s:%d", *host, *port)
+	log.Printf("🚀 Antigravity Mobile Gateway 启动中...")
+	log.Printf("📋 启动项配置:")
+	log.Printf("   • 监听地址 (-host)     : %s", listenDesc)
+	log.Printf("   • 监听端口 (-port)     : %d", *port)
+	log.Printf("   • 实例轮询 (-poll)     : %d 秒", *pollSec)
+	log.Printf("   • 配对二维码 (-qr)     : %v", *printQR)
+	if *ddnsHost != "" {
+		log.Printf("   • 公网 DDNS (-ddns)    : %s", *ddnsHost)
+	}
+	if *enableSSL {
+		log.Printf("   • SSL/TLS 模式 (-ssl)  : 已启用 (证书: %s)", *tlsCert)
+	}
 	log.Printf("==================================================")
 
 	// 1. Initialize Inspector
@@ -182,12 +212,18 @@ func main() {
 		}
 	}
 
-	if !authStore.HasDevices() {
+	// 默认打印配对二维码（无论此前是否已有设备配对，均默认输出一次供新设备扫码接入，可通过 -qr=false 关闭）
+	if *printQR {
 		if initialSession, err := pairingMgr.GenerateSession(5 * time.Minute); err == nil {
+			if authStore.HasDevices() {
+				log.Printf("ℹ️  检测到已有 %d 台已配对设备，默认打印一次新配对二维码供新客户端接入（可通过 -qr=false 关闭）", len(authStore.ListDevices()))
+			}
 			auth.PrintPairingQRCode(qrHost, *port, initialSession.Code, *enableSSL, extraHosts...)
+		} else {
+			log.Printf("⚠️  无法生成初始配对二维码: %v", err)
 		}
 	} else {
-		log.Printf("ℹ️  Devices already paired — skipping startup QR. Run `make pair` or POST /api/v1/auth/session to mint a new code.")
+		log.Printf("ℹ️  已跳过启动配对二维码打印（已指定 -qr=false；如需配对可执行 `make pair`）")
 	}
 
 	// 4. Initialize Push Notification & Background Watcher
