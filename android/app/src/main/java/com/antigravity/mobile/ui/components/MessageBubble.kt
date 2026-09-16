@@ -209,7 +209,7 @@ fun SimpleMarkdownContent(
                 // Regular prose / paragraphs
                 if (block.isNotBlank()) {
                     Text(
-                        text = block.trim(),
+                        text = preprocessArrows(block.trim()),
                         color = colors.agentBubbleText,
                         fontSize = 15.sp,
                         lineHeight = 22.sp
@@ -219,3 +219,16 @@ fun SimpleMarkdownContent(
         }
     }
 }
+
+/**
+ * Preprocesses bare LaTeX arrow commands into native Unicode arrows in prose.
+ */
+private fun preprocessArrows(text: String): String {
+    if (!text.contains('\\')) return text
+    return text
+        .replace(Regex("""\\(?:to|rightarrow)\b"""), "→")
+        .replace(Regex("""\\(?:gets|leftarrow)\b"""), "←")
+        .replace(Regex("""\\(?:implies|Rightarrow)\b"""), "⇒")
+        .replace(Regex("""\\(?:iff|Leftrightarrow)\b"""), "⇔")
+}
+

@@ -265,24 +265,26 @@ public enum MathSymbolProcessor: Sendable {
             // Patterns are either simple like "\\\\alpha" (command: "alpha")
             // or parameterized like "\\\\mathbb\\{R\\}" (keep as regex for fallback)
             var cmd = pattern
-            // Remove leading backslash escapes: each regex "\\\\X" means literal "\X"
-            if cmd.hasPrefix(#"\\\\"#) {
-                cmd = String(cmd.dropFirst(2))
+            // Remove leading backslash escapes
+            while cmd.hasPrefix("\\") {
+                cmd = String(cmd.dropFirst())
             }
             // Remove trailing word boundary marker
-            if cmd.hasSuffix(#"\\b"#) {
+            if cmd.hasSuffix(#"\b"#) {
                 cmd = String(cmd.dropLast(2))
             }
             // Remove regex escapes for braces: "\\{" -> "{", "\\}" -> "}"
             cmd = cmd.replacingOccurrences(of: #"\\{"#, with: "{")
+                     .replacingOccurrences(of: #"\{"#, with: "{")
                      .replacingOccurrences(of: #"\\}"#, with: "}")
+                     .replacingOccurrences(of: #"\}"#, with: "}")
             dict[cmd] = replacement
         }
         return dict
     }()
     
     /// Commands that require word-boundary checks (short names that could be prefixes of longer words)
-    private static let wordBoundaryCommands: Set<String> = ["to", "gets", "le", "ge", "ne", "in", "ni", "empty"]
+    private static let wordBoundaryCommands: Set<String> = ["to", "gets", "le", "ge", "ne", "in", "ni", "empty", "sim"]
     
     /// Performs a single-pass scan replacing LaTeX \commands with Unicode symbols.
     /// Much faster than running 150+ regex replacements sequentially.
@@ -295,10 +297,10 @@ public enum MathSymbolProcessor: Sendable {
         var i = 0
         
         while i < chars.count {
-            if chars[i] == "\\" && i + 1 < chars.count && chars[i + 1].isLetter {
-                // Scan ahead to collect the full command name (letters only first part)
+            if chars[i] == "\\" && i + 1 < chars.count && chars[i + 1].isASCII && chars[i + 1].isLetter {
+                // Scan ahead to collect the full command name (ASCII letters only)
                 var j = i + 1
-                while j < chars.count && chars[j].isLetter { j += 1 }
+                while j < chars.count && chars[j].isASCII && chars[j].isLetter { j += 1 }
                 let cmdName = String(chars[(i + 1)..<j])
                 
                 // Check for parameterized commands like mathbb{R}, mathcal{L}, etc.
@@ -314,8 +316,8 @@ public enum MathSymbolProcessor: Sendable {
                 }
                 
                 if let replacement = symbolLookup[fullKey] {
-                    // Word-boundary check: for short commands, ensure next char is not a letter
-                    if wordBoundaryCommands.contains(fullKey) && j < chars.count && chars[j].isLetter {
+                    // Word-boundary check: for short commands, ensure next char is not an ASCII letter
+                    if wordBoundaryCommands.contains(fullKey) && j < chars.count && chars[j].isASCII && chars[j].isLetter {
                         // Not a word boundary match — output the backslash and continue
                         result.append(chars[i])
                         i += 1
