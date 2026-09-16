@@ -51,16 +51,18 @@ else
 fi
 
 # Parse CLI arguments
-FORCE=false
-if [ "${FORCE:-0}" = "1" ] || [ "${FORCE:-false}" = "true" ]; then
-    FORCE=true
-fi
+FORCE_FLAG=false
+case "${FORCE:-0}" in
+    1|true|TRUE|yes|YES)
+        FORCE_FLAG=true
+        ;;
+esac
 
 TARGET="all"
 for arg in "$@"; do
     case "$arg" in
         -f|--force)
-            FORCE=true
+            FORCE_FLAG=true
             ;;
         all|"")
             TARGET="all"
@@ -169,7 +171,7 @@ else:
 ' "${JSON_DATA}" "${TARGET}"
 
 # Prompt for confirmation if not forced
-if [ "${FORCE}" = false ]; then
+if [ "${FORCE_FLAG}" = false ]; then
     confirm=""
     prompt_msg="确认清除？[y/N]: "
     if [ "${TARGET}" = "all" ]; then
