@@ -434,8 +434,50 @@ function renderRoute() {
 
     // Connect real-time WebSocket stream
     connectStreamWs(activeCascadeId);
+  } else if (hash === "#draft") {
+    if (!activeDraftSession) {
+      activeDraftSession = { isPure: true, name: "新对话", path: "", uri: "", rawId: "outside-of-project" };
+    }
+    activeCascadeId = null;
+    closeActiveWs();
+    updatePendingInteraction(null, false);
+
+    convView.classList.add("pushed-left");
+    chatView.classList.add("active");
+
+    if (settingsBtn) settingsBtn.classList.add("hidden");
+    if (newBtn) newBtn.classList.add("hidden");
+    if (backBtn) backBtn.classList.remove("hidden");
+    if (inlineTitle) inlineTitle.classList.remove("hidden");
+    if (chatDot) chatDot.classList.add("hidden");
+
+    if (titleText) titleText.textContent = activeDraftSession.isPure ? "新对话" : activeDraftSession.name;
+    if (wsText) wsText.textContent = activeDraftSession.isPure ? "Chat" : `📁 ${activeDraftSession.name}`;
+
+    const streamEl = document.getElementById("messages-stream");
+    if (streamEl) {
+      streamEl.innerHTML = `
+        <div class="chat-empty-state">
+          <div class="chat-empty-icon">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path>
+            </svg>
+          </div>
+          <div class="chat-empty-title">${activeDraftSession.isPure ? "新对话" : escapeHtml(activeDraftSession.name)}</div>
+          <div class="chat-empty-desc">${activeDraftSession.isPure ? "新对话模式，在下方输入指令开启对话" : "已连接工作区，在下方输入指令开启对话"}</div>
+        </div>
+      `;
+    }
+
+    if (chatInput) {
+      chatInput.value = "";
+      chatInput.style.height = "auto";
+      setTimeout(() => chatInput.focus(), 250);
+    }
+    updateChatControls(false, activeDraftSession.isPure ? "" : activeDraftSession.uri, false);
   } else {
     activeCascadeId = null;
+    activeDraftSession = null;
     closeActiveWs();
     updatePendingInteraction(null, false);
     if (chatInput) {
@@ -603,13 +645,10 @@ function renderConversationList(summaries) {
         <div class="conv-card-wrapper" data-id="${item.id}">
           <div class="conv-card-actions">
             <button class="conv-card-delete-btn" type="button" aria-label="删除会话" data-id="${item.id}">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="3 6 5 6 21 6"></polyline>
                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                <line x1="10" y1="11" x2="10" y2="17"></line>
-                <line x1="14" y1="11" x2="14" y2="17"></line>
               </svg>
-              <span>删除</span>
             </button>
           </div>
           <div class="conv-card" data-id="${item.id}" data-title="${escapeHtml(title)}">
@@ -660,14 +699,16 @@ function attachConversationCardInteractions() {
 
     const closeCard = () => {
       card.style.transform = "translateX(0)";
-      card.classList.remove("swiped");
+      card.classList.remove("swiped", "swiping");
+      wrapper.classList.remove("swiped", "swiping");
     };
 
     const closeOtherCards = () => {
-      document.querySelectorAll(".conv-card.swiped").forEach((c) => {
+      document.querySelectorAll(".conv-card.swiped, .conv-card.swiping").forEach((c) => {
         if (c !== card) {
           c.style.transform = "translateX(0)";
-          c.classList.remove("swiped");
+          c.classList.remove("swiped", "swiping");
+          c.closest(".conv-card-wrapper")?.classList.remove("swiped", "swiping");
         }
       });
     };
@@ -682,6 +723,7 @@ function attachConversationCardInteractions() {
       isHorizontal = null;
       hasTriggeredLongPress = false;
       card.classList.remove("swiping");
+      wrapper.classList.remove("swiping");
 
       // 450ms long press for Rename (aligns with iOS LongPressGesture)
       longPressTimer = setTimeout(() => {
@@ -712,6 +754,7 @@ function attachConversationCardInteractions() {
         closeOtherCards();
         isDragging = true;
         card.classList.add("swiping");
+        wrapper.classList.add("swiping");
 
         const isAlreadySwiped = card.classList.contains("swiped");
         const baseOffset = isAlreadySwiped ? -80 : 0;
@@ -730,6 +773,7 @@ function attachConversationCardInteractions() {
     card.addEventListener("touchend", () => {
       clearTimeout(longPressTimer);
       card.classList.remove("swiping");
+      wrapper.classList.remove("swiping");
 
       if (hasTriggeredLongPress) return;
 
@@ -741,11 +785,14 @@ function attachConversationCardInteractions() {
             closeCard();
           } else {
             card.style.transform = "translateX(-80px)";
+            card.classList.add("swiped");
+            wrapper.classList.add("swiped");
           }
         } else {
           if (dx < -38) {
             card.style.transform = "translateX(-80px)";
             card.classList.add("swiped");
+            wrapper.classList.add("swiped");
             triggerHaptic("light");
           } else {
             closeCard();
@@ -2558,12 +2605,87 @@ const LocalQueueManager = {
 let isSendingMessage = false;
 
 async function sendMessage() {
-  if (!activeCascadeId || isSendingMessage) return;
+  if ((!activeCascadeId && !activeDraftSession) || isSendingMessage) return;
 
   const inputEl = document.getElementById("chat-input");
   const text = inputEl.value.trim();
   const hasImages = pendingImages.length > 0;
   if (!text && !hasImages) return;
+
+  if (!activeCascadeId && activeDraftSession) {
+    isSendingMessage = true;
+    const sessionToCreate = activeDraftSession;
+    activeDraftSession = null;
+
+    const imagesToSend = [...pendingImages];
+    pendingImages = [];
+    renderImagePreviews();
+
+    inputEl.value = "";
+    inputEl.style.height = "auto";
+
+    const streamEl = document.getElementById("messages-stream");
+    if (streamEl) {
+      streamEl.innerHTML = `
+        <div class="loading-state">
+          <div class="ios-spinner"></div>
+          <p>正在创建会话并启动 Agent...</p>
+        </div>
+      `;
+    }
+
+    try {
+      const isPure = sessionToCreate.isPure;
+      const res = await fetch("/gateway/cascade/new", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workspaceUri: isPure ? "" : sessionToCreate.uri,
+          projectId: isPure ? "outside-of-project" : (sessionToCreate.rawId || undefined),
+          prompt: text,
+          model: activeModel || undefined
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok || data.status === "error" || !data.cascadeId) {
+        throw new Error(data.error || "创建会话失败");
+      }
+
+      const newCascadeId = data.cascadeId;
+      currentTrajectories[newCascadeId] = {
+        id: newCascadeId,
+        annotations: { title: isPure ? "新对话" : sessionToCreate.name },
+        status: "CASCADE_RUN_STATUS_RUNNING",
+        stepCount: 1,
+        workspaceUris: isPure ? [] : [sessionToCreate.uri],
+        lastModifiedTime: new Date().toISOString()
+      };
+
+      navigateTo("#c=" + newCascadeId);
+      loadConversations();
+    } catch (err) {
+      alert("创建会话失败: " + err.message);
+      if (streamEl) {
+        streamEl.innerHTML = `
+          <div class="chat-empty-state">
+            <div class="chat-empty-icon" style="background: rgba(255, 59, 48, 0.12); color: var(--ios-red);">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+              </svg>
+            </div>
+            <div class="chat-empty-title">创建会话失败</div>
+            <div class="chat-empty-desc">${escapeHtml(err.message)}</div>
+          </div>
+        `;
+      }
+    } finally {
+      isSendingMessage = false;
+    }
+    return;
+  }
 
   isSendingMessage = true;
   const isRunning = currentTrajectories[activeCascadeId]?.status === "CASCADE_RUN_STATUS_RUNNING";
@@ -3075,79 +3197,121 @@ function initMarkdownViewer() {
 // --- iOS Bottom Sheets (New Conversation & Settings) ---
 
 let discoveredProjects = [];
+let activeDraftSession = null;
 
 async function openNewSheet() {
   const sheet = document.getElementById("sheet-new");
   if (!sheet) return;
   sheet.classList.remove("hidden");
 
-  // 1. Fetch discovered upstream projects
-  const wsSelect = document.getElementById("new-workspace-select");
-  const wsInput = document.getElementById("new-workspace");
+  // Render existing cached projects or chat card immediately
+  renderNewProjectsList(discoveredProjects);
 
+  // Fetch discovered upstream projects from gateway
   try {
     const res = await fetch("/gateway/projects");
     if (res.ok) {
       discoveredProjects = await res.json();
-      if (discoveredProjects && discoveredProjects.length > 0) {
-        wsSelect.innerHTML = `<option value="">-- 请选择目标项目 (${discoveredProjects.length} 个可用) --</option>` +
-          `<option value="outside-of-project">💬 Chat (新对话 · 无工作区)</option>` +
-          discoveredProjects.map(p => {
-            const countStr = p.sessionCount > 0 ? ` (${p.sessionCount}个会话)` : "";
-            const wsTag = p.isWorkspace ? " [工作区]" : "";
-            return `<option value="${escapeHtml(p.path)}">${escapeHtml(p.name)}${wsTag}${countStr}</option>`;
-          }).join("");
-        
-        // Auto-select first project if input is empty
-        if (!wsInput.value && discoveredProjects[0]) {
-          wsSelect.value = discoveredProjects[0].path;
-          wsInput.value = discoveredProjects[0].path;
-        }
+      renderNewProjectsList(discoveredProjects);
+    }
+  } catch (err) {
+    console.warn("Failed to fetch projects for new conversation sheet:", err);
+  }
+}
+
+function renderNewProjectsList(projects) {
+  const listEl = document.getElementById("new-projects-list");
+  const countEl = document.getElementById("new-projects-count");
+  if (!listEl) return;
+
+  if (countEl) {
+    countEl.textContent = projects && projects.length > 0 ? `${projects.length} 个工作区` : "选择模式";
+  }
+
+  // 1. Chat card (Pure Chat / no workspace)
+  let html = `
+    <div class="project-select-card chat-card" data-mode="chat">
+      <div class="project-card-icon indigo">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/>
+        </svg>
+      </div>
+      <div class="project-card-info">
+        <div class="project-card-title-row">
+          <span class="project-card-title">Chat</span>
+          <span class="project-card-badge indigo">新对话</span>
+        </div>
+        <span class="project-card-subtitle">新对话 · 不关联任何工作区</span>
+      </div>
+      <svg class="project-card-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="9 18 15 12 9 6"></polyline>
+      </svg>
+    </div>
+  `;
+
+  // 2. Discovered project cards
+  if (projects && projects.length > 0) {
+    html += projects.map((p, idx) => {
+      const isWs = !!p.isWorkspace;
+      const countBadge = p.sessionCount > 0 ? `<span class="project-card-badge gray">${p.sessionCount} 会话</span>` : "";
+      return `
+        <div class="project-select-card" data-index="${idx}">
+          <div class="project-card-icon blue">
+            ${isWs ? `
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M20 6h-4V4c0-1.11-.89-2-2-2h-4c-1.11 0-2 .89-2 2v2H4c-1.11 0-1.99.89-1.99 2L2 19c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2zm-6 0h-4V4h4v2z"/>
+              </svg>
+            ` : `
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+              </svg>
+            `}
+          </div>
+          <div class="project-card-info">
+            <div class="project-card-title-row">
+              <span class="project-card-title">${escapeHtml(p.name)}</span>
+              ${countBadge}
+            </div>
+            <span class="project-card-subtitle monospaced">${escapeHtml(p.path)}</span>
+          </div>
+          <svg class="project-card-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="9 18 15 12 9 6"></polyline>
+          </svg>
+        </div>
+      `;
+    }).join("");
+  }
+
+  listEl.innerHTML = html;
+
+  listEl.querySelectorAll(".project-select-card").forEach(card => {
+    card.addEventListener("click", () => {
+      triggerHaptic("medium");
+      closeNewSheet();
+      const mode = card.getAttribute("data-mode");
+      if (mode === "chat") {
+        startDraftSession({ isPure: true, name: "新对话", path: "", uri: "", rawId: "outside-of-project" });
       } else {
-        wsSelect.innerHTML = `<option value="">(未探测到项目，请在下方手动输入)</option>`;
+        const idx = parseInt(card.getAttribute("data-index"), 10);
+        const p = projects[idx];
+        if (p) {
+          startDraftSession({
+            isPure: false,
+            name: p.name,
+            path: p.path,
+            uri: p.uri || p.path,
+            rawId: p.rawId || (p.id !== p.path ? p.id : undefined)
+          });
+        }
       }
-    }
-  } catch (_) {
-    wsSelect.innerHTML = `<option value="">(无法获取项目列表，可手动输入)</option>`;
-  }
+    });
+  });
+}
 
-  wsSelect.onchange = () => {
-    if (wsSelect.value) {
-      wsInput.value = wsSelect.value;
-    }
-  };
-
-  // 2. Fetch available models
-  const modelSelect = document.getElementById("new-model");
-  if (availableModels.length === 0) {
-    try {
-      const data = await rpc("GetAvailableModels");
-      const models = data.response?.models || {};
-      availableModels = Object.entries(models).map(([id, m]) => ({
-        id,
-        name: m.displayName || id
-      }));
-
-      modelSelect.innerHTML = `<option value="">自动推荐模型</option>` +
-        availableModels.map(m => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.name)}</option>`).join("");
-    } catch (_) {}
-  }
-
-  if (modelSelect && activeModel) {
-    let matched = false;
-    for (const opt of modelSelect.options) {
-      if (opt.value === activeModel || 
-          (activeModel.includes("claude") && (opt.value.toLowerCase().includes("claude") || opt.value.includes("m26"))) ||
-          (activeModel.includes("gemini") && (opt.value.toLowerCase().includes("gemini") || opt.value.includes("m318")))) {
-        modelSelect.value = opt.value;
-        matched = true;
-        break;
-      }
-    }
-    if (!matched && activeModel) {
-      modelSelect.value = activeModel;
-    }
-  }
+function startDraftSession(sessionInfo) {
+  activeDraftSession = sessionInfo;
+  activeCascadeId = null;
+  navigateTo("#draft");
 }
 
 function closeNewSheet() {
@@ -3287,6 +3451,24 @@ function unpairDevice() {
     updateAuthUI();
     loadConversations();
   }
+}
+
+function clearWebCache() {
+  triggerHaptic("medium");
+  if (!confirm("确定清空本地会话与文档缓存吗？")) return;
+  sessionStepsCache = {};
+  currentTrajectories = {};
+  discoveredProjects = [];
+  try {
+    const deviceToken = localStorage.getItem("agy_device_token");
+    const deviceId = localStorage.getItem("agy_device_id");
+    localStorage.clear();
+    if (deviceToken) localStorage.setItem("agy_device_token", deviceToken);
+    if (deviceId) localStorage.setItem("agy_device_id", deviceId);
+  } catch (_) {}
+  alert("本地会话与文档缓存已清空");
+  closeSettingsSheet();
+  loadConversations();
 }
 
 function openSettingsSheet() {
@@ -3813,6 +3995,9 @@ function renderInlineMarkdown(text) {
   if (text.includes("task.md") && !text.includes("[task.md]") && !text.includes("](task.md)")) {
     text = text.replace(/task\.md/g, "[task.md](task.md)");
   }
+
+  // Normalize HTML whitespace entities (&nbsp;, &ensp;, &emsp;, &#160;) to unicode non-breaking spaces
+  text = text.replace(/&(?:nbsp|#160|ensp|emsp);/gi, "\u00A0");
 
   // Normalize HTML <br> tags outside of inline code spans
   text = text.replace(/`[^`]+`|[ \t]*<(?:\/br|br\b[^>]*\/?)>[ \t]*\n?/gi, (match) => {
@@ -4719,7 +4904,10 @@ window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btn-settings")?.addEventListener("click", openSettingsSheet);
 
   // New Conversation Sheet
-  document.getElementById("btn-sheet-new-create")?.addEventListener("click", createConversation);
+  document.getElementById("btn-sheet-new-close")?.addEventListener("click", () => {
+    triggerHaptic("light");
+    closeNewSheet();
+  });
   const sheetNew = document.getElementById("sheet-new");
   sheetNew?.addEventListener("click", (e) => {
     if (e.target === sheetNew) closeNewSheet();
@@ -4727,12 +4915,17 @@ window.addEventListener("DOMContentLoaded", () => {
   enableSheetPullToDismiss(sheetNew, closeNewSheet);
 
   // Settings Sheet
+  document.getElementById("btn-sheet-settings-close")?.addEventListener("click", () => {
+    triggerHaptic("light");
+    closeSettingsSheet();
+  });
   document.getElementById("btn-rescan-gateway")?.addEventListener("click", rescanGateway);
   document.getElementById("btn-open-pairing")?.addEventListener("click", () => {
     closeSettingsSheet();
     openPairingSheet();
   });
   document.getElementById("btn-unpair-device")?.addEventListener("click", unpairDevice);
+  document.getElementById("btn-clear-web-cache")?.addEventListener("click", clearWebCache);
   const sheetSettings = document.getElementById("sheet-settings");
   sheetSettings?.addEventListener("click", (e) => {
     if (e.target === sheetSettings) closeSettingsSheet();

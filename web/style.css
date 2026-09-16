@@ -24,6 +24,10 @@
   --ios-purple: #bf5af2;
   --ios-teal: #64d2ff;
 
+  --code-fg: #e5c07b;
+  --code-bg: rgba(229, 192, 123, 0.12);
+  --code-border: rgba(229, 192, 123, 0.22);
+
   --user-bubble-bg: var(--ios-indigo);
   --user-bubble-text: #ffffff;
   --agent-bubble-bg: var(--ios-secondary-bg);
@@ -59,6 +63,10 @@
     --ios-red: #ff3b30;
     --ios-purple: #af52de;
     --ios-teal: #5ac8fa;
+
+    --code-fg: #92400e;
+    --code-bg: rgba(180, 83, 9, 0.08);
+    --code-border: rgba(180, 83, 9, 0.18);
 
     --user-bubble-bg: var(--ios-indigo);
     --user-bubble-text: #ffffff;
@@ -381,35 +389,47 @@ html, body {
   top: 0;
   right: 0;
   bottom: 0;
-  width: 80px;
+  width: 76px;
   display: flex;
-  align-items: stretch;
-  justify-content: stretch;
+  align-items: center;
+  justify-content: center;
   z-index: 1;
   border-radius: 14px;
   overflow: hidden;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.conv-card-wrapper.swiping .conv-card-actions,
+.conv-card-wrapper.swiped .conv-card-actions {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
 }
 
 .conv-card-delete-btn {
-  flex: 1;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
   background-color: var(--ios-red);
   color: #ffffff;
   border: none;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  font-size: 12px;
-  font-weight: 600;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   user-select: none;
   -webkit-user-select: none;
+  box-shadow: 0 2px 6px rgba(255, 59, 48, 0.35);
+  transition: transform 0.12s ease, background-color 0.12s ease;
 }
 
 .conv-card-delete-btn:active {
   background-color: #d70015;
+  transform: scale(0.92);
 }
 
 .conv-card {
@@ -434,8 +454,6 @@ html, body {
 }
 
 .conv-card:active:not(.swiped) {
-  transform: scale(0.978);
-  opacity: 0.88;
   background-color: var(--ios-tertiary-bg);
 }
 
@@ -618,7 +636,6 @@ html, body {
   color: var(--user-bubble-text);
   padding: 10px 14px;
   border-radius: 18px;
-  border-bottom-right-radius: 5px;
 }
 
 .message-row.agent .bubble {
@@ -626,7 +643,6 @@ html, body {
   color: var(--agent-bubble-text);
   padding: 12px 14px;
   border-radius: 18px;
-  border-bottom-left-radius: 5px;
 }
 
 /* Agent Thinking Card (Active State) */
@@ -1020,16 +1036,21 @@ html, body {
   line-height: 1.45;
 }
 
-/* Inline Code: Antigravity / iOS Amber (#e5c07b) */
+/* Inline Code: Antigravity Adaptive Code Color */
 code.inline-code, .markdown-body code:not(.code-block-pre code) {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 13px;
   font-weight: 500;
-  color: #e5c07b;
-  background-color: rgba(229, 192, 123, 0.12);
+  color: var(--code-fg);
+  background-color: var(--code-bg);
   padding: 1.5px 5.5px;
   border-radius: 5px;
-  border: 0.5px solid rgba(229, 192, 123, 0.2);
+  border: 0.5px solid var(--code-border);
+  word-break: normal;
+  overflow-wrap: break-word;
+  white-space: nowrap;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
 }
 
 /* Fenced Code Block Card (iOS style with Header Bar & Copy) */
@@ -1241,6 +1262,7 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
   color: var(--ios-label);
   border-bottom: 0.5px solid var(--ios-separator);
   white-space: nowrap;
+  min-width: 80px;
 }
 
 .ios-markdown-table td {
@@ -1249,6 +1271,12 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
   color: var(--ios-label);
   opacity: 0.92;
   border-bottom: 0.5px solid var(--ios-separator-subtle);
+  min-width: 80px;
+  line-height: 1.45;
+}
+
+.ios-markdown-table td code.inline-code {
+  white-space: nowrap;
 }
 
 .ios-markdown-table tbody tr:nth-child(even) {
@@ -1744,7 +1772,7 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
   flex-direction: column;
   transform: translateY(100%);
   transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
-  padding-bottom: calc(16px + var(--safe-bottom));
+  padding-bottom: calc(24px + var(--safe-bottom));
 }
 
 .ios-sheet-overlay:not(.hidden) .ios-sheet-card {
@@ -1794,6 +1822,173 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+/* iOS Sheet Sub-header Description Row */
+.sheet-description-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px 4px 18px;
+  font-size: 13px;
+  color: var(--ios-secondary-label);
+}
+
+.sheet-description-text {
+  font-weight: 500;
+  color: var(--ios-secondary-label);
+}
+
+.sheet-description-count {
+  font-size: 12px;
+  color: var(--ios-secondary-label);
+}
+
+/* iOS New Conversation Sheet: Projects Vertical Cards List */
+.new-projects-list {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 6px 16px 24px 16px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.project-select-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  background-color: var(--ios-bg);
+  border-radius: 14px;
+  border: 0.5px solid var(--ios-separator-subtle);
+  cursor: pointer;
+  transition: background-color 0.12s ease, transform 0.1s ease;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.project-select-card:active {
+  background-color: var(--ios-tertiary-bg);
+  transform: scale(0.985);
+}
+
+.project-select-card.chat-card {
+  border-color: rgba(94, 92, 230, 0.28);
+}
+
+.project-card-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.project-card-icon.indigo {
+  background-color: rgba(94, 92, 230, 0.14);
+  color: var(--ios-indigo);
+}
+
+.project-card-icon.blue {
+  background-color: rgba(10, 132, 255, 0.12);
+  color: var(--ios-blue);
+}
+
+.project-card-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.project-card-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.project-card-title {
+  font-size: 15.5px;
+  font-weight: 600;
+  color: var(--ios-label);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project-card-badge {
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
+.project-card-badge.indigo {
+  color: var(--ios-indigo);
+  background-color: rgba(94, 92, 230, 0.12);
+}
+
+.project-card-badge.gray {
+  color: var(--ios-secondary-label);
+  background-color: var(--ios-fill);
+}
+
+.project-card-subtitle {
+  font-size: 11.5px;
+  color: var(--ios-secondary-label);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project-card-subtitle.monospaced {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+}
+
+.project-card-chevron {
+  color: var(--ios-tertiary-label);
+  flex-shrink: 0;
+}
+
+/* Chat View Empty State (Matches iOS emptyStateView) */
+.chat-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 80px 24px;
+  text-align: center;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.chat-empty-icon {
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  background-color: rgba(10, 132, 255, 0.12);
+  color: var(--ios-blue);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.chat-empty-title {
+  font-size: 16.5px;
+  font-weight: 600;
+  color: var(--ios-label);
+}
+
+.chat-empty-desc {
+  font-size: 13px;
+  color: var(--ios-secondary-label);
 }
 
 /* iOS Grouped Section & Cells */

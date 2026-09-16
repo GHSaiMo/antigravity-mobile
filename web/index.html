@@ -11,7 +11,7 @@
   <link rel="icon" type="image/png" href="/icons/icon-192.png" />
   <link rel="apple-touch-icon" href="/icons/icon-192.png" />
   <link rel="manifest" href="/manifest.json" />
-  <link rel="stylesheet" href="/style.css?v=10" />
+  <link rel="stylesheet" href="/style.css?v=11" />
 </head>
 <body>
   <div id="app">
@@ -223,65 +223,57 @@
       </section>
     </main>
 
-    <!-- iOS Bottom Sheet: New Conversation -->
+    <!-- iOS Bottom Sheet: New Conversation (Aligned with NewConversationSheet.swift) -->
     <div id="sheet-new" class="ios-sheet-overlay hidden">
       <div class="ios-sheet-card">
-        <div class="sheet-grabber md-viewer-grabber"></div>
-        <div class="sheet-header md-viewer-header">
-          <div class="sheet-title-group md-viewer-title-group">
-            <h2 class="sheet-title md-viewer-title">新建会话</h2>
-          </div>
+        <div class="sheet-grabber"></div>
+        <div class="sheet-header">
+          <div style="width: 48px;"></div>
+          <h2 class="sheet-title">新建会话</h2>
+          <button id="btn-sheet-new-close" class="sheet-header-btn primary" type="button">完成</button>
         </div>
-        <div class="sheet-body">
-          <div class="ios-grouped-section">
-            <div class="ios-cell">
-              <label for="new-workspace-select">工作区</label>
-              <select id="new-workspace-select">
-                <option value="">正在嗅探项目...</option>
-              </select>
-            </div>
-            <div class="ios-cell">
-              <input type="text" id="new-workspace" placeholder="或输入工作区绝对路径..." />
-            </div>
-          </div>
-
-          <div class="ios-grouped-section">
-            <div class="ios-cell">
-              <label for="new-model">模型</label>
-              <select id="new-model">
-                <option value="">默认模型</option>
-              </select>
-            </div>
-          </div>
-
-          <div class="ios-grouped-section">
-            <div class="ios-cell no-padding">
-              <textarea id="new-prompt" rows="4" placeholder="输入首条指令，例如：审查代码规范并运行测试..."></textarea>
-            </div>
-          </div>
-
-          <div style="margin-top: 14px;">
-            <button id="btn-sheet-new-create" type="button" style="width: 100%; height: 44px; border-radius: 12px; background: var(--ios-blue); color: #fff; font-size: 15.5px; font-weight: 600; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 2px 8px rgba(0, 122, 255, 0.3);">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                <polygon points="5 3 19 12 5 21 5 3"></polygon>
-              </svg>
-              <span>开始执行</span>
-            </button>
+        <div class="sheet-description-row">
+          <span class="sheet-description-text">选择模式或工作区发起新会话</span>
+          <span id="new-projects-count" class="sheet-description-count">正在探测...</span>
+        </div>
+        <div id="new-projects-list" class="new-projects-list">
+          <div class="loading-state" style="padding: 24px 0;">
+            <div class="ios-spinner"></div>
+            <p>正在拉取工作区列表...</p>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- iOS Bottom Sheet: Settings & Gateway Status -->
+    <!-- iOS Bottom Sheet: Settings & Gateway Status (Aligned with SettingsSheet.swift) -->
     <div id="sheet-settings" class="ios-sheet-overlay hidden">
       <div class="ios-sheet-card">
-        <div class="sheet-grabber md-viewer-grabber"></div>
-        <div class="sheet-header md-viewer-header">
-          <div class="sheet-title-group md-viewer-title-group">
-            <h2 class="sheet-title md-viewer-title">设置与服务</h2>
-          </div>
+        <div class="sheet-grabber"></div>
+        <div class="sheet-header">
+          <div style="width: 48px;"></div>
+          <h2 class="sheet-title">设置</h2>
+          <button id="btn-sheet-settings-close" class="sheet-header-btn primary" type="button">完成</button>
         </div>
         <div class="sheet-body">
+          <!-- Section 1: 设备配对鉴权 -->
+          <div class="ios-grouped-section">
+            <div class="ios-cell between">
+              <span class="cell-label">设备配对鉴权</span>
+              <span id="settings-auth-status" class="status-badge disconnected">未配对</span>
+            </div>
+            <div id="settings-device-id-row" class="ios-cell between hidden">
+              <span class="cell-label">设备 ID</span>
+              <span id="settings-device-id" class="cell-value monospaced">-</span>
+            </div>
+            <button id="btn-open-pairing" class="ios-cell-button">
+              <span>输入配对码 / 配对链接</span>
+            </button>
+            <button id="btn-unpair-device" class="ios-cell-button destructive hidden">
+              <span>解除此设备配对 (清除凭据)</span>
+            </button>
+          </div>
+
+          <!-- Section 2: 网关与服务状态 -->
           <div class="ios-grouped-section">
             <div class="ios-cell between">
               <span class="cell-label">网关状态</span>
@@ -295,38 +287,31 @@
               <span class="cell-label">进程 PID</span>
               <span id="settings-upstream-pid" class="cell-value monospaced">-</span>
             </div>
-          </div>
-
-          <div class="ios-grouped-section">
             <button id="btn-rescan-gateway" class="ios-cell-button">
               <span>重新嗅探 Antigravity 实例</span>
             </button>
           </div>
 
+          <!-- Section 3: 本地数据与缓存 -->
+          <div class="ios-grouped-section">
+            <button id="btn-clear-web-cache" class="ios-cell-button destructive" type="button">
+              <span>清空本地会话与文档缓存</span>
+            </button>
+          </div>
+
+          <!-- Section 4: 关于 -->
           <div class="ios-grouped-section">
             <div class="ios-cell between">
-              <span class="cell-label">设备配对鉴权</span>
-              <span id="settings-auth-status" class="status-badge disconnected">未配对</span>
+              <span class="cell-label">应用名称</span>
+              <span class="cell-value">Antigravity</span>
             </div>
-            <div id="settings-device-id-row" class="ios-cell between hidden">
-              <span class="cell-label">设备 ID</span>
-              <span id="settings-device-id" class="cell-value monospaced">-</span>
-            </div>
-          </div>
-
-          <div class="ios-grouped-section">
-            <button id="btn-open-pairing" class="ios-cell-button">
-              <span>输入配对码 / 配对链接</span>
-            </button>
-            <button id="btn-unpair-device" class="ios-cell-button destructive hidden">
-              <span>解除设备配对 (清除凭据)</span>
-            </button>
-          </div>
-
-          <div class="ios-grouped-section">
             <div class="ios-cell between">
               <span class="cell-label">客户端模式</span>
               <span class="cell-value">Web / PWA</span>
+            </div>
+            <div class="ios-cell between">
+              <span class="cell-label">版本</span>
+              <span class="cell-value">1.0.0 (Web)</span>
             </div>
           </div>
         </div>
@@ -528,6 +513,6 @@
   </div>
 
   <script src="/mermaid.min.js"></script>
-  <script src="/app.js?v=21"></script>
+  <script src="/app.js?v=22"></script>
 </body>
 </html>
