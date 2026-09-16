@@ -49,6 +49,8 @@
 	<string>Antigravity 需要访问局域网以直连 Mac 网关并同步会话</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Antigravity 需要保存长截图与图表到系统相册，以便在微信等应用中发送与收藏</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Antigravity 需要访问您的相册以选择并发送图片</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>UILaunchScreen</key>

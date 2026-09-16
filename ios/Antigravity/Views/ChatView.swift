@@ -17,8 +17,6 @@ public struct ChatView: View {
     @State private var hasUserInteracted = false
     @State private var isNearBottom = true
     @State private var cardToggleTrigger = 0
-    @State private var selectedPhotoItems: [PhotosPickerItem] = []
-    @State private var showPhotoPicker = false
     @State private var showCameraPicker = false
     @State private var showCameraUnavailableAlert = false
     @State private var showCameraPermissionAlert = false
@@ -140,24 +138,6 @@ public struct ChatView: View {
             viewModel.saveCurrentDraft()
             viewModel.handleAppBackground()
         }
-        .onChange(of: selectedPhotoItems) { _, items in
-            guard !items.isEmpty else { return }
-            Task {
-                var loaded: [Data] = []
-                for item in items {
-                    if let data = try? await item.loadTransferable(type: Data.self) {
-                        if let uiImage = UIImage(data: data), let compressed = compressAndResizeImage(uiImage) {
-                            loaded.append(compressed)
-                        } else {
-                            loaded.append(data)
-                        }
-                    }
-                }
-                guard !loaded.isEmpty else { return }
-                viewModel.appendDraftImages(loaded)
-                selectedPhotoItems = []
-            }
-        }
         .onDisappear {
             isViewAppeared = false
             hasInitiallyAligned = false
@@ -233,7 +213,6 @@ public struct ChatView: View {
                 .animation(.easeInOut(duration: 0.15), value: viewModel.isDownloadingDocument)
             }
         }
-        .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhotoItems, maxSelectionCount: 5, matching: .images)
         .fullScreenCover(isPresented: $showCameraPicker) {
             CameraPickerView { capturedImage in
                 handleCapturedImage(capturedImage)
@@ -698,19 +677,9 @@ public struct ChatView: View {
             // Quick action chips at top of input box (➕ and Model Switch placed in front of Commit and Push)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    // 1. Add Image ➕ Menu (Camera / Photo Library)
-                    Menu {
-                        Button {
-                            handleCameraAction()
-                        } label: {
-                            Label("拍照", systemImage: "camera")
-                        }
-                        
-                        Button {
-                            showPhotoPicker = true
-                        } label: {
-                            Label("从相册选择", systemImage: "photo.on.rectangle")
-                        }
+                    // 1. Add Image ➕ Button (Directly opens Photo Library with Camera at index 0)
+                    Button {
+                        openPhotoLibraryWithCamera()
                     } label: {
                         Image(systemName: "plus")
                             .font(.system(size: 13, weight: .semibold))
@@ -940,7 +909,6 @@ public struct ChatView: View {
         hasUserInteracted = false
         viewModel.inputText = ""
         viewModel.selectedImageData = []
-        selectedPhotoItems = []
         Task {
             let success = await viewModel.sendMessage(text: text, images: images)
             if !success && !images.isEmpty {
@@ -951,8 +919,26 @@ public struct ChatView: View {
     
     private func removeImage(at index: Int) {
         viewModel.removeDraftImage(at: index)
-        if index < selectedPhotoItems.count {
-            selectedPhotoItems.remove(at: index)
+    }
+    
+    private func openPhotoLibraryWithCamera() {
+        let maxCount = 5
+        let currentCount = viewModel.selectedImageData.count
+        let remaining = max(0, maxCount - currentCount)
+        guard remaining > 0 else {
+            UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+            return
+        }
+        
+        ZLPhotoPickerBridge.shared.present(maxCount: remaining) { pickedImages in
+            var compressedList: [Data] = []
+            for img in pickedImages {
+                if let data = compressAndResizeImage(img) {
+                    compressedList.append(data)
+                }
+            }
+            guard !compressedList.isEmpty else { return }
+            viewModel.appendDraftImages(compressedList)
         }
     }
     
