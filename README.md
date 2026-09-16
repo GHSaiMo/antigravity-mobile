@@ -4,9 +4,11 @@
 > 随时随地，在 iPhone、iPad 或任意移动设备上自如操控、对话、监控并指挥运行在 Mac 主机上的 Antigravity 智能体。
 
 [![Swift](https://img.shields.io/badge/Swift-6.0-F05138?style=flat-square&logo=swift&logoColor=white)](https://swift.org)
+[![Kotlin](https://img.shields.io/badge/Kotlin-1.9+-7F52FF?style=flat-square&logo=kotlin&logoColor=white)](https://kotlinlang.org)
+[![Android](https://img.shields.io/badge/Android-8.0+-3DDC84?style=flat-square&logo=android&logoColor=white)](https://developer.android.com)
 [![iOS](https://img.shields.io/badge/iOS-17.0+-000000?style=flat-square&logo=apple&logoColor=white)](https://developer.apple.com/ios/)
 [![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat-square&logo=go&logoColor=white)](https://go.dev)
-[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20iOS%20%7C%20Web-blue?style=flat-square)]()
+[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20iOS%20%7C%20Android%20%7C%20Web-blue?style=flat-square)]()
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)]()
 
 <p align="center">
@@ -33,6 +35,7 @@
 | 层级 | 核心组件 | 关键职责与技术特性 |
 | :--- | :--- | :--- |
 | **📱 移动访问层** | **iOS 原生客户端** (SwiftUI 5) | Swift 6 严格并发、单趟 O(N) LaTeX 渲染、VS Code 文件图标、Markdown 浮窗预览与伴生摘要、实施方案 Proceed 闭环、Gemini 3.8 / Claude 4.6 模型切换、快捷动作胶囊、多模态图片上传、排队指令与自适应输入、后台任务实时管控与终止、交互式审批卡片、全态分类信号 (RUNNING / ERROR / ACTION / 未读小蓝点)、左滑删除与长按重命名、灵动岛 (Live Activity) |
+| | **Android 原生客户端** (Compose) | Kotlin 1.9+、Jetpack Compose Material 3 暗黑设计、OkHttp + WebSocket 实时打字机长连接流分发、多步工具折叠胶囊、交互式命令审批卡片、实施方案 Proceed 推进闭环、ZXing 离线二维码极速扫码配对、EncryptedSharedPreferences 安全凭证持久化、全态分类信号 (RUNNING / ERROR / ACTION / 未读小蓝点) |
 | | **移动端 PWA / Web** (Vanilla JS) | 零构建打包、嵌入 Go 二进制 (`embed.FS`)、全面对齐 iOS 原生设计系统、自适应安全区与键盘防遮挡、Markdown 浮窗与方案 Proceed 推进、排队消息与后台任务同步、添加到主屏幕 |
 | **⚡ 远程连接与鉴权层** | **IPv6 双栈直连 (Dual-Stack Direct)** | 网关默认监听 IPv4/IPv6 全网卡，公网 IPv6 / DDNS 直连免中继，极低延迟，客户端蜂窝网络 (Cellular) 智能优先路由 |
 | | **二维码扫码配对 (QR Pairing)** | 终端自动生成一次性 `agy://pair` 配对二维码，扫码秒级签发独占 Device Token，存入系统安全存储 (Keychain)，与 IP 完全解耦 |

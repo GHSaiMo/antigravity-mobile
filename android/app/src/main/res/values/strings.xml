@@ -1,0 +1,11 @@
+<resources>
+    <string name="app_name">Antigravity</string>
+    <string name="pair_title">设备配对</string>
+    <string name="conversations_title">会话列表</string>
+    <string name="chat_placeholder">向 Antigravity 发送指令...</string>
+    <string name="send">发送</string>
+    <string name="stop">停止</string>
+    <string name="proceed">确认执行方案 (Proceed)</string>
+    <string name="approve">允许执行</string>
+    <string name="reject">拒绝</string>
+</resources>

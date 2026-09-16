@@ -74,4 +74,11 @@ temp/
 docs/
 Agent.md
 
-
+# --- Android & Gradle Artifacts ---
+.gradle/
+android/.gradle/
+android/**/build/
+android/local.properties
+android/**/.cxx/
+*.apk
+*.aab
