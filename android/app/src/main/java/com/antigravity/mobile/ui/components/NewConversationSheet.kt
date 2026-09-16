@@ -27,11 +27,11 @@ import com.antigravity.mobile.ui.theme.*
 fun NewConversationSheet(
     projects: List<ProjectItem>,
     isLoading: Boolean,
-    onSelectProject: (ProjectItem, String) -> Unit,
+    onSelectProject: (ProjectItem, String, String) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var selectedModel by remember { mutableStateOf("gemini-2.5-pro") }
+    var selectedModel by remember { mutableStateOf("gemini-3.8-flash-high") }
     var initialPrompt by remember { mutableStateOf("") }
 
     ModalBottomSheet(
@@ -75,7 +75,7 @@ fun NewConversationSheet(
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
                             .background(if (isGemini) AccentBlue else DarkBackground)
-                            .clickable { selectedModel = "gemini-2.5-pro" }
+                            .clickable { selectedModel = "gemini-3.8-flash-high" }
                             .padding(horizontal = 8.dp, vertical = 4.dp)
                     )
                     Text(
@@ -86,7 +86,7 @@ fun NewConversationSheet(
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
                             .background(if (!isGemini) AccentYellow else DarkBackground)
-                            .clickable { selectedModel = "claude-3-7-sonnet" }
+                            .clickable { selectedModel = "claude-opus-4-6-thinking" }
                             .padding(horizontal = 8.dp, vertical = 4.dp)
                     )
                 }
@@ -129,7 +129,7 @@ fun NewConversationSheet(
                             .clip(RoundedCornerShape(10.dp))
                             .background(DarkBackground)
                             .border(1.dp, DarkBorder, RoundedCornerShape(10.dp))
-                            .clickable { onSelectProject(ProjectItem.PURE_CHAT, initialPrompt) }
+                            .clickable { onSelectProject(ProjectItem.PURE_CHAT, initialPrompt, selectedModel) }
                             .padding(14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -164,7 +164,7 @@ fun NewConversationSheet(
                             .clip(RoundedCornerShape(10.dp))
                             .background(DarkBackground)
                             .border(1.dp, DarkBorder, RoundedCornerShape(10.dp))
-                            .clickable { onSelectProject(project, initialPrompt) }
+                            .clickable { onSelectProject(project, initialPrompt, selectedModel) }
                             .padding(14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)

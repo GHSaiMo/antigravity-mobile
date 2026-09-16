@@ -63,6 +63,10 @@ func TestResolveModelEnum(t *testing.T) {
 		{"claude", "MODEL_PLACEHOLDER_M26"},
 		{"MODEL_PLACEHOLDER_M16", "MODEL_PLACEHOLDER_M16"},
 		{"MODEL_CUSTOM_TEST", "MODEL_CUSTOM_TEST"},
+		{"gemini-2.5-pro", "MODEL_PLACEHOLDER_M318"},
+		{"MODEL_GOOGLE_GEMINI_2_5_PRO", "MODEL_PLACEHOLDER_M318"},
+		{"MODEL_GOOGLE_GEMINI_2_5_FLASH", "MODEL_PLACEHOLDER_M318"},
+		{"claude-3-7-sonnet", "MODEL_PLACEHOLDER_M26"},
 		{"", ""},
 		{"unknown-model-xyz", ""},
 	}

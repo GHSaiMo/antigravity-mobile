@@ -22,7 +22,7 @@ data class ChatUiState(
     val canProceed: Boolean = false,
     val proceedArtifactUri: String? = null,
     val pendingInteraction: PendingInteraction? = null,
-    val activeModel: String = "gemini-2.5-pro",
+    val activeModel: String = "gemini-3.8-flash-high",
     val connectionStatus: ConnectionStatus = ConnectionStatus.DISCONNECTED,
     val errorMessage: String? = null,
     val isLatestMessageError: Boolean = false,
@@ -80,7 +80,13 @@ class ChatViewModel(
                     canProceed = payload.canProceed,
                     proceedArtifactUri = payload.proceedArtifactUri,
                     pendingInteraction = payload.pendingInteraction,
-                    activeModel = payload.activeModel ?: _uiState.value.activeModel,
+                    activeModel = payload.activeModel?.let { raw ->
+                        if (raw.contains("claude", ignoreCase = true) || raw.contains("m26", ignoreCase = true)) {
+                            "claude-opus-4-6-thinking"
+                        } else {
+                            "gemini-3.8-flash-high"
+                        }
+                    } ?: _uiState.value.activeModel,
                     errorMessage = if (payload.hasError) payload.errorMessage else null,
                     isLatestMessageError = isError
                 )
@@ -94,11 +100,21 @@ class ChatViewModel(
 
     fun toggleModel() {
         val nextModel = if (_uiState.value.activeModel.contains("claude", ignoreCase = true)) {
-            "gemini-2.5-pro"
+            "gemini-3.8-flash-high"
         } else {
-            "claude-3-7-sonnet"
+            "claude-opus-4-6-thinking"
         }
         _uiState.value = _uiState.value.copy(activeModel = nextModel)
+    }
+
+    fun syncModel(model: String) {
+        val lower = model.lowercase()
+        val canonical = if (lower.contains("claude") || lower.contains("m26")) {
+            "claude-opus-4-6-thinking"
+        } else {
+            "gemini-3.8-flash-high"
+        }
+        _uiState.value = _uiState.value.copy(activeModel = canonical)
     }
 
     fun insertCommitAndPush() {

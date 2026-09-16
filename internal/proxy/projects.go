@@ -845,12 +845,14 @@ var modelEnumMap = map[string]string{
 	"gemini-pro-agent":         "MODEL_PLACEHOLDER_M16",
 	"gemini-3.1-pro-low":       "MODEL_PLACEHOLDER_M36",
 	"gemini-3.1-pro-high":      "MODEL_PLACEHOLDER_M37",
-	"gemini-2.5-pro":           "MODEL_GOOGLE_GEMINI_2_5_PRO",
-	"gemini-2.5-flash":         "MODEL_GOOGLE_GEMINI_2_5_FLASH",
+	"gemini-2.5-pro":           "MODEL_PLACEHOLDER_M318",
+	"gemini-2.5-flash":         "MODEL_PLACEHOLDER_M318",
 	"claude":                   "MODEL_PLACEHOLDER_M26",
 	"claude-opus":              "MODEL_PLACEHOLDER_M26",
 	"claude-opus-4-6-thinking": "MODEL_PLACEHOLDER_M26",
 	"claude-sonnet-4-6":        "MODEL_PLACEHOLDER_M35",
+	"claude-3-7-sonnet":        "MODEL_PLACEHOLDER_M26",
+	"claude-3-5-sonnet":        "MODEL_PLACEHOLDER_M26",
 	"gpt-oss-120b-medium":      "MODEL_OPENAI_GPT_OSS_120B_MEDIUM",
 }
 
@@ -861,6 +863,9 @@ func resolveModelEnum(model string) string {
 		return ""
 	}
 	if strings.HasPrefix(model, "MODEL_") {
+		if model == "MODEL_GOOGLE_GEMINI_2_5_PRO" || model == "MODEL_GOOGLE_GEMINI_2_5_FLASH" {
+			return "MODEL_PLACEHOLDER_M318"
+		}
 		return model
 	}
 	if enum, ok := modelEnumMap[strings.ToLower(model)]; ok {
@@ -885,8 +890,8 @@ var enumToCanonicalMap = map[string]string{
 	"MODEL_PLACEHOLDER_M16":            "gemini-pro-agent",
 	"MODEL_PLACEHOLDER_M36":            "gemini-3.1-pro-low",
 	"MODEL_PLACEHOLDER_M37":            "gemini-3.1-pro-high",
-	"MODEL_GOOGLE_GEMINI_2_5_PRO":      "gemini-2.5-pro",
-	"MODEL_GOOGLE_GEMINI_2_5_FLASH":    "gemini-2.5-flash",
+	"MODEL_GOOGLE_GEMINI_2_5_PRO":      "gemini-3.8-flash-high",
+	"MODEL_GOOGLE_GEMINI_2_5_FLASH":    "gemini-3.8-flash-high",
 	"MODEL_OPENAI_GPT_OSS_120B_MEDIUM": "gpt-oss-120b-medium",
 }
 

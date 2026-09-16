@@ -98,11 +98,12 @@ class ConversationListViewModel(
         }
     }
 
-    fun createConversation(project: ProjectItem, prompt: String, onCreated: (String) -> Unit) {
+    fun createConversation(project: ProjectItem, prompt: String, model: String = "gemini-3.8-flash-high", onCreated: (String) -> Unit) {
         viewModelScope.launch {
             val res = apiClient.createCascade(
                 workspaceUri = project.uri,
                 prompt = prompt,
+                model = model,
                 projectId = project.rawId
             )
             res.onSuccess { cascadeId ->
