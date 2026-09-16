@@ -719,69 +719,85 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 				targetModel = strings.TrimSpace(m)
 			}
 		}
-		delete(rawMap, "model")
 
-		var configToUse json.RawMessage
-		// 1. Check if cascadeConfig already exists in payload
-		if cfg, exists := rawMap["cascadeConfig"]; exists && cfg != nil {
-			if cfgBytes, err := json.Marshal(cfg); err == nil && len(cfgBytes) > 2 && string(cfgBytes) != "{}" && string(cfgBytes) != "null" {
-				configToUse = cfgBytes
+		// PERF-1: detect upfront whether the body actually needs modification.
+		// If no model override and no cascadeConfigRaw cleanup needed, skip
+		// unmarshal→modify→remarshal which is expensive for large payloads.
+		_, hasModel := rawMap["model"]
+		_, hasCfgRaw := rawMap["cascadeConfigRaw"]
+		needsModification := targetModel != "" || hasModel || hasCfgRaw
+
+		if !needsModification {
+			// No changes required — forward original bytes as-is.
+			if cascadeID != "" {
+				ClearTrajectoryCache(cascadeID)
+				ClearPendingMessagesCache(cascadeID)
 			}
-		}
+		} else {
+			delete(rawMap, "model")
 
-		// 2. Check if cascadeConfigRaw was provided
-		if len(configToUse) == 0 {
-			if rawStr, ok := rawMap["cascadeConfigRaw"].(string); ok && len(rawStr) > 0 {
-				configToUse = json.RawMessage(rawStr)
-			}
-		}
-
-		// 3. Fallback to trajectory metadata or last known cascade config
-		if len(configToUse) == 0 {
-			configToUse = p.GetCascadeConfig(cascadeID, port, token)
-		}
-
-		modelEnum := resolveModelEnum(targetModel)
-		canonicalName := canonicalModelName(targetModel)
-		if canonicalName == "" {
-			canonicalName = targetModel
-		}
-
-		if len(configToUse) > 0 {
-			var cfgObj interface{}
-			if err := json.Unmarshal(configToUse, &cfgObj); err == nil {
-				if modelEnum != "" {
-					cfgObj = applyModelToCascadeConfig(cfgObj, modelEnum, canonicalName)
-					if updatedBytes, err := json.Marshal(cfgObj); err == nil {
-						configToUse = updatedBytes
-					}
-					log.Printf("[Proxy] SendUserCascadeMessage: applied model %s (%s) to cascade %s", targetModel, modelEnum, cascadeID)
+			var configToUse json.RawMessage
+			// 1. Check if cascadeConfig already exists in payload
+			if cfg, exists := rawMap["cascadeConfig"]; exists && cfg != nil {
+				if cfgBytes, err := json.Marshal(cfg); err == nil && len(cfgBytes) > 2 && string(cfgBytes) != "{}" && string(cfgBytes) != "null" {
+					configToUse = cfgBytes
 				}
+			}
+
+			// 2. Check if cascadeConfigRaw was provided
+			if len(configToUse) == 0 {
+				if rawStr, ok := rawMap["cascadeConfigRaw"].(string); ok && len(rawStr) > 0 {
+					configToUse = json.RawMessage(rawStr)
+				}
+			}
+
+			// 3. Fallback to trajectory metadata or last known cascade config
+			if len(configToUse) == 0 {
+				configToUse = p.GetCascadeConfig(cascadeID, port, token)
+			}
+
+			modelEnum := resolveModelEnum(targetModel)
+			canonicalName := canonicalModelName(targetModel)
+			if canonicalName == "" {
+				canonicalName = targetModel
+			}
+
+			if len(configToUse) > 0 {
+				var cfgObj interface{}
+				if err := json.Unmarshal(configToUse, &cfgObj); err == nil {
+					if modelEnum != "" {
+						cfgObj = applyModelToCascadeConfig(cfgObj, modelEnum, canonicalName)
+						if updatedBytes, err := json.Marshal(cfgObj); err == nil {
+							configToUse = updatedBytes
+						}
+						log.Printf("[Proxy] SendUserCascadeMessage: applied model %s (%s) to cascade %s", targetModel, modelEnum, cascadeID)
+					}
+					rawMap["cascadeConfig"] = cfgObj
+				}
+				SetLastKnownCascadeConfig(configToUse)
+				if canonicalName != "" {
+					SetCascadeModel(cascadeID, canonicalName, configToUse)
+				}
+			} else if modelEnum != "" {
+				cfgObj := applyModelToCascadeConfig(nil, modelEnum, canonicalName)
 				rawMap["cascadeConfig"] = cfgObj
+				if updatedBytes, err := json.Marshal(cfgObj); err == nil {
+					SetLastKnownCascadeConfig(updatedBytes)
+					SetCascadeModel(cascadeID, canonicalName, updatedBytes)
+				}
+				log.Printf("[Proxy] SendUserCascadeMessage: synthesized cascadeConfig with model %s (%s) for cascade %s", targetModel, modelEnum, cascadeID)
 			}
-			SetLastKnownCascadeConfig(configToUse)
-			if canonicalName != "" {
-				SetCascadeModel(cascadeID, canonicalName, configToUse)
+
+			delete(rawMap, "cascadeConfigRaw")
+
+			if modifiedBytes, err := json.Marshal(rawMap); err == nil {
+				bodyBytes = modifiedBytes
 			}
-		} else if modelEnum != "" {
-			cfgObj := applyModelToCascadeConfig(nil, modelEnum, canonicalName)
-			rawMap["cascadeConfig"] = cfgObj
-			if updatedBytes, err := json.Marshal(cfgObj); err == nil {
-				SetLastKnownCascadeConfig(updatedBytes)
-				SetCascadeModel(cascadeID, canonicalName, updatedBytes)
+
+			if cascadeID != "" {
+				ClearTrajectoryCache(cascadeID)
+				ClearPendingMessagesCache(cascadeID)
 			}
-			log.Printf("[Proxy] SendUserCascadeMessage: synthesized cascadeConfig with model %s (%s) for cascade %s", targetModel, modelEnum, cascadeID)
-		}
-
-		delete(rawMap, "cascadeConfigRaw")
-
-		if modifiedBytes, err := json.Marshal(rawMap); err == nil {
-			bodyBytes = modifiedBytes
-		}
-
-		if cascadeID != "" {
-			ClearTrajectoryCache(cascadeID)
-			ClearPendingMessagesCache(cascadeID)
 		}
 	}
 
