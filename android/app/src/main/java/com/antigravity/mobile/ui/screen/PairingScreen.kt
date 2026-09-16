@@ -1,6 +1,7 @@
 package com.antigravity.mobile.ui.screen
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -16,7 +17,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.antigravity.mobile.ui.theme.*
+import com.antigravity.mobile.ui.theme.AntigravityTheme
 import com.antigravity.mobile.ui.viewmodel.PairingUiState
 import com.antigravity.mobile.ui.viewmodel.PairingViewModel
 
@@ -29,6 +30,7 @@ fun PairingScreen(
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val colors = AntigravityTheme.colors
 
     var host by remember { mutableStateOf("") }
     var port by remember { mutableStateOf("58900") }
@@ -44,14 +46,14 @@ fun PairingScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("连接到 Antigravity", fontWeight = FontWeight.Bold) },
+                title = { Text("连接到 Antigravity", fontWeight = FontWeight.Bold, color = colors.textPrimary) },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = DarkBackground,
-                    titleContentColor = TextPrimary
+                    containerColor = colors.background,
+                    titleContentColor = colors.textPrimary
                 )
             )
         },
-        containerColor = DarkBackground,
+        containerColor = colors.background,
         modifier = modifier
     ) { padding ->
         Column(
@@ -65,7 +67,7 @@ fun PairingScreen(
         ) {
             Text(
                 text = "在 Mac 终端运行 `make pair` 或 `make run`，扫描屏幕显示的二维码，秒级建立点对点安全连接。",
-                color = TextSecondary,
+                color = colors.textSecondary,
                 fontSize = 14.sp,
                 lineHeight = 20.sp
             )
@@ -76,9 +78,9 @@ fun PairingScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp),
-                shape = RoundedCornerShape(10.dp),
+                shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = AccentBlue,
+                    containerColor = colors.accentIndigo,
                     contentColor = Color.White
                 )
             ) {
@@ -95,21 +97,22 @@ fun PairingScreen(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                HorizontalDivider(modifier = Modifier.weight(1f), color = DarkBorder)
+                HorizontalDivider(modifier = Modifier.weight(1f), color = colors.border)
                 Text(
                     text = " 或手动填入配对信息 ",
-                    color = TextMuted,
+                    color = colors.textMuted,
                     fontSize = 12.sp,
                     modifier = Modifier.padding(horizontal = 8.dp)
                 )
-                HorizontalDivider(modifier = Modifier.weight(1f), color = DarkBorder)
+                HorizontalDivider(modifier = Modifier.weight(1f), color = colors.border)
             }
 
             // Manual Form Card
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = DarkSurface),
-                shape = RoundedCornerShape(12.dp)
+                colors = CardDefaults.cardColors(containerColor = colors.surface),
+                border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(colors.border)),
+                shape = RoundedCornerShape(14.dp)
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
@@ -118,26 +121,50 @@ fun PairingScreen(
                     OutlinedTextField(
                         value = host,
                         onValueChange = { host = it },
-                        label = { Text("网关 IP 或域名 (Host)") },
-                        placeholder = { Text("例如 192.168.1.100 或 [2408:...]") },
+                        label = { Text("网关 IP 或域名 (Host)", color = colors.textSecondary) },
+                        placeholder = { Text("例如 192.168.1.100 或 [2408:...]", color = colors.textMuted) },
                         singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = colors.surface,
+                            unfocusedContainerColor = colors.surface,
+                            focusedBorderColor = colors.accentIndigo,
+                            unfocusedBorderColor = colors.border,
+                            focusedTextColor = colors.textPrimary,
+                            unfocusedTextColor = colors.textPrimary
+                        ),
                         modifier = Modifier.fillMaxWidth()
                     )
 
                     OutlinedTextField(
                         value = port,
                         onValueChange = { port = it },
-                        label = { Text("端口号 (Port)") },
+                        label = { Text("端口号 (Port)", color = colors.textSecondary) },
                         singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = colors.surface,
+                            unfocusedContainerColor = colors.surface,
+                            focusedBorderColor = colors.accentIndigo,
+                            unfocusedBorderColor = colors.border,
+                            focusedTextColor = colors.textPrimary,
+                            unfocusedTextColor = colors.textPrimary
+                        ),
                         modifier = Modifier.fillMaxWidth()
                     )
 
                     OutlinedTextField(
                         value = code,
                         onValueChange = { code = it },
-                        label = { Text("配对码 (Code)") },
-                        placeholder = { Text("6位一次性配对码") },
+                        label = { Text("配对码 (Code)", color = colors.textSecondary) },
+                        placeholder = { Text("6位一次性配对码", color = colors.textMuted) },
                         singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = colors.surface,
+                            unfocusedContainerColor = colors.surface,
+                            focusedBorderColor = colors.accentIndigo,
+                            unfocusedBorderColor = colors.border,
+                            focusedTextColor = colors.textPrimary,
+                            unfocusedTextColor = colors.textPrimary
+                        ),
                         modifier = Modifier.fillMaxWidth()
                     )
 
@@ -146,7 +173,7 @@ fun PairingScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("开启 HTTPS / SSL", color = TextPrimary, fontSize = 14.sp)
+                        Text("开启 HTTPS / SSL", color = colors.textPrimary, fontSize = 14.sp)
                         Switch(
                             checked = ssl,
                             onCheckedChange = { ssl = it }
@@ -160,10 +187,10 @@ fun PairingScreen(
                         },
                         enabled = host.isNotBlank() && code.isNotBlank() && uiState !is PairingUiState.Pairing,
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(8.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = AccentGreen)
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = colors.accentGreen)
                     ) {
-                        Text("连接并配对")
+                        Text("连接并配对", fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
@@ -176,19 +203,20 @@ fun PairingScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.padding(top = 8.dp)
                     ) {
-                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = AccentBlue)
-                        Text(state.message, color = TextSecondary, fontSize = 13.sp)
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = colors.accentIndigo)
+                        Text(state.message, color = colors.textSecondary, fontSize = 13.sp)
                     }
                 }
                 is PairingUiState.Error -> {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(AccentRed.copy(alpha = 0.15f))
-                            .padding(12.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(colors.accentRed.copy(alpha = 0.15f))
+                            .border(0.5.dp, colors.accentRed.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
+                        .padding(12.dp)
                     ) {
-                        Text(state.message, color = AccentRed, fontSize = 13.sp)
+                        Text(state.message, color = colors.accentRed, fontSize = 13.sp)
                     }
                 }
                 else -> Unit

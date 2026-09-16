@@ -6,6 +6,8 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.ActivityResultLauncher
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -65,7 +67,8 @@ class MainActivity : ComponentActivity() {
         handleDeepLink(intent)
 
         setContent {
-            AntigravityTheme {
+            val themeMode by prefs.themeModeFlow.collectAsState()
+            AntigravityTheme(themeMode = themeMode) {
                 val navController = rememberNavController()
                 val startDestination = if (prefs.isPaired()) "conversations" else "pair"
 

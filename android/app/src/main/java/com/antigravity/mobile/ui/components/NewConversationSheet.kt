@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChatBubbleOutline
@@ -20,7 +21,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.ProjectItem
-import com.antigravity.mobile.ui.theme.*
+import com.antigravity.mobile.ui.theme.AntigravityTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -33,10 +34,21 @@ fun NewConversationSheet(
 ) {
     var selectedModel by remember { mutableStateOf("gemini-3.8-flash-high") }
     var initialPrompt by remember { mutableStateOf("") }
+    val colors = AntigravityTheme.colors
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = DarkSurface,
+        containerColor = colors.background,
+        dragHandle = {
+            Box(
+                modifier = Modifier
+                    .padding(top = 10.dp, bottom = 12.dp)
+                    .width(38.dp)
+                    .height(5.dp)
+                    .clip(CircleShape)
+                    .background(colors.textMuted.copy(alpha = 0.4f))
+            )
+        },
         modifier = modifier
     ) {
         Column(
@@ -54,7 +66,7 @@ fun NewConversationSheet(
             ) {
                 Text(
                     text = "新建会话",
-                    color = TextPrimary,
+                    color = colors.textPrimary,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -63,31 +75,31 @@ fun NewConversationSheet(
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
-                        .background(DarkBackground)
+                        .background(colors.surfaceVariant)
                         .padding(2.dp)
                 ) {
                     val isGemini = selectedModel.contains("gemini", ignoreCase = true)
                     Text(
                         text = "Gemini",
-                        color = if (isGemini) TextPrimary else TextMuted,
+                        color = if (isGemini) colors.textPrimary else colors.textSecondary,
                         fontSize = 12.sp,
                         fontWeight = if (isGemini) FontWeight.Bold else FontWeight.Normal,
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
-                            .background(if (isGemini) AccentBlue else DarkBackground)
+                            .background(if (isGemini) colors.surface else colors.surfaceVariant)
                             .clickable { selectedModel = "gemini-3.8-flash-high" }
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                            .padding(horizontal = 10.dp, vertical = 4.dp)
                     )
                     Text(
                         text = "Claude",
-                        color = if (!isGemini) TextPrimary else TextMuted,
+                        color = if (!isGemini) colors.textPrimary else colors.textSecondary,
                         fontSize = 12.sp,
                         fontWeight = if (!isGemini) FontWeight.Bold else FontWeight.Normal,
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
-                            .background(if (!isGemini) AccentYellow else DarkBackground)
+                            .background(if (!isGemini) colors.surface else colors.surfaceVariant)
                             .clickable { selectedModel = "claude-opus-4-6-thinking" }
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                            .padding(horizontal = 10.dp, vertical = 4.dp)
                     )
                 }
             }
@@ -95,21 +107,24 @@ fun NewConversationSheet(
             OutlinedTextField(
                 value = initialPrompt,
                 onValueChange = { initialPrompt = it },
-                label = { Text("可选：输入初始任务指令...") },
-                placeholder = { Text("例如：帮我重构登录模块...") },
+                label = { Text("可选：输入初始任务指令...", color = colors.textSecondary) },
+                placeholder = { Text("例如：帮我重构登录模块...", color = colors.textMuted) },
                 maxLines = 3,
                 modifier = Modifier.fillMaxWidth(),
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = DarkBackground,
-                    unfocusedContainerColor = DarkBackground,
-                    focusedBorderColor = AccentBlue,
-                    unfocusedBorderColor = DarkBorder
-                )
+                    focusedContainerColor = colors.surface,
+                    unfocusedContainerColor = colors.surface,
+                    focusedBorderColor = colors.accentIndigo,
+                    unfocusedBorderColor = colors.border,
+                    focusedTextColor = colors.textPrimary,
+                    unfocusedTextColor = colors.textPrimary
+                ),
+                shape = RoundedCornerShape(12.dp)
             )
 
             Text(
                 text = "选择模式或工作区发起新会话",
-                color = TextSecondary,
+                color = colors.textSecondary,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Medium
             )
@@ -126,9 +141,9 @@ fun NewConversationSheet(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(DarkBackground)
-                            .border(1.dp, DarkBorder, RoundedCornerShape(10.dp))
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(colors.surface)
+                            .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
                             .clickable { onSelectProject(ProjectItem.PURE_CHAT, initialPrompt, selectedModel) }
                             .padding(14.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -137,19 +152,19 @@ fun NewConversationSheet(
                         Icon(
                             imageVector = Icons.Default.ChatBubbleOutline,
                             contentDescription = "Chat",
-                            tint = AccentBlue,
+                            tint = colors.accentIndigo,
                             modifier = Modifier.size(20.dp)
                         )
                         Column {
                             Text(
                                 text = "Chat (通用对话模式)",
-                                color = TextPrimary,
+                                color = colors.textPrimary,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
                             Text(
                                 text = "不关联任何本地文件目录，快速对话或解答",
-                                color = TextMuted,
+                                color = colors.textSecondary,
                                 fontSize = 12.sp
                             )
                         }
@@ -161,9 +176,9 @@ fun NewConversationSheet(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(DarkBackground)
-                            .border(1.dp, DarkBorder, RoundedCornerShape(10.dp))
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(colors.surface)
+                            .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
                             .clickable { onSelectProject(project, initialPrompt, selectedModel) }
                             .padding(14.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -172,13 +187,13 @@ fun NewConversationSheet(
                         Icon(
                             imageVector = Icons.Default.Folder,
                             contentDescription = "Workspace",
-                            tint = AccentYellow,
+                            tint = colors.accentOrange,
                             modifier = Modifier.size(20.dp)
                         )
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = project.name,
-                                color = TextPrimary,
+                                color = colors.textPrimary,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
@@ -186,7 +201,7 @@ fun NewConversationSheet(
                             )
                             Text(
                                 text = project.path.ifBlank { project.uri },
-                                color = TextMuted,
+                                color = colors.textSecondary,
                                 fontSize = 12.sp,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis

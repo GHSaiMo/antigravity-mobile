@@ -1,26 +1,32 @@
 package com.antigravity.mobile.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.ToolCallItem
-import com.antigravity.mobile.ui.theme.*
+import com.antigravity.mobile.ui.theme.AntigravityTheme
 
 @Composable
 fun ToolStepCollapseCard(
@@ -30,81 +36,117 @@ fun ToolStepCollapseCard(
     if (toolCalls.isEmpty()) return
 
     var isExpanded by remember { mutableStateOf(false) }
+    val colors = AntigravityTheme.colors
+
     val uniqueToolNames = remember(toolCalls) {
-        toolCalls.map { it.name.ifBlank { "action" } }.distinct().take(3).joinToString(", ")
+        toolCalls.map { it.name.ifBlank { "action" } }.distinct().joinToString(", ")
     }
 
+    val summaryText = remember(toolCalls, uniqueToolNames) {
+        if (uniqueToolNames.isNotBlank()) {
+            "已思考并执行 ${toolCalls.size} 项操作 ($uniqueToolNames)"
+        } else {
+            "已思考并执行 ${toolCalls.size} 项操作"
+        }
+    }
+
+    val rotationAngle by animateFloatAsState(
+        targetValue = if (isExpanded) 180f else 0f,
+        animationSpec = tween(durationMillis = 250),
+        label = "chevronRotation"
+    )
+
     Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(DarkSurfaceVariant)
-            .padding(horizontal = 12.dp, vertical = 8.dp)
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Row(
+        // iOS-style Tool Batch Capsule Header
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .clickable { isExpanded = !isExpanded },
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+                .clip(CircleShape)
+                .background(colors.surfaceVariant)
+                .border(0.8.dp, colors.border, CircleShape)
+                .clickable { isExpanded = !isExpanded }
+                .padding(horizontal = 14.dp, vertical = 8.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.weight(1f)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Icon(
-                    imageVector = Icons.Default.Build,
-                    contentDescription = "Tools",
-                    tint = AccentYellow,
-                    modifier = Modifier.size(16.dp)
+                    imageVector = Icons.Default.Bolt,
+                    contentDescription = "Tool Operation",
+                    tint = colors.accentOrange,
+                    modifier = Modifier.size(14.dp)
                 )
+
                 Text(
-                    text = "已思考并执行 ${toolCalls.size} 项操作 ($uniqueToolNames${if (toolCalls.size > 3) "..." else ""})",
-                    color = TextPrimary,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium
+                    text = summaryText,
+                    color = colors.textPrimary,
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+
+                Icon(
+                    imageVector = Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (isExpanded) "Collapse" else "Expand",
+                    tint = colors.textSecondary,
+                    modifier = Modifier
+                        .size(14.dp)
+                        .rotate(rotationAngle)
                 )
             }
-
-            Icon(
-                imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                contentDescription = if (isExpanded) "Collapse" else "Expand",
-                tint = TextSecondary,
-                modifier = Modifier.size(18.dp)
-            )
         }
 
+        // Expandable tool call list
         AnimatedVisibility(visible = isExpanded) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                    .padding(top = 2.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp)
             ) {
                 toolCalls.forEachIndexed { index, tool ->
-                    Column(
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(DarkBackground)
-                            .padding(8.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(colors.surfaceVariant.copy(alpha = 0.7f))
+                            .border(0.5.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 12.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(
-                            text = "${index + 1}. ${tool.name.ifBlank { tool.type }}",
-                            color = AccentYellow,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace
+                        Icon(
+                            imageVector = Icons.Default.Extension,
+                            contentDescription = "Tool",
+                            tint = colors.accentGreen,
+                            modifier = Modifier.size(13.dp)
                         )
-                        tool.input?.takeIf { it.isNotBlank() }?.let { input ->
+
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = input.take(160) + if (input.length > 160) "..." else "",
-                                color = TextMuted,
-                                fontSize = 11.sp,
+                                text = tool.name.ifBlank { tool.type.ifBlank { "action_${index + 1}" } },
+                                color = colors.textPrimary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
                                 fontFamily = FontFamily.Monospace,
-                                modifier = Modifier.padding(top = 2.dp)
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
+                            tool.input?.takeIf { it.isNotBlank() }?.let { input ->
+                                Text(
+                                    text = input.take(200) + if (input.length > 200) "..." else "",
+                                    color = colors.textSecondary,
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
                     }
                 }

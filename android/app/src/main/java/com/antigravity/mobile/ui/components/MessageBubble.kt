@@ -3,23 +3,33 @@ package com.antigravity.mobile.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.GatewayMessageItem
-import com.antigravity.mobile.ui.theme.*
+import com.antigravity.mobile.ui.theme.AntigravityTheme
 
 @Composable
 fun MessageBubble(
     message: GatewayMessageItem,
     modifier: Modifier = Modifier
 ) {
+    val colors = AntigravityTheme.colors
+
+    // Standalone tool message
     if (message.isTools) {
         val toolText = message.effectiveText.ifBlank { "已思考并执行工具操作" }
         Box(
@@ -30,17 +40,24 @@ fun MessageBubble(
         ) {
             Row(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(DarkSurfaceVariant)
-                    .border(1.dp, DarkBorder, RoundedCornerShape(8.dp))
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                    .clip(CircleShape)
+                    .background(colors.surfaceVariant)
+                    .border(0.8.dp, colors.border, CircleShape)
+                    .padding(horizontal = 14.dp, vertical = 7.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
+                Icon(
+                    imageVector = Icons.Default.AutoAwesome,
+                    contentDescription = "Tool",
+                    tint = colors.accentOrange,
+                    modifier = Modifier.size(13.dp)
+                )
                 Text(
-                    text = "⚙️ $toolText",
-                    color = TextMuted,
-                    fontSize = 12.sp
+                    text = toolText,
+                    color = colors.textSecondary,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
                 )
             }
         }
@@ -52,15 +69,15 @@ fun MessageBubble(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 6.dp),
+            .padding(vertical = 4.dp),
         horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
     ) {
-        // Render folded tools if any
+        // Render folded tools capsule if any
         if (!message.toolCalls.isNullOrEmpty()) {
             ToolStepCollapseCard(
                 toolCalls = message.toolCalls,
                 modifier = Modifier
-                    .fillMaxWidth(0.92f)
+                    .fillMaxWidth(0.95f)
                     .padding(bottom = 6.dp)
             )
         }
@@ -69,21 +86,34 @@ fun MessageBubble(
         message.reasoningContent?.takeIf { it.isNotBlank() }?.let { reasoning ->
             Column(
                 modifier = Modifier
-                    .fillMaxWidth(0.92f)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(DarkBackground.copy(alpha = 0.6f))
-                    .border(1.dp, DarkBorder, RoundedCornerShape(8.dp))
+                    .fillMaxWidth(0.95f)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(colors.surfaceVariant.copy(alpha = 0.5f))
+                    .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
                     .padding(10.dp)
-                    .padding(bottom = 4.dp)
+                    .padding(bottom = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Psychology,
+                        contentDescription = "Thinking",
+                        tint = colors.accentIndigo,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Text(
+                        text = "思考过程",
+                        color = colors.textMuted,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
                 Text(
-                    text = "💭 思考过程",
-                    color = TextMuted,
-                    fontSize = 11.sp
-                )
-                Text(
-                    text = reasoning.take(280) + if (reasoning.length > 280) "..." else "",
-                    color = TextSecondary,
+                    text = reasoning.take(320) + if (reasoning.length > 320) "..." else "",
+                    color = colors.textSecondary,
                     fontSize = 12.sp,
                     lineHeight = 16.sp
                 )
@@ -94,43 +124,53 @@ fun MessageBubble(
         // Render Message Content
         val displayText = message.effectiveText
         if (displayText.isNotBlank()) {
-            Box(
-                modifier = Modifier
-                    .widthIn(max = 320.dp)
-                    .clip(
-                        RoundedCornerShape(
-                            topStart = 12.dp,
-                            topEnd = 12.dp,
-                            bottomStart = if (isUser) 12.dp else 2.dp,
-                            bottomEnd = if (isUser) 2.dp else 12.dp
-                        )
+            if (isUser) {
+                // User Bubble: Apple Indigo, white text, 18.dp continuous corner radius
+                Box(
+                    modifier = Modifier
+                        .widthIn(max = 320.dp)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(colors.userBubbleBg)
+                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                ) {
+                    Text(
+                        text = displayText,
+                        color = colors.userBubbleText,
+                        fontSize = 15.5.sp,
+                        lineHeight = 21.sp
                     )
-                    .background(if (isUser) UserBubbleBg else AgentBubbleBg)
-                    .border(
-                        1.dp,
-                        if (isUser) UserBubbleBg else DarkBorder,
-                        RoundedCornerShape(12.dp)
-                    )
-                    .padding(horizontal = 14.dp, vertical = 10.dp)
-            ) {
-                SimpleMarkdownContent(text = displayText)
+                }
+            } else {
+                // Agent Bubble: Card background, textPrimary, 18.dp radius
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(colors.agentBubbleBg)
+                        .border(0.5.dp, colors.border, RoundedCornerShape(18.dp))
+                        .padding(horizontal = 14.dp, vertical = 12.dp)
+                ) {
+                    SimpleMarkdownContent(text = displayText)
+                }
             }
         }
     }
 }
 
 /**
- * Lightweight native Markdown / Text formatter for Android streaming chat bubbles
+ * Lightweight native Markdown / Code / Prose renderer for chat bubbles
  */
 @Composable
 fun SimpleMarkdownContent(
     text: String,
     modifier: Modifier = Modifier
 ) {
+    val colors = AntigravityTheme.colors
     val blocks = text.split("```")
+
     Column(
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         blocks.forEachIndexed { index, block ->
             if (index % 2 == 1) {
@@ -142,34 +182,37 @@ fun SimpleMarkdownContent(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(CodeBlockBg)
-                        .padding(8.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(colors.codeBlockBg)
+                        .border(0.5.dp, colors.border, RoundedCornerShape(8.dp))
+                        .padding(10.dp)
                 ) {
                     if (lang.isNotBlank()) {
                         Text(
                             text = lang,
-                            color = TextMuted,
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace
+                            color = colors.textMuted,
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.padding(bottom = 4.dp)
                         )
                     }
                     Text(
                         text = code.trimEnd(),
-                        color = TextPrimary,
-                        fontSize = 12.sp,
+                        color = colors.textPrimary,
+                        fontSize = 12.5.sp,
                         fontFamily = FontFamily.Monospace,
-                        lineHeight = 16.sp
+                        lineHeight = 17.sp
                     )
                 }
             } else {
-                // Regular prose
+                // Regular prose / paragraphs
                 if (block.isNotBlank()) {
                     Text(
                         text = block.trim(),
-                        color = TextPrimary,
-                        fontSize = 14.sp,
-                        lineHeight = 20.sp
+                        color = colors.agentBubbleText,
+                        fontSize = 15.sp,
+                        lineHeight = 22.sp
                     )
                 }
             }

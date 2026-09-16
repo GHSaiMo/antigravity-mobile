@@ -13,50 +13,44 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.ConversationStatus
-import com.antigravity.mobile.ui.theme.*
+import com.antigravity.mobile.ui.theme.AntigravityTheme
 
 @Composable
 fun StatusBadge(
     status: ConversationStatus,
     modifier: Modifier = Modifier
 ) {
-    val (bg, fg, label) = when (status) {
-        ConversationStatus.RUNNING -> Triple(
-            AccentGreen.copy(alpha = 0.15f),
-            AccentGreen,
-            "RUNNING"
+    val colors = AntigravityTheme.colors
+    val (bg, fg, label) = when {
+        status.needsAction -> Triple(
+            colors.accentBlue.copy(alpha = 0.15f),
+            colors.accentBlue,
+            status.value
         )
-        ConversationStatus.ACTION -> Triple(
-            AccentBlue.copy(alpha = 0.15f),
-            AccentBlue,
-            "ACTION"
-        )
-        ConversationStatus.ERROR -> Triple(
-            AccentRed.copy(alpha = 0.15f),
-            AccentRed,
+        status.isError -> Triple(
+            colors.accentRed.copy(alpha = 0.15f),
+            colors.accentRed,
             "ERROR"
+        )
+        status.isRunning -> Triple(
+            colors.accentGreen.copy(alpha = 0.15f),
+            colors.accentGreen,
+            status.value
         )
         else -> return
     }
 
-    Row(
+    Box(
         modifier = modifier
-            .clip(RoundedCornerShape(4.dp))
+            .clip(RoundedCornerShape(6.dp))
             .background(bg)
-            .padding(horizontal = 6.dp, vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
+            .padding(horizontal = 7.dp, vertical = 3.dp),
+        contentAlignment = Alignment.Center
     ) {
-        Box(
-            modifier = Modifier
-                .size(6.dp)
-                .clip(CircleShape)
-                .background(fg)
-        )
         Text(
             text = label,
             color = fg,
-            fontSize = 10.sp,
+            fontSize = 11.sp,
             fontWeight = FontWeight.Bold
         )
     }
@@ -64,18 +58,23 @@ fun StatusBadge(
 
 @Composable
 fun UnreadDot(modifier: Modifier = Modifier) {
+    val colors = AntigravityTheme.colors
     Box(
         modifier = modifier
-            .size(10.dp)
-            .clip(CircleShape)
-            .background(AccentBlue.copy(alpha = 0.25f)),
+            .size(16.dp),
         contentAlignment = Alignment.Center
     ) {
         Box(
             modifier = Modifier
+                .size(14.dp)
+                .clip(CircleShape)
+                .background(colors.accentBlue.copy(alpha = 0.15f))
+        )
+        Box(
+            modifier = Modifier
                 .size(6.dp)
                 .clip(CircleShape)
-                .background(AccentBlue)
+                .background(colors.accentBlue)
         )
     }
 }

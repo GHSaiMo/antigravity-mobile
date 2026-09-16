@@ -5,6 +5,9 @@ import android.content.SharedPreferences
 import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 class PreferencesManager(context: Context) {
     private val prefs: SharedPreferences = try {
@@ -23,6 +26,9 @@ class PreferencesManager(context: Context) {
         context.getSharedPreferences("agy_standard_prefs", Context.MODE_PRIVATE)
     }
 
+    private val _themeModeFlow = MutableStateFlow(themeMode)
+    val themeModeFlow: StateFlow<String> = _themeModeFlow.asStateFlow()
+
     var gatewayBaseUrl: String?
         get() = prefs.getString(KEY_GATEWAY_URL, null)
         set(value) = prefs.edit().putString(KEY_GATEWAY_URL, value?.trimEnd('/')).apply()
@@ -35,17 +41,26 @@ class PreferencesManager(context: Context) {
         get() = prefs.getString(KEY_DEVICE_ID, null)
         set(value) = prefs.edit().putString(KEY_DEVICE_ID, value).apply()
 
+    var themeMode: String
+        get() = prefs.getString(KEY_THEME_MODE, "system") ?: "system"
+        set(value) {
+            prefs.edit().putString(KEY_THEME_MODE, value).apply()
+            _themeModeFlow.value = value
+        }
+
     fun isPaired(): Boolean {
         return !gatewayBaseUrl.isNullOrBlank() && !deviceToken.isNullOrBlank()
     }
 
     fun clear() {
         prefs.edit().clear().apply()
+        _themeModeFlow.value = "system"
     }
 
     companion object {
         private const val KEY_GATEWAY_URL = "gateway_base_url"
         private const val KEY_DEVICE_TOKEN = "device_token"
         private const val KEY_DEVICE_ID = "device_id"
+        private const val KEY_THEME_MODE = "theme_mode"
     }
 }

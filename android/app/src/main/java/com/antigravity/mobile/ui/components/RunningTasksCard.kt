@@ -2,6 +2,7 @@ package com.antigravity.mobile.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -21,7 +22,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.RunningTaskItem
-import com.antigravity.mobile.ui.theme.*
+import com.antigravity.mobile.ui.theme.AntigravityTheme
 
 @Composable
 fun RunningTasksCard(
@@ -32,11 +33,13 @@ fun RunningTasksCard(
     if (tasks.isEmpty()) return
 
     var isExpanded by remember { mutableStateOf(true) }
+    val colors = AntigravityTheme.colors
 
     Card(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = DarkSurface)
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = colors.surface),
+        border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(colors.border))
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
             // Header
@@ -54,12 +57,12 @@ fun RunningTasksCard(
                     CircularProgressIndicator(
                         modifier = Modifier.size(16.dp),
                         strokeWidth = 2.dp,
-                        color = AccentBlue
+                        color = colors.accentIndigo
                     )
 
                     Text(
                         text = "${tasks.size} 个任务正在执行",
-                        color = TextPrimary,
+                        color = colors.textPrimary,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -67,12 +70,12 @@ fun RunningTasksCard(
                     Box(
                         modifier = Modifier
                             .clip(CircleShape)
-                            .background(DarkSurfaceVariant)
+                            .background(colors.surfaceVariant)
                             .padding(horizontal = 7.dp, vertical = 2.dp)
                     ) {
                         Text(
                             text = "${tasks.size}",
-                            color = TextSecondary,
+                            color = colors.textSecondary,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold
                         )
@@ -82,7 +85,7 @@ fun RunningTasksCard(
                 Icon(
                     imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                     contentDescription = "Toggle Expand",
-                    tint = TextSecondary,
+                    tint = colors.textSecondary,
                     modifier = Modifier.size(20.dp)
                 )
             }
@@ -98,8 +101,9 @@ fun RunningTasksCard(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(DarkBackground)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(colors.surfaceVariant.copy(alpha = 0.6f))
+                                .border(0.5.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
                                 .padding(10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
@@ -107,14 +111,14 @@ fun RunningTasksCard(
                             Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
                                 Text(
                                     text = task.type.ifBlank { "run_command" },
-                                    color = TextSecondary,
+                                    color = colors.textSecondary,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Medium
                                 )
                                 task.command?.takeIf { it.isNotBlank() }?.let { cmd ->
                                     Text(
                                         text = cmd,
-                                        color = TextPrimary,
+                                        color = colors.textPrimary,
                                         fontSize = 12.sp,
                                         fontFamily = FontFamily.Monospace,
                                         maxLines = 2,
@@ -130,12 +134,12 @@ fun RunningTasksCard(
                                 modifier = Modifier
                                     .size(32.dp)
                                     .clip(CircleShape)
-                                    .background(AccentRed.copy(alpha = 0.2f))
+                                    .background(colors.accentRed.copy(alpha = 0.15f))
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Stop,
                                     contentDescription = "Stop Task",
-                                    tint = AccentRed,
+                                    tint = colors.accentRed,
                                     modifier = Modifier.size(18.dp)
                                 )
                             }

@@ -20,7 +20,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.antigravity.mobile.ui.theme.*
+import com.antigravity.mobile.ui.theme.AntigravityTheme
 
 @Composable
 fun QuickActionChips(
@@ -34,6 +34,7 @@ fun QuickActionChips(
     onProceed: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val colors = AntigravityTheme.colors
     val isClaude = activeModel.contains("claude", ignoreCase = true)
 
     Row(
@@ -47,17 +48,17 @@ fun QuickActionChips(
         Box(
             modifier = Modifier
                 .height(32.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(DarkSurfaceVariant)
-                .border(1.dp, DarkBorder, RoundedCornerShape(8.dp))
-                .clickable { onAddImage() }
-                .padding(horizontal = 10.dp),
+                .width(34.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(colors.surface)
+                .border(1.dp, colors.border, RoundedCornerShape(10.dp))
+                .clickable { onAddImage() },
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = Icons.Default.Add,
                 contentDescription = "Add Media",
-                tint = AccentPurple,
+                tint = colors.accentIndigo,
                 modifier = Modifier.size(16.dp)
             )
         }
@@ -66,20 +67,24 @@ fun QuickActionChips(
         Box(
             modifier = Modifier
                 .height(32.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(if (isClaude) AccentYellow.copy(alpha = 0.15f) else AccentBlue.copy(alpha = 0.15f))
+                .clip(RoundedCornerShape(10.dp))
+                .background(
+                    if (isClaude) colors.accentOrange.copy(alpha = 0.12f)
+                    else colors.accentBlue.copy(alpha = 0.12f)
+                )
                 .border(
                     1.dp,
-                    if (isClaude) AccentYellow.copy(alpha = 0.4f) else AccentBlue.copy(alpha = 0.4f),
-                    RoundedCornerShape(8.dp)
+                    if (isClaude) colors.accentOrange.copy(alpha = 0.35f)
+                    else colors.accentBlue.copy(alpha = 0.35f),
+                    RoundedCornerShape(10.dp)
                 )
                 .clickable { onToggleModel() }
-                .padding(horizontal = 12.dp),
+                .padding(horizontal = 11.dp),
             contentAlignment = Alignment.Center
         ) {
             Text(
                 text = if (isClaude) "Claude" else "Gemini",
-                color = if (isClaude) AccentYellow else AccentBlue,
+                color = if (isClaude) colors.accentOrange else colors.accentBlue,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Medium
             )
@@ -89,16 +94,16 @@ fun QuickActionChips(
         Box(
             modifier = Modifier
                 .height(32.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(DarkSurfaceVariant)
-                .border(1.dp, DarkBorder, RoundedCornerShape(8.dp))
+                .clip(RoundedCornerShape(10.dp))
+                .background(colors.surface)
+                .border(1.dp, colors.border, RoundedCornerShape(10.dp))
                 .clickable { onCommitAndPush() }
-                .padding(horizontal = 12.dp),
+                .padding(horizontal = 14.dp),
             contentAlignment = Alignment.Center
         ) {
             Text(
                 text = "Commit and Push",
-                color = TextPrimary,
+                color = colors.textPrimary,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Medium
             )
@@ -109,12 +114,12 @@ fun QuickActionChips(
             Row(
                 modifier = Modifier
                     .height(32.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(AccentBlue)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(colors.accentBlue)
                     .clickable { onContinue() }
-                    .padding(horizontal = 12.dp),
+                    .padding(horizontal = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.PlayArrow,
@@ -126,7 +131,7 @@ fun QuickActionChips(
                     text = "Continue",
                     color = Color.White,
                     fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.SemiBold
                 )
             }
         }
@@ -136,12 +141,12 @@ fun QuickActionChips(
             Row(
                 modifier = Modifier
                     .height(32.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(AccentGreen)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(colors.accentBlue)
                     .clickable { onProceed() }
-                    .padding(horizontal = 12.dp),
+                    .padding(horizontal = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.PlayArrow,
@@ -153,7 +158,7 @@ fun QuickActionChips(
                     text = "Proceed",
                     color = Color.White,
                     fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.SemiBold
                 )
             }
         }

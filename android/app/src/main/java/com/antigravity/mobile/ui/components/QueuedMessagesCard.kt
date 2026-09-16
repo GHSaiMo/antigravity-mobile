@@ -2,6 +2,7 @@ package com.antigravity.mobile.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -22,7 +23,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.QueuedMessageItem
-import com.antigravity.mobile.ui.theme.*
+import com.antigravity.mobile.ui.theme.AntigravityTheme
 
 @Composable
 fun QueuedMessagesCard(
@@ -35,11 +36,13 @@ fun QueuedMessagesCard(
     if (items.isEmpty()) return
 
     var isExpanded by remember { mutableStateOf(true) }
+    val colors = AntigravityTheme.colors
 
     Card(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = DarkSurface)
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = colors.surface),
+        border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(colors.border))
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
             // Header
@@ -57,7 +60,7 @@ fun QueuedMessagesCard(
                 ) {
                     Text(
                         text = "队列",
-                        color = TextPrimary,
+                        color = colors.textPrimary,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -65,12 +68,12 @@ fun QueuedMessagesCard(
                     Box(
                         modifier = Modifier
                             .clip(CircleShape)
-                            .background(DarkSurfaceVariant)
+                            .background(colors.surfaceVariant)
                             .padding(horizontal = 7.dp, vertical = 2.dp)
                     ) {
                         Text(
                             text = "${items.size}",
-                            color = TextSecondary,
+                            color = colors.textSecondary,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold
                         )
@@ -78,7 +81,7 @@ fun QueuedMessagesCard(
 
                     Text(
                         text = "当前任务完成后自动发送",
-                        color = TextSecondary,
+                        color = colors.textSecondary,
                         fontSize = 12.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -88,7 +91,7 @@ fun QueuedMessagesCard(
                 Icon(
                     imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                     contentDescription = "Toggle Expand",
-                    tint = TextSecondary,
+                    tint = colors.textSecondary,
                     modifier = Modifier.size(20.dp)
                 )
             }
@@ -104,15 +107,16 @@ fun QueuedMessagesCard(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(DarkBackground)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(colors.surfaceVariant.copy(alpha = 0.6f))
+                                .border(0.5.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
                                 .padding(10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
                                 text = "${index + 1}. ${item.text}",
-                                color = TextPrimary,
+                                color = colors.textPrimary,
                                 fontSize = 13.sp,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
@@ -131,7 +135,7 @@ fun QueuedMessagesCard(
                                     Icon(
                                         imageVector = Icons.AutoMirrored.Filled.ArrowForward,
                                         contentDescription = "Send Now",
-                                        tint = AccentBlue,
+                                        tint = colors.accentIndigo,
                                         modifier = Modifier.size(16.dp)
                                     )
                                 }
@@ -144,7 +148,7 @@ fun QueuedMessagesCard(
                                     Icon(
                                         imageVector = Icons.Default.Edit,
                                         contentDescription = "Edit",
-                                        tint = TextSecondary,
+                                        tint = colors.textSecondary,
                                         modifier = Modifier.size(16.dp)
                                     )
                                 }
@@ -157,7 +161,7 @@ fun QueuedMessagesCard(
                                     Icon(
                                         imageVector = Icons.Default.Delete,
                                         contentDescription = "Delete",
-                                        tint = AccentRed,
+                                        tint = colors.accentRed,
                                         modifier = Modifier.size(16.dp)
                                     )
                                 }

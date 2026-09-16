@@ -12,12 +12,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.PendingInteraction
-import com.antigravity.mobile.ui.theme.*
+import com.antigravity.mobile.ui.theme.AntigravityTheme
 
 @Composable
 fun InteractionCard(
@@ -26,12 +27,14 @@ fun InteractionCard(
     onReject: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val colors = AntigravityTheme.colors
+
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(DarkSurface)
-            .border(1.dp, AccentYellow.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(14.dp))
+            .background(colors.surface)
+            .border(1.dp, colors.accentOrange.copy(alpha = 0.4f), RoundedCornerShape(14.dp))
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
@@ -42,12 +45,12 @@ fun InteractionCard(
             Icon(
                 imageVector = Icons.Default.Warning,
                 contentDescription = "Approval Needed",
-                tint = AccentYellow,
+                tint = colors.accentOrange,
                 modifier = Modifier.size(20.dp)
             )
             Text(
                 text = "需要用户审批操作",
-                color = AccentYellow,
+                color = colors.accentOrange,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -56,7 +59,7 @@ fun InteractionCard(
         interaction.prompt?.takeIf { it.isNotBlank() }?.let { prompt ->
             Text(
                 text = prompt,
-                color = TextPrimary,
+                color = colors.textPrimary,
                 fontSize = 13.sp
             )
         }
@@ -65,13 +68,13 @@ fun InteractionCard(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(DarkBackground)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(colors.surfaceVariant)
                     .padding(8.dp)
             ) {
                 Text(
                     text = cmd,
-                    color = TextPrimary,
+                    color = colors.textPrimary,
                     fontSize = 12.sp,
                     fontFamily = FontFamily.Monospace
                 )
@@ -86,9 +89,9 @@ fun InteractionCard(
                 onClick = onReject,
                 modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.outlinedButtonColors(
-                    contentColor = AccentRed
+                    contentColor = colors.accentRed
                 ),
-                shape = RoundedCornerShape(8.dp)
+                shape = RoundedCornerShape(10.dp)
             ) {
                 Text("拒绝 (Reject)")
             }
@@ -97,10 +100,10 @@ fun InteractionCard(
                 onClick = onApprove,
                 modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = AccentGreen,
-                    contentColor = TextPrimary
+                    containerColor = colors.accentGreen,
+                    contentColor = Color.White
                 ),
-                shape = RoundedCornerShape(8.dp)
+                shape = RoundedCornerShape(10.dp)
             ) {
                 Text("允许 (Approve)")
             }
@@ -113,32 +116,35 @@ fun ProceedBanner(
     onProceed: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val colors = AntigravityTheme.colors
+
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp)),
+            .clip(RoundedCornerShape(14.dp)),
         colors = CardDefaults.cardColors(
-            containerColor = AccentBlue.copy(alpha = 0.15f)
+            containerColor = colors.accentBlue.copy(alpha = 0.12f)
         ),
-        shape = RoundedCornerShape(10.dp)
+        border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(colors.accentBlue.copy(alpha = 0.3f))),
+        shape = RoundedCornerShape(14.dp)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
+                .padding(14.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                 Text(
                     text = "📋 实施方案已就绪",
-                    color = AccentBlue,
+                    color = colors.accentBlue,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "点击 Proceed 开始代码实施",
-                    color = TextSecondary,
+                    text = "点击 Proceed 开始自动化代码实施",
+                    color = colors.textSecondary,
                     fontSize = 12.sp
                 )
             }
@@ -146,10 +152,10 @@ fun ProceedBanner(
             Button(
                 onClick = onProceed,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = AccentBlue,
-                    contentColor = TextPrimary
+                    containerColor = colors.accentBlue,
+                    contentColor = Color.White
                 ),
-                shape = RoundedCornerShape(8.dp)
+                shape = RoundedCornerShape(10.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.PlayArrow,

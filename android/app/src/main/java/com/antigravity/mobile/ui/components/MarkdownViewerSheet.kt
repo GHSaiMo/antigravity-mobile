@@ -3,6 +3,7 @@ package com.antigravity.mobile.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -19,7 +20,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.MarkdownFileViewerData
-import com.antigravity.mobile.ui.theme.*
+import com.antigravity.mobile.ui.theme.AntigravityTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -29,9 +30,21 @@ fun MarkdownViewerSheet(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val colors = AntigravityTheme.colors
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = DarkSurface,
+        containerColor = colors.background,
+        dragHandle = {
+            Box(
+                modifier = Modifier
+                    .padding(top = 10.dp, bottom = 10.dp)
+                    .width(38.dp)
+                    .height(5.dp)
+                    .clip(CircleShape)
+                    .background(colors.textMuted.copy(alpha = 0.4f))
+            )
+        },
         modifier = modifier
     ) {
         Column(
@@ -54,19 +67,19 @@ fun MarkdownViewerSheet(
                     Icon(
                         imageVector = Icons.Default.Description,
                         contentDescription = "Document",
-                        tint = AccentBlue,
+                        tint = colors.accentIndigo,
                         modifier = Modifier.size(20.dp)
                     )
                     Column {
                         Text(
                             text = data.title.ifBlank { data.filename },
-                            color = TextPrimary,
+                            color = colors.textPrimary,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
                             text = data.filename,
-                            color = TextMuted,
+                            color = colors.textSecondary,
                             fontSize = 12.sp
                         )
                     }
@@ -76,12 +89,12 @@ fun MarkdownViewerSheet(
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = "Close",
-                        tint = TextSecondary
+                        tint = colors.textSecondary
                     )
                 }
             }
 
-            HorizontalDivider(color = DarkBorder, modifier = Modifier.padding(vertical = 10.dp))
+            HorizontalDivider(color = colors.separator.copy(alpha = 0.5f), thickness = 0.5.dp, modifier = Modifier.padding(vertical = 10.dp))
 
             // Body
             if (data.isLoading) {
@@ -91,7 +104,7 @@ fun MarkdownViewerSheet(
                         .fillMaxWidth(),
                     contentAlignment = Alignment.Center
                 ) {
-                    CircularProgressIndicator(color = AccentBlue)
+                    CircularProgressIndicator(color = colors.accentIndigo)
                 }
             } else {
                 Column(
@@ -106,19 +119,19 @@ fun MarkdownViewerSheet(
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(AccentBlue.copy(alpha = 0.12f))
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(colors.accentIndigo.copy(alpha = 0.10f))
                                 .padding(14.dp)
                         ) {
                             Text(
                                 text = "📋 实施方案概要",
-                                color = AccentBlue,
+                                color = colors.accentIndigo,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
                                 text = summary,
-                                color = TextPrimary,
+                                color = colors.textPrimary,
                                 fontSize = 13.sp,
                                 lineHeight = 18.sp,
                                 modifier = Modifier.padding(top = 4.dp)
@@ -131,7 +144,7 @@ fun MarkdownViewerSheet(
                 }
             }
 
-            // Bottom Permanent Proceed Bar
+            // Bottom Fixed Proceed Bar
             if (data.canProceed) {
                 Button(
                     onClick = onProceed,
@@ -139,9 +152,9 @@ fun MarkdownViewerSheet(
                         .fillMaxWidth()
                         .padding(top = 12.dp)
                         .height(48.dp),
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = AccentBlue,
+                        containerColor = colors.accentIndigo,
                         contentColor = Color.White
                     )
                 ) {

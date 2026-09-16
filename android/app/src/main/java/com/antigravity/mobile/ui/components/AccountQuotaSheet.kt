@@ -18,13 +18,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.CockpitAccountQuota
 import com.antigravity.mobile.data.model.CockpitQuotaBucket
 import com.antigravity.mobile.data.model.CockpitQuotaResponse
-import com.antigravity.mobile.ui.theme.*
+import com.antigravity.mobile.ui.theme.AntigravityTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -38,10 +39,21 @@ fun AccountQuotaSheet(
 ) {
     var isMasked by remember { mutableStateOf(true) }
     val current = quotaData?.currentAccount
+    val colors = AntigravityTheme.colors
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = DarkSurface,
+        containerColor = colors.background,
+        dragHandle = {
+            Box(
+                modifier = Modifier
+                    .padding(top = 10.dp, bottom = 12.dp)
+                    .width(38.dp)
+                    .height(5.dp)
+                    .clip(CircleShape)
+                    .background(colors.textMuted.copy(alpha = 0.4f))
+            )
+        },
         modifier = modifier
     ) {
         Column(
@@ -60,7 +72,7 @@ fun AccountQuotaSheet(
                 Column {
                     Text(
                         text = "Cockpit 配额监控",
-                        color = TextPrimary,
+                        color = colors.textPrimary,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -71,7 +83,7 @@ fun AccountQuotaSheet(
                         ) {
                             Text(
                                 text = if (isMasked) acc.maskedEmail else acc.email,
-                                color = TextSecondary,
+                                color = colors.textSecondary,
                                 fontSize = 13.sp
                             )
                             IconButton(
@@ -81,7 +93,7 @@ fun AccountQuotaSheet(
                                 Icon(
                                     imageVector = if (isMasked) Icons.Default.VisibilityOff else Icons.Default.Visibility,
                                     contentDescription = "Toggle Mask",
-                                    tint = TextMuted,
+                                    tint = colors.textMuted,
                                     modifier = Modifier.size(16.dp)
                                 )
                             }
@@ -97,13 +109,13 @@ fun AccountQuotaSheet(
                         CircularProgressIndicator(
                             modifier = Modifier.size(20.dp),
                             strokeWidth = 2.dp,
-                            color = AccentBlue
+                            color = colors.accentIndigo
                         )
                     } else {
                         Icon(
                             imageVector = Icons.Default.Refresh,
                             contentDescription = "Refresh",
-                            tint = AccentBlue
+                            tint = colors.accentIndigo
                         )
                     }
                 }
@@ -151,7 +163,7 @@ fun AccountQuotaSheet(
             if (accounts.size > 1) {
                 Text(
                     text = "多账号切换 (${accounts.size})",
-                    color = TextPrimary,
+                    color = colors.textPrimary,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(top = 8.dp)
@@ -168,8 +180,13 @@ fun AccountQuotaSheet(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (isCurr) DarkSurfaceVariant else DarkBackground)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (isCurr) colors.accentIndigo.copy(alpha = 0.12f) else colors.surface)
+                                .border(
+                                    0.5.dp,
+                                    if (isCurr) colors.accentIndigo else colors.border,
+                                    RoundedCornerShape(10.dp)
+                                )
                                 .clickable { if (!isCurr) onSwitchAccount(acc.id) }
                                 .padding(12.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -178,7 +195,7 @@ fun AccountQuotaSheet(
                             Column {
                                 Text(
                                     text = if (isMasked) acc.maskedEmail else acc.displayName,
-                                    color = if (isCurr) AccentBlue else TextPrimary,
+                                    color = if (isCurr) colors.accentIndigo else colors.textPrimary,
                                     fontSize = 13.sp,
                                     fontWeight = if (isCurr) FontWeight.Bold else FontWeight.Normal
                                 )
@@ -187,7 +204,7 @@ fun AccountQuotaSheet(
                                 Icon(
                                     imageVector = Icons.Default.Check,
                                     contentDescription = "Active",
-                                    tint = AccentBlue,
+                                    tint = colors.accentIndigo,
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
@@ -205,24 +222,25 @@ fun QuotaMetricCard(
     bucket: CockpitQuotaBucket?,
     modifier: Modifier = Modifier
 ) {
+    val colors = AntigravityTheme.colors
     val percent = bucket?.remainingPercent?.coerceIn(0.0, 100.0) ?: 0.0
     val color = when {
-        percent >= 50 -> AccentGreen
-        percent >= 20 -> AccentYellow
-        else -> AccentRed
+        percent >= 50 -> colors.accentGreen
+        percent >= 20 -> colors.accentOrange
+        else -> colors.accentRed
     }
 
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(10.dp))
-            .background(DarkBackground)
-            .border(1.dp, DarkBorder, RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(12.dp))
+            .background(colors.surface)
+            .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Text(
             text = title,
-            color = TextSecondary,
+            color = colors.textSecondary,
             fontSize = 12.sp
         )
 
@@ -234,12 +252,13 @@ fun QuotaMetricCard(
                 text = "${percent.toInt()}%",
                 color = color,
                 fontSize = 20.sp,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace
             )
             bucket?.resetCountdownDisplay?.let {
                 Text(
                     text = it,
-                    color = TextMuted,
+                    color = colors.textMuted,
                     fontSize = 11.sp,
                     modifier = Modifier.padding(bottom = 2.dp)
                 )
@@ -251,7 +270,7 @@ fun QuotaMetricCard(
                 .fillMaxWidth()
                 .height(4.dp)
                 .clip(CircleShape)
-                .background(DarkBorder)
+                .background(colors.border.copy(alpha = 0.5f))
         ) {
             Box(
                 modifier = Modifier
