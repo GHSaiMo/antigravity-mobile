@@ -9,35 +9,34 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.antigravity.mobile.data.model.SessionStatus
+import com.antigravity.mobile.data.model.ConversationStatus
 import com.antigravity.mobile.ui.theme.*
 
 @Composable
 fun StatusBadge(
-    status: SessionStatus,
+    status: ConversationStatus,
     modifier: Modifier = Modifier
 ) {
     val (bg, fg, label) = when (status) {
-        SessionStatus.RUNNING -> Triple(
+        ConversationStatus.RUNNING -> Triple(
             AccentGreen.copy(alpha = 0.15f),
             AccentGreen,
             "RUNNING"
         )
-        SessionStatus.ACTION -> Triple(
+        ConversationStatus.ACTION -> Triple(
             AccentBlue.copy(alpha = 0.15f),
             AccentBlue,
             "ACTION"
         )
-        SessionStatus.ERROR -> Triple(
+        ConversationStatus.ERROR -> Triple(
             AccentRed.copy(alpha = 0.15f),
             AccentRed,
             "ERROR"
         )
-        SessionStatus.IDLE -> return
+        else -> return
     }
 
     Row(
@@ -67,8 +66,16 @@ fun StatusBadge(
 fun UnreadDot(modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
-            .size(8.dp)
+            .size(10.dp)
             .clip(CircleShape)
-            .background(AccentBlue)
-    )
+            .background(AccentBlue.copy(alpha = 0.25f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .size(6.dp)
+                .clip(CircleShape)
+                .background(AccentBlue)
+        )
+    }
 }

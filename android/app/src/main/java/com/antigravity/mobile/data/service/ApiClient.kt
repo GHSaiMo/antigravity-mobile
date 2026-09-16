@@ -11,10 +11,11 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
 class ApiClient(private val prefs: PreferencesManager) {
-    private val json = Json {
+    val json = Json {
         ignoreUnknownKeys = true
         isLenient = true
         encodeDefaults = true
@@ -63,7 +64,6 @@ class ApiClient(private val prefs: PreferencesManager) {
                     val respStr = response.body?.string() ?: ""
                     val pairResp = json.decodeFromString<PairResponse>(respStr)
 
-                    // Persist matched base URL and tokens
                     prefs.gatewayBaseUrl = candidate
                     prefs.deviceToken = pairResp.deviceToken
                     prefs.deviceId = pairResp.deviceId
@@ -80,7 +80,7 @@ class ApiClient(private val prefs: PreferencesManager) {
     }
 
     /**
-     * Fetch all conversation trajectories via ConnectRPC
+     * Fetch all conversations via ConnectRPC GetAllCascadeTrajectories
      */
     suspend fun fetchConversations(): Result<List<ConversationItem>> = withContext(Dispatchers.IO) {
         val baseUrl = prefs.gatewayBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
@@ -96,38 +96,210 @@ class ApiClient(private val prefs: PreferencesManager) {
                     return@withContext Result.failure(RuntimeException("获取会话列表失败 (${response.code})"))
                 }
                 val bodyStr = response.body?.string() ?: "{}"
-                val rootJson = json.parseToJsonElement(bodyStr).jsonObject
-                val summaries = rootJson["trajectorySummaries"]?.jsonObject ?: JsonObject(emptyMap())
+                val resp = json.decodeFromString<GetAllCascadeTrajectoriesResponse>(bodyStr)
+                val summaries = resp.trajectorySummaries ?: emptyMap()
 
-                val list = mutableListOf<ConversationItem>()
-                for ((cascadeId, summaryEl) in summaries) {
-                    val summaryObj = summaryEl.jsonObject
-                    val isSubagent = summaryObj["isSubagent"]?.jsonPrimitive?.booleanOrNull ?: false
-                    if (isSubagent) continue
+                val list = summaries.mapNotNull { (id, summary) ->
+                    if (summary.isSubagent) return@mapNotNull null
+                    val item = ConversationItem.fromSummary(id, summary)
+                    if (item.isSubagent) return@mapNotNull null
+                    item
+                }.sortedByDescending { it.lastModifiedTime ?: "" }
 
-                    val title = summaryObj["title"]?.jsonPrimitive?.contentOrNull
-                    val stepCount = summaryObj["stepCount"]?.jsonPrimitive?.intOrNull ?: 0
-                    val lastModified = summaryObj["lastModified"]?.jsonPrimitive?.contentOrNull
-                    val workspace = summaryObj["workspaceFolder"]?.jsonPrimitive?.contentOrNull
-                    val status = summaryObj["status"]?.jsonPrimitive?.contentOrNull ?: "IDLE"
-                    val hasError = summaryObj["hasError"]?.jsonPrimitive?.booleanOrNull ?: false
+                Result.success(list)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 
-                    list.add(
-                        ConversationItem(
-                            cascadeId = cascadeId,
-                            title = title,
-                            stepCount = stepCount,
-                            updatedAt = lastModified,
-                            workspaceFolder = workspace,
-                            status = status,
-                            hasError = hasError
-                        )
-                    )
+    /**
+     * Fetch Cockpit Quota status
+     */
+    suspend fun fetchCockpitQuotas(): Result<CockpitQuotaResponse> = withContext(Dispatchers.IO) {
+        val baseUrl = prefs.gatewayBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val url = "$baseUrl/api/v1/cockpit/quotas"
+
+        try {
+            val req = buildAuthorizedRequest(url).get().build()
+            client.newCall(req).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(RuntimeException("获取配额失败 (${response.code})"))
                 }
+                val bodyStr = response.body?.string() ?: "{}"
+                val quotaResp = json.decodeFromString<CockpitQuotaResponse>(bodyStr)
+                Result.success(quotaResp)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 
-                // Sort descending by updated time
-                val sorted = list.sortedByDescending { it.updatedAt ?: "" }
-                Result.success(sorted)
+    /**
+     * Refresh Cockpit Quota
+     */
+    suspend fun refreshCockpitQuotas(): Result<CockpitQuotaResponse> = withContext(Dispatchers.IO) {
+        val baseUrl = prefs.gatewayBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val url = "$baseUrl/api/v1/cockpit/refresh"
+
+        try {
+            val req = buildAuthorizedRequest(url).post("{}".toRequestBody(jsonMediaType)).build()
+            client.newCall(req).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(RuntimeException("刷新配额失败 (${response.code})"))
+                }
+                val bodyStr = response.body?.string() ?: "{}"
+                val quotaResp = json.decodeFromString<CockpitQuotaResponse>(bodyStr)
+                Result.success(quotaResp)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Switch active Cockpit Account
+     */
+    suspend fun switchCockpitAccount(accountId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val baseUrl = prefs.gatewayBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val url = "$baseUrl/api/v1/cockpit/switch"
+
+        val body = buildJsonObject {
+            put("account_id", accountId)
+        }.toString().toRequestBody(jsonMediaType)
+
+        try {
+            val req = buildAuthorizedRequest(url).post(body).build()
+            client.newCall(req).execute().use { response ->
+                if (response.isSuccessful) {
+                    Result.success(Unit)
+                } else {
+                    Result.failure(RuntimeException("切换账号失败: HTTP ${response.code}"))
+                }
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Fetch workspace projects from gateway
+     */
+    suspend fun fetchProjects(): Result<List<ProjectItem>> = withContext(Dispatchers.IO) {
+        val baseUrl = prefs.gatewayBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val url = "$baseUrl/gateway/projects"
+
+        try {
+            val req = buildAuthorizedRequest(url).get().build()
+            client.newCall(req).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(RuntimeException("获取工作区列表失败 (${response.code})"))
+                }
+                val bodyStr = response.body?.string() ?: "[]"
+                val list = json.decodeFromString<List<ProjectItem>>(bodyStr)
+                Result.success(list)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Create a new cascade session
+     */
+    suspend fun createCascade(
+        workspaceUri: String,
+        prompt: String,
+        model: String? = null,
+        projectId: String? = null
+    ): Result<String> = withContext(Dispatchers.IO) {
+        val baseUrl = prefs.gatewayBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val url = "$baseUrl/gateway/cascade/new"
+
+        val payload = buildJsonObject {
+            put("workspaceUri", workspaceUri)
+            put("prompt", prompt)
+            model?.let { put("model", it) }
+            projectId?.let { put("projectId", it) }
+        }
+
+        try {
+            val req = buildAuthorizedRequest(url)
+                .post(payload.toString().toRequestBody(jsonMediaType))
+                .build()
+
+            client.newCall(req).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(RuntimeException("创建会话失败: HTTP ${response.code}"))
+                }
+                val bodyStr = response.body?.string() ?: "{}"
+                val resObj = json.parseToJsonElement(bodyStr).jsonObject
+                val cascadeId = resObj["cascadeId"]?.jsonPrimitive?.contentOrNull
+                if (!cascadeId.isNullOrBlank()) {
+                    Result.success(cascadeId)
+                } else {
+                    val err = resObj["error"]?.jsonPrimitive?.contentOrNull ?: "未能生成会话 ID"
+                    Result.failure(RuntimeException(err))
+                }
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Delete a conversation
+     */
+    suspend fun deleteConversation(cascadeId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val baseUrl = prefs.gatewayBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val url = "$baseUrl/api/exa.language_server_pb.LanguageServerService/DeleteCascadeTrajectory"
+
+        val payload = buildJsonObject {
+            put("cascadeId", cascadeId)
+        }
+
+        try {
+            val req = buildAuthorizedRequest(url)
+                .post(payload.toString().toRequestBody(jsonMediaType))
+                .build()
+
+            client.newCall(req).execute().use { response ->
+                if (response.isSuccessful) {
+                    Result.success(Unit)
+                } else {
+                    Result.failure(RuntimeException("删除会话失败: HTTP ${response.code}"))
+                }
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Rename conversation
+     */
+    suspend fun renameConversation(cascadeId: String, newTitle: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val baseUrl = prefs.gatewayBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val url = "$baseUrl/api/exa.language_server_pb.LanguageServerService/SetCascadeTrajectoryMetadata"
+
+        val payload = buildJsonObject {
+            put("cascadeId", cascadeId)
+            put("annotations", buildJsonObject {
+                put("title", newTitle.trim())
+            })
+        }
+
+        try {
+            val req = buildAuthorizedRequest(url)
+                .post(payload.toString().toRequestBody(jsonMediaType))
+                .build()
+
+            client.newCall(req).execute().use { response ->
+                if (response.isSuccessful) {
+                    Result.success(Unit)
+                } else {
+                    Result.failure(RuntimeException("重命名会话失败: HTTP ${response.code}"))
+                }
             }
         } catch (e: Exception) {
             Result.failure(e)
@@ -137,7 +309,7 @@ class ApiClient(private val prefs: PreferencesManager) {
     /**
      * Send user message to a cascade session
      */
-    suspend fun sendMessage(cascadeId: String, text: String): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun sendMessage(cascadeId: String, text: String, model: String? = null): Result<Unit> = withContext(Dispatchers.IO) {
         val baseUrl = prefs.gatewayBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
         val url = "$baseUrl/api/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage"
 
@@ -145,6 +317,7 @@ class ApiClient(private val prefs: PreferencesManager) {
             put("cascadeId", cascadeId)
             put("text", text)
             put("media", JsonArray(emptyList()))
+            model?.let { put("model", it) }
         }
 
         try {
@@ -185,6 +358,36 @@ class ApiClient(private val prefs: PreferencesManager) {
                     Result.success(Unit)
                 } else {
                     Result.failure(RuntimeException("取消失败: HTTP ${response.code}"))
+                }
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Stop background running command task
+     */
+    suspend fun stopTask(cascadeId: String, taskId: String, stepIndex: Int = 0): Result<Unit> = withContext(Dispatchers.IO) {
+        val baseUrl = prefs.gatewayBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val url = "$baseUrl/gateway/cascade/task/stop"
+
+        val payload = buildJsonObject {
+            put("cascade_id", cascadeId)
+            put("task_id", taskId)
+            put("step_index", stepIndex)
+        }
+
+        try {
+            val req = buildAuthorizedRequest(url)
+                .post(payload.toString().toRequestBody(jsonMediaType))
+                .build()
+
+            client.newCall(req).execute().use { response ->
+                if (response.isSuccessful) {
+                    Result.success(Unit)
+                } else {
+                    Result.failure(RuntimeException("停止任务失败: HTTP ${response.code}"))
                 }
             }
         } catch (e: Exception) {
@@ -240,7 +443,6 @@ class ApiClient(private val prefs: PreferencesManager) {
         val baseUrl = prefs.gatewayBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
         val url = "$baseUrl/api/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage"
 
-        // Default Proceed confirmation prompt
         val payload = buildJsonObject {
             put("cascadeId", cascadeId)
             put("text", "Proceed with implementation plan.")
@@ -262,6 +464,42 @@ class ApiClient(private val prefs: PreferencesManager) {
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    /**
+     * Fetch document or artifact content with companion metadata
+     */
+    suspend fun fetchFileContent(uri: String, cascadeId: String? = null): Result<FileContentResponse> = withContext(Dispatchers.IO) {
+        val baseUrl = prefs.gatewayBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val encodedUri = URLEncoder.encode(uri, "UTF-8")
+        val cidParam = cascadeId?.let { "&cascade_id=${URLEncoder.encode(it, "UTF-8")}" } ?: ""
+        val url = "$baseUrl/api/v1/files/content?uri=$encodedUri$cidParam"
+
+        try {
+            val req = buildAuthorizedRequest(url).get().build()
+            client.newCall(req).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(RuntimeException("获取文件失败: HTTP ${response.code}"))
+                }
+                val bodyStr = response.body?.string() ?: "{}"
+                val fileResp = json.decodeFromString<FileContentResponse>(bodyStr)
+                Result.success(fileResp)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Mark conversation as read
+     */
+    suspend fun markConversationAsRead(cascadeId: String) = withContext(Dispatchers.IO) {
+        val baseUrl = prefs.gatewayBaseUrl ?: return@withContext
+        val url = "$baseUrl/gateway/cascade/focus?cascadeId=${URLEncoder.encode(cascadeId, "UTF-8")}"
+        try {
+            val req = buildAuthorizedRequest(url).post("{}".toRequestBody(jsonMediaType)).build()
+            client.newCall(req).execute().close()
+        } catch (_: Exception) {}
     }
 
     private fun buildAuthorizedRequest(url: String): Request.Builder {

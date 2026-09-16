@@ -1,15 +1,14 @@
 package com.antigravity.mobile.ui.screen
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -20,8 +19,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.ConversationItem
-import com.antigravity.mobile.ui.components.StatusBadge
-import com.antigravity.mobile.ui.components.UnreadDot
+import com.antigravity.mobile.ui.components.*
 import com.antigravity.mobile.ui.theme.*
 import com.antigravity.mobile.ui.viewmodel.ConversationListUiState
 import com.antigravity.mobile.ui.viewmodel.ConversationListViewModel
@@ -36,16 +34,43 @@ fun ConversationListScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
+    val quotaData by viewModel.quotaData.collectAsState()
+    val isRefreshingQuota by viewModel.isRefreshingQuota.collectAsState()
+    val projects by viewModel.projects.collectAsState()
+    val isLoadingProjects by viewModel.isLoadingProjects.collectAsState()
+
+    var showQuotaSheet by remember { mutableStateOf(false) }
+    var showNewConvSheet by remember { mutableStateOf(false) }
+    var showSettingsSheet by remember { mutableStateOf(false) }
+
+    var renamingItem by remember { mutableStateOf<ConversationItem?>(null) }
+    var renameText by remember { mutableStateOf("") }
+    var deletingItem by remember { mutableStateOf<ConversationItem?>(null) }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Antigravity 会话", fontWeight = FontWeight.Bold) },
-                actions = {
-                    IconButton(onClick = { viewModel.loadConversations() }) {
+                title = {
+                    Text(
+                        text = "Antigravity",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 20.sp
+                    )
+                },
+                navigationIcon = {
+                    IconButton(onClick = { showSettingsSheet = true }) {
                         Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Refresh",
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Settings",
+                            tint = TextPrimary
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { showNewConvSheet = true }) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = "New Cascade",
                             tint = TextPrimary
                         )
                     }
@@ -64,11 +89,20 @@ fun ConversationListScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
+            // Cockpit 5h Status Bar
+            quotaData?.let { qd ->
+                QuotaStatusBar(
+                    account = qd.currentAccount,
+                    onTap = { showQuotaSheet = true },
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                )
+            }
+
             // Search Bar
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { viewModel.onSearchQueryChanged(it) },
-                placeholder = { Text("搜索会话标题或工作区...") },
+                placeholder = { Text("搜索会话或工作区...") },
                 leadingIcon = {
                     Icon(
                         imageVector = Icons.Default.Search,
@@ -77,7 +111,7 @@ fun ConversationListScreen(
                     )
                 },
                 singleLine = true,
-                shape = RoundedCornerShape(10.dp),
+                shape = RoundedCornerShape(20.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedContainerColor = DarkSurface,
                     unfocusedContainerColor = DarkSurface,
@@ -86,7 +120,7 @@ fun ConversationListScreen(
                 ),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .padding(horizontal = 16.dp, vertical = 6.dp)
             )
 
             // Content List
@@ -128,7 +162,7 @@ fun ConversationListScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "暂无活跃会话",
+                                text = "暂无活跃会话，点击右上角 ➕ 发起新对话",
                                 color = TextMuted,
                                 fontSize = 14.sp
                             )
@@ -136,14 +170,18 @@ fun ConversationListScreen(
                     } else {
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            items(state.conversations, key = { it.cascadeId }) { conversation ->
+                            items(state.conversations, key = { it.id }) { conversation ->
                                 ConversationCard(
                                     conversation = conversation,
                                     onClick = {
-                                        onSelectConversation(conversation.cascadeId, conversation.displayTitle)
+                                        onSelectConversation(conversation.id, conversation.displayTitle)
+                                    },
+                                    onLongClick = {
+                                        renamingItem = conversation
+                                        renameText = conversation.title
                                     }
                                 )
                             }
@@ -153,24 +191,134 @@ fun ConversationListScreen(
             }
         }
     }
+
+    // Account Quota Sheet
+    if (showQuotaSheet) {
+        AccountQuotaSheet(
+            quotaData = quotaData,
+            isRefreshing = isRefreshingQuota,
+            onRefresh = { viewModel.refreshQuotas() },
+            onSwitchAccount = { viewModel.switchCockpitAccount(it) },
+            onDismiss = { showQuotaSheet = false }
+        )
+    }
+
+    // New Conversation Sheet
+    if (showNewConvSheet) {
+        NewConversationSheet(
+            projects = projects,
+            isLoading = isLoadingProjects,
+            onSelectProject = { project, prompt ->
+                showNewConvSheet = false
+                viewModel.createConversation(project, prompt) { cascadeId ->
+                    onSelectConversation(cascadeId, project.name)
+                }
+            },
+            onDismiss = { showNewConvSheet = false }
+        )
+    }
+
+    // Settings Sheet
+    if (showSettingsSheet) {
+        SettingsSheet(
+            gatewayUrl = viewModel.prefs.gatewayBaseUrl ?: "未配置",
+            deviceId = viewModel.prefs.deviceId ?: "未知",
+            deviceToken = viewModel.prefs.deviceToken ?: "未生成",
+            onUnpair = {
+                showSettingsSheet = false
+                onNavigateToPair()
+            },
+            onDismiss = { showSettingsSheet = false }
+        )
+    }
+
+    // Rename Dialog
+    renamingItem?.let { item ->
+        AlertDialog(
+            onDismissRequest = { renamingItem = null },
+            title = { Text("重命名会话") },
+            text = {
+                OutlinedTextField(
+                    value = renameText,
+                    onValueChange = { renameText = it },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (renameText.isNotBlank()) {
+                            viewModel.renameConversation(item.id, renameText)
+                        }
+                        renamingItem = null
+                    }
+                ) {
+                    Text("保存")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        deletingItem = item
+                        renamingItem = null
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = AccentRed)
+                ) {
+                    Text("删除此会话")
+                }
+            }
+        )
+    }
+
+    // Delete Confirmation Dialog
+    deletingItem?.let { item ->
+        AlertDialog(
+            onDismissRequest = { deletingItem = null },
+            title = { Text("确认删除会话？") },
+            text = { Text("此操作将从 Antigravity 工作区永久移除会话记录及历史轨迹。") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deleteConversation(item.id)
+                        deletingItem = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AccentRed)
+                ) {
+                    Text("删除")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deletingItem = null }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ConversationCard(
     conversation: ConversationItem,
     onClick: () -> Unit,
+    onLongClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .clickable { onClick() },
+            .clip(RoundedCornerShape(12.dp))
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            ),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = DarkSurface)
     ) {
         Column(
             modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -182,9 +330,6 @@ fun ConversationCard(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.weight(1f)
                 ) {
-                    if (conversation.hasUnread) {
-                        UnreadDot()
-                    }
                     Text(
                         text = conversation.displayTitle,
                         color = TextPrimary,
@@ -195,10 +340,14 @@ fun ConversationCard(
                     )
                 }
 
-                StatusBadge(status = conversation.displayStatus)
+                if (conversation.status.isRunning || conversation.status.needsAction || conversation.status.isError) {
+                    StatusBadge(status = conversation.status)
+                } else if (conversation.isUnread) {
+                    UnreadDot()
+                }
             }
 
-            // Workspace & Step counts
+            // Workspace & Step counts & Relative Time
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -206,26 +355,29 @@ fun ConversationCard(
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
                     modifier = Modifier.weight(1f, fill = false)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Folder,
                         contentDescription = "Workspace",
                         tint = TextMuted,
-                        modifier = Modifier.size(14.dp)
+                        modifier = Modifier.size(13.dp)
                     )
                     Text(
-                        text = conversation.workspaceFolder ?: "默认工作区",
-                        color = TextMuted,
+                        text = conversation.workspaceName,
+                        color = TextSecondary,
                         fontSize = 12.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
 
+                val timeStr = conversation.relativeTimeString
+                val metaText = if (timeStr.isNotBlank()) "${conversation.stepCount} 步骤 · $timeStr" else "${conversation.stepCount} 步骤"
+
                 Text(
-                    text = "${conversation.stepCount} 步骤",
+                    text = metaText,
                     color = TextMuted,
                     fontSize = 12.sp
                 )
