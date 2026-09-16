@@ -6,8 +6,37 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		A10000012F42C01000EDA5E9 /* ActivityExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A10000022F42C01000EDA5E9 /* ActivityExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		A10000032F42C01000EDA5E9 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 3756FE0C2F42C00F00EDA5E9 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A10000042F42C01000EDA5E9;
+			remoteInfo = ActivityExtension;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		A10000052F42C01000EDA5E9 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				A10000012F42C01000EDA5E9 /* ActivityExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		3756FE142F42C01000EDA5E9 /* Antigravity.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Antigravity.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000022F42C01000EDA5E9 /* ActivityExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ActivityExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -16,10 +45,22 @@
 			path = Antigravity;
 			sourceTree = "<group>";
 		};
+		A10000062F42C01000EDA5E9 /* ActivityExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = ActivityExtension;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		3756FE112F42C01000EDA5E9 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A10000072F42C01000EDA5E9 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -33,6 +74,7 @@
 			isa = PBXGroup;
 			children = (
 				3756FE162F42C01000EDA5E9 /* Antigravity */,
+				A10000062F42C01000EDA5E9 /* ActivityExtension */,
 				3756FE152F42C01000EDA5E9 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,6 +83,7 @@
 			isa = PBXGroup;
 			children = (
 				3756FE142F42C01000EDA5E9 /* Antigravity.app */,
+				A10000022F42C01000EDA5E9 /* ActivityExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -55,10 +98,12 @@
 				3756FE102F42C01000EDA5E9 /* Sources */,
 				3756FE112F42C01000EDA5E9 /* Frameworks */,
 				3756FE122F42C01000EDA5E9 /* Resources */,
+				A10000052F42C01000EDA5E9 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				A10000082F42C01000EDA5E9 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				3756FE162F42C01000EDA5E9 /* Antigravity */,
@@ -69,6 +114,28 @@
 			productName = Antigravity;
 			productReference = 3756FE142F42C01000EDA5E9 /* Antigravity.app */;
 			productType = "com.apple.product-type.application";
+		};
+		A10000042F42C01000EDA5E9 /* ActivityExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A10000092F42C01000EDA5E9 /* Build configuration list for PBXNativeTarget "ActivityExtension" */;
+			buildPhases = (
+				A100000A2F42C01000EDA5E9 /* Sources */,
+				A10000072F42C01000EDA5E9 /* Frameworks */,
+				A100000B2F42C01000EDA5E9 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				A10000062F42C01000EDA5E9 /* ActivityExtension */,
+			);
+			name = ActivityExtension;
+			packageProductDependencies = (
+			);
+			productName = ActivityExtension;
+			productReference = A10000022F42C01000EDA5E9 /* ActivityExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -81,6 +148,9 @@
 				LastUpgradeCheck = 2660;
 				TargetAttributes = {
 					3756FE132F42C01000EDA5E9 = {
+						CreatedOnToolsVersion = 26.2;
+					};
+					A10000042F42C01000EDA5E9 = {
 						CreatedOnToolsVersion = 26.2;
 					};
 				};
@@ -100,12 +170,20 @@
 			projectRoot = "";
 			targets = (
 				3756FE132F42C01000EDA5E9 /* Antigravity */,
+				A10000042F42C01000EDA5E9 /* ActivityExtension */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		3756FE122F42C01000EDA5E9 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A100000B2F42C01000EDA5E9 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -122,7 +200,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A100000A2F42C01000EDA5E9 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A10000082F42C01000EDA5E9 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A10000042F42C01000EDA5E9 /* ActivityExtension */;
+			targetProxy = A10000032F42C01000EDA5E9 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		3756FE1D2F42C01000EDA5E9 /* Debug */ = {
@@ -160,7 +253,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = 7ZW5X4CFNP;
+				DEVELOPMENT_TEAM = 596K8U9NAG;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -226,7 +319,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = 7ZW5X4CFNP;
+				DEVELOPMENT_TEAM = 596K8U9NAG;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -307,6 +400,66 @@
 			};
 			name = Release;
 		};
+		A100000C2F42C01000EDA5E9 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 596K8U9NAG;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "ActivityExtension-Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.taojiuzhen.antigravity.ActivityExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A100000D2F42C01000EDA5E9 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 596K8U9NAG;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "ActivityExtension-Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.taojiuzhen.antigravity.ActivityExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -324,6 +477,15 @@
 			buildConfigurations = (
 				3756FE202F42C01000EDA5E9 /* Debug */,
 				3756FE212F42C01000EDA5E9 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A10000092F42C01000EDA5E9 /* Build configuration list for PBXNativeTarget "ActivityExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A100000C2F42C01000EDA5E9 /* Debug */,
+				A100000D2F42C01000EDA5E9 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

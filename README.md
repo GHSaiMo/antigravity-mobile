@@ -230,10 +230,10 @@ antigravity-mobile/
 │   ├── sw.js                   # 离线 Service Worker 缓存脚本
 │   └── icons/                  # 应用图标与 180+ 编程文件类型图标
 ├── ios/                        # iOS 原生客户端工程 (Xcode 16 / SwiftUI 5 / Swift 6)
-│   ├── Antigravity.xcodeproj   # Xcode 工程配置
+│   ├── Antigravity.xcodeproj   # Xcode 工程配置 (包含主 App 与 ActivityExtension Target)
 │   ├── Info.plist              # 权限声明与配置
+│   ├── ActivityExtension/      # 灵动岛与锁屏实时活动扩展 Target (Live Activity / Dynamic Island)
 │   └── Antigravity/
-│       ├── ActivityExtension/  # 灵动岛与实时活动 (Live Activity)
 │       ├── App/                # 应用生命周期
 │       ├── Models/             # 会话、步骤、配额、排队消息、后台任务模型
 │       ├── Services/           # RPC 客户端、WebSocket、扫码配对、Keychain、单趟 LaTeX 引擎、焦点上报

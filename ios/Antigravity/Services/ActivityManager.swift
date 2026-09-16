@@ -9,20 +9,44 @@ public final class ActivityManager {
     
     public init() {}
     
-    /// Lock-screen Live Activities must not echo conversation or tool output.
-    public static func lockScreenSummary(stepCount: Int) -> String {
-        if stepCount > 0 {
-            return "正在执行 · \(stepCount) 步"
-        }
-        return "正在执行..."
-    }
-    
     public var isLiveActivityEnabled: Bool {
         ActivityAuthorizationInfo().areActivitiesEnabled
     }
     
-    public func startActivity(title: String, cascadeId: String) {
+    public var currentCascadeId: String? {
+        currentActivity?.attributes.cascadeId
+    }
+    
+    public var hasActiveActivity: Bool {
+        currentActivity != nil
+    }
+    
+    public func startActivity(
+        title: String,
+        cascadeId: String,
+        status: String = "RUNNING",
+        stepCount: Int = 1,
+        latestAction: String = "开始执行任务...",
+        runningTaskCount: Int = 0,
+        activeTaskTitle: String? = nil,
+        activeTaskCommand: String? = nil,
+        hasPendingAction: Bool = false
+    ) {
         guard isLiveActivityEnabled else { return }
+        
+        // If current activity is for the same conversation, update in-place to avoid flicker
+        if let current = currentActivity, current.attributes.cascadeId == cascadeId {
+            updateActivity(
+                status: status,
+                stepCount: stepCount,
+                latestAction: latestAction,
+                runningTaskCount: runningTaskCount,
+                activeTaskTitle: activeTaskTitle,
+                activeTaskCommand: activeTaskCommand,
+                hasPendingAction: hasPendingAction
+            )
+            return
+        }
         
         // End any existing activity first
         if currentActivity != nil {
@@ -31,9 +55,13 @@ public final class ActivityManager {
         
         let attributes = AgentActivityAttributes(conversationTitle: title, cascadeId: cascadeId)
         let initialContentState = AgentActivityAttributes.ContentState(
-            status: "RUNNING",
-            stepCount: 1,
-            latestAction: "开始执行任务...",
+            status: status,
+            stepCount: max(1, stepCount),
+            latestAction: latestAction.isEmpty ? (runningTaskCount > 0 ? "正在执行后台任务..." : "正在执行...") : latestAction,
+            runningTaskCount: runningTaskCount,
+            activeTaskTitle: activeTaskTitle,
+            activeTaskCommand: activeTaskCommand,
+            hasPendingAction: hasPendingAction,
             lastUpdated: Date()
         )
         
@@ -48,16 +76,38 @@ public final class ActivityManager {
         }
     }
     
-    public func updateActivity(status: String, stepCount: Int, latestAction: String) {
+    public func updateActivity(
+        status: String,
+        stepCount: Int,
+        latestAction: String,
+        runningTaskCount: Int = 0,
+        activeTaskTitle: String? = nil,
+        activeTaskCommand: String? = nil,
+        hasPendingAction: Bool = false
+    ) {
         guard let activity = currentActivity else { return }
+        
+        let actionText: String
+        if !latestAction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            actionText = latestAction
+        } else if runningTaskCount > 0 {
+            actionText = "正在执行后台任务..."
+        } else if stepCount > 0 {
+            actionText = "正在执行第 \(stepCount) 步..."
+        } else {
+            actionText = "正在执行..."
+        }
         
         let updatedState = AgentActivityAttributes.ContentState(
             status: status,
             stepCount: stepCount,
-            latestAction: Self.lockScreenSummary(stepCount: stepCount),
+            latestAction: actionText,
+            runningTaskCount: runningTaskCount,
+            activeTaskTitle: activeTaskTitle,
+            activeTaskCommand: activeTaskCommand,
+            hasPendingAction: hasPendingAction,
             lastUpdated: Date()
         )
-        _ = latestAction
         
         Task {
             await activity.update(.init(state: updatedState, staleDate: nil))
@@ -67,15 +117,34 @@ public final class ActivityManager {
     public func endActivity(finalStatus: String = "COMPLETED") {
         guard let activity = currentActivity else { return }
         
+        let summary: String
+        switch finalStatus {
+        case "COMPLETED":
+            summary = "任务已完成"
+        case "CANCELLED":
+            summary = "任务已终止"
+        case "FAILED":
+            summary = "执行遇到错误"
+        default:
+            summary = "执行已结束"
+        }
+        
         let finalState = AgentActivityAttributes.ContentState(
             status: finalStatus,
             stepCount: activity.content.state.stepCount,
-            latestAction: finalStatus == "COMPLETED" ? "任务已完成" : "任务已终止",
+            latestAction: summary,
+            runningTaskCount: 0,
+            activeTaskTitle: nil,
+            activeTaskCommand: nil,
+            hasPendingAction: false,
             lastUpdated: Date()
         )
         
         Task {
-            await activity.end(.init(state: finalState, staleDate: nil), dismissalPolicy: .after(Date().addingTimeInterval(5)))
+            await activity.end(
+                .init(state: finalState, staleDate: nil),
+                dismissalPolicy: .after(Date().addingTimeInterval(4))
+            )
             self.currentActivity = nil
         }
     }

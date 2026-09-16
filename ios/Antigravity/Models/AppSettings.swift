@@ -341,7 +341,7 @@ public final class AppSettings {
         let savedRelay = UserDefaults.standard.string(forKey: relayServerURLKey)
         let savedCustom = UserDefaults.standard.string(forKey: customServerURLKey)
         let savedActive = UserDefaults.standard.string(forKey: activeServerURLKey)
-        let savedLive = UserDefaults.standard.object(forKey: enableLiveActivityKey) as? Bool ?? false
+        let savedLive = UserDefaults.standard.object(forKey: enableLiveActivityKey) as? Bool ?? true
         
         self.rawServerURL = savedURL
         self.lanServerURL = savedLan

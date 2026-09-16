@@ -706,16 +706,7 @@ public final class ChatViewModel {
             }
             
             // Manage Live Activity
-            if settings.enableLiveActivities {
-                if isRunning && !previouslyRunning {
-                    activityManager.startActivity(title: currentTitle, cascadeId: cascadeId)
-                } else if isRunning {
-                    let latestAction = result.messages.last?.content ?? "正在执行..."
-                    activityManager.updateActivity(status: "RUNNING", stepCount: result.totalSteps, latestAction: latestAction)
-                } else if !isRunning && previouslyRunning {
-                    activityManager.endActivity(finalStatus: "COMPLETED")
-                }
-            }
+            syncLiveActivity()
             
             if !self.isRunning && previouslyRunning {
                 // Agent just finished turn; schedule post-turn title verification tasks
@@ -1338,9 +1329,7 @@ public final class ChatViewModel {
         errorMessage = nil
         
         if !cascadeId.isEmpty {
-            if settings.enableLiveActivities {
-                activityManager.startActivity(title: currentTitle, cascadeId: cascadeId)
-            }
+            syncLiveActivity()
             
             // Ensure WebSocket stream is connected for immediate streaming
             connectStream()
@@ -1390,9 +1379,7 @@ public final class ChatViewModel {
                 )
                 self.cacheManager.upsertConversation(newConv)
                 
-                if settings.enableLiveActivities {
-                    activityManager.startActivity(title: currentTitle, cascadeId: newCascadeId)
-                }
+                syncLiveActivity()
                 
                 // Ensure WebSocket stream is connected for immediate streaming
                 connectStream()
@@ -1748,6 +1735,7 @@ public final class ChatViewModel {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
             self.runningTasks.removeAll(where: { $0.id == task.id && $0.stepIndex == task.stepIndex })
         }
+        syncLiveActivity()
         
         do {
             try await apiClient.stopTask(
@@ -1777,9 +1765,7 @@ public final class ChatViewModel {
         errorMessage = nil
         cacheManager.updateConversationStatus(cascadeId: cascadeId, status: .running)
         
-        if settings.enableLiveActivities {
-            activityManager.startActivity(title: currentTitle, cascadeId: cascadeId)
-        }
+        syncLiveActivity()
         
         connectStream()
         if streamClient.status != .connected {
@@ -2298,16 +2284,6 @@ public final class ChatViewModel {
             }
         }
         
-        if settings.enableLiveActivities {
-            if isRunning && !previouslyRunning {
-                activityManager.startActivity(title: currentTitle, cascadeId: cascadeId)
-            } else if isRunning {
-                let latestAction = self.messages.last?.content ?? "正在执行..."
-                activityManager.updateActivity(status: "RUNNING", stepCount: self.stepCount, latestAction: latestAction)
-            } else if !isRunning && previouslyRunning {
-                activityManager.endActivity(finalStatus: "COMPLETED")
-            }
-        }
         
         if self.isRunning {
             if let pi = payload.pendingInteraction {
@@ -2325,6 +2301,8 @@ public final class ChatViewModel {
         } else if !self.isRunning && !self.isAwaitingResponse {
             self.runningTasks = []
         }
+        
+        syncLiveActivity()
         
         let toCache = self.messages.filter { $0.id != self.pendingOptimisticMessageId && !$0.id.hasPrefix("optimistic-") }
         cacheManager.saveSession(CachedChatSession(
@@ -2496,6 +2474,75 @@ public final class ChatViewModel {
     @MainActor
     public func handleAppBackground() {
         disconnectStream()
+    }
+    
+    // MARK: - Live Activity Sync
+    
+    @MainActor
+    public func syncLiveActivity() {
+        guard settings.enableLiveActivities, !cascadeId.isEmpty else { return }
+        
+        let isAgentBusy = self.isRunning || self.isAwaitingResponse
+        let hasRunningTasks = !self.runningTasks.isEmpty
+        let hasPendingAction = self.canProceed || self.pendingInteraction != nil
+        let shouldBeActive = isAgentBusy || hasRunningTasks || hasPendingAction
+        
+        if shouldBeActive {
+            let primaryTask = self.runningTasks.first
+            let taskTitle = primaryTask?.toolSummary ?? primaryTask?.toolAction ?? primaryTask?.toolName
+            let taskCommand = primaryTask?.commandLine
+            
+            let status: String
+            if hasPendingAction {
+                status = "WAITING_APPROVAL"
+            } else if hasRunningTasks && !isAgentBusy {
+                status = "TASK_RUNNING"
+            } else {
+                status = "RUNNING"
+            }
+            
+            var actionText = ""
+            if hasPendingAction {
+                actionText = "等待用户审批操作"
+            } else if let title = taskTitle, !title.isEmpty {
+                actionText = title
+            } else if let lastMsg = self.messages.last, !lastMsg.content.isEmpty {
+                actionText = lastMsg.content
+            } else if isAgentBusy {
+                actionText = "Agent 正在执行..."
+            } else {
+                actionText = "任务运行中..."
+            }
+            
+            if activityManager.hasActiveActivity && activityManager.currentCascadeId == cascadeId {
+                activityManager.updateActivity(
+                    status: status,
+                    stepCount: self.stepCount,
+                    latestAction: actionText,
+                    runningTaskCount: self.runningTasks.count,
+                    activeTaskTitle: taskTitle,
+                    activeTaskCommand: taskCommand,
+                    hasPendingAction: hasPendingAction
+                )
+            } else {
+                activityManager.startActivity(
+                    title: currentTitle,
+                    cascadeId: cascadeId,
+                    status: status,
+                    stepCount: self.stepCount,
+                    latestAction: actionText,
+                    runningTaskCount: self.runningTasks.count,
+                    activeTaskTitle: taskTitle,
+                    activeTaskCommand: taskCommand,
+                    hasPendingAction: hasPendingAction
+                )
+            }
+        } else {
+            if activityManager.hasActiveActivity && activityManager.currentCascadeId == cascadeId {
+                let finalStatus = self.hasErrorState ? "FAILED" : "COMPLETED"
+                activityManager.endActivity(finalStatus: finalStatus)
+            }
+        }
     }
     
     public func disconnectStream() {
