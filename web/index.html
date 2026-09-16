@@ -11,7 +11,7 @@
   <link rel="icon" type="image/png" href="/icons/icon-192.png" />
   <link rel="apple-touch-icon" href="/icons/icon-192.png" />
   <link rel="manifest" href="/manifest.json" />
-  <link rel="stylesheet" href="/style.css?v=11" />
+  <link rel="stylesheet" href="/style.css?v=12" />
 </head>
 <body>
   <div id="app">
@@ -26,11 +26,10 @@
           </svg>
         </button>
         <!-- In Chat View: Back Button with Chevron -->
-        <button id="btn-back" class="nav-btn nav-back-btn hidden" aria-label="返回">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <button id="btn-back" class="nav-btn nav-back-btn hidden" aria-label="返回" type="button">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="15 18 9 12 15 6"></polyline>
           </svg>
-          <span class="back-title">Antigravity</span>
         </button>
       </div>
 
@@ -43,14 +42,12 @@
 
       <div class="nav-right">
         <!-- In List View: Plus Button -->
-        <button id="btn-new" class="nav-btn nav-action-btn" aria-label="新建会话">
+        <button id="btn-new" class="nav-btn nav-action-btn" aria-label="新建会话" type="button">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <line x1="12" y1="5" x2="12" y2="19"></line>
             <line x1="5" y1="12" x2="19" y2="12"></line>
           </svg>
         </button>
-        <!-- In Chat View: Status indicator -->
-        <div id="chat-status-dot" class="chat-status-dot hidden" title="上游状态"></div>
       </div>
     </header>
 
@@ -513,6 +510,6 @@
   </div>
 
   <script src="/mermaid.min.js"></script>
-  <script src="/app.js?v=22"></script>
+  <script src="/app.js?v=23"></script>
 </body>
 </html>

@@ -278,7 +278,6 @@ async function checkGatewayStatus() {
   const statusPill = document.getElementById("settings-status-pill");
   const portEl = document.getElementById("settings-upstream-port");
   const pidEl = document.getElementById("settings-upstream-pid");
-  const chatDot = document.getElementById("chat-status-dot");
 
   try {
     const resp = await fetch("/gateway/status");
@@ -294,28 +293,16 @@ async function checkGatewayStatus() {
       }
       if (portEl) portEl.textContent = data.upstream.port;
       if (pidEl) pidEl.textContent = data.upstream.pid;
-      if (chatDot) {
-        chatDot.classList.add("active");
-        chatDot.title = `已连接 :${data.upstream.port}`;
-      }
     } else {
       if (statusPill) {
         statusPill.className = "status-badge disconnected";
         statusPill.textContent = "未连接";
-      }
-      if (chatDot) {
-        chatDot.classList.remove("active");
-        chatDot.title = "上游未连接";
       }
     }
   } catch (e) {
     if (statusPill) {
       statusPill.className = "status-badge disconnected";
       statusPill.textContent = "网关离线";
-    }
-    if (chatDot) {
-      chatDot.classList.remove("active");
-      chatDot.title = "网关离线";
     }
   }
 }
@@ -365,7 +352,6 @@ function renderRoute() {
   const inlineTitle = document.getElementById("nav-inline-title");
   const titleText = document.getElementById("chat-title-text");
   const wsText = document.getElementById("chat-workspace-text");
-  const chatDot = document.getElementById("chat-status-dot");
 
   if (pollTimer) {
     clearInterval(pollTimer);
@@ -393,7 +379,6 @@ function renderRoute() {
     if (newBtn) newBtn.classList.add("hidden");
     if (backBtn) backBtn.classList.remove("hidden");
     if (inlineTitle) inlineTitle.classList.remove("hidden");
-    if (chatDot) chatDot.classList.remove("hidden");
 
     // Title resolution
     const summary = currentTrajectories[activeCascadeId];
@@ -449,7 +434,6 @@ function renderRoute() {
     if (newBtn) newBtn.classList.add("hidden");
     if (backBtn) backBtn.classList.remove("hidden");
     if (inlineTitle) inlineTitle.classList.remove("hidden");
-    if (chatDot) chatDot.classList.add("hidden");
 
     if (titleText) titleText.textContent = activeDraftSession.isPure ? "新对话" : activeDraftSession.name;
     if (wsText) wsText.textContent = activeDraftSession.isPure ? "Chat" : `📁 ${activeDraftSession.name}`;
@@ -495,7 +479,6 @@ function renderRoute() {
     if (newBtn) newBtn.classList.remove("hidden");
     if (backBtn) backBtn.classList.add("hidden");
     if (inlineTitle) inlineTitle.classList.add("hidden");
-    if (chatDot) chatDot.classList.add("hidden");
 
     loadConversations();
   }
@@ -692,10 +675,14 @@ function attachConversationCardInteractions() {
     let startX = 0;
     let startY = 0;
     let currentX = 0;
+    let currentY = 0;
     let isDragging = false;
     let isHorizontal = null;
+    let hasMoved = false;
     let longPressTimer = null;
     let hasTriggeredLongPress = false;
+    let touchStartTime = 0;
+    let touchHandled = false;
 
     const closeCard = () => {
       card.style.transform = "translateX(0)";
@@ -719,15 +706,18 @@ function attachConversationCardInteractions() {
       startX = e.touches[0].clientX;
       startY = e.touches[0].clientY;
       currentX = startX;
+      currentY = startY;
       isDragging = false;
       isHorizontal = null;
+      hasMoved = false;
       hasTriggeredLongPress = false;
+      touchStartTime = Date.now();
       card.classList.remove("swiping");
       wrapper.classList.remove("swiping");
 
       // 450ms long press for Rename (aligns with iOS LongPressGesture)
       longPressTimer = setTimeout(() => {
-        if (!isDragging && Math.abs(currentX - startX) < 10) {
+        if (!hasMoved && !isDragging && Math.hypot(currentX - startX, currentY - startY) < 10) {
           hasTriggeredLongPress = true;
           triggerHaptic("medium");
           const title = card.getAttribute("data-title") || "会话";
@@ -738,13 +728,20 @@ function attachConversationCardInteractions() {
 
     card.addEventListener("touchmove", (e) => {
       currentX = e.touches[0].clientX;
-      const currentY = e.touches[0].clientY;
+      currentY = e.touches[0].clientY;
       const dx = currentX - startX;
       const dy = currentY - startY;
 
-      if (isHorizontal === null && (Math.abs(dx) > 6 || Math.abs(dy) > 6)) {
-        isHorizontal = Math.abs(dx) > Math.abs(dy);
-        if (!isHorizontal || Math.abs(dx) > 8) {
+      // Detect movement beyond touch jitter threshold
+      if (!hasMoved && (Math.abs(dx) > 7 || Math.abs(dy) > 7)) {
+        hasMoved = true;
+        clearTimeout(longPressTimer);
+      }
+
+      if (isHorizontal === null && hasMoved) {
+        // Only classify as horizontal swipe if horizontal movement is dominant
+        isHorizontal = Math.abs(dx) > Math.abs(dy) * 1.2;
+        if (!isHorizontal) {
           clearTimeout(longPressTimer);
         }
       }
@@ -770,6 +767,14 @@ function attachConversationCardInteractions() {
       }
     }, { passive: true });
 
+    card.addEventListener("touchcancel", () => {
+      clearTimeout(longPressTimer);
+      hasMoved = true;
+      isDragging = false;
+      card.classList.remove("swiping");
+      wrapper.classList.remove("swiping");
+    });
+
     card.addEventListener("touchend", () => {
       clearTimeout(longPressTimer);
       card.classList.remove("swiping");
@@ -777,7 +782,7 @@ function attachConversationCardInteractions() {
 
       if (hasTriggeredLongPress) return;
 
-      if (isDragging) {
+      if (isDragging && isHorizontal) {
         const dx = currentX - startX;
         const isAlreadySwiped = card.classList.contains("swiped");
         if (isAlreadySwiped) {
@@ -798,15 +803,57 @@ function attachConversationCardInteractions() {
             closeCard();
           }
         }
-      } else {
-        if (card.classList.contains("swiped")) {
-          closeCard();
-        } else {
-          closeOtherCards();
-          triggerHaptic("selection");
-          navigateTo(`#c=${id}`);
-        }
+        return;
       }
+
+      // CRITICAL: If user moved their finger (e.g. scrolling the list vertically), NEVER navigate!
+      if (hasMoved) {
+        return;
+      }
+
+      // Ignore if touch was held too long without triggering rename
+      if (Date.now() - touchStartTime > 600) {
+        return;
+      }
+
+      // Mark touch as handled to prevent duplicate click event firing
+      touchHandled = true;
+      setTimeout(() => { touchHandled = false; }, 400);
+
+      // If this card is swiped, tapping it simply closes the swipe
+      if (card.classList.contains("swiped")) {
+        closeCard();
+        return;
+      }
+
+      // If any other card is currently swiped, tapping this card closes all swiped cards
+      const anySwiped = document.querySelectorAll(".conv-card.swiped, .conv-card-wrapper.swiped");
+      if (anySwiped.length > 0) {
+        closeOtherCards();
+        return;
+      }
+
+      // Genuine tap on an idle card: navigate into the conversation
+      closeOtherCards();
+      triggerHaptic("selection");
+      navigateTo(`#c=${id}`);
+    });
+
+    // Fallback click handler for desktop / non-touch navigation
+    card.addEventListener("click", () => {
+      if (touchHandled) return;
+      if (card.classList.contains("swiped")) {
+        closeCard();
+        return;
+      }
+      const anySwiped = document.querySelectorAll(".conv-card.swiped, .conv-card-wrapper.swiped");
+      if (anySwiped.length > 0) {
+        closeOtherCards();
+        return;
+      }
+      closeOtherCards();
+      triggerHaptic("selection");
+      navigateTo(`#c=${id}`);
     });
 
     if (deleteBtn) {

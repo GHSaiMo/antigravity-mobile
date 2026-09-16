@@ -142,49 +142,68 @@ html, body {
 .nav-left, .nav-right {
   display: flex;
   align-items: center;
-  gap: 6px;
+  width: 44px;
   min-width: 44px;
+  height: 44px;
+  z-index: 2;
+  position: relative;
+}
+
+.nav-left {
+  justify-content: flex-start;
+}
+
+.nav-right {
+  justify-content: flex-end;
 }
 
 .nav-center {
-  flex: 1;
+  position: absolute;
+  left: 56px;
+  right: 56px;
+  top: var(--safe-top);
+  bottom: 0;
+  height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  padding: 0 8px;
+  padding: 0;
+  pointer-events: none;
+  z-index: 1;
 }
 
 .nav-btn {
   background: none;
   border: none;
   color: var(--ios-blue);
-  min-width: 36px;
-  height: 36px;
+  width: 38px;
+  height: 38px;
+  min-width: 38px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
+  border-radius: 50%;
   cursor: pointer;
   padding: 0;
-  transition: opacity 0.15s ease, transform 0.1s ease;
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity 0.15s ease, background-color 0.15s ease, transform 0.1s ease;
 }
 
 .nav-btn:active {
   opacity: 0.5;
+  background-color: rgba(0, 122, 255, 0.1);
   transform: scale(0.94);
 }
 
 .nav-back-btn {
-  gap: 2px;
-  padding-right: 8px;
-}
-
-.nav-back-btn .back-title {
-  font-size: 17px;
-  font-weight: 400;
-  color: var(--ios-blue);
-  letter-spacing: -0.4px;
+  width: 38px;
+  height: 38px;
+  min-width: 38px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .nav-action-btn {
@@ -195,8 +214,11 @@ html, body {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   text-align: center;
+  width: 100%;
   max-width: 100%;
+  pointer-events: auto;
 }
 
 .nav-inline-title .title-text {
@@ -206,31 +228,28 @@ html, body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 220px;
+  width: 100%;
+  max-width: 100%;
+  text-align: center;
   letter-spacing: -0.3px;
+  line-height: 1.25;
 }
 
 .nav-inline-title .subtitle-text {
   font-size: 11px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family: -apple-system, BlinkMacSystemFont, ui-monospace, SFMono-Regular, Menlo, monospace;
   color: var(--ios-secondary-label);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 180px;
+  width: 100%;
+  max-width: 100%;
+  text-align: center;
+  line-height: 1.25;
 }
 
-.chat-status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background-color: var(--ios-secondary-label);
-  transition: background-color 0.2s ease;
-}
-
-.chat-status-dot.active {
-  background-color: var(--ios-green);
-  box-shadow: 0 0 6px rgba(48, 209, 88, 0.6);
+.nav-inline-title .subtitle-text:empty {
+  display: none;
 }
 
 /* Content Container */
