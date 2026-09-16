@@ -1,6 +1,9 @@
 package auth
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -167,6 +170,57 @@ func TestGenerateMultiHostPairingURI(t *testing.T) {
 	}
 }
 
+func TestGenerateMultiHostPairingURI_IncludesRelay(t *testing.T) {
+	uri := GenerateMultiHostPairingURI(MultiHostPairingParams{
+		PrimaryHost: "192.168.50.9",
+		Port:        58900,
+		Code:        "testcode123",
+		SSL:         false,
+		LANHost:     "192.168.50.9",
+		IPv6Host:    "2001:db8:abcd::1",
+		RelayHost:   "124.222.226.143",
+	})
+	if !strings.Contains(uri, "relay=124.222.226.143") {
+		t.Fatalf("expected relay host in pairing URI, got %s", uri)
+	}
+}
+
+func TestAuthHandler_NewPairingSessionIncludesRelay(t *testing.T) {
+	t.Setenv("ADMIN_TOKEN", "pair-admin-token")
+	store, err := NewAuthStore(t.TempDir() + "/auth.json")
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	pm := NewPairingManager()
+	h := NewAuthHandler(store, pm, "192.168.50.9", 58900, false)
+	h.SetEndpoints("192.168.50.9", "2001:db8:abcd::1", "")
+	h.SetRelayURL("http://124.222.226.143:58900")
+
+	if got := h.relayHost(); got != "124.222.226.143" {
+		t.Fatalf("relayHost() = %q", got)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", nil)
+	req.Header.Set("Authorization", "Bearer pair-admin-token")
+	rr := httptest.NewRecorder()
+	h.HandleNewPairingSession(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("session status %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp struct {
+		URI string `json:"uri"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !strings.Contains(resp.URI, "relay=124.222.226.143") {
+		t.Fatalf("session URI missing relay: %s", resp.URI)
+	}
+	if !strings.Contains(resp.URI, "ipv6=") {
+		t.Fatalf("session URI missing ipv6: %s", resp.URI)
+	}
+}
+
 func TestAuthHandler_GetEndpoints(t *testing.T) {
 	store, _ := NewAuthStore(t.TempDir() + "/auth.json")
 	pm := NewPairingManager()
@@ -210,5 +264,56 @@ func TestAuthHandler_GetEndpoints(t *testing.T) {
 	}
 	if !foundRelay {
 		t.Errorf("Relay endpoint missing")
+	}
+}
+
+func TestAuthHandler_NewPairingSession_SSLOmitsIPLiterals(t *testing.T) {
+	t.Setenv("ADMIN_TOKEN", "pair-admin-token")
+	store, err := NewAuthStore(t.TempDir() + "/auth.json")
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	pm := NewPairingManager()
+	h := NewAuthHandler(store, pm, "agy.jiuge.space", 58900, true)
+	h.SetEndpoints("192.168.50.9", "2001:db8:abcd::1", "agy.jiuge.space")
+	h.SetRelayURL("https://agy.jiuge.space:58900")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", nil)
+	req.Header.Set("Authorization", "Bearer pair-admin-token")
+	rr := httptest.NewRecorder()
+	h.HandleNewPairingSession(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("session status %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp struct {
+		URI string `json:"uri"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !strings.Contains(resp.URI, "ssl=1") {
+		t.Fatalf("expected ssl=1 in %s", resp.URI)
+	}
+	if !strings.Contains(resp.URI, "host=agy.jiuge.space") {
+		t.Fatalf("expected domain host in %s", resp.URI)
+	}
+	if strings.Contains(resp.URI, "lan=") || strings.Contains(resp.URI, "ipv6=") {
+		t.Fatalf("TLS pairing URI must not include IP literals: %s", resp.URI)
+	}
+}
+
+func TestAuthHandler_GetEndpoints_SSLOmitsIPLiterals(t *testing.T) {
+	store, _ := NewAuthStore(t.TempDir() + "/auth.json")
+	pm := NewPairingManager()
+	h := NewAuthHandler(store, pm, "agy.jiuge.space", 58900, true)
+	h.SetEndpoints("192.168.50.9", "2001:db8:abcd::1", "agy.jiuge.space")
+	h.SetRelayURL("https://agy.jiuge.space:58900")
+
+	endpoints := h.GetEndpoints()
+	if len(endpoints) != 1 {
+		t.Fatalf("expected only the domain endpoint under TLS, got %+v", endpoints)
+	}
+	if endpoints[0].URL != "https://agy.jiuge.space:58900" {
+		t.Fatalf("unexpected endpoint %s", endpoints[0].URL)
 	}
 }

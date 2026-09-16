@@ -44,6 +44,8 @@ func TestResolveLocalFilePath(t *testing.T) {
 }
 
 func TestIsSafeFilePath(t *testing.T) {
+	resetWorkspaceRootsForTest()
+	t.Cleanup(resetWorkspaceRootsForTest)
 	home, _ := os.UserHomeDir()
 
 	if IsSafeFilePath(filepath.Join(home, ".ssh/id_rsa")) {
@@ -58,16 +60,28 @@ func TestIsSafeFilePath(t *testing.T) {
 		t.Errorf("expected artifact file to be safe")
 	}
 
-	if IsSafeFilePath(filepath.Join(home, "Downloads/sample.png")) {
-		t.Errorf("expected Downloads to be outside the default allowlist")
+	if !IsSafeFilePath(filepath.Join(home, "Downloads/sample.png")) {
+		t.Errorf("expected Downloads files to be safe by default")
 	}
 
 	if IsSafeFilePath(filepath.Join(home, "Downloads/.env")) {
 		t.Errorf("expected Downloads .env to be blocked")
 	}
 
-	if IsSafeFilePath(filepath.Join(home, ".agents/skills/xueqiu-radar/data/discovered_cubes_full.json")) {
-		t.Errorf("expected .agents to be outside the default allowlist")
+	if !IsSafeFilePath(filepath.Join(home, ".agents/skills/xueqiu-radar/data/discovered_cubes_full.json")) {
+		t.Errorf("expected .agents skill output to be safe")
+	}
+	if !IsSafeFilePath(filepath.Join(home, "Websites/Persia-Live/report.pdf")) {
+		t.Errorf("expected home project documents to be safe")
+	}
+	if !IsSafeFilePath(filepath.Join(home, "Desktop/客户清单.xlsx")) {
+		t.Errorf("expected Desktop documents to be safe")
+	}
+	if !IsSafeFilePath(filepath.Join(home, "Projects/demo/deck.key")) {
+		t.Errorf("expected Keynote .key under Projects to be safe")
+	}
+	if IsSafeFilePath(filepath.Join(home, "Library/Application Support/Antigravity/User/globalStorage/storage.json")) {
+		t.Errorf("expected Application Support to be blocked")
 	}
 	if !IsSafeFilePath(filepath.Join(home, ".gemini/config/skills/my-skill/SKILL.md")) {
 		t.Errorf("expected .gemini/config skill file to be safe")

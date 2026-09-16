@@ -27,4 +27,9 @@ func TestTunnelConfigAndRemoteURL(t *testing.T) {
 	if sslURL != "https://198.51.100.1:58900" {
 		t.Fatalf("expected https://198.51.100.1:58900, got %s", sslURL)
 	}
+
+	named := tun.RemoteURLFor("agy.jiuge.space", true)
+	if named != "https://agy.jiuge.space:58900" {
+		t.Fatalf("expected https://agy.jiuge.space:58900, got %s", named)
+	}
 }

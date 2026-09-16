@@ -195,14 +195,26 @@ remotePort = %d
 
 // RemoteURL returns the public HTTP URL for accessing this tunnel if configured.
 func (t *Tunnel) RemoteURL(ssl bool) string {
-	if t.cfg.ServerAddr == "" || t.cfg.RemotePort <= 0 {
+	return t.RemoteURLFor("", ssl)
+}
+
+// RemoteURLFor is RemoteURL with an optional public hostname (e.g. DDNS).
+// When publicHost is empty, FRP_SERVER_ADDR is used.
+func (t *Tunnel) RemoteURLFor(publicHost string, ssl bool) string {
+	if t.cfg.RemotePort <= 0 {
+		return ""
+	}
+	addr := strings.TrimSpace(publicHost)
+	if addr == "" {
+		addr = t.cfg.ServerAddr
+	}
+	if addr == "" {
 		return ""
 	}
 	scheme := "http://"
 	if ssl {
 		scheme = "https://"
 	}
-	addr := t.cfg.ServerAddr
 	if strings.Contains(addr, ":") && !strings.HasPrefix(addr, "[") {
 		addr = "[" + addr + "]"
 	}
