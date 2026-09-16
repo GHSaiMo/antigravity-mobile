@@ -677,6 +677,13 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 				}
 			}
 		}
+		// If items is missing or empty, synthesize from "text" parameter
+		if items, ok := rawMap["items"].([]interface{}); !ok || len(items) == 0 {
+			if txt, ok := rawMap["text"].(string); ok && strings.TrimSpace(txt) != "" {
+				rawMap["items"] = []interface{}{map[string]interface{}{"text": txt}}
+				textContent.WriteString(txt)
+			}
+		}
 		if comments, ok := rawMap["artifactComments"].([]interface{}); ok {
 			for _, ac := range comments {
 				if acMap, ok := ac.(map[string]interface{}); ok {
@@ -725,7 +732,8 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 		// unmarshal→modify→remarshal which is expensive for large payloads.
 		_, hasModel := rawMap["model"]
 		_, hasCfgRaw := rawMap["cascadeConfigRaw"]
-		needsModification := targetModel != "" || hasModel || hasCfgRaw
+		_, hasText := rawMap["text"]
+		needsModification := targetModel != "" || hasModel || hasCfgRaw || hasText
 
 		if !needsModification {
 			// No changes required — forward original bytes as-is.

@@ -50,6 +50,36 @@ class ChatViewModel(
             apiClient.markConversationAsRead(cascadeId)
         }
 
+        // Immediately fetch cached messages via HTTP so entering session loads instantly
+        viewModelScope.launch {
+            apiClient.fetchMessages(cascadeId, limit = 15).onSuccess { payload ->
+                if (_uiState.value.cascadeId == cascadeId) {
+                    val msgs = payload.messages ?: _uiState.value.messages
+                    val lastMsg = msgs.lastOrNull()
+                    val isError = lastMsg?.status.equals("error", ignoreCase = true) || payload.hasError
+                    _uiState.value = _uiState.value.copy(
+                        title = payload.title?.takeIf { it.isNotBlank() } ?: _uiState.value.title,
+                        messages = msgs,
+                        runningTasks = payload.runningTasks ?: _uiState.value.runningTasks,
+                        queuedMessages = payload.queuedMessages ?: _uiState.value.queuedMessages,
+                        isRunning = payload.status.equals("RUNNING", ignoreCase = true),
+                        canProceed = payload.canProceed,
+                        proceedArtifactUri = payload.proceedArtifactUri,
+                        pendingInteraction = payload.pendingInteraction,
+                        activeModel = payload.activeModel?.let { raw ->
+                            if (raw.contains("claude", ignoreCase = true) || raw.contains("m26", ignoreCase = true)) {
+                                "claude-opus-4-6-thinking"
+                            } else {
+                                "gemini-3.8-flash-high"
+                            }
+                        } ?: _uiState.value.activeModel,
+                        errorMessage = if (payload.hasError) payload.errorMessage else null,
+                        isLatestMessageError = isError
+                    )
+                }
+            }
+        }
+
         wsClient.connect(cascadeId)
         observeWebSocket()
     }
@@ -141,7 +171,9 @@ class ChatViewModel(
         // Optimistically add user bubble
         val optimisticUserMsg = GatewayMessageItem(
             id = "opt_${System.currentTimeMillis()}",
+            type = "user",
             role = "user",
+            text = text,
             content = text
         )
         _uiState.value = _uiState.value.copy(

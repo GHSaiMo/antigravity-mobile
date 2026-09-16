@@ -307,6 +307,36 @@ class ApiClient(private val prefs: PreferencesManager) {
     }
 
     /**
+     * Fetch paginated messages for a cascade session
+     */
+    suspend fun fetchMessages(
+        cascadeId: String,
+        limit: Int = 15,
+        offset: Int? = null
+    ): Result<StreamUpdatePayload> = withContext(Dispatchers.IO) {
+        val baseUrl = prefs.gatewayBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val urlBuilder = StringBuilder("$baseUrl/gateway/cascade/messages?cascadeId=$cascadeId&limit=$limit")
+        offset?.let { urlBuilder.append("&offset=$it") }
+
+        try {
+            val req = buildAuthorizedRequest(urlBuilder.toString())
+                .get()
+                .build()
+
+            client.newCall(req).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(RuntimeException("获取消息失败: HTTP ${response.code}"))
+                }
+                val bodyStr = response.body?.string() ?: "{}"
+                val payload = json.decodeFromString<StreamUpdatePayload>(bodyStr)
+                Result.success(payload)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
      * Send user message to a cascade session
      */
     suspend fun sendMessage(cascadeId: String, text: String, model: String? = null): Result<Unit> = withContext(Dispatchers.IO) {
@@ -315,6 +345,11 @@ class ApiClient(private val prefs: PreferencesManager) {
 
         val payload = buildJsonObject {
             put("cascadeId", cascadeId)
+            putJsonArray("items") {
+                addJsonObject {
+                    put("text", text)
+                }
+            }
             put("text", text)
             put("media", JsonArray(emptyList()))
             model?.let { put("model", it) }

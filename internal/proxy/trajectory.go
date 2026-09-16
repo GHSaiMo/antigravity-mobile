@@ -19,8 +19,10 @@ import (
 
 type CascadeMessageItem struct {
 	ID        string   `json:"id"`
-	Type      string   `json:"type"` // "user", "agent", "tools"
+	Type      string   `json:"type"` // "user", "agent", "tools", "error"
+	Role      string   `json:"role"`
 	Text      string   `json:"text"`
+	Content   string   `json:"content"`
 	ToolCount int      `json:"toolCount,omitempty"`
 	ToolNames []string `json:"toolNames,omitempty"`
 	Media     []string `json:"media,omitempty"`     // Base64 thumbnails
@@ -781,7 +783,9 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 		item := CascadeMessageItem{
 			ID:        fmt.Sprintf("tools-%d", len(allMessages)),
 			Type:      "tools",
+			Role:      "tools",
 			Text:      fmt.Sprintf("已思考并执行 %d 项操作", pendingTools),
+			Content:   fmt.Sprintf("已思考并执行 %d 项操作", pendingTools),
 			ToolCount: pendingTools,
 			ToolNames: toolNames,
 		}
@@ -828,10 +832,12 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 
 			if (trimmed != "" && !isSystemApproval) || len(mediaList) > 0 {
 				allMessages = append(allMessages, CascadeMessageItem{
-					ID:    fmt.Sprintf("step-%d", idx),
-					Type:  "user",
-					Text:  text,
-					Media: mediaList,
+					ID:      fmt.Sprintf("step-%d", idx),
+					Type:    "user",
+					Role:    "user",
+					Text:    text,
+					Content: text,
+					Media:   mediaList,
 				})
 			}
 		} else if stepType == "CORTEX_STEP_TYPE_PLANNER_RESPONSE" {
@@ -849,7 +855,9 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 				allMessages = append(allMessages, CascadeMessageItem{
 					ID:        fmt.Sprintf("step-%d", idx),
 					Type:      "agent",
+					Role:      "assistant",
 					Text:      respText,
+					Content:   respText,
 					ImageURLs: imgURLs,
 				})
 			}
@@ -860,9 +868,11 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 			flushTools()
 			lastErrorText = extractErrorText(s)
 			allMessages = append(allMessages, CascadeMessageItem{
-				ID:   fmt.Sprintf("step-%d", idx),
-				Type: "error",
-				Text: lastErrorText,
+				ID:      fmt.Sprintf("step-%d", idx),
+				Type:    "error",
+				Role:    "error",
+				Text:    lastErrorText,
+				Content: lastErrorText,
 			})
 		} else if strings.HasPrefix(stepType, "CORTEX_STEP_TYPE_") && stepType != "CORTEX_STEP_TYPE_SYSTEM_MESSAGE" && stepType != "CORTEX_STEP_TYPE_ERROR_MESSAGE" {
 			pendingTools++
@@ -1425,10 +1435,12 @@ func (p *Proxy) GetCascadeConfig(cascadeID string, port int, token string) json.
 			}
 		}
 	}
-	defaultTrajCache.lastKnownConfigMu.RLock()
-	defer defaultTrajCache.lastKnownConfigMu.RUnlock()
-	if len(defaultTrajCache.lastKnownConfig) > 0 {
-		return defaultTrajCache.lastKnownConfig
+	if cascadeID == "" {
+		defaultTrajCache.lastKnownConfigMu.RLock()
+		defer defaultTrajCache.lastKnownConfigMu.RUnlock()
+		if len(defaultTrajCache.lastKnownConfig) > 0 {
+			return defaultTrajCache.lastKnownConfig
+		}
 	}
 	return nil
 }

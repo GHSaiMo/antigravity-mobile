@@ -20,7 +20,34 @@ fun MessageBubble(
     message: GatewayMessageItem,
     modifier: Modifier = Modifier
 ) {
-    val isUser = message.role.equals("user", ignoreCase = true)
+    if (message.isTools) {
+        val toolText = message.effectiveText.ifBlank { "已思考并执行工具操作" }
+        Box(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(DarkSurfaceVariant)
+                    .border(1.dp, DarkBorder, RoundedCornerShape(8.dp))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = "⚙️ $toolText",
+                    color = TextMuted,
+                    fontSize = 12.sp
+                )
+            }
+        }
+        return
+    }
+
+    val isUser = message.isUser
 
     Column(
         modifier = modifier
@@ -65,7 +92,8 @@ fun MessageBubble(
         }
 
         // Render Message Content
-        if (message.content.isNotBlank()) {
+        val displayText = message.effectiveText
+        if (displayText.isNotBlank()) {
             Box(
                 modifier = Modifier
                     .widthIn(max = 320.dp)
@@ -85,7 +113,7 @@ fun MessageBubble(
                     )
                     .padding(horizontal = 14.dp, vertical = 10.dp)
             ) {
-                SimpleMarkdownContent(text = message.content)
+                SimpleMarkdownContent(text = displayText)
             }
         }
     }

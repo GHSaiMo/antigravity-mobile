@@ -16,34 +16,60 @@ data class ToolCallItem(
 @Serializable
 data class GatewayMessageItem(
     val id: String = "",
-    val role: String, // "user", "assistant", "system"
+    val type: String = "user", // "user", "agent", "tools", "error"
+    val role: String = "", // "user", "assistant", "system"
+    val text: String = "",
     val content: String = "",
+    val toolCount: Int? = null,
+    val toolNames: List<String>? = null,
+    val media: List<String>? = null,
+    val imageUrls: List<String>? = null,
     val timestamp: String? = null,
     val status: String? = null,
     val stepIndex: Int? = null,
     @SerialName("tool_calls") val toolCalls: List<ToolCallItem>? = null,
     @SerialName("reasoning_content") val reasoningContent: String? = null
-)
+) {
+    val effectiveRole: String
+        get() = when {
+            type.isNotBlank() -> if (type == "agent") "assistant" else type
+            role.isNotBlank() -> role
+            else -> "user"
+        }
+
+    val effectiveText: String
+        get() = when {
+            text.isNotBlank() -> text
+            content.isNotBlank() -> content
+            else -> ""
+        }
+
+    val isUser: Boolean
+        get() = effectiveRole.equals("user", ignoreCase = true)
+
+    val isTools: Boolean
+        get() = type.equals("tools", ignoreCase = true) || !toolNames.isNullOrEmpty() || (toolCount != null && toolCount > 0)
+}
 
 @Serializable
 data class QueuedMessageItem(
-    val id: String,
-    val text: String,
+    val id: String = "",
+    val text: String = "",
     val createdAt: String? = null
 )
 
 @Serializable
 data class RunningTaskItem(
-    val id: String,
-    val type: String,
+    val id: String = "",
+    val type: String = "",
     val command: String? = null,
     val status: String? = null
 )
 
 @Serializable
 data class StreamUpdatePayload(
-    val type: String, // "init", "update", "error"
-    val cascadeId: String,
+    val type: String = "update", // "init", "update", "error"
+    val cascadeId: String = "",
     val title: String? = null,
     val status: String = "",
     val hasError: Boolean = false,

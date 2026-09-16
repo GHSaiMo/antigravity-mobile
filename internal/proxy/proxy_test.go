@@ -900,6 +900,34 @@ func TestSendUserCascadeMessageModelSwitching(t *testing.T) {
 	if details.ModelDisplayName != "Claude" {
 		t.Errorf("expected ModelDisplayName to be 'Claude', got %q", details.ModelDisplayName)
 	}
+
+	// Case 3: Mobile client sends top-level "text" instead of "items", expect automatic synthesis of "items"
+	forwardedPayload = nil
+	req3 := httptest.NewRequest(http.MethodPost, "/api/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage",
+		strings.NewReader(`{"cascadeId":"new-cascade-123","text":"Hello from Android","model":"gemini-3.8-flash-high"}`))
+	req3.Header.Set("Content-Type", "application/json")
+	rec3 := httptest.NewRecorder()
+	p.ServeHTTP(rec3, req3)
+
+	if rec3.Code != http.StatusOK {
+		t.Fatalf("Case 3 expected 200, got %d: %s", rec3.Code, rec3.Body.String())
+	}
+	items3, ok := forwardedPayload["items"].([]interface{})
+	if !ok || len(items3) == 0 {
+		t.Fatalf("Case 3 expected items array to be synthesized in forwarded payload, got: %v", forwardedPayload["items"])
+	}
+	item0 := items3[0].(map[string]interface{})
+	if item0["text"] != "Hello from Android" {
+		t.Errorf("Case 3 expected item text 'Hello from Android', got %v", item0["text"])
+	}
+	cfg3, ok := forwardedPayload["cascadeConfig"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("Case 3 expected synthesized cascadeConfig in forwarded payload")
+	}
+	pCfg3 := cfg3["plannerConfig"].(map[string]interface{})
+	if pCfg3["planModel"] != "MODEL_PLACEHOLDER_M318" {
+		t.Errorf("Case 3 expected planModel MODEL_PLACEHOLDER_M318, got %v", pCfg3["planModel"])
+	}
 }
 
 func TestGetAllCascadeTrajectoriesErrorStatus(t *testing.T) {
