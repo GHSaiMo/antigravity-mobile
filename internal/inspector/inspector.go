@@ -44,6 +44,11 @@ type Inspector struct {
 	stopCh       chan struct{}
 	stopOnce     sync.Once
 	listeners    []func(InstanceInfo)
+
+	// PERF-3: exponential backoff for the expensive ps+lsof full-scan path.
+	failedScanMu   sync.Mutex
+	failedScanAt   time.Time  // time of last failed full-scan
+	failedBackoff  time.Duration // current backoff duration
 }
 
 // NewInspector creates a new instance inspector.
@@ -131,15 +136,25 @@ func (i *Inspector) Scan() *InstanceInfo {
 		}
 	}
 
+	// PERF-3: exponential backoff — skip expensive ps+lsof if we recently failed.
+	i.failedScanMu.Lock()
+	if i.failedBackoff > 0 && time.Since(i.failedScanAt) < i.failedBackoff {
+		i.failedScanMu.Unlock()
+		return nil
+	}
+	i.failedScanMu.Unlock()
+
 	pid, csrfToken, err := i.findProcess(context.Background())
 	if err != nil {
 		i.markUnhealthy()
+		i.recordFailedScan()
 		return nil
 	}
 
 	ports, err := i.findListeningPorts(context.Background(), pid)
 	if err != nil || len(ports) == 0 {
 		i.markUnhealthy()
+		i.recordFailedScan()
 		return nil
 	}
 
@@ -154,8 +169,14 @@ func (i *Inspector) Scan() *InstanceInfo {
 
 	if activePort == 0 {
 		i.markUnhealthy()
+		i.recordFailedScan()
 		return nil
 	}
+
+	// Success — reset backoff.
+	i.failedScanMu.Lock()
+	i.failedBackoff = 0
+	i.failedScanMu.Unlock()
 
 	info := &InstanceInfo{
 		PID:          pid,
@@ -167,6 +188,23 @@ func (i *Inspector) Scan() *InstanceInfo {
 
 	i.update(info)
 	return info
+}
+
+// recordFailedScan advances the exponential backoff after a full-scan failure.
+// Backoff sequence: 5s → 10s → 20s → 40s (capped).
+func (i *Inspector) recordFailedScan() {
+	const maxBackoff = 40 * time.Second
+	i.failedScanMu.Lock()
+	defer i.failedScanMu.Unlock()
+	i.failedScanAt = time.Now()
+	if i.failedBackoff == 0 {
+		i.failedBackoff = 5 * time.Second
+	} else {
+		i.failedBackoff *= 2
+		if i.failedBackoff > maxBackoff {
+			i.failedBackoff = maxBackoff
+		}
+	}
 }
 
 func (i *Inspector) markUnhealthy() {

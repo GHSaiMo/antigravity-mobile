@@ -199,6 +199,9 @@ func extractImageURLsFromText(text string) []string {
 	return imgURLs
 }
 
+// maxDeletedCascades is the upper bound on in-memory deletion tombstones.
+const maxDeletedCascades = 1024
+
 // RecordDeletedCascade marks a cascade as recently deleted with a TTL.
 func RecordDeletedCascade(cascadeID string) {
 	if cascadeID == "" {
@@ -206,6 +209,15 @@ func RecordDeletedCascade(cascadeID string) {
 	}
 	defaultTrajCache.deletedCascadesMu.Lock()
 	defer defaultTrajCache.deletedCascadesMu.Unlock()
+	// PERF-2: evict expired tombstones when map grows too large.
+	if len(defaultTrajCache.deletedCascades) >= maxDeletedCascades {
+		cutoff := time.Now().Add(-10 * time.Minute)
+		for k, t := range defaultTrajCache.deletedCascades {
+			if t.Before(cutoff) {
+				delete(defaultTrajCache.deletedCascades, k)
+			}
+		}
+	}
 	defaultTrajCache.deletedCascades[cascadeID] = time.Now()
 }
 
