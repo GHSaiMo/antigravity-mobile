@@ -1507,21 +1507,22 @@ func writeAnnotationTitle(cascadeID, title string) {
 		return
 	}
 	dir := filepath.Join(home, ".gemini", "antigravity", "annotations")
-	_ = os.MkdirAll(dir, 0755)
+	_ = os.MkdirAll(dir, 0700)
 	p := filepath.Join(dir, cascadeID+".pbtxt")
 	b, err := os.ReadFile(p)
 	if err != nil {
 		content := fmt.Sprintf("title: %q\n", title)
-		_ = os.WriteFile(p, []byte(content), 0644)
+		// SEC-8: 0600 — annotation files contain conversation titles, owner-only.
+		_ = os.WriteFile(p, []byte(content), 0600)
 		return
 	}
 	s := string(b)
 	if titleRegex.MatchString(s) {
 		newContent := titleRegex.ReplaceAllString(s, fmt.Sprintf("title: %q", title))
-		_ = os.WriteFile(p, []byte(newContent), 0644)
+		_ = os.WriteFile(p, []byte(newContent), 0600)
 	} else {
 		newContent := fmt.Sprintf("title: %q\n%s", title, s)
-		_ = os.WriteFile(p, []byte(newContent), 0644)
+		_ = os.WriteFile(p, []byte(newContent), 0600)
 	}
 }
 

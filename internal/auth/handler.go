@@ -422,6 +422,15 @@ func (h *AuthHandler) HandleWSTicket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// SEC-5: Rate-limit ticket issuance to 60 per minute per IP.
+	if h.limiter != nil && !h.limiter.Allow("wsticket:"+CleanIP(r.RemoteAddr), 60, time.Minute) {
+		w.Header().Set("Retry-After", "60")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		json.NewEncoder(w).Encode(map[string]string{"error": "too many ticket requests"})
+		return
+	}
+
 	token := ExtractToken(r)
 	if token == "" {
 		w.Header().Set("Content-Type", "application/json")
