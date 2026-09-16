@@ -1,7 +1,6 @@
 package cockpit
 
 import (
-	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -15,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"antigravity-mobile/internal/localtls"
 )
 
 var (
@@ -402,7 +403,8 @@ func liveUserEmail() (string, error) {
 	client := &http.Client{
 		Timeout: 2 * time.Second,
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			TLSClientConfig: localtls.ClientConfig(),
+			DialTLSContext:  localtls.DialTLSContext,
 		},
 	}
 	resp, err := client.Do(req)

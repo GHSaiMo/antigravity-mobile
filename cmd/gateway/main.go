@@ -255,9 +255,11 @@ func main() {
 	router := buildRouter(authStore, authHandler, p, insp, time.Now(), webHandler, authPolicy)
 
 	server := &http.Server{
-		Addr:        fmt.Sprintf("%s:%d", *host, *port),
-		Handler:     router,
-		ReadTimeout: 60 * time.Second,
+		Addr:    fmt.Sprintf("%s:%d", *host, *port),
+		Handler: router,
+		// SEC-6: ReadHeaderTimeout prevents Slowloris attacks on the public-facing gateway.
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       60 * time.Second,
 		// WriteTimeout is intentionally 0 (disabled) to avoid cutting off
 		// WebSocket and SSE long-lived connections. Each handler manages
 		// its own response timeouts via context.WithTimeout.

@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -82,6 +83,10 @@ type cascadeDedupEntry struct {
 	cascadeID string
 	createdAt time.Time
 }
+
+// cascadeIDRe is a strict allowlist for cascade IDs used in filesystem operations.
+// Cascade IDs are UUID-like strings: alphanumeric, hyphens, and underscores only.
+var cascadeIDRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$`)
 
 // SetNotificationSink registers a sink to receive real-time trajectory updates.
 func (p *Proxy) SetNotificationSink(sink NotificationSink) {
@@ -423,7 +428,8 @@ func (p *Proxy) handleCascadeTouch(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			CascadeID string `json:"cascadeId"`
 		}
-		_ = json.NewDecoder(r.Body).Decode(&body)
+		// SEC-4: Limit body to prevent OOM (cascadeId is always short).
+		_ = json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&body)
 		cascadeID = strings.TrimSpace(body.CascadeID)
 	}
 	if cascadeID != "" {
@@ -923,10 +929,9 @@ func (p *Proxy) handleDeleteCascadeTrajectory(w http.ResponseWriter, r *http.Req
 	}
 	_ = json.Unmarshal(bodyBytes, &reqData)
 
-	isSafeCascadeID := reqData.CascadeID != "" &&
-		!strings.Contains(reqData.CascadeID, "..") &&
-		!strings.Contains(reqData.CascadeID, "/") &&
-		!strings.Contains(reqData.CascadeID, "\\")
+	// SEC-7: Strict allowlist — cascade IDs are UUID-like alphanumeric strings.
+	// Rejects any ID containing path separators, null bytes, or shell metacharacters.
+	isSafeCascadeID := cascadeIDRe.MatchString(reqData.CascadeID)
 
 	// S3 fix: only set the in-memory tombstone pre-emptively (so stream/list filters
 	// hide the cascade immediately). File deletion is deferred to the success branch
@@ -1094,8 +1099,14 @@ func (p *Proxy) HandleCascadeInteraction(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// SEC-3: Limit request body to prevent OOM from oversized payloads.
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1*1024*1024))
+	if err != nil {
+		writeJSONError(w, "failed to read request body", http.StatusBadRequest)
+		return
+	}
 	var req InteractionSubmitRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.Unmarshal(body, &req); err != nil {
 		writeJSONError(w, "invalid request: "+err.Error(), http.StatusBadRequest)
 		return
 	}
