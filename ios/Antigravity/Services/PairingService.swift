@@ -10,6 +10,7 @@ public struct PairingInfo: Equatable, Sendable {
     public let lanHost: String?
     public let ipv6Host: String?
     public let ddnsHost: String?
+    public let relayHost: String?
     
     public init(
         host: String,
@@ -18,7 +19,8 @@ public struct PairingInfo: Equatable, Sendable {
         ssl: Bool,
         lanHost: String? = nil,
         ipv6Host: String? = nil,
-        ddnsHost: String? = nil
+        ddnsHost: String? = nil,
+        relayHost: String? = nil
     ) {
         self.host = host
         self.port = port
@@ -27,6 +29,7 @@ public struct PairingInfo: Equatable, Sendable {
         self.lanHost = lanHost
         self.ipv6Host = ipv6Host
         self.ddnsHost = ddnsHost
+        self.relayHost = Self.normalizeHost(relayHost)
     }
     
     public static func formatURL(host: String, port: Int, ssl: Bool) -> String {
@@ -58,14 +61,30 @@ public struct PairingInfo: Equatable, Sendable {
         return Self.formatURL(host: ddns, port: port, ssl: ssl)
     }
     
+    public var relayBaseURL: String? {
+        guard let relay = relayHost, !relay.isEmpty else { return nil }
+        return Self.formatURL(host: relay, port: port, ssl: ssl)
+    }
+    
     public var candidateBaseURLs: [String] {
         var list: [String] = []
         if let lan = lanBaseURL, !list.contains(lan) { list.append(lan) }
         let prim = serverBaseURL
         if !list.contains(prim) { list.append(prim) }
+        if let relay = relayBaseURL, !list.contains(relay) { list.append(relay) }
         if let v6 = ipv6BaseURL, !list.contains(v6) { list.append(v6) }
         if let ddns = ddnsBaseURL, !list.contains(ddns) { list.append(ddns) }
         return list
+    }
+    
+    nonisolated static func normalizeHost(_ raw: String?) -> String? {
+        guard var value = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        if value.hasPrefix("http://") || value.hasPrefix("https://"), let url = URL(string: value), let host = url.host {
+            value = host
+        }
+        return value.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
     }
 }
 
@@ -120,6 +139,7 @@ public final class PairingService: Sendable {
         var lanHost: String?
         var ipv6Host: String?
         var ddnsHost: String?
+        var relayHost: String?
         
         for item in queryItems {
             switch item.name.lowercased() {
@@ -139,6 +159,8 @@ public final class PairingService: Sendable {
                 ipv6Host = item.value
             case "ddns":
                 ddnsHost = item.value
+            case "relay":
+                relayHost = item.value
             default:
                 break
             }
@@ -161,7 +183,8 @@ public final class PairingService: Sendable {
             ssl: ssl,
             lanHost: lanHost,
             ipv6Host: ipv6Host,
-            ddnsHost: ddnsHost
+            ddnsHost: ddnsHost,
+            relayHost: relayHost
         ))
     }
     
@@ -169,11 +192,13 @@ public final class PairingService: Sendable {
     public func pair(with info: PairingInfo) async throws -> (deviceId: String, deviceToken: String) {
         var candidates = info.candidateBaseURLs
         if NetworkTransport.shared.isCellular {
-            let ipv6 = candidates.filter { url in
-                url.contains("[") || url.filter { $0 == ":" }.count >= 2
+            // Off-LAN: try cloud relay / IPv6 before RFC1918 addresses that will just time out.
+            let privateLAN = candidates.filter { url in
+                guard let host = URL(string: url)?.host else { return false }
+                return NetworkTransport.isLocalOrPrivateHost(host)
             }
-            let rest = candidates.filter { cand in !ipv6.contains(cand) }
-            candidates = ipv6 + rest
+            let publicPaths = candidates.filter { cand in !privateLAN.contains(cand) }
+            candidates = publicPaths + privateLAN
         }
         guard !candidates.isEmpty else {
             throw PairingError.invalidURI("无可用网关端点地址")
@@ -304,6 +329,7 @@ public final class PairingService: Sendable {
         if let lan = info.lanHost { allowed.append(lan.lowercased()) }
         if let v6 = info.ipv6Host { allowed.append(v6.lowercased()) }
         if let ddns = info.ddnsHost { allowed.append(ddns.lowercased()) }
+        if let relay = info.relayHost { allowed.append(relay.lowercased()) }
         if let used = URL(string: usedBase)?.host {
             allowed.append(used.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased())
         }

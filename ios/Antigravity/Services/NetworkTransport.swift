@@ -134,8 +134,8 @@ public final class NetworkTransport: Sendable {
             }
         }
         
-        if Self.requiresCleartextIPv6Bypass(req.url) {
-            let (data, response) = try await sendCleartextIPv6(req)
+        if Self.requiresCleartextATSBypass(req.url) {
+            let (data, response) = try await sendCleartextHTTP(req)
             return (data, decorateResponse(response, url: req.url, forcedCellular: preferCellular || isCellular))
         }
         
@@ -143,13 +143,18 @@ public final class NetworkTransport: Sendable {
         return (data, decorateResponse(response, url: req.url))
     }
     
-    nonisolated public static func requiresCleartextIPv6Bypass(_ url: URL?) -> Bool {
+    /// ATS blocks cleartext HTTP to public hosts (NSAllowsArbitraryLoads is false).
+    /// IPv6 literals and the cloud FRP relay must still work, so those go through Network.framework.
+    nonisolated public static func requiresCleartextATSBypass(_ url: URL?) -> Bool {
         guard let url, url.scheme?.lowercased() == "http" else { return false }
         let host = (url.host ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-        return host.contains(":")
+        if host.contains(":") {
+            return true
+        }
+        return !isLocalOrPrivateHost(host)
     }
     
-    private func sendCleartextIPv6(_ request: URLRequest) async throws -> (Data, URLResponse) {
+    private func sendCleartextHTTP(_ request: URLRequest) async throws -> (Data, URLResponse) {
         guard let url = request.url else {
             throw URLError(.badURL)
         }
@@ -216,7 +221,14 @@ public final class NetworkTransport: Sendable {
         }
         let method = request.httpMethod ?? "GET"
         let port = url.port ?? 80
-        let hostHeader = "[\(bareHost)]:\(port)"
+        let hostHeader: String
+        if bareHost.contains(":") {
+            hostHeader = "[\(bareHost)]:\(port)"
+        } else if port == 80 {
+            hostHeader = bareHost
+        } else {
+            hostHeader = "\(bareHost):\(port)"
+        }
         
         var lines: [String] = [
             "\(method) \(path) HTTP/1.1",

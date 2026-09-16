@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -67,6 +68,22 @@ func (h *AuthHandler) SetRelayURL(relayURL string) {
 	h.relayURL = strings.TrimSpace(relayURL)
 }
 
+// relayHost extracts the hostname from the configured cloud relay URL.
+func (h *AuthHandler) relayHost() string {
+	raw := strings.TrimSpace(h.relayURL)
+	if raw == "" {
+		return ""
+	}
+	if !strings.Contains(raw, "://") {
+		raw = "http://" + raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(u.Hostname())
+}
+
 // SetAuthPolicy sets loopback-trust / tunnel policy used by admin authorization.
 func (h *AuthHandler) SetAuthPolicy(policy AuthPolicy) {
 	h.policy = policy
@@ -80,29 +97,31 @@ func (h *AuthHandler) GetEndpoints() []EndpointInfo {
 		scheme = "https://"
 	}
 
-	// 1. LAN IPv4
-	lan := h.lanHost
-	if lan == "" && !strings.Contains(h.host, ":") && h.host != "" && h.host != "127.0.0.1" && h.host != "localhost" {
-		lan = h.host
-	}
-	if lan != "" {
-		endpoints = append(endpoints, EndpointInfo{
-			Type: "lan",
-			URL:  fmt.Sprintf("%s%s:%d", scheme, lan, h.port),
-		})
-	}
+	// LAN / public IPv6 literals are only advertised for cleartext HTTP.
+	// GATEWAY_SSL certs are issued for the domain (DDNS_HOST), not RFC1918 or raw IPv6.
+	if !h.ssl {
+		lan := h.lanHost
+		if lan == "" && !strings.Contains(h.host, ":") && h.host != "" && h.host != "127.0.0.1" && h.host != "localhost" {
+			lan = h.host
+		}
+		if lan != "" {
+			endpoints = append(endpoints, EndpointInfo{
+				Type: "lan",
+				URL:  fmt.Sprintf("%s%s:%d", scheme, lan, h.port),
+			})
+		}
 
-	// 2. Public IPv6
-	ipv6 := h.ipv6Host
-	if ipv6 == "" && strings.Contains(h.host, ":") {
-		ipv6 = h.host
-	}
-	if ipv6 != "" {
-		cleanV6 := strings.Trim(ipv6, "[]")
-		endpoints = append(endpoints, EndpointInfo{
-			Type: "ipv6",
-			URL:  fmt.Sprintf("%s[%s]:%d", scheme, cleanV6, h.port),
-		})
+		ipv6 := h.ipv6Host
+		if ipv6 == "" && strings.Contains(h.host, ":") {
+			ipv6 = h.host
+		}
+		if ipv6 != "" {
+			cleanV6 := strings.Trim(ipv6, "[]")
+			endpoints = append(endpoints, EndpointInfo{
+				Type: "ipv6",
+				URL:  fmt.Sprintf("%s[%s]:%d", scheme, cleanV6, h.port),
+			})
+		}
 	}
 
 	// 3. DDNS / Custom Domain
@@ -115,10 +134,19 @@ func (h *AuthHandler) GetEndpoints() []EndpointInfo {
 
 	// 4. Cloud Relay (embedded FRP tunnel)
 	if h.relayURL != "" {
-		endpoints = append(endpoints, EndpointInfo{
-			Type: "relay",
-			URL:  h.relayURL,
-		})
+		dup := false
+		for _, ep := range endpoints {
+			if ep.URL == h.relayURL {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			endpoints = append(endpoints, EndpointInfo{
+				Type: "relay",
+				URL:  h.relayURL,
+			})
+		}
 	}
 
 	// 5. Fallback primary if no other endpoints detected
@@ -317,14 +345,21 @@ func (h *AuthHandler) HandleNewPairingSession(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	relayHost := h.relayHost()
+	lanHost, ipv6Host := h.lanHost, h.ipv6Host
+	if h.ssl {
+		// Cert is issued for DDNS_HOST only; IP literals fail iOS ATS/trust.
+		lanHost, ipv6Host = "", ""
+	}
 	uri := GenerateMultiHostPairingURI(MultiHostPairingParams{
 		PrimaryHost: h.host,
 		Port:        h.port,
 		Code:        session.Code,
 		SSL:         h.ssl,
-		LANHost:     h.lanHost,
-		IPv6Host:    h.ipv6Host,
+		LANHost:     lanHost,
+		IPv6Host:    ipv6Host,
 		DDNSHost:    h.ddnsHost,
+		RelayHost:   relayHost,
 	})
 
 	w.Header().Set("Content-Type", "application/json")
@@ -336,14 +371,19 @@ func (h *AuthHandler) HandleNewPairingSession(w http.ResponseWriter, r *http.Req
 
 	// Also print QR code to gateway console/log
 	var extraHosts []string
-	if h.lanHost != "" && h.lanHost != h.host {
-		extraHosts = append(extraHosts, h.lanHost)
-	}
-	if h.ipv6Host != "" && h.ipv6Host != h.host {
-		extraHosts = append(extraHosts, h.ipv6Host)
+	if !h.ssl {
+		if h.lanHost != "" && h.lanHost != h.host {
+			extraHosts = append(extraHosts, h.lanHost)
+		}
+		if h.ipv6Host != "" && h.ipv6Host != h.host {
+			extraHosts = append(extraHosts, h.ipv6Host)
+		}
 	}
 	if h.ddnsHost != "" && h.ddnsHost != h.host {
 		extraHosts = append(extraHosts, h.ddnsHost)
+	}
+	if relayHost != "" && relayHost != h.host {
+		extraHosts = append(extraHosts, relayHost)
 	}
 	PrintPairingQRCode(h.host, h.port, session.Code, h.ssl, extraHosts...)
 }

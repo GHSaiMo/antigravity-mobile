@@ -29,15 +29,33 @@ if [ -n "${ADMIN_TOKEN:-}" ]; then
     AUTH_ARGS=(-H "Authorization: Bearer ${ADMIN_TOKEN}")
 fi
 
+ssl_on=false
+case "${GATEWAY_SSL:-}" in
+    1|true|TRUE|yes|YES) ssl_on=true ;;
+esac
+CURL_OPTS=()
+if $ssl_on || { [ -n "${TLS_CERT_FILE:-}" ] && [ -n "${TLS_KEY_FILE:-}" ]; }; then
+    if [ -n "${DDNS_HOST:-}" ]; then
+        CURL_OPTS=(--resolve "${DDNS_HOST}:${PORT}:127.0.0.1")
+        PAIR_URL="https://${DDNS_HOST}:${PORT}/api/v1/auth/session"
+    else
+        CURL_OPTS=(-k)
+        PAIR_URL="https://127.0.0.1:${PORT}/api/v1/auth/session"
+    fi
+else
+    PAIR_URL="http://127.0.0.1:${PORT}/api/v1/auth/session"
+fi
+
 TMP_BODY="$(mktemp)"
 trap 'rm -f "${TMP_BODY}"' EXIT
 
 HTTP_CODE="$(curl -sS -o "${TMP_BODY}" -w '%{http_code}' -X POST \
+    "${CURL_OPTS[@]}" \
     "${AUTH_ARGS[@]}" \
-    "http://127.0.0.1:${PORT}/api/v1/auth/session" || true)"
+    "${PAIR_URL}" || true)"
 
 if [ -z "${HTTP_CODE}" ] || [ "${HTTP_CODE}" = "000" ]; then
-    echo "❌ 无法连接到网关 (http://127.0.0.1:${PORT})，请确认网关是否已启动。"
+    echo "❌ 无法连接到网关 (${PAIR_URL})，请确认网关是否已启动。"
     echo "   启动网关: make run 或 make tmux-start"
     exit 1
 fi

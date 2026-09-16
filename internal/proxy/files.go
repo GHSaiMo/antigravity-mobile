@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -119,8 +120,9 @@ var (
 )
 
 // AllowedWorkspaceRoots returns directory prefixes that may be served via the file APIs.
-// ~/.gemini/antigravity is always included. Extra roots come from ALLOWED_WORKSPACE_ROOTS
-// (colon-separated) or, if unset, a small default set of project folders.
+// ~/.gemini/antigravity is always included. If ALLOWED_WORKSPACE_ROOTS is set (colon-separated),
+// those roots replace the default. Otherwise the paired Mac's home directory is allowed;
+// IsSafeFilePath still rejects credential stores and secret filenames.
 func AllowedWorkspaceRoots() []string {
 	workspaceRootsOnce.Do(func() {
 		home, err := os.UserHomeDir()
@@ -143,14 +145,7 @@ func AllowedWorkspaceRoots() []string {
 			}
 			return
 		}
-		workspaceRoots = append(always,
-			filepath.Join(home, ".gemini", "config")+sep,
-			filepath.Join(home, ".gemini", "skills")+sep,
-			filepath.Join(home, "Projects")+sep,
-			filepath.Join(home, "Developer")+sep,
-			filepath.Join(home, "Workspace")+sep,
-			filepath.Join(home, "Documents")+sep,
-		)
+		workspaceRoots = append(always, home+sep)
 	})
 	return workspaceRoots
 }
@@ -160,9 +155,9 @@ func resetWorkspaceRootsForTest() {
 	workspaceRoots = nil
 }
 
-// IsSafeFilePath validates that the resolved path is within an explicitly allowed directory.
-// Uses a whitelist approach: only paths under the user's home .gemini/antigravity/,
-// .gemini/config/, .gemini/skills/, .agents/, Projects, and standard workspace directories are permitted.
+// IsSafeFilePath validates that the resolved path is within an allowed directory
+// and is not a credential or secret file. Default allowlist is the user's home
+// (agent-generated PPTX/PDF/HTML/images live on Desktop, Downloads, Websites, etc.).
 func IsSafeFilePath(path string) bool {
 	clean := filepath.Clean(path)
 
@@ -174,7 +169,9 @@ func IsSafeFilePath(path string) bool {
 	slashPath := filepath.ToSlash(resolved)
 	sensitiveDirs := []string{
 		"/.ssh/", "/.gnupg/", "/.aws/", "/.docker/", "/Library/Keychains/",
+		"/Library/Application Support/",
 		"/.kube/", "/.config/gcloud/",
+		"/.antigravity-mobile/",
 	}
 	for _, sd := range sensitiveDirs {
 		if strings.Contains(slashPath, sd) || strings.HasSuffix(slashPath, strings.TrimSuffix(sd, "/")) {
@@ -198,10 +195,15 @@ func IsSafeFilePath(path string) bool {
 	if strings.HasPrefix(base, "id_rsa") || strings.HasPrefix(base, "id_ed25519") {
 		return false
 	}
-	for _, ext := range []string{".pem", ".key", ".p12", ".pfx", ".jks"} {
+	// .key is not blanket-blocked: Keynote decks use that extension.
+	for _, ext := range []string{".pem", ".p12", ".pfx", ".jks"} {
 		if strings.HasSuffix(base, ext) {
 			return false
 		}
+	}
+	if strings.HasSuffix(base, ".key") && (strings.Contains(base, "id_") ||
+		strings.Contains(base, "private") || strings.Contains(base, "secret")) {
+		return false
 	}
 
 	for _, prefix := range AllowedWorkspaceRoots() {
@@ -331,6 +333,7 @@ func (p *Proxy) HandleFileRaw(w http.ResponseWriter, r *http.Request) {
 		filePath = resolved
 	}
 	if !IsSafeFilePath(filePath) {
+		log.Printf("[Files] denied raw download path=%s uri=%q", filePath, uri)
 		http.Error(w, "access to file is restricted", http.StatusForbidden)
 		return
 	}

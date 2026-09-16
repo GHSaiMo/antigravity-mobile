@@ -68,6 +68,12 @@ func main() {
 		log.Printf("📱 INCLUDE_PUBLIC_IPV6=1: keeping dual-stack listen so phones can pair over public IPv6 (FRP still dials 127.0.0.1)")
 	}
 	hasTLSFiles := *tlsCert != "" && *tlsKey != ""
+	if *enableSSL && !hasTLSFiles {
+		log.Fatalf("GATEWAY_SSL=1 requires TLS_CERT_FILE and TLS_KEY_FILE")
+	}
+	if *enableSSL && strings.TrimSpace(*ddnsHost) == "" {
+		log.Printf("⚠️  GATEWAY_SSL=1 without DDNS_HOST: pairing will advertise https:// to an IP and iOS certificate checks will fail. Set DDNS_HOST=agy.example.com")
+	}
 	if !auth.IsListenAddrLoopback(*host) && !hasTLSFiles {
 		log.Printf("⚠️  Gateway listening on a non-loopback address without TLS. LAN HTTP is supported; do not advertise this port on the public Internet. Set TLS_CERT_FILE/TLS_KEY_FILE or GATEWAY_SSL=1 for public access.")
 	}
@@ -154,12 +160,26 @@ func main() {
 		tun.Start(context.Background())
 		defer tun.Stop()
 
-		relayURL := tun.RemoteURL(*enableSSL)
+		relayHost := tunnelCfg.ServerAddr
+		if d := strings.TrimSpace(*ddnsHost); d != "" {
+			relayHost = d
+		}
+		relayURL := tun.RemoteURLFor(relayHost, *enableSSL)
 		authHandler.SetRelayURL(relayURL)
-		extraHosts = append(extraHosts, tunnelCfg.ServerAddr)
+		if !*enableSSL {
+			extraHosts = append(extraHosts, tunnelCfg.ServerAddr)
+		}
 		log.Printf("☁️  Cloud Relay Tunnel ENABLED: %s (via %s:%d)", relayURL, tunnelCfg.ServerAddr, tunnelCfg.ServerPort)
 	} else {
 		log.Printf("ℹ️  Cloud Relay Tunnel disabled (set FRP_SERVER_ADDR in .env to enable)")
+	}
+
+	if *enableSSL {
+		// HTTPS cert matches DDNS_HOST only; drop LAN / IPv6 / raw IP from the QR.
+		extraHosts = nil
+		if d := strings.TrimSpace(*ddnsHost); d != "" && d != qrHost {
+			extraHosts = append(extraHosts, d)
+		}
 	}
 
 	if !authStore.HasDevices() {
