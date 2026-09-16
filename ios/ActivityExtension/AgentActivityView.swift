@@ -15,10 +15,18 @@ public struct AgentActivityWidget: Widget {
                 // Expanded UI
                 DynamicIslandExpandedRegion(.leading) {
                     HStack(spacing: 6) {
-                        Image(systemName: context.state.runningTaskCount > 0 ? "terminal.fill" : "brain.head.profile")
-                            .font(.system(size: 16))
-                            .foregroundColor(context.state.runningTaskCount > 0 ? .cyan : .indigo)
-                        Text(context.attributes.conversationTitle)
+                        if context.state.runningTaskCount > 0 {
+                            Image(systemName: "terminal.fill")
+                                .font(.system(size: 15))
+                                .foregroundColor(.cyan)
+                        } else {
+                            Image("AppLogoTransparent")
+                                .renderingMode(.original)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: 18, height: 18)
+                        }
+                        Text(resolvedTitle(context: context))
                             .font(.system(size: 14, weight: .bold))
                             .lineLimit(1)
                     }
@@ -100,9 +108,11 @@ public struct AgentActivityWidget: Widget {
                         .font(.system(size: 11))
                         .foregroundColor(.cyan)
                 } else {
-                    Image(systemName: "brain.head.profile")
-                        .font(.system(size: 12))
-                        .foregroundColor(.indigo)
+                    Image("AppLogoTransparent")
+                        .renderingMode(.original)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 14, height: 14)
                 }
             } compactTrailing: {
                 if context.state.hasPendingAction {
@@ -132,9 +142,11 @@ public struct AgentActivityWidget: Widget {
                         .font(.system(size: 11))
                         .foregroundColor(.cyan)
                 } else {
-                    Image(systemName: "brain.head.profile")
-                        .font(.system(size: 12))
-                        .foregroundColor(.indigo)
+                    Image("AppLogoTransparent")
+                        .renderingMode(.original)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 14, height: 14)
                 }
             }
             .widgetURL(URL(string: "antigravity://cascade/\(context.attributes.cascadeId)"))
@@ -171,6 +183,14 @@ public struct AgentActivityWidget: Widget {
         }
     }
     
+    private func resolvedTitle(context: ActivityViewContext<AgentActivityAttributes>) -> String {
+        let dynamicTitle = context.state.conversationTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !dynamicTitle.isEmpty {
+            return dynamicTitle
+        }
+        return context.attributes.conversationTitle
+    }
+    
     @ViewBuilder
     private func lockScreenView(context: ActivityViewContext<AgentActivityAttributes>) -> some View {
         HStack(alignment: .center, spacing: 14) {
@@ -178,14 +198,22 @@ public struct AgentActivityWidget: Widget {
                 Circle()
                     .fill((context.state.runningTaskCount > 0 ? Color.cyan : Color.indigo).opacity(0.15))
                     .frame(width: 44, height: 44)
-                Image(systemName: context.state.runningTaskCount > 0 ? "terminal.fill" : "brain.head.profile")
-                    .font(.system(size: 20))
-                    .foregroundColor(context.state.runningTaskCount > 0 ? .cyan : .indigo)
+                if context.state.runningTaskCount > 0 {
+                    Image(systemName: "terminal.fill")
+                        .font(.system(size: 20))
+                        .foregroundColor(.cyan)
+                } else {
+                    Image("AppLogoTransparent")
+                        .renderingMode(.original)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 26, height: 26)
+                }
             }
             
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
-                    Text(context.attributes.conversationTitle)
+                    Text(resolvedTitle(context: context))
                         .font(.system(size: 15, weight: .bold))
                         .lineLimit(1)
                     Spacer()

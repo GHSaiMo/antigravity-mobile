@@ -3,6 +3,7 @@ import ActivityKit
 
 nonisolated public struct AgentActivityAttributes: ActivityAttributes, Sendable {
     public struct ContentState: Codable, Hashable, Sendable {
+        public var conversationTitle: String   // Dynamic conversation title (can be updated in real time)
         public var status: String              // "RUNNING", "TASK_RUNNING", "WAITING_APPROVAL", "COMPLETED", "CANCELLED"
         public var stepCount: Int              // e.g. 14
         public var latestAction: String        // Agent's action description
@@ -12,7 +13,20 @@ nonisolated public struct AgentActivityAttributes: ActivityAttributes, Sendable 
         public var hasPendingAction: Bool      // Waiting for user approval/interaction
         public var lastUpdated: Date
         
+        enum CodingKeys: String, CodingKey {
+            case conversationTitle
+            case status
+            case stepCount
+            case latestAction
+            case runningTaskCount
+            case activeTaskTitle
+            case activeTaskCommand
+            case hasPendingAction
+            case lastUpdated
+        }
+        
         public init(
+            conversationTitle: String = "",
             status: String,
             stepCount: Int,
             latestAction: String,
@@ -22,6 +36,7 @@ nonisolated public struct AgentActivityAttributes: ActivityAttributes, Sendable 
             hasPendingAction: Bool = false,
             lastUpdated: Date = Date()
         ) {
+            self.conversationTitle = conversationTitle
             self.status = status
             self.stepCount = stepCount
             self.latestAction = latestAction
@@ -30,6 +45,19 @@ nonisolated public struct AgentActivityAttributes: ActivityAttributes, Sendable 
             self.activeTaskCommand = activeTaskCommand
             self.hasPendingAction = hasPendingAction
             self.lastUpdated = lastUpdated
+        }
+        
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.conversationTitle = try container.decodeIfPresent(String.self, forKey: .conversationTitle) ?? ""
+            self.status = try container.decode(String.self, forKey: .status)
+            self.stepCount = try container.decode(Int.self, forKey: .stepCount)
+            self.latestAction = try container.decode(String.self, forKey: .latestAction)
+            self.runningTaskCount = try container.decodeIfPresent(Int.self, forKey: .runningTaskCount) ?? 0
+            self.activeTaskTitle = try container.decodeIfPresent(String.self, forKey: .activeTaskTitle)
+            self.activeTaskCommand = try container.decodeIfPresent(String.self, forKey: .activeTaskCommand)
+            self.hasPendingAction = try container.decodeIfPresent(Bool.self, forKey: .hasPendingAction) ?? false
+            self.lastUpdated = try container.decodeIfPresent(Date.self, forKey: .lastUpdated) ?? Date()
         }
     }
     

@@ -2071,6 +2071,7 @@ public final class ChatViewModel {
                     self.currentTitle = title
                 }
                 self.cacheManager.updateConversationTitle(cascadeId: self.cascadeId, newTitle: title)
+                self.syncLiveActivity()
             }
         } catch {
             // Background title poll failure can be silently ignored
@@ -2516,6 +2517,7 @@ public final class ChatViewModel {
             
             if activityManager.hasActiveActivity && activityManager.currentCascadeId == cascadeId {
                 activityManager.updateActivity(
+                    title: currentTitle,
                     status: status,
                     stepCount: self.stepCount,
                     latestAction: actionText,

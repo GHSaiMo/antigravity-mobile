@@ -267,6 +267,9 @@ public final class ConversationListViewModel {
         // Optimistic UI removal
         self.conversations.removeAll(where: { $0.id == item.id })
         self.cacheManager.deleteConversation(cascadeId: item.id)
+        if ActivityManager.shared.currentCascadeId == item.id {
+            ActivityManager.shared.endActivity(finalStatus: "CANCELLED")
+        }
         
         do {
             try await apiClient.deleteConversation(cascadeId: item.id, baseURL: url)
@@ -310,11 +313,13 @@ public final class ConversationListViewModel {
             )
         }
         self.cacheManager.updateConversationTitle(cascadeId: item.id, newTitle: trimmed)
+        ActivityManager.shared.updateTitle(cascadeId: item.id, newTitle: trimmed)
         
         do {
             try await apiClient.renameConversation(cascadeId: item.id, newTitle: trimmed, baseURL: url)
         } catch {
             // Revert on failure
+            ActivityManager.shared.updateTitle(cascadeId: item.id, newTitle: originalTitle)
             if let idx = self.conversations.firstIndex(where: { $0.id == item.id }) {
                 let old = self.conversations[idx]
                 self.conversations[idx] = ConversationItem(
