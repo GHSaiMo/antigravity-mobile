@@ -54,8 +54,8 @@ public final class StreamWebSocketClient {
     public init() {}
     
     public func connect(baseURL: URL, cascadeId: String, force: Bool = false) {
-        // If already connected to the same session, no need to reconnect unless forced
-        if !force && status == .connected && activeCascadeId == cascadeId {
+        // If already connected or currently connecting to the same session and URL, do not abort/reconnect unless forced
+        if !force && (status == .connected || status == .connecting) && activeCascadeId == cascadeId && activeURL == baseURL {
             return
         }
         
@@ -154,10 +154,10 @@ public final class StreamWebSocketClient {
         
         connectionWatchdogTask?.cancel()
         connectionWatchdogTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 3_500_000_000)
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
             guard let self, !Task.isCancelled else { return }
             if self.status != .connected && !self.isIntentionallyClosed {
-                print("[StreamWS] Connection attempt timed out (3.5s), triggering retry...")
+                print("[StreamWS] Connection attempt timed out (10s), triggering retry...")
                 self.handleConnectionLoss()
             }
         }
@@ -187,18 +187,25 @@ public final class StreamWebSocketClient {
     private func receiveNextMessage() {
         guard let conn = connection, status == .connected, !isIntentionallyClosed else { return }
         
-        conn.receiveMessage { [weak self] content, _, _, error in
+        conn.receiveMessage { [weak self] content, _, isComplete, error in
             guard let self = self else { return }
             Task { @MainActor in
-                if let data = content, !data.isEmpty, let cascadeId = self.activeCascadeId {
-                    self.handlePayloadData(data, expectedCascadeId: cascadeId)
-                }
-                
-                if error == nil && !self.isIntentionallyClosed {
-                    self.receiveNextMessage()
-                } else if let error = error {
+                if let error = error {
                     print("[StreamWS] Receive error: \(error)")
                     self.handleConnectionLoss()
+                    return
+                }
+                
+                if let data = content, !data.isEmpty, let cascadeId = self.activeCascadeId {
+                    self.handlePayloadData(data, expectedCascadeId: cascadeId)
+                } else if content == nil && isComplete {
+                    print("[StreamWS] Stream connection closed by peer (EOF)")
+                    self.handleConnectionLoss()
+                    return
+                }
+                
+                if !self.isIntentionallyClosed {
+                    self.receiveNextMessage()
                 }
             }
         }

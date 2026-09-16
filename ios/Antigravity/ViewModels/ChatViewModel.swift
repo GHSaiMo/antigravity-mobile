@@ -731,15 +731,14 @@ public final class ChatViewModel {
                 }
             }
             
-            // Connect to WebSocket stream for real-time updates
-            connectStream()
-            
-            // Manage background polling fallback: if WS is not connected, keep polling as fallback!
-            let shouldPoll = streamClient.status != .connected
-            if shouldPoll && pollTask == nil {
-                startPollingFallback()
-            } else if !shouldPoll && pollTask != nil {
-                stopPollingFallback()
+            // Connect to WebSocket stream for real-time updates (only during initial/user-initiated load, not background polling ticks)
+            if !isBackgroundPoll {
+                connectStream()
+                
+                // If stream is not yet connected, initiate fallback polling until stream connects
+                if streamClient.status != .connected && pollTask == nil {
+                    startPollingFallback()
+                }
             }
         } catch {
             if !isBackgroundPoll && messages.isEmpty {

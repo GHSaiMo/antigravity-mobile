@@ -295,10 +295,10 @@ func main() {
 		Handler: router,
 		// SEC-6: ReadHeaderTimeout prevents Slowloris attacks on the public-facing gateway.
 		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       60 * time.Second,
-		// WriteTimeout is intentionally 0 (disabled) to avoid cutting off
+		// ReadTimeout and WriteTimeout are intentionally 0 (disabled) to avoid cutting off
 		// WebSocket and SSE long-lived connections. Each handler manages
-		// its own response timeouts via context.WithTimeout.
+		// its own request/response timeouts via context.WithTimeout and application-level heartbeats.
+		ReadTimeout:  0,
 		WriteTimeout: 0,
 		IdleTimeout:  120 * time.Second,
 	}
