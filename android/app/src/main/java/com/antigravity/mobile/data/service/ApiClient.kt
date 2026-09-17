@@ -13,6 +13,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.net.URLEncoder
+import java.time.Instant
 import java.util.concurrent.TimeUnit
 
 class ApiClient(private val prefs: PreferencesManager) {
@@ -102,7 +103,8 @@ class ApiClient(private val prefs: PreferencesManager) {
 
                 val list = summaries.mapNotNull { (id, summary) ->
                     if (summary.isSubagent) return@mapNotNull null
-                    val item = ConversationItem.fromSummary(id, summary)
+                    val localViewTime = prefs.getLastViewTime(id)
+                    val item = ConversationItem.fromSummary(id, summary, localViewTime = localViewTime)
                     if (item.isSubagent) return@mapNotNull null
                     item
                 }.sortedByDescending { it.lastModifiedTime ?: "" }
@@ -551,13 +553,51 @@ class ApiClient(private val prefs: PreferencesManager) {
     }
 
     /**
-     * Mark conversation as read
+     * Report session focus to gateway immediately on tap
      */
-    suspend fun markConversationAsRead(cascadeId: String) = withContext(Dispatchers.IO) {
+    suspend fun notifySessionFocus(cascadeId: String) = withContext(Dispatchers.IO) {
         val baseUrl = prefs.gatewayBaseUrl ?: return@withContext
-        val url = "$baseUrl/gateway/cascade/focus?cascadeId=${URLEncoder.encode(cascadeId, "UTF-8")}"
+        val url = "$baseUrl/gateway/cascade/focus"
+        val payload = buildJsonObject {
+            put("cascadeId", cascadeId)
+            put("source", "android")
+        }
         try {
-            val req = buildAuthorizedRequest(url).post("{}".toRequestBody(jsonMediaType)).build()
+            val req = buildAuthorizedRequest(url)
+                .post(payload.toString().toRequestBody(jsonMediaType))
+                .build()
+            client.newCall(req).execute().close()
+        } catch (_: Exception) {}
+    }
+
+    /**
+     * Mark conversation as read locally and report upstream
+     */
+    suspend fun markConversationAsRead(cascadeId: String, customViewTime: Long? = null) = withContext(Dispatchers.IO) {
+        val now = customViewTime ?: System.currentTimeMillis()
+        prefs.setLastViewTime(cascadeId, now)
+
+        // 1. Notify focus
+        notifySessionFocus(cascadeId)
+
+        // 2. Report upstream to LanguageServerService/UpdateConversationAnnotations
+        val baseUrl = prefs.gatewayBaseUrl ?: return@withContext
+        val url = "$baseUrl/api/exa.language_server_pb.LanguageServerService/UpdateConversationAnnotations"
+        val nowIso = Instant.ofEpochMilli(now).toString()
+
+        val payload = buildJsonObject {
+            put("cascadeIds", buildJsonArray { add(JsonPrimitive(cascadeId)) })
+            put("annotations", buildJsonObject {
+                put("markedAsUnread", false)
+                put("lastUserViewTime", nowIso)
+            })
+            put("mergeAnnotations", true)
+        }
+
+        try {
+            val req = buildAuthorizedRequest(url)
+                .post(payload.toString().toRequestBody(jsonMediaType))
+                .build()
             client.newCall(req).execute().close()
         } catch (_: Exception) {}
     }

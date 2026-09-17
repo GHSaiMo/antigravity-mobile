@@ -76,6 +76,14 @@ class PreferencesManager(context: Context) {
         return !gatewayBaseUrl.isNullOrBlank() && !deviceToken.isNullOrBlank()
     }
 
+    fun getLastViewTime(cascadeId: String): Long {
+        return prefs.getLong(KEY_LAST_VIEW_PREFIX + cascadeId, 0L)
+    }
+
+    fun setLastViewTime(cascadeId: String, time: Long = System.currentTimeMillis()) {
+        prefs.edit().putLong(KEY_LAST_VIEW_PREFIX + cascadeId, time).apply()
+    }
+
     fun clear() {
         prefs.edit().clear().apply()
         _themeModeFlow.value = "system"
@@ -92,5 +100,6 @@ class PreferencesManager(context: Context) {
         private const val KEY_IPV6_URL = "ipv6_server_url"
         private const val KEY_RELAY_URL = "relay_server_url"
         private const val KEY_CUSTOM_URL = "custom_server_url"
+        private const val KEY_LAST_VIEW_PREFIX = "ag_last_view_"
     }
 }

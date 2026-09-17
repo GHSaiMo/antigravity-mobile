@@ -134,9 +134,26 @@ class ConversationListViewModel(
                 projectId = project.rawId
             )
             res.onSuccess { cascadeId ->
+                markConversationAsRead(cascadeId)
                 loadConversations()
                 onCreated(cascadeId)
             }
+        }
+    }
+
+    fun markConversationAsRead(cascadeId: String) {
+        val target = rawConversations.find { it.id == cascadeId }
+        val modTime = target?.lastModifiedTime?.let { ConversationItem.parseIsoDate(it) } ?: 0L
+        val viewTime = maxOf(System.currentTimeMillis(), modTime + 1000L)
+        prefs.setLastViewTime(cascadeId, viewTime)
+
+        rawConversations = rawConversations.map { item ->
+            if (item.id == cascadeId) item.copy(isUnread = false) else item
+        }
+        applyFilter()
+
+        viewModelScope.launch {
+            apiClient.markConversationAsRead(cascadeId, viewTime)
         }
     }
 

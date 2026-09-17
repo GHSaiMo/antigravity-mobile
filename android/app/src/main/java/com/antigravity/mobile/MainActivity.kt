@@ -93,6 +93,7 @@ class MainActivity : ComponentActivity() {
                         ConversationListScreen(
                             viewModel = conversationListViewModel,
                             onSelectConversation = { cascadeId, title ->
+                                conversationListViewModel.markConversationAsRead(cascadeId)
                                 chatViewModel.resetSession()
                                 val encodedTitle = URLEncoder.encode(title, "UTF-8")
                                 navController.navigate("chat/$cascadeId/$encodedTitle")
@@ -122,6 +123,7 @@ class MainActivity : ComponentActivity() {
                             initialTitle = title,
                             viewModel = chatViewModel,
                             onNavigateBack = {
+                                conversationListViewModel.loadConversations()
                                 navController.popBackStack()
                             }
                         )

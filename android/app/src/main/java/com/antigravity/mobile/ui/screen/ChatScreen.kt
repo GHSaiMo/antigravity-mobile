@@ -16,12 +16,12 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -29,9 +29,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -235,149 +237,173 @@ fun ChatScreen(
 
             // Bottom Control Area: Divider + Chips + Attached Images + Input Bar
             Surface(
-                color = colors.background,
+                color = colors.surface,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    // Quick Action Chips
-                    QuickActionChips(
-                        activeModel = uiState.activeModel,
-                        onToggleModel = { viewModel.toggleModel() },
-                        onAddImage = { photoPickerLauncher.launch("image/*") },
-                        onCommitAndPush = { viewModel.insertCommitAndPush() },
-                        showContinue = uiState.isLatestMessageError,
-                        onContinue = { viewModel.handleContinue() },
-                        showProceed = uiState.canProceed,
-                        onProceed = {
-                            val planUri = uiState.proceedArtifactUri ?: "implementation_plan.md"
-                            viewModel.openMarkdownViewer(planUri, "实施方案 (Implementation Plan)")
-                        }
+                    HorizontalDivider(
+                        color = colors.separator.copy(alpha = 0.5f),
+                        thickness = 0.5.dp
                     )
 
-                    // Attached Image Previews Strip (displayed directly above the input box)
-                    if (uiState.selectedImages.isNotEmpty()) {
-                        LazyRow(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 2.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            itemsIndexed(uiState.selectedImages, key = { _, img -> img.id }) { index, img ->
-                                Box(
-                                    modifier = Modifier.padding(top = 4.dp, end = 6.dp)
-                                ) {
-                                    Image(
-                                        bitmap = img.bitmap.asImageBitmap(),
-                                        contentDescription = "Attachment preview",
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier
-                                            .size(52.dp)
-                                            .clip(RoundedCornerShape(10.dp))
-                                            .border(1.dp, colors.border, RoundedCornerShape(10.dp))
-                                    )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp, bottom = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // Quick Action Chips
+                        Box(modifier = Modifier.padding(horizontal = 16.dp)) {
+                            QuickActionChips(
+                                activeModel = uiState.activeModel,
+                                onToggleModel = { viewModel.toggleModel() },
+                                onAddImage = { photoPickerLauncher.launch("image/*") },
+                                onCommitAndPush = { viewModel.insertCommitAndPush() },
+                                showContinue = uiState.isLatestMessageError,
+                                onContinue = { viewModel.handleContinue() },
+                                showProceed = uiState.canProceed,
+                                onProceed = {
+                                    val planUri = uiState.proceedArtifactUri ?: "implementation_plan.md"
+                                    viewModel.openMarkdownViewer(planUri, "实施方案 (Implementation Plan)")
+                                }
+                            )
+                        }
 
+                        // Attached Image Previews Strip (displayed directly above the input box)
+                        if (uiState.selectedImages.isNotEmpty()) {
+                            LazyRow(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 2.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                itemsIndexed(uiState.selectedImages, key = { _, img -> img.id }) { index, img ->
                                     Box(
-                                        modifier = Modifier
-                                            .size(20.dp)
-                                            .align(Alignment.TopEnd)
-                                            .offset(x = 6.dp, y = (-6).dp)
-                                            .clip(CircleShape)
-                                            .background(Color.Black.copy(alpha = 0.65f))
-                                            .clickable { viewModel.removeImage(index) },
-                                        contentAlignment = Alignment.Center
+                                        modifier = Modifier.padding(top = 4.dp, end = 6.dp)
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Close,
-                                            contentDescription = "Remove image",
-                                            tint = Color.White,
-                                            modifier = Modifier.size(12.dp)
+                                        Image(
+                                            bitmap = img.bitmap.asImageBitmap(),
+                                            contentDescription = "Attachment preview",
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier
+                                                .size(52.dp)
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .border(1.dp, colors.border, RoundedCornerShape(10.dp))
                                         )
+
+                                        Box(
+                                            modifier = Modifier
+                                                .size(20.dp)
+                                                .align(Alignment.TopEnd)
+                                                .offset(x = 6.dp, y = (-6).dp)
+                                                .clip(CircleShape)
+                                                .background(Color.Black.copy(alpha = 0.65f))
+                                                .clickable { viewModel.removeImage(index) },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Close,
+                                                contentDescription = "Remove image",
+                                                tint = Color.White,
+                                                modifier = Modifier.size(12.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
 
-                    // Input Field & iOS Circular Action Button
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.Bottom,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedTextField(
-                            value = inputText,
-                            onValueChange = { viewModel.onInputTextChanged(it) },
-                            placeholder = {
-                                Text(
-                                    text = if (uiState.isRunning) "向队列添加指令..." else "向 Multigravity 发送指令...",
-                                    color = colors.textMuted,
-                                    fontSize = 15.sp
-                                )
-                            },
-                            maxLines = 5,
-                            shape = RoundedCornerShape(22.dp),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedContainerColor = colors.surface,
-                                unfocusedContainerColor = colors.surface,
-                                focusedBorderColor = colors.accentIndigo,
-                                unfocusedBorderColor = colors.border,
-                                focusedTextColor = colors.textPrimary,
-                                unfocusedTextColor = colors.textPrimary
-                            ),
+                        // Input Field & iOS Circular Action Button (1:1 iOS Alignment & Style)
+                        Row(
                             modifier = Modifier
-                                .weight(1f)
-                                .heightIn(min = 44.dp)
-                        )
-
-                        val isRunning = uiState.isRunning
-                        val isInputBlank = inputText.isBlank()
-                        val hasAttachments = uiState.selectedImages.isNotEmpty()
-
-                        if (isRunning && isInputBlank && !hasAttachments) {
-                            // Stop button: gray circle with red stop square
-                            IconButton(
-                                onClick = { viewModel.cancelExecution() },
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp),
+                            verticalAlignment = Alignment.Bottom,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            BasicTextField(
+                                value = inputText,
+                                onValueChange = { viewModel.onInputTextChanged(it) },
                                 modifier = Modifier
-                                    .size(44.dp)
-                                    .clip(CircleShape)
-                                    .background(colors.surfaceVariant)
-                                    .border(0.8.dp, colors.border, CircleShape)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Stop,
-                                    contentDescription = "Stop",
-                                    tint = colors.accentRed,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        } else {
-                            // Send button: 44.dp circle, Apple Indigo with white up arrow
-                            val isEnabled = !isInputBlank || hasAttachments
-                            IconButton(
-                                onClick = { viewModel.sendCurrentMessage() },
-                                enabled = isEnabled,
-                                modifier = Modifier
-                                    .size(44.dp)
-                                    .clip(CircleShape)
-                                    .background(if (isEnabled) colors.accentIndigo else colors.surfaceVariant)
-                                    .border(
-                                        0.8.dp,
-                                        if (isEnabled) colors.accentIndigo else colors.border,
-                                        CircleShape
+                                    .weight(1f)
+                                    .heightIn(min = 44.dp),
+                                textStyle = TextStyle(
+                                    color = colors.textPrimary,
+                                    fontSize = 16.sp,
+                                    lineHeight = 22.sp
+                                ),
+                                cursorBrush = SolidColor(colors.accentIndigo),
+                                maxLines = 5,
+                                decorationBox = { innerTextField ->
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(min = 44.dp)
+                                            .clip(RoundedCornerShape(22.dp))
+                                            .background(colors.surfaceVariant)
+                                            .padding(horizontal = 16.dp, vertical = 11.dp),
+                                        contentAlignment = Alignment.CenterStart
+                                    ) {
+                                        if (inputText.isEmpty()) {
+                                            Text(
+                                                text = if (uiState.isRunning || uiState.isAwaitingResponse) "向队列添加指令..." else "发送对 Agent 的指令...",
+                                                color = colors.textMuted,
+                                                fontSize = 16.sp,
+                                                lineHeight = 22.sp
+                                            )
+                                        }
+                                        innerTextField()
+                                    }
+                                }
+                            )
+
+                            val isRunning = uiState.isRunning || uiState.isAwaitingResponse
+                            val isInputBlank = inputText.isBlank()
+                            val hasAttachments = uiState.selectedImages.isNotEmpty()
+
+                            if (isRunning && isInputBlank && !hasAttachments) {
+                                // Stop button: 44.dp circle, matches iOS stop button (gray circle with red stop square)
+                                Box(
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .clip(CircleShape)
+                                        .background(colors.surfaceVariant)
+                                        .border(0.8.dp, colors.border, CircleShape)
+                                        .clickable { viewModel.cancelExecution() },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(15.dp)
+                                            .clip(RoundedCornerShape(3.dp))
+                                            .background(colors.accentRed)
                                     )
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.ArrowUpward,
-                                    contentDescription = "Send",
-                                    tint = if (isEnabled) Color.White else colors.textMuted,
-                                    modifier = Modifier.size(20.dp)
-                                )
+                                }
+                            } else {
+                                // Send button: 44.dp circle, Apple Indigo with white up arrow, matches iOS send button
+                                val isEnabled = !isInputBlank || hasAttachments
+                                Box(
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .clip(CircleShape)
+                                        .background(if (isEnabled) colors.accentIndigo else colors.surfaceVariant)
+                                        .then(
+                                            if (!isEnabled) Modifier.border(0.8.dp, colors.border, CircleShape)
+                                            else Modifier
+                                        )
+                                        .clickable(enabled = isEnabled) { viewModel.sendCurrentMessage() },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.ArrowUpward,
+                                        contentDescription = "Send",
+                                        tint = if (isEnabled) Color.White else colors.textSecondary.copy(alpha = 0.5f),
+                                        modifier = Modifier.size(19.dp)
+                                    )
+                                }
                             }
                         }
                     }

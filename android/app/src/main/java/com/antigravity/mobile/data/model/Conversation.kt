@@ -3,6 +3,8 @@ package com.antigravity.mobile.data.model
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.text.SimpleDateFormat
+import java.time.Instant
+import java.time.OffsetDateTime
 import java.util.*
 
 @Serializable
@@ -171,14 +173,24 @@ data class ConversationItem(
             )
         }
 
-        private fun parseIsoDate(isoString: String): Long {
+        fun parseIsoDate(isoString: String?): Long {
+            if (isoString.isNullOrBlank()) return 0L
             return try {
-                val inputFmt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).apply {
-                    timeZone = TimeZone.getTimeZone("UTC")
-                }
-                inputFmt.parse(isoString.substringBefore('.'))?.time ?: 0L
+                Instant.parse(isoString).toEpochMilli()
             } catch (_: Exception) {
-                0L
+                try {
+                    OffsetDateTime.parse(isoString).toInstant().toEpochMilli()
+                } catch (_: Exception) {
+                    try {
+                        val clean = isoString.trimEnd('Z').substringBefore('.')
+                        val inputFmt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).apply {
+                            timeZone = TimeZone.getTimeZone("UTC")
+                        }
+                        inputFmt.parse(clean)?.time ?: 0L
+                    } catch (_: Exception) {
+                        0L
+                    }
+                }
             }
         }
     }
