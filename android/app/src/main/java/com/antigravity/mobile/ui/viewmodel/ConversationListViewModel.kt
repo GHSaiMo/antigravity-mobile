@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.antigravity.mobile.data.model.CockpitQuotaResponse
 import com.antigravity.mobile.data.model.ConversationItem
+import com.antigravity.mobile.data.model.ConversationStatus
+import com.antigravity.mobile.data.model.LocalDraftSession
 import com.antigravity.mobile.data.model.ProjectItem
 import com.antigravity.mobile.data.service.ApiClient
 import com.antigravity.mobile.data.service.PreferencesManager
@@ -13,6 +15,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 
 sealed interface ConversationListUiState {
     data object Loading : ConversationListUiState
@@ -49,12 +55,46 @@ class ConversationListViewModel(
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
-    private var rawConversations = listOf<ConversationItem>()
+    private val deletedCascadeIds = mutableSetOf<String>()
+    private var rawConversations = loadInitialConversations()
 
     init {
         loadConversations()
         loadQuotas()
         loadProjects()
+    }
+
+    private fun loadInitialConversations(): List<ConversationItem> {
+        val drafts = prefs.loadLocalDraftConversations()
+        val cached = prefs.cachedConversationsJson
+        val serverItems = if (!cached.isNullOrBlank()) {
+            try {
+                val list = apiClient.json.decodeFromString<List<ConversationItem>>(cached)
+                list.filter { !it.isDraft && !it.isSubagent }
+            } catch (e: Exception) {
+                Log.w("ConvListVM", "Failed to decode cached conversations: ${e.message}")
+                emptyList()
+            }
+        } else {
+            emptyList()
+        }
+        val all = (drafts + serverItems).sortedWith(
+            compareByDescending<ConversationItem> { it.lastModifiedEpochMs }
+                .thenByDescending { it.id }
+        )
+        if (all.isNotEmpty()) {
+            _uiState.value = ConversationListUiState.Success(all)
+        }
+        return all
+    }
+
+    private fun persistConversationsToCache(list: List<ConversationItem>) {
+        try {
+            val nonDrafts = list.filter { !it.isDraft }
+            prefs.cachedConversationsJson = apiClient.json.encodeToString(nonDrafts)
+        } catch (e: Exception) {
+            Log.w("ConvListVM", "Failed to cache conversations: ${e.message}")
+        }
     }
 
     private fun loadInitialProjects(): List<ProjectItem> {
@@ -69,16 +109,72 @@ class ConversationListViewModel(
         return emptyList()
     }
 
+    private fun mergeWithLocalConversations(serverList: List<ConversationItem>): List<ConversationItem> {
+        val drafts = prefs.loadLocalDraftConversations()
+        val serverFiltered = serverList.filter { !deletedCascadeIds.contains(it.id) && !it.isSubagent }
+        val serverIds = serverFiltered.map { it.id }.toSet()
+
+        val existingMap = rawConversations.associateBy { it.id }
+
+        // Enrich server items with known local titles/status/stepCount if server is lagging
+        val enrichedServerItems = serverFiltered.map { serverItem ->
+            val local = existingMap[serverItem.id] ?: return@map serverItem
+            val resolvedTitle = if ((serverItem.title.isBlank() || serverItem.title == "未命名会话") &&
+                local.title.isNotBlank() && local.title != "未命名会话" && local.title != "会话详情") {
+                local.title
+            } else {
+                serverItem.title
+            }
+            val resolvedStatus = if (local.status == ConversationStatus.RUNNING && serverItem.status == ConversationStatus.IDLE) {
+                local.status
+            } else {
+                serverItem.status
+            }
+            val resolvedSteps = maxOf(serverItem.stepCount, local.stepCount)
+            val resolvedWorkspace = if (serverItem.workspaceName == "Chat" && local.workspaceName != "Chat" && local.workspaceName.isNotBlank()) {
+                local.workspaceName
+            } else {
+                serverItem.workspaceName
+            }
+            serverItem.copy(
+                title = resolvedTitle,
+                status = resolvedStatus,
+                stepCount = resolvedSteps,
+                workspaceName = resolvedWorkspace
+            )
+        }
+
+        // Retain recently added/active local conversations that upstream has not yet indexed
+        val nowMs = System.currentTimeMillis()
+        val missingRecentLocal = rawConversations.filter { local ->
+            if (local.isDraft) return@filter false
+            if (deletedCascadeIds.contains(local.id) || local.isSubagent) return@filter false
+            if (serverIds.contains(local.id)) return@filter false
+            val modMs = local.lastModifiedEpochMs
+            val isRecent = (nowMs - modMs) < 15 * 60 * 1000L
+            val isActive = local.status.isRunning || local.status.needsAction
+            isRecent || isActive
+        }
+
+        return (drafts + missingRecentLocal + enrichedServerItems).sortedWith(
+            compareByDescending<ConversationItem> { it.lastModifiedEpochMs }
+                .thenByDescending { it.id }
+        )
+    }
+
     fun refresh(onComplete: (() -> Unit)? = null) {
         viewModelScope.launch {
             _isRefreshing.value = true
             try {
                 val convResult = apiClient.fetchConversations()
                 convResult.onSuccess { list ->
-                    rawConversations = list
+                    rawConversations = mergeWithLocalConversations(list)
+                    persistConversationsToCache(rawConversations)
                     applyFilter()
                 }.onFailure { err ->
-                    _uiState.value = ConversationListUiState.Error(err.message ?: "无法获取会话列表")
+                    if (rawConversations.isEmpty()) {
+                        _uiState.value = ConversationListUiState.Error(err.message ?: "无法获取会话列表")
+                    }
                 }
                 apiClient.fetchCockpitQuotas().onSuccess {
                     _quotaData.value = it
@@ -103,10 +199,13 @@ class ConversationListViewModel(
         viewModelScope.launch {
             val result = apiClient.fetchConversations()
             result.onSuccess { list ->
-                rawConversations = list
+                rawConversations = mergeWithLocalConversations(list)
+                persistConversationsToCache(rawConversations)
                 applyFilter()
             }.onFailure { err ->
-                _uiState.value = ConversationListUiState.Error(err.message ?: "无法获取会话列表")
+                if (rawConversations.isEmpty()) {
+                    _uiState.value = ConversationListUiState.Error(err.message ?: "无法获取会话列表")
+                }
             }
         }
     }
@@ -168,27 +267,47 @@ class ConversationListViewModel(
         }
     }
 
-    fun createConversation(project: ProjectItem, prompt: String = "", model: String = "gemini-3.8-flash-high", onCreated: (String) -> Unit) {
-        viewModelScope.launch {
-            val res = apiClient.createCascade(
-                workspaceUri = project.uri,
-                prompt = prompt,
-                model = model,
-                projectId = project.rawId
+    fun upsertConversation(item: ConversationItem) {
+        if (item.isSubagent || deletedCascadeIds.contains(item.id)) return
+
+        val existingIndex = rawConversations.indexOfFirst { it.id == item.id }
+        val updatedList = if (existingIndex >= 0) {
+            val old = rawConversations[existingIndex]
+            val merged = old.copy(
+                title = if (item.title.isNotBlank() && item.title != "未命名会话" && item.title != "会话详情") item.title else old.title,
+                status = if (item.status != ConversationStatus.UNKNOWN) item.status else old.status,
+                stepCount = maxOf(old.stepCount, item.stepCount),
+                workspaceName = if (item.workspaceName.isNotBlank() && item.workspaceName != "Chat") item.workspaceName else old.workspaceName,
+                lastModifiedTime = item.lastModifiedTime ?: old.lastModifiedTime,
+                isUnread = item.isUnread
             )
-            res.onSuccess { cascadeId ->
-                markConversationAsRead(cascadeId)
-                loadConversations()
-                onCreated(cascadeId)
-            }
+            val list = rawConversations.toMutableList()
+            list.removeAt(existingIndex)
+            list.add(0, merged)
+            list
+        } else {
+            listOf(item) + rawConversations
         }
+        val sortedList = updatedList.sortedWith(
+            compareByDescending<ConversationItem> { it.lastModifiedEpochMs }
+                .thenByDescending { it.id }
+        )
+        rawConversations = sortedList
+        persistConversationsToCache(sortedList)
+        applyFilter()
+    }
+
+    fun createLocalDraftSession(project: ProjectItem): LocalDraftSession {
+        return prefs.createLocalDraftSession(project)
     }
 
     fun notifySessionFocus(cascadeId: String) {
+        if (cascadeId.startsWith("local_draft_")) return
         apiClient.notifySessionFocus(cascadeId)
     }
 
     fun markConversationAsRead(cascadeId: String) {
+        if (cascadeId.startsWith("local_draft_")) return
         val target = rawConversations.find { it.id == cascadeId }
         val modTime = target?.lastModifiedTime?.let { ConversationItem.parseIsoDate(it) } ?: 0L
         val viewTime = maxOf(System.currentTimeMillis(), modTime + 1000L)
@@ -197,6 +316,7 @@ class ConversationListViewModel(
         rawConversations = rawConversations.map { item ->
             if (item.id == cascadeId) item.copy(isUnread = false) else item
         }
+        persistConversationsToCache(rawConversations)
         applyFilter()
 
         viewModelScope.launch {
@@ -205,6 +325,18 @@ class ConversationListViewModel(
     }
 
     fun deleteConversation(cascadeId: String) {
+        deletedCascadeIds.add(cascadeId)
+        if (cascadeId.startsWith("local_draft_")) {
+            prefs.deleteLocalDraftSession(cascadeId)
+            rawConversations = rawConversations.filter { it.id != cascadeId }
+            persistConversationsToCache(rawConversations)
+            applyFilter()
+            return
+        }
+        rawConversations = rawConversations.filter { it.id != cascadeId }
+        persistConversationsToCache(rawConversations)
+        applyFilter()
+
         viewModelScope.launch {
             apiClient.deleteConversation(cascadeId).onSuccess {
                 loadConversations()
@@ -213,6 +345,15 @@ class ConversationListViewModel(
     }
 
     fun renameConversation(cascadeId: String, newTitle: String) {
+        val trimmed = newTitle.trim()
+        if (trimmed.isNotBlank()) {
+            rawConversations = rawConversations.map { item ->
+                if (item.id == cascadeId) item.copy(title = trimmed) else item
+            }
+            persistConversationsToCache(rawConversations)
+            applyFilter()
+        }
+
         viewModelScope.launch {
             apiClient.renameConversation(cascadeId, newTitle).onSuccess {
                 loadConversations()
@@ -236,6 +377,11 @@ class ConversationListViewModel(
             }
         }
         _uiState.value = ConversationListUiState.Success(filtered)
+    }
+
+    fun getWorkspaceName(cascadeId: String): String? {
+        return rawConversations.find { it.id == cascadeId }?.workspaceName
+            ?: prefs.getLocalDraftSession(cascadeId)?.let { if (it.project.isPureChat) "Chat" else it.project.name }
     }
 
     fun unpair() {

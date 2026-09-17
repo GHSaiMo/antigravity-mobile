@@ -36,9 +36,11 @@ fun MarkdownViewerSheet(
     onImageClick: ((String) -> Unit)? = null
 ) {
     val colors = AntigravityTheme.colors
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
+        sheetState = sheetState,
         containerColor = colors.background,
         dragHandle = {
             Box(
@@ -51,6 +53,8 @@ fun MarkdownViewerSheet(
             )
         },
         modifier = modifier
+            .fillMaxWidth()
+            .fillMaxHeight()
     ) {
         Column(
             modifier = Modifier

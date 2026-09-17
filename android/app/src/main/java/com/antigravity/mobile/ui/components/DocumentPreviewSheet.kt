@@ -195,7 +195,17 @@ private fun HtmlDocumentViewer(file: File) {
                     loadWithOverviewMode = true
                 }
                 try {
-                    var htmlContent = file.readText(Charsets.UTF_8)
+                    var htmlContent = file.readText(Charsets.UTF_8).trim()
+                    // Defensive check: if the file content itself was base64-encoded
+                    if (!htmlContent.startsWith("<") && (htmlContent.startsWith("PCFE") || htmlContent.startsWith("PD!"))) {
+                        try {
+                            val decoded = String(Base64.decode(htmlContent, Base64.DEFAULT), Charsets.UTF_8)
+                            if (decoded.contains("<html", ignoreCase = true) || decoded.contains("<!DOCTYPE", ignoreCase = true)) {
+                                htmlContent = decoded
+                            }
+                        } catch (_: Exception) {}
+                    }
+
                     val isMarp = htmlContent.contains("data-marpit-svg", ignoreCase = true) ||
                             htmlContent.contains("bespoke-marp", ignoreCase = true)
 
@@ -213,7 +223,7 @@ private fun HtmlDocumentViewer(file: File) {
                                     margin: 0 !important;
                                     padding: 0 !important;
                                 }
-                                div#\:\$p, .bespoke-marp-parent {
+                                div#\:\${'$'}p, .bespoke-marp-parent {
                                     display: flex !important;
                                     flex-direction: column !important;
                                     align-items: center !important;
@@ -263,8 +273,8 @@ private fun HtmlDocumentViewer(file: File) {
                         }
                     }
 
-                    val base64Data = Base64.encodeToString(htmlContent.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
-                    loadDataWithBaseURL("https://localhost/", base64Data, "text/html; charset=utf-8", "base64", null)
+                    val baseUrl = file.parentFile?.let { "file://${it.absolutePath}/" } ?: "https://localhost/"
+                    loadDataWithBaseURL(baseUrl, htmlContent, "text/html", "utf-8", null)
                 } catch (_: Exception) {
                     loadUrl("file://${file.absolutePath}")
                 }

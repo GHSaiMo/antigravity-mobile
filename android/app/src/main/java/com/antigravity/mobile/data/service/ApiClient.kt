@@ -68,7 +68,64 @@ class ApiClient(private val prefs: PreferencesManager) {
                     val respStr = response.body?.string() ?: ""
                     val pairResp = json.decodeFromString<PairResponse>(respStr)
 
-                    prefs.gatewayBaseUrl = candidate
+                    var lanUrl: String? = info.lanBaseUrl
+                    var ipv6Url: String? = info.ipv6BaseUrl
+                    var customUrl: String? = info.ddnsBaseUrl
+                    var relayUrl: String? = info.relayBaseUrl
+
+                    if (pairResp.endpoints != null) {
+                        for (ep in pairResp.endpoints) {
+                            val epUrl = ep.url.trim().trimEnd('/')
+                            if (!ConnectionManager.isTrustedEndpoint(epUrl, info, candidate)) {
+                                continue
+                            }
+                            when (ep.type.lowercase()) {
+                                "lan" -> lanUrl = epUrl
+                                "ipv6" -> ipv6Url = epUrl
+                                "relay" -> relayUrl = epUrl
+                                "ddns", "custom" -> customUrl = epUrl
+                                "primary" -> {
+                                    val h = ConnectionManager.extractHost(epUrl)
+                                    when {
+                                        ConnectionManager.isLanHost(h) && lanUrl.isNullOrBlank() -> lanUrl = epUrl
+                                        ConnectionManager.isIpv6Host(h) && ipv6Url.isNullOrBlank() -> ipv6Url = epUrl
+                                        ConnectionManager.isRelayHost(h) && relayUrl.isNullOrBlank() -> relayUrl = epUrl
+                                        customUrl.isNullOrBlank() -> customUrl = epUrl
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Fallback classify the successful candidate into its slot if still unassigned
+                    val candClean = candidate.trim().trimEnd('/')
+                    val candHost = ConnectionManager.extractHost(candClean)
+                    when {
+                        ConnectionManager.isLanHost(candHost) -> {
+                            if (lanUrl.isNullOrBlank()) lanUrl = candClean
+                        }
+                        ConnectionManager.isIpv6Host(candHost) -> {
+                            if (ipv6Url.isNullOrBlank()) ipv6Url = candClean
+                        }
+                        ConnectionManager.isRelayHost(candHost) -> {
+                            if (relayUrl.isNullOrBlank()) relayUrl = candClean
+                        }
+                        else -> {
+                            if (customUrl.isNullOrBlank()) customUrl = candClean
+                        }
+                    }
+
+                    if (lanUrl.isNullOrBlank() && ipv6Url.isNullOrBlank() && relayUrl.isNullOrBlank() && customUrl.isNullOrBlank()) {
+                        customUrl = candClean
+                    }
+
+                    prefs.updateEndpoints(
+                        lan = lanUrl,
+                        ipv6 = ipv6Url,
+                        relay = relayUrl,
+                        custom = customUrl,
+                        active = candidate
+                    )
                     prefs.deviceToken = pairResp.deviceToken
                     prefs.deviceId = pairResp.deviceId
 
@@ -109,7 +166,10 @@ class ApiClient(private val prefs: PreferencesManager) {
                     val item = ConversationItem.fromSummary(id, summary, localViewTime = localViewTime)
                     if (item.isSubagent) return@mapNotNull null
                     item
-                }.sortedByDescending { it.lastModifiedTime ?: "" }
+                }.sortedWith(
+                    compareByDescending<ConversationItem> { it.lastModifiedEpochMs }
+                        .thenByDescending { it.id }
+                )
 
                 Result.success(list)
             }

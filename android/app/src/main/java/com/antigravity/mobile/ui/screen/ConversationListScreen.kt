@@ -13,7 +13,9 @@ import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -75,6 +77,23 @@ fun ConversationListScreen(
     val colors = AntigravityTheme.colors
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val pullRefreshState = rememberPullToRefreshState()
+    val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
+
+    // Auto scroll to top when list updates if user is already at or near the top
+    val conversations = (uiState as? ConversationListUiState.Success)?.conversations ?: emptyList()
+    val firstConversationId = remember(conversations) { conversations.firstOrNull()?.id }
+    LaunchedEffect(firstConversationId) {
+        if (firstConversationId != null && listState.firstVisibleItemIndex <= 1) {
+            listState.scrollToItem(0)
+        }
+    }
+
+    LaunchedEffect(searchQuery) {
+        if (listState.firstVisibleItemIndex > 0) {
+            listState.scrollToItem(0)
+        }
+    }
 
     LaunchedEffect(Unit) {
         if (projects.isEmpty()) {
@@ -86,12 +105,20 @@ fun ConversationListScreen(
         if (pullRefreshState.isRefreshing) {
             viewModel.refresh {
                 pullRefreshState.endRefresh()
+                coroutineScope.launch {
+                    listState.scrollToItem(0)
+                }
             }
         }
     }
     LaunchedEffect(isRefreshing) {
-        if (!isRefreshing && pullRefreshState.isRefreshing) {
-            pullRefreshState.endRefresh()
+        if (!isRefreshing) {
+            if (pullRefreshState.isRefreshing) {
+                pullRefreshState.endRefresh()
+            }
+            if (listState.firstVisibleItemIndex <= 2) {
+                listState.scrollToItem(0)
+            }
         }
     }
 
@@ -99,12 +126,25 @@ fun ConversationListScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        text = "Multigravity",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 20.sp,
-                        color = colors.textPrimary
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable {
+                                coroutineScope.launch {
+                                    listState.animateScrollToItem(0)
+                                }
+                                viewModel.refresh()
+                            }
+                            .padding(horizontal = 4.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "Multigravity",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 20.sp,
+                            color = colors.textPrimary
+                        )
+                    }
                 },
                 navigationIcon = {
                     IconButton(onClick = { showSettingsSheet = true }) {
@@ -116,6 +156,29 @@ fun ConversationListScreen(
                     }
                 },
                 actions = {
+                    IconButton(
+                        onClick = {
+                            coroutineScope.launch {
+                                listState.animateScrollToItem(0)
+                            }
+                            viewModel.refresh()
+                        },
+                        enabled = !isRefreshing
+                    ) {
+                        if (isRefreshing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = colors.accentIndigo
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Refresh",
+                                tint = colors.accentIndigo
+                            )
+                        }
+                    }
                     IconButton(onClick = {
                         viewModel.loadProjects()
                         showNewConvSheet = true
@@ -243,16 +306,19 @@ fun ConversationListScreen(
                         }
                     } else {
                         ConversationListContent(
-                                conversations = state.conversations,
-                                onSelect = onSelectConversation,
-                                onRename = { item ->
+                            conversations = state.conversations,
+                            listState = listState,
+                            onSelect = onSelectConversation,
+                            onRename = { item ->
+                                if (!item.isDraft) {
                                     renamingItem = item
                                     renameText = item.title
-                                },
-                                onDelete = { item ->
-                                    deletingItem = item
                                 }
-                            )
+                            },
+                            onDelete = { item ->
+                                deletingItem = item
+                            }
+                        )
                         }
                     }
                 }
@@ -345,9 +411,9 @@ fun ConversationListScreen(
             onRefreshProjects = { viewModel.loadProjects() },
             onSelectProject = { project ->
                 showNewConvSheet = false
-                viewModel.createConversation(project) { cascadeId ->
-                    onSelectConversation(cascadeId, project.name, true)
-                }
+                val draftSession = viewModel.createLocalDraftSession(project)
+                val title = if (project.isPureChat) "新对话" else project.name
+                onSelectConversation(draftSession.id, title, true)
             },
             onDismiss = { showNewConvSheet = false }
         )
@@ -444,11 +510,13 @@ fun ConversationListScreen(
 @Composable
 private fun ConversationListContent(
     conversations: List<ConversationItem>,
+    listState: LazyListState,
     onSelect: (cascadeId: String, title: String, isNew: Boolean) -> Unit,
     onRename: (ConversationItem) -> Unit,
     onDelete: (ConversationItem) -> Unit
 ) {
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(top = 6.dp, bottom = 84.dp, start = 16.dp, end = 16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -558,8 +626,10 @@ private fun SwipeableConversationCard(
                     }
                 },
                 onLongClick = {
-                    haptic.longPress()
-                    onLongClick()
+                    if (!conversation.isDraft) {
+                        haptic.longPress()
+                        onLongClick()
+                    }
                 }
             )
         }
@@ -615,6 +685,8 @@ fun ConversationCard(
 
                 if (conversation.status.isRunning || conversation.status.needsAction || conversation.status.isError) {
                     StatusBadge(status = conversation.status)
+                } else if (conversation.isDraft) {
+                    DraftBadge()
                 } else if (conversation.isUnread) {
                     UnreadDot()
                 }
@@ -648,7 +720,11 @@ fun ConversationCard(
                 }
 
                 val timeStr = conversation.relativeTimeString
-                val metaText = if (timeStr.isNotBlank()) "${conversation.stepCount} 步骤 · $timeStr" else "${conversation.stepCount} 步骤"
+                val metaText = if (conversation.isDraft) {
+                    if (timeStr.isNotBlank()) "草稿 · $timeStr" else "草稿"
+                } else {
+                    if (timeStr.isNotBlank()) "${conversation.stepCount} 步骤 · $timeStr" else "${conversation.stepCount} 步骤"
+                }
 
                 Text(
                     text = metaText,

@@ -14,23 +14,29 @@ data class PairingInfo(
     val ddnsHost: String? = null,
     val relayHost: String? = null
 ) {
+    val serverBaseUrl: String
+        get() = formatUrl(host, port, ssl)
+
+    val lanBaseUrl: String?
+        get() = lanHost?.takeIf { it.isNotBlank() }?.let { formatUrl(it, port, ssl) }
+
+    val ipv6BaseUrl: String?
+        get() = ipv6Host?.takeIf { it.isNotBlank() }?.let { formatUrl(it, port, ssl) }
+
+    val ddnsBaseUrl: String?
+        get() = ddnsHost?.takeIf { it.isNotBlank() }?.let { formatUrl(it, port, ssl) }
+
+    val relayBaseUrl: String?
+        get() = relayHost?.takeIf { it.isNotBlank() }?.let { formatUrl(it, port, ssl) }
+
     fun candidateBaseUrls(): List<String> {
         val list = mutableListOf<String>()
-        lanHost?.takeIf { it.isNotBlank() }?.let { list.add(formatUrl(it, port, ssl)) }
-        val primary = formatUrl(host, port, ssl)
+        lanBaseUrl?.let { if (!list.contains(it)) list.add(it) }
+        val primary = serverBaseUrl
         if (!list.contains(primary)) list.add(primary)
-        relayHost?.takeIf { it.isNotBlank() }?.let {
-            val u = formatUrl(it, port, ssl)
-            if (!list.contains(u)) list.add(u)
-        }
-        ipv6Host?.takeIf { it.isNotBlank() }?.let {
-            val u = formatUrl(it, port, ssl)
-            if (!list.contains(u)) list.add(u)
-        }
-        ddnsHost?.takeIf { it.isNotBlank() }?.let {
-            val u = formatUrl(it, port, ssl)
-            if (!list.contains(u)) list.add(u)
-        }
+        relayBaseUrl?.let { if (!list.contains(it)) list.add(it) }
+        ipv6BaseUrl?.let { if (!list.contains(it)) list.add(it) }
+        ddnsBaseUrl?.let { if (!list.contains(it)) list.add(it) }
         return list
     }
 

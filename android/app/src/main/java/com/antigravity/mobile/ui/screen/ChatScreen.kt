@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.screen
 
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -106,6 +107,17 @@ fun ChatScreen(
         }
     }
 
+    BackHandler {
+        viewModel.saveDraft()
+        onNavigateBack()
+    }
+
+    DisposableEffect(cascadeId) {
+        onDispose {
+            viewModel.saveDraft()
+        }
+    }
+
     LaunchedEffect(cascadeId, isNewConversation) {
         viewModel.initSession(cascadeId, initialTitle, isNewConversation)
         // Automatically focus the input field and pop up soft keyboard ONLY on new conversation creation
@@ -195,22 +207,27 @@ fun ChatScreen(
                             modifier = Modifier.weight(1f, fill = false)
                         )
 
-                        // Connection indicator dot
-                        val dotColor = when (uiState.connectionStatus) {
-                            ConnectionStatus.CONNECTED -> colors.accentGreen
-                            ConnectionStatus.CONNECTING -> colors.accentYellow
-                            else -> colors.accentRed
+                        // Connection indicator dot (hidden for local draft sessions until created on host)
+                        if (!uiState.cascadeId.startsWith("local_draft_") && !cascadeId.startsWith("local_draft_")) {
+                            val dotColor = when (uiState.connectionStatus) {
+                                ConnectionStatus.CONNECTED -> colors.accentGreen
+                                ConnectionStatus.CONNECTING -> colors.accentYellow
+                                else -> colors.accentRed
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(dotColor)
+                            )
                         }
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(dotColor)
-                        )
                     }
                 },
                 navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
+                    IconButton(onClick = {
+                        viewModel.saveDraft()
+                        onNavigateBack()
+                    }) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back",
@@ -275,6 +292,9 @@ fun ChatScreen(
                                         urlResolver = { raw -> viewModel.resolveMediaUrl(raw) },
                                         onImageClick = { url, bitmap ->
                                             viewModel.openImageViewer(bitmap = bitmap, url = url)
+                                        },
+                                        onImageGroupClick = { items, index ->
+                                            viewModel.openImageViewer(items = items, initialIndex = index)
                                         }
                                     )
                                 }

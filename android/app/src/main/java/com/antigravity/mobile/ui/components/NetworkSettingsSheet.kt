@@ -124,6 +124,30 @@ fun NetworkSettingsContent(
     var relayUrl by remember { mutableStateOf(prefs.relayServerUrl ?: "") }
     var customUrl by remember { mutableStateOf(prefs.customServerUrl ?: "") }
 
+    LaunchedEffect(activeUrl) {
+        if (lanUrl.isBlank() && ipv6Url.isBlank() && relayUrl.isBlank() && customUrl.isBlank() && activeUrl.isNotBlank()) {
+            val host = ConnectionManager.extractHost(activeUrl)
+            when {
+                ConnectionManager.isLanHost(host) -> {
+                    lanUrl = activeUrl
+                    prefs.lanServerUrl = activeUrl
+                }
+                ConnectionManager.isIpv6Host(host) -> {
+                    ipv6Url = activeUrl
+                    prefs.ipv6ServerUrl = activeUrl
+                }
+                ConnectionManager.isRelayHost(host) -> {
+                    relayUrl = activeUrl
+                    prefs.relayServerUrl = activeUrl
+                }
+                else -> {
+                    customUrl = activeUrl
+                    prefs.customServerUrl = activeUrl
+                }
+            }
+        }
+    }
+
     val isProbing by connectionManager.isProbing.collectAsState()
     val endpointStatuses by connectionManager.endpointStatuses.collectAsState()
 
@@ -282,6 +306,10 @@ fun NetworkSettingsContent(
                                 val winner = connectionManager.probeEndpoints(prefs)
                                 if (winner != null) {
                                     activeUrl = winner
+                                    lanUrl = prefs.lanServerUrl ?: ""
+                                    ipv6Url = prefs.ipv6ServerUrl ?: ""
+                                    relayUrl = prefs.relayServerUrl ?: ""
+                                    customUrl = prefs.customServerUrl ?: ""
                                     val statusRes = connectionManager.testGatewayStatus(winner)
                                     statusRes.onSuccess { msg ->
                                         testResultText = msg
@@ -377,11 +405,21 @@ fun NetworkSettingsContent(
                     title = "局域网 Wi-Fi (LAN IPv4)",
                     placeholder = "未设置 (如 http://192.168.1.50:58900)",
                     value = lanUrl,
-                    isActive = activeUrl.isNotBlank() && activeUrl == lanUrl,
-                    probeStatus = endpointStatuses[lanUrl],
+                    isActive = ConnectionManager.isSameEndpoint(activeUrl, lanUrl),
+                    probeStatus = endpointStatuses[lanUrl] ?: endpointStatuses[lanUrl.trim().trimEnd('/')],
                     onValueChange = {
                         lanUrl = it
                         prefs.lanServerUrl = it.ifBlank { null }
+                        if (activeUrl.isBlank() && it.isNotBlank()) {
+                            activeUrl = it
+                            prefs.gatewayBaseUrl = it
+                        }
+                    },
+                    onSelectActive = {
+                        activeUrl = lanUrl
+                        prefs.gatewayBaseUrl = lanUrl
+                        HapticUtils.lightTap(context)
+                        Toast.makeText(context, "已切换为局域网直连", Toast.LENGTH_SHORT).show()
                     }
                 )
                 HorizontalDivider(color = colors.separator.copy(alpha = 0.3f), thickness = 0.5.dp)
@@ -389,11 +427,21 @@ fun NetworkSettingsContent(
                     title = "外网直连 (Public IPv6)",
                     placeholder = "未设置 (如 http://[2001:db8::1]:58900)",
                     value = ipv6Url,
-                    isActive = activeUrl.isNotBlank() && activeUrl == ipv6Url,
-                    probeStatus = endpointStatuses[ipv6Url],
+                    isActive = ConnectionManager.isSameEndpoint(activeUrl, ipv6Url),
+                    probeStatus = endpointStatuses[ipv6Url] ?: endpointStatuses[ipv6Url.trim().trimEnd('/')],
                     onValueChange = {
                         ipv6Url = it
                         prefs.ipv6ServerUrl = it.ifBlank { null }
+                        if (activeUrl.isBlank() && it.isNotBlank()) {
+                            activeUrl = it
+                            prefs.gatewayBaseUrl = it
+                        }
+                    },
+                    onSelectActive = {
+                        activeUrl = ipv6Url
+                        prefs.gatewayBaseUrl = ipv6Url
+                        HapticUtils.lightTap(context)
+                        Toast.makeText(context, "已切换为外网 IPv6 直连", Toast.LENGTH_SHORT).show()
                     }
                 )
                 HorizontalDivider(color = colors.separator.copy(alpha = 0.3f), thickness = 0.5.dp)
@@ -401,11 +449,21 @@ fun NetworkSettingsContent(
                     title = "云服务器中继 (Cloud Relay IPv4)",
                     placeholder = "未设置 (如 http://relay.example.com:58900)",
                     value = relayUrl,
-                    isActive = activeUrl.isNotBlank() && activeUrl == relayUrl,
-                    probeStatus = endpointStatuses[relayUrl],
+                    isActive = ConnectionManager.isSameEndpoint(activeUrl, relayUrl),
+                    probeStatus = endpointStatuses[relayUrl] ?: endpointStatuses[relayUrl.trim().trimEnd('/')],
                     onValueChange = {
                         relayUrl = it
                         prefs.relayServerUrl = it.ifBlank { null }
+                        if (activeUrl.isBlank() && it.isNotBlank()) {
+                            activeUrl = it
+                            prefs.gatewayBaseUrl = it
+                        }
+                    },
+                    onSelectActive = {
+                        activeUrl = relayUrl
+                        prefs.gatewayBaseUrl = relayUrl
+                        HapticUtils.lightTap(context)
+                        Toast.makeText(context, "已切换为云服务器中继", Toast.LENGTH_SHORT).show()
                     }
                 )
                 HorizontalDivider(color = colors.separator.copy(alpha = 0.3f), thickness = 0.5.dp)
@@ -413,11 +471,21 @@ fun NetworkSettingsContent(
                     title = "自定义域名 / DDNS / Tailscale",
                     placeholder = "未设置 (如 https://mac.yourdomain.com)",
                     value = customUrl,
-                    isActive = activeUrl.isNotBlank() && activeUrl == customUrl,
-                    probeStatus = endpointStatuses[customUrl],
+                    isActive = ConnectionManager.isSameEndpoint(activeUrl, customUrl),
+                    probeStatus = endpointStatuses[customUrl] ?: endpointStatuses[customUrl.trim().trimEnd('/')],
                     onValueChange = {
                         customUrl = it
                         prefs.customServerUrl = it.ifBlank { null }
+                        if (activeUrl.isBlank() && it.isNotBlank()) {
+                            activeUrl = it
+                            prefs.gatewayBaseUrl = it
+                        }
+                    },
+                    onSelectActive = {
+                        activeUrl = customUrl
+                        prefs.gatewayBaseUrl = customUrl
+                        HapticUtils.lightTap(context)
+                        Toast.makeText(context, "已切换为自定义域名 / Tailscale", Toast.LENGTH_SHORT).show()
                     }
                 )
             }
@@ -478,7 +546,8 @@ private fun EndpointItemRow(
     value: String,
     isActive: Boolean,
     probeStatus: EndpointHealthStatus?,
-    onValueChange: (String) -> Unit
+    onValueChange: (String) -> Unit,
+    onSelectActive: (() -> Unit)? = null
 ) {
     val colors = AntigravityTheme.colors
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -498,6 +567,17 @@ private fun EndpointItemRow(
                         color = colors.accentGreen,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold
+                    )
+                } else if (value.isNotBlank() && onSelectActive != null) {
+                    Text(
+                        text = "设为生效",
+                        color = colors.accentIndigo,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .clickable { onSelectActive() }
+                            .padding(horizontal = 4.dp, vertical = 2.dp)
                     )
                 }
                 if (probeStatus != null) {

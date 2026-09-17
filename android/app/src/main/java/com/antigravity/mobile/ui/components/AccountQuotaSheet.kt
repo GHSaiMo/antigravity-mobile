@@ -1,8 +1,11 @@
 package com.antigravity.mobile.ui.components
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -18,12 +21,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.antigravity.mobile.data.model.CockpitAccountQuota
 import com.antigravity.mobile.data.model.CockpitQuotaBucket
 import com.antigravity.mobile.data.model.CockpitQuotaResponse
@@ -53,74 +57,88 @@ fun AccountQuotaSheet(
         }
     }
     val colors = AntigravityTheme.colors
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    Dialog(
+    ModalBottomSheet(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        sheetState = sheetState,
+        containerColor = colors.background,
+        dragHandle = {
+            Box(
+                modifier = Modifier
+                    .padding(top = 10.dp, bottom = 8.dp)
+                    .width(38.dp)
+                    .height(5.dp)
+                    .clip(CircleShape)
+                    .background(colors.textMuted.copy(alpha = 0.35f))
+            )
+        },
+        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .fillMaxHeight(0.92f)
     ) {
-        Scaffold(
-            topBar = {
-                TopAppBar(
-                    title = {
-                        Text(
-                            text = "Cockpit Tools",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp,
-                            color = colors.textPrimary
-                        )
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = { isMasked = !isMasked }) {
-                            Icon(
-                                imageVector = if (isMasked) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                contentDescription = "Toggle Mask",
-                                tint = if (isMasked) colors.accentIndigo else colors.textSecondary
-                            )
-                        }
-                    },
-                    actions = {
-                        IconButton(
-                            onClick = onRefresh,
-                            enabled = !isRefreshing
-                        ) {
-                            if (isRefreshing) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(18.dp),
-                                    strokeWidth = 2.dp,
-                                    color = colors.accentIndigo
-                                )
-                            } else {
-                                Icon(
-                                    imageVector = Icons.Default.Refresh,
-                                    contentDescription = "Refresh",
-                                    tint = colors.accentIndigo
-                                )
-                            }
-                        }
-                        TextButton(onClick = onDismiss) {
-                            Text(
-                                text = "完成",
-                                color = colors.accentIndigo,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = colors.background,
-                        titleContentColor = colors.textPrimary
+        Column(
+            modifier = Modifier.fillMaxSize()
+        ) {
+            // iOS-Style Top Bar: Mask toggle (Left), Centered Title, Refresh (Right) - No "完成" button needed
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                IconButton(
+                    onClick = { isMasked = !isMasked },
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isMasked) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                        contentDescription = "Toggle Mask",
+                        tint = if (isMasked) colors.accentBlue else colors.textSecondary,
+                        modifier = Modifier.size(20.dp)
                     )
+                }
+
+                Text(
+                    text = "Cockpit Tools",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 17.sp,
+                    color = colors.textPrimary,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.weight(1f)
                 )
-            },
-            containerColor = colors.background,
-            modifier = modifier.fillMaxSize()
-        ) { padding ->
+
+                IconButton(
+                    onClick = onRefresh,
+                    enabled = !isRefreshing,
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    if (isRefreshing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = colors.accentBlue
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Refresh",
+                            tint = colors.accentBlue,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+            }
+
             Column(
                 modifier = Modifier
-                    .fillMaxSize()
+                    .fillMaxWidth()
+                    .weight(1f, fill = false)
                     .verticalScroll(rememberScrollState())
-                    .padding(padding)
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
+                    .navigationBarsPadding(),
                 verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
                 // Section 1: 当前使用账号
@@ -142,7 +160,7 @@ fun AccountQuotaSheet(
                             Row(
                                 modifier = Modifier
                                     .clip(CircleShape)
-                                    .background(colors.accentIndigo.copy(alpha = 0.12f))
+                                    .background(colors.accentBlue.copy(alpha = 0.12f))
                                     .padding(horizontal = 8.dp, vertical = 3.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -151,11 +169,11 @@ fun AccountQuotaSheet(
                                     modifier = Modifier
                                         .size(6.dp)
                                         .clip(CircleShape)
-                                        .background(colors.accentIndigo)
+                                        .background(colors.accentBlue)
                                 )
                                 Text(
                                     text = "使用中",
-                                    color = colors.accentIndigo,
+                                    color = colors.accentBlue,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.SemiBold
                                 )
@@ -236,9 +254,10 @@ fun AccountQuotaSheet(
                         pendingSwitchAccount = null
                         onSwitchAccount(targetId)
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = colors.accentIndigo)
+                    colors = ButtonDefaults.buttonColors(containerColor = colors.accentBlue),
+                    shape = RoundedCornerShape(10.dp)
                 ) {
-                    Text("切换并重启 Antigravity")
+                    Text("切换并重启 Antigravity", fontWeight = FontWeight.SemiBold)
                 }
             },
             dismissButton = {
@@ -267,13 +286,13 @@ private fun AccountQuotaCard(
             .background(colors.surface)
             .border(
                 if (isCurrent) 1.5.dp else 0.5.dp,
-                if (isCurrent) colors.accentIndigo.copy(alpha = 0.5f) else colors.border,
+                if (isCurrent) colors.accentBlue.copy(alpha = 0.45f) else colors.border,
                 RoundedCornerShape(14.dp)
             )
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Header row: Email + Switch button if not current
+        // Header row: Email + iOS-style Switch button for non-current accounts
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -285,26 +304,14 @@ private fun AccountQuotaCard(
                 color = colors.textPrimary,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
-                maxLines = 1
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false)
             )
 
             if (!isCurrent && onSwitch != null) {
-                Button(
-                    onClick = onSwitch,
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                    shape = CircleShape,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = colors.accentIndigo,
-                        contentColor = Color.White
-                    ),
-                    modifier = Modifier.height(28.dp)
-                ) {
-                    Text(
-                        text = "切换",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
+                Spacer(modifier = Modifier.width(8.dp))
+                IosSwitchButton(onClick = onSwitch)
             }
         }
 
@@ -412,6 +419,42 @@ private fun QuotaMetricCell(
             color = if (displayText == "配额充足") colors.textMuted.copy(alpha = 0.7f) else colors.textSecondary,
             fontSize = 9.5.sp,
             maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun IosSwitchButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = AntigravityTheme.colors
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val animatedAlpha by animateFloatAsState(
+        targetValue = if (isPressed) 0.65f else 1f,
+        label = "iosSwitchButtonAlpha"
+    )
+
+    Box(
+        modifier = modifier
+            .graphicsLayer { alpha = animatedAlpha }
+            .clip(CircleShape)
+            .background(colors.accentBlue)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null, // Authentic iOS touch feedback: smooth opacity fade, no Android ink ripple
+                onClick = onClick
+            )
+            .padding(horizontal = 12.dp, vertical = 4.5.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = "切换",
+            color = Color.White,
+            fontSize = 11.5.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = (-0.2).sp
         )
     }
 }

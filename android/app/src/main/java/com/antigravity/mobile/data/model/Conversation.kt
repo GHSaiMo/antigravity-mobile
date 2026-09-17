@@ -87,29 +87,29 @@ data class ConversationItem(
     val displayTitle: String
         get() = title.ifBlank { "未命名会话" }
 
+    val lastModifiedEpochMs: Long
+        get() = parseIsoDate(lastModifiedTime)
+
     val relativeTimeString: String
         get() {
-            val timeStr = lastModifiedTime?.takeIf { it.isNotBlank() } ?: return ""
-            return try {
-                val inputFmt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).apply {
-                    timeZone = TimeZone.getTimeZone("UTC")
-                }
-                val date = inputFmt.parse(timeStr.substringBefore('.')) ?: return ""
-                val diffMs = System.currentTimeMillis() - date.time
-                val diffSec = diffMs / 1000
-                when {
-                    diffSec < 60 -> "刚刚"
-                    diffSec < 3600 -> "${diffSec / 60}分钟前"
-                    diffSec < 86400 -> "${diffSec / 3600}小时前"
-                    else -> "${diffSec / 86400}天前"
-                }
-            } catch (_: Exception) {
-                ""
+            val timeMs = lastModifiedEpochMs
+            if (timeMs <= 0L) return ""
+            val diffMs = System.currentTimeMillis() - timeMs
+            if (diffMs < 0) return "刚刚"
+            val diffSec = diffMs / 1000
+            return when {
+                diffSec < 60 -> "刚刚"
+                diffSec < 3600 -> "${diffSec / 60}分钟前"
+                diffSec < 86400 -> "${diffSec / 3600}小时前"
+                else -> "${diffSec / 86400}天前"
             }
         }
 
     val isPureChat: Boolean
         get() = workspaceName == "Chat" || workspaceName.isEmpty() || draftProject?.isPureChat == true
+
+    val isDraft: Boolean
+        get() = id.startsWith("local_draft_") || id.startsWith("draft_") || draftProject != null
 
     companion object {
         fun sanitizeTitle(raw: String): String {
@@ -148,13 +148,17 @@ data class ConversationItem(
                 "Chat"
             }
 
+            val resolvedTime = summary.lastModifiedTime?.takeIf { it.isNotBlank() }
+                ?: summary.annotations?.lastUserViewTime?.takeIf { it.isNotBlank() }
+                ?: summary.trajectoryMetadata?.createdAt?.takeIf { it.isNotBlank() }
+
             // Unread calculation
             var unread = false
             if (status != ConversationStatus.RUNNING && status != ConversationStatus.ACTION && summary.annotations?.archived != true) {
                 if (summary.annotations?.markedAsUnread == true) {
                     unread = true
-                } else if (!summary.lastModifiedTime.isNullOrBlank()) {
-                    val modDate = parseIsoDate(summary.lastModifiedTime)
+                } else if (!resolvedTime.isNullOrBlank()) {
+                    val modDate = parseIsoDate(resolvedTime)
                     val serverViewDate = summary.annotations?.lastUserViewTime?.let { parseIsoDate(it) } ?: 0L
                     val effectiveDate = maxOf(serverViewDate, localViewTime)
                     unread = if (effectiveDate > 0) modDate > effectiveDate else true
@@ -167,7 +171,7 @@ data class ConversationItem(
                 status = status,
                 stepCount = stepCount,
                 workspaceName = workspaceName,
-                lastModifiedTime = summary.lastModifiedTime,
+                lastModifiedTime = resolvedTime,
                 isSubagent = summary.isSubagent,
                 isUnread = unread
             )
@@ -175,14 +179,20 @@ data class ConversationItem(
 
         fun parseIsoDate(isoString: String?): Long {
             if (isoString.isNullOrBlank()) return 0L
+            val trimmed = isoString.trim()
+            val normalized = if (trimmed.contains(' ') && !trimmed.contains('T')) {
+                trimmed.replace(' ', 'T')
+            } else {
+                trimmed
+            }
             return try {
-                Instant.parse(isoString).toEpochMilli()
+                Instant.parse(normalized).toEpochMilli()
             } catch (_: Exception) {
                 try {
-                    OffsetDateTime.parse(isoString).toInstant().toEpochMilli()
+                    OffsetDateTime.parse(normalized).toInstant().toEpochMilli()
                 } catch (_: Exception) {
                     try {
-                        val clean = isoString.trimEnd('Z').substringBefore('.')
+                        val clean = normalized.trimEnd('Z').substringBefore('.')
                         val inputFmt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).apply {
                             timeZone = TimeZone.getTimeZone("UTC")
                         }
@@ -193,5 +203,40 @@ data class ConversationItem(
                 }
             }
         }
+    }
+}
+
+@Serializable
+data class LocalDraftSession(
+    val id: String = "local_draft_${UUID.randomUUID()}",
+    val project: ProjectItem,
+    var draftText: String = "",
+    val createdAtEpochMs: Long = System.currentTimeMillis(),
+    var updatedAtEpochMs: Long = System.currentTimeMillis()
+) {
+    fun toConversationItem(hasImages: Boolean = false): ConversationItem {
+        val trimmed = draftText.trim()
+        val firstLine = trimmed.lines().firstOrNull { it.isNotBlank() }?.trim() ?: ""
+        val isPure = project.isPureChat
+        val displayTitle = when {
+            firstLine.isNotEmpty() -> if (firstLine.length > 36) firstLine.take(36) + "..." else firstLine
+            hasImages -> if (isPure) "[图片] 新对话" else "[图片] ${project.name}"
+            else -> if (isPure) "新对话" else project.name
+        }
+        val nowIso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }.format(Date(updatedAtEpochMs))
+
+        return ConversationItem(
+            id = id,
+            title = displayTitle,
+            status = ConversationStatus.IDLE,
+            stepCount = 0,
+            workspaceName = if (isPure) "Chat" else project.name,
+            lastModifiedTime = nowIso,
+            isSubagent = false,
+            isUnread = false,
+            draftProject = project
+        )
     }
 }

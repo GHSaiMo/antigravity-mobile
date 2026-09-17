@@ -64,6 +64,25 @@ fun StatusBadge(
 }
 
 @Composable
+fun DraftBadge(modifier: Modifier = Modifier) {
+    val colors = AntigravityTheme.colors
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(colors.accentYellow.copy(alpha = 0.15f))
+            .padding(horizontal = 7.dp, vertical = 3.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = "DRAFT",
+            color = colors.accentYellow,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+@Composable
 fun UnreadDot(modifier: Modifier = Modifier) {
     val colors = AntigravityTheme.colors
     val infiniteTransition = rememberInfiniteTransition(label = "UnreadPulseTransition")

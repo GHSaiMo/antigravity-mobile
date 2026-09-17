@@ -56,7 +56,11 @@ class MainActivity : ComponentActivity() {
         pairingViewModel = PairingViewModel(apiClient, prefs)
         conversationListViewModel = ConversationListViewModel(apiClient, prefs)
         val liveActivityManager = com.antigravity.mobile.data.service.LiveActivityNotificationManager(applicationContext, prefs)
-        chatViewModel = ChatViewModel(apiClient, wsClient, prefs, documentCacheManager, liveActivityManager)
+        chatViewModel = ChatViewModel(apiClient, wsClient, prefs, documentCacheManager, liveActivityManager).apply {
+            onConversationUpdated = { item ->
+                conversationListViewModel.upsertConversation(item)
+            }
+        }
 
         // Register ZXing Scanner
         qrScanLauncher = registerForActivityResult(ScanContract()) { result ->
@@ -138,7 +142,8 @@ class MainActivity : ComponentActivity() {
                             onSelectConversation = { cascadeId, title, isNew ->
                                 conversationListViewModel.notifySessionFocus(cascadeId)
                                 conversationListViewModel.markConversationAsRead(cascadeId)
-                                chatViewModel.prepareSession(cascadeId, title, isNew)
+                                val wsName = conversationListViewModel.getWorkspaceName(cascadeId)
+                                chatViewModel.prepareSession(cascadeId, title, isNew, wsName)
                                 val encodedTitle = URLEncoder.encode(title, "UTF-8")
                                 navController.navigate("chat/$cascadeId/$encodedTitle?isNew=$isNew")
                             },
@@ -173,6 +178,9 @@ class MainActivity : ComponentActivity() {
                             isNewConversation = isNew,
                             viewModel = chatViewModel,
                             onNavigateBack = {
+                                chatViewModel.currentConversationItem()?.let { item ->
+                                    conversationListViewModel.upsertConversation(item)
+                                }
                                 conversationListViewModel.loadConversations()
                                 navController.popBackStack()
                             }

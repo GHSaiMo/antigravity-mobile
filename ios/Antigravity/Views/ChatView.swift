@@ -20,7 +20,7 @@ public struct ChatView: View {
     @State private var showCameraPicker = false
     @State private var showCameraUnavailableAlert = false
     @State private var showCameraPermissionAlert = false
-    @State private var previewDraftImage: IdentifiableImage? = nil
+    @State private var previewDraftGallery: ImageGalleryData? = nil
     private let shouldAutoFocus: Bool
     private let initialConversation: ConversationItem?
     private let initialIsUnread: Bool
@@ -800,7 +800,8 @@ public struct ChatView: View {
                                 ZStack(alignment: .topTrailing) {
                                     Button(action: {
                                         isInputFocused = false
-                                        previewDraftImage = IdentifiableImage(image: uiImage)
+                                        let draftImages = viewModel.selectedImageData.compactMap { UIImage(data: $0) }.map { IdentifiableImage(image: $0) }
+                                        previewDraftGallery = ImageGalleryData(items: draftImages, initialIndex: index)
                                     }) {
                                         Image(uiImage: uiImage)
                                             .resizable()
@@ -896,8 +897,8 @@ public struct ChatView: View {
         .overlay(
             Divider(), alignment: .top
         )
-        .fullScreenCover(item: $previewDraftImage) { item in
-            ImageViewerSheet(item: item)
+        .fullScreenCover(item: $previewDraftGallery) { gallery in
+            ImageViewerSheet(gallery: gallery)
         }
     }
     

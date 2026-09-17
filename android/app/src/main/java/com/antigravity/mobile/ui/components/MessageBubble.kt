@@ -33,6 +33,8 @@ import androidx.compose.ui.platform.LocalContext
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import android.graphics.Bitmap
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 
 @Composable
 fun MessageBubble(
@@ -40,7 +42,8 @@ fun MessageBubble(
     modifier: Modifier = Modifier,
     onPlanClick: ((uri: String, title: String) -> Unit)? = null,
     urlResolver: ((String) -> String)? = null,
-    onImageClick: ((url: String?, bitmap: Bitmap?) -> Unit)? = null
+    onImageClick: ((url: String?, bitmap: Bitmap?) -> Unit)? = null,
+    onImageGroupClick: ((items: List<ImageViewerItem>, initialIndex: Int) -> Unit)? = null
 ) {
     val colors = AntigravityTheme.colors
     val context = LocalContext.current
@@ -146,57 +149,66 @@ fun MessageBubble(
         // Render Message Content
         val displayText = message.effectiveText
         if (isUser) {
-            // Attached user images (e.g. screenshots)
-            if (message.effectiveImageDataList.isNotEmpty()) {
-                Row(
-                    modifier = Modifier.padding(bottom = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    message.effectiveImageDataList.forEach { bytes ->
-                        val bitmap = remember(bytes) {
-                            try {
-                                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                            } catch (e: Exception) {
-                                null
-                            }
-                        }
-                        if (bitmap != null) {
-                            Image(
-                                bitmap = bitmap.asImageBitmap(),
-                                contentDescription = "Attached image",
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier
-                                    .size(72.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
-                                    .clickable { onImageClick?.invoke(null, bitmap) }
-                            )
-                        }
+            // Consolidated attached user images (both byte bitmaps and URLs)
+            val allUserImages = remember(message, urlResolver) {
+                val list = mutableListOf<ImageViewerItem>()
+                message.effectiveImageDataList.forEach { bytes ->
+                    val bitmap = try {
+                        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    } catch (e: Exception) {
+                        null
+                    }
+                    if (bitmap != null) {
+                        list.add(ImageViewerItem(bitmap = bitmap))
                     }
                 }
+                message.imageUrls?.forEach { rawUrl ->
+                    val resolvedUrl = urlResolver?.invoke(rawUrl) ?: rawUrl
+                    list.add(ImageViewerItem(url = resolvedUrl))
+                }
+                list
             }
 
-            // Attached user image URLs (if any)
-            if (!message.imageUrls.isNullOrEmpty()) {
+            if (allUserImages.isNotEmpty()) {
                 Row(
-                    modifier = Modifier.padding(bottom = 6.dp),
+                    modifier = Modifier
+                        .padding(bottom = 6.dp)
+                        .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    message.imageUrls.forEach { rawUrl ->
-                        val resolvedUrl = remember(rawUrl) { urlResolver?.invoke(rawUrl) ?: rawUrl }
-                        SubcomposeAsyncImage(
-                            model = ImageRequest.Builder(context)
-                                .data(resolvedUrl)
-                                .crossfade(true)
-                                .build(),
-                            contentDescription = "Attached image URL",
-                            contentScale = ContentScale.Crop,
+                    allUserImages.forEachIndexed { index, item ->
+                        Box(
                             modifier = Modifier
                                 .size(72.dp)
                                 .clip(RoundedCornerShape(12.dp))
                                 .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
-                                .clickable { onImageClick?.invoke(resolvedUrl, null) }
-                        )
+                                .clickable {
+                                    if (onImageGroupClick != null) {
+                                        onImageGroupClick(allUserImages, index)
+                                    } else {
+                                        onImageClick?.invoke(item.url, item.bitmap)
+                                    }
+                                }
+                        ) {
+                            if (item.bitmap != null) {
+                                Image(
+                                    bitmap = item.bitmap.asImageBitmap(),
+                                    contentDescription = "Attached image",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else if (!item.url.isNullOrBlank()) {
+                                SubcomposeAsyncImage(
+                                    model = ImageRequest.Builder(context)
+                                        .data(item.url)
+                                        .crossfade(true)
+                                        .build(),
+                                    contentDescription = "Attached image URL",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                        }
                     }
                 }
             }
