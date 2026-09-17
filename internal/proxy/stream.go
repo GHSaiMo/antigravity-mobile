@@ -87,6 +87,50 @@ func (p *StreamUpdatePayload) Fingerprint() string {
 	return fmt.Sprintf("%s:%t:%d:%d:%s:%s:%d:%s:%t:%s:%s:%s:%s:%s", p.Status, p.HasError, p.TotalSteps, p.TotalTools, last.Type, last.Status, lastLen, msgsKey, p.CanProceed, piKey, queuedKey, tasksKey, p.ActiveModel, p.Title)
 }
 
+// rawTrajectorySignature computes an O(1) lightweight fingerprint of the raw upstream response
+// to skip expensive ParseTrajectoryDetails and regex scans during 250ms stream polling when unchanged.
+func rawTrajectorySignature(raw *upstreamTrajectoryResp) string {
+	if raw == nil {
+		return ""
+	}
+	steps := raw.Trajectory.Steps
+	n := len(steps)
+	title := ""
+	if raw.Trajectory.Annotations != nil {
+		title = raw.Trajectory.Annotations.Title
+	} else {
+		title = raw.Trajectory.Summary
+	}
+	pamCount := len(raw.PendingAgentMessages)
+	lastPamID := ""
+	lastPamLen := 0
+	if pamCount > 0 {
+		lastPam := raw.PendingAgentMessages[pamCount-1]
+		lastPamID = lastPam.ID
+		lastPamLen = len(lastPam.Content)
+	}
+
+	if n == 0 {
+		return fmt.Sprintf("%s:%d:%s:%d:%s:%d", raw.Status, n, title, pamCount, lastPamID, lastPamLen)
+	}
+
+	last := steps[n-1]
+	lastContentLen := len(last.Content)
+	if last.PlannerResponse != nil {
+		lastContentLen += len(last.PlannerResponse.Response) + len(last.PlannerResponse.Thinking)
+	}
+	if last.ToolCall != nil {
+		lastContentLen += len(last.ToolCall.Name) + len(last.ToolCall.ArgumentsJson)
+	}
+	if last.TaskDetails != nil {
+		lastContentLen += len(last.TaskDetails.Description)
+	}
+	hasPI := (last.RequestedInteraction != nil)
+
+	return fmt.Sprintf("%s:%d:%s:%s:%d:%t:%s:%d:%s:%d",
+		raw.Status, n, last.Type, last.Status, lastContentLen, hasPI, title, pamCount, lastPamID, lastPamLen)
+}
+
 // HandleCascadeStream serves a WebSocket connection for continuous real-time trajectory updates.
 func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 	cascadeID := r.URL.Query().Get("cascadeId")
@@ -166,9 +210,11 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 	defer pingTicker.Stop()
 
 	lastFingerprint := ""
+	lastRawSig := ""
 	firstPush := true
 	cachedStreamTitle := streamTitle
 	lastTitleLookupTime := time.Time{}
+	var lastDetails TrajectoryDetails
 
 	// fetchAndSend does one poll + send cycle. Returns false if the connection should close.
 	fetchAndSend := func() bool {
@@ -189,7 +235,21 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			return true
 		}
 
+		rawSig := rawTrajectorySignature(rawResp)
+		if !firstPush && rawSig == lastRawSig && (time.Since(lastTitleLookupTime) < 2*time.Second || cachedStreamTitle != "") {
+			// Fast path: Upstream trajectory has not changed at all.
+			// Skip full steps scan, regex image extraction, and payload construction.
+			if lastDetails.Status == "CASCADE_RUN_STATUS_RUNNING" || len(lastDetails.QueuedMessages) > 0 {
+				ticker.Reset(250 * time.Millisecond)
+			} else {
+				ticker.Reset(1200 * time.Millisecond)
+			}
+			return true
+		}
+		lastRawSig = rawSig
+
 		details := p.ParseTrajectoryDetails(rawResp)
+		lastDetails = details
 		if details.Title != "" && details.Title != "未命名会话" {
 			cachedStreamTitle = details.Title
 		} else if cachedStreamTitle != "" && cachedStreamTitle != "未命名会话" && cachedStreamTitle != "当前会话" {
@@ -283,6 +343,7 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			return
 		case <-touchCh:
 			// Instant wake-up upon external touch/message injection without waiting for ticker!
+			lastRawSig = ""
 			ticker.Reset(10 * time.Millisecond)
 		case <-pingTicker.C:
 			writeMu.Lock()

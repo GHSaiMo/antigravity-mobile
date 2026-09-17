@@ -284,15 +284,54 @@ func parseAnnotationFile(path string) (string, time.Time) {
 	return title, viewTime
 }
 
-// scanNewestValidAnnotation scans annotations directory for the latest non-ghost cascade.
+var (
+	newestAnnotationCacheMu sync.RWMutex
+	cachedHomeDir           string
+	cachedNewestID          string
+	cachedNewestTitle       string
+	cachedNewestTime        time.Time
+	newestAnnotationFetched time.Time
+)
+
+// ClearNewestAnnotationCache invalidates the scanNewestValidAnnotation TTL cache.
+func ClearNewestAnnotationCache() {
+	newestAnnotationCacheMu.Lock()
+	cachedHomeDir = ""
+	cachedNewestID = ""
+	cachedNewestTitle = ""
+	cachedNewestTime = time.Time{}
+	newestAnnotationFetched = time.Time{}
+	newestAnnotationCacheMu.Unlock()
+}
+
+// scanNewestValidAnnotation scans annotations directory for the latest non-ghost cascade with a 5s TTL cache.
 func scanNewestValidAnnotation() (string, string, time.Time) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", "", time.Time{}
 	}
+
+	newestAnnotationCacheMu.RLock()
+	if home == cachedHomeDir && time.Since(newestAnnotationFetched) < 5*time.Second {
+		id, title, vt := cachedNewestID, cachedNewestTitle, cachedNewestTime
+		newestAnnotationCacheMu.RUnlock()
+		if id == "" || isValidCascade(id) {
+			return id, title, vt
+		}
+	} else {
+		newestAnnotationCacheMu.RUnlock()
+	}
+
 	annDir := filepath.Join(home, ".gemini", "antigravity", "annotations")
 	entries, err := os.ReadDir(annDir)
 	if err != nil {
+		newestAnnotationCacheMu.Lock()
+		cachedHomeDir = home
+		cachedNewestID = ""
+		cachedNewestTitle = ""
+		cachedNewestTime = time.Time{}
+		newestAnnotationFetched = time.Now()
+		newestAnnotationCacheMu.Unlock()
 		return "", "", time.Time{}
 	}
 
@@ -317,6 +356,15 @@ func scanNewestValidAnnotation() (string, string, time.Time) {
 			bestTime = vTime
 		}
 	}
+
+	newestAnnotationCacheMu.Lock()
+	cachedHomeDir = home
+	cachedNewestID = bestID
+	cachedNewestTitle = bestTitle
+	cachedNewestTime = bestTime
+	newestAnnotationFetched = time.Now()
+	newestAnnotationCacheMu.Unlock()
+
 	return bestID, bestTitle, bestTime
 }
 
@@ -373,6 +421,10 @@ func (p *Proxy) prewarmCascadeCache(cascadeID string) {
 
 // StartDesktopFocusWatcher starts a lightweight poller monitoring annotations for desktop IDE tab switches.
 func (p *Proxy) StartDesktopFocusWatcher(ctx context.Context) {
+	p.startDesktopFocusWatcherWithInterval(ctx, 2*time.Second)
+}
+
+func (p *Proxy) startDesktopFocusWatcherWithInterval(ctx context.Context, interval time.Duration) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		log.Printf("[Cursor] Cannot determine home directory for desktop watcher: %v", err)
@@ -380,74 +432,99 @@ func (p *Proxy) StartDesktopFocusWatcher(ctx context.Context) {
 	}
 	annDir := filepath.Join(home, ".gemini", "antigravity", "annotations")
 
-	ticker := time.NewTicker(250 * time.Millisecond)
+	if interval <= 0 {
+		interval = 2 * time.Second
+	}
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	lastSeenMtimes := make(map[string]time.Time)
+
+	scanPass := func() {
+		entries, err := os.ReadDir(annDir)
+		if err != nil {
+			return
+		}
+
+		now := time.Now()
+
+		// Check anti-reflection suppression
+		p.cursorMu.RLock()
+		suppressUntil := p.suppressDesktopFocusUntil
+		mobileID := p.mobileCascadeID
+		mobileTime := p.mobileFocusedAt
+		p.cursorMu.RUnlock()
+
+		isSuppressed := now.Before(suppressUntil)
+
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".pbtxt") {
+				continue
+			}
+			cid := strings.TrimSuffix(e.Name(), ".pbtxt")
+			fullPath := filepath.Join(annDir, e.Name())
+
+			info, err := e.Info()
+			if err != nil {
+				continue
+			}
+			mtime := info.ModTime()
+			lastMtime, seen := lastSeenMtimes[cid]
+			if seen && !mtime.After(lastMtime) {
+				continue
+			}
+			lastSeenMtimes[cid] = mtime
+
+			// Anti-reflection check: Ignore if within suppression window or matches mobile's recent focus
+			if isSuppressed || (cid == mobileID && now.Sub(mobileTime) < 2*time.Second) {
+				continue
+			}
+
+			// Triple check: Brain directory must exist
+			if !isValidCascade(cid) {
+				continue
+			}
+
+			title, vTime := parseAnnotationFile(fullPath)
+			if title == "" || title == "未命名会话" {
+				continue
+			}
+
+			p.cursorMu.Lock()
+			if vTime.After(p.desktopFocusedAt) || p.desktopCascadeID == "" {
+				p.desktopCascadeID = cid
+				p.desktopTitle = title
+				p.desktopFocusedAt = vTime
+				log.Printf("[Cursor] Desktop focus migrated to %s (%s) at %v", cid, title, vTime)
+			}
+			p.cursorMu.Unlock()
+		}
+
+		// Periodic cleanup of removed session mtimes when map grows
+		if len(lastSeenMtimes) > 256 {
+			activeCids := make(map[string]bool, len(entries))
+			for _, e := range entries {
+				if !e.IsDir() && strings.HasSuffix(e.Name(), ".pbtxt") {
+					activeCids[strings.TrimSuffix(e.Name(), ".pbtxt")] = true
+				}
+			}
+			for cid := range lastSeenMtimes {
+				if !activeCids[cid] {
+					delete(lastSeenMtimes, cid)
+				}
+			}
+		}
+	}
+
+	// Immediate first pass upon start
+	scanPass()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			entries, err := os.ReadDir(annDir)
-			if err != nil {
-				continue
-			}
-
-			now := time.Now()
-
-			// Check anti-reflection suppression
-			p.cursorMu.RLock()
-			suppressUntil := p.suppressDesktopFocusUntil
-			mobileID := p.mobileCascadeID
-			mobileTime := p.mobileFocusedAt
-			p.cursorMu.RUnlock()
-
-			isSuppressed := now.Before(suppressUntil)
-
-			for _, e := range entries {
-				if e.IsDir() || !strings.HasSuffix(e.Name(), ".pbtxt") {
-					continue
-				}
-				cid := strings.TrimSuffix(e.Name(), ".pbtxt")
-				fullPath := filepath.Join(annDir, e.Name())
-
-				info, err := e.Info()
-				if err != nil {
-					continue
-				}
-				mtime := info.ModTime()
-				lastMtime, seen := lastSeenMtimes[cid]
-				if seen && !mtime.After(lastMtime) {
-					continue
-				}
-				lastSeenMtimes[cid] = mtime
-
-				// Anti-reflection check: Ignore if within suppression window or matches mobile's recent focus
-				if isSuppressed || (cid == mobileID && now.Sub(mobileTime) < 2*time.Second) {
-					continue
-				}
-
-				// Triple check: Brain directory must exist
-				if !isValidCascade(cid) {
-					continue
-				}
-
-				title, vTime := parseAnnotationFile(fullPath)
-				if title == "" || title == "未命名会话" {
-					continue
-				}
-
-				p.cursorMu.Lock()
-				if vTime.After(p.desktopFocusedAt) || p.desktopCascadeID == "" {
-					p.desktopCascadeID = cid
-					p.desktopTitle = title
-					p.desktopFocusedAt = vTime
-					log.Printf("[Cursor] Desktop focus migrated to %s (%s) at %v", cid, title, vTime)
-				}
-				p.cursorMu.Unlock()
-			}
+			scanPass()
 		}
 	}
 }

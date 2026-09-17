@@ -85,3 +85,25 @@ func PutGzipReader(gz *gzip.Reader) {
 	_ = gz.Close()
 	gzipReaderPool.Put(gz)
 }
+
+// readBodyToPool reads up to limit bytes from r using a pooled buffer.
+// The caller must call the returned cleanup function once it has finished using the returned bytes.
+func readBodyToPool(r io.Reader, limit int64) ([]byte, func(), error) {
+	buf := GetLargeBuffer()
+	cleanup := func() {
+		PutLargeBuffer(buf)
+	}
+	if r == nil {
+		return nil, cleanup, nil
+	}
+	var reader io.Reader = r
+	if limit > 0 {
+		reader = io.LimitReader(r, limit)
+	}
+	if _, err := buf.ReadFrom(reader); err != nil {
+		cleanup()
+		return nil, nil, err
+	}
+	return buf.Bytes(), cleanup, nil
+}
+

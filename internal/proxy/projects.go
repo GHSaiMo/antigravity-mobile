@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"bytes"
-	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -220,21 +219,22 @@ func (p *Proxy) fetchOfficialProjects(port int, token string, sessionStats map[s
 	if port > 0 {
 		readURL := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/ReadProjects", port)
 		reqBody, _ := json.Marshal(map[string]interface{}{"ids": order})
-		req, err := http.NewRequest(http.MethodPost, readURL, bytes.NewReader(reqBody))
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, readURL, bytes.NewReader(reqBody))
 		if err == nil {
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("Connect-Protocol-Version", "1")
 			if token != "" {
 				req.Header.Set("x-codeium-csrf-token", token)
 			}
-			client := &http.Client{Timeout: 5 * time.Second, Transport: p.transport}
-			resp, err := client.Do(req)
+			resp, err := p.mediumClient.Do(req)
+			cancel()
 			if err == nil && resp.StatusCode == http.StatusOK {
 				defer resp.Body.Close()
 				var reader io.Reader = resp.Body
 				if strings.EqualFold(resp.Header.Get("Content-Encoding"), "gzip") {
-					if gz, err := gzip.NewReader(resp.Body); err == nil {
-						defer gz.Close()
+					if gz, err := GetGzipReader(resp.Body); err == nil {
+						defer PutGzipReader(gz)
 						reader = gz
 					}
 				}
@@ -459,7 +459,9 @@ type upstreamTrajectoriesResp struct {
 
 func (p *Proxy) fetchTrajectoriesSummary(port int, token string) (map[string]upstreamTrajectorySummaryItem, error) {
 	url := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories", port)
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader([]byte("{}")))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader([]byte("{}")))
 	if err != nil {
 		return nil, err
 	}
@@ -470,12 +472,7 @@ func (p *Proxy) fetchTrajectoriesSummary(port int, token string) (map[string]ups
 		req.Header.Set("x-codeium-csrf-token", token)
 	}
 
-	client := &http.Client{
-		Timeout:   5 * time.Second,
-		Transport: p.transport,
-	}
-
-	resp, err := client.Do(req)
+	resp, err := p.mediumClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -487,9 +484,8 @@ func (p *Proxy) fetchTrajectoriesSummary(port int, token string) (map[string]ups
 
 	var reader io.Reader = resp.Body
 	if strings.EqualFold(resp.Header.Get("Content-Encoding"), "gzip") {
-		gz, err := gzip.NewReader(resp.Body)
-		if err == nil {
-			defer gz.Close()
+		if gz, err := GetGzipReader(resp.Body); err == nil {
+			defer PutGzipReader(gz)
 			reader = gz
 		}
 	}
@@ -680,12 +676,7 @@ func (p *Proxy) HandleCreateCascade(w http.ResponseWriter, r *http.Request) {
 		httpReq.Header.Set("x-codeium-csrf-token", token)
 	}
 
-	client := &http.Client{
-		Timeout:   10 * time.Second,
-		Transport: p.transport,
-	}
-
-	startResp, err := client.Do(httpReq)
+	startResp, err := p.mediumClient.Do(httpReq)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadGateway)
@@ -742,7 +733,7 @@ func (p *Proxy) HandleCreateCascade(w http.ResponseWriter, r *http.Request) {
 			if token != "" {
 				annReq.Header.Set("x-codeium-csrf-token", token)
 			}
-			if annResp, err := client.Do(annReq); err == nil {
+			if annResp, err := p.mediumClient.Do(annReq); err == nil {
 				annResp.Body.Close()
 			}
 		}
@@ -785,7 +776,7 @@ func (p *Proxy) HandleCreateCascade(w http.ResponseWriter, r *http.Request) {
 			if token != "" {
 				msgReq.Header.Set("x-codeium-csrf-token", token)
 			}
-			if msgResp, err := client.Do(msgReq); err == nil {
+			if msgResp, err := p.mediumClient.Do(msgReq); err == nil {
 				msgResp.Body.Close()
 				ClearTrajectoryCache(cascadeID)
 				log.Printf("[Proxy] Dispatched initial prompt to cascade %s", cascadeID)

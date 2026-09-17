@@ -229,19 +229,31 @@ func AuthMiddlewareWithPolicy(store *AuthStore, next http.Handler, policy AuthPo
 	})
 }
 
+type staticHeaderItem struct {
+	key string
+	val string
+}
+
+var defaultSecurityHeaders = []staticHeaderItem{
+	{"X-Content-Type-Options", "nosniff"},
+	{"X-Frame-Options", "DENY"},
+	{"Referrer-Policy", "strict-origin-when-cross-origin"},
+	{"Permissions-Policy", "camera=(), microphone=(), geolocation=()"},
+	// S4: 'unsafe-inline' removed; explicit SHA-256 hashes of known static scripts.
+	{"Content-Security-Policy", "default-src 'self'; script-src 'self' 'sha256-Xk1+itJeFRvwjzt1EHd9xXCB+HwHPF80YyAScWAl3Q8=' 'sha256-YbM1pG3wWnzhyYN49g5fPnen+2CKEFaZfopkkwSpNtY=' 'sha256-XKqsbto5R82BOuH6aUtFveBZbz4d08CZ8KPyGnkeoaY='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"},
+}
+
+const defaultHSTSValue = "max-age=31536000; includeSubDomains"
+
 // SecurityHeadersMiddleware injects defensive HTTP security response headers.
 func SecurityHeadersMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("X-Frame-Options", "DENY")
-		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
-		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-		// S4: 'unsafe-inline' removed; replace with explicit SHA-256 hashes of known static scripts.
-		// Regenerate hashes with: openssl dgst -sha256 -binary <file> | base64
-		// app.js, mermaid.min.js, sw.js hashes must be updated whenever those files change.
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'sha256-Xk1+itJeFRvwjzt1EHd9xXCB+HwHPF80YyAScWAl3Q8=' 'sha256-YbM1pG3wWnzhyYN49g5fPnen+2CKEFaZfopkkwSpNtY=' 'sha256-XKqsbto5R82BOuH6aUtFveBZbz4d08CZ8KPyGnkeoaY='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'")
+		h := w.Header()
+		for i := 0; i < len(defaultSecurityHeaders); i++ {
+			h.Set(defaultSecurityHeaders[i].key, defaultSecurityHeaders[i].val)
+		}
 		if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
-			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+			h.Set("Strict-Transport-Security", defaultHSTSValue)
 		}
 		next.ServeHTTP(w, r)
 	})

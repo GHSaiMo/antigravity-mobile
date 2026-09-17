@@ -237,3 +237,56 @@ func TestIsAllowedOrigin(t *testing.T) {
 		t.Errorf("expected DDNS subdomain origin to be allowed")
 	}
 }
+
+func TestRawTrajectorySignature(t *testing.T) {
+	var resp1 upstreamTrajectoryResp
+	resp1.Status = "CASCADE_RUN_STATUS_RUNNING"
+	resp1.Trajectory.Steps = []TrajectoryStep{
+		{Type: "CORTEX_STEP_TYPE_USER_INPUT", Status: "CORTEX_STEP_STATUS_DONE", Content: "hello"},
+	}
+
+	sig1 := rawTrajectorySignature(&resp1)
+	if sig1 == "" {
+		t.Fatal("expected non-empty signature")
+	}
+
+	// Same structure should yield exact same signature
+	var resp2 upstreamTrajectoryResp
+	resp2.Status = "CASCADE_RUN_STATUS_RUNNING"
+	resp2.Trajectory.Steps = []TrajectoryStep{
+		{Type: "CORTEX_STEP_TYPE_USER_INPUT", Status: "CORTEX_STEP_STATUS_DONE", Content: "hello"},
+	}
+	sig2 := rawTrajectorySignature(&resp2)
+	if sig1 != sig2 {
+		t.Fatalf("expected identical signatures, got %q vs %q", sig1, sig2)
+	}
+
+	// New step added should change signature
+	resp2.Trajectory.Steps = append(resp2.Trajectory.Steps, TrajectoryStep{
+		Type:   "CORTEX_STEP_TYPE_PLANNER_RESPONSE",
+		Status: "CORTEX_STEP_STATUS_RUNNING",
+		PlannerResponse: &struct {
+			Response string `json:"response"`
+			Thinking string `json:"thinking"`
+		}{Response: "working..."},
+	})
+	sig3 := rawTrajectorySignature(&resp2)
+	if sig3 == sig1 {
+		t.Fatalf("expected different signature after adding step, got %q", sig3)
+	}
+
+	// Token streaming change should change signature
+	resp2.Trajectory.Steps[1].PlannerResponse.Response = "working... more tokens"
+	sig4 := rawTrajectorySignature(&resp2)
+	if sig4 == sig3 {
+		t.Fatalf("expected different signature on response length change, got %q", sig4)
+	}
+
+	// Status transition to idle should change signature
+	resp2.Status = "CASCADE_RUN_STATUS_IDLE"
+	sig5 := rawTrajectorySignature(&resp2)
+	if sig5 == sig4 {
+		t.Fatalf("expected different signature on status transition, got %q", sig5)
+	}
+}
+

@@ -1621,7 +1621,7 @@ async function connectStreamWs(cascadeId) {
 function fallbackToHttpPolling(cascadeId) {
   if (activeCascadeId === cascadeId && !pollTimer) {
     pollTimer = setInterval(() => {
-      if (activeCascadeId === cascadeId) {
+      if (activeCascadeId === cascadeId && document.visibilityState === "visible") {
         loadChat(cascadeId, true);
       }
     }, 1500);
@@ -1688,7 +1688,7 @@ async function loadChat(cascadeId, isBackgroundPoll = false) {
 
     if (isRunning && (!activeWs || activeWs.readyState !== WebSocket.OPEN) && !pollTimer) {
       pollTimer = setInterval(() => {
-        if (activeCascadeId === cascadeId) {
+        if (activeCascadeId === cascadeId && document.visibilityState === "visible") {
           loadChat(cascadeId, true);
         }
       }, 1500);
@@ -4532,13 +4532,38 @@ function sanitizeSVG(svgStr) {
     .replace(/href\s*=\s*(['"])javascript:.*?\1/gi, 'href="#"');
 }
 
+let mermaidLoadPromise = null;
+function loadMermaidScript() {
+  if (typeof mermaid !== "undefined") return Promise.resolve();
+  if (mermaidLoadPromise) return mermaidLoadPromise;
+  mermaidLoadPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "/mermaid.min.js";
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = (e) => {
+      mermaidLoadPromise = null;
+      reject(e);
+    };
+    document.head.appendChild(script);
+  });
+  return mermaidLoadPromise;
+}
+
 let mermaidRenderCounter = 0;
 async function renderAllMermaidDiagrams(root = document) {
-  if (typeof mermaid === "undefined") return;
-  initMermaidIfNeeded();
-
   const targets = (root && root.querySelectorAll) ? root.querySelectorAll('.mermaid-render-target[data-processed="false"]') : [];
   if (!targets || targets.length === 0) return;
+
+  if (typeof mermaid === "undefined") {
+    try {
+      await loadMermaidScript();
+    } catch (e) {
+      console.warn("Failed to load mermaid.min.js on demand:", e);
+      return;
+    }
+  }
+  initMermaidIfNeeded();
 
   for (const target of targets) {
     target.setAttribute("data-processed", "true");
@@ -4933,7 +4958,25 @@ window.addEventListener("DOMContentLoaded", () => {
   window.addEventListener("hashchange", renderRoute);
 
   checkGatewayStatus();
-  setInterval(checkGatewayStatus, 6000);
+  setInterval(() => {
+    if (document.visibilityState === "visible") {
+      checkGatewayStatus();
+    }
+  }, 6000);
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      checkGatewayStatus();
+      if (activeCascadeId) {
+        if (!activeWs || activeWs.readyState !== WebSocket.OPEN) {
+          loadChat(activeCascadeId, true);
+        }
+      }
+      if (typeof fetchCockpitQuotas === "function") {
+        fetchCockpitQuotas();
+      }
+    }
+  });
 
   // Navigation & Sheets
   document.getElementById("btn-back")?.addEventListener("click", () => {

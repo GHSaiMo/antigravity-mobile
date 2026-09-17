@@ -695,11 +695,12 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Protect against OOM for extremely large requests by limiting to 50MB
-	bodyBytes, err := io.ReadAll(io.LimitReader(r.Body, maxBodySize))
+	bodyBytes, cleanup, err := readBodyToPool(r.Body, maxBodySize)
 	if err != nil {
 		http.Error(w, "Failed to read request body", http.StatusBadRequest)
 		return
 	}
+	defer cleanup()
 
 	var rawMap map[string]interface{}
 	cascadeID := ""
@@ -895,11 +896,12 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 
 func (p *Proxy) handleJetboxWriteState(w http.ResponseWriter, r *http.Request, rp http.Handler, reqPath string) {
 	// Protect against OOM for excessively large state requests by limiting to 5MB
-	bodyBytes, err := io.ReadAll(io.LimitReader(r.Body, 5*1024*1024))
+	bodyBytes, cleanup, err := readBodyToPool(r.Body, 5*1024*1024)
 	if err != nil {
 		http.Error(w, `{"error":"failed to read request body"}`, http.StatusBadRequest)
 		return
 	}
+	defer cleanup()
 	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 
 	var stateReq struct {
@@ -958,11 +960,12 @@ func (p *Proxy) handleArtifactProxy(w http.ResponseWriter, r *http.Request) {
 }
 
 func (p *Proxy) handleStartCascadeProxy(w http.ResponseWriter, r *http.Request, rp http.Handler, reqPath string) {
-	bodyBytes, err := io.ReadAll(io.LimitReader(r.Body, 5*1024*1024))
+	bodyBytes, cleanup, err := readBodyToPool(r.Body, 5*1024*1024)
 	if err != nil {
 		http.Error(w, "Failed to read request body", http.StatusBadRequest)
 		return
 	}
+	defer cleanup()
 
 	var rawMap map[string]interface{}
 	if err := json.Unmarshal(bodyBytes, &rawMap); err == nil {
@@ -986,11 +989,12 @@ func (p *Proxy) handleStartCascadeProxy(w http.ResponseWriter, r *http.Request, 
 }
 
 func (p *Proxy) handleDeleteCascadeTrajectory(w http.ResponseWriter, r *http.Request, rp http.Handler, reqPath string) {
-	bodyBytes, err := io.ReadAll(io.LimitReader(r.Body, 5*1024*1024))
+	bodyBytes, cleanup, err := readBodyToPool(r.Body, 5*1024*1024)
 	if err != nil {
 		http.Error(w, "Failed to read request body", http.StatusBadRequest)
 		return
 	}
+	defer cleanup()
 
 	var reqData struct {
 		CascadeID string `json:"cascadeId"`
@@ -1050,11 +1054,12 @@ func (p *Proxy) handleDeleteCascadeTrajectory(w http.ResponseWriter, r *http.Req
 }
 
 func (p *Proxy) handleDeleteAgentMessage(w http.ResponseWriter, r *http.Request, rp http.Handler, reqPath string) {
-	bodyBytes, err := io.ReadAll(io.LimitReader(r.Body, 5*1024*1024))
+	bodyBytes, cleanup, err := readBodyToPool(r.Body, 5*1024*1024)
 	if err != nil {
 		http.Error(w, "Failed to read request body", http.StatusBadRequest)
 		return
 	}
+	defer cleanup()
 
 	var reqData struct {
 		MessageID string `json:"messageId"`
@@ -1098,11 +1103,12 @@ func (p *Proxy) handleDeleteAgentMessage(w http.ResponseWriter, r *http.Request,
 }
 
 func (p *Proxy) handleUpdateConversationAnnotations(w http.ResponseWriter, r *http.Request, rp http.Handler, reqPath string) {
-	bodyBytes, err := io.ReadAll(io.LimitReader(r.Body, 5*1024*1024))
+	bodyBytes, cleanup, err := readBodyToPool(r.Body, 5*1024*1024)
 	if err != nil {
 		http.Error(w, "Failed to read request body", http.StatusBadRequest)
 		return
 	}
+	defer cleanup()
 
 	var payload struct {
 		CascadeIDs  []string `json:"cascadeIds"`
@@ -1168,11 +1174,12 @@ func (p *Proxy) HandleCascadeInteraction(w http.ResponseWriter, r *http.Request)
 	}
 
 	// SEC-3: Limit request body to prevent OOM from oversized payloads.
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1*1024*1024))
+	body, cleanup, err := readBodyToPool(r.Body, 1*1024*1024)
 	if err != nil {
 		writeJSONError(w, "failed to read request body", http.StatusBadRequest)
 		return
 	}
+	defer cleanup()
 	var req InteractionSubmitRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		writeJSONError(w, "invalid request: "+err.Error(), http.StatusBadRequest)
@@ -1372,7 +1379,8 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 	}
 
 	url := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories", port)
-	bodyBytes, _ := io.ReadAll(io.LimitReader(r.Body, 5*1024*1024))
+	bodyBytes, cleanup, _ := readBodyToPool(r.Body, 5*1024*1024)
+	defer cleanup()
 	if len(bodyBytes) == 0 {
 		bodyBytes = []byte("{}")
 	}
@@ -1693,10 +1701,10 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 		actionMap := make(map[string]bool)
 		errorMap := make(map[string]string)
 		clearedErrorMap := make(map[string]string)
-		sem := make(chan struct{}, 4) // Limit concurrent upstream RPCs to prevent hammering language_server
+		sem := make(chan struct{}, 6) // Limit concurrent upstream RPCs to prevent hammering language_server while maximizing throughput
 
-		// M-5: Add overall timeout to prevent blocking indefinitely on concurrent RPCs
-		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+		// PERF-P0: Responsive 3.5s timeout budget with full context propagation to cancel in-flight HTTP requests
+		ctx, cancel := context.WithTimeout(r.Context(), 3500*time.Millisecond)
 		defer cancel()
 
 		var wg sync.WaitGroup
@@ -1710,7 +1718,7 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 				case <-ctx.Done():
 					return
 				}
-				raw, err := p.fetchUpstreamTrajectory(cascadeID, port, token)
+				raw, err := p.fetchUpstreamTrajectoryWithContext(ctx, cascadeID, port, token)
 				if err == nil && raw != nil {
 					details := p.ParseTrajectoryDetails(raw)
 					if details.PendingInteraction != nil || details.CanProceed {
@@ -1740,7 +1748,7 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 		select {
 		case <-done:
 		case <-ctx.Done():
-			log.Printf("[Proxy] GetAllCascadeTrajectories: timeout after 8s, returning partial results (%d/%d checked)", len(actionMap), len(candidates))
+			log.Printf("[Proxy] GetAllCascadeTrajectories: timeout after 3.5s, returning partial results (%d/%d checked)", len(actionMap), len(candidates))
 		}
 
 		for cid, hasAction := range actionMap {

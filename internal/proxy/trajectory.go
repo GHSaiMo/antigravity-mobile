@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -1544,6 +1545,10 @@ func ClearTrajectoryCache(cascadeID string) {
 }
 
 func (p *Proxy) fetchUpstreamTrajectory(cascadeID string, port int, token string) (*upstreamTrajectoryResp, error) {
+	return p.fetchUpstreamTrajectoryWithContext(context.Background(), cascadeID, port, token)
+}
+
+func (p *Proxy) fetchUpstreamTrajectoryWithContext(ctx context.Context, cascadeID string, port int, token string) (*upstreamTrajectoryResp, error) {
 	if IsDeletedCascade(cascadeID) {
 		return nil, fmt.Errorf("cascade trajectory %s has been deleted", cascadeID)
 	}
@@ -1566,14 +1571,17 @@ func (p *Proxy) fetchUpstreamTrajectory(cascadeID string, port int, token string
 	}
 	defaultTrajCache.trajCacheMu.RUnlock()
 
-	resp, err := p.fetchUpstreamTrajectoryWithMaxAge(cascadeID, port, token, maxAge)
+	resp, err := p.fetchUpstreamTrajectoryWithMaxAgeContext(ctx, cascadeID, port, token, maxAge)
 	// Fallback: If not found or empty steps, try loading from disk via LoadTrajectory and retry once
 	if (err != nil || (resp != nil && len(resp.Trajectory.Steps) == 0)) && port > 0 {
+		if ctx != nil && ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		if loadErr := p.LoadTrajectory(cascadeID, port, token); loadErr == nil {
 			defaultTrajCache.trajCacheMu.Lock()
 			delete(defaultTrajCache.trajCache, cascadeID)
 			defaultTrajCache.trajCacheMu.Unlock()
-			if retryResp, retryErr := p.fetchUpstreamTrajectoryWithMaxAge(cascadeID, port, token, 0); retryErr == nil && retryResp != nil {
+			if retryResp, retryErr := p.fetchUpstreamTrajectoryWithMaxAgeContext(ctx, cascadeID, port, token, 0); retryErr == nil && retryResp != nil {
 				return retryResp, nil
 			}
 		}
@@ -1944,6 +1952,10 @@ func (p *Proxy) fetchTrajectoriesSummaryWithTitles(port int, token string) (map[
 }
 
 func (p *Proxy) fetchUpstreamTrajectoryWithMaxAge(cascadeID string, port int, token string, maxAge time.Duration) (*upstreamTrajectoryResp, error) {
+	return p.fetchUpstreamTrajectoryWithMaxAgeContext(context.Background(), cascadeID, port, token, maxAge)
+}
+
+func (p *Proxy) fetchUpstreamTrajectoryWithMaxAgeContext(ctx context.Context, cascadeID string, port int, token string, maxAge time.Duration) (*upstreamTrajectoryResp, error) {
 	if IsDeletedCascade(cascadeID) {
 		return nil, fmt.Errorf("cascade trajectory %s has been deleted", cascadeID)
 	}
@@ -1964,7 +1976,10 @@ func (p *Proxy) fetchUpstreamTrajectoryWithMaxAge(cascadeID string, port int, to
 	buf.WriteString(`}`)
 	url := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetCascadeTrajectory", port)
 
-	req, err := http.NewRequest(http.MethodPost, url, buf)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, buf)
 	if err != nil {
 		return nil, err
 	}

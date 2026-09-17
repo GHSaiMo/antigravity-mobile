@@ -16,6 +16,7 @@ import (
 
 func setupTestHomeWithCascade(t *testing.T, cascadeID, title string, viewTime time.Time) string {
 	t.Helper()
+	ClearNewestAnnotationCache()
 	tempHome := t.TempDir()
 	t.Setenv("HOME", tempHome)
 
@@ -110,6 +111,7 @@ func TestUnifiedCursor_ArbitratePriority(t *testing.T) {
 }
 
 func TestUnifiedCursor_GhostSessionFiltering(t *testing.T) {
+	ClearNewestAnnotationCache()
 	tempHome := t.TempDir()
 	t.Setenv("HOME", tempHome)
 
