@@ -19,6 +19,7 @@ import (
 	"antigravity-mobile/internal/cockpit"
 	"antigravity-mobile/internal/config"
 	"antigravity-mobile/internal/inspector"
+	"antigravity-mobile/internal/netutil"
 	"antigravity-mobile/internal/notifier"
 	"antigravity-mobile/internal/proxy"
 	"antigravity-mobile/internal/tunnel"
@@ -181,15 +182,20 @@ func main() {
 	}
 
 	if tunnelOn {
+		proxyProtoVer := strings.TrimSpace(os.Getenv("FRP_PROXY_PROTOCOL_VERSION"))
+		if proxyProtoVer == "" {
+			proxyProtoVer = "v2"
+		}
 		tun = tunnel.New(tunnel.Config{
-			Enabled:    true,
-			ServerAddr: tunnelCfg.ServerAddr,
-			ServerPort: tunnelCfg.ServerPort,
-			Token:      tunnelCfg.Token,
-			LocalPort:  *port,
-			RemotePort: tunnelCfg.RemotePort,
-			ProxyName:  fmt.Sprintf("antigravity-%d", tunnelCfg.RemotePort),
-			TLSEnable:  tunnelCfg.TLSEnable,
+			Enabled:              true,
+			ServerAddr:           tunnelCfg.ServerAddr,
+			ServerPort:           tunnelCfg.ServerPort,
+			Token:                tunnelCfg.Token,
+			LocalPort:            *port,
+			RemotePort:           tunnelCfg.RemotePort,
+			ProxyName:            fmt.Sprintf("antigravity-%d", tunnelCfg.RemotePort),
+			TLSEnable:            tunnelCfg.TLSEnable,
+			ProxyProtocolVersion: proxyProtoVer,
 		})
 		tun.Start(context.Background())
 		defer tun.Stop()
@@ -302,10 +308,15 @@ func main() {
 	}
 
 	// Synchronously bind the network listener so we verify port availability immediately
-	listener, err := net.Listen("tcp", server.Addr)
+	rawListener, err := net.Listen("tcp", server.Addr)
 	if err != nil {
 		log.Fatalf("❌ Failed to bind server address %s: %v", server.Addr, err)
 	}
+	defer rawListener.Close()
+
+	// Wrap with AdaptiveListener to support transparent PROXY protocol v1/v2 extraction
+	// while maintaining complete compatibility with local curl and direct LAN connections.
+	listener := netutil.NewAdaptiveListener(rawListener)
 	defer listener.Close()
 
 	// Graceful shutdown channel

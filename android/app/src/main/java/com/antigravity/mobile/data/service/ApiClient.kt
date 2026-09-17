@@ -1,6 +1,7 @@
 package com.antigravity.mobile.data.service
 
 import android.os.Build
+import android.util.Base64
 import android.util.Log
 import com.antigravity.mobile.data.model.*
 import kotlinx.coroutines.Dispatchers
@@ -339,7 +340,12 @@ class ApiClient(private val prefs: PreferencesManager) {
     /**
      * Send user message to a cascade session
      */
-    suspend fun sendMessage(cascadeId: String, text: String, model: String? = null): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun sendMessage(
+        cascadeId: String,
+        text: String,
+        model: String? = null,
+        images: List<Pair<ByteArray, String>> = emptyList()
+    ): Result<Unit> = withContext(Dispatchers.IO) {
         val baseUrl = prefs.gatewayBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
         val url = "$baseUrl/api/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage"
 
@@ -351,7 +357,26 @@ class ApiClient(private val prefs: PreferencesManager) {
                 }
             }
             put("text", text)
-            put("media", JsonArray(emptyList()))
+            if (images.isNotEmpty()) {
+                putJsonArray("images") {
+                    images.forEach { (bytes, mime) ->
+                        addJsonObject {
+                            put("base64Data", Base64.encodeToString(bytes, Base64.NO_WRAP))
+                            put("mimeType", mime)
+                        }
+                    }
+                }
+                putJsonArray("media") {
+                    images.forEach { (bytes, mime) ->
+                        addJsonObject {
+                            put("inlineData", Base64.encodeToString(bytes, Base64.NO_WRAP))
+                            put("mimeType", mime)
+                        }
+                    }
+                }
+            } else {
+                put("media", JsonArray(emptyList()))
+            }
             model?.let { put("model", it) }
         }
 

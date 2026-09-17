@@ -1,9 +1,16 @@
 package com.antigravity.mobile.ui.screen
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -19,15 +26,19 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 import com.antigravity.mobile.data.model.ConversationItem
 import com.antigravity.mobile.ui.components.*
 import com.antigravity.mobile.ui.theme.AntigravityTheme
@@ -445,7 +456,6 @@ private fun ConversationListContent(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SwipeableConversationCard(
     conversation: ConversationItem,
@@ -454,49 +464,90 @@ private fun SwipeableConversationCard(
     onDelete: () -> Unit
 ) {
     val colors = AntigravityTheme.colors
-    val dismissState = rememberSwipeToDismissBoxState(
-        confirmValueChange = { value ->
-            if (value == SwipeToDismissBoxValue.EndToStart) {
-                onDelete()
-                false
-            } else {
-                false
-            }
-        }
-    )
+    val density = LocalDensity.current
+    val coroutineScope = rememberCoroutineScope()
+    val maxRevealPx = with(density) { 72.dp.toPx() }
+    val offsetX = remember { Animatable(0f) }
 
-    SwipeToDismissBox(
-        state = dismissState,
-        enableDismissFromStartToEnd = false,
-        backgroundContent = {
-            val isSwiping = dismissState.targetValue == SwipeToDismissBoxValue.EndToStart
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp)),
+        contentAlignment = Alignment.CenterEnd
+    ) {
+        // Background: iOS-style circular red delete button (appears on transparent background)
+        Box(
+            modifier = Modifier.matchParentSize(),
+            contentAlignment = Alignment.CenterEnd
+        ) {
             Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(colors.accentRed),
-                contentAlignment = Alignment.CenterEnd
+                    .width(72.dp)
+                    .fillMaxHeight(),
+                contentAlignment = Alignment.Center
             ) {
-                Row(
-                    modifier = Modifier.padding(end = 20.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(colors.accentRed)
+                        .clickable {
+                            coroutineScope.launch {
+                                offsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
+                            }
+                            onDelete()
+                        },
+                    contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.Delete,
                         contentDescription = "Delete",
-                        tint = colors.textPrimary,
-                        modifier = Modifier.size(22.dp)
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }
         }
-    ) {
-        ConversationCard(
-            conversation = conversation,
-            onClick = onClick,
-            onLongClick = onLongClick
-        )
+
+        // Foreground Card
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .offset { IntOffset(offsetX.value.roundToInt(), 0) }
+                .draggable(
+                    state = rememberDraggableState { delta ->
+                        coroutineScope.launch {
+                            val newOffset = (offsetX.value + delta).coerceIn(-maxRevealPx, 0f)
+                            offsetX.snapTo(newOffset)
+                        }
+                    },
+                    orientation = Orientation.Horizontal,
+                    onDragStopped = { velocity ->
+                        coroutineScope.launch {
+                            val targetOffset = if (velocity < -500f || offsetX.value < -maxRevealPx / 2) {
+                                -maxRevealPx
+                            } else {
+                                0f
+                            }
+                            offsetX.animateTo(targetOffset, spring(stiffness = Spring.StiffnessMediumLow))
+                        }
+                    }
+                )
+        ) {
+            ConversationCard(
+                conversation = conversation,
+                onClick = {
+                    if (offsetX.value != 0f) {
+                        coroutineScope.launch {
+                            offsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
+                        }
+                    } else {
+                        onClick()
+                    }
+                },
+                onLongClick = onLongClick
+            )
+        }
     }
 }
 

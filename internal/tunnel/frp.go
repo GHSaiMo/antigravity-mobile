@@ -23,8 +23,9 @@ type Config struct {
 	LocalIP    string
 	LocalPort  int
 	RemotePort int
-	ProxyName  string
-	TLSEnable  bool
+	ProxyName            string
+	TLSEnable            bool
+	ProxyProtocolVersion string // e.g. "v2"
 }
 
 // Tunnel manages an embedded FRP client connecting to a remote FRP server.
@@ -134,26 +135,7 @@ func (t *Tunnel) runSession(ctx context.Context) error {
 	_ = os.Chmod(tmpPath, 0600)
 	defer os.Remove(tmpPath)
 
-	var tokenLine string
-	if t.cfg.Token != "" {
-		tokenLine = fmt.Sprintf("auth.token = %q\n", t.cfg.Token)
-	}
-
-	var tlsLine string
-	if t.cfg.TLSEnable {
-		tlsLine = "transport.tls.enable = true\n"
-	}
-
-	tomlConfig := fmt.Sprintf(`serverAddr = %q
-serverPort = %d
-%s%s
-[[proxies]]
-name = %q
-type = "tcp"
-localIP = %q
-localPort = %d
-remotePort = %d
-`, t.cfg.ServerAddr, t.cfg.ServerPort, tokenLine, tlsLine, t.cfg.ProxyName, t.cfg.LocalIP, t.cfg.LocalPort, t.cfg.RemotePort)
+	tomlConfig := t.BuildConfigTOML()
 
 	if _, err := tmpFile.WriteString(tomlConfig); err != nil {
 		tmpFile.Close()
@@ -222,3 +204,33 @@ func (t *Tunnel) RemoteURLFor(publicHost string, ssl bool) string {
 	}
 	return fmt.Sprintf("%s%s:%d", scheme, addr, t.cfg.RemotePort)
 }
+
+// BuildConfigTOML generates the TOML configuration for frpc.
+func (t *Tunnel) BuildConfigTOML() string {
+	var tokenLine string
+	if t.cfg.Token != "" {
+		tokenLine = fmt.Sprintf("auth.token = %q\n", t.cfg.Token)
+	}
+
+	var tlsLine string
+	if t.cfg.TLSEnable {
+		tlsLine = "transport.tls.enable = true\n"
+	}
+
+	var ppLine string
+	if t.cfg.ProxyProtocolVersion != "" {
+		ppLine = fmt.Sprintf("transport.proxyProtocolVersion = %q\n", t.cfg.ProxyProtocolVersion)
+	}
+
+	return fmt.Sprintf(`serverAddr = %q
+serverPort = %d
+%s%s
+[[proxies]]
+name = %q
+type = "tcp"
+localIP = %q
+localPort = %d
+remotePort = %d
+%s`, t.cfg.ServerAddr, t.cfg.ServerPort, tokenLine, tlsLine, t.cfg.ProxyName, t.cfg.LocalIP, t.cfg.LocalPort, t.cfg.RemotePort, ppLine)
+}
+

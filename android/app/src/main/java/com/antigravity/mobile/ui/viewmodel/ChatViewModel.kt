@@ -1,16 +1,37 @@
-package com.antigravity.mobile.ui.viewmodel
-
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.antigravity.mobile.data.model.*
 import com.antigravity.mobile.data.service.ApiClient
 import com.antigravity.mobile.data.service.ConnectionStatus
 import com.antigravity.mobile.data.service.StreamWebSocketClient
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.util.UUID
+
+data class AttachmentImage(
+    val id: String = UUID.randomUUID().toString(),
+    val uri: Uri,
+    val bitmap: Bitmap,
+    val byteArray: ByteArray,
+    val mimeType: String = "image/jpeg"
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (javaClass != other?.javaClass) return false
+        other as AttachmentImage
+        return id == other.id
+    }
+
+    override fun hashCode(): Int = id.hashCode()
+}
 
 data class ChatUiState(
     val cascadeId: String = "",
@@ -20,6 +41,8 @@ data class ChatUiState(
     val runningTasks: List<RunningTaskItem> = emptyList(),
     val queuedMessages: List<QueuedMessageItem> = emptyList(),
     val isRunning: Boolean = false,
+    val isAwaitingResponse: Boolean = false,
+    val selectedImages: List<AttachmentImage> = emptyList(),
     val canProceed: Boolean = false,
     val proceedArtifactUri: String? = null,
     val pendingInteraction: PendingInteraction? = null,
@@ -40,6 +63,9 @@ class ChatViewModel(
 
     private val _inputText = MutableStateFlow("")
     val inputText: StateFlow<String> = _inputText.asStateFlow()
+
+    private val _scrollToBottomTrigger = MutableStateFlow(0)
+    val scrollToBottomTrigger: StateFlow<Int> = _scrollToBottomTrigger.asStateFlow()
 
     private var wsJob: Job? = null
     private var fetchJob: Job? = null

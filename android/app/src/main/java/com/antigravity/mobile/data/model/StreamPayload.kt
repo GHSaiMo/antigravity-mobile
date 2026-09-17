@@ -28,7 +28,8 @@ data class GatewayMessageItem(
     val status: String? = null,
     val stepIndex: Int? = null,
     @SerialName("tool_calls") val toolCalls: List<ToolCallItem>? = null,
-    @SerialName("reasoning_content") val reasoningContent: String? = null
+    @SerialName("reasoning_content") val reasoningContent: String? = null,
+    @kotlinx.serialization.Transient val imageDataList: List<ByteArray> = emptyList()
 ) {
     val effectiveRole: String
         get() = when {

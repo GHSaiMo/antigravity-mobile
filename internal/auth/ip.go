@@ -2,6 +2,7 @@ package auth
 
 import (
 	"net"
+	"net/http"
 	"strings"
 )
 
@@ -97,4 +98,35 @@ func IsListenAddrLoopback(host string) bool {
 	ip := net.ParseIP(h)
 	return ip != nil && ip.IsLoopback()
 }
+
+// ExtractClientIP resolves the real client IP address from an incoming HTTP request.
+// It prioritizes CleanIP(r.RemoteAddr) (which carries the true client IP
+// when using AdaptiveListener with PROXY protocol or direct socket connections).
+// If r.RemoteAddr is a loopback address, it also checks trusted reverse-proxy
+// headers (CF-Connecting-IP, X-Real-IP, X-Forwarded-For) as a fallback.
+func ExtractClientIP(r *http.Request) string {
+	ip := CleanIP(r.RemoteAddr)
+
+	// If the socket IP is loopback or local, check if an upstream proxy provided client headers
+	if IsLoopbackAddr(ip) || ip == "localhost" || ip == "" {
+		if cfIP := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); cfIP != "" {
+			return CleanIP(cfIP)
+		}
+		if realIP := strings.TrimSpace(r.Header.Get("X-Real-IP")); realIP != "" {
+			return CleanIP(realIP)
+		}
+		if fwd := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); fwd != "" {
+			parts := strings.Split(fwd, ",")
+			if len(parts) > 0 {
+				candidate := strings.TrimSpace(parts[0])
+				if candidate != "" {
+					return CleanIP(candidate)
+				}
+			}
+		}
+	}
+
+	return ip
+}
+
 

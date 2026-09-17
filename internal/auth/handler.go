@@ -227,7 +227,7 @@ func (h *AuthHandler) HandlePair(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now()
-	cleanIP := CleanIP(r.RemoteAddr)
+	cleanIP := ExtractClientIP(r)
 	device := PairedDevice{
 		DeviceID:   deviceID,
 		DeviceName: deviceName,

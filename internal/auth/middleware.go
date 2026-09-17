@@ -177,7 +177,7 @@ func AuthMiddlewareWithPolicy(store *AuthStore, next http.Handler, policy AuthPo
 		if !ok || device == nil {
 			token := ExtractToken(r)
 			if token == "" {
-				log.Printf("[AUDIT:AUTH_FAILURE] reason=missing_token ip=%s path=%s", CleanIP(r.RemoteAddr), r.URL.Path)
+				log.Printf("[AUDIT:AUTH_FAILURE] reason=missing_token ip=%s path=%s", ExtractClientIP(r), r.URL.Path)
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusUnauthorized)
 				json.NewEncoder(w).Encode(map[string]string{
@@ -193,7 +193,7 @@ func AuthMiddlewareWithPolicy(store *AuthStore, next http.Handler, policy AuthPo
 					Platform:   "macos",
 					CreatedAt:  time.Now(),
 					LastSeenAt: time.Now(),
-					LastSeenIP: r.RemoteAddr,
+					LastSeenIP: ExtractClientIP(r),
 				}
 				ok = true
 			} else {
@@ -202,7 +202,7 @@ func AuthMiddlewareWithPolicy(store *AuthStore, next http.Handler, policy AuthPo
 		}
 
 		if !ok || device == nil {
-			log.Printf("[AUDIT:AUTH_FAILURE] reason=invalid_or_revoked_token ip=%s path=%s", CleanIP(r.RemoteAddr), r.URL.Path)
+			log.Printf("[AUDIT:AUTH_FAILURE] reason=invalid_or_revoked_token ip=%s path=%s", ExtractClientIP(r), r.URL.Path)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			json.NewEncoder(w).Encode(map[string]string{
@@ -212,7 +212,7 @@ func AuthMiddlewareWithPolicy(store *AuthStore, next http.Handler, policy AuthPo
 		}
 
 		// P5: non-blocking channel send to background worker — no goroutine spawn per request
-		store.EnqueueLastSeen(device.DeviceID, r.RemoteAddr)
+		store.EnqueueLastSeen(device.DeviceID, ExtractClientIP(r))
 
 		// Attach authenticated device to request context
 		ctx := context.WithValue(r.Context(), DeviceContextKey, device)
