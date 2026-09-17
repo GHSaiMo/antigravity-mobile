@@ -108,12 +108,14 @@ fun ChatScreen(
 
     LaunchedEffect(cascadeId, isNewConversation) {
         viewModel.initSession(cascadeId, initialTitle, isNewConversation)
-        // Automatically focus the input field and pop up soft keyboard on session entry
-        delay(250)
-        try {
-            focusRequester.requestFocus()
-            keyboardController?.show()
-        } catch (_: Exception) {}
+        // Automatically focus the input field and pop up soft keyboard ONLY on new conversation creation
+        if (isNewConversation) {
+            delay(250)
+            try {
+                focusRequester.requestFocus()
+                keyboardController?.show()
+            } catch (_: Exception) {}
+        }
     }
 
     // Auto-scroll and bounce down to bottom on new messages, thinking state, or explicit triggers
@@ -549,7 +551,9 @@ fun ChatScreen(
         MarkdownViewerSheet(
             data = viewerData,
             onProceed = { viewModel.proceedFromViewer() },
-            onDismiss = { viewModel.closeMarkdownViewer() }
+            onDismiss = { viewModel.closeMarkdownViewer() },
+            urlResolver = { raw -> viewModel.resolveMediaUrl(raw) },
+            onImageClick = { url -> viewModel.openImageViewer(url = url) }
         )
     }
 

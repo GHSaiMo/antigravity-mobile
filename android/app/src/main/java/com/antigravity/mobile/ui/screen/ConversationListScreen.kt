@@ -456,7 +456,7 @@ private fun ConversationListContent(
         items(conversations, key = { it.id }) { conversation ->
             SwipeableConversationCard(
                 conversation = conversation,
-                onClick = { onSelect(conversation.id, conversation.displayTitle, conversation.stepCount == 0) },
+                onClick = { onSelect(conversation.id, conversation.displayTitle, false) },
                 onLongClick = { onRename(conversation) },
                 onDelete = { onDelete(conversation) }
             )

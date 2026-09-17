@@ -7,7 +7,10 @@ import android.graphics.BitmapFactory
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
+import android.util.Base64
+import android.webkit.WebChromeClient
 import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.Toast
 import java.net.URLDecoder
 import java.util.zip.ZipFile
@@ -121,35 +124,17 @@ fun DocumentPreviewSheet(
                         textAlign = TextAlign.Center
                     )
 
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(2.dp)
-                    ) {
-                        // Open in external app button
-                        IconButton(onClick = {
-                            haptic.medium()
-                            openInExternalApp(context, file)
-                        }) {
-                            Icon(
-                                imageVector = Icons.Default.OpenInNew,
-                                contentDescription = "外部应用打开",
-                                tint = colors.textSecondary,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-
-                        // Share Button
-                        IconButton(onClick = {
-                            haptic.medium()
-                            shareDocument(context, file, decodedTitle)
-                        }) {
-                            Icon(
-                                imageVector = Icons.Default.Share,
-                                contentDescription = "分享文件",
-                                tint = colors.accentIndigo,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
+                    // Share Button (matches iOS single action button)
+                    IconButton(onClick = {
+                        haptic.medium()
+                        shareDocument(context, file, decodedTitle)
+                    }) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = "分享文件",
+                            tint = colors.accentIndigo,
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
                 }
 
@@ -192,20 +177,94 @@ private fun HtmlDocumentViewer(file: File) {
         modifier = Modifier.fillMaxSize(),
         factory = { ctx ->
             WebView(ctx).apply {
+                setBackgroundColor(android.graphics.Color.WHITE)
+                webViewClient = WebViewClient()
+                webChromeClient = WebChromeClient()
                 settings.apply {
                     @Suppress("SetJavaScriptEnabled")
                     javaScriptEnabled = true
                     domStorageEnabled = true
+                    databaseEnabled = true
                     allowFileAccess = true
                     allowContentAccess = true
+                    allowFileAccessFromFileURLs = true
+                    allowUniversalAccessFromFileURLs = true
                     builtInZoomControls = true
                     displayZoomControls = false
                     useWideViewPort = true
                     loadWithOverviewMode = true
                 }
                 try {
-                    val htmlContent = file.readText(Charsets.UTF_8)
-                    loadDataWithBaseURL("file://${file.parentFile?.absolutePath}/", htmlContent, "text/html", "UTF-8", null)
+                    var htmlContent = file.readText(Charsets.UTF_8)
+                    val isMarp = htmlContent.contains("data-marpit-svg", ignoreCase = true) ||
+                            htmlContent.contains("bespoke-marp", ignoreCase = true)
+
+                    if (isMarp) {
+                        val mobileSlideStyle = """
+                            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=3.0, user-scalable=yes">
+                            <style id="agy-mobile-slide-adapt">
+                            @media screen {
+                                html, body {
+                                    overflow-y: auto !important;
+                                    overflow-x: hidden !important;
+                                    height: auto !important;
+                                    min-height: 100% !important;
+                                    background-color: #f4f5f7 !important;
+                                    margin: 0 !important;
+                                    padding: 0 !important;
+                                }
+                                div#\:\$p, .bespoke-marp-parent {
+                                    display: flex !important;
+                                    flex-direction: column !important;
+                                    align-items: center !important;
+                                    padding: 16px 12px !important;
+                                    gap: 16px !important;
+                                    position: static !important;
+                                    inset: auto !important;
+                                    height: auto !important;
+                                    overflow: visible !important;
+                                }
+                                svg[data-marpit-svg], svg.bespoke-marp-slide {
+                                    display: block !important;
+                                    width: 100% !important;
+                                    max-width: 680px !important;
+                                    height: auto !important;
+                                    opacity: 1 !important;
+                                    visibility: visible !important;
+                                    content-visibility: visible !important;
+                                    position: static !important;
+                                    box-shadow: 0 4px 14px rgba(0,0,0,0.08) !important;
+                                    border-radius: 10px !important;
+                                    background: #ffffff !important;
+                                    margin: 0 auto !important;
+                                    transform: none !important;
+                                    filter: none !important;
+                                }
+                                .bespoke-marp-osc, .bespoke-progress-parent, .bespoke-marp-overview-header {
+                                    display: none !important;
+                                }
+                            }
+                            </style>
+                        """.trimIndent()
+
+                        htmlContent = if (htmlContent.contains("</head>", ignoreCase = true)) {
+                            htmlContent.replaceFirst("</head>", "$mobileSlideStyle</head>", ignoreCase = true)
+                        } else {
+                            "$mobileSlideStyle$htmlContent"
+                        }
+                    } else {
+                        if (!htmlContent.contains("viewport", ignoreCase = true)) {
+                            val viewportMeta = """<meta name="viewport" content="width=device-width, initial-scale=1.0">"""
+                            htmlContent = if (htmlContent.contains("<head>", ignoreCase = true)) {
+                                htmlContent.replaceFirst("<head>", "<head>$viewportMeta", ignoreCase = true)
+                            } else {
+                                "$viewportMeta$htmlContent"
+                            }
+                        }
+                    }
+
+                    val base64Data = Base64.encodeToString(htmlContent.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+                    loadDataWithBaseURL("https://localhost/", base64Data, "text/html; charset=utf-8", "base64", null)
                 } catch (_: Exception) {
                     loadUrl("file://${file.absolutePath}")
                 }

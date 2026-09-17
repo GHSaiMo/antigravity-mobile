@@ -31,7 +31,9 @@ fun MarkdownViewerSheet(
     data: MarkdownFileViewerData,
     onProceed: () -> Unit,
     onDismiss: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    urlResolver: ((String) -> String)? = null,
+    onImageClick: ((String) -> Unit)? = null
 ) {
     val colors = AntigravityTheme.colors
 
@@ -158,7 +160,11 @@ fun MarkdownViewerSheet(
                     }
 
                     // Markdown Document Content
-                    MarkdownContentView(content = data.content)
+                    MarkdownContentView(
+                        content = data.content,
+                        urlResolver = urlResolver,
+                        onImageClick = onImageClick
+                    )
                 }
             }
 
