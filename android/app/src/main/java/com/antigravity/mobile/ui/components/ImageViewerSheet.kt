@@ -80,7 +80,7 @@ fun ImageViewerSheet(
     }
 
     val springSpec = remember {
-        spring<Float>(dampingFraction = 0.82f, stiffness = Spring.StiffnessMediumLow)
+        spring<Float>(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow)
     }
 
     Dialog(

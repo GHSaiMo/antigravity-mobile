@@ -84,7 +84,7 @@ class MainActivity : ComponentActivity() {
                         slideIntoContainer(
                             AnimatedContentTransitionScope.SlideDirection.Left,
                             animationSpec = spring(
-                                dampingFraction = 0.82f,
+                                dampingRatio = 0.82f,
                                 stiffness = Spring.StiffnessMediumLow
                             )
                         )
@@ -93,7 +93,7 @@ class MainActivity : ComponentActivity() {
                         slideOutOfContainer(
                             AnimatedContentTransitionScope.SlideDirection.Left,
                             animationSpec = spring(
-                                dampingFraction = 0.82f,
+                                dampingRatio = 0.82f,
                                 stiffness = Spring.StiffnessMediumLow
                             )
                         )
@@ -102,7 +102,7 @@ class MainActivity : ComponentActivity() {
                         slideIntoContainer(
                             AnimatedContentTransitionScope.SlideDirection.Right,
                             animationSpec = spring(
-                                dampingFraction = 0.82f,
+                                dampingRatio = 0.82f,
                                 stiffness = Spring.StiffnessMediumLow
                             )
                         )
@@ -111,7 +111,7 @@ class MainActivity : ComponentActivity() {
                         slideOutOfContainer(
                             AnimatedContentTransitionScope.SlideDirection.Right,
                             animationSpec = spring(
-                                dampingFraction = 0.82f,
+                                dampingRatio = 0.82f,
                                 stiffness = Spring.StiffnessMediumLow
                             )
                         )

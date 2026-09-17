@@ -573,19 +573,19 @@ private fun FrontmatterCard(
             visible = expanded,
             enter = expandVertically(
                 animationSpec = spring(
-                    dampingFraction = 0.82f,
+                    dampingRatio = 0.82f,
                     stiffness = Spring.StiffnessMediumLow
                 )
             ) + fadeIn(
-                animationSpec = spring(dampingFraction = 0.82f)
+                animationSpec = spring(dampingRatio = 0.82f)
             ),
             exit = shrinkVertically(
                 animationSpec = spring(
-                    dampingFraction = 0.82f,
+                    dampingRatio = 0.82f,
                     stiffness = Spring.StiffnessMediumLow
                 )
             ) + fadeOut(
-                animationSpec = spring(dampingFraction = 0.82f)
+                animationSpec = spring(dampingRatio = 0.82f)
             )
         ) {
             SelectionContainer {

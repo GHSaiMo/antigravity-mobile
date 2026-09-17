@@ -61,7 +61,7 @@ import java.io.File
 fun DocumentPreviewSheet(
     file: File,
     title: String,
-    onDismiss: () -> VoidHandler,
+    onDismiss: VoidHandler,
     colors: AppColors = AntigravityTheme.colors
 ) {
     val context = LocalContext.current

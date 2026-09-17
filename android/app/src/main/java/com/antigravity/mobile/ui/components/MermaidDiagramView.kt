@@ -79,7 +79,7 @@ fun MermaidDiagramView(
             .clip(RoundedCornerShape(10.dp))
             .background(colors.surfaceVariant.copy(alpha = 0.4f))
             .border(0.8.dp, colors.border, RoundedCornerShape(10.dp))
-            .animateContentSize(spring(dampingFraction = 0.82f))
+            .animateContentSize(spring(dampingRatio = 0.82f))
     ) {
         // Top Header Bar
         Row(

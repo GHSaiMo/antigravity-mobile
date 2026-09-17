@@ -82,3 +82,10 @@ android/local.properties
 android/**/.cxx/
 *.apk
 *.aab
+android/gradle.properties
+android/*.zip
+android/*.hprof
+android/.idea/
+android/gradle/gradle-daemon-jvm.properties
+android/gradle/wrapper/gradle-wrapper.jar
+

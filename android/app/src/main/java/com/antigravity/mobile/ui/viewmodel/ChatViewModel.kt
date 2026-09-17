@@ -284,14 +284,14 @@ class ChatViewModel(
                         val stepCount = msgs.count { !it.isUser }
                         val latestAction = when {
                             payload.pendingInteraction != null -> payload.pendingInteraction.prompt ?: "需要审批操作"
-                            !payload.runningTasks.isNullOrEmpty() -> payload.runningTasks.firstOrNull()?.summary ?: "正在执行后台任务..."
+                            !payload.runningTasks.isNullOrEmpty() -> payload.runningTasks.firstOrNull()?.command ?: "正在执行后台任务..."
                             lastMsg?.toolCalls?.isNotEmpty() == true -> "正在执行: " + (lastMsg.toolCalls.lastOrNull()?.name ?: "操作")
                             awaiting -> "正在思考并组织回复..."
                             else -> "正在执行任务..."
                         }
                         liveActivityManager?.startOrUpdateActivity(
                             title = _uiState.value.title,
-                            cascadeId = cascadeId,
+                            cascadeId = _uiState.value.cascadeId,
                             status = payload.status,
                             stepCount = maxOf(1, stepCount),
                             latestAction = latestAction,
@@ -300,7 +300,7 @@ class ChatViewModel(
                         )
                     } else if (wasRunning) {
                         val finalStatus = if (isError) "FAILED" else "COMPLETED"
-                        liveActivityManager?.endActivity(cascadeId = cascadeId, finalStatus = finalStatus)
+                        liveActivityManager?.endActivity(cascadeId = _uiState.value.cascadeId, finalStatus = finalStatus)
                     }
 
                     if (msgs.size != previousMsgCount || isRunning) {

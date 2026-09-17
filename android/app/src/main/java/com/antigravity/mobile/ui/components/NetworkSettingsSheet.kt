@@ -585,7 +585,7 @@ private fun SettingsGroupSection(
     }
 }
 
-private fun getLatencyColor(ms: Long, colors: com.antigravity.mobile.ui.theme.AntigravityColors): Color {
+private fun getLatencyColor(ms: Long, colors: com.antigravity.mobile.ui.theme.AppColors): Color {
     return when {
         ms <= 30 -> colors.accentGreen
         ms <= 100 -> colors.accentBlue

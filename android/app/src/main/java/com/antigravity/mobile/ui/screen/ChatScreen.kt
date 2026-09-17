@@ -33,6 +33,8 @@ import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import android.net.Uri
+import com.antigravity.mobile.ui.util.rememberHaptic
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
@@ -73,6 +75,7 @@ fun ChatScreen(
     isNewConversation: Boolean = false
 ) {
     val context = LocalContext.current
+    val haptic = rememberHaptic()
     val uiState by viewModel.uiState.collectAsState()
     val inputText by viewModel.inputText.collectAsState()
     val scrollToBottomTrigger by viewModel.scrollToBottomTrigger.collectAsState()
@@ -236,8 +239,8 @@ fun ChatScreen(
             AnimatedContent(
                 targetState = contentState,
                 transitionSpec = {
-                    fadeIn(animationSpec = spring(dampingFraction = 0.82f)) togetherWith
-                            fadeOut(animationSpec = spring(dampingFraction = 0.82f))
+                    fadeIn(animationSpec = spring(dampingRatio = 0.82f)) togetherWith
+                            fadeOut(animationSpec = spring(dampingRatio = 0.82f))
                 },
                 label = "ChatContentTransition",
                 modifier = Modifier
@@ -615,6 +618,7 @@ fun ChatScreen(
             }
         }
     }
+}
 }
 
 @Composable
