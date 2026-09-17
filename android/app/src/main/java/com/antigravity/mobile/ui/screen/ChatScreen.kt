@@ -2,8 +2,12 @@ package com.antigravity.mobile.ui.screen
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -22,8 +26,16 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+
+private enum class ChatContentState {
+    LOADING,
+    ERROR,
+    EMPTY,
+    MESSAGES
+}
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -52,7 +64,8 @@ fun ChatScreen(
     initialTitle: String,
     viewModel: ChatViewModel,
     onNavigateBack: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isNewConversation: Boolean = false
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
@@ -71,8 +84,8 @@ fun ChatScreen(
         }
     }
 
-    LaunchedEffect(cascadeId) {
-        viewModel.initSession(cascadeId, initialTitle)
+    LaunchedEffect(cascadeId, isNewConversation) {
+        viewModel.initSession(cascadeId, initialTitle, isNewConversation)
     }
 
     // Auto-scroll and bounce down to bottom on new messages, thinking state, or explicit triggers
@@ -144,92 +157,121 @@ fun ChatScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // Message List / Empty State
-            Box(
+            val contentState = when {
+                uiState.isLoading && uiState.messages.isEmpty() && !uiState.isNewConversation ->
+                    ChatContentState.LOADING
+                uiState.errorMessage != null && uiState.messages.isEmpty() && !uiState.isNewConversation ->
+                    ChatContentState.ERROR
+                uiState.messages.isEmpty() && !shouldShowThinkingBubble ->
+                    ChatContentState.EMPTY
+                else ->
+                    ChatContentState.MESSAGES
+            }
+
+            // Message List / Empty State / Loading State / Error State
+            AnimatedContent(
+                targetState = contentState,
+                transitionSpec = {
+                    fadeIn(animationSpec = tween(240, easing = FastOutSlowInEasing)) togetherWith
+                            fadeOut(animationSpec = tween(180, easing = FastOutSlowInEasing))
+                },
+                label = "ChatContentTransition",
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-            ) {
-                if (uiState.messages.isEmpty() && !shouldShowThinkingBubble) {
-                    ChatEmptyStateView(title = uiState.title)
-                } else {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        items(
-                            uiState.messages,
-                            key = { it.id.ifBlank { "${it.timestamp}_${it.content.hashCode()}" } }
-                        ) { msg ->
-                            MessageBubble(
-                                message = msg,
-                                onPlanClick = { uri, title ->
-                                    viewModel.openMarkdownViewer(uri, title)
+            ) { state ->
+                when (state) {
+                    ChatContentState.LOADING -> {
+                        ChatLoadingStateView()
+                    }
+                    ChatContentState.ERROR -> {
+                        ChatErrorStateView(
+                            errorMessage = uiState.errorMessage ?: "同步会话历史失败",
+                            onRetry = { viewModel.retryLoadMessages() }
+                        )
+                    }
+                    ChatContentState.EMPTY -> {
+                        ChatEmptyStateView(title = uiState.title)
+                    }
+                    ChatContentState.MESSAGES -> {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            items(
+                                uiState.messages,
+                                key = { it.id.ifBlank { "${it.timestamp}_${it.content.hashCode()}" } }
+                            ) { msg ->
+                                MessageBubble(
+                                    message = msg,
+                                    onPlanClick = { uri, title ->
+                                        viewModel.openMarkdownViewer(uri, title)
+                                    }
+                                )
+                            }
+
+                            // Active Thinking Animation Card
+                            if (shouldShowThinkingBubble) {
+                                item(key = "agent_thinking_bubble") {
+                                    AgentThinkingBubble()
                                 }
-                            )
-                        }
-
-                        // Active Thinking Animation Card
-                        if (shouldShowThinkingBubble) {
-                            item(key = "agent_thinking_bubble") {
-                                AgentThinkingBubble()
                             }
-                        }
 
-                        // Active Running Tasks Card
-                        if (uiState.runningTasks.isNotEmpty()) {
-                            item {
-                                RunningTasksCard(
-                                    tasks = uiState.runningTasks,
-                                    onStopTask = { viewModel.stopTask(it) },
-                                    modifier = Modifier.padding(vertical = 4.dp)
-                                )
+                            // Active Running Tasks Card
+                            if (uiState.runningTasks.isNotEmpty()) {
+                                item {
+                                    RunningTasksCard(
+                                        tasks = uiState.runningTasks,
+                                        onStopTask = { viewModel.stopTask(it) },
+                                        modifier = Modifier.padding(vertical = 4.dp)
+                                    )
+                                }
                             }
-                        }
 
-                        // Queued Messages Panel
-                        if (uiState.queuedMessages.isNotEmpty()) {
-                            item {
-                                QueuedMessagesCard(
-                                    items = uiState.queuedMessages,
-                                    onSendNow = { viewModel.sendQueuedMessageNow(it) },
-                                    onEdit = { viewModel.editQueuedMessage(it) },
-                                    onDelete = { viewModel.deleteQueuedMessage(it) },
-                                    modifier = Modifier.padding(vertical = 4.dp)
-                                )
+                            // Queued Messages Panel
+                            if (uiState.queuedMessages.isNotEmpty()) {
+                                item {
+                                    QueuedMessagesCard(
+                                        items = uiState.queuedMessages,
+                                        onSendNow = { viewModel.sendQueuedMessageNow(it) },
+                                        onEdit = { viewModel.editQueuedMessage(it) },
+                                        onDelete = { viewModel.deleteQueuedMessage(it) },
+                                        modifier = Modifier.padding(vertical = 4.dp)
+                                    )
+                                }
                             }
-                        }
 
-                        // Interactive Decision Card (if pending)
-                        uiState.pendingInteraction?.let { interaction ->
-                            item {
-                                InteractionCard(
-                                    interaction = interaction,
-                                    onApprove = { viewModel.approveInteraction() },
-                                    onReject = { viewModel.rejectInteraction() },
-                                    modifier = Modifier.padding(vertical = 6.dp)
-                                )
+                            // Interactive Decision Card (if pending)
+                            uiState.pendingInteraction?.let { interaction ->
+                                item {
+                                    InteractionCard(
+                                        interaction = interaction,
+                                        onApprove = { viewModel.approveInteraction() },
+                                        onReject = { viewModel.rejectInteraction() },
+                                        modifier = Modifier.padding(vertical = 6.dp)
+                                    )
+                                }
                             }
-                        }
 
-                        // Proceed Banner (if ready)
-                        if (uiState.canProceed) {
-                            item {
-                                ProceedBanner(
-                                    onProceed = {
-                                        val planUri = uiState.proceedArtifactUri ?: "implementation_plan.md"
-                                        viewModel.openMarkdownViewer(planUri, "实施方案 (Implementation Plan)")
-                                    },
-                                    modifier = Modifier.padding(vertical = 6.dp)
-                                )
+                            // Proceed Banner (if ready)
+                            if (uiState.canProceed) {
+                                item {
+                                    ProceedBanner(
+                                        onProceed = {
+                                            val planUri = uiState.proceedArtifactUri ?: "implementation_plan.md"
+                                            viewModel.openMarkdownViewer(planUri, "实施方案 (Implementation Plan)")
+                                        },
+                                        modifier = Modifier.padding(vertical = 6.dp)
+                                    )
+                                }
                             }
-                        }
 
-                        // Bottom breathing room spacer ensuring bubble is fully clear of input bar
-                        item(key = "chat_bottom_spacer") {
-                            Spacer(modifier = Modifier.height(10.dp))
+                            // Bottom breathing room spacer ensuring bubble is fully clear of input bar
+                            item(key = "chat_bottom_spacer") {
+                                Spacer(modifier = Modifier.height(10.dp))
+                            }
                         }
                     }
                 }
@@ -419,6 +461,77 @@ fun ChatScreen(
             onProceed = { viewModel.proceedFromViewer() },
             onDismiss = { viewModel.closeMarkdownViewer() }
         )
+    }
+}
+
+@Composable
+private fun ChatLoadingStateView() {
+    val colors = AntigravityTheme.colors
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        CircularProgressIndicator(
+            color = colors.accentIndigo,
+            strokeWidth = 3.dp,
+            modifier = Modifier.size(34.dp)
+        )
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        Text(
+            text = "正在同步会话历史与步骤...",
+            color = colors.textSecondary,
+            fontSize = 13.5.sp,
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+@Composable
+private fun ChatErrorStateView(
+    errorMessage: String,
+    onRetry: () -> Unit
+) {
+    val colors = AntigravityTheme.colors
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            imageVector = Icons.Default.Warning,
+            contentDescription = "Error",
+            tint = colors.accentOrange,
+            modifier = Modifier.size(36.dp)
+        )
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        Text(
+            text = errorMessage,
+            color = colors.textSecondary,
+            fontSize = 13.5.sp,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 24.dp)
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Button(
+            onClick = onRetry,
+            colors = ButtonDefaults.buttonColors(containerColor = colors.accentIndigo),
+            shape = RoundedCornerShape(10.dp)
+        ) {
+            Text("点击重试")
+        }
     }
 }
 

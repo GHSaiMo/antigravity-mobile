@@ -42,6 +42,8 @@ data class ChatUiState(
     val messages: List<GatewayMessageItem> = emptyList(),
     val runningTasks: List<RunningTaskItem> = emptyList(),
     val queuedMessages: List<QueuedMessageItem> = emptyList(),
+    val isLoading: Boolean = false,
+    val isNewConversation: Boolean = false,
     val isRunning: Boolean = false,
     val isAwaitingResponse: Boolean = false,
     val selectedImages: List<AttachmentImage> = emptyList(),
@@ -82,8 +84,9 @@ class ChatViewModel(
         _uiState.value = ChatUiState()
     }
 
-    fun initSession(cascadeId: String, initialTitle: String? = null) {
+    fun initSession(cascadeId: String, initialTitle: String? = null, isNewConversation: Boolean = false) {
         val isDifferentSession = _uiState.value.cascadeId != cascadeId
+        val shouldLoad = !isNewConversation
         if (isDifferentSession) {
             fetchJob?.cancel()
             fetchJob = null
@@ -95,6 +98,8 @@ class ChatViewModel(
                 messages = emptyList(),
                 runningTasks = emptyList(),
                 queuedMessages = emptyList(),
+                isLoading = shouldLoad,
+                isNewConversation = isNewConversation,
                 isRunning = false,
                 isAwaitingResponse = false,
                 selectedImages = emptyList(),
@@ -108,7 +113,9 @@ class ChatViewModel(
             )
         } else {
             _uiState.value = _uiState.value.copy(
-                title = initialTitle?.takeIf { it.isNotBlank() } ?: _uiState.value.title
+                title = initialTitle?.takeIf { it.isNotBlank() } ?: _uiState.value.title,
+                isNewConversation = isNewConversation,
+                isLoading = if (_uiState.value.messages.isEmpty() && !isNewConversation) true else _uiState.value.isLoading
             )
         }
 
@@ -118,37 +125,56 @@ class ChatViewModel(
 
         // Fetch cached messages via HTTP so entering session loads instantly
         fetchJob = viewModelScope.launch {
-            apiClient.fetchMessages(cascadeId, limit = 15).onSuccess { payload ->
-                if (_uiState.value.cascadeId == cascadeId) {
-                    val msgs = payload.messages ?: emptyList()
-                    val lastMsg = msgs.lastOrNull()
-                    val isError = lastMsg?.status.equals("error", ignoreCase = true) || payload.hasError
-                    _uiState.value = _uiState.value.copy(
-                        title = payload.title?.takeIf { it.isNotBlank() } ?: _uiState.value.title,
-                        messages = msgs,
-                        runningTasks = payload.runningTasks ?: emptyList(),
-                        queuedMessages = payload.queuedMessages ?: emptyList(),
-                        isRunning = payload.status.equals("RUNNING", ignoreCase = true),
-                        canProceed = payload.canProceed,
-                        proceedArtifactUri = payload.proceedArtifactUri,
-                        pendingInteraction = payload.pendingInteraction,
-                        activeModel = payload.activeModel?.let { raw ->
-                            if (raw.contains("claude", ignoreCase = true) || raw.contains("m26", ignoreCase = true)) {
-                                "claude-opus-4-6-thinking"
-                            } else {
-                                "gemini-3.8-flash-high"
-                            }
-                        } ?: _uiState.value.activeModel,
-                        errorMessage = if (payload.hasError) payload.errorMessage else null,
-                        isLatestMessageError = isError
-                    )
-                    _scrollToBottomTrigger.value++
-                }
+            if (!isNewConversation && _uiState.value.messages.isEmpty()) {
+                _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
             }
+            apiClient.fetchMessages(cascadeId, limit = 15)
+                .onSuccess { payload ->
+                    if (_uiState.value.cascadeId == cascadeId) {
+                        val msgs = payload.messages ?: emptyList()
+                        val lastMsg = msgs.lastOrNull()
+                        val isError = lastMsg?.status.equals("error", ignoreCase = true) || payload.hasError
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = false,
+                            title = payload.title?.takeIf { it.isNotBlank() } ?: _uiState.value.title,
+                            messages = msgs,
+                            runningTasks = payload.runningTasks ?: emptyList(),
+                            queuedMessages = payload.queuedMessages ?: emptyList(),
+                            isRunning = payload.status.equals("RUNNING", ignoreCase = true),
+                            canProceed = payload.canProceed,
+                            proceedArtifactUri = payload.proceedArtifactUri,
+                            pendingInteraction = payload.pendingInteraction,
+                            activeModel = payload.activeModel?.let { raw ->
+                                if (raw.contains("claude", ignoreCase = true) || raw.contains("m26", ignoreCase = true)) {
+                                    "claude-opus-4-6-thinking"
+                                } else {
+                                    "gemini-3.8-flash-high"
+                                }
+                            } ?: _uiState.value.activeModel,
+                            errorMessage = if (payload.hasError) payload.errorMessage else null,
+                            isLatestMessageError = isError
+                        )
+                        _scrollToBottomTrigger.value++
+                    }
+                }
+                .onFailure { error ->
+                    if (_uiState.value.cascadeId == cascadeId) {
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = false,
+                            errorMessage = error.localizedMessage ?: "同步会话历史失败"
+                        )
+                    }
+                }
         }
 
         wsClient.connect(cascadeId)
         ensureWebSocketObserving()
+    }
+
+    fun retryLoadMessages() {
+        val cascadeId = _uiState.value.cascadeId
+        if (cascadeId.isBlank()) return
+        initSession(cascadeId, _uiState.value.title, _uiState.value.isNewConversation)
     }
 
     private fun ensureWebSocketObserving() {

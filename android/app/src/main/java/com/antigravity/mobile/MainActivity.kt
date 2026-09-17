@@ -6,6 +6,9 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.ActivityResultLauncher
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.navigation.NavType
@@ -74,7 +77,31 @@ class MainActivity : ComponentActivity() {
 
                 NavHost(
                     navController = navController,
-                    startDestination = startDestination
+                    startDestination = startDestination,
+                    enterTransition = {
+                        slideIntoContainer(
+                            AnimatedContentTransitionScope.SlideDirection.Left,
+                            animationSpec = tween(300, easing = FastOutSlowInEasing)
+                        )
+                    },
+                    exitTransition = {
+                        slideOutOfContainer(
+                            AnimatedContentTransitionScope.SlideDirection.Left,
+                            animationSpec = tween(300, easing = FastOutSlowInEasing)
+                        )
+                    },
+                    popEnterTransition = {
+                        slideIntoContainer(
+                            AnimatedContentTransitionScope.SlideDirection.Right,
+                            animationSpec = tween(300, easing = FastOutSlowInEasing)
+                        )
+                    },
+                    popExitTransition = {
+                        slideOutOfContainer(
+                            AnimatedContentTransitionScope.SlideDirection.Right,
+                            animationSpec = tween(300, easing = FastOutSlowInEasing)
+                        )
+                    }
                 ) {
                     composable("pair") {
                         PairingScreen(
@@ -94,11 +121,11 @@ class MainActivity : ComponentActivity() {
                     composable("conversations") {
                         ConversationListScreen(
                             viewModel = conversationListViewModel,
-                            onSelectConversation = { cascadeId, title ->
+                            onSelectConversation = { cascadeId, title, isNew ->
                                 conversationListViewModel.markConversationAsRead(cascadeId)
                                 chatViewModel.resetSession()
                                 val encodedTitle = URLEncoder.encode(title, "UTF-8")
-                                navController.navigate("chat/$cascadeId/$encodedTitle")
+                                navController.navigate("chat/$cascadeId/$encodedTitle?isNew=$isNew")
                             },
                             onNavigateToPair = {
                                 conversationListViewModel.unpair()
@@ -110,19 +137,25 @@ class MainActivity : ComponentActivity() {
                     }
 
                     composable(
-                        route = "chat/{cascadeId}/{title}",
+                        route = "chat/{cascadeId}/{title}?isNew={isNew}",
                         arguments = listOf(
                             navArgument("cascadeId") { type = NavType.StringType },
-                            navArgument("title") { type = NavType.StringType }
+                            navArgument("title") { type = NavType.StringType },
+                            navArgument("isNew") {
+                                type = NavType.BoolType
+                                defaultValue = false
+                            }
                         )
                     ) { backStackEntry ->
                         val cascadeId = backStackEntry.arguments?.getString("cascadeId") ?: ""
                         val rawTitle = backStackEntry.arguments?.getString("title") ?: ""
+                        val isNew = backStackEntry.arguments?.getBoolean("isNew") ?: false
                         val title = URLDecoder.decode(rawTitle, "UTF-8")
 
                         ChatScreen(
                             cascadeId = cascadeId,
                             initialTitle = title,
+                            isNewConversation = isNew,
                             viewModel = chatViewModel,
                             onNavigateBack = {
                                 conversationListViewModel.loadConversations()

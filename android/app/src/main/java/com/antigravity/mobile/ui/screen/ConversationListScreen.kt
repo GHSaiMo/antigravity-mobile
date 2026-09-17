@@ -49,7 +49,7 @@ import com.antigravity.mobile.ui.viewmodel.ConversationListViewModel
 @Composable
 fun ConversationListScreen(
     viewModel: ConversationListViewModel,
-    onSelectConversation: (cascadeId: String, title: String) -> Unit,
+    onSelectConversation: (cascadeId: String, title: String, isNew: Boolean) -> Unit,
     onNavigateToPair: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -350,7 +350,7 @@ fun ConversationListScreen(
             onSelectProject = { project ->
                 showNewConvSheet = false
                 viewModel.createConversation(project) { cascadeId ->
-                    onSelectConversation(cascadeId, project.name)
+                    onSelectConversation(cascadeId, project.name, true)
                 }
             },
             onDismiss = { showNewConvSheet = false }
@@ -448,7 +448,7 @@ fun ConversationListScreen(
 @Composable
 private fun ConversationListContent(
     conversations: List<ConversationItem>,
-    onSelect: (cascadeId: String, title: String) -> Unit,
+    onSelect: (cascadeId: String, title: String, isNew: Boolean) -> Unit,
     onRename: (ConversationItem) -> Unit,
     onDelete: (ConversationItem) -> Unit
 ) {
@@ -460,7 +460,7 @@ private fun ConversationListContent(
         items(conversations, key = { it.id }) { conversation ->
             SwipeableConversationCard(
                 conversation = conversation,
-                onClick = { onSelect(conversation.id, conversation.displayTitle) },
+                onClick = { onSelect(conversation.id, conversation.displayTitle, conversation.stepCount == 0) },
                 onLongClick = { onRename(conversation) },
                 onDelete = { onDelete(conversation) }
             )
