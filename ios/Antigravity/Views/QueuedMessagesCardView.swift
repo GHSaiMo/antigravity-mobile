@@ -129,6 +129,7 @@ public struct QueuedMessagesCardView: View {
         }
         .fullScreenCover(item: $previewImage) { item in
             ImageViewerSheet(item: item)
+                .presentationBackground(.clear)
         }
     }
 }

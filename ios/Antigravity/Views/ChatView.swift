@@ -899,6 +899,7 @@ public struct ChatView: View {
         )
         .fullScreenCover(item: $previewDraftGallery) { gallery in
             ImageViewerSheet(gallery: gallery)
+                .presentationBackground(.clear)
         }
     }
     
@@ -1385,6 +1386,7 @@ public struct MarkdownViewerSheet: View {
         .presentationDragIndicator(.hidden)
         .fullScreenCover(item: $previewImage) { item in
             ImageViewerSheet(item: item)
+                .presentationBackground(.clear)
         }
     }
 }

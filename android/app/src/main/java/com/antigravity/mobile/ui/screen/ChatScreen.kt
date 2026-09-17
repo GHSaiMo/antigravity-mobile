@@ -43,7 +43,10 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -107,14 +110,23 @@ fun ChatScreen(
         }
     }
 
+    val lifecycleOwner = LocalLifecycleOwner.current
+
     BackHandler {
-        viewModel.saveDraft()
+        viewModel.saveDraftFor(cascadeId, inputText, uiState.selectedImages.map { it.byteArray })
         onNavigateBack()
     }
 
-    DisposableEffect(cascadeId) {
+    DisposableEffect(lifecycleOwner, cascadeId) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) {
+                viewModel.saveDraftFor(cascadeId, inputText, uiState.selectedImages.map { it.byteArray })
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
-            viewModel.saveDraft()
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            viewModel.saveDraftFor(cascadeId, inputText, uiState.selectedImages.map { it.byteArray })
         }
     }
 
@@ -225,7 +237,7 @@ fun ChatScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = {
-                        viewModel.saveDraft()
+                        viewModel.saveDraftFor(cascadeId, inputText, uiState.selectedImages.map { it.byteArray })
                         onNavigateBack()
                     }) {
                         Icon(
@@ -280,6 +292,49 @@ fun ChatScreen(
                                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                                 verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
+                                if (uiState.hasMore) {
+                                    item(key = "load_older_messages") {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 4.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            if (uiState.isLoadingOlder) {
+                                                CircularProgressIndicator(
+                                                    modifier = Modifier.size(20.dp),
+                                                    strokeWidth = 2.dp,
+                                                    color = MaterialTheme.colorScheme.primary
+                                                )
+                                            } else {
+                                                Surface(
+                                                    onClick = { viewModel.loadOlderMessages() },
+                                                    shape = RoundedCornerShape(16.dp),
+                                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.ArrowUpward,
+                                                            contentDescription = "查看更早的消息",
+                                                            modifier = Modifier.size(14.dp),
+                                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        )
+                                                        Text(
+                                                            text = "查看更早的消息",
+                                                            style = MaterialTheme.typography.labelMedium,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
                                 items(
                                     uiState.messages,
                                     key = { it.id.ifBlank { "${it.timestamp}_${it.content.hashCode()}" } }

@@ -17,6 +17,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.antigravity.mobile.data.service.ApiClient
+import com.antigravity.mobile.data.service.CacheManager
 import com.antigravity.mobile.data.service.PreferencesManager
 import com.antigravity.mobile.data.service.StreamWebSocketClient
 import com.antigravity.mobile.ui.screen.ChatScreen
@@ -50,13 +51,14 @@ class MainActivity : ComponentActivity() {
         prefs = PreferencesManager(applicationContext)
         apiClient = ApiClient(prefs)
         wsClient = StreamWebSocketClient(prefs)
+        val cacheManager = CacheManager(applicationContext)
         val documentCacheManager = com.antigravity.mobile.data.service.DocumentCacheManager(applicationContext)
 
         // Initialize ViewModels
         pairingViewModel = PairingViewModel(apiClient, prefs)
-        conversationListViewModel = ConversationListViewModel(apiClient, prefs)
+        conversationListViewModel = ConversationListViewModel(apiClient, prefs, cacheManager)
         val liveActivityManager = com.antigravity.mobile.data.service.LiveActivityNotificationManager(applicationContext, prefs)
-        chatViewModel = ChatViewModel(apiClient, wsClient, prefs, documentCacheManager, liveActivityManager).apply {
+        chatViewModel = ChatViewModel(apiClient, wsClient, prefs, documentCacheManager, liveActivityManager, cacheManager).apply {
             onConversationUpdated = { item ->
                 conversationListViewModel.upsertConversation(item)
             }
@@ -181,6 +183,7 @@ class MainActivity : ComponentActivity() {
                                 chatViewModel.currentConversationItem()?.let { item ->
                                     conversationListViewModel.upsertConversation(item)
                                 }
+                                conversationListViewModel.reloadFromCache()
                                 conversationListViewModel.loadConversations()
                                 navController.popBackStack()
                             }

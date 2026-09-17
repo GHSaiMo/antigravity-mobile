@@ -209,74 +209,26 @@ private fun HtmlDocumentViewer(file: File) {
                     val isMarp = htmlContent.contains("data-marpit-svg", ignoreCase = true) ||
                             htmlContent.contains("bespoke-marp", ignoreCase = true)
 
-                    if (isMarp) {
-                        val mobileSlideStyle = """
-                            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=3.0, user-scalable=yes">
-                            <style id="agy-mobile-slide-adapt">
-                            @media screen {
-                                html, body {
-                                    overflow-y: auto !important;
-                                    overflow-x: hidden !important;
-                                    height: auto !important;
-                                    min-height: 100% !important;
-                                    background-color: #f4f5f7 !important;
-                                    margin: 0 !important;
-                                    padding: 0 !important;
-                                }
-                                div#\:\${'$'}p, .bespoke-marp-parent {
-                                    display: flex !important;
-                                    flex-direction: column !important;
-                                    align-items: center !important;
-                                    padding: 16px 12px !important;
-                                    gap: 16px !important;
-                                    position: static !important;
-                                    inset: auto !important;
-                                    height: auto !important;
-                                    overflow: visible !important;
-                                }
-                                svg[data-marpit-svg], svg.bespoke-marp-slide {
-                                    display: block !important;
-                                    width: 100% !important;
-                                    max-width: 680px !important;
-                                    height: auto !important;
-                                    opacity: 1 !important;
-                                    visibility: visible !important;
-                                    content-visibility: visible !important;
-                                    position: static !important;
-                                    box-shadow: 0 4px 14px rgba(0,0,0,0.08) !important;
-                                    border-radius: 10px !important;
-                                    background: #ffffff !important;
-                                    margin: 0 auto !important;
-                                    transform: none !important;
-                                    filter: none !important;
-                                }
-                                .bespoke-marp-osc, .bespoke-progress-parent, .bespoke-marp-overview-header {
-                                    display: none !important;
-                                }
-                            }
-                            </style>
-                        """.trimIndent()
+                    setBackgroundColor(if (isMarp) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
 
-                        htmlContent = if (htmlContent.contains("</head>", ignoreCase = true)) {
-                            htmlContent.replaceFirst("</head>", "$mobileSlideStyle</head>", ignoreCase = true)
+                    if (!htmlContent.contains("viewport", ignoreCase = true)) {
+                        val viewportMeta = """<meta name="viewport" content="width=device-width, initial-scale=1.0">"""
+                        htmlContent = if (htmlContent.contains("<head>", ignoreCase = true)) {
+                            htmlContent.replaceFirst("<head>", "<head>$viewportMeta", ignoreCase = true)
                         } else {
-                            "$mobileSlideStyle$htmlContent"
-                        }
-                    } else {
-                        if (!htmlContent.contains("viewport", ignoreCase = true)) {
-                            val viewportMeta = """<meta name="viewport" content="width=device-width, initial-scale=1.0">"""
-                            htmlContent = if (htmlContent.contains("<head>", ignoreCase = true)) {
-                                htmlContent.replaceFirst("<head>", "<head>$viewportMeta", ignoreCase = true)
-                            } else {
-                                "$viewportMeta$htmlContent"
-                            }
+                            "$viewportMeta$htmlContent"
                         }
                     }
 
-                    val baseUrl = file.parentFile?.let { "file://${it.absolutePath}/" } ?: "https://localhost/"
+                    val baseUrl = file.parentFile?.let { Uri.fromFile(it).toString() + "/" }
+                        ?: Uri.fromFile(file).toString()
                     loadDataWithBaseURL(baseUrl, htmlContent, "text/html", "utf-8", null)
                 } catch (_: Exception) {
-                    loadUrl("file://${file.absolutePath}")
+                    try {
+                        loadUrl(Uri.fromFile(file).toString())
+                    } catch (_: Exception) {
+                        loadUrl("file://${file.absolutePath}")
+                    }
                 }
             }
         }

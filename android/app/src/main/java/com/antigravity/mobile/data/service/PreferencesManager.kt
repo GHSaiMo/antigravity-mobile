@@ -148,10 +148,24 @@ class PreferencesManager(context: Context) {
         } else {
             prefs.edit().putString(KEY_DRAFT_TEXT_PREFIX + cascadeId, text).apply()
         }
+        if (cascadeId.startsWith("local_draft_")) {
+            val sessions = getLocalDraftSessions()
+            val target = sessions.find { it.id == cascadeId }
+            if (target != null) {
+                target.draftText = text
+                target.updatedAtEpochMs = System.currentTimeMillis()
+                saveLocalDraftSession(target)
+            }
+        }
     }
 
     fun clearDraftText(cascadeId: String) {
         prefs.edit().remove(KEY_DRAFT_TEXT_PREFIX + cascadeId).apply()
+    }
+
+    fun hasDraft(cascadeId: String): Boolean {
+        if (cascadeId.isBlank()) return false
+        return getDraftText(cascadeId).isNotBlank() || hasDraftImages(cascadeId)
     }
 
     fun saveDraftImages(cascadeId: String, images: List<ByteArray>) {
@@ -228,7 +242,9 @@ class PreferencesManager(context: Context) {
     }
 
     fun getLocalDraftSession(id: String): LocalDraftSession? {
-        return getLocalDraftSessions().find { it.id == id }
+        val session = getLocalDraftSessions().find { it.id == id } ?: return null
+        val text = getDraftText(id).ifBlank { session.draftText }
+        return session.copy(draftText = text)
     }
 
     fun saveLocalDraftSession(session: LocalDraftSession) {
@@ -259,6 +275,48 @@ class PreferencesManager(context: Context) {
         }.sortedByDescending { it.lastModifiedEpochMs }
     }
 
+    // MARK: - Deletion Tombstone Persistence (TTL 10 min, aligned with iOS CacheManager)
+    private val deletedTombstoneTTL = 600_000L
+
+    fun recordDeletedConversation(cascadeId: String) {
+        if (cascadeId.isBlank()) return
+        val now = System.currentTimeMillis()
+        val raw = prefs.getString(KEY_DELETED_CONVERSATIONS, null)
+        val map = try {
+            if (!raw.isNullOrBlank()) draftJson.decodeFromString<Map<String, Long>>(raw).toMutableMap() else mutableMapOf()
+        } catch (_: Exception) {
+            mutableMapOf()
+        }
+        map[cascadeId] = now
+        val cleaned = map.filter { now - it.value < deletedTombstoneTTL }
+        prefs.edit().putString(KEY_DELETED_CONVERSATIONS, draftJson.encodeToString(cleaned)).apply()
+    }
+
+    fun isDeletedConversation(cascadeId: String): Boolean {
+        if (cascadeId.isBlank()) return false
+        val now = System.currentTimeMillis()
+        val raw = prefs.getString(KEY_DELETED_CONVERSATIONS, null) ?: return false
+        return try {
+            val map = draftJson.decodeFromString<Map<String, Long>>(raw)
+            val ts = map[cascadeId] ?: return false
+            now - ts < deletedTombstoneTTL
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    fun purgeExpiredTombstones() {
+        val now = System.currentTimeMillis()
+        val raw = prefs.getString(KEY_DELETED_CONVERSATIONS, null) ?: return
+        try {
+            val map = draftJson.decodeFromString<Map<String, Long>>(raw)
+            val cleaned = map.filter { now - it.value < deletedTombstoneTTL }
+            if (cleaned.size != map.size) {
+                prefs.edit().putString(KEY_DELETED_CONVERSATIONS, draftJson.encodeToString(cleaned)).apply()
+            }
+        } catch (_: Exception) {}
+    }
+
     fun clear() {
         prefs.edit().clear().apply()
         _themeModeFlow.value = "system"
@@ -280,5 +338,6 @@ class PreferencesManager(context: Context) {
         private const val KEY_CACHED_PROJECTS = "cached_projects_json"
         private const val KEY_CACHED_CONVERSATIONS = "cached_conversations_json"
         private const val KEY_DRAFT_SESSIONS = "cached_draft_sessions_json"
+        private const val KEY_DELETED_CONVERSATIONS = "ag_deleted_conversations"
     }
 }

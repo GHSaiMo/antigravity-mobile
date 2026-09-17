@@ -95,6 +95,13 @@ fun ConversationListScreen(
         }
     }
 
+    DisposableEffect(Unit) {
+        viewModel.startAutoRefresh()
+        onDispose {
+            viewModel.stopAutoRefresh()
+        }
+    }
+
     LaunchedEffect(Unit) {
         if (projects.isEmpty()) {
             viewModel.loadProjects()
@@ -308,6 +315,7 @@ fun ConversationListScreen(
                         ConversationListContent(
                             conversations = state.conversations,
                             listState = listState,
+                            hasDraftFor = { viewModel.prefs.hasDraft(it) },
                             onSelect = onSelectConversation,
                             onRename = { item ->
                                 if (!item.isDraft) {
@@ -511,6 +519,7 @@ fun ConversationListScreen(
 private fun ConversationListContent(
     conversations: List<ConversationItem>,
     listState: LazyListState,
+    hasDraftFor: (String) -> Boolean,
     onSelect: (cascadeId: String, title: String, isNew: Boolean) -> Unit,
     onRename: (ConversationItem) -> Unit,
     onDelete: (ConversationItem) -> Unit
@@ -522,8 +531,10 @@ private fun ConversationListContent(
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         items(conversations, key = { it.id }) { conversation ->
+            val hasDraft = conversation.isDraft || hasDraftFor(conversation.id)
             SwipeableConversationCard(
                 conversation = conversation,
+                hasDraft = hasDraft,
                 onClick = { onSelect(conversation.id, conversation.displayTitle, false) },
                 onLongClick = { onRename(conversation) },
                 onDelete = { onDelete(conversation) }
@@ -535,6 +546,7 @@ private fun ConversationListContent(
 @Composable
 private fun SwipeableConversationCard(
     conversation: ConversationItem,
+    hasDraft: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onDelete: () -> Unit
@@ -615,6 +627,7 @@ private fun SwipeableConversationCard(
         ) {
             ConversationCard(
                 conversation = conversation,
+                hasDraft = hasDraft,
                 onClick = {
                     if (offsetX.value != 0f) {
                         coroutineScope.launch {
@@ -640,6 +653,7 @@ private fun SwipeableConversationCard(
 @Composable
 fun ConversationCard(
     conversation: ConversationItem,
+    hasDraft: Boolean = false,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -685,7 +699,7 @@ fun ConversationCard(
 
                 if (conversation.status.isRunning || conversation.status.needsAction || conversation.status.isError) {
                     StatusBadge(status = conversation.status)
-                } else if (conversation.isDraft) {
+                } else if (hasDraft || conversation.isDraft) {
                     DraftBadge()
                 } else if (conversation.isUnread) {
                     UnreadDot()

@@ -9,6 +9,7 @@ import com.antigravity.mobile.data.model.ConversationStatus
 import com.antigravity.mobile.data.model.LocalDraftSession
 import com.antigravity.mobile.data.model.ProjectItem
 import com.antigravity.mobile.data.service.ApiClient
+import com.antigravity.mobile.data.service.CacheManager
 import com.antigravity.mobile.data.service.PreferencesManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -28,7 +29,8 @@ sealed interface ConversationListUiState {
 
 class ConversationListViewModel(
     private val apiClient: ApiClient,
-    val prefs: PreferencesManager
+    val prefs: PreferencesManager,
+    val cacheManager: CacheManager? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<ConversationListUiState>(ConversationListUiState.Loading)
@@ -57,6 +59,7 @@ class ConversationListViewModel(
 
     private val deletedCascadeIds = mutableSetOf<String>()
     private var rawConversations = loadInitialConversations()
+    private var pollJob: kotlinx.coroutines.Job? = null
 
     init {
         loadConversations()
@@ -64,13 +67,64 @@ class ConversationListViewModel(
         loadProjects()
     }
 
-    private fun loadInitialConversations(): List<ConversationItem> {
+    fun reloadFromCache() {
+        prefs.purgeExpiredTombstones()
         val drafts = prefs.loadLocalDraftConversations()
         val cached = prefs.cachedConversationsJson
         val serverItems = if (!cached.isNullOrBlank()) {
             try {
                 val list = apiClient.json.decodeFromString<List<ConversationItem>>(cached)
-                list.filter { !it.isDraft && !it.isSubagent }
+                list.filter { !it.isDraft && !it.isSubagent && !deletedCascadeIds.contains(it.id) && !prefs.isDeletedConversation(it.id) }
+            } catch (e: Exception) {
+                emptyList()
+            }
+        } else {
+            emptyList()
+        }
+        val all = (drafts + serverItems).sortedWith(
+            compareByDescending<ConversationItem> { it.lastModifiedEpochMs }
+                .thenByDescending { it.id }
+        )
+        if (all.isNotEmpty()) {
+            rawConversations = all
+            applyFilter()
+            cacheManager?.prewarmSessions(all.take(15).map { it.id })
+        }
+    }
+
+    fun startAutoRefresh() {
+        if (!prefs.isPaired()) return
+        if (pollJob?.isActive == true) return
+        pollJob = viewModelScope.launch {
+            while (true) {
+                val hasRunning = rawConversations.any { it.status.isRunning || it.status.needsAction }
+                val delayMs = if (hasRunning) 4000L else 10000L
+                kotlinx.coroutines.delay(delayMs)
+                if (!prefs.isPaired()) break
+                val convResult = apiClient.fetchConversations()
+                convResult.onSuccess { list ->
+                    rawConversations = mergeWithLocalConversations(list)
+                    persistConversationsToCache(rawConversations)
+                    applyFilter()
+                    cacheManager?.prewarmSessions(rawConversations.take(15).map { it.id })
+                }
+            }
+        }
+    }
+
+    fun stopAutoRefresh() {
+        pollJob?.cancel()
+        pollJob = null
+    }
+
+    private fun loadInitialConversations(): List<ConversationItem> {
+        prefs.purgeExpiredTombstones()
+        val drafts = prefs.loadLocalDraftConversations()
+        val cached = prefs.cachedConversationsJson
+        val serverItems = if (!cached.isNullOrBlank()) {
+            try {
+                val list = apiClient.json.decodeFromString<List<ConversationItem>>(cached)
+                list.filter { !it.isDraft && !it.isSubagent && !deletedCascadeIds.contains(it.id) && !prefs.isDeletedConversation(it.id) }
             } catch (e: Exception) {
                 Log.w("ConvListVM", "Failed to decode cached conversations: ${e.message}")
                 emptyList()
@@ -84,13 +138,14 @@ class ConversationListViewModel(
         )
         if (all.isNotEmpty()) {
             _uiState.value = ConversationListUiState.Success(all)
+            cacheManager?.prewarmSessions(all.take(15).map { it.id })
         }
         return all
     }
 
     private fun persistConversationsToCache(list: List<ConversationItem>) {
         try {
-            val nonDrafts = list.filter { !it.isDraft }
+            val nonDrafts = list.filter { !it.isDraft && !prefs.isDeletedConversation(it.id) }
             prefs.cachedConversationsJson = apiClient.json.encodeToString(nonDrafts)
         } catch (e: Exception) {
             Log.w("ConvListVM", "Failed to cache conversations: ${e.message}")
@@ -110,28 +165,37 @@ class ConversationListViewModel(
     }
 
     private fun mergeWithLocalConversations(serverList: List<ConversationItem>): List<ConversationItem> {
+        prefs.purgeExpiredTombstones()
         val drafts = prefs.loadLocalDraftConversations()
-        val serverFiltered = serverList.filter { !deletedCascadeIds.contains(it.id) && !it.isSubagent }
-        val serverIds = serverFiltered.map { it.id }.toSet()
+        val serverFiltered = serverList.filter {
+            !deletedCascadeIds.contains(it.id) &&
+            !it.isSubagent &&
+            !prefs.isDeletedConversation(it.id)
+        }
 
         val existingMap = rawConversations.associateBy { it.id }
 
         // Enrich server items with known local titles/status/stepCount if server is lagging
         val enrichedServerItems = serverFiltered.map { serverItem ->
-            val local = existingMap[serverItem.id] ?: return@map serverItem
+            val local = existingMap[serverItem.id]
+            val healedLocal = if (local != null) {
+                cacheManager?.healConversationTitleIfNeeded(local) ?: local
+            } else {
+                cacheManager?.healConversationTitleIfNeeded(serverItem) ?: serverItem
+            }
             val resolvedTitle = if ((serverItem.title.isBlank() || serverItem.title == "未命名会话") &&
-                local.title.isNotBlank() && local.title != "未命名会话" && local.title != "会话详情") {
-                local.title
+                healedLocal.title.isNotBlank() && healedLocal.title != "未命名会话" && healedLocal.title != "会话详情") {
+                healedLocal.title
             } else {
                 serverItem.title
             }
-            val resolvedStatus = if (local.status == ConversationStatus.RUNNING && serverItem.status == ConversationStatus.IDLE) {
+            val resolvedStatus = if (local?.status == ConversationStatus.RUNNING && serverItem.status == ConversationStatus.IDLE) {
                 local.status
             } else {
                 serverItem.status
             }
-            val resolvedSteps = maxOf(serverItem.stepCount, local.stepCount)
-            val resolvedWorkspace = if (serverItem.workspaceName == "Chat" && local.workspaceName != "Chat" && local.workspaceName.isNotBlank()) {
+            val resolvedSteps = maxOf(serverItem.stepCount, local?.stepCount ?: 0)
+            val resolvedWorkspace = if (serverItem.workspaceName == "Chat" && local?.workspaceName != "Chat" && !local?.workspaceName.isNullOrBlank()) {
                 local.workspaceName
             } else {
                 serverItem.workspaceName
@@ -144,19 +208,9 @@ class ConversationListViewModel(
             )
         }
 
-        // Retain recently added/active local conversations that upstream has not yet indexed
-        val nowMs = System.currentTimeMillis()
-        val missingRecentLocal = rawConversations.filter { local ->
-            if (local.isDraft) return@filter false
-            if (deletedCascadeIds.contains(local.id) || local.isSubagent) return@filter false
-            if (serverIds.contains(local.id)) return@filter false
-            val modMs = local.lastModifiedEpochMs
-            val isRecent = (nowMs - modMs) < 15 * 60 * 1000L
-            val isActive = local.status.isRunning || local.status.needsAction
-            isRecent || isActive
-        }
-
-        return (drafts + missingRecentLocal + enrichedServerItems).sortedWith(
+        // Server list is authoritative for server conversations.
+        // Any conversation deleted on computer is immediately removed.
+        return (drafts + enrichedServerItems).sortedWith(
             compareByDescending<ConversationItem> { it.lastModifiedEpochMs }
                 .thenByDescending { it.id }
         )
@@ -171,6 +225,7 @@ class ConversationListViewModel(
                     rawConversations = mergeWithLocalConversations(list)
                     persistConversationsToCache(rawConversations)
                     applyFilter()
+                    cacheManager?.prewarmSessions(rawConversations.take(15).map { it.id })
                 }.onFailure { err ->
                     if (rawConversations.isEmpty()) {
                         _uiState.value = ConversationListUiState.Error(err.message ?: "无法获取会话列表")
@@ -202,6 +257,7 @@ class ConversationListViewModel(
                 rawConversations = mergeWithLocalConversations(list)
                 persistConversationsToCache(rawConversations)
                 applyFilter()
+                cacheManager?.prewarmSessions(rawConversations.take(15).map { it.id })
             }.onFailure { err ->
                 if (rawConversations.isEmpty()) {
                     _uiState.value = ConversationListUiState.Error(err.message ?: "无法获取会话列表")
@@ -326,6 +382,8 @@ class ConversationListViewModel(
 
     fun deleteConversation(cascadeId: String) {
         deletedCascadeIds.add(cascadeId)
+        prefs.recordDeletedConversation(cascadeId)
+        cacheManager?.deleteSession(cascadeId)
         if (cascadeId.startsWith("local_draft_")) {
             prefs.deleteLocalDraftSession(cascadeId)
             rawConversations = rawConversations.filter { it.id != cascadeId }
@@ -347,6 +405,7 @@ class ConversationListViewModel(
     fun renameConversation(cascadeId: String, newTitle: String) {
         val trimmed = newTitle.trim()
         if (trimmed.isNotBlank()) {
+            cacheManager?.updateSessionTitle(cascadeId, trimmed)
             rawConversations = rawConversations.map { item ->
                 if (item.id == cascadeId) item.copy(title = trimmed) else item
             }
@@ -385,6 +444,12 @@ class ConversationListViewModel(
     }
 
     fun unpair() {
+        cacheManager?.clearAllSessions()
         prefs.clear()
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        stopAutoRefresh()
     }
 }
