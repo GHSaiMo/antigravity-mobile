@@ -315,7 +315,7 @@ fun ChatScreen(
                             onValueChange = { viewModel.onInputTextChanged(it) },
                             placeholder = {
                                 Text(
-                                    text = if (uiState.isRunning) "向队列添加指令..." else "向 Antigravity 发送指令...",
+                                    text = if (uiState.isRunning) "向队列添加指令..." else "向 Multigravity 发送指令...",
                                     color = colors.textMuted,
                                     fontSize = 15.sp
                                 )

@@ -28,21 +28,27 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- DeepLink for agy://pair -->
+            <!-- DeepLink for agy://pair & multigravity://pair -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data
                     android:host="pair"
+                    android:scheme="multigravity" />
+                <data
+                    android:host="pair"
                     android:scheme="agy" />
             </intent-filter>
 
-            <!-- DeepLink for antigravity://session/{id} -->
+            <!-- DeepLink for antigravity://session/{id} & multigravity://session/{id} -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:host="session"
+                    android:scheme="multigravity" />
                 <data
                     android:host="session"
                     android:scheme="antigravity" />

@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "Antigravity",
-  "short_name": "Antigravity",
-  "description": "Mobile companion and chat client for Antigravity AI Agent",
+  "name": "Multigravity",
+  "short_name": "Multigravity",
+  "description": "Mobile companion and chat client for Multigravity AI Agent",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

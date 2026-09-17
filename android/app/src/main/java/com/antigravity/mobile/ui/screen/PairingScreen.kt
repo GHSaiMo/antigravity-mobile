@@ -46,7 +46,7 @@ fun PairingScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("连接到 Antigravity", fontWeight = FontWeight.Bold, color = colors.textPrimary) },
+                title = { Text("连接到 Multigravity", fontWeight = FontWeight.Bold, color = colors.textPrimary) },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = colors.background,
                     titleContentColor = colors.textPrimary

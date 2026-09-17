@@ -90,7 +90,7 @@ fun ConversationListScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = "Antigravity",
+                        text = "Multigravity",
                         fontWeight = FontWeight.Bold,
                         fontSize = 20.sp,
                         color = colors.textPrimary
