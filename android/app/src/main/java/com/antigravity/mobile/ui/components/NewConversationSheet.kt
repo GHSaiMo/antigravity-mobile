@@ -12,20 +12,19 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.WorkOutline
 import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.antigravity.mobile.data.model.ProjectItem
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 
@@ -34,148 +33,220 @@ import com.antigravity.mobile.ui.theme.AntigravityTheme
 fun NewConversationSheet(
     projects: List<ProjectItem>,
     isLoading: Boolean,
-    onSelectProject: (ProjectItem, String, String) -> Unit,
+    errorMessage: String? = null,
+    onSelectProject: (ProjectItem) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var selectedModel by remember { mutableStateOf("gemini-3.8-flash-high") }
-    var initialPrompt by remember { mutableStateOf("") }
     val colors = AntigravityTheme.colors
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
 
-    Dialog(
+    ModalBottomSheet(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false
-        )
+        sheetState = sheetState,
+        containerColor = colors.surface,
+        dragHandle = null,
+        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        modifier = modifier
     ) {
-        Scaffold(
-            topBar = {
-                TopAppBar(
-                    title = {
-                        Text(
-                            text = "新建会话",
-                            color = colors.textPrimary,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    },
-                    navigationIcon = {
-                        TextButton(onClick = onDismiss) {
-                            Text(
-                                text = "取消",
-                                color = colors.accentIndigo,
-                                fontSize = 16.sp
-                            )
-                        }
-                    },
-                    actions = {
-                        // Model Toggle (Gemini / Claude)
-                        Row(
-                            modifier = Modifier
-                                .padding(end = 12.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(colors.surfaceVariant)
-                                .padding(2.dp)
-                        ) {
-                            val isGemini = selectedModel.contains("gemini", ignoreCase = true)
-                            Text(
-                                text = "Gemini",
-                                color = if (isGemini) colors.textPrimary else colors.textSecondary,
-                                fontSize = 12.sp,
-                                fontWeight = if (isGemini) FontWeight.Bold else FontWeight.Normal,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(if (isGemini) colors.surface else colors.surfaceVariant)
-                                    .clickable { selectedModel = "gemini-3.8-flash-high" }
-                                    .padding(horizontal = 10.dp, vertical = 4.dp)
-                            )
-                            Text(
-                                text = "Claude",
-                                color = if (!isGemini) colors.textPrimary else colors.textSecondary,
-                                fontSize = 12.sp,
-                                fontWeight = if (!isGemini) FontWeight.Bold else FontWeight.Normal,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(if (!isGemini) colors.surface else colors.surfaceVariant)
-                                    .clickable { selectedModel = "claude-opus-4-6-thinking" }
-                                    .padding(horizontal = 10.dp, vertical = 4.dp)
-                            )
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = colors.background
-                    )
-                )
-            },
-            containerColor = colors.background,
-            modifier = modifier.fillMaxSize()
-        ) { innerPadding ->
-            Column(
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 16.dp)
+        ) {
+            // Floating grab handle hinting pull-down dismissal (matching iOS Capsule 38x5)
+            Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding)
-                    .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                    .fillMaxWidth()
+                    .padding(top = 10.dp, bottom = 18.dp),
+                contentAlignment = Alignment.Center
             ) {
-                // Optional Initial Prompt
-                OutlinedTextField(
-                    value = initialPrompt,
-                    onValueChange = { initialPrompt = it },
-                    label = { Text("可选：输入初始任务指令...", color = colors.textSecondary) },
-                    placeholder = { Text("例如：帮我重构登录模块...", color = colors.textMuted) },
-                    maxLines = 3,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = colors.surface,
-                        unfocusedContainerColor = colors.surface,
-                        focusedBorderColor = colors.accentIndigo,
-                        unfocusedBorderColor = colors.border,
-                        focusedTextColor = colors.textPrimary,
-                        unfocusedTextColor = colors.textPrimary
-                    ),
-                    shape = RoundedCornerShape(12.dp)
+                Box(
+                    modifier = Modifier
+                        .size(width = 38.dp, height = 5.dp)
+                        .clip(CircleShape)
+                        .background(colors.textMuted.copy(alpha = 0.35f))
                 )
+            }
 
-                // Subheader
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
+            // Header title
+            Text(
+                text = "新建会话",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = colors.textPrimary,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp)
+            )
+
+            HorizontalDivider(thickness = 0.5.dp, color = colors.border)
+
+            // Header description
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .padding(top = 14.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "选择模式或工作区发起新会话",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = colors.textSecondary
+                )
+                if (projects.isNotEmpty()) {
                     Text(
-                        text = "选择模式或工作区发起新会话",
-                        color = colors.textSecondary,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium
+                        text = "${projects.size} 个工作区",
+                        fontSize = 12.sp,
+                        color = colors.textSecondary
                     )
-                    if (projects.isNotEmpty()) {
-                        Text(
-                            text = "${projects.size} 个工作区",
-                            color = colors.textSecondary,
-                            fontSize = 12.sp
+                }
+            }
+
+            // Error banner if any
+            if (errorMessage != null) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(colors.accentOrange.copy(alpha = 0.12f))
+                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Warning,
+                        contentDescription = null,
+                        tint = colors.accentOrange,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Text(
+                        text = errorMessage,
+                        fontSize = 12.5.sp,
+                        color = colors.textPrimary,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            // Vertical cards list
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(9.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp)
+            ) {
+                // Pure Chat Card
+                item(key = "chat_pure") {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(colors.surfaceVariant)
+                            .border(1.dp, colors.accentIndigo.copy(alpha = 0.2f), RoundedCornerShape(14.dp))
+                            .clickable { onSelectProject(ProjectItem.PURE_CHAT) }
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(42.dp)
+                                .clip(CircleShape)
+                                .background(colors.accentIndigo.copy(alpha = 0.14f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ChatBubbleOutline,
+                                contentDescription = "Chat",
+                                tint = colors.accentIndigo,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(3.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "Chat",
+                                    fontSize = 15.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = colors.textPrimary,
+                                    maxLines = 1
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(colors.accentIndigo.copy(alpha = 0.12f))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = "新对话",
+                                        fontSize = 10.5.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = colors.accentIndigo
+                                    )
+                                }
+                            }
+
+                            Text(
+                                text = "新对话 · 不关联任何工作区",
+                                fontSize = 11.5.sp,
+                                color = colors.textSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                            contentDescription = null,
+                            tint = colors.textMuted,
+                            modifier = Modifier.size(12.5.dp)
                         )
                     }
                 }
 
-                // Full-height scrollable list
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    contentPadding = PaddingValues(bottom = 24.dp)
-                ) {
-                    // Chat card (pure conversation)
-                    item {
+                if (isLoading && projects.isEmpty()) {
+                    item(key = "loading_projects") {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 28.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            CircularProgressIndicator(
+                                color = colors.accentIndigo,
+                                modifier = Modifier.size(28.dp),
+                                strokeWidth = 2.5.dp
+                            )
+                            Text(
+                                text = "正在拉取工作区列表...",
+                                fontSize = 12.5.sp,
+                                color = colors.textSecondary
+                            )
+                        }
+                    }
+                } else {
+                    items(projects, key = { it.id }) { project ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(14.dp))
-                                .background(colors.surface)
-                                .border(1.dp, colors.accentIndigo.copy(alpha = 0.25f), RoundedCornerShape(14.dp))
-                                .clickable { onSelectProject(ProjectItem.PURE_CHAT, initialPrompt, selectedModel) }
-                                .padding(14.dp),
+                                .background(colors.surfaceVariant)
+                                .clickable { onSelectProject(project) }
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
@@ -183,43 +254,56 @@ fun NewConversationSheet(
                                 modifier = Modifier
                                     .size(42.dp)
                                     .clip(CircleShape)
-                                    .background(colors.accentIndigo.copy(alpha = 0.14f)),
+                                    .background(colors.accentOrange.copy(alpha = 0.14f)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.ChatBubbleOutline,
-                                    contentDescription = "Chat",
-                                    tint = colors.accentIndigo,
+                                    imageVector = if (project.isWorkspace) Icons.Default.WorkOutline else Icons.Default.Folder,
+                                    contentDescription = "Workspace",
+                                    tint = colors.accentOrange,
                                     modifier = Modifier.size(20.dp)
                                 )
                             }
 
-                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(3.dp)
+                            ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     Text(
-                                        text = "Chat",
-                                        color = colors.textPrimary,
+                                        text = project.name,
                                         fontSize = 15.5.sp,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                    Text(
-                                        text = "新对话",
-                                        color = colors.accentIndigo,
-                                        fontSize = 10.5.sp,
                                         fontWeight = FontWeight.SemiBold,
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(10.dp))
-                                            .background(colors.accentIndigo.copy(alpha = 0.12f))
-                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        color = colors.textPrimary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
+
+                                    if (project.sessionCount > 0) {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .background(colors.textSecondary.copy(alpha = 0.12f))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                text = "${project.sessionCount} 会话",
+                                                fontSize = 10.5.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = colors.textSecondary
+                                            )
+                                        }
+                                    }
                                 }
+
                                 Text(
-                                    text = "新对话 · 不关联任何工作区",
+                                    text = project.path.ifBlank { project.uri },
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
                                     color = colors.textSecondary,
-                                    fontSize = 11.5.sp,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -229,102 +313,8 @@ fun NewConversationSheet(
                                 imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
                                 contentDescription = null,
                                 tint = colors.textMuted,
-                                modifier = Modifier.size(13.dp)
+                                modifier = Modifier.size(12.5.dp)
                             )
-                        }
-                    }
-
-                    if (isLoading && projects.isEmpty()) {
-                        item {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 40.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                CircularProgressIndicator(
-                                    color = colors.accentIndigo,
-                                    modifier = Modifier.size(28.dp)
-                                )
-                                Text(
-                                    text = "正在拉取工作区列表...",
-                                    color = colors.textSecondary,
-                                    fontSize = 13.sp
-                                )
-                            }
-                        }
-                    } else {
-                        items(projects, key = { it.id }) { project ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .background(colors.surface)
-                                    .border(0.5.dp, colors.border, RoundedCornerShape(14.dp))
-                                    .clickable { onSelectProject(project, initialPrompt, selectedModel) }
-                                    .padding(14.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(14.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(42.dp)
-                                        .clip(CircleShape)
-                                        .background(colors.accentOrange.copy(alpha = 0.14f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = if (project.isWorkspace) Icons.Default.WorkOutline else Icons.Default.Folder,
-                                        contentDescription = "Workspace",
-                                        tint = colors.accentOrange,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-
-                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        Text(
-                                            text = project.name,
-                                            color = colors.textPrimary,
-                                            fontSize = 15.5.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                        if (project.sessionCount > 0) {
-                                            Text(
-                                                text = "${project.sessionCount} 会话",
-                                                color = colors.textSecondary,
-                                                fontSize = 10.5.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                modifier = Modifier
-                                                    .clip(RoundedCornerShape(10.dp))
-                                                    .background(colors.surfaceVariant)
-                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                                            )
-                                        }
-                                    }
-                                    Text(
-                                        text = project.path.ifBlank { project.uri },
-                                        color = colors.textSecondary,
-                                        fontSize = 11.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
-                                    contentDescription = null,
-                                    tint = colors.textMuted,
-                                    modifier = Modifier.size(13.dp)
-                                )
-                            }
                         }
                     }
                 }

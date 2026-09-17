@@ -335,9 +335,9 @@ fun ConversationListScreen(
         NewConversationSheet(
             projects = projects,
             isLoading = isLoadingProjects,
-            onSelectProject = { project, prompt, model ->
+            onSelectProject = { project ->
                 showNewConvSheet = false
-                viewModel.createConversation(project, prompt, model) { cascadeId ->
+                viewModel.createConversation(project) { cascadeId ->
                     onSelectConversation(cascadeId, project.name)
                 }
             },
