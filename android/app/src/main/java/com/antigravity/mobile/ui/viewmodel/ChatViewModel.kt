@@ -20,7 +20,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
+import java.net.URLDecoder
 import java.util.UUID
+import kotlin.math.roundToInt
 
 data class AttachmentImage(
     val id: String = UUID.randomUUID().toString(),
@@ -377,31 +381,76 @@ class ChatViewModel(
         _inputText.value = text
     }
 
+    private fun compressAndResizeImage(bytes: ByteArray, maxDim: Int = 2048): Pair<Bitmap, ByteArray>? {
+        return try {
+            val boundsOptions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, boundsOptions)
+            val width = boundsOptions.outWidth
+            val height = boundsOptions.outHeight
+            if (width <= 0 || height <= 0) return null
+
+            var sampleSize = 1
+            val largest = maxOf(width, height)
+            if (largest > maxDim) {
+                while ((largest / (sampleSize * 2)) >= maxDim) {
+                    sampleSize *= 2
+                }
+            }
+
+            val decodeOptions = BitmapFactory.Options().apply {
+                inSampleSize = sampleSize
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            }
+            val decodedBitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decodeOptions) ?: return null
+
+            val currentLargest = maxOf(decodedBitmap.width, decodedBitmap.height)
+            val finalBitmap = if (currentLargest > maxDim) {
+                val ratio = maxDim.toFloat() / currentLargest
+                val targetWidth = (decodedBitmap.width * ratio).roundToInt()
+                val targetHeight = (decodedBitmap.height * ratio).roundToInt()
+                Bitmap.createScaledBitmap(decodedBitmap, targetWidth, targetHeight, true)
+            } else {
+                decodedBitmap
+            }
+
+            val outputStream = ByteArrayOutputStream()
+            finalBitmap.compress(Bitmap.CompressFormat.JPEG, 85, outputStream)
+            val compressedBytes = outputStream.toByteArray()
+
+            Pair(finalBitmap, compressedBytes)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     fun addImagesFromUris(context: Context, uris: List<Uri>) {
         viewModelScope.launch(Dispatchers.IO) {
             val newAttachments = mutableListOf<AttachmentImage>()
             for (uri in uris) {
                 try {
                     val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: continue
-                    val mimeType = context.contentResolver.getType(uri) ?: "image/jpeg"
-                    val options = BitmapFactory.Options().apply {
-                        inJustDecodeBounds = true
-                    }
-                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
-                    val sampleSize = maxOf(1, maxOf(options.outWidth, options.outHeight) / 256)
-                    val decodeOptions = BitmapFactory.Options().apply {
-                        inSampleSize = sampleSize
-                    }
-                    val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decodeOptions)
-                    if (bitmap != null) {
+                    val processed = compressAndResizeImage(bytes)
+                    if (processed != null) {
                         newAttachments.add(
                             AttachmentImage(
                                 uri = uri,
-                                bitmap = bitmap,
-                                byteArray = bytes,
-                                mimeType = mimeType
+                                bitmap = processed.first,
+                                byteArray = processed.second,
+                                mimeType = "image/jpeg"
                             )
                         )
+                    } else {
+                        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                        if (bitmap != null) {
+                            newAttachments.add(
+                                AttachmentImage(
+                                    uri = uri,
+                                    bitmap = bitmap,
+                                    byteArray = bytes,
+                                    mimeType = context.contentResolver.getType(uri) ?: "image/jpeg"
+                                )
+                            )
+                        }
                     }
                 } catch (e: Exception) {
                     // Ignore unreadable image
@@ -592,11 +641,16 @@ class ChatViewModel(
     }
 
     fun openMarkdownViewer(uri: String, title: String) {
+        val rawFilename = uri.substringAfterLast('/')
+        val decodedFilename = try { URLDecoder.decode(rawFilename, "UTF-8") } catch (_: Exception) { rawFilename }
+        val decodedTitle = try { URLDecoder.decode(title, "UTF-8") } catch (_: Exception) { title }
+        val initialTitle = if (decodedTitle.isNotBlank()) decodedTitle else decodedFilename
+
         _uiState.value = _uiState.value.copy(
             markdownViewerData = MarkdownFileViewerData(
                 uri = uri,
-                title = title,
-                filename = uri.substringAfterLast('/'),
+                title = initialTitle,
+                filename = decodedFilename,
                 content = "",
                 summary = null,
                 canProceed = _uiState.value.canProceed,
@@ -607,9 +661,18 @@ class ChatViewModel(
         viewModelScope.launch {
             val res = apiClient.fetchFileContent(uri, _uiState.value.cascadeId)
             res.onSuccess { resp ->
+                val serverFilename = try { URLDecoder.decode(resp.filename, "UTF-8") } catch (_: Exception) { resp.filename }
+                val resolvedFilename = serverFilename.ifBlank { decodedFilename }
+                val resolvedTitle = if (initialTitle.isBlank() || initialTitle == rawFilename || initialTitle.contains("%")) {
+                    resolvedFilename
+                } else {
+                    initialTitle
+                }
+
                 _uiState.value = _uiState.value.copy(
                     markdownViewerData = _uiState.value.markdownViewerData?.copy(
-                        filename = resp.filename.ifBlank { uri.substringAfterLast('/') },
+                        title = resolvedTitle,
+                        filename = resolvedFilename,
                         content = resp.content,
                         summary = resp.summary,
                         isLoading = false
@@ -642,6 +705,39 @@ class ChatViewModel(
         )
     }
 
+    fun openAttachmentImageViewer(attachment: AttachmentImage) {
+        openImageViewer(bitmap = attachment.bitmap)
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeByteArray(attachment.byteArray, 0, attachment.byteArray.size, options)
+                val maxDim = maxOf(options.outWidth, options.outHeight)
+                var sampleSize = 1
+                if (maxDim > 2560) {
+                    while ((maxDim / (sampleSize * 2)) >= 2560) {
+                        sampleSize *= 2
+                    }
+                }
+                val decodeOptions = BitmapFactory.Options().apply {
+                    inSampleSize = sampleSize
+                    inPreferredConfig = Bitmap.Config.ARGB_8888
+                }
+                val highRes = BitmapFactory.decodeByteArray(attachment.byteArray, 0, attachment.byteArray.size, decodeOptions)
+                if (highRes != null) {
+                    withContext(Dispatchers.Main) {
+                        if (_uiState.value.imageViewerData != null) {
+                            _uiState.value = _uiState.value.copy(
+                                imageViewerData = ImageViewerData(bitmap = highRes)
+                            )
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+                // Keep existing bitmap preview
+            }
+        }
+    }
+
     fun closeImageViewer() {
         _uiState.value = _uiState.value.copy(imageViewerData = null)
     }
@@ -655,25 +751,26 @@ class ChatViewModel(
     fun downloadAndPreviewDocument(uri: String, fileName: String) {
         documentDownloadJob?.cancel()
 
+        val decodedFileName = try { URLDecoder.decode(fileName, "UTF-8") } catch (_: Exception) { fileName }
         val cascadeId = _uiState.value.cascadeId
 
         // 1. Check local cache first
-        val cached = documentCacheManager?.getCachedFile(uri, fileName, cascadeId)
+        val cached = documentCacheManager?.getCachedFile(uri, decodedFileName, cascadeId)
         if (cached != null && cached.exists() && cached.length() > 0) {
             _uiState.value = _uiState.value.copy(
                 previewDocumentFile = cached,
-                previewDocumentTitle = fileName
+                previewDocumentTitle = decodedFileName
             )
             return
         }
 
         // 2. Prepare target file in cache
-        val target = documentCacheManager?.cacheFile(uri, fileName, cascadeId)
-            ?: java.io.File.createTempFile("doc_", "_$fileName")
+        val target = documentCacheManager?.cacheFile(uri, decodedFileName, cascadeId)
+            ?: java.io.File.createTempFile("doc_", "_$decodedFileName")
 
         _uiState.value = _uiState.value.copy(
             isDownloadingDocument = true,
-            downloadingDocumentName = fileName,
+            downloadingDocumentName = decodedFileName,
             downloadProgress = 0f
         )
 
@@ -692,7 +789,7 @@ class ChatViewModel(
             res.onSuccess { downloadedFile ->
                 _uiState.value = _uiState.value.copy(
                     previewDocumentFile = downloadedFile,
-                    previewDocumentTitle = fileName
+                    previewDocumentTitle = decodedFileName
                 )
             }.onFailure { err ->
                 _uiState.value = _uiState.value.copy(

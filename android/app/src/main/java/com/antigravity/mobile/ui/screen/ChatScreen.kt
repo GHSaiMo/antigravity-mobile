@@ -34,15 +34,19 @@ import com.antigravity.mobile.ui.util.rememberHaptic
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import java.net.URLDecoder
 
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -65,6 +69,8 @@ fun ChatScreen(
 ) {
     val context = LocalContext.current
     val haptic = rememberHaptic()
+    val focusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
     val uiState by viewModel.uiState.collectAsState()
     val inputText by viewModel.inputText.collectAsState()
     val scrollToBottomTrigger by viewModel.scrollToBottomTrigger.collectAsState()
@@ -102,6 +108,12 @@ fun ChatScreen(
 
     LaunchedEffect(cascadeId, isNewConversation) {
         viewModel.initSession(cascadeId, initialTitle, isNewConversation)
+        // Automatically focus the input field and pop up soft keyboard on session entry
+        delay(250)
+        try {
+            focusRequester.requestFocus()
+            keyboardController?.show()
+        } catch (_: Exception) {}
     }
 
     // Auto-scroll and bounce down to bottom on new messages, thinking state, or explicit triggers
@@ -121,7 +133,12 @@ fun ChatScreen(
     val handleFileOrLinkClick: (String, String) -> Unit = { uri, title ->
         val clean = uri.trim()
         val lower = clean.lowercase()
-        val decodedFileName = title.ifEmpty { clean.substringAfterLast('/') }
+        val rawName = title.ifEmpty { clean.substringAfterLast('/') }
+        val decodedFileName = try {
+            URLDecoder.decode(rawName, "UTF-8")
+        } catch (_: Exception) {
+            rawName
+        }
 
         // 1. Markdown & Plan Artifacts
         if (lower.endsWith(".md") || lower.endsWith(".markdown") ||
@@ -142,7 +159,7 @@ fun ChatScreen(
             )
             val isPreviewable = previewExtensions.any { ext ->
                 lower.endsWith(ext) || lower.contains("$ext?") || lower.contains("$ext#")
-            }
+            } || clean.startsWith("file://") || clean.startsWith("/")
 
             if (isPreviewable) {
                 haptic.medium()
@@ -393,7 +410,7 @@ fun ChatScreen(
                                                 .size(52.dp)
                                                 .clip(RoundedCornerShape(10.dp))
                                                 .border(1.dp, colors.border, RoundedCornerShape(10.dp))
-                                                .clickable { viewModel.openImageViewer(bitmap = img.bitmap) }
+                                                .clickable { viewModel.openAttachmentImageViewer(img) }
                                         )
 
                                         Box(
@@ -431,6 +448,7 @@ fun ChatScreen(
                                 onValueChange = { viewModel.onInputTextChanged(it) },
                                 modifier = Modifier
                                     .weight(1f)
+                                    .focusRequester(focusRequester)
                                     .heightIn(min = 44.dp),
                                 textStyle = TextStyle(
                                     color = colors.textPrimary,

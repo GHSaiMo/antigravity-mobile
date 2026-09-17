@@ -12,15 +12,18 @@ import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.MarkdownFileViewerData
 import com.antigravity.mobile.ui.theme.AntigravityTheme
+import java.net.URLDecoder
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -70,18 +73,33 @@ fun MarkdownViewerSheet(
                         tint = colors.accentIndigo,
                         modifier = Modifier.size(20.dp)
                     )
-                    Column {
+                    val rawTitle = data.title.ifBlank { data.filename }
+                    val displayTitle = remember(rawTitle) {
+                        try { URLDecoder.decode(rawTitle, "UTF-8") } catch (_: Exception) { rawTitle }
+                    }
+                    val rawFilename = data.filename
+                    val displayFilename = remember(rawFilename) {
+                        try { URLDecoder.decode(rawFilename, "UTF-8") } catch (_: Exception) { rawFilename }
+                    }
+
+                    Column(modifier = Modifier.weight(1f, fill = false)) {
                         Text(
-                            text = data.title.ifBlank { data.filename },
+                            text = displayTitle,
                             color = colors.textPrimary,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold
+                            fontSize = 15.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
                         )
-                        Text(
-                            text = data.filename,
-                            color = colors.textSecondary,
-                            fontSize = 12.sp
-                        )
+                        if (displayFilename.isNotBlank() && displayFilename != displayTitle) {
+                            Text(
+                                text = displayFilename,
+                                color = colors.textSecondary,
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
                 }
 

@@ -12,6 +12,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.net.URLDecoder
 import java.net.URLEncoder
 import java.time.Instant
 import java.util.concurrent.TimeUnit
@@ -538,7 +539,8 @@ class ApiClient(private val prefs: PreferencesManager) {
      */
     suspend fun fetchFileContent(uri: String, cascadeId: String? = null): Result<FileContentResponse> = withContext(Dispatchers.IO) {
         val baseUrl = prefs.gatewayBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
-        val encodedUri = URLEncoder.encode(uri, "UTF-8")
+        val unescapedUri = try { URLDecoder.decode(uri, "UTF-8") } catch (_: Exception) { uri }
+        val encodedUri = URLEncoder.encode(unescapedUri, "UTF-8")
         val cidParam = cascadeId?.let { "&cascade_id=${URLEncoder.encode(it, "UTF-8")}" } ?: ""
         val url = "$baseUrl/api/v1/files/content?uri=$encodedUri$cidParam"
 
@@ -645,10 +647,16 @@ class ApiClient(private val prefs: PreferencesManager) {
 
         if (baseUrl.isBlank()) return clean
 
-        val encodedUri = try {
-            java.net.URLEncoder.encode(clean, "UTF-8")
+        val unescaped = try {
+            URLDecoder.decode(clean, "UTF-8")
         } catch (_: Exception) {
             clean
+        }
+
+        val encodedUri = try {
+            URLEncoder.encode(unescaped, "UTF-8")
+        } catch (_: Exception) {
+            unescaped
         }
         val tokenParam = if (token.isNotBlank()) "&auth_token=$token" else ""
         return "$baseUrl/api/v1/files/raw?uri=$encodedUri$tokenParam"

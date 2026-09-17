@@ -3,6 +3,7 @@ package com.antigravity.mobile.ui.components
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import java.net.URLDecoder
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -745,6 +746,35 @@ private fun TableBlockView(
     val columnCount = maxOf(headers.size, rows.maxOfOrNull { it.size } ?: 0)
     if (columnCount == 0) return
 
+    // Calculate synchronized column widths across header and all rows
+    val columnWidths = remember(headers, rows, columnCount) {
+        (0 until columnCount).map { colIdx ->
+            val headerText = headers.getOrNull(colIdx) ?: ""
+            val rowTexts = rows.map { it.getOrNull(colIdx) ?: "" }
+            val allTexts = listOf(headerText) + rowTexts
+
+            // Effective display length: non-ASCII characters count as 2, ASCII as 1
+            val maxLen = allTexts.maxOfOrNull { text ->
+                text.sumOf { ch -> if (ch.code > 127) 2 else 1 }
+            } ?: 0
+
+            when {
+                columnCount == 2 && colIdx == 0 -> {
+                    // Two-column table first column (Key/Property): compact but fits 4-8 Chinese chars nicely
+                    (maxLen * 8.5f + 32f).coerceIn(104f, 150f).dp
+                }
+                columnCount == 2 && colIdx == 1 -> {
+                    // Two-column table second column (Value/Detail): spacious with auto-wrapping
+                    maxOf(220f, (maxLen * 7.5f + 32f).coerceAtMost(360f)).dp
+                }
+                else -> {
+                    // Multi-column table: balanced column width
+                    (maxLen * 8f + 28f).coerceIn(96f, 260f).dp
+                }
+            }
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -756,16 +786,19 @@ private fun TableBlockView(
             // Header Row
             if (headers.isNotEmpty()) {
                 Row(
-                    modifier = Modifier.background(colors.surfaceVariant.copy(alpha = 0.8f))
+                    modifier = Modifier
+                        .background(colors.surfaceVariant.copy(alpha = 0.85f))
+                        .height(IntrinsicSize.Min)
                 ) {
                     for (colIdx in 0 until columnCount) {
                         val headerText = headers.getOrNull(colIdx) ?: ""
                         val alignment = alignments.getOrNull(colIdx) ?: TableColumnAlignment.LEADING
+                        val width = columnWidths.getOrElse(colIdx) { 110.dp }
 
                         Box(
                             modifier = Modifier
-                                .widthIn(min = 96.dp)
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                                .width(width)
+                                .padding(horizontal = 12.dp, vertical = 9.dp),
                             contentAlignment = when (alignment) {
                                 TableColumnAlignment.LEADING -> Alignment.CenterStart
                                 TableColumnAlignment.CENTER -> Alignment.Center
@@ -784,14 +817,14 @@ private fun TableBlockView(
                         if (colIdx < columnCount - 1) {
                             Box(
                                 modifier = Modifier
-                                    .width(0.5.dp)
-                                    .height(34.dp)
-                                    .background(colors.border.copy(alpha = 0.3f))
+                                    .fillMaxHeight()
+                                    .width(0.8.dp)
+                                    .background(colors.border.copy(alpha = 0.4f))
                             )
                         }
                     }
                 }
-                HorizontalDivider(color = colors.border.copy(alpha = 0.4f), thickness = 0.8.dp)
+                HorizontalDivider(color = colors.border.copy(alpha = 0.5f), thickness = 0.8.dp)
             }
 
             // Data Rows
@@ -799,15 +832,20 @@ private fun TableBlockView(
                 val isEven = rowIdx % 2 == 0
                 val rowBg = if (isEven) Color.Transparent else colors.surfaceVariant.copy(alpha = 0.35f)
 
-                Row(modifier = Modifier.background(rowBg)) {
+                Row(
+                    modifier = Modifier
+                        .background(rowBg)
+                        .height(IntrinsicSize.Min)
+                ) {
                     for (colIdx in 0 until columnCount) {
                         val cellText = row.getOrNull(colIdx) ?: ""
                         val alignment = alignments.getOrNull(colIdx) ?: TableColumnAlignment.LEADING
+                        val width = columnWidths.getOrElse(colIdx) { 110.dp }
 
                         Box(
                             modifier = Modifier
-                                .widthIn(min = 96.dp)
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                                .width(width)
+                                .padding(horizontal = 12.dp, vertical = 9.dp),
                             contentAlignment = when (alignment) {
                                 TableColumnAlignment.LEADING -> Alignment.CenterStart
                                 TableColumnAlignment.CENTER -> Alignment.Center
@@ -825,16 +863,16 @@ private fun TableBlockView(
                         if (colIdx < columnCount - 1) {
                             Box(
                                 modifier = Modifier
-                                    .width(0.5.dp)
-                                    .height(32.dp)
-                                    .background(colors.border.copy(alpha = 0.2f))
+                                    .fillMaxHeight()
+                                    .width(0.8.dp)
+                                    .background(colors.border.copy(alpha = 0.3f))
                             )
                         }
                     }
                 }
 
                 if (rowIdx < rows.size - 1) {
-                    HorizontalDivider(color = colors.border.copy(alpha = 0.2f), thickness = 0.5.dp)
+                    HorizontalDivider(color = colors.border.copy(alpha = 0.25f), thickness = 0.5.dp)
                 }
             }
         }
@@ -1015,15 +1053,40 @@ private fun RichTextRenderer(
             annotatedString.getStringAnnotations(tag = "URL", start = offset, end = offset)
                 .firstOrNull()?.let { annotation ->
                     val url = annotation.item
-                    if (url.contains("implementation_plan") || url.contains("walkthrough") || url.contains(".md")) {
-                        onPlanClick?.invoke(url, url.substringAfterLast('/'))
-                    } else {
+                    val titleAnnotation = annotatedString.getStringAnnotations(tag = "URL_TITLE", start = offset, end = offset).firstOrNull()
+                    val rawTitle = titleAnnotation?.item?.ifBlank { url.substringAfterLast('/') } ?: url.substringAfterLast('/')
+                    val decodedTitle = try {
+                        URLDecoder.decode(rawTitle, "UTF-8")
+                    } catch (_: Exception) {
+                        rawTitle
+                    }
+
+                    val lower = url.lowercase()
+                    val isDocumentOrLocal = url.startsWith("file://") ||
+                        url.startsWith("/") ||
+                        url.startsWith("~") ||
+                        url.contains("/brain/") ||
+                        url.contains("/static/artifacts/") ||
+                        url.contains("/api/v1/files/") ||
+                        url.contains("implementation_plan") ||
+                        url.contains("walkthrough") ||
+                        listOf(".md", ".markdown", ".html", ".htm", ".pptx", ".ppt", ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".txt", ".json", ".csv", ".log", ".xml", ".yaml", ".yml", ".py", ".js", ".ts", ".kt", ".swift", ".sh").any {
+                            lower.endsWith(it) || lower.contains("$it?") || lower.contains("$it#")
+                        }
+
+                    if (onPlanClick != null && isDocumentOrLocal) {
+                        onPlanClick(url, decodedTitle)
+                    } else if (url.startsWith("http://") || url.startsWith("https://")) {
                         try {
                             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
                                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
                             }
                             context.startActivity(intent)
-                        } catch (_: Exception) {}
+                        } catch (_: Exception) {
+                            onPlanClick?.invoke(url, decodedTitle)
+                        }
+                    } else {
+                        onPlanClick?.invoke(url, decodedTitle)
                     }
                 }
         }
@@ -1094,6 +1157,12 @@ private fun buildRichTextAnnotatedString(
                     addStringAnnotation(
                         tag = "URL",
                         annotation = linkUrl,
+                        start = start,
+                        end = length
+                    )
+                    addStringAnnotation(
+                        tag = "URL_TITLE",
+                        annotation = linkText,
                         start = start,
                         end = length
                     )

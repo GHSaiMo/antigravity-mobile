@@ -3,11 +3,14 @@ package com.antigravity.mobile.ui.components
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.webkit.WebView
 import android.widget.Toast
+import java.net.URLDecoder
+import java.util.zip.ZipFile
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -67,6 +70,14 @@ fun DocumentPreviewSheet(
     val context = LocalContext.current
     val haptic = rememberHaptic()
     val ext = file.extension.lowercase()
+    val decodedTitle = remember(title, file) {
+        val raw = title.ifEmpty { file.name }
+        try {
+            URLDecoder.decode(raw, "UTF-8")
+        } catch (_: Exception) {
+            raw
+        }
+    }
 
     Dialog(
         onDismissRequest = { onDismiss() },
@@ -98,7 +109,7 @@ fun DocumentPreviewSheet(
                     }
 
                     Text(
-                        text = title.ifEmpty { file.name },
+                        text = decodedTitle,
                         color = colors.textPrimary,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -130,7 +141,7 @@ fun DocumentPreviewSheet(
                         // Share Button
                         IconButton(onClick = {
                             haptic.medium()
-                            shareDocument(context, file, title)
+                            shareDocument(context, file, decodedTitle)
                         }) {
                             Icon(
                                 imageVector = Icons.Default.Share,
@@ -153,6 +164,9 @@ fun DocumentPreviewSheet(
                     when (ext) {
                         "html", "htm" -> {
                             HtmlDocumentViewer(file = file)
+                        }
+                        "pptx", "ppt" -> {
+                            PptxDocumentViewer(file = file, colors = colors)
                         }
                         "pdf" -> {
                             PdfDocumentViewer(file = file, colors = colors)
@@ -179,16 +193,196 @@ private fun HtmlDocumentViewer(file: File) {
         factory = { ctx ->
             WebView(ctx).apply {
                 settings.apply {
+                    @Suppress("SetJavaScriptEnabled")
+                    javaScriptEnabled = true
+                    domStorageEnabled = true
                     allowFileAccess = true
+                    allowContentAccess = true
                     builtInZoomControls = true
                     displayZoomControls = false
                     useWideViewPort = true
                     loadWithOverviewMode = true
                 }
-                loadUrl("file://${file.absolutePath}")
+                try {
+                    val htmlContent = file.readText(Charsets.UTF_8)
+                    loadDataWithBaseURL("file://${file.parentFile?.absolutePath}/", htmlContent, "text/html", "UTF-8", null)
+                } catch (_: Exception) {
+                    loadUrl("file://${file.absolutePath}")
+                }
             }
         }
     )
+}
+
+private data class PptxSlide(
+    val slideNumber: Int,
+    val bitmap: Bitmap? = null,
+    val title: String? = null,
+    val paragraphs: List<String> = emptyList()
+)
+
+@Composable
+private fun PptxDocumentViewer(file: File, colors: AppColors) {
+    var slides by remember { mutableStateOf<List<PptxSlide>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(file) {
+        withContext(Dispatchers.IO) {
+            try {
+                val zip = ZipFile(file)
+                val entries = zip.entries().toList()
+                val parsedSlides = mutableListOf<PptxSlide>()
+
+                // 1. Check for extracted slide images in ppt/media/
+                val slideImageRegex = Regex("""ppt/media/Slide-(\d+)-image-\d+\.(png|jpe?g|webp)""", RegexOption.IGNORE_CASE)
+                val slideImageEntries = mutableMapOf<Int, java.util.zip.ZipEntry>()
+
+                for (entry in entries) {
+                    val match = slideImageRegex.find(entry.name)
+                    if (match != null) {
+                        val num = match.groupValues[1].toIntOrNull() ?: 1
+                        if (!slideImageEntries.containsKey(num)) {
+                            slideImageEntries[num] = entry
+                        }
+                    }
+                }
+
+                if (slideImageEntries.isNotEmpty()) {
+                    val sortedKeys = slideImageEntries.keys.sorted()
+                    for (num in sortedKeys) {
+                        val entry = slideImageEntries[num]!!
+                        val bytes = zip.getInputStream(entry).use { it.readBytes() }
+                        val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                        if (bmp != null) {
+                            parsedSlides.add(PptxSlide(slideNumber = num, bitmap = bmp))
+                        }
+                    }
+                } else {
+                    // Check for general images or thumbnails
+                    val generalImageRegex = Regex("""ppt/media/image(\d+)\.(png|jpe?g|webp)""", RegexOption.IGNORE_CASE)
+                    val genericEntries = entries.filter { generalImageRegex.find(it.name) != null }
+                        .sortedBy { generalImageRegex.find(it.name)?.groupValues?.get(1)?.toIntOrNull() ?: 999 }
+
+                    if (genericEntries.isNotEmpty()) {
+                        genericEntries.forEachIndexed { idx, entry ->
+                            val bytes = zip.getInputStream(entry).use { it.readBytes() }
+                            val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                            if (bmp != null) {
+                                parsedSlides.add(PptxSlide(slideNumber = idx + 1, bitmap = bmp))
+                            }
+                        }
+                    } else {
+                        // Check for docProps/thumbnail
+                        val thumb = entries.firstOrNull { it.name.contains("thumbnail", ignoreCase = true) }
+                        if (thumb != null) {
+                            val bytes = zip.getInputStream(thumb).use { it.readBytes() }
+                            val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                            if (bmp != null) {
+                                parsedSlides.add(PptxSlide(slideNumber = 1, bitmap = bmp))
+                            }
+                        }
+                    }
+                }
+
+                // 2. If no slide images found, parse text from ppt/slides/slide{N}.xml
+                if (parsedSlides.isEmpty()) {
+                    val slideXmlRegex = Regex("""ppt/slides/slide(\d+)\.xml""", RegexOption.IGNORE_CASE)
+                    val xmlEntries = entries.filter { slideXmlRegex.matches(it.name) }
+                        .sortedBy { slideXmlRegex.find(it.name)?.groupValues?.get(1)?.toIntOrNull() ?: 999 }
+
+                    val textRegex = Regex("""<a:t[^>]*>(.*?)</a:t>""")
+                    for (xmlEntry in xmlEntries) {
+                        val num = slideXmlRegex.find(xmlEntry.name)?.groupValues?.get(1)?.toIntOrNull() ?: (parsedSlides.size + 1)
+                        val textContent = zip.getInputStream(xmlEntry).use { it.bufferedReader(Charsets.UTF_8).readText() }
+                        val matches = textRegex.findAll(textContent).map { it.groupValues[1].trim() }.filter { it.isNotBlank() }.toList()
+                        if (matches.isNotEmpty()) {
+                            val title = matches.firstOrNull() ?: "幻灯片 $num"
+                            val paragraphs = if (matches.size > 1) matches.subList(1, matches.size) else emptyList()
+                            parsedSlides.add(PptxSlide(slideNumber = num, title = title, paragraphs = paragraphs))
+                        }
+                    }
+                }
+
+                zip.close()
+
+                withContext(Dispatchers.Main) {
+                    slides = parsedSlides
+                    isLoading = false
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    errorMessage = e.localizedMessage ?: "无法解析幻灯片"
+                    isLoading = false
+                }
+            }
+        }
+    }
+
+    if (isLoading) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(color = colors.accentIndigo, modifier = Modifier.size(32.dp))
+        }
+    } else if (errorMessage != null || slides.isEmpty()) {
+        OfficeDocumentFallback(file = file, colors = colors, customMessage = errorMessage)
+    } else {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            itemsIndexed(slides) { index, slide ->
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    if (slide.bitmap != null) {
+                        Image(
+                            bitmap = slide.bitmap.asImageBitmap(),
+                            contentDescription = "幻灯片 ${slide.slideNumber}",
+                            contentScale = ContentScale.FillWidth,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .border(0.5.dp, colors.border, RoundedCornerShape(8.dp))
+                        )
+                    } else {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(colors.surfaceVariant.copy(alpha = 0.5f))
+                                .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
+                                .padding(16.dp)
+                        ) {
+                            Text(
+                                text = slide.title ?: "幻灯片 ${slide.slideNumber}",
+                                color = colors.textPrimary,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            slide.paragraphs.forEach { p ->
+                                Text(
+                                    text = "• $p",
+                                    color = colors.textSecondary,
+                                    fontSize = 13.5.sp,
+                                    lineHeight = 18.sp,
+                                    modifier = Modifier.padding(vertical = 2.dp)
+                                )
+                            }
+                        }
+                    }
+                    Text(
+                        text = "第 ${slide.slideNumber} / ${slides.size} 页",
+                        color = colors.textMuted,
+                        fontSize = 11.5.sp,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+            }
+        }
+    }
 }
 
 @Composable
