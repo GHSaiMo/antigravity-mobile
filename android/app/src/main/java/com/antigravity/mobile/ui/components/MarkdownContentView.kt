@@ -38,7 +38,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.antigravity.mobile.ui.theme.AntigravityColors
+import com.antigravity.mobile.ui.theme.AppColors
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 
 enum class TableColumnAlignment {
@@ -331,7 +331,7 @@ fun MarkdownContentView(
 private fun FrontmatterCard(
     rawContent: String,
     lineCount: Int,
-    colors: AntigravityColors
+    colors: AppColors
 ) {
     var expanded by remember { mutableStateOf(false) }
 
@@ -395,7 +395,7 @@ private fun FrontmatterCard(
 private fun HeadingBlockView(
     level: Int,
     text: String,
-    colors: AntigravityColors,
+    colors: AppColors,
     onPlanClick: ((String, String) -> Unit)?
 ) {
     val fontSize = when (level) {
@@ -423,7 +423,7 @@ private fun HeadingBlockView(
 private fun CodeBlockView(
     lang: String,
     code: String,
-    colors: AntigravityColors
+    colors: AppColors
 ) {
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
@@ -506,7 +506,7 @@ private fun TableBlockView(
     headers: List<String>,
     rows: List<List<String>>,
     alignments: List<TableColumnAlignment>,
-    colors: AntigravityColors,
+    colors: AppColors,
     onPlanClick: ((String, String) -> Unit)?
 ) {
     val columnCount = maxOf(headers.size, rows.maxOfOrNull { it.size } ?: 0)
@@ -611,7 +611,7 @@ private fun TableBlockView(
 @Composable
 private fun BulletListBlockView(
     items: List<String>,
-    colors: AntigravityColors,
+    colors: AppColors,
     onPlanClick: ((String, String) -> Unit)?
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -643,7 +643,7 @@ private fun BulletListBlockView(
 @Composable
 private fun ParagraphBlockView(
     text: String,
-    colors: AntigravityColors,
+    colors: AppColors,
     onPlanClick: ((String, String) -> Unit)?
 ) {
     // If text references implementation_plan.md or walkthrough.md, provide standalone plan pill button
@@ -680,7 +680,7 @@ private fun ParagraphBlockView(
 private fun PlanButtonCard(
     title: String,
     filename: String,
-    colors: AntigravityColors,
+    colors: AppColors,
     onClick: () -> Unit
 ) {
     Row(
@@ -755,7 +755,7 @@ private fun PlanButtonCard(
 @Composable
 private fun RichTextRenderer(
     text: String,
-    colors: AntigravityColors,
+    colors: AppColors,
     baseFontSize: TextUnit = 15.sp,
     baseFontWeight: FontWeight = FontWeight.Normal,
     onPlanClick: ((String, String) -> Unit)? = null
@@ -803,7 +803,7 @@ private val INLINE_TOKEN_REGEX = Regex(
 
 private fun buildRichTextAnnotatedString(
     rawText: String,
-    colors: AntigravityColors,
+    colors: AppColors,
     baseFontSize: TextUnit,
     baseFontWeight: FontWeight
 ): AnnotatedString {

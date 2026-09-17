@@ -26,6 +26,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -38,6 +39,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import com.antigravity.mobile.data.model.ConversationItem
 import com.antigravity.mobile.ui.components.*
@@ -45,7 +47,7 @@ import com.antigravity.mobile.ui.theme.AntigravityTheme
 import com.antigravity.mobile.ui.viewmodel.ConversationListUiState
 import com.antigravity.mobile.ui.viewmodel.ConversationListViewModel
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ConversationListScreen(
     viewModel: ConversationListViewModel,
@@ -157,25 +159,11 @@ fun ConversationListScreen(
             ) {
                 when (val state = uiState) {
                     is ConversationListUiState.Loading -> {
-                        if (state.conversations.isEmpty()) {
-                            Box(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                CircularProgressIndicator(color = colors.accentIndigo)
-                            }
-                        } else {
-                            ConversationListContent(
-                                conversations = state.conversations,
-                                onSelect = onSelectConversation,
-                                onRename = { item ->
-                                    renamingItem = item
-                                    renameText = item.title
-                                },
-                                onDelete = { item ->
-                                    deletingItem = item
-                                }
-                            )
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(color = colors.accentIndigo)
                         }
                     }
                     is ConversationListUiState.Error -> {

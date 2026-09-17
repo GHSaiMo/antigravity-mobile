@@ -29,13 +29,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-
-private enum class ChatContentState {
-    LOADING,
-    ERROR,
-    EMPTY,
-    MESSAGES
-}
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -48,6 +41,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -56,6 +50,13 @@ import com.antigravity.mobile.ui.components.*
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 import com.antigravity.mobile.ui.viewmodel.ChatViewModel
 import kotlinx.coroutines.delay
+
+private enum class ChatContentState {
+    LOADING,
+    ERROR,
+    EMPTY,
+    MESSAGES
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

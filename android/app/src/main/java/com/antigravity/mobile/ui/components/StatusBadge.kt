@@ -25,7 +25,7 @@ fun StatusBadge(
         status.needsAction -> Triple(
             colors.accentBlue.copy(alpha = 0.15f),
             colors.accentBlue,
-            status.value
+            status.raw
         )
         status.isError -> Triple(
             colors.accentRed.copy(alpha = 0.15f),
@@ -35,7 +35,7 @@ fun StatusBadge(
         status.isRunning -> Triple(
             colors.accentGreen.copy(alpha = 0.15f),
             colors.accentGreen,
-            status.value
+            status.raw
         )
         else -> return
     }
