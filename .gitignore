@@ -74,6 +74,12 @@ temp/
 docs/
 Agent.md
 
+# --- IDE & Editor Settings ---
+.idea/
+android/.idea/
+*.iml
+.iml
+
 # --- Android & Gradle Artifacts ---
 .gradle/
 android/.gradle/
