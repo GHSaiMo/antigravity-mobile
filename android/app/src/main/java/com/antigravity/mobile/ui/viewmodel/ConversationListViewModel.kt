@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.viewmodel
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.antigravity.mobile.data.model.CockpitQuotaResponse
@@ -11,6 +12,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.serialization.encodeToString
 
 sealed interface ConversationListUiState {
     data object Loading : ConversationListUiState
@@ -35,11 +37,14 @@ class ConversationListViewModel(
     private val _isRefreshingQuota = MutableStateFlow(false)
     val isRefreshingQuota: StateFlow<Boolean> = _isRefreshingQuota.asStateFlow()
 
-    private val _projects = MutableStateFlow<List<ProjectItem>>(emptyList())
+    private val _projects = MutableStateFlow<List<ProjectItem>>(loadInitialProjects())
     val projects: StateFlow<List<ProjectItem>> = _projects.asStateFlow()
 
     private val _isLoadingProjects = MutableStateFlow(false)
     val isLoadingProjects: StateFlow<Boolean> = _isLoadingProjects.asStateFlow()
+
+    private val _projectsError = MutableStateFlow<String?>(null)
+    val projectsError: StateFlow<String?> = _projectsError.asStateFlow()
 
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
@@ -50,6 +55,18 @@ class ConversationListViewModel(
         loadConversations()
         loadQuotas()
         loadProjects()
+    }
+
+    private fun loadInitialProjects(): List<ProjectItem> {
+        val cached = prefs.cachedProjectsJson
+        if (!cached.isNullOrBlank()) {
+            try {
+                return apiClient.json.decodeFromString<List<ProjectItem>>(cached)
+            } catch (e: Exception) {
+                Log.w("ConvListVM", "Failed to decode cached projects: ${e.message}")
+            }
+        }
+        return emptyList()
     }
 
     fun refresh(onComplete: (() -> Unit)? = null) {
@@ -66,8 +83,14 @@ class ConversationListViewModel(
                 apiClient.fetchCockpitQuotas().onSuccess {
                     _quotaData.value = it
                 }
-                apiClient.fetchProjects().onSuccess {
-                    _projects.value = it
+                apiClient.fetchProjects().onSuccess { list ->
+                    _projects.value = list
+                    _projectsError.value = null
+                    if (list.isNotEmpty()) {
+                        try {
+                            prefs.cachedProjectsJson = apiClient.json.encodeToString(list)
+                        } catch (_: Exception) {}
+                    }
                 }
             } finally {
                 _isRefreshing.value = false
@@ -116,10 +139,30 @@ class ConversationListViewModel(
     }
 
     fun loadProjects() {
+        if (!prefs.isPaired()) {
+            if (_projects.value.isEmpty()) {
+                _projectsError.value = "请先配对 Mac 终端"
+            }
+            return
+        }
+
         _isLoadingProjects.value = true
+        _projectsError.value = null
         viewModelScope.launch {
-            apiClient.fetchProjects().onSuccess {
-                _projects.value = it
+            val result = apiClient.fetchProjects()
+            result.onSuccess { list ->
+                _projects.value = list
+                _projectsError.value = null
+                if (list.isNotEmpty()) {
+                    try {
+                        prefs.cachedProjectsJson = apiClient.json.encodeToString(list)
+                    } catch (_: Exception) {}
+                }
+            }.onFailure { err ->
+                Log.e("ConvListVM", "Failed to load projects: ${err.message}", err)
+                if (_projects.value.isEmpty()) {
+                    _projectsError.value = "拉取工作区失败: ${err.message ?: "网络或网关异常"}"
+                }
             }
             _isLoadingProjects.value = false
         }

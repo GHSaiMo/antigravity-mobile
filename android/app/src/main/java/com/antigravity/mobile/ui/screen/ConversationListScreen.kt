@@ -59,6 +59,7 @@ fun ConversationListScreen(
     val isRefreshingQuota by viewModel.isRefreshingQuota.collectAsState()
     val projects by viewModel.projects.collectAsState()
     val isLoadingProjects by viewModel.isLoadingProjects.collectAsState()
+    val projectsError by viewModel.projectsError.collectAsState()
 
     var showQuotaSheet by remember { mutableStateOf(false) }
     var showNewConvSheet by remember { mutableStateOf(false) }
@@ -71,6 +72,12 @@ fun ConversationListScreen(
     val colors = AntigravityTheme.colors
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val pullRefreshState = rememberPullToRefreshState()
+
+    LaunchedEffect(Unit) {
+        if (projects.isEmpty()) {
+            viewModel.loadProjects()
+        }
+    }
 
     LaunchedEffect(pullRefreshState.isRefreshing) {
         if (pullRefreshState.isRefreshing) {
@@ -106,7 +113,10 @@ fun ConversationListScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { showNewConvSheet = true }) {
+                    IconButton(onClick = {
+                        viewModel.loadProjects()
+                        showNewConvSheet = true
+                    }) {
                         Icon(
                             imageVector = Icons.Default.Add,
                             contentDescription = "New Conversation",
@@ -335,6 +345,8 @@ fun ConversationListScreen(
         NewConversationSheet(
             projects = projects,
             isLoading = isLoadingProjects,
+            errorMessage = projectsError,
+            onRefreshProjects = { viewModel.loadProjects() },
             onSelectProject = { project ->
                 showNewConvSheet = false
                 viewModel.createConversation(project) { cascadeId ->

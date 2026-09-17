@@ -21,6 +21,7 @@ class ApiClient(private val prefs: PreferencesManager) {
         ignoreUnknownKeys = true
         isLenient = true
         encodeDefaults = true
+        coerceInputValues = true
     }
 
     private val client = OkHttpClient.Builder()
@@ -196,13 +197,17 @@ class ApiClient(private val prefs: PreferencesManager) {
             val req = buildAuthorizedRequest(url).get().build()
             client.newCall(req).execute().use { response ->
                 if (!response.isSuccessful) {
+                    val errMsg = response.body?.string()?.take(200) ?: ""
+                    Log.e("ApiClient", "fetchProjects failed (${response.code}): $errMsg")
                     return@withContext Result.failure(RuntimeException("获取工作区列表失败 (${response.code})"))
                 }
                 val bodyStr = response.body?.string() ?: "[]"
                 val list = json.decodeFromString<List<ProjectItem>>(bodyStr)
+                Log.d("ApiClient", "fetchProjects successfully retrieved ${list.size} projects")
                 Result.success(list)
             }
         } catch (e: Exception) {
+            Log.e("ApiClient", "fetchProjects error: ${e.message}", e)
             Result.failure(e)
         }
     }

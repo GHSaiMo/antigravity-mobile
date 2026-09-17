@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.WorkOutline
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -34,12 +35,17 @@ fun NewConversationSheet(
     projects: List<ProjectItem>,
     isLoading: Boolean,
     errorMessage: String? = null,
+    onRefreshProjects: () -> Unit = {},
     onSelectProject: (ProjectItem) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = AntigravityTheme.colors
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    LaunchedEffect(Unit) {
+        onRefreshProjects()
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -48,10 +54,13 @@ fun NewConversationSheet(
         dragHandle = null,
         shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         modifier = modifier
+            .fillMaxWidth()
+            .fillMaxHeight(0.94f)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .fillMaxHeight()
                 .padding(bottom = 16.dp)
         ) {
             // Floating grab handle hinting pull-down dismissal (matching iOS Capsule 38x5)
@@ -137,7 +146,9 @@ fun NewConversationSheet(
 
             // Vertical cards list
             LazyColumn(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
                 verticalArrangement = Arrangement.spacedBy(9.dp),
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp)
             ) {

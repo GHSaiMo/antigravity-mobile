@@ -82,6 +82,8 @@ class MainActivity : ComponentActivity() {
                             onLaunchScanner = { launchScanner() },
                             onPairedSuccess = {
                                 conversationListViewModel.loadConversations()
+                                conversationListViewModel.loadProjects()
+                                conversationListViewModel.loadQuotas()
                                 navController.navigate("conversations") {
                                     popUpTo("pair") { inclusive = true }
                                 }

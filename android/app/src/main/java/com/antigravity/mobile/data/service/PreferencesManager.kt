@@ -72,6 +72,10 @@ class PreferencesManager(context: Context) {
         get() = prefs.getString(KEY_CUSTOM_URL, null)
         set(value) = prefs.edit().putString(KEY_CUSTOM_URL, value?.trimEnd('/')).apply()
 
+    var cachedProjectsJson: String?
+        get() = prefs.getString(KEY_CACHED_PROJECTS, null)
+        set(value) = prefs.edit().putString(KEY_CACHED_PROJECTS, value).apply()
+
     fun isPaired(): Boolean {
         return !gatewayBaseUrl.isNullOrBlank() && !deviceToken.isNullOrBlank()
     }
@@ -101,5 +105,6 @@ class PreferencesManager(context: Context) {
         private const val KEY_RELAY_URL = "relay_server_url"
         private const val KEY_CUSTOM_URL = "custom_server_url"
         private const val KEY_LAST_VIEW_PREFIX = "ag_last_view_"
+        private const val KEY_CACHED_PROJECTS = "cached_projects_json"
     }
 }
