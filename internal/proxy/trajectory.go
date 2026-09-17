@@ -1048,11 +1048,11 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 	// Desktop Antigravity (Bjb) parity:
 	// 1. Must be in the latest turn (after last CORTEX_STEP_TYPE_USER_INPUT).
 	// 2. Status must not be RUNNING.
-	// 3. No non-artifact code files have been modified in this turn.
+	// 3. No non-artifact code files have been modified after the plan artifact in this turn.
 	// 4. An artifact in this turn has requestFeedback == true.
 	canProceed := false
 	proceedArtifactURI := ""
-	hasModifiedNonArtifactFiles := false
+	hasModifiedNonArtifactFilesAfterPlan := false
 
 	lastUserInputIdx := -1
 	for i := len(steps) - 1; i >= 0; i-- {
@@ -1100,40 +1100,44 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 							filePath = strings.TrimPrefix(filePath, "file://")
 						}
 
-							// If step metadata was missing but this is an artifact step in the current turn, check its specific metadata file
-							if !reqFeedback && filePath != "" {
-								if readMetadataRequestFeedback(filePath + ".metadata.json") {
-									reqFeedback = true
-								}
+						// If step metadata was missing but this is an artifact step in the current turn, check its specific metadata file
+						if !reqFeedback && filePath != "" {
+							if readMetadataRequestFeedback(filePath + ".metadata.json") {
+								reqFeedback = true
 							}
+						}
 
-							// Fallback: ONLY check implementation_plan.md.metadata.json if this step actually targets implementation_plan.md
-							if !reqFeedback && isPlan && rawResp.Trajectory.CascadeID != "" {
-								if home, err := os.UserHomeDir(); err == nil && home != "" {
-									planMetaPath := filepath.Join(home, ".gemini/antigravity/brain", rawResp.Trajectory.CascadeID, "implementation_plan.md.metadata.json")
-									if readMetadataRequestFeedback(planMetaPath) {
-										reqFeedback = true
-										if uri == "" {
-											uri = "file://" + filepath.Join(home, ".gemini/antigravity/brain", rawResp.Trajectory.CascadeID, "implementation_plan.md")
-										}
+						// Fallback: ONLY check implementation_plan.md.metadata.json if this step actually targets implementation_plan.md
+						if !reqFeedback && isPlan && rawResp.Trajectory.CascadeID != "" {
+							if home, err := os.UserHomeDir(); err == nil && home != "" {
+								planMetaPath := filepath.Join(home, ".gemini/antigravity/brain", rawResp.Trajectory.CascadeID, "implementation_plan.md.metadata.json")
+								if readMetadataRequestFeedback(planMetaPath) {
+									reqFeedback = true
+									if uri == "" {
+										uri = "file://" + filepath.Join(home, ".gemini/antigravity/brain", rawResp.Trajectory.CascadeID, "implementation_plan.md")
 									}
 								}
 							}
 						}
+					}
 
 					if reqFeedback && uri != "" && !isWalkthrough {
 						canProceed = true
 						proceedArtifactURI = uri
+						hasModifiedNonArtifactFilesAfterPlan = false
 					}
 				} else {
-					hasModifiedNonArtifactFiles = true
+					if canProceed {
+						hasModifiedNonArtifactFilesAfterPlan = true
+					}
 				}
 			}
 		}
 	}
 
-	// Desktop parity: if non-artifact files were modified in this turn, or if agent is actively running, do not show proceed
-	if hasModifiedNonArtifactFiles || rawResp.Status == "CASCADE_RUN_STATUS_RUNNING" {
+	// Desktop parity: if non-artifact files were modified after the plan was created,
+	// or if agent is actively running, do not show proceed
+	if hasModifiedNonArtifactFilesAfterPlan || rawResp.Status == "CASCADE_RUN_STATUS_RUNNING" {
 		canProceed = false
 		proceedArtifactURI = ""
 	}

@@ -234,6 +234,53 @@ func TestParseTrajectoryDetails_CanProceed(t *testing.T) {
 	if details5.CanProceed {
 		t.Fatalf("expected CanProceed to be false when scratch script was modified, got true")
 	}
+
+	// Test 6: If non-artifact files were modified BEFORE the plan in the same turn, CanProceed should be true
+	rawJSONDocsThenPlan := `{
+		"status": "CASCADE_RUN_STATUS_IDLE",
+		"trajectory": {
+			"cascadeId": "test-cascade-123",
+			"steps": [
+				{
+					"type": "CORTEX_STEP_TYPE_USER_INPUT",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"userInput": { "userResponse": "Save report to docs and prepare plan" }
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_CODE_ACTION",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"codeAction": {
+						"isArtifactFile": false,
+						"actionResult": {
+							"edit": { "absoluteUri": "file:///path/to/docs/security_audit_report.md" }
+						}
+					}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_CODE_ACTION",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"codeAction": {
+						"isArtifactFile": true,
+						"artifactMetadata": { "requestFeedback": true },
+						"actionResult": {
+							"edit": { "absoluteUri": "file:///path/to/implementation_plan.md" }
+						}
+					}
+				}
+			]
+		}
+	}`
+	var rawResp6 upstreamTrajectoryResp
+	if err := json.Unmarshal([]byte(rawJSONDocsThenPlan), &rawResp6); err != nil {
+		t.Fatalf("failed to unmarshal test JSON 6: %v", err)
+	}
+	details6 := p.ParseTrajectoryDetails(&rawResp6)
+	if !details6.CanProceed {
+		t.Fatalf("expected CanProceed to be true when non-artifact file was modified before plan, got false")
+	}
+	if details6.ProceedArtifactURI != "file:///path/to/implementation_plan.md" {
+		t.Fatalf("expected ProceedArtifactURI to be 'file:///path/to/implementation_plan.md', got %q", details6.ProceedArtifactURI)
+	}
 }
 
 func TestParseTrajectoryDetails_PendingInteraction(t *testing.T) {
