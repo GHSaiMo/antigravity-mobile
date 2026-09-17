@@ -129,6 +129,173 @@
     ["Configure default behaviors, skills, and MCP servers.", "配置默认行为策略、技能库与 MCP 外部服务节点。"],
     ["Configure global allowed and denied resource permissions.", "配置全局允许与拒绝的资源访问权限。"],
 
+    // --- 项目选择下拉面板与操作 (Project Selector & Dropdown) ---
+    ["Search Projects", "搜索工程项目"],
+    ["Search Recent Workspaces", "搜索近期工作区"],
+    ["Search projects...", "搜索工程项目..."],
+    ["Search workspaces...", "搜索工作区..."],
+    ["New Project", "新建工程项目"],
+    ["Quick Start", "快速开始"],
+    ["No Project", "未关联项目"],
+    ["Project Settings", "工程项目设置"],
+    ["Workspace Settings", "工作区设置"],
+    ["Open Project Picker", "打开项目选择器"],
+    ["Open Workspace Selector", "打开工作区选择器"],
+    ["Select Project", "选择工程项目"],
+    ["Select project", "选择工程项目"],
+    ["Select CitC Workspace", "选择 CitC 工作区"],
+    ["Select CitC workspace", "选择 CitC 工作区"],
+    ["Select Cog Workspace", "选择 Cog 工作区"],
+    ["Select a folder to create a new project.", "选择一个本地文件夹以创建新项目。"],
+    ["Select a folder.", "选择一个本地文件夹。"],
+    ["Instantly create a new project and folder to start building.", "立即创建新项目与专属目录并开始构建。"],
+    ["Create a new project using normal folders and/or citc workspaces.", "使用常规文件夹或 CitC 工作区创建新项目。"],
+    ["Work outside of any project.", "在未关联任何项目的状态下工作。"],
+    ["Work in a CitC workspace.", "在 CitC 工作区中工作。"],
+    ["Work in a Cog workspace.", "在 Cog 工作区中工作。"],
+    ["Work in an ABFS workspace.", "在 ABFS 工作区中工作。"],
+    ["Open project settings", "打开项目设置"],
+    ["Open workspace settings", "打开工作区设置"],
+    ["Create New Project", "创建新工程项目"],
+    ["Create Project", "创建工程项目"],
+    ["Create a Project", "创建工程项目"],
+    ["New Workspace", "新建工作区"],
+    ["Add Workspace", "添加工作区"],
+    ["Workspace Actions", "工作区操作"],
+    ["Environment Actions", "环境操作"],
+    ["Copy workspace", "复制工作区"],
+    ["Copy project", "复制工程项目"],
+    ["Archive Workspace", "归档工作区"],
+    ["Archive Environment", "归档环境"],
+    ["Archive workspace", "归档工作区"],
+    ["Archive project", "归档工程项目"],
+    ["Display Options", "显示选项"],
+    ["No matching projects", "未找到匹配的项目"],
+    ["No matching workspaces", "未找到匹配的工作区"],
+    ["No projects found", "未找到工程项目"],
+    ["No workspaces found", "未找到工作区"],
+    ["No matching items", "未找到匹配项"],
+    ["No matching results", "未找到匹配结果"],
+    ["No matching customizations found.", "未找到匹配的个性化扩展。"],
+    ["No matching flags", "未找到匹配的标志"],
+    ["Google3 projects are being deprecated. Select a CitC workspace instead.", "Google3 项目已被废弃，请选择 CitC 工作区。"],
+    ["Google3 projects are deprecated. Learn more", "Google3 项目已被废弃。了解更多"],
+    ["Change VCS in General settings, under Advanced", "可在“常规偏好 - 高级”中修改版本控制系统 (VCS)"],
+
+    // --- 全局通用按钮、操作与工具提示 (Buttons & Tooltips) ---
+    ["More Actions", "更多操作"],
+    ["More actions", "更多操作"],
+    ["More options", "更多选项"],
+    ["Group Actions", "分组操作"],
+    ["Selection Actions", "选中项操作"],
+    ["Stop All Subagents", "停止所有子智能体"],
+    ["Stop Subagent", "停止子智能体"],
+    ["Stop Task", "停止任务"],
+    ["Cancel All Tasks", "取消所有任务"],
+    ["Cancel step", "取消步骤"],
+    ["Cancel Task", "取消任务"],
+    ["Send Now", "立即发送"],
+    ["Autonomous Mode", "全自主模式"],
+    ["Autonomous mode", "全自主模式"],
+    ["Add Context", "添加上下文"],
+    ["Add Model", "添加模型"],
+    ["Add Terminal", "新建终端"],
+    ["Clear Search", "清空搜索"],
+    ["Clear search", "清空搜索"],
+    ["Clear filter", "清空筛选"],
+    ["Good response", "回答准确"],
+    ["Bad response", "回答欠佳"],
+    ["Insert in terminal", "插入终端"],
+    ["Open Diff", "查看对比差异"],
+    ["Remove From Split", "移出分屏"],
+    ["Your quota for this model is running low.", "此模型的可用配额即将耗尽。"],
+    ["Click to open docs", "点击打开官方文档"],
+    ["Open settings menu", "打开设置菜单"],
+    ["Dismiss Tip", "不再提示"],
+    ["Dismiss announcement", "关闭公告"],
+    ["Dismiss error", "忽略错误"],
+    ["Dismiss notification", "忽略通知"],
+    ["Dismiss toast", "关闭提示"],
+    ["Select an option", "请选择一项"],
+    ["Select Environment", "选择运行环境"],
+    ["Select Default Branch", "选择默认分支"],
+    ["Select Worktree", "选择工作树"],
+    ["Select License", "选择许可证"],
+    ["Select Theme", "选择主题"],
+    ["Next question", "下一题"],
+    ["Previous question", "上一题"],
+    ["Next match", "下一个匹配项"],
+    ["Previous match", "上一个匹配项"],
+    ["Next match (Enter)", "下一个匹配项 (Enter)"],
+    ["Previous match (Shift+Enter)", "上一个匹配项 (Shift+Enter)"],
+    ["Next Page", "下一页"],
+    ["Previous Page", "上一页"],
+    ["Current Page", "当前页"],
+    ["File Explorer", "文件浏览器"],
+    ["File path breadcrumbs", "文件路径导航"],
+    ["Fork Conversation", "分叉新会话"],
+    ["Go Back", "返回上一页"],
+    ["Go Forward", "前进到下一页"],
+    ["Match case", "区分大小写"],
+    ["Match whole word", "全字匹配"],
+    ["Use regular expression", "使用正则表达式"],
+    ["Stage change", "暂存改动"],
+    ["Unstage change", "取消暂存"],
+    ["Discard unstaged changes", "放弃未暂存的改动"],
+    ["Staged Changes", "已暂存的改动"],
+    ["Untracked (Unstaged)", "未跟踪（未暂存）"],
+    ["Delete conversation", "删除会话"],
+    ["Delete Conversation", "删除会话"],
+    ["Delete Task", "删除任务"],
+    ["Delete Terminal", "删除终端"],
+    ["Delete Skill", "删除技能"],
+    ["Delete MCP Server", "删除 MCP 服务"],
+    ["This skill is installed in your workspace", "此技能已安装在您的工作区"],
+    ["Search conversations...", "搜索历史会话..."],
+    ["Search conversations (by name or Cascade ID)", "搜索会话（通过名称或 ID）"],
+    ["Search customizations...", "搜索扩展与技能..."],
+    ["Search flags", "搜索配置项"],
+    ["Search for commands...", "搜索命令..."],
+    ["Search for conversations...", "搜索会话..."],
+    ["Search metrics...", "搜索指标..."],
+    ["Search steps...", "搜索执行步骤..."],
+    ["Search MCP servers by name", "按名称搜索 MCP 服务"],
+    ["Search all skills on Agent Market…", "在智能体市场搜索所有技能…"],
+    ["Search skills…", "搜索技能…"],
+    ["Search across files...", "在文件中全局检索..."],
+    ["Search GoB repositories...", "搜索代码仓库..."],
+    ["Select category to search...", "选择检索分类..."],
+    ["Enter directory path...", "输入目录路径..."],
+    ["Enter file or directory path...", "输入文件或目录路径..."],
+    ["Enter project name...", "输入工程项目名称..."],
+    ["Enter workspace name...", "输入工作区名称..."],
+    ["Enter tool name or server...", "输入工具名称或服务节点..."],
+    ["Prompt to execute on schedule...", "定时自动执行的提示词指令..."],
+    ["Enter command (e.g., git, blaze)...", "输入命令（如 git, blaze）..."],
+    ["Type absolute path or navigate folders...", "输入绝对路径或浏览文件夹..."],
+    ["Write a comment...", "添加批注评论..."],
+    ["(Optional) Tell us more...", "（可选）提供更多反馈详情..."],
+    ["(Optional) Tell us more or type your reason...", "（可选）提供更多详情或说明原因..."],
+    ["Copy Content", "复制内容"],
+    ["Copy Path", "复制路径"],
+    ["Copy Command", "复制命令"],
+    ["Copy code", "复制代码"],
+    ["Copied!", "已复制！"],
+    ["Copied", "已复制"],
+    ["Double-click to reset panel sizes", "双击重置面板尺寸"],
+    ["Drag to resize, double-click to reset", "拖拽调整尺寸，双击重置"],
+    ["Fit the whole trajectory", "完整适配轨迹视图"],
+    ["Open side-by-side view", "打开并排分屏视图"],
+    ["Side-by-side layout", "并排布局"],
+    ["Stacked layout", "堆叠布局"],
+    ["Layout Controls", "布局控制"],
+    ["Mark all as read", "全部标记为已读"],
+    ["Experimental model. Click to provide feedback or opt out.", "实验性模型。点击可提供反馈或退出。"],
+    ["Agent can scroll on browser pages to access more content.", "智能体可在浏览器页面上滚动以访问更多内容。"],
+    ["Working directory: ", "工作目录："],
+    ["Describe a plugin and the agent builds it", "描述插件需求，智能体自动为您构建"],
+    ["Dev mode: Localhost server automatically detected", "开发模式：已自动检测到本地服务器"],
+
     // --- 危险区域与项目删除 (Danger Zone & Deletion) ---
     ["Danger Zone", "危险区域"],
     ["Danger zone", "危险区域"],
@@ -408,11 +575,17 @@
     [new RegExp("^The breakdown below shows token usage from customizations like skills, rules, and MCP\\. If the budget is exceeded, large customizations will be truncated automatically\\.?$", "i"), "下方明细展示了技能 (Skills)、规则 (Rules) 及 MCP 等扩展占用的上下文 Token 额度。若超出上限，体积较大的扩展将被自动截断。"],
     [new RegExp("^Configure default behaviors, skills, and MCP servers\\. Learn more\\.?$", "i"), "配置默认行为策略、技能库 (Skills) 与 MCP 服务节点。了解更多。"],
     [new RegExp("^Configure global allowed and denied resource permissions\\. Learn more\\.?$", "i"), "配置全局允许与拒绝的资源访问权限。了解更多。"],
-    [new RegExp("^Browser settings have moved to the Browser section of General settings\\. Go to General settings$", "i"), "浏览器设置已整合至常规偏好设置中的“浏览器”专区。前往常规设置"]
+    [new RegExp("^Browser settings have moved to the Browser section of General settings\\. Go to General settings$", "i"), "浏览器设置已整合至常规偏好设置中的“浏览器”专区。前往常规设置"],
+    [new RegExp("^Select project,\\s*current:\\s*(.+)$", "i"), "选择项目，当前为：$1"],
+    [new RegExp("^Select project$", "i"), "选择工程项目"],
+    [new RegExp("^No matching (.+)$", "i"), "未找到匹配的 $1"],
+    [new RegExp("^No (.+) found\\.?$", "i"), "未找到 $1。"],
+    [new RegExp("^Working directory:\\s*(.+)$", "i"), "工作目录：$1"],
+    [new RegExp("^Page title:\\s*(.+)$", "i"), "页面标题：$1"]
   ];
 
   // 3. 安全检测：判断是否为不可汉化的代码块或数据区域
-  const IGNORE_TAGS = new Set(["SCRIPT", "STYLE", "CODE", "PRE", "NOSCRIPT", "SVG", "PATH"]);
+  const IGNORE_TAGS = new Set(["SCRIPT", "STYLE", "CODE", "PRE", "NOSCRIPT", "PATH"]);
 
   function shouldIgnoreElement(el) {
     if (!el || !el.tagName) return true;
@@ -469,6 +642,11 @@
       const parent = node.parentElement;
       if (parent && shouldIgnoreElement(parent)) return;
 
+      // 保护用户自定义的项目名称：如果位于 [data-testid="project-selector-item"] 下的项目名称 span，则跳过文本翻译
+      if (parent && parent.tagName === "SPAN" && parent.closest && parent.closest('[data-testid="project-selector-item"]') && !parent.closest("button")) {
+        return;
+      }
+
       const original = node.nodeValue;
       if (!original || !original.trim()) return;
 
@@ -495,21 +673,58 @@
         const trPlaceholder = translateString(el.placeholder);
         if (trPlaceholder !== el.placeholder) {
           el.placeholder = trPlaceholder;
+          try { el.setAttribute("placeholder", trPlaceholder); } catch (e) {}
+        }
+      } else if (el.hasAttribute && el.hasAttribute("placeholder")) {
+        const attrPh = el.getAttribute("placeholder");
+        if (attrPh) {
+          const trPh = translateString(attrPh);
+          if (trPh !== attrPh) {
+            el.setAttribute("placeholder", trPh);
+            try { el.placeholder = trPh; } catch (e) {}
+          }
         }
       }
 
-      // 翻译 aria-label 或 title 提示
-      if (el.getAttribute("aria-label")) {
+      // 翻译 aria-label 提示
+      if (el.getAttribute && el.getAttribute("aria-label")) {
         const label = el.getAttribute("aria-label");
         const trLabel = translateString(label);
         if (trLabel !== label) {
           el.setAttribute("aria-label", trLabel);
         }
       }
+
+      // 翻译 title 提示
       if (el.title) {
         const trTitle = translateString(el.title);
         if (trTitle !== el.title) {
           el.title = trTitle;
+          try { el.setAttribute("title", trTitle); } catch (e) {}
+        }
+      } else if (el.hasAttribute && el.hasAttribute("title")) {
+        const attrTitle = el.getAttribute("title");
+        if (attrTitle) {
+          const trAttr = translateString(attrTitle);
+          if (trAttr !== attrTitle) {
+            el.setAttribute("title", trAttr);
+            try { el.title = trAttr; } catch (e) {}
+          }
+        }
+      }
+
+      // 翻译各类 tooltip 属性 (react-tooltip / tippy / custom tooltips)
+      const tipAttrs = ["data-tooltip-content", "data-tooltip-text", "data-tooltip", "data-tip"];
+      for (let i = 0; i < tipAttrs.length; i++) {
+        const attr = tipAttrs[i];
+        if (el.hasAttribute && el.hasAttribute(attr)) {
+          const val = el.getAttribute(attr);
+          if (val) {
+            const trVal = translateString(val);
+            if (trVal !== val) {
+              el.setAttribute(attr, trVal);
+            }
+          }
         }
       }
 

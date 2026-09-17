@@ -18,7 +18,7 @@
     btn.id = "agy-view-switcher-btn";
     btn.className = "agy-view-switcher";
     btn.title = "切换到电脑/iPad 桌面工作台";
-    btn.innerHTML = "<span class="agy-view-switcher-icon">🖥️</span><span>桌面工作台</span>";
+    btn.innerHTML = '<span class="agy-view-switcher-icon">🖥️</span><span>桌面工作台</span>';
     btn.addEventListener("click", () => {
       document.cookie = "agy_view_mode=desktop; path=/; max-age=31536000";
       try { localStorage.setItem("agy_view_mode", "desktop"); } catch (e) {}
