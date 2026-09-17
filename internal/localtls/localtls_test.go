@@ -27,3 +27,17 @@ func TestDialTLSContextRejectsNonLoopback(t *testing.T) {
 		t.Fatal("expected non-loopback insecure TLS dial to fail")
 	}
 }
+
+func TestNewLoopbackTransportRejectsNonLoopback(t *testing.T) {
+	tr := NewLoopbackTransport()
+	if tr == nil || tr.DialTLSContext == nil {
+		t.Fatal("expected non-nil transport and DialTLSContext")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, err := tr.DialTLSContext(ctx, "tcp", "1.1.1.1:443")
+	if err == nil {
+		t.Fatal("expected non-loopback dial via transport to fail")
+	}
+}
+

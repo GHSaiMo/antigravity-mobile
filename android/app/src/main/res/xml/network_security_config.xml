@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Antigravity Mobile Android Network Security Configuration (H-1) -->
+<network-security-config>
+    <!-- Base config: Permits LAN HTTP connection to Mac gateway on private IP / loopback -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <!-- Strictly forbid cleartext HTTP to external cloud services and APIs -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">day.app</domain>
+        <domain includeSubdomains="true">github.com</domain>
+        <domain includeSubdomains="true">githubusercontent.com</domain>
+        <domain includeSubdomains="true">googleapis.com</domain>
+        <domain includeSubdomains="true">cloudflare.com</domain>
+    </domain-config>
+</network-security-config>

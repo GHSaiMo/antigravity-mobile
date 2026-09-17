@@ -183,13 +183,17 @@ func (h *AuthHandler) HandlePair(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if h.limiter != nil && !h.limiter.Allow("pair:"+CleanIP(r.RemoteAddr), 8, time.Minute) {
-		log.Printf("[AUDIT:RATE_LIMIT] action=pair ip=%s", CleanIP(r.RemoteAddr))
-		w.Header().Set("Retry-After", "60")
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusTooManyRequests)
-		json.NewEncoder(w).Encode(map[string]string{"error": "too many pairing attempts"})
-		return
+	clientIP := ExtractClientIP(r)
+	rateKey := RateLimitKeyIP(clientIP)
+	if h.limiter != nil {
+		if !h.limiter.Allow("pair:global", 40, time.Minute) || !h.limiter.Allow("pair:"+rateKey, 8, time.Minute) {
+			log.Printf("[AUDIT:RATE_LIMIT] action=pair ip=%s subnet=%s", clientIP, rateKey)
+			w.Header().Set("Retry-After", "60")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			json.NewEncoder(w).Encode(map[string]string{"error": "too many pairing attempts"})
+			return
+		}
 	}
 
 	req.PairingCode = strings.TrimSpace(req.PairingCode)
@@ -339,8 +343,10 @@ func (h *AuthHandler) HandleNewPairingSession(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	if h.limiter != nil && !h.limiter.Allow("session:"+CleanIP(r.RemoteAddr), 5, time.Minute) {
-		log.Printf("[AUDIT:RATE_LIMIT] action=session ip=%s", CleanIP(r.RemoteAddr))
+	clientIP := ExtractClientIP(r)
+	rateKey := RateLimitKeyIP(clientIP)
+	if h.limiter != nil && !h.limiter.Allow("session:"+rateKey, 5, time.Minute) {
+		log.Printf("[AUDIT:RATE_LIMIT] action=session ip=%s subnet=%s", clientIP, rateKey)
 		w.Header().Set("Retry-After", "60")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusTooManyRequests)
@@ -445,9 +451,11 @@ func (h *AuthHandler) HandleWSTicket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// SEC-5: Rate-limit ticket issuance to 60 per minute per IP.
-	if h.limiter != nil && !h.limiter.Allow("wsticket:"+CleanIP(r.RemoteAddr), 60, time.Minute) {
-		log.Printf("[AUDIT:RATE_LIMIT] action=wsticket ip=%s", CleanIP(r.RemoteAddr))
+	// SEC-5 / M-4: Rate-limit ticket issuance to 60 per minute per IP / /64 subnet.
+	clientIP := ExtractClientIP(r)
+	rateKey := RateLimitKeyIP(clientIP)
+	if h.limiter != nil && !h.limiter.Allow("wsticket:"+rateKey, 60, time.Minute) {
+		log.Printf("[AUDIT:RATE_LIMIT] action=wsticket ip=%s subnet=%s", clientIP, rateKey)
 		w.Header().Set("Retry-After", "60")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusTooManyRequests)

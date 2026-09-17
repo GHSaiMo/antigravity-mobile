@@ -11,6 +11,7 @@ import (
 )
 
 func TestAuthMiddleware_And_Handler(t *testing.T) {
+	t.Setenv("ADMIN_TOKEN", "")
 	tempDir := t.TempDir()
 	storePath := filepath.Join(tempDir, "auth_store.json")
 	store, err := NewAuthStore(storePath)
@@ -222,6 +223,7 @@ func TestIsWhitelistedPath(t *testing.T) {
 }
 
 func TestAdminAuthorization(t *testing.T) {
+	t.Setenv("ADMIN_TOKEN", "")
 	tempDir := t.TempDir()
 	storePath := filepath.Join(tempDir, "auth_store.json")
 	store, err := NewAuthStore(storePath)

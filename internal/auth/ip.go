@@ -110,17 +110,23 @@ func ExtractClientIP(r *http.Request) string {
 	// If the socket IP is loopback or local, check if an upstream proxy provided client headers
 	if IsLoopbackAddr(ip) || ip == "localhost" || ip == "" {
 		if cfIP := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); cfIP != "" {
-			return CleanIP(cfIP)
+			c := CleanIP(cfIP)
+			if net.ParseIP(c) != nil {
+				return c
+			}
 		}
 		if realIP := strings.TrimSpace(r.Header.Get("X-Real-IP")); realIP != "" {
-			return CleanIP(realIP)
+			c := CleanIP(realIP)
+			if net.ParseIP(c) != nil {
+				return c
+			}
 		}
 		if fwd := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); fwd != "" {
 			parts := strings.Split(fwd, ",")
 			if len(parts) > 0 {
-				candidate := strings.TrimSpace(parts[0])
-				if candidate != "" {
-					return CleanIP(candidate)
+				candidate := CleanIP(strings.TrimSpace(parts[0]))
+				if candidate != "" && net.ParseIP(candidate) != nil {
+					return candidate
 				}
 			}
 		}
@@ -128,5 +134,28 @@ func ExtractClientIP(r *http.Request) string {
 
 	return ip
 }
+
+// RateLimitKeyIP normalizes an IP for rate-limiting.
+// For IPv6 addresses, it aggregates by the /64 subnet (standard ISP subscriber allocation)
+// to prevent rate-limit evasion via SLAAC/privacy address rotation (M-4).
+// Loopback and IPv4 addresses are returned as single IPs.
+func RateLimitKeyIP(addr string) string {
+	ipStr := CleanIP(addr)
+	parsed := net.ParseIP(ipStr)
+	if parsed == nil {
+		return ipStr
+	}
+	if parsed.IsLoopback() {
+		return "loopback"
+	}
+	if ip4 := parsed.To4(); ip4 != nil {
+		return ip4.String()
+	}
+	// IPv6: aggregate by /64 prefix
+	mask64 := net.CIDRMask(64, 128)
+	masked := parsed.Mask(mask64)
+	return masked.String() + "/64"
+}
+
 
 

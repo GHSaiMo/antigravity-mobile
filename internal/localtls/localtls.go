@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"net/http"
 	"strings"
 )
 
@@ -39,4 +40,14 @@ func IsLoopbackHost(host string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+// NewLoopbackTransport returns an http.Transport strictly configured for loopback-only
+// communication with the local Antigravity language_server. All TLS dials are gated
+// through DialTLSContext to ensure InsecureSkipVerify cannot be applied to any remote host.
+func NewLoopbackTransport() *http.Transport {
+	return &http.Transport{
+		TLSClientConfig: ClientConfig(),
+		DialTLSContext:  DialTLSContext,
+	}
 }

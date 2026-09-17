@@ -254,6 +254,28 @@ func GetTunnelConfig() TunnelConfig {
 	}
 }
 
+// ValidateFRPTokenStrength checks if the configured FRP_TOKEN is weak or low-entropy (M-1).
+// It returns an advisory warning message if the token is sub-optimal.
+func ValidateFRPTokenStrength(token string) string {
+	tok := strings.TrimSpace(token)
+	if tok == "" {
+		return "⚠️  FRP_TOKEN is empty! Cloud relay requires a valid token to authenticate."
+	}
+	weakTokens := []string{
+		"admin", "123456", "12345678", "password", "frp", "frp123", "frptoken",
+		"your_frp_auth_token", "your_token", "default", "secret",
+	}
+	for _, w := range weakTokens {
+		if strings.EqualFold(tok, w) {
+			return fmt.Sprintf("⚠️  [SECURITY WARNING] FRP_TOKEN %q is a well-known weak/example token! Generate a secure random token using: openssl rand -hex 32", tok)
+		}
+	}
+	if len(tok) < 16 {
+		return fmt.Sprintf("⚠️  [SECURITY WARNING] FRP_TOKEN length (%d) is shorter than 16 characters. For internet-facing relay security, generate at least 32 random hex characters: openssl rand -hex 32", len(tok))
+	}
+	return ""
+}
+
 // AdvertisePublicIPv6 reports whether pairing QR / endpoints should include the
 // machine's global unicast IPv6. TLS/GATEWAY_SSL implies yes; otherwise the
 // operator must set INCLUDE_PUBLIC_IPV6=1.

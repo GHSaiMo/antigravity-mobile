@@ -38,26 +38,30 @@ func ExtractToken(r *http.Request) string {
 		}
 	}
 
-	// 2. Query parameter (?auth_token=... or ?token=...)
+	// 2. Cookie (HttpOnly session cookie - C-1)
+	if c, err := r.Cookie(DeviceCookieName); err == nil {
+		if tok := strings.TrimSpace(c.Value); tok != "" {
+			return tok
+		}
+	}
+
+	// 3. [DEPRECATED / L-1] Query parameter (?auth_token=... or ?token=...)
 	// Restricted strictly to:
 	// - WebSocket upgrade requests (browsers cannot set headers on WebSocket connections)
 	// - File/media raw download endpoints (e.g. <img> or file downloads where headers cannot be set)
+	// Clients are strongly urged to migrate to short-lived WS tickets or HttpOnly Cookie.
 	isWS := strings.Contains(strings.ToLower(r.Header.Get("Upgrade")), "websocket") ||
 		r.URL.Path == "/connect-websocket" ||
 		strings.HasPrefix(r.URL.Path, "/gateway/cascade/stream")
 	isRawFile := strings.HasPrefix(r.URL.Path, "/api/v1/files/raw")
 	if isWS || isRawFile {
-		if token := r.URL.Query().Get("auth_token"); token != "" {
-			return strings.TrimSpace(token)
+		token := strings.TrimSpace(r.URL.Query().Get("auth_token"))
+		if token == "" {
+			token = strings.TrimSpace(r.URL.Query().Get("token"))
 		}
-		if token := r.URL.Query().Get("token"); token != "" {
-			return strings.TrimSpace(token)
-		}
-	}
-
-	if c, err := r.Cookie(DeviceCookieName); err == nil {
-		if tok := strings.TrimSpace(c.Value); tok != "" {
-			return tok
+		if token != "" {
+			log.Printf("[DEPRECATED] client %s passed token in query param for %s; migrate to Authorization header, cookie or /api/v1/auth/ws-ticket", ExtractClientIP(r), r.URL.Path)
+			return token
 		}
 	}
 

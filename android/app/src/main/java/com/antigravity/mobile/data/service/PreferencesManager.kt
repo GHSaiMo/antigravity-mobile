@@ -16,7 +16,7 @@ import kotlinx.serialization.json.Json
 
 class PreferencesManager(context: Context) {
     private val appContext = context.applicationContext
-    private val prefs: SharedPreferences = try {
+    private val securePrefs: SharedPreferences? = try {
         val masterKey = MasterKey.Builder(context)
             .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
             .build()
@@ -28,8 +28,25 @@ class PreferencesManager(context: Context) {
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
         )
     } catch (e: Exception) {
-        Log.w("PreferencesManager", "Failed to init EncryptedSharedPreferences, fallback to standard: ${e.message}")
+        Log.e("PreferencesManager", "Failed to init EncryptedSharedPreferences: ${e.message}")
+        null
+    }
+
+    private val prefs: SharedPreferences =
         context.getSharedPreferences("agy_standard_prefs", Context.MODE_PRIVATE)
+
+    init {
+        // H-2: If legacy plaintext preferences held credentials, migrate to securePrefs and purge from plaintext
+        val legacyToken = prefs.getString(KEY_DEVICE_TOKEN, null)
+        if (!legacyToken.isNullOrBlank()) {
+            securePrefs?.edit()?.putString(KEY_DEVICE_TOKEN, legacyToken)?.apply()
+            prefs.edit().remove(KEY_DEVICE_TOKEN).apply()
+        }
+        val legacyId = prefs.getString(KEY_DEVICE_ID, null)
+        if (!legacyId.isNullOrBlank()) {
+            securePrefs?.edit()?.putString(KEY_DEVICE_ID, legacyId)?.apply()
+            prefs.edit().remove(KEY_DEVICE_ID).apply()
+        }
     }
 
     private val _themeModeFlow = MutableStateFlow(themeMode)
@@ -40,12 +57,34 @@ class PreferencesManager(context: Context) {
         set(value) = prefs.edit().putString(KEY_GATEWAY_URL, value?.trimEnd('/')).apply()
 
     var deviceToken: String?
-        get() = prefs.getString(KEY_DEVICE_TOKEN, null)
-        set(value) = prefs.edit().putString(KEY_DEVICE_TOKEN, value).apply()
+        get() = securePrefs?.getString(KEY_DEVICE_TOKEN, null)
+        set(value) {
+            val sp = securePrefs
+            if (sp != null) {
+                if (value != null) {
+                    sp.edit().putString(KEY_DEVICE_TOKEN, value).apply()
+                } else {
+                    sp.edit().remove(KEY_DEVICE_TOKEN).apply()
+                }
+            } else {
+                Log.e("PreferencesManager", "Cannot store deviceToken: EncryptedSharedPreferences unavailable. Refusing plain storage.")
+            }
+        }
 
     var deviceId: String?
-        get() = prefs.getString(KEY_DEVICE_ID, null)
-        set(value) = prefs.edit().putString(KEY_DEVICE_ID, value).apply()
+        get() = securePrefs?.getString(KEY_DEVICE_ID, null)
+        set(value) {
+            val sp = securePrefs
+            if (sp != null) {
+                if (value != null) {
+                    sp.edit().putString(KEY_DEVICE_ID, value).apply()
+                } else {
+                    sp.edit().remove(KEY_DEVICE_ID).apply()
+                }
+            } else {
+                Log.e("PreferencesManager", "Cannot store deviceId: EncryptedSharedPreferences unavailable.")
+            }
+        }
 
     var themeMode: String
         get() = prefs.getString(KEY_THEME_MODE, "system") ?: "system"
@@ -318,6 +357,7 @@ class PreferencesManager(context: Context) {
     }
 
     fun clear() {
+        securePrefs?.edit()?.clear()?.apply()
         prefs.edit().clear().apply()
         _themeModeFlow.value = "system"
     }

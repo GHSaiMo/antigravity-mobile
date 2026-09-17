@@ -243,13 +243,16 @@ func (p *Proxy) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	wg.Add(2)
 
 	const wsTimeout = 60 * time.Second
+	const maxWSMessageSize = 32 * 1024 * 1024 // 32MB safety ceiling against memory exhaustion (M-3)
 
-	// Set up read deadlines and pong handlers for both sides
+	// Set up read limits, deadlines and pong handlers for both sides
+	clientConn.SetReadLimit(maxWSMessageSize)
 	clientConn.SetReadDeadline(time.Now().Add(wsTimeout))
 	clientConn.SetPongHandler(func(string) error {
 		clientConn.SetReadDeadline(time.Now().Add(wsTimeout))
 		return nil
 	})
+	upstreamConn.SetReadLimit(maxWSMessageSize)
 	upstreamConn.SetReadDeadline(time.Now().Add(wsTimeout))
 	upstreamConn.SetPongHandler(func(string) error {
 		upstreamConn.SetReadDeadline(time.Now().Add(wsTimeout))

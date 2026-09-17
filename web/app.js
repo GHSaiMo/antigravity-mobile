@@ -1,28 +1,17 @@
 // Antigravity Mobile Gateway - Web & PWA Client
 
-// --- Global Auth Token Interceptor & 401 Handler ---
+// --- Global Auth Token Interceptor & 401 Handler (C-1) ---
+// Web/PWA relies on HttpOnly Session Cookie (agy_dt) automatically managed by the browser.
+// Secret tokens are not kept in localStorage to eliminate token theft via XSS.
 const originalFetch = window.fetch;
 window.fetch = async function (url, options = {}) {
-  const token = localStorage.getItem("agy_device_token");
-  if (token) {
-    options = options || {};
-    options.headers = options.headers || {};
-    if (options.headers instanceof Headers) {
-      if (!options.headers.has("Authorization")) {
-        options.headers.set("Authorization", `Bearer ${token}`);
-      }
-    } else {
-      if (!options.headers["Authorization"]) {
-        options.headers["Authorization"] = `Bearer ${token}`;
-      }
-    }
-  }
-
   const response = await originalFetch(url, options);
 
   // Auto trigger pairing sheet if 401 Unauthorized encountered on protected API routes
   if (response.status === 401 && typeof url === "string" && !url.includes("/api/v1/auth/pair")) {
     console.warn("[Auth] 401 Unauthorized received for:", url);
+    localStorage.removeItem("agy_paired");
+    localStorage.removeItem("agy_device_id");
     localStorage.removeItem("agy_device_token");
     if (typeof updateAuthUI === "function") updateAuthUI();
     if (typeof openPairingSheet === "function") openPairingSheet("设备凭据已失效或被 Mac 网关吊销，请重新配对");
@@ -30,6 +19,18 @@ window.fetch = async function (url, options = {}) {
 
   return response;
 };
+
+// One-time purge of legacy token from localStorage
+try {
+  if (localStorage.getItem("agy_device_token")) {
+    localStorage.setItem("agy_paired", "1");
+    localStorage.removeItem("agy_device_token");
+  }
+} catch (_) {}
+
+function isDevicePaired() {
+  return localStorage.getItem("agy_paired") === "1" || !!localStorage.getItem("agy_device_id");
+}
 
 let activeCascadeId = null;
 let pollTimer = null;
@@ -1514,29 +1515,17 @@ async function connectStreamWs(cascadeId) {
 
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   let wsUrl = `${proto}//${location.host}/gateway/cascade/stream?cascadeId=${encodeURIComponent(cascadeId)}`;
-  const token = localStorage.getItem("agy_device_token");
-  if (token) {
-    try {
-      // S9: Exchange long-lived device token for a short-lived one-time ticket
-      // so the device token never appears in query strings / logs.
-      const resp = await fetch("/api/v1/auth/ws-ticket", {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${token}` }
-      });
-      if (resp.ok) {
-        const data = await resp.json();
-        if (data && data.ticket) {
-          wsUrl += `&ticket=${encodeURIComponent(data.ticket)}`;
-        } else {
-          wsUrl += `&auth_token=${encodeURIComponent(token)}`;
-        }
-      } else {
-        wsUrl += `&auth_token=${encodeURIComponent(token)}`;
+  try {
+    // S9 / C-1: Exchange HttpOnly session cookie for a short-lived one-time ticket
+    // so no long-lived token ever appears in query strings or logs.
+    const resp = await originalFetch("/api/v1/auth/ws-ticket", { method: "POST" });
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data && data.ticket) {
+        wsUrl += `&ticket=${encodeURIComponent(data.ticket)}`;
       }
-    } catch (_) {
-      wsUrl += `&auth_token=${encodeURIComponent(token)}`;
     }
-  }
+  } catch (_) {}
 
   // Abort if active cascade changed during ticket exchange
   if (activeCascadeId !== cascadeId) return;
@@ -3371,10 +3360,10 @@ function updateAuthUI() {
   const deviceIdRow = document.getElementById("settings-device-id-row");
   const deviceIdEl = document.getElementById("settings-device-id");
   const btnUnpair = document.getElementById("btn-unpair-device");
-  const token = localStorage.getItem("agy_device_token");
+  const paired = isDevicePaired();
   const devId = localStorage.getItem("agy_device_id");
 
-  if (token) {
+  if (paired) {
     if (statusEl) {
       statusEl.textContent = "已配对";
       statusEl.className = "status-badge connected";
@@ -3427,8 +3416,11 @@ async function pairWithCode(code) {
     throw new Error(data.error || `配对失败 (HTTP ${resp.status})`);
   }
 
-  localStorage.setItem("agy_device_token", data.device_token);
+  // C-1: Token is securely set as HttpOnly Cookie by the gateway response.
+  // We only track pairing state and public device_id in localStorage.
+  localStorage.setItem("agy_paired", "1");
   localStorage.setItem("agy_device_id", data.device_id);
+  localStorage.removeItem("agy_device_token");
   updateAuthUI();
   return data;
 }
@@ -3500,8 +3492,10 @@ async function submitPairing() {
 
 function unpairDevice() {
   if (confirm("确定要解除当前设备的配对绑定吗？")) {
+    localStorage.removeItem("agy_paired");
     localStorage.removeItem("agy_device_token");
     localStorage.removeItem("agy_device_id");
+    document.cookie = "agy_dt=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;";
     updateAuthUI();
     loadConversations();
   }
@@ -3514,10 +3508,10 @@ function clearWebCache() {
   currentTrajectories = {};
   discoveredProjects = [];
   try {
-    const deviceToken = localStorage.getItem("agy_device_token");
+    const paired = localStorage.getItem("agy_paired");
     const deviceId = localStorage.getItem("agy_device_id");
     localStorage.clear();
-    if (deviceToken) localStorage.setItem("agy_device_token", deviceToken);
+    if (paired) localStorage.setItem("agy_paired", paired);
     if (deviceId) localStorage.setItem("agy_device_id", deviceId);
   } catch (_) {}
   alert("本地会话与文档缓存已清空");
@@ -3863,31 +3857,16 @@ function resolveMediaRawUrl(rawPath) {
     return clean;
   }
   if (clean.startsWith("http://") || clean.startsWith("https://")) {
-    // Never attach credentials to a third-party origin, even if the path looks like /files/raw.
-    let sameOrigin = false;
-    try {
-      sameOrigin = new URL(clean, location.href).origin === location.origin;
-    } catch (_) {
-      sameOrigin = false;
-    }
-    if (sameOrigin && clean.includes("/api/v1/files/raw") && !clean.includes("auth_token=") && !clean.includes("token=")) {
-      const token = localStorage.getItem("agy_device_token");
-      if (token) {
-        clean += (clean.includes("?") ? "&" : "?") + "auth_token=" + encodeURIComponent(token);
-      }
-    }
     return clean;
   }
   if (clean.startsWith("file://")) {
     clean = clean.slice(7);
   }
   
-  const token = localStorage.getItem("agy_device_token") || "";
+  // C-1: Same-origin requests automatically transmit the HttpOnly session cookie (agy_dt).
+  // Long-lived tokens are never appended to URL query parameters.
   const params = new URLSearchParams();
   params.set("uri", clean);
-  if (token) {
-    params.set("auth_token", token);
-  }
   return `/api/v1/files/raw?${params.toString()}`;
 }
 
@@ -4544,6 +4523,15 @@ function initMermaidIfNeeded() {
   return mermaidInitialized;
 }
 
+function sanitizeSVG(svgStr) {
+  if (!svgStr) return "";
+  return svgStr
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
+    .replace(/\son\w+\s*=\s*(['"]).*?\1/gi, "")
+    .replace(/\son\w+\s*=\s*[^>\s]+/gi, "")
+    .replace(/href\s*=\s*(['"])javascript:.*?\1/gi, 'href="#"');
+}
+
 let mermaidRenderCounter = 0;
 async function renderAllMermaidDiagrams(root = document) {
   if (typeof mermaid === "undefined") return;
@@ -4553,10 +4541,8 @@ async function renderAllMermaidDiagrams(root = document) {
   if (!targets || targets.length === 0) return;
 
   for (const target of targets) {
-    if (!target.isConnected) continue;
     target.setAttribute("data-processed", "true");
-    const rawEncoded = target.getAttribute("data-raw-code");
-    if (!rawEncoded) continue;
+    const rawEncoded = target.getAttribute("data-raw-code") || "";
     let code = "";
     try {
       code = decodeURIComponent(rawEncoded);
@@ -4568,7 +4554,7 @@ async function renderAllMermaidDiagrams(root = document) {
     try {
       const result = await mermaid.render(uniqueId, code);
       if (!target.isConnected) return;
-      target.innerHTML = result.svg;
+      target.innerHTML = sanitizeSVG(result.svg);
       if (typeof result.bindFunctions === "function") {
         result.bindFunctions(target);
       }
@@ -5023,7 +5009,7 @@ window.addEventListener("DOMContentLoaded", () => {
   const autoPairCode = urlParams.get("pair_code") || urlParams.get("code");
   if (autoPairCode) {
     window.history.replaceState({}, document.title, window.location.pathname + window.location.hash);
-    const alreadyPaired = !!localStorage.getItem("agy_device_token");
+    const alreadyPaired = isDevicePaired();
     const hint = alreadyPaired
       ? "链接包含配对码。当前设备已配对，确认后才会替换现有凭据。"
       : "链接包含配对码，请确认后再配对。";

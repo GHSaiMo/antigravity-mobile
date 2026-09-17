@@ -222,7 +222,12 @@ public final class AppSettings {
         // 1. Separate scheme if already provided
         var scheme = ""
         if let range = clean.range(of: "://") {
-            scheme = String(clean[..<range.upperBound]).lowercased()
+            let parsedScheme = String(clean[..<range.lowerBound]).lowercased()
+            // M-2: Strictly enforce http and https schemes
+            guard parsedScheme == "http" || parsedScheme == "https" else {
+                return nil
+            }
+            scheme = parsedScheme + "://"
             clean = String(clean[range.upperBound...])
         }
         

@@ -182,6 +182,9 @@ func main() {
 	}
 
 	if tunnelOn {
+		if warn := config.ValidateFRPTokenStrength(tunnelCfg.Token); warn != "" {
+			log.Println(warn)
+		}
 		proxyProtoVer := strings.TrimSpace(os.Getenv("FRP_PROXY_PROTOCOL_VERSION"))
 		if proxyProtoVer == "" {
 			proxyProtoVer = "v2"

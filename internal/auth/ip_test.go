@@ -74,3 +74,26 @@ func TestExtractClientIP(t *testing.T) {
 		})
 	}
 }
+
+func TestRateLimitKeyIP(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"127.0.0.1:12345", "loopback"},
+		{"[::1]:58900", "loopback"},
+		{"192.168.1.50:8080", "192.168.1.50"},
+		{"10.0.0.1", "10.0.0.1"},
+		{"[2001:db8:abcd:0012:1:2:3:4]:1234", "2001:db8:abcd:12::/64"},
+		{"2001:db8:abcd:0012:9:8:7:6", "2001:db8:abcd:12::/64"},
+		{"invalid-host", "invalid-host"},
+	}
+
+	for _, tc := range tests {
+		got := RateLimitKeyIP(tc.input)
+		if got != tc.expected {
+			t.Errorf("RateLimitKeyIP(%q) = %q; want %q", tc.input, got, tc.expected)
+		}
+	}
+}
+

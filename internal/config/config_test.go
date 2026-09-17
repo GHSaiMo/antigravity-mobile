@@ -143,3 +143,23 @@ func TestRedactBarkEndpoint(t *testing.T) {
 		t.Errorf("empty should stay empty")
 	}
 }
+
+func TestValidateFRPTokenStrength(t *testing.T) {
+	if ValidateFRPTokenStrength("") == "" {
+		t.Errorf("expected warning for empty token")
+	}
+	if ValidateFRPTokenStrength("admin") == "" {
+		t.Errorf("expected warning for well-known weak token")
+	}
+	if ValidateFRPTokenStrength("your_frp_auth_token") == "" {
+		t.Errorf("expected warning for placeholder token")
+	}
+	if ValidateFRPTokenStrength("short-token") == "" {
+		t.Errorf("expected warning for short token (< 16 chars)")
+	}
+	strongToken := "a1b2c3d4e5f60718293a4b5c6d7e8f90"
+	if ValidateFRPTokenStrength(strongToken) != "" {
+		t.Errorf("expected no warning for strong 32-hex token, got: %s", ValidateFRPTokenStrength(strongToken))
+	}
+}
+

@@ -281,8 +281,8 @@ func GetFileContent(rawURI, cascadeID string) (*FileContentResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("file not found")
 	}
-	if fi.IsDir() {
-		return nil, fmt.Errorf("path is a directory")
+	if fi.IsDir() || !fi.Mode().IsRegular() {
+		return nil, fmt.Errorf("not a regular file")
 	}
 	if fi.Size() > maxReadSizeBytes {
 		return nil, fmt.Errorf("file size exceeds 10MB limit")
@@ -301,12 +301,14 @@ func GetFileContent(rawURI, cascadeID string) (*FileContentResult, error) {
 
 	// Check companion metadata file
 	metaFile := filePath + ".metadata.json"
-	if metaBytes, err := os.ReadFile(metaFile); err == nil {
-		var meta ArtifactMetadata
-		if err := json.Unmarshal(metaBytes, &meta); err == nil {
-			res.Summary = strings.TrimSpace(meta.Summary)
-			res.RequestFeedback = meta.RequestFeedback
-			res.UserFacing = meta.UserFacing
+	if IsSafeFilePath(metaFile) {
+		if metaBytes, err := os.ReadFile(metaFile); err == nil {
+			var meta ArtifactMetadata
+			if err := json.Unmarshal(metaBytes, &meta); err == nil {
+				res.Summary = strings.TrimSpace(meta.Summary)
+				res.RequestFeedback = meta.RequestFeedback
+				res.UserFacing = meta.UserFacing
+			}
 		}
 	}
 
