@@ -4,11 +4,15 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -16,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -24,6 +29,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -33,6 +41,7 @@ import com.antigravity.mobile.data.service.ConnectionStatus
 import com.antigravity.mobile.ui.components.*
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 import com.antigravity.mobile.ui.viewmodel.ChatViewModel
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -43,17 +52,20 @@ fun ChatScreen(
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
     val inputText by viewModel.inputText.collectAsState()
+    val scrollToBottomTrigger by viewModel.scrollToBottomTrigger.collectAsState()
     val listState = rememberLazyListState()
     val colors = AntigravityTheme.colors
+    val shouldShowThinkingBubble = uiState.isAwaitingResponse || uiState.isRunning
 
     // Photo picker launcher
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetMultipleContents()
     ) { uris ->
         if (uris.isNotEmpty()) {
-            // Selected image attachments
+            viewModel.addImagesFromUris(context, uris)
         }
     }
 
@@ -61,10 +73,17 @@ fun ChatScreen(
         viewModel.initSession(cascadeId, initialTitle)
     }
 
-    // Auto-scroll to bottom on new messages
-    LaunchedEffect(uiState.messages.size) {
-        if (uiState.messages.isNotEmpty()) {
-            listState.animateScrollToItem(uiState.messages.size - 1)
+    // Auto-scroll and bounce down to bottom on new messages, thinking state, or explicit triggers
+    LaunchedEffect(uiState.messages.size, shouldShowThinkingBubble, scrollToBottomTrigger) {
+        delay(25)
+        val totalCount = listState.layoutInfo.totalItemsCount
+        if (totalCount > 0) {
+            listState.animateScrollToItem(totalCount - 1)
+        }
+        delay(60)
+        val finalTotal = listState.layoutInfo.totalItemsCount
+        if (finalTotal > 0) {
+            listState.animateScrollToItem(finalTotal - 1)
         }
     }
 
@@ -129,7 +148,7 @@ fun ChatScreen(
                     .weight(1f)
                     .fillMaxWidth()
             ) {
-                if (uiState.messages.isEmpty() && !uiState.isRunning) {
+                if (uiState.messages.isEmpty() && !shouldShowThinkingBubble) {
                     ChatEmptyStateView(title = uiState.title)
                 } else {
                     LazyColumn(
@@ -151,8 +170,8 @@ fun ChatScreen(
                         }
 
                         // Active Thinking Animation Card
-                        if (uiState.isRunning) {
-                            item {
+                        if (shouldShowThinkingBubble) {
+                            item(key = "agent_thinking_bubble") {
                                 AgentThinkingBubble()
                             }
                         }
@@ -205,11 +224,16 @@ fun ChatScreen(
                                 )
                             }
                         }
+
+                        // Bottom breathing room spacer ensuring bubble is fully clear of input bar
+                        item(key = "chat_bottom_spacer") {
+                            Spacer(modifier = Modifier.height(10.dp))
+                        }
                     }
                 }
             }
 
-            // Bottom Control Area: Divider + Chips + Input Bar
+            // Bottom Control Area: Divider + Chips + Attached Images + Input Bar
             Surface(
                 color = colors.background,
                 modifier = Modifier.fillMaxWidth()
@@ -234,6 +258,51 @@ fun ChatScreen(
                             viewModel.openMarkdownViewer(planUri, "实施方案 (Implementation Plan)")
                         }
                     )
+
+                    // Attached Image Previews Strip (displayed directly above the input box)
+                    if (uiState.selectedImages.isNotEmpty()) {
+                        LazyRow(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 2.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            itemsIndexed(uiState.selectedImages, key = { _, img -> img.id }) { index, img ->
+                                Box(
+                                    modifier = Modifier.padding(top = 4.dp, end = 6.dp)
+                                ) {
+                                    Image(
+                                        bitmap = img.bitmap.asImageBitmap(),
+                                        contentDescription = "Attachment preview",
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier
+                                            .size(52.dp)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .border(1.dp, colors.border, RoundedCornerShape(10.dp))
+                                    )
+
+                                    Box(
+                                        modifier = Modifier
+                                            .size(20.dp)
+                                            .align(Alignment.TopEnd)
+                                            .offset(x = 6.dp, y = (-6).dp)
+                                            .clip(CircleShape)
+                                            .background(Color.Black.copy(alpha = 0.65f))
+                                            .clickable { viewModel.removeImage(index) },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = "Remove image",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
 
                     // Input Field & iOS Circular Action Button
                     Row(
@@ -268,8 +337,9 @@ fun ChatScreen(
 
                         val isRunning = uiState.isRunning
                         val isInputBlank = inputText.isBlank()
+                        val hasAttachments = uiState.selectedImages.isNotEmpty()
 
-                        if (isRunning && isInputBlank) {
+                        if (isRunning && isInputBlank && !hasAttachments) {
                             // Stop button: gray circle with red stop square
                             IconButton(
                                 onClick = { viewModel.cancelExecution() },
@@ -288,7 +358,7 @@ fun ChatScreen(
                             }
                         } else {
                             // Send button: 44.dp circle, Apple Indigo with white up arrow
-                            val isEnabled = !isInputBlank
+                            val isEnabled = !isInputBlank || hasAttachments
                             IconButton(
                                 onClick = { viewModel.sendCurrentMessage() },
                                 enabled = isEnabled,

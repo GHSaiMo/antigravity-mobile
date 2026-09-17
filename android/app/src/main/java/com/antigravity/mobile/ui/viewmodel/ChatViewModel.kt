@@ -96,6 +96,8 @@ class ChatViewModel(
                 runningTasks = emptyList(),
                 queuedMessages = emptyList(),
                 isRunning = false,
+                isAwaitingResponse = false,
+                selectedImages = emptyList(),
                 canProceed = false,
                 proceedArtifactUri = null,
                 pendingInteraction = null,
@@ -140,6 +142,7 @@ class ChatViewModel(
                         errorMessage = if (payload.hasError) payload.errorMessage else null,
                         isLatestMessageError = isError
                     )
+                    _scrollToBottomTrigger.value++
                 }
             }
         }
@@ -163,10 +166,27 @@ class ChatViewModel(
                     if (payload == null) return@collect
                     if (payload.cascadeId != _uiState.value.cascadeId) return@collect
 
-                    val isRunning = payload.status.equals("RUNNING", ignoreCase = true)
                     val msgs = payload.messages ?: _uiState.value.messages
                     val lastMsg = msgs.lastOrNull()
                     val isError = lastMsg?.status.equals("error", ignoreCase = true) || payload.hasError
+
+                    var awaiting = _uiState.value.isAwaitingResponse
+                    if (isError) {
+                        awaiting = false
+                    } else if (awaiting) {
+                        val lastUserIdx = msgs.indexOfLast { it.isUser }
+                        if (lastUserIdx >= 0) {
+                            val subsequent = msgs.subList(lastUserIdx + 1, msgs.size)
+                            val hasAgent = subsequent.any { !it.isUser && !it.isTools }
+                            val hasSubsequentError = subsequent.any { it.status.equals("error", ignoreCase = true) }
+                            if (hasAgent || hasSubsequentError) {
+                                awaiting = false
+                            }
+                        }
+                    }
+
+                    val isRunning = payload.status.equals("RUNNING", ignoreCase = true) || awaiting
+                    val previousMsgCount = _uiState.value.messages.size
 
                     _uiState.value = _uiState.value.copy(
                         title = payload.title?.takeIf { it.isNotBlank() } ?: _uiState.value.title,
@@ -174,6 +194,7 @@ class ChatViewModel(
                         runningTasks = payload.runningTasks ?: emptyList(),
                         queuedMessages = payload.queuedMessages ?: emptyList(),
                         isRunning = isRunning,
+                        isAwaitingResponse = awaiting,
                         canProceed = payload.canProceed,
                         proceedArtifactUri = payload.proceedArtifactUri,
                         pendingInteraction = payload.pendingInteraction,
@@ -187,6 +208,10 @@ class ChatViewModel(
                         errorMessage = if (payload.hasError) payload.errorMessage else null,
                         isLatestMessageError = isError
                     )
+
+                    if (msgs.size != previousMsgCount || isRunning) {
+                        _scrollToBottomTrigger.value++
+                    }
                 }
             }
         }
@@ -194,6 +219,56 @@ class ChatViewModel(
 
     fun onInputTextChanged(text: String) {
         _inputText.value = text
+    }
+
+    fun addImagesFromUris(context: Context, uris: List<Uri>) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val newAttachments = mutableListOf<AttachmentImage>()
+            for (uri in uris) {
+                try {
+                    val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: continue
+                    val mimeType = context.contentResolver.getType(uri) ?: "image/jpeg"
+                    val options = BitmapFactory.Options().apply {
+                        inJustDecodeBounds = true
+                    }
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+                    val sampleSize = maxOf(1, maxOf(options.outWidth, options.outHeight) / 256)
+                    val decodeOptions = BitmapFactory.Options().apply {
+                        inSampleSize = sampleSize
+                    }
+                    val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decodeOptions)
+                    if (bitmap != null) {
+                        newAttachments.add(
+                            AttachmentImage(
+                                uri = uri,
+                                bitmap = bitmap,
+                                byteArray = bytes,
+                                mimeType = mimeType
+                            )
+                        )
+                    }
+                } catch (e: Exception) {
+                    // Ignore unreadable image
+                }
+            }
+            if (newAttachments.isNotEmpty()) {
+                _uiState.value = _uiState.value.copy(
+                    selectedImages = _uiState.value.selectedImages + newAttachments
+                )
+            }
+        }
+    }
+
+    fun removeImage(index: Int) {
+        val current = _uiState.value.selectedImages.toMutableList()
+        if (index in current.indices) {
+            current.removeAt(index)
+            _uiState.value = _uiState.value.copy(selectedImages = current)
+        }
+    }
+
+    fun clearImages() {
+        _uiState.value = _uiState.value.copy(selectedImages = emptyList())
     }
 
     fun toggleModel() {
@@ -227,14 +302,18 @@ class ChatViewModel(
 
     fun sendCurrentMessage() {
         val text = _inputText.value.trim()
-        if (text.isEmpty()) return
+        val images = _uiState.value.selectedImages
+        if (text.isEmpty() && images.isEmpty()) return
         _inputText.value = ""
-        sendMessage(text)
+        _uiState.value = _uiState.value.copy(selectedImages = emptyList())
+        sendMessage(text, images)
     }
 
-    private fun sendMessage(text: String) {
+    private fun sendMessage(text: String, attachments: List<AttachmentImage> = emptyList()) {
         val cascadeId = _uiState.value.cascadeId
         val model = _uiState.value.activeModel
+
+        val imageBytesList = attachments.map { it.byteArray }
 
         // Optimistically add user bubble
         val optimisticUserMsg = GatewayMessageItem(
@@ -242,20 +321,26 @@ class ChatViewModel(
             type = "user",
             role = "user",
             text = text,
-            content = text
+            content = text,
+            imageDataList = imageBytesList
         )
         _uiState.value = _uiState.value.copy(
             messages = _uiState.value.messages + optimisticUserMsg,
             isRunning = true,
+            isAwaitingResponse = true,
             isLatestMessageError = false
         )
+        _scrollToBottomTrigger.value++
+
+        val imagePayloads = attachments.map { Pair(it.byteArray, it.mimeType) }
 
         viewModelScope.launch {
-            val result = apiClient.sendMessage(cascadeId, text, model)
+            val result = apiClient.sendMessage(cascadeId, text, model, imagePayloads)
             result.onFailure { err ->
                 _uiState.value = _uiState.value.copy(
                     errorMessage = "发送失败: ${err.message}",
-                    isRunning = false
+                    isRunning = false,
+                    isAwaitingResponse = false
                 )
             }
         }

@@ -1,5 +1,7 @@
 package com.antigravity.mobile.ui.components
 
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -11,10 +13,13 @@ import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -124,8 +129,37 @@ fun MessageBubble(
 
         // Render Message Content
         val displayText = message.effectiveText
-        if (displayText.isNotBlank()) {
-            if (isUser) {
+        if (isUser) {
+            // Attached user images (e.g. screenshots)
+            if (message.imageDataList.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.padding(bottom = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    message.imageDataList.forEach { bytes ->
+                        val bitmap = remember(bytes) {
+                            try {
+                                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                            } catch (e: Exception) {
+                                null
+                            }
+                        }
+                        if (bitmap != null) {
+                            Image(
+                                bitmap = bitmap.asImageBitmap(),
+                                contentDescription = "Attached image",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .size(72.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (displayText.isNotBlank()) {
                 // User Bubble: Apple Indigo, white text, 18.dp continuous corner radius
                 Box(
                     modifier = Modifier
@@ -141,7 +175,9 @@ fun MessageBubble(
                         lineHeight = 21.sp
                     )
                 }
-            } else {
+            }
+        } else {
+            if (displayText.isNotBlank()) {
                 // Agent Bubble: Card background, textPrimary, 18.dp radius
                 Box(
                     modifier = Modifier
