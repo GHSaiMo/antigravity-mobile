@@ -1,7 +1,7 @@
 import Foundation
 import ActivityKit
 
-public struct AgentTaskSnapshot: Codable, Hashable, Sendable, Identifiable {
+nonisolated public struct AgentTaskSnapshot: Codable, Hashable, Sendable, Identifiable {
     public var id: String
     public var title: String
     public var command: String?
@@ -12,6 +12,20 @@ public struct AgentTaskSnapshot: Codable, Hashable, Sendable, Identifiable {
         self.title = title
         self.command = command
         self.isWaiting = isWaiting
+    }
+    
+    public nonisolated static func == (lhs: AgentTaskSnapshot, rhs: AgentTaskSnapshot) -> Bool {
+        lhs.id == rhs.id &&
+        lhs.title == rhs.title &&
+        lhs.command == rhs.command &&
+        lhs.isWaiting == rhs.isWaiting
+    }
+    
+    public nonisolated func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(title)
+        hasher.combine(command)
+        hasher.combine(isWaiting)
     }
 }
 
