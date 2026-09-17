@@ -2515,6 +2515,17 @@ public final class ChatViewModel {
                 actionText = "任务运行中..."
             }
             
+            let taskSnapshots: [AgentTaskSnapshot] = self.runningTasks.prefix(3).map { task in
+                let title = task.toolSummary ?? task.toolAction ?? task.toolName ?? "后台任务"
+                let cmd = task.commandLine.trimmingCharacters(in: .whitespacesAndNewlines)
+                return AgentTaskSnapshot(
+                    id: task.id,
+                    title: title,
+                    command: cmd.isEmpty ? nil : cmd,
+                    isWaiting: false
+                )
+            }
+            
             if activityManager.hasActiveActivity && activityManager.currentCascadeId == cascadeId {
                 activityManager.updateActivity(
                     title: currentTitle,
@@ -2522,6 +2533,7 @@ public final class ChatViewModel {
                     stepCount: self.stepCount,
                     latestAction: actionText,
                     runningTaskCount: self.runningTasks.count,
+                    runningTasks: taskSnapshots,
                     activeTaskTitle: taskTitle,
                     activeTaskCommand: taskCommand,
                     hasPendingAction: hasPendingAction
@@ -2534,6 +2546,7 @@ public final class ChatViewModel {
                     stepCount: self.stepCount,
                     latestAction: actionText,
                     runningTaskCount: self.runningTasks.count,
+                    runningTasks: taskSnapshots,
                     activeTaskTitle: taskTitle,
                     activeTaskCommand: taskCommand,
                     hasPendingAction: hasPendingAction

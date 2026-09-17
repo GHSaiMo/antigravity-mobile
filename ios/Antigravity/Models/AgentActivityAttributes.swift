@@ -1,6 +1,20 @@
 import Foundation
 import ActivityKit
 
+public struct AgentTaskSnapshot: Codable, Hashable, Sendable, Identifiable {
+    public var id: String
+    public var title: String
+    public var command: String?
+    public var isWaiting: Bool
+    
+    public init(id: String, title: String, command: String? = nil, isWaiting: Bool = false) {
+        self.id = id
+        self.title = title
+        self.command = command
+        self.isWaiting = isWaiting
+    }
+}
+
 nonisolated public struct AgentActivityAttributes: ActivityAttributes, Sendable {
     public struct ContentState: Codable, Hashable, Sendable {
         public var conversationTitle: String   // Dynamic conversation title (can be updated in real time)
@@ -8,6 +22,7 @@ nonisolated public struct AgentActivityAttributes: ActivityAttributes, Sendable 
         public var stepCount: Int              // e.g. 14
         public var latestAction: String        // Agent's action description
         public var runningTaskCount: Int       // Number of background running tasks (e.g. 1, 2)
+        public var runningTasks: [AgentTaskSnapshot] // List of active background tasks (supports multi-task rendering)
         public var activeTaskTitle: String?    // Primary running task summary or action (e.g. "编译 iOS 原生客户端")
         public var activeTaskCommand: String?  // Primary running task command snippet (e.g. "xcodebuild ...")
         public var hasPendingAction: Bool      // Waiting for user approval/interaction
@@ -19,6 +34,7 @@ nonisolated public struct AgentActivityAttributes: ActivityAttributes, Sendable 
             case stepCount
             case latestAction
             case runningTaskCount
+            case runningTasks
             case activeTaskTitle
             case activeTaskCommand
             case hasPendingAction
@@ -31,6 +47,7 @@ nonisolated public struct AgentActivityAttributes: ActivityAttributes, Sendable 
             stepCount: Int,
             latestAction: String,
             runningTaskCount: Int = 0,
+            runningTasks: [AgentTaskSnapshot] = [],
             activeTaskTitle: String? = nil,
             activeTaskCommand: String? = nil,
             hasPendingAction: Bool = false,
@@ -41,8 +58,9 @@ nonisolated public struct AgentActivityAttributes: ActivityAttributes, Sendable 
             self.stepCount = stepCount
             self.latestAction = latestAction
             self.runningTaskCount = runningTaskCount
-            self.activeTaskTitle = activeTaskTitle
-            self.activeTaskCommand = activeTaskCommand
+            self.runningTasks = runningTasks
+            self.activeTaskTitle = activeTaskTitle ?? runningTasks.first?.title
+            self.activeTaskCommand = activeTaskCommand ?? runningTasks.first?.command
             self.hasPendingAction = hasPendingAction
             self.lastUpdated = lastUpdated
         }
@@ -54,8 +72,9 @@ nonisolated public struct AgentActivityAttributes: ActivityAttributes, Sendable 
             self.stepCount = try container.decode(Int.self, forKey: .stepCount)
             self.latestAction = try container.decode(String.self, forKey: .latestAction)
             self.runningTaskCount = try container.decodeIfPresent(Int.self, forKey: .runningTaskCount) ?? 0
-            self.activeTaskTitle = try container.decodeIfPresent(String.self, forKey: .activeTaskTitle)
-            self.activeTaskCommand = try container.decodeIfPresent(String.self, forKey: .activeTaskCommand)
+            self.runningTasks = try container.decodeIfPresent([AgentTaskSnapshot].self, forKey: .runningTasks) ?? []
+            self.activeTaskTitle = try container.decodeIfPresent(String.self, forKey: .activeTaskTitle) ?? self.runningTasks.first?.title
+            self.activeTaskCommand = try container.decodeIfPresent(String.self, forKey: .activeTaskCommand) ?? self.runningTasks.first?.command
             self.hasPendingAction = try container.decodeIfPresent(Bool.self, forKey: .hasPendingAction) ?? false
             self.lastUpdated = try container.decodeIfPresent(Date.self, forKey: .lastUpdated) ?? Date()
         }

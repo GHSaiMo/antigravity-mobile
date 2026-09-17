@@ -77,6 +77,7 @@ public final class ActivityManager {
         stepCount: Int = 1,
         latestAction: String = "开始执行任务...",
         runningTaskCount: Int = 0,
+        runningTasks: [AgentTaskSnapshot] = [],
         activeTaskTitle: String? = nil,
         activeTaskCommand: String? = nil,
         hasPendingAction: Bool = false
@@ -92,6 +93,7 @@ public final class ActivityManager {
                 stepCount: stepCount,
                 latestAction: latestAction,
                 runningTaskCount: runningTaskCount,
+                runningTasks: runningTasks,
                 activeTaskTitle: activeTaskTitle,
                 activeTaskCommand: activeTaskCommand,
                 hasPendingAction: hasPendingAction
@@ -111,6 +113,7 @@ public final class ActivityManager {
             stepCount: max(1, stepCount),
             latestAction: latestAction.isEmpty ? (runningTaskCount > 0 ? "正在执行后台任务..." : "正在执行...") : latestAction,
             runningTaskCount: runningTaskCount,
+            runningTasks: runningTasks,
             activeTaskTitle: activeTaskTitle,
             activeTaskCommand: activeTaskCommand,
             hasPendingAction: hasPendingAction,
@@ -135,6 +138,7 @@ public final class ActivityManager {
         stepCount: Int,
         latestAction: String,
         runningTaskCount: Int = 0,
+        runningTasks: [AgentTaskSnapshot] = [],
         activeTaskTitle: String? = nil,
         activeTaskCommand: String? = nil,
         hasPendingAction: Bool = false
@@ -167,6 +171,7 @@ public final class ActivityManager {
             stepCount: stepCount,
             latestAction: actionText,
             runningTaskCount: runningTaskCount,
+            runningTasks: runningTasks,
             activeTaskTitle: activeTaskTitle,
             activeTaskCommand: activeTaskCommand,
             hasPendingAction: hasPendingAction,
@@ -186,6 +191,7 @@ public final class ActivityManager {
             stepCount: activity.content.state.stepCount,
             latestAction: activity.content.state.latestAction,
             runningTaskCount: activity.content.state.runningTaskCount,
+            runningTasks: activity.content.state.runningTasks,
             activeTaskTitle: activity.content.state.activeTaskTitle,
             activeTaskCommand: activity.content.state.activeTaskCommand,
             hasPendingAction: activity.content.state.hasPendingAction
@@ -224,6 +230,7 @@ public final class ActivityManager {
                 stepCount: activity.content.state.stepCount,
                 latestAction: summary,
                 runningTaskCount: 0,
+                runningTasks: [],
                 activeTaskTitle: nil,
                 activeTaskCommand: nil,
                 hasPendingAction: false,

@@ -49,50 +49,53 @@ public struct AgentActivityWidget: Widget {
                                 .foregroundColor(.secondary)
                         }
                         
-                        Text(context.state.latestAction)
-                            .font(.system(size: 12))
-                            .foregroundColor(.primary)
-                            .lineLimit(1)
-                        
-                        // Dedicated Background Running Task Section
                         if context.state.runningTaskCount > 0 {
-                            HStack(spacing: 6) {
-                                Image(systemName: "terminal.fill")
-                                    .font(.system(size: 10))
-                                    .foregroundColor(.cyan)
-                                
-                                if let cmd = context.state.activeTaskCommand, !cmd.isEmpty {
-                                    Text(cmd)
-                                        .font(.system(size: 11, design: .monospaced))
-                                        .lineLimit(1)
-                                        .foregroundColor(.cyan.opacity(0.95))
-                                } else if let title = context.state.activeTaskTitle, !title.isEmpty {
-                                    Text(title)
-                                        .font(.system(size: 11))
-                                        .lineLimit(1)
-                                        .foregroundColor(.primary)
-                                } else {
-                                    Text("后台任务执行中...")
-                                        .font(.system(size: 11))
-                                        .foregroundColor(.secondary)
+                            let islandTasks: [AgentTaskSnapshot] = !context.state.runningTasks.isEmpty
+                                ? Array(context.state.runningTasks.prefix(2))
+                                : [AgentTaskSnapshot(id: "fallback", title: context.state.activeTaskTitle ?? "后台任务", command: context.state.activeTaskCommand)]
+                            
+                            VStack(alignment: .leading, spacing: 3) {
+                                ForEach(islandTasks) { task in
+                                    HStack(spacing: 5) {
+                                        Image(systemName: task.isWaiting ? "hourglass" : "terminal.fill")
+                                            .font(.system(size: 9))
+                                            .foregroundColor(task.isWaiting ? .orange : .cyan)
+                                        
+                                        if let cmd = task.command, !cmd.isEmpty {
+                                            Text(cmd)
+                                                .font(.system(size: 10, design: .monospaced))
+                                                .lineLimit(1)
+                                                .foregroundColor(.cyan.opacity(0.95))
+                                        } else {
+                                            Text(task.title)
+                                                .font(.system(size: 10))
+                                                .lineLimit(1)
+                                                .foregroundColor(.primary)
+                                        }
+                                        
+                                        Spacer()
+                                    }
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 3)
+                                    .background(Color.white.opacity(0.08))
+                                    .cornerRadius(5)
                                 }
                                 
-                                Spacer()
-                                
-                                if context.state.runningTaskCount > 1 {
-                                    Text("+\(context.state.runningTaskCount - 1)")
-                                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                        .foregroundColor(.cyan)
-                                        .padding(.horizontal, 4)
-                                        .padding(.vertical, 1)
-                                        .background(Color.cyan.opacity(0.2))
-                                        .cornerRadius(4)
+                                let islandRemaining = max(0, context.state.runningTaskCount - islandTasks.count)
+                                if islandRemaining > 0 {
+                                    HStack {
+                                        Spacer()
+                                        Text("+\(islandRemaining) 个任务排队中")
+                                            .font(.system(size: 9, weight: .medium))
+                                            .foregroundColor(.secondary)
+                                    }
                                 }
                             }
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Color.white.opacity(0.08))
-                            .cornerRadius(6)
+                        } else {
+                            Text(context.state.latestAction)
+                                .font(.system(size: 12))
+                                .foregroundColor(.primary)
+                                .lineLimit(1)
                         }
                     }
                     .padding(.horizontal, 4)
@@ -193,79 +196,136 @@ public struct AgentActivityWidget: Widget {
     
     @ViewBuilder
     private func lockScreenView(context: ActivityViewContext<AgentActivityAttributes>) -> some View {
-        HStack(alignment: .center, spacing: 14) {
-            ZStack {
-                Circle()
-                    .fill((context.state.runningTaskCount > 0 ? Color.cyan : Color.indigo).opacity(0.15))
-                    .frame(width: 44, height: 44)
+        VStack(alignment: .leading, spacing: 9) {
+            // Header Row: App Identity + Conversation Title + Status Badge
+            HStack(spacing: 6) {
                 if context.state.runningTaskCount > 0 {
                     Image(systemName: "terminal.fill")
-                        .font(.system(size: 20))
+                        .font(.system(size: 13))
                         .foregroundColor(.cyan)
                 } else {
                     Image("AppLogoTransparent")
                         .renderingMode(.original)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
-                        .frame(width: 26, height: 26)
-                }
-            }
-            
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text(resolvedTitle(context: context))
-                        .font(.system(size: 15, weight: .bold))
-                        .lineLimit(1)
-                    Spacer()
-                    statusBadgeView(context: context)
+                        .frame(width: 16, height: 16)
                 }
                 
-                Text(context.state.latestAction)
-                    .font(.system(size: 13))
-                    .foregroundColor(.secondary)
+                Text(resolvedTitle(context: context))
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(.primary)
                     .lineLimit(1)
                 
-                if context.state.runningTaskCount > 0 {
-                    HStack(spacing: 6) {
-                        Image(systemName: "terminal.fill")
-                            .font(.system(size: 10))
-                            .foregroundColor(.cyan)
-                        if let cmd = context.state.activeTaskCommand, !cmd.isEmpty {
-                            Text(cmd)
-                                .font(.system(size: 11, design: .monospaced))
-                                .lineLimit(1)
-                                .foregroundColor(.primary)
-                        } else if let title = context.state.activeTaskTitle, !title.isEmpty {
-                            Text(title)
-                                .font(.system(size: 11))
-                                .lineLimit(1)
-                                .foregroundColor(.primary)
-                        }
-                        Spacer()
-                        if context.state.runningTaskCount > 1 {
-                            Text("+\(context.state.runningTaskCount - 1) 个任务")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundColor(.cyan)
-                        }
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(Color(uiColor: .tertiarySystemFill))
-                    .cornerRadius(5)
-                }
+                Spacer(minLength: 8)
                 
-                HStack {
-                    Text("当前第 \(context.state.stepCount) 步")
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundColor(context.state.runningTaskCount > 0 ? .cyan : .indigo)
-                    Spacer()
-                    Text(context.state.lastUpdated, style: .relative)
+                statusBadgeView(context: context)
+            }
+            
+            // Middle Area: Multi-task list or rich action view
+            if context.state.runningTaskCount > 0 {
+                let displayedTasks: [AgentTaskSnapshot] = !context.state.runningTasks.isEmpty
+                    ? Array(context.state.runningTasks.prefix(3))
+                    : [AgentTaskSnapshot(id: "fallback", title: context.state.activeTaskTitle ?? "后台任务", command: context.state.activeTaskCommand)]
+                
+                VStack(alignment: .leading, spacing: 5) {
+                    ForEach(displayedTasks) { task in
+                        HStack(spacing: 6) {
+                            Image(systemName: task.isWaiting ? "hourglass" : "terminal.fill")
+                                .font(.system(size: 10))
+                                .foregroundColor(task.isWaiting ? .orange : .cyan)
+                            
+                            if let cmd = task.command, !cmd.isEmpty {
+                                Text(cmd)
+                                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                    .lineLimit(1)
+                                    .foregroundColor(.primary)
+                            } else {
+                                Text(task.title)
+                                    .font(.system(size: 11))
+                                    .lineLimit(1)
+                                    .foregroundColor(.primary)
+                            }
+                            
+                            Spacer(minLength: 4)
+                            
+                            if task.isWaiting {
+                                Text("等待中")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundColor(.orange)
+                                    .padding(.horizontal, 4)
+                                    .padding(.vertical, 1)
+                                    .background(Color.orange.opacity(0.15))
+                                    .cornerRadius(3)
+                            } else {
+                                Text("运行中")
+                                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                    .foregroundColor(.cyan)
+                                    .padding(.horizontal, 4)
+                                    .padding(.vertical, 1)
+                                    .background(Color.cyan.opacity(0.15))
+                                    .cornerRadius(3)
+                            }
+                        }
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 5)
+                        .background(Color.white.opacity(0.06))
+                        .cornerRadius(6)
+                    }
+                    
+                    let remainingCount = max(0, context.state.runningTaskCount - displayedTasks.count)
+                    if remainingCount > 0 {
+                        HStack(spacing: 4) {
+                            Image(systemName: "ellipsis.circle")
+                                .font(.system(size: 10))
+                                .foregroundColor(.secondary)
+                            Text("另有 \(remainingCount) 个任务在队列中...")
+                                .font(.system(size: 10))
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.leading, 4)
+                        .padding(.top, 1)
+                    }
+                }
+            } else {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: context.state.hasPendingAction ? "exclamationmark.circle.fill" : "sparkles")
+                        .font(.system(size: 12))
+                        .foregroundColor(context.state.hasPendingAction ? .orange : .indigo)
+                        .padding(.top, 1)
+                    
+                    Text(context.state.latestAction)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.primary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.vertical, 2)
+            }
+            
+            // Footer Row: Step Counter + Relative Time
+            HStack {
+                Text("当前第 \(context.state.stepCount) 步")
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .foregroundColor(context.state.runningTaskCount > 0 ? .cyan : .indigo)
+                
+                if context.state.runningTaskCount > 0 && !context.state.latestAction.isEmpty {
+                    Text("·")
+                        .foregroundColor(.secondary)
+                    Text(context.state.latestAction)
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
+                        .lineLimit(1)
                 }
+                
+                Spacer()
+                
+                Text(context.state.lastUpdated, style: .relative)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
             }
         }
-        .padding(16)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
         .activityBackgroundTint(Color.black.opacity(0.85))
     }
 }
