@@ -28,14 +28,18 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshContainer
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
@@ -76,6 +80,25 @@ fun ChatScreen(
     val colors = AntigravityTheme.colors
     val shouldShowThinkingBubble = uiState.isAwaitingResponse || uiState.isRunning
 
+    val isRefreshing by viewModel.isRefreshing.collectAsState()
+    val pullRefreshState = rememberPullToRefreshState()
+
+    LaunchedEffect(pullRefreshState.isRefreshing) {
+        if (pullRefreshState.isRefreshing) {
+            viewModel.refresh {
+                pullRefreshState.endRefresh()
+            }
+        }
+    }
+
+    LaunchedEffect(isRefreshing) {
+        if (isRefreshing) {
+            pullRefreshState.startRefresh()
+        } else {
+            pullRefreshState.endRefresh()
+        }
+    }
+
     // Photo picker launcher
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetMultipleContents()
@@ -100,6 +123,46 @@ fun ChatScreen(
         val finalTotal = listState.layoutInfo.totalItemsCount
         if (finalTotal > 0) {
             listState.animateScrollToItem(finalTotal - 1)
+        }
+    }
+
+    val handleFileOrLinkClick: (String, String) -> Unit = { uri, title ->
+        val clean = uri.trim()
+        val lower = clean.lowercase()
+        val decodedFileName = title.ifEmpty { clean.substringAfterLast('/') }
+
+        // 1. Markdown & Plan Artifacts
+        if (lower.endsWith(".md") || lower.endsWith(".markdown") ||
+            lower.contains("/brain/") || lower.contains("/static/artifacts/") ||
+            lower.contains("implementation_plan") || lower.contains("walkthrough")
+        ) {
+            val docTitle = when {
+                lower.contains("walkthrough") -> "Walkthrough"
+                lower.contains("implementation_plan") -> "Implementation Plan"
+                else -> decodedFileName
+            }
+            viewModel.openMarkdownViewer(clean, docTitle)
+        } else {
+            val previewExtensions = listOf(
+                ".pdf", ".pptx", ".ppt", ".docx", ".doc", ".xlsx", ".xls",
+                ".html", ".htm", ".txt", ".json", ".csv", ".log", ".xml",
+                ".yaml", ".yml", ".py", ".js", ".ts", ".kt", ".swift", ".sh"
+            )
+            val isPreviewable = previewExtensions.any { ext ->
+                lower.endsWith(ext) || lower.contains("$ext?") || lower.contains("$ext#")
+            }
+
+            if (isPreviewable) {
+                haptic.medium()
+                viewModel.downloadAndPreviewDocument(clean, decodedFileName)
+            } else if (clean.startsWith("http://") || clean.startsWith("https://")) {
+                try {
+                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(clean)).apply {
+                        flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    context.startActivity(intent)
+                } catch (_: Exception) {}
+            }
         }
     }
 
@@ -173,8 +236,8 @@ fun ChatScreen(
             AnimatedContent(
                 targetState = contentState,
                 transitionSpec = {
-                    fadeIn(animationSpec = tween(240, easing = FastOutSlowInEasing)) togetherWith
-                            fadeOut(animationSpec = tween(180, easing = FastOutSlowInEasing))
+                    fadeIn(animationSpec = spring(dampingFraction = 0.82f)) togetherWith
+                            fadeOut(animationSpec = spring(dampingFraction = 0.82f))
                 },
                 label = "ChatContentTransition",
                 modifier = Modifier
@@ -195,12 +258,17 @@ fun ChatScreen(
                         ChatEmptyStateView(title = uiState.title)
                     }
                     ChatContentState.MESSAGES -> {
-                        LazyColumn(
-                            state = listState,
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .nestedScroll(pullRefreshState.nestedScrollConnection)
                         ) {
+                            LazyColumn(
+                                state = listState,
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
                             items(
                                 uiState.messages,
                                 key = { it.id.ifBlank { "${it.timestamp}_${it.content.hashCode()}" } }
@@ -208,7 +276,11 @@ fun ChatScreen(
                                 MessageBubble(
                                     message = msg,
                                     onPlanClick = { uri, title ->
-                                        viewModel.openMarkdownViewer(uri, title)
+                                        handleFileOrLinkClick(uri, title)
+                                    },
+                                    urlResolver = { raw -> viewModel.resolveMediaUrl(raw) },
+                                    onImageClick = { url, bitmap ->
+                                        viewModel.openImageViewer(bitmap = bitmap, url = url)
                                     }
                                 )
                             }
@@ -274,6 +346,15 @@ fun ChatScreen(
                                 Spacer(modifier = Modifier.height(10.dp))
                             }
                         }
+
+                        if (pullRefreshState.verticalOffset > 0 || isRefreshing) {
+                            PullToRefreshContainer(
+                                state = pullRefreshState,
+                                modifier = Modifier.align(Alignment.TopCenter),
+                                containerColor = colors.surface,
+                                contentColor = colors.accentIndigo
+                            )
+                        }
                     }
                 }
             }
@@ -281,6 +362,7 @@ fun ChatScreen(
             // Bottom Control Area: Divider + Chips + Attached Images + Input Bar
             Surface(
                 color = colors.surface,
+                shadowElevation = 4.dp,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
@@ -412,6 +494,12 @@ fun ChatScreen(
                                 Box(
                                     modifier = Modifier
                                         .size(44.dp)
+                                        .shadow(
+                                            elevation = 2.dp,
+                                            shape = CircleShape,
+                                            ambientColor = Color.Black.copy(alpha = 0.05f),
+                                            spotColor = colors.accentRed.copy(alpha = 0.25f)
+                                        )
                                         .clip(CircleShape)
                                         .background(colors.surfaceVariant)
                                         .border(0.8.dp, colors.border, CircleShape)
@@ -431,6 +519,12 @@ fun ChatScreen(
                                 Box(
                                     modifier = Modifier
                                         .size(44.dp)
+                                        .shadow(
+                                            elevation = if (isEnabled) 3.dp else 0.dp,
+                                            shape = CircleShape,
+                                            ambientColor = Color.Black.copy(alpha = 0.05f),
+                                            spotColor = colors.accentIndigo.copy(alpha = 0.35f)
+                                        )
                                         .clip(CircleShape)
                                         .background(if (isEnabled) colors.accentIndigo else colors.surfaceVariant)
                                         .then(
@@ -462,6 +556,64 @@ fun ChatScreen(
             onProceed = { viewModel.proceedFromViewer() },
             onDismiss = { viewModel.closeMarkdownViewer() }
         )
+    }
+
+    // Fullscreen Image Viewer Sheet
+    uiState.imageViewerData?.let { viewerData ->
+        ImageViewerSheet(
+            data = viewerData,
+            onDismiss = { viewModel.closeImageViewer() }
+        )
+    }
+
+    // Document Preview Sheet (PDF, HTML, Office, Text)
+    uiState.previewDocumentFile?.let { docFile ->
+        DocumentPreviewSheet(
+            file = docFile,
+            title = uiState.previewDocumentTitle,
+            onDismiss = { viewModel.closeDocumentPreview() }
+        )
+    }
+
+    // Downloading Document Progress Dialog
+    if (uiState.isDownloadingDocument) {
+        androidx.compose.ui.window.Dialog(onDismissRequest = { viewModel.cancelDocumentDownload() }) {
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = colors.surface,
+                tonalElevation = 6.dp,
+                modifier = Modifier.padding(24.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    if (uiState.downloadProgress > 0f) {
+                        LinearProgressIndicator(
+                            progress = { uiState.downloadProgress },
+                            color = colors.accentIndigo,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    } else {
+                        CircularProgressIndicator(
+                            color = colors.accentIndigo,
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
+                    Text(
+                        text = "正在下载 ${uiState.downloadingDocumentName}...",
+                        color = colors.textPrimary,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                    TextButton(onClick = { viewModel.cancelDocumentDownload() }) {
+                        Text("取消", color = colors.textMuted)
+                    }
+                }
+            }
+        }
     }
 }
 

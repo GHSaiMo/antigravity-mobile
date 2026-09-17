@@ -1,8 +1,13 @@
 package com.antigravity.mobile.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -52,9 +57,14 @@ fun ToolStepCollapseCard(
 
     val rotationAngle by animateFloatAsState(
         targetValue = if (isExpanded) 180f else 0f,
-        animationSpec = tween(durationMillis = 250),
+        animationSpec = spring(
+            dampingFraction = 0.82f,
+            stiffness = Spring.StiffnessMediumLow
+        ),
         label = "chevronRotation"
     )
+
+    val haptic = com.antigravity.mobile.ui.util.rememberHaptic()
 
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -66,7 +76,10 @@ fun ToolStepCollapseCard(
                 .clip(CircleShape)
                 .background(colors.surfaceVariant)
                 .border(0.8.dp, colors.border, CircleShape)
-                .clickable { isExpanded = !isExpanded }
+                .clickable {
+                    haptic.light()
+                    isExpanded = !isExpanded
+                }
                 .padding(horizontal = 14.dp, vertical = 8.dp)
         ) {
             Row(
@@ -102,7 +115,25 @@ fun ToolStepCollapseCard(
         }
 
         // Expandable tool call list
-        AnimatedVisibility(visible = isExpanded) {
+        AnimatedVisibility(
+            visible = isExpanded,
+            enter = expandVertically(
+                animationSpec = spring(
+                    dampingFraction = 0.82f,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            ) + fadeIn(
+                animationSpec = spring(dampingFraction = 0.82f)
+            ),
+            exit = shrinkVertically(
+                animationSpec = spring(
+                    dampingFraction = 0.82f,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            ) + fadeOut(
+                animationSpec = spring(dampingFraction = 0.82f)
+            )
+        ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()

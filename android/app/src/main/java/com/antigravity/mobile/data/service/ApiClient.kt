@@ -558,10 +558,12 @@ class ApiClient(private val prefs: PreferencesManager) {
     }
 
     /**
-     * Report session focus to gateway immediately on tap
+     * Report session focus to gateway immediately on tap (0ms latency, fire-and-forget).
+     * Synchronizes Mac desktop / hardware cascading cursor state.
      */
-    suspend fun notifySessionFocus(cascadeId: String) = withContext(Dispatchers.IO) {
-        val baseUrl = prefs.gatewayBaseUrl ?: return@withContext
+    fun notifySessionFocus(cascadeId: String) {
+        if (cascadeId.isBlank()) return
+        val baseUrl = prefs.gatewayBaseUrl ?: return
         val url = "$baseUrl/gateway/cascade/focus"
         val payload = buildJsonObject {
             put("cascadeId", cascadeId)
@@ -571,7 +573,12 @@ class ApiClient(private val prefs: PreferencesManager) {
             val req = buildAuthorizedRequest(url)
                 .post(payload.toString().toRequestBody(jsonMediaType))
                 .build()
-            client.newCall(req).execute().close()
+            client.newCall(req).enqueue(object : okhttp3.Callback {
+                override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {}
+                override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                    response.close()
+                }
+            })
         } catch (_: Exception) {}
     }
 
@@ -605,6 +612,97 @@ class ApiClient(private val prefs: PreferencesManager) {
                 .build()
             client.newCall(req).execute().close()
         } catch (_: Exception) {}
+    }
+
+    /**
+     * Resolves a raw media/image URI into an authenticated, loadable HTTP URL for Coil / Image loaders.
+     */
+    fun resolveMediaURL(raw: String): String {
+        var clean = raw.trim()
+        if (clean.startsWith("MEDIA:", ignoreCase = true)) {
+            clean = clean.substring(6).trim()
+        }
+        clean = clean.trim('`', '"', '\'', '(', ')', '[', ']', '<', '>')
+
+        val token = prefs.deviceToken ?: ""
+        val baseUrl = prefs.gatewayBaseUrl?.trimEnd('/') ?: ""
+
+        if (clean.startsWith("http://") || clean.startsWith("https://")) {
+            if (baseUrl.isNotBlank() && clean.contains("/api/v1/files/raw") && !clean.contains("auth_token=") && !clean.contains("token=") && token.isNotBlank()) {
+                val separator = if (clean.contains("?")) "&" else "?"
+                return "$clean${separator}auth_token=$token"
+            }
+            return clean
+        }
+
+        if (clean.startsWith("/static/")) {
+            return "$baseUrl$clean"
+        }
+
+        if (clean.startsWith("file://")) {
+            clean = clean.removePrefix("file://")
+        }
+
+        if (baseUrl.isBlank()) return clean
+
+        val encodedUri = try {
+            java.net.URLEncoder.encode(clean, "UTF-8")
+        } catch (_: Exception) {
+            clean
+        }
+        val tokenParam = if (token.isNotBlank()) "&auth_token=$token" else ""
+        return "$baseUrl/api/v1/files/raw?uri=$encodedUri$tokenParam"
+    }
+
+    suspend fun downloadFile(
+        uri: String,
+        targetFile: java.io.File,
+        cascadeId: String? = null,
+        onProgress: ((progress: Float, written: Long, total: Long) -> Unit)? = null
+    ): Result<java.io.File> = withContext(Dispatchers.IO) {
+        try {
+            val resolvedUrl = resolveMediaURL(uri)
+            val request = Request.Builder()
+                .url(resolvedUrl)
+                .apply {
+                    prefs.deviceToken?.takeIf { it.isNotBlank() }?.let { token ->
+                        header("Authorization", "Bearer $token")
+                    }
+                }
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(RuntimeException("下载文件失败: HTTP ${response.code}"))
+                }
+                val body = response.body ?: return@withContext Result.failure(RuntimeException("空响应体"))
+                val totalLength = body.contentLength()
+
+                targetFile.parentFile?.mkdirs()
+                val tempFile = java.io.File(targetFile.parentFile, "${targetFile.name}.tmp")
+                tempFile.outputStream().use { output ->
+                    body.byteStream().use { input ->
+                        val buffer = ByteArray(8192)
+                        var bytesWritten = 0L
+                        var read: Int
+                        while (input.read(buffer).also { read = it } != -1) {
+                            output.write(buffer, 0, read)
+                            bytesWritten += read
+                            if (totalLength > 0 && onProgress != null) {
+                                val progress = (bytesWritten.toFloat() / totalLength.toFloat()).coerceIn(0f, 1f)
+                                onProgress(progress, bytesWritten, totalLength)
+                            }
+                        }
+                        output.flush()
+                    }
+                }
+                if (targetFile.exists()) targetFile.delete()
+                tempFile.renameTo(targetFile)
+                Result.success(targetFile)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
     }
 
     private fun buildAuthorizedRequest(url: String): Request.Builder {

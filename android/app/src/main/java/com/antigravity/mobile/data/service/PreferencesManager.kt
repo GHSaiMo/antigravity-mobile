@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 class PreferencesManager(context: Context) {
+    private val appContext = context.applicationContext
     private val prefs: SharedPreferences = try {
         val masterKey = MasterKey.Builder(context)
             .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
@@ -88,6 +89,57 @@ class PreferencesManager(context: Context) {
         prefs.edit().putLong(KEY_LAST_VIEW_PREFIX + cascadeId, time).apply()
     }
 
+    // MARK: - Draft Persistence
+    fun getDraftText(cascadeId: String): String {
+        return prefs.getString(KEY_DRAFT_TEXT_PREFIX + cascadeId, "") ?: ""
+    }
+
+    fun setDraftText(cascadeId: String, text: String) {
+        if (text.isBlank()) {
+            prefs.edit().remove(KEY_DRAFT_TEXT_PREFIX + cascadeId).apply()
+        } else {
+            prefs.edit().putString(KEY_DRAFT_TEXT_PREFIX + cascadeId, text).apply()
+        }
+    }
+
+    fun clearDraftText(cascadeId: String) {
+        prefs.edit().remove(KEY_DRAFT_TEXT_PREFIX + cascadeId).apply()
+    }
+
+    fun saveDraftImages(cascadeId: String, images: List<ByteArray>) {
+        try {
+            val safeKey = cascadeId.replace('/', '_').replace(':', '_')
+            val dir = java.io.File(appContext.cacheDir, "draft_images/$safeKey").apply { mkdirs() }
+            dir.listFiles()?.forEach { it.delete() }
+            images.forEachIndexed { index, bytes ->
+                val file = java.io.File(dir, "draft_${index}.png")
+                file.writeBytes(bytes)
+            }
+        } catch (_: Exception) {}
+    }
+
+    fun loadDraftImages(cascadeId: String): List<ByteArray> {
+        return try {
+            val safeKey = cascadeId.replace('/', '_').replace(':', '_')
+            val dir = java.io.File(appContext.cacheDir, "draft_images/$safeKey")
+            if (!dir.exists()) return emptyList()
+            val files = dir.listFiles()?.sortedBy { it.name } ?: return emptyList()
+            files.mapNotNull {
+                try { it.readBytes() } catch (_: Exception) { null }
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    fun clearDraftImages(cascadeId: String) {
+        try {
+            val safeKey = cascadeId.replace('/', '_').replace(':', '_')
+            val dir = java.io.File(appContext.cacheDir, "draft_images/$safeKey")
+            dir.deleteRecursively()
+        } catch (_: Exception) {}
+    }
+
     fun clear() {
         prefs.edit().clear().apply()
         _themeModeFlow.value = "system"
@@ -105,6 +157,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_RELAY_URL = "relay_server_url"
         private const val KEY_CUSTOM_URL = "custom_server_url"
         private const val KEY_LAST_VIEW_PREFIX = "ag_last_view_"
+        private const val KEY_DRAFT_TEXT_PREFIX = "ag_draft_text_"
         private const val KEY_CACHED_PROJECTS = "cached_projects_json"
     }
 }

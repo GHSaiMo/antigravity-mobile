@@ -17,6 +17,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -27,13 +28,22 @@ import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.GatewayMessageItem
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.platform.LocalContext
+import coil.compose.SubcomposeAsyncImage
+import coil.request.ImageRequest
+import android.graphics.Bitmap
+
 @Composable
 fun MessageBubble(
     message: GatewayMessageItem,
     modifier: Modifier = Modifier,
-    onPlanClick: ((uri: String, title: String) -> Unit)? = null
+    onPlanClick: ((uri: String, title: String) -> Unit)? = null,
+    urlResolver: ((String) -> String)? = null,
+    onImageClick: ((url: String?, bitmap: Bitmap?) -> Unit)? = null
 ) {
     val colors = AntigravityTheme.colors
+    val context = LocalContext.current
 
     // Standalone tool message
     if (message.isTools) {
@@ -93,6 +103,12 @@ fun MessageBubble(
             Column(
                 modifier = Modifier
                     .fillMaxWidth(0.95f)
+                    .shadow(
+                        elevation = 1.dp,
+                        shape = RoundedCornerShape(12.dp),
+                        ambientColor = Color.Black.copy(alpha = 0.04f),
+                        spotColor = Color.Black.copy(alpha = 0.06f)
+                    )
                     .clip(RoundedCornerShape(12.dp))
                     .background(colors.surfaceVariant.copy(alpha = 0.5f))
                     .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
@@ -153,8 +169,34 @@ fun MessageBubble(
                                     .size(72.dp)
                                     .clip(RoundedCornerShape(12.dp))
                                     .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
+                                    .clickable { onImageClick?.invoke(null, bitmap) }
                             )
                         }
+                    }
+                }
+            }
+
+            // Attached user image URLs (if any)
+            if (!message.imageUrls.isNullOrEmpty()) {
+                Row(
+                    modifier = Modifier.padding(bottom = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    message.imageUrls.forEach { rawUrl ->
+                        val resolvedUrl = remember(rawUrl) { urlResolver?.invoke(rawUrl) ?: rawUrl }
+                        SubcomposeAsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .data(resolvedUrl)
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = "Attached image URL",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .size(72.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
+                                .clickable { onImageClick?.invoke(resolvedUrl, null) }
+                        )
                     }
                 }
             }
@@ -164,6 +206,12 @@ fun MessageBubble(
                 Box(
                     modifier = Modifier
                         .widthIn(max = 320.dp)
+                        .shadow(
+                            elevation = 1.5.dp,
+                            shape = RoundedCornerShape(18.dp),
+                            ambientColor = Color.Black.copy(alpha = 0.04f),
+                            spotColor = Color.Black.copy(alpha = 0.10f)
+                        )
                         .clip(RoundedCornerShape(18.dp))
                         .background(colors.userBubbleBg)
                         .padding(horizontal = 14.dp, vertical = 10.dp)
@@ -178,10 +226,16 @@ fun MessageBubble(
             }
         } else {
             if (displayText.isNotBlank()) {
-                // Agent Bubble: Card background, textPrimary, 18.dp radius
+                // Agent Bubble: Card background, textPrimary, 18.dp radius with subtle soft shadow
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .shadow(
+                            elevation = 1.5.dp,
+                            shape = RoundedCornerShape(18.dp),
+                            ambientColor = Color.Black.copy(alpha = 0.04f),
+                            spotColor = Color.Black.copy(alpha = 0.08f)
+                        )
                         .clip(RoundedCornerShape(18.dp))
                         .background(colors.agentBubbleBg)
                         .border(0.5.dp, colors.border, RoundedCornerShape(18.dp))
@@ -189,7 +243,9 @@ fun MessageBubble(
                 ) {
                     MarkdownContentView(
                         content = displayText,
-                        onPlanClick = onPlanClick
+                        onPlanClick = onPlanClick,
+                        urlResolver = urlResolver,
+                        onImageClick = { url -> onImageClick?.invoke(url, null) }
                     )
                 }
             }
@@ -204,12 +260,16 @@ fun MessageBubble(
 fun SimpleMarkdownContent(
     text: String,
     modifier: Modifier = Modifier,
-    onPlanClick: ((uri: String, title: String) -> Unit)? = null
+    onPlanClick: ((uri: String, title: String) -> Unit)? = null,
+    urlResolver: ((String) -> String)? = null,
+    onImageClick: ((url: String) -> Unit)? = null
 ) {
     MarkdownContentView(
         content = text,
         modifier = modifier,
-        onPlanClick = onPlanClick
+        onPlanClick = onPlanClick,
+        urlResolver = urlResolver,
+        onImageClick = onImageClick
     )
 }
 

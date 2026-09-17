@@ -184,6 +184,10 @@ class ConversationListViewModel(
         }
     }
 
+    fun notifySessionFocus(cascadeId: String) {
+        apiClient.notifySessionFocus(cascadeId)
+    }
+
     fun markConversationAsRead(cascadeId: String) {
         val target = rawConversations.find { it.id == cascadeId }
         val modTime = target?.lastModifiedTime?.let { ConversationItem.parseIsoDate(it) } ?: 0L

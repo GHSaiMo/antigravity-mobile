@@ -9,7 +9,11 @@ import androidx.lifecycle.viewModelScope
 import com.antigravity.mobile.data.model.*
 import com.antigravity.mobile.data.service.ApiClient
 import com.antigravity.mobile.data.service.ConnectionStatus
+import com.antigravity.mobile.data.service.DocumentCacheManager
+import com.antigravity.mobile.data.service.LiveActivityNotificationManager
+import com.antigravity.mobile.data.service.PreferencesManager
 import com.antigravity.mobile.data.service.StreamWebSocketClient
+import com.antigravity.mobile.ui.components.ImageViewerData
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -54,12 +58,21 @@ data class ChatUiState(
     val connectionStatus: ConnectionStatus = ConnectionStatus.DISCONNECTED,
     val errorMessage: String? = null,
     val isLatestMessageError: Boolean = false,
-    val markdownViewerData: MarkdownFileViewerData? = null
+    val markdownViewerData: MarkdownFileViewerData? = null,
+    val imageViewerData: ImageViewerData? = null,
+    val isDownloadingDocument: Boolean = false,
+    val downloadingDocumentName: String = "",
+    val downloadProgress: Float = 0f,
+    val previewDocumentFile: java.io.File? = null,
+    val previewDocumentTitle: String = ""
 )
 
 class ChatViewModel(
     private val apiClient: ApiClient,
-    private val wsClient: StreamWebSocketClient
+    private val wsClient: StreamWebSocketClient,
+    private val prefs: PreferencesManager? = null,
+    private val documentCacheManager: DocumentCacheManager? = null,
+    private val liveActivityManager: LiveActivityNotificationManager? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ChatUiState())
@@ -70,6 +83,9 @@ class ChatViewModel(
 
     private val _scrollToBottomTrigger = MutableStateFlow(0)
     val scrollToBottomTrigger: StateFlow<Int> = _scrollToBottomTrigger.asStateFlow()
+
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
     private var wsJob: Job? = null
     private var fetchJob: Job? = null
@@ -118,6 +134,34 @@ class ChatViewModel(
                 isLoading = if (_uiState.value.messages.isEmpty() && !isNewConversation) true else _uiState.value.isLoading
             )
         }
+
+        // Restore draft if available
+        prefs?.let { p ->
+            val draftText = p.getDraftText(cascadeId)
+            if (draftText.isNotBlank() && _inputText.value.isBlank()) {
+                _inputText.value = draftText
+            }
+            val draftImages = p.loadDraftImages(cascadeId)
+            if (draftImages.isNotEmpty() && _uiState.value.selectedImages.isEmpty()) {
+                val attachments = draftImages.mapNotNull { bytes ->
+                    try {
+                        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                        if (bitmap != null) {
+                            AttachmentImage(
+                                uri = Uri.EMPTY,
+                                bitmap = bitmap,
+                                byteArray = bytes
+                            )
+                        } else null
+                    } catch (_: Exception) { null }
+                }
+                if (attachments.isNotEmpty()) {
+                    _uiState.value = _uiState.value.copy(selectedImages = attachments)
+                }
+            }
+        }
+
+        apiClient.notifySessionFocus(cascadeId)
 
         viewModelScope.launch {
             apiClient.markConversationAsRead(cascadeId)
@@ -212,6 +256,7 @@ class ChatViewModel(
                     }
 
                     val isRunning = payload.status.equals("RUNNING", ignoreCase = true) || awaiting
+                    val wasRunning = _uiState.value.isRunning
                     val previousMsgCount = _uiState.value.messages.size
 
                     _uiState.value = _uiState.value.copy(
@@ -235,10 +280,66 @@ class ChatViewModel(
                         isLatestMessageError = isError
                     )
 
+                    if (isRunning) {
+                        val stepCount = msgs.count { !it.isUser }
+                        val latestAction = when {
+                            payload.pendingInteraction != null -> payload.pendingInteraction.prompt ?: "需要审批操作"
+                            !payload.runningTasks.isNullOrEmpty() -> payload.runningTasks.firstOrNull()?.summary ?: "正在执行后台任务..."
+                            lastMsg?.toolCalls?.isNotEmpty() == true -> "正在执行: " + (lastMsg.toolCalls.lastOrNull()?.name ?: "操作")
+                            awaiting -> "正在思考并组织回复..."
+                            else -> "正在执行任务..."
+                        }
+                        liveActivityManager?.startOrUpdateActivity(
+                            title = _uiState.value.title,
+                            cascadeId = cascadeId,
+                            status = payload.status,
+                            stepCount = maxOf(1, stepCount),
+                            latestAction = latestAction,
+                            runningTaskCount = payload.runningTasks?.size ?: 0,
+                            hasPendingAction = payload.pendingInteraction != null
+                        )
+                    } else if (wasRunning) {
+                        val finalStatus = if (isError) "FAILED" else "COMPLETED"
+                        liveActivityManager?.endActivity(cascadeId = cascadeId, finalStatus = finalStatus)
+                    }
+
                     if (msgs.size != previousMsgCount || isRunning) {
                         _scrollToBottomTrigger.value++
                     }
                 }
+            }
+        }
+    }
+
+    fun refresh(onComplete: (() -> Unit)? = null) {
+        val cid = _uiState.value.cascadeId
+        if (cid.isBlank()) {
+            onComplete?.invoke()
+            return
+        }
+        _isRefreshing.value = true
+        viewModelScope.launch {
+            try {
+                apiClient.fetchMessages(cid, limit = 25)
+                    .onSuccess { payload ->
+                        if (_uiState.value.cascadeId == cid) {
+                            val msgs = payload.messages ?: emptyList()
+                            val lastMsg = msgs.lastOrNull()
+                            val isError = lastMsg?.status.equals("error", ignoreCase = true) || payload.hasError
+                            _uiState.value = _uiState.value.copy(
+                                isLoading = false,
+                                title = payload.title?.takeIf { it.isNotBlank() } ?: _uiState.value.title,
+                                messages = msgs,
+                                runningTasks = payload.runningTasks ?: emptyList(),
+                                queuedMessages = payload.queuedMessages ?: emptyList(),
+                                isRunning = payload.status.equals("RUNNING", ignoreCase = true),
+                                isLatestMessageError = isError
+                            )
+                        }
+                    }
+            } finally {
+                _isRefreshing.value = false
+                onComplete?.invoke()
             }
         }
     }
@@ -330,9 +431,21 @@ class ChatViewModel(
         val text = _inputText.value.trim()
         val images = _uiState.value.selectedImages
         if (text.isEmpty() && images.isEmpty()) return
+        val cid = _uiState.value.cascadeId
+        prefs?.clearDraftText(cid)
+        prefs?.clearDraftImages(cid)
         _inputText.value = ""
         _uiState.value = _uiState.value.copy(selectedImages = emptyList())
         sendMessage(text, images)
+    }
+
+    fun saveDraft() {
+        val cid = _uiState.value.cascadeId
+        if (cid.isBlank()) return
+        prefs?.let { p ->
+            p.setDraftText(cid, _inputText.value)
+            p.saveDraftImages(cid, _uiState.value.selectedImages.map { it.byteArray })
+        }
     }
 
     private fun sendMessage(text: String, attachments: List<AttachmentImage> = emptyList()) {
@@ -358,6 +471,14 @@ class ChatViewModel(
         )
         _scrollToBottomTrigger.value++
 
+        liveActivityManager?.startOrUpdateActivity(
+            title = _uiState.value.title,
+            cascadeId = cascadeId,
+            status = "RUNNING",
+            stepCount = maxOf(1, _uiState.value.messages.count { !it.isUser } + 1),
+            latestAction = "开始执行任务..."
+        )
+
         val imagePayloads = attachments.map { Pair(it.byteArray, it.mimeType) }
 
         viewModelScope.launch {
@@ -368,12 +489,14 @@ class ChatViewModel(
                     isRunning = false,
                     isAwaitingResponse = false
                 )
+                liveActivityManager?.endActivity(cascadeId = cascadeId, finalStatus = "FAILED")
             }
         }
     }
 
     fun cancelExecution() {
         val cascadeId = _uiState.value.cascadeId
+        liveActivityManager?.endActivity(cascadeId = cascadeId, finalStatus = "CANCELLED")
         viewModelScope.launch {
             apiClient.cancelInvocation(cascadeId)
         }
@@ -483,8 +606,86 @@ class ChatViewModel(
         proceedArtifact()
     }
 
+    fun openImageViewer(bitmap: Bitmap? = null, url: String? = null, title: String? = null) {
+        val resolvedUrl = url?.let { apiClient.resolveMediaURL(it) }
+        _uiState.value = _uiState.value.copy(
+            imageViewerData = ImageViewerData(bitmap = bitmap, url = resolvedUrl, title = title)
+        )
+    }
+
+    fun closeImageViewer() {
+        _uiState.value = _uiState.value.copy(imageViewerData = null)
+    }
+
+    fun resolveMediaUrl(raw: String): String {
+        return apiClient.resolveMediaURL(raw)
+    }
+
+    private var documentDownloadJob: Job? = null
+
+    fun downloadAndPreviewDocument(uri: String, fileName: String) {
+        documentDownloadJob?.cancel()
+
+        val cascadeId = _uiState.value.cascadeId
+
+        // 1. Check local cache first
+        val cached = documentCacheManager?.getCachedFile(uri, fileName, cascadeId)
+        if (cached != null && cached.exists() && cached.length() > 0) {
+            _uiState.value = _uiState.value.copy(
+                previewDocumentFile = cached,
+                previewDocumentTitle = fileName
+            )
+            return
+        }
+
+        // 2. Prepare target file in cache
+        val target = documentCacheManager?.cacheFile(uri, fileName, cascadeId)
+            ?: java.io.File.createTempFile("doc_", "_$fileName")
+
+        _uiState.value = _uiState.value.copy(
+            isDownloadingDocument = true,
+            downloadingDocumentName = fileName,
+            downloadProgress = 0f
+        )
+
+        documentDownloadJob = viewModelScope.launch {
+            val res = apiClient.downloadFile(
+                uri = uri,
+                targetFile = target,
+                cascadeId = cascadeId,
+                onProgress = { progress, _, _ ->
+                    _uiState.value = _uiState.value.copy(downloadProgress = progress)
+                }
+            )
+
+            _uiState.value = _uiState.value.copy(isDownloadingDocument = false)
+
+            res.onSuccess { downloadedFile ->
+                _uiState.value = _uiState.value.copy(
+                    previewDocumentFile = downloadedFile,
+                    previewDocumentTitle = fileName
+                )
+            }.onFailure { err ->
+                _uiState.value = _uiState.value.copy(
+                    errorMessage = "下载文档失败: ${err.message}"
+                )
+            }
+        }
+    }
+
+    fun closeDocumentPreview() {
+        _uiState.value = _uiState.value.copy(previewDocumentFile = null)
+    }
+
+    fun cancelDocumentDownload() {
+        documentDownloadJob?.cancel()
+        documentDownloadJob = null
+        _uiState.value = _uiState.value.copy(isDownloadingDocument = false)
+    }
+
     override fun onCleared() {
         super.onCleared()
+        liveActivityManager?.cancelActivity()
         wsJob?.cancel()
         fetchJob?.cancel()
         wsClient.disconnect()

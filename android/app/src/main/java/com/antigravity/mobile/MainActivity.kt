@@ -7,8 +7,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.ActivityResultLauncher
 import androidx.compose.animation.AnimatedContentTransitionScope
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.navigation.NavType
@@ -50,11 +50,13 @@ class MainActivity : ComponentActivity() {
         prefs = PreferencesManager(applicationContext)
         apiClient = ApiClient(prefs)
         wsClient = StreamWebSocketClient(prefs)
+        val documentCacheManager = com.antigravity.mobile.data.service.DocumentCacheManager(applicationContext)
 
         // Initialize ViewModels
         pairingViewModel = PairingViewModel(apiClient, prefs)
         conversationListViewModel = ConversationListViewModel(apiClient, prefs)
-        chatViewModel = ChatViewModel(apiClient, wsClient)
+        val liveActivityManager = com.antigravity.mobile.data.service.LiveActivityNotificationManager(applicationContext, prefs)
+        chatViewModel = ChatViewModel(apiClient, wsClient, prefs, documentCacheManager, liveActivityManager)
 
         // Register ZXing Scanner
         qrScanLauncher = registerForActivityResult(ScanContract()) { result ->
@@ -81,25 +83,37 @@ class MainActivity : ComponentActivity() {
                     enterTransition = {
                         slideIntoContainer(
                             AnimatedContentTransitionScope.SlideDirection.Left,
-                            animationSpec = tween(300, easing = FastOutSlowInEasing)
+                            animationSpec = spring(
+                                dampingFraction = 0.82f,
+                                stiffness = Spring.StiffnessMediumLow
+                            )
                         )
                     },
                     exitTransition = {
                         slideOutOfContainer(
                             AnimatedContentTransitionScope.SlideDirection.Left,
-                            animationSpec = tween(300, easing = FastOutSlowInEasing)
+                            animationSpec = spring(
+                                dampingFraction = 0.82f,
+                                stiffness = Spring.StiffnessMediumLow
+                            )
                         )
                     },
                     popEnterTransition = {
                         slideIntoContainer(
                             AnimatedContentTransitionScope.SlideDirection.Right,
-                            animationSpec = tween(300, easing = FastOutSlowInEasing)
+                            animationSpec = spring(
+                                dampingFraction = 0.82f,
+                                stiffness = Spring.StiffnessMediumLow
+                            )
                         )
                     },
                     popExitTransition = {
                         slideOutOfContainer(
                             AnimatedContentTransitionScope.SlideDirection.Right,
-                            animationSpec = tween(300, easing = FastOutSlowInEasing)
+                            animationSpec = spring(
+                                dampingFraction = 0.82f,
+                                stiffness = Spring.StiffnessMediumLow
+                            )
                         )
                     }
                 ) {
@@ -122,6 +136,7 @@ class MainActivity : ComponentActivity() {
                         ConversationListScreen(
                             viewModel = conversationListViewModel,
                             onSelectConversation = { cascadeId, title, isNew ->
+                                conversationListViewModel.notifySessionFocus(cascadeId)
                                 conversationListViewModel.markConversationAsRead(cascadeId)
                                 chatViewModel.resetSession()
                                 val encodedTitle = URLEncoder.encode(title, "UTF-8")

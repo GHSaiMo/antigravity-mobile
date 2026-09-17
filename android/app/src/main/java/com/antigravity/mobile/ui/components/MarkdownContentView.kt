@@ -4,6 +4,12 @@ import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -35,9 +41,15 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImagePainter
+import coil.compose.SubcomposeAsyncImage
+import coil.compose.SubcomposeAsyncImageContent
+import coil.request.ImageRequest
+import com.antigravity.mobile.data.service.MathSymbolProcessor
 import com.antigravity.mobile.ui.theme.AppColors
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 
@@ -58,6 +70,7 @@ sealed class MarkdownBlock {
     ) : MarkdownBlock()
     data class BulletList(val id: String, val items: List<String>) : MarkdownBlock()
     data class Paragraph(val id: String, val text: String) : MarkdownBlock()
+    data class Image(val id: String, val alt: String, val url: String) : MarkdownBlock()
 }
 
 /**
@@ -218,7 +231,15 @@ object MarkdownParser {
                 continue
             }
 
-            // 6. Paragraph
+            // 6. Standalone image line: ![alt](url), [![alt](thumb)](url), MEDIA:url
+            val standaloneImg = parseStandaloneImage(trimmed)
+            if (standaloneImg != null) {
+                blocks.add(MarkdownBlock.Image("block-${blockIdx++}", standaloneImg.first, standaloneImg.second))
+                i++
+                continue
+            }
+
+            // 7. Paragraph
             val paraLines = mutableListOf<String>()
             paraLines.add(line)
             i++
@@ -232,17 +253,96 @@ object MarkdownParser {
                     (nTrimmed.startsWith("|") && nTrimmed.endsWith("|")) ||
                     nTrimmed.startsWith("- ") ||
                     nTrimmed.startsWith("* ") ||
-                    nTrimmed.startsWith("• ")
+                    nTrimmed.startsWith("• ") ||
+                    parseStandaloneImage(nTrimmed) != null
                 ) {
                     break
                 }
                 paraLines.add(nextLine)
                 i++
             }
-            blocks.add(MarkdownBlock.Paragraph("block-${blockIdx++}", paraLines.joinToString("\n")))
+            val paraText = paraLines.joinToString("\n")
+            val imagesInPara = findImages(paraText)
+            if (imagesInPara.isEmpty()) {
+                blocks.add(MarkdownBlock.Paragraph("block-${blockIdx++}", paraText))
+            } else {
+                var curIdx = 0
+                for (img in imagesInPara) {
+                    if (img.range.first > curIdx) {
+                        val textBefore = paraText.substring(curIdx, img.range.first).trim()
+                        if (textBefore.isNotEmpty()) {
+                            blocks.add(MarkdownBlock.Paragraph("block-${blockIdx++}", textBefore))
+                        }
+                    }
+                    blocks.add(MarkdownBlock.Image("block-${blockIdx++}", img.alt, img.url))
+                    curIdx = img.range.last + 1
+                }
+                if (curIdx < paraText.length) {
+                    val textAfter = paraText.substring(curIdx).trim()
+                    if (textAfter.isNotEmpty()) {
+                        blocks.add(MarkdownBlock.Paragraph("block-${blockIdx++}", textAfter))
+                    }
+                }
+            }
         }
 
         return blocks
+    }
+
+    private val linkedImageRegex = Regex("""\[!\[(.*?)\]\(([^\s\)]+)(?:\s+"[^"]*")?\)\]\(([^\s\)]+)(?:\s+"[^"]*")?\)""")
+    private val markdownImageRegex = Regex("""!\[(.*?)\]\(([^\s\)]+)(?:\s+"[^"]*")?\)""")
+    private val mediaPrefixRegex = Regex("""(?:^|\s|<br\s*/?>)MEDIA:\s*([^\s)<>"'`]+)""", RegexOption.IGNORE_CASE)
+
+    private fun cleanImageURL(raw: String): String {
+        return raw.trim().trim('`', '"', '\'', '(', ')', '[', ']', '<', '>')
+    }
+
+    private data class FoundImage(val alt: String, val url: String, val range: IntRange)
+
+    private fun findImages(text: String): List<FoundImage> {
+        if (text.isEmpty()) return emptyList()
+        val results = mutableListOf<FoundImage>()
+
+        linkedImageRegex.findAll(text).forEach { match ->
+            val alt = match.groups[1]?.value.orEmpty()
+            val orig = match.groups[3]?.value.orEmpty()
+            val cleaned = cleanImageURL(orig)
+            if (cleaned.isNotBlank()) {
+                results.add(FoundImage(alt.trim(), cleaned, match.range))
+            }
+        }
+
+        markdownImageRegex.findAll(text).forEach { match ->
+            val alt = match.groups[1]?.value.orEmpty()
+            val url = match.groups[2]?.value.orEmpty()
+            val cleaned = cleanImageURL(url)
+            if (cleaned.isNotBlank() && results.none { it.range.contains(match.range.first) }) {
+                results.add(FoundImage(alt.trim(), cleaned, match.range))
+            }
+        }
+
+        mediaPrefixRegex.findAll(text).forEach { match ->
+            val url = match.groups[1]?.value.orEmpty()
+            val cleaned = cleanImageURL(url)
+            if (cleaned.isNotBlank() && results.none { it.range.contains(match.range.first) }) {
+                val fileName = cleaned.substringAfterLast('/')
+                results.add(FoundImage(fileName, cleaned, match.range))
+            }
+        }
+
+        return results.sortedBy { it.range.first }
+    }
+
+    private fun parseStandaloneImage(trimmed: String): Pair<String, String>? {
+        val images = findImages(trimmed)
+        if (images.size != 1) return null
+        val img = images[0]
+        val before = trimmed.substring(0, img.range.first).trim()
+        val after = trimmed.substring(img.range.last + 1).trim()
+        if (before.isEmpty() && after.isEmpty()) {
+            return Pair(img.alt, img.url)
+        }
+        return null
     }
 }
 
@@ -253,7 +353,9 @@ object MarkdownParser {
 fun MarkdownContentView(
     content: String,
     modifier: Modifier = Modifier,
-    onPlanClick: ((uri: String, title: String) -> Unit)? = null
+    onPlanClick: ((uri: String, title: String) -> Unit)? = null,
+    urlResolver: ((String) -> String)? = null,
+    onImageClick: ((url: String) -> Unit)? = null
 ) {
     val blocks = remember(content) { MarkdownParser.parse(content) }
     val colors = AntigravityTheme.colors
@@ -290,11 +392,18 @@ fun MarkdownContentView(
                 }
 
                 is MarkdownBlock.CodeBlock -> {
-                    CodeBlockView(
-                        lang = block.lang,
-                        code = block.code,
-                        colors = colors
-                    )
+                    if (block.lang.equals("mermaid", ignoreCase = true) || block.lang.equals("diagram", ignoreCase = true)) {
+                        MermaidDiagramView(
+                            code = block.code,
+                            colors = colors
+                        )
+                    } else {
+                        CodeBlockView(
+                            lang = block.lang,
+                            code = block.code,
+                            colors = colors
+                        )
+                    }
                 }
 
                 is MarkdownBlock.Table -> {
@@ -321,6 +430,92 @@ fun MarkdownContentView(
                         colors = colors,
                         onPlanClick = onPlanClick
                     )
+                }
+
+                is MarkdownBlock.Image -> {
+                    MarkdownImageView(
+                        alt = block.alt,
+                        url = block.url,
+                        colors = colors,
+                        urlResolver = urlResolver,
+                        onImageClick = onImageClick
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MarkdownImageView(
+    alt: String,
+    url: String,
+    colors: AppColors,
+    urlResolver: ((String) -> String)? = null,
+    onImageClick: ((String) -> Unit)? = null
+) {
+    val context = LocalContext.current
+    val resolvedUrl = remember(url) { urlResolver?.invoke(url) ?: url }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(colors.surfaceVariant.copy(alpha = 0.5f))
+            .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
+            .clickable { onImageClick?.invoke(resolvedUrl) },
+        contentAlignment = Alignment.Center
+    ) {
+        SubcomposeAsyncImage(
+            model = ImageRequest.Builder(context)
+                .data(resolvedUrl)
+                .crossfade(true)
+                .build(),
+            contentDescription = alt.ifBlank { "Markdown image" },
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 320.dp)
+        ) {
+            val state = painter.state
+            when (state) {
+                is AsyncImagePainter.State.Loading -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(140.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(
+                            color = colors.accentIndigo,
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+                is AsyncImagePainter.State.Error -> {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Description,
+                            contentDescription = "Failed",
+                            tint = colors.textMuted,
+                            modifier = Modifier.size(28.dp)
+                        )
+                        Text(
+                            text = if (alt.isNotBlank()) alt else "图片加载失败",
+                            color = colors.textSecondary,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+                else -> {
+                    SubcomposeAsyncImageContent()
                 }
             }
         }
@@ -374,7 +569,25 @@ private fun FrontmatterCard(
             )
         }
 
-        AnimatedVisibility(visible = expanded) {
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically(
+                animationSpec = spring(
+                    dampingFraction = 0.82f,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            ) + fadeIn(
+                animationSpec = spring(dampingFraction = 0.82f)
+            ),
+            exit = shrinkVertically(
+                animationSpec = spring(
+                    dampingFraction = 0.82f,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            ) + fadeOut(
+                animationSpec = spring(dampingFraction = 0.82f)
+            )
+        ) {
             SelectionContainer {
                 Text(
                     text = rawContent,
@@ -427,6 +640,7 @@ private fun CodeBlockView(
 ) {
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
+    val haptic = com.antigravity.mobile.ui.util.rememberHaptic()
     var copied by remember { mutableStateOf(false) }
 
     Column(
@@ -445,18 +659,37 @@ private fun CodeBlockView(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(
-                text = if (lang.isNotBlank()) lang.uppercase() else "CODE",
-                color = colors.textMuted,
-                fontSize = 10.5.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace
-            )
+            val fileType = remember(lang) { com.antigravity.mobile.data.service.FileIconResolver.resolve(lang) }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(7.dp)
+                        .clip(CircleShape)
+                        .background(fileType.color)
+                )
+                if (fileType.glyph.isNotEmpty()) {
+                    Text(
+                        text = fileType.glyph,
+                        fontSize = 11.sp
+                    )
+                }
+                Text(
+                    text = fileType.displayName,
+                    color = fileType.color,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
 
             Row(
                 modifier = Modifier
                     .clip(RoundedCornerShape(6.dp))
                     .clickable {
+                        haptic.medium()
                         clipboardManager.setText(AnnotatedString(code))
                         copied = true
                         Toast.makeText(context, "已复制到剪贴板", Toast.LENGTH_SHORT).show()
@@ -807,8 +1040,19 @@ private fun buildRichTextAnnotatedString(
     baseFontSize: TextUnit,
     baseFontWeight: FontWeight
 ): AnnotatedString {
-    var processed = preprocessArrows(rawText)
+    var processed = MathSymbolProcessor.process(rawText)
     processed = replaceHtmlBreaks(processed)
+
+    // Auto-link bare implementation_plan.md, walkthrough.md, task.md if not already in markdown link
+    if (processed.contains("implementation_plan.md") && !processed.contains("[implementation_plan.md]") && !processed.contains("](implementation_plan.md)")) {
+        processed = processed.replace("implementation_plan.md", "[implementation_plan.md](implementation_plan.md)")
+    }
+    if (processed.contains("walkthrough.md") && !processed.contains("[walkthrough.md]") && !processed.contains("](walkthrough.md)")) {
+        processed = processed.replace("walkthrough.md", "[walkthrough.md](walkthrough.md)")
+    }
+    if (processed.contains("task.md") && !processed.contains("[task.md]") && !processed.contains("](task.md)")) {
+        processed = processed.replace("task.md", "[task.md](task.md)")
+    }
 
     // Antigravity Desktop Code Amber/Yellow color: #E5C07B (RGB: 229, 192, 123)
     val codeColor = Color(0xFFE5C07B)

@@ -12,6 +12,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -28,10 +29,17 @@ fun InteractionCard(
     modifier: Modifier = Modifier
 ) {
     val colors = AntigravityTheme.colors
+    val haptic = com.antigravity.mobile.ui.util.rememberHaptic()
 
     Column(
         modifier = modifier
             .fillMaxWidth()
+            .shadow(
+                elevation = 2.5.dp,
+                shape = RoundedCornerShape(14.dp),
+                ambientColor = Color.Black.copy(alpha = 0.05f),
+                spotColor = Color.Black.copy(alpha = 0.10f)
+            )
             .clip(RoundedCornerShape(14.dp))
             .background(colors.surface)
             .border(1.dp, colors.accentOrange.copy(alpha = 0.4f), RoundedCornerShape(14.dp))
@@ -86,7 +94,10 @@ fun InteractionCard(
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             OutlinedButton(
-                onClick = onReject,
+                onClick = {
+                    haptic.medium()
+                    onReject()
+                },
                 modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.outlinedButtonColors(
                     contentColor = colors.accentRed
@@ -97,7 +108,10 @@ fun InteractionCard(
             }
 
             Button(
-                onClick = onApprove,
+                onClick = {
+                    haptic.heavy()
+                    onApprove()
+                },
                 modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = colors.accentGreen,

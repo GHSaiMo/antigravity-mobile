@@ -27,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -205,13 +206,19 @@ fun ConversationListScreen(
                     }
                     is ConversationListUiState.Success -> {
                         if (state.conversations.isEmpty()) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(32.dp),
-                                verticalArrangement = Arrangement.Center,
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
+                            if (searchQuery.isEmpty() && projects.isEmpty()) {
+                                OnboardingGuideView(
+                                    onScanTapped = onNavigateToPair,
+                                    onManualInputTapped = onNavigateToPair
+                                )
+                            } else {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(32.dp),
+                                    verticalArrangement = Arrangement.Center,
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
                                 Icon(
                                     imageVector = if (searchQuery.isEmpty()) Icons.Default.ChatBubbleOutline else Icons.Default.Search,
                                     contentDescription = "Empty",
@@ -233,8 +240,9 @@ fun ConversationListScreen(
                                     textAlign = TextAlign.Center
                                 )
                             }
-                        } else {
-                            ConversationListContent(
+                        }
+                    } else {
+                        ConversationListContent(
                                 conversations = state.conversations,
                                 onSelect = onSelectConversation,
                                 onRename = { item ->
@@ -468,6 +476,7 @@ private fun SwipeableConversationCard(
     val coroutineScope = rememberCoroutineScope()
     val maxRevealPx = with(density) { 72.dp.toPx() }
     val offsetX = remember { Animatable(0f) }
+    val haptic = com.antigravity.mobile.ui.util.rememberHaptic()
 
     Box(
         modifier = Modifier
@@ -492,6 +501,7 @@ private fun SwipeableConversationCard(
                         .clip(CircleShape)
                         .background(colors.accentRed)
                         .clickable {
+                            haptic.medium()
                             coroutineScope.launch {
                                 offsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
                             }
@@ -525,6 +535,7 @@ private fun SwipeableConversationCard(
                     onDragStopped = { velocity ->
                         coroutineScope.launch {
                             val targetOffset = if (velocity < -500f || offsetX.value < -maxRevealPx / 2) {
+                                haptic.light()
                                 -maxRevealPx
                             } else {
                                 0f
@@ -542,10 +553,14 @@ private fun SwipeableConversationCard(
                             offsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
                         }
                     } else {
+                        haptic.light()
                         onClick()
                     }
                 },
-                onLongClick = onLongClick
+                onLongClick = {
+                    haptic.longPress()
+                    onLongClick()
+                }
             )
         }
     }
@@ -564,6 +579,12 @@ fun ConversationCard(
     Card(
         modifier = modifier
             .fillMaxWidth()
+            .shadow(
+                elevation = 1.5.dp,
+                shape = RoundedCornerShape(14.dp),
+                ambientColor = Color.Black.copy(alpha = 0.04f),
+                spotColor = Color.Black.copy(alpha = 0.08f)
+            )
             .clip(RoundedCornerShape(14.dp))
             .border(0.5.dp, colors.border, RoundedCornerShape(14.dp))
             .combinedClickable(

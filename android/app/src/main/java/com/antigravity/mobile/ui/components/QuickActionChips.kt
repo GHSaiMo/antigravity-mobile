@@ -36,6 +36,7 @@ fun QuickActionChips(
 ) {
     val colors = AntigravityTheme.colors
     val isClaude = activeModel.contains("claude", ignoreCase = true)
+    val haptic = com.antigravity.mobile.ui.util.rememberHaptic()
 
     Row(
         modifier = modifier
@@ -52,7 +53,10 @@ fun QuickActionChips(
                 .clip(RoundedCornerShape(10.dp))
                 .background(colors.surface)
                 .border(1.dp, colors.border, RoundedCornerShape(10.dp))
-                .clickable { onAddImage() },
+                .clickable {
+                    haptic.light()
+                    onAddImage()
+                },
             contentAlignment = Alignment.Center
         ) {
             Icon(
@@ -78,7 +82,10 @@ fun QuickActionChips(
                     else colors.accentBlue.copy(alpha = 0.35f),
                     RoundedCornerShape(10.dp)
                 )
-                .clickable { onToggleModel() }
+                .clickable {
+                    haptic.light()
+                    onToggleModel()
+                }
                 .padding(horizontal = 11.dp),
             contentAlignment = Alignment.Center
         ) {
@@ -97,7 +104,10 @@ fun QuickActionChips(
                 .clip(RoundedCornerShape(10.dp))
                 .background(colors.surface)
                 .border(1.dp, colors.border, RoundedCornerShape(10.dp))
-                .clickable { onCommitAndPush() }
+                .clickable {
+                    haptic.light()
+                    onCommitAndPush()
+                }
                 .padding(horizontal = 14.dp),
             contentAlignment = Alignment.Center
         ) {
@@ -116,7 +126,10 @@ fun QuickActionChips(
                     .height(32.dp)
                     .clip(RoundedCornerShape(10.dp))
                     .background(colors.accentBlue)
-                    .clickable { onContinue() }
+                    .clickable {
+                        haptic.medium()
+                        onContinue()
+                    }
                     .padding(horizontal = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -143,7 +156,10 @@ fun QuickActionChips(
                     .height(32.dp)
                     .clip(RoundedCornerShape(10.dp))
                     .background(colors.accentBlue)
-                    .clickable { onProceed() }
+                    .clickable {
+                        haptic.heavy()
+                        onProceed()
+                    }
                     .padding(horizontal = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
