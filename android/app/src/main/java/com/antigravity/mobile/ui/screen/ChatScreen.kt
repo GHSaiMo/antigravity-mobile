@@ -2,12 +2,8 @@ package com.antigravity.mobile.ui.screen
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -56,13 +52,6 @@ import com.antigravity.mobile.ui.components.*
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 import com.antigravity.mobile.ui.viewmodel.ChatViewModel
 import kotlinx.coroutines.delay
-
-private enum class ChatContentState {
-    LOADING,
-    ERROR,
-    EMPTY,
-    MESSAGES
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -224,43 +213,26 @@ fun ChatScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            val contentState = when {
-                uiState.isLoading && uiState.messages.isEmpty() && !uiState.isNewConversation ->
-                    ChatContentState.LOADING
-                uiState.errorMessage != null && uiState.messages.isEmpty() && !uiState.isNewConversation ->
-                    ChatContentState.ERROR
-                uiState.messages.isEmpty() && !shouldShowThinkingBubble ->
-                    ChatContentState.EMPTY
-                else ->
-                    ChatContentState.MESSAGES
-            }
-
-            // Message List / Empty State / Loading State / Error State
-            AnimatedContent(
-                targetState = contentState,
-                transitionSpec = {
-                    fadeIn(animationSpec = spring(dampingRatio = 0.82f)) togetherWith
-                            fadeOut(animationSpec = spring(dampingRatio = 0.82f))
-                },
-                label = "ChatContentTransition",
+            // Content Area (Loading / Error / Empty / Messages)
+            Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-            ) { state ->
-                when (state) {
-                    ChatContentState.LOADING -> {
+            ) {
+                when {
+                    uiState.isLoading && uiState.messages.isEmpty() && !uiState.isNewConversation -> {
                         ChatLoadingStateView()
                     }
-                    ChatContentState.ERROR -> {
+                    uiState.errorMessage != null && uiState.messages.isEmpty() && !uiState.isNewConversation -> {
                         ChatErrorStateView(
                             errorMessage = uiState.errorMessage ?: "同步会话历史失败",
                             onRetry = { viewModel.retryLoadMessages() }
                         )
                     }
-                    ChatContentState.EMPTY -> {
+                    uiState.messages.isEmpty() && !shouldShowThinkingBubble -> {
                         ChatEmptyStateView(title = uiState.title)
                     }
-                    ChatContentState.MESSAGES -> {
+                    else -> {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -272,91 +244,92 @@ fun ChatScreen(
                                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                                 verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                            items(
-                                uiState.messages,
-                                key = { it.id.ifBlank { "${it.timestamp}_${it.content.hashCode()}" } }
-                            ) { msg ->
-                                MessageBubble(
-                                    message = msg,
-                                    onPlanClick = { uri, title ->
-                                        handleFileOrLinkClick(uri, title)
-                                    },
-                                    urlResolver = { raw -> viewModel.resolveMediaUrl(raw) },
-                                    onImageClick = { url, bitmap ->
-                                        viewModel.openImageViewer(bitmap = bitmap, url = url)
+                                items(
+                                    uiState.messages,
+                                    key = { it.id.ifBlank { "${it.timestamp}_${it.content.hashCode()}" } }
+                                ) { msg ->
+                                    MessageBubble(
+                                        message = msg,
+                                        onPlanClick = { uri, title ->
+                                            handleFileOrLinkClick(uri, title)
+                                        },
+                                        urlResolver = { raw -> viewModel.resolveMediaUrl(raw) },
+                                        onImageClick = { url, bitmap ->
+                                            viewModel.openImageViewer(bitmap = bitmap, url = url)
+                                        }
+                                    )
+                                }
+
+                                // Active Thinking Animation Card
+                                if (shouldShowThinkingBubble) {
+                                    item(key = "agent_thinking_bubble") {
+                                        AgentThinkingBubble()
                                     }
+                                }
+
+                                // Active Running Tasks Card
+                                if (uiState.runningTasks.isNotEmpty()) {
+                                    item {
+                                        RunningTasksCard(
+                                            tasks = uiState.runningTasks,
+                                            onStopTask = { viewModel.stopTask(it) },
+                                            modifier = Modifier.padding(vertical = 4.dp)
+                                        )
+                                    }
+                                }
+
+                                // Queued Messages Panel
+                                if (uiState.queuedMessages.isNotEmpty()) {
+                                    item {
+                                        QueuedMessagesCard(
+                                            items = uiState.queuedMessages,
+                                            onSendNow = { viewModel.sendQueuedMessageNow(it) },
+                                            onEdit = { viewModel.editQueuedMessage(it) },
+                                            onDelete = { viewModel.deleteQueuedMessage(it) },
+                                            modifier = Modifier.padding(vertical = 4.dp)
+                                        )
+                                    }
+                                }
+
+                                // Interactive Decision Card (if pending)
+                                uiState.pendingInteraction?.let { interaction ->
+                                    item {
+                                        InteractionCard(
+                                            interaction = interaction,
+                                            onApprove = { viewModel.approveInteraction() },
+                                            onReject = { viewModel.rejectInteraction() },
+                                            modifier = Modifier.padding(vertical = 6.dp)
+                                        )
+                                    }
+                                }
+
+                                // Proceed Banner (if ready)
+                                if (uiState.canProceed) {
+                                    item {
+                                        ProceedBanner(
+                                            onProceed = {
+                                                val planUri = uiState.proceedArtifactUri ?: "implementation_plan.md"
+                                                viewModel.openMarkdownViewer(planUri, "实施方案 (Implementation Plan)")
+                                            },
+                                            modifier = Modifier.padding(vertical = 6.dp)
+                                        )
+                                    }
+                                }
+
+                                // Bottom breathing room spacer ensuring bubble is fully clear of input bar
+                                item(key = "chat_bottom_spacer") {
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                }
+                            }
+
+                            if (pullRefreshState.verticalOffset > 0 || isRefreshing) {
+                                PullToRefreshContainer(
+                                    state = pullRefreshState,
+                                    modifier = Modifier.align(Alignment.TopCenter),
+                                    containerColor = colors.surface,
+                                    contentColor = colors.accentIndigo
                                 )
                             }
-
-                            // Active Thinking Animation Card
-                            if (shouldShowThinkingBubble) {
-                                item(key = "agent_thinking_bubble") {
-                                    AgentThinkingBubble()
-                                }
-                            }
-
-                            // Active Running Tasks Card
-                            if (uiState.runningTasks.isNotEmpty()) {
-                                item {
-                                    RunningTasksCard(
-                                        tasks = uiState.runningTasks,
-                                        onStopTask = { viewModel.stopTask(it) },
-                                        modifier = Modifier.padding(vertical = 4.dp)
-                                    )
-                                }
-                            }
-
-                            // Queued Messages Panel
-                            if (uiState.queuedMessages.isNotEmpty()) {
-                                item {
-                                    QueuedMessagesCard(
-                                        items = uiState.queuedMessages,
-                                        onSendNow = { viewModel.sendQueuedMessageNow(it) },
-                                        onEdit = { viewModel.editQueuedMessage(it) },
-                                        onDelete = { viewModel.deleteQueuedMessage(it) },
-                                        modifier = Modifier.padding(vertical = 4.dp)
-                                    )
-                                }
-                            }
-
-                            // Interactive Decision Card (if pending)
-                            uiState.pendingInteraction?.let { interaction ->
-                                item {
-                                    InteractionCard(
-                                        interaction = interaction,
-                                        onApprove = { viewModel.approveInteraction() },
-                                        onReject = { viewModel.rejectInteraction() },
-                                        modifier = Modifier.padding(vertical = 6.dp)
-                                    )
-                                }
-                            }
-
-                            // Proceed Banner (if ready)
-                            if (uiState.canProceed) {
-                                item {
-                                    ProceedBanner(
-                                        onProceed = {
-                                            val planUri = uiState.proceedArtifactUri ?: "implementation_plan.md"
-                                            viewModel.openMarkdownViewer(planUri, "实施方案 (Implementation Plan)")
-                                        },
-                                        modifier = Modifier.padding(vertical = 6.dp)
-                                    )
-                                }
-                            }
-
-                            // Bottom breathing room spacer ensuring bubble is fully clear of input bar
-                            item(key = "chat_bottom_spacer") {
-                                Spacer(modifier = Modifier.height(10.dp))
-                            }
-                        }
-
-                        if (pullRefreshState.verticalOffset > 0 || isRefreshing) {
-                            PullToRefreshContainer(
-                                state = pullRefreshState,
-                                modifier = Modifier.align(Alignment.TopCenter),
-                                containerColor = colors.surface,
-                                contentColor = colors.accentIndigo
-                            )
                         }
                     }
                 }
@@ -420,6 +393,7 @@ fun ChatScreen(
                                                 .size(52.dp)
                                                 .clip(RoundedCornerShape(10.dp))
                                                 .border(1.dp, colors.border, RoundedCornerShape(10.dp))
+                                                .clickable { viewModel.openImageViewer(bitmap = img.bitmap) }
                                         )
 
                                         Box(

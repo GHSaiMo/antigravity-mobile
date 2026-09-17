@@ -497,7 +497,7 @@ private fun MainSettingsContent(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(text = "应用名称", color = colors.textPrimary, fontSize = 15.sp)
-                    Text(text = "Antigravity Mobile", color = colors.textSecondary, fontSize = 14.sp)
+                    Text(text = "Multigravity", color = colors.textSecondary, fontSize = 14.sp)
                 }
                 HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
                 Row(
@@ -508,7 +508,7 @@ private fun MainSettingsContent(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(text = "版本", color = colors.textPrimary, fontSize = 15.sp)
-                    Text(text = "1.0.0 (Native)", color = colors.textSecondary, fontSize = 14.sp)
+                    Text(text = "1.0.0", color = colors.textSecondary, fontSize = 14.sp)
                 }
             }
         }

@@ -20,6 +20,7 @@ public struct ChatView: View {
     @State private var showCameraPicker = false
     @State private var showCameraUnavailableAlert = false
     @State private var showCameraPermissionAlert = false
+    @State private var previewDraftImage: IdentifiableImage? = nil
     private let shouldAutoFocus: Bool
     private let initialConversation: ConversationItem?
     private let initialIsUnread: Bool
@@ -797,15 +798,22 @@ public struct ChatView: View {
                         ForEach(Array(viewModel.selectedImageData.enumerated()), id: \.offset) { index, data in
                             if let uiImage = UIImage(data: data) {
                                 ZStack(alignment: .topTrailing) {
-                                    Image(uiImage: uiImage)
-                                        .resizable()
-                                        .scaledToFill()
-                                        .frame(width: 52, height: 52)
-                                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                                .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
-                                        )
+                                    Button(action: {
+                                        isInputFocused = false
+                                        previewDraftImage = IdentifiableImage(image: uiImage)
+                                    }) {
+                                        Image(uiImage: uiImage)
+                                            .resizable()
+                                            .scaledToFill()
+                                            .frame(width: 52, height: 52)
+                                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                                    .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+                                            )
+                                    }
+                                    .buttonStyle(.plain)
                                     
                                     Button(action: {
                                         removeImage(at: index)
@@ -888,6 +896,9 @@ public struct ChatView: View {
         .overlay(
             Divider(), alignment: .top
         )
+        .fullScreenCover(item: $previewDraftImage) { item in
+            ImageViewerSheet(item: item)
+        }
     }
     
     private var isSendDisabled: Bool {

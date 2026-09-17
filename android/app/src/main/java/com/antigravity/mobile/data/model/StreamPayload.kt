@@ -1,5 +1,6 @@
 package com.antigravity.mobile.data.model
 
+import android.util.Base64
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -50,6 +51,21 @@ data class GatewayMessageItem(
 
     val isTools: Boolean
         get() = type.equals("tools", ignoreCase = true) || !toolNames.isNullOrEmpty() || (toolCount != null && toolCount > 0)
+
+    val effectiveImageDataList: List<ByteArray>
+        get() {
+            if (imageDataList.isNotEmpty()) return imageDataList
+            if (!media.isNullOrEmpty()) {
+                return media.mapNotNull { b64 ->
+                    try {
+                        Base64.decode(b64, Base64.DEFAULT)
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
+            }
+            return emptyList()
+        }
 }
 
 @Serializable

@@ -147,12 +147,12 @@ fun MessageBubble(
         val displayText = message.effectiveText
         if (isUser) {
             // Attached user images (e.g. screenshots)
-            if (message.imageDataList.isNotEmpty()) {
+            if (message.effectiveImageDataList.isNotEmpty()) {
                 Row(
                     modifier = Modifier.padding(bottom = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    message.imageDataList.forEach { bytes ->
+                    message.effectiveImageDataList.forEach { bytes ->
                         val bitmap = remember(bytes) {
                             try {
                                 BitmapFactory.decodeByteArray(bytes, 0, bytes.size)

@@ -138,7 +138,7 @@ class MainActivity : ComponentActivity() {
                             onSelectConversation = { cascadeId, title, isNew ->
                                 conversationListViewModel.notifySessionFocus(cascadeId)
                                 conversationListViewModel.markConversationAsRead(cascadeId)
-                                chatViewModel.resetSession()
+                                chatViewModel.prepareSession(cascadeId, title, isNew)
                                 val encodedTitle = URLEncoder.encode(title, "UTF-8")
                                 navController.navigate("chat/$cascadeId/$encodedTitle?isNew=$isNew")
                             },

@@ -100,6 +100,34 @@ class ChatViewModel(
         _uiState.value = ChatUiState()
     }
 
+    fun prepareSession(cascadeId: String, initialTitle: String? = null, isNewConversation: Boolean = false) {
+        fetchJob?.cancel()
+        fetchJob = null
+        wsJob?.cancel()
+        wsJob = null
+        wsClient.disconnect()
+        _inputText.value = ""
+        _uiState.value = ChatUiState(
+            cascadeId = cascadeId,
+            title = initialTitle?.takeIf { it.isNotBlank() } ?: "会话 $cascadeId",
+            messages = emptyList(),
+            runningTasks = emptyList(),
+            queuedMessages = emptyList(),
+            isLoading = !isNewConversation,
+            isNewConversation = isNewConversation,
+            isRunning = false,
+            isAwaitingResponse = false,
+            selectedImages = emptyList(),
+            canProceed = false,
+            proceedArtifactUri = null,
+            pendingInteraction = null,
+            activeModel = _uiState.value.activeModel,
+            errorMessage = null,
+            isLatestMessageError = false,
+            markdownViewerData = null
+        )
+    }
+
     fun initSession(cascadeId: String, initialTitle: String? = null, isNewConversation: Boolean = false) {
         val isDifferentSession = _uiState.value.cascadeId != cascadeId
         val shouldLoad = !isNewConversation
@@ -260,6 +288,7 @@ class ChatViewModel(
                     val previousMsgCount = _uiState.value.messages.size
 
                     _uiState.value = _uiState.value.copy(
+                        isLoading = false,
                         title = payload.title?.takeIf { it.isNotBlank() } ?: _uiState.value.title,
                         messages = msgs,
                         runningTasks = payload.runningTasks ?: emptyList(),
