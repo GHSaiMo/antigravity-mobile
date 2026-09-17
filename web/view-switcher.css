@@ -41,3 +41,11 @@
   align-items: center;
   justify-content: center;
 }
+
+/* 宽屏版本（iPad 宽屏 / 电脑）完全隐藏悬浮切换按钮 */
+@media (min-width: 768px) {
+  .agy-view-switcher,
+  #agy-view-switcher-btn {
+    display: none !important;
+  }
+}

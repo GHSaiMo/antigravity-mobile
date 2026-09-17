@@ -1,7 +1,7 @@
 /**
  * Antigravity Desktop Web Workbench - 全功能 UI 精准中文化引擎 (zh-CN)
  * 涵盖：侧边栏、主工作区、模型与配额 (Models & Usage)、系统设置 (Settings)、
- * 工具权限 (Tool Permissions)、快捷键 (Shortcuts)、文件浏览器、快捷操作与菜单。
+ * 危险区域 (Danger Zone)、权限管理、扩展与技能、快捷键、文件浏览器与菜单。
  * 严格保护：代码块 (<pre>, <code>, monaco)、终端 (xterm) 与用户对话输入。
  */
 (function () {
@@ -50,7 +50,7 @@
     ["Update Available", "发现新版本"],
     ["Reload", "重新加载"],
 
-    // --- 模型、配额与额度 (Models & Usage - 用户重点要求) ---
+    // --- 模型、配额与额度 (Models & Usage) ---
     ["Models & Usage", "模型与配额使用"],
     ["Manage your model quota and credits.", "管理您的模型使用配额与点数。"],
     ["Plan", "当前订阅计划"],
@@ -84,10 +84,6 @@
     ["Cloud execution", "云端执行"],
     ["Local", "本地执行"],
     ["Cloud", "云端执行"],
-
-
-    // --- 补充设置导航与菜单项 ---
-    ["Application", "客户端偏好"],
     ["View Usage", "查看额度使用"],
     ["Model", "模型选择"],
     ["Fast", "极速"],
@@ -95,21 +91,12 @@
     ["Medium", "标准 (Medium)"],
     ["Low", "轻量 (Low)"],
     ["Thinking", "深度思考"],
-    ["Mark Unread", "标记为未读"],
-    ["Mark Read", "标记为已读"],
-    ["Split", "分屏查看"],
-    ["Split Vertically", "垂直分屏"],
-    ["Split Horizontally", "水平分屏"],
-    ["More options", "更多选项"],
-    ["Pin conversation", "置顶会话"],
-    ["Archive conversation", "归档会话"],
-    ["Stop execution", "停止执行"],
-    ["Project options", "项目设置选项"],
-    ["Undo changes up to this point", "撤销至此步的所有变更"],
 
     // --- 设置导航总览 (Settings Sidebar) ---
     ["Account", "账户与计划"],
     ["General", "常规偏好"],
+    ["Application", "客户端偏好"],
+    ["Application Settings", "客户端设置"],
     ["Appearance", "外观主题"],
     ["Editor", "编辑器设置"],
     ["Editor Settings", "编辑器设置"],
@@ -135,7 +122,20 @@
     ["Not in Project", "未关联项目"],
     ["Conversations", "所有会话"],
 
-    // --- 项目与权限管理 (Projects & Permissions) ---
+
+    // --- 独立单词与补全 ---
+    ["Project", "工程项目"],
+    ["Workspace", "工作区"],
+    ["Configure default behaviors, skills, and MCP servers.", "配置默认行为策略、技能库与 MCP 外部服务节点。"],
+    ["Configure global allowed and denied resource permissions.", "配置全局允许与拒绝的资源访问权限。"],
+
+    // --- 危险区域与项目删除 (Danger Zone & Deletion) ---
+    ["Danger Zone", "危险区域"],
+    ["Danger zone", "危险区域"],
+    ["Delete Project", "删除工程项目"],
+    ["Delete Workspace", "删除工作区"],
+    ["Agent settings and permissions for conversations outside of projects.", "非项目会话的智能体配置与执行权限。"],
+    ["Agent settings and permissions for conversations outside of workspaces.", "非工作区会话的智能体配置与执行权限。"],
     ["Manage project folders, agent settings, and permissions.", "管理项目目录、智能体配置与专属执行权限。"],
     ["Folders", "项目工作目录"],
     ["Add Folder", "添加目录"],
@@ -183,8 +183,19 @@
     ["Request Review", "每次请求审查"],
     ["Browser Actuation Rules", "浏览器操作规则"],
     ["Configure allowed and denied URLs for browser actuation.", "配置允许或禁止智能体进行交互点击操作的网页规则。"],
+    ["Requires manual review for all terminal commands and file accesses outside of the working folders.", "对所有终端指令及工作目录外的文件访问均需人工审批。"],
+    ["Agents run in a secure sandbox that restricts access to external resources outside of your trusted folders.", "智能体在受保护的安全沙箱中运行，限制对受信任目录之外外部资源的访问。"],
+    ["Terminal commands always require review and the agent cannot access files outside of its given workspaces.", "终端指令始终需要人工审批，且智能体无法访问指定工作区之外的文件。"],
+    ["Agent Non-Workspace File Access", "跨工作区文件访问权限"],
+    ["Allows the agent to access files outside of your current workspace.", "允许智能体跨工程访问当前工作区目录之外的文件。"],
+    ["Agent cannot modify files outside of the workspace in strict mode.", "严格模式下，智能体禁止修改当前工作区目录之外的文件。"],
+    ["Outside of folders file access policy", "工作目录外文件访问策略"],
+    ["Configures how the agent tries to access files outside of its working folders.", "配置智能体尝试访问工作目录以外文件时的行为策略。"],
+    ["Confirm the command is safe to run outside of the sandbox with full network and disk access.", "请确认此命令在具有完整网络和磁盘权限的沙箱外环境中运行是安全的。"],
+    ["Select one of the two options. Agent settings and permissions can be further customized below.", "请选择其中一种预设模式。智能体设置与细化权限可在下方进一步自定义。"],
+    ["Select one of the three options. Agent settings and permissions can be further customized below.", "请选择其中一种预设模式。智能体设置与细化权限可在下方进一步自定义。"],
 
-    // --- 应用设置 (Application Settings) ---
+    // --- 应用偏好 (Application Settings) ---
     ["Manage Antigravity app settings.", "管理 Antigravity 客户端应用设置。"],
     ["Prevent Sleep", "防止系统休眠"],
     ["Prevent the computer from sleeping while the app is running.", "在 Antigravity 运行处理任务时阻止计算机进入休眠状态。"],
@@ -198,6 +209,11 @@
     ["To modify notification settings, open your operating system's system preferences.", "如需调整通知提示音与横幅，请前往操作系统的系统偏好设置中配置。"],
     ["Open System Preferences", "打开系统偏好设置"],
     ["Advanced Settings", "高级开发者设置"],
+    ["Enable Telemetry", "发送匿名诊断与性能数据"],
+    ["Marketing Emails", "接收产品更新与资讯邮件"],
+    ["When toggled on, Antigravity collects usage data to help Google enhance performance and features.", "开启后，Antigravity 将收集匿名使用诊断数据，以帮助 Google 提升系统性能与体验。"],
+    ["Receive product updates, tips, and promotions from Google Antigravity via email.", "通过电子邮件接收来自 Google Antigravity 的产品更新速递、使用技巧与官方资讯。"],
+    ["Automatically prompt you to restart the app when a new update is available. When disabled, you can check for updates manually from the app menu.", "发现新版本时自动提示重启应用更新。关闭后可在菜单中手动检查更新。"],
 
     // --- 外观主题设置 (Appearance Settings) ---
     ["Configure the agent's visual theme and display preferences.", "配置智能体交互界面的主题样式与显示偏好。"],
@@ -234,6 +250,9 @@
     ["Manage Skills", "管理技能库"],
     ["Manage Hooks", "管理生命周期 Hooks"],
     ["Build With Google Plugins", "官方精选插件库"],
+    ["Include default customizations, such as default skills.", "默认自动载入官方内置技能库 (Skills)。"],
+    ["Browse and enable plugins from the Build With Google catalog.", "浏览并启用 Build With Google 官方插件市场的扩展插件。"],
+    ["Configure hooks that run on agent lifecycle events.", "配置在智能体生命周期事件触发时自动执行的 Hooks 脚本。"],
 
     // --- 快捷键设置 (Shortcuts) ---
     ["Keyboard shortcuts for quick navigation and control.", "用于快速导航与交互操作的常用键盘快捷键列表。"],
@@ -276,6 +295,17 @@
     ["Unpin this conversation", "取消置顶"],
     ["Mark as Read", "标记为已读"],
     ["Mark as Unread", "标记为未读"],
+    ["Mark Read", "标记为已读"],
+    ["Mark Unread", "标记为未读"],
+    ["Split", "分屏查看"],
+    ["Split Vertically", "垂直分屏"],
+    ["Split Horizontally", "水平分屏"],
+    ["More options", "更多选项"],
+    ["Pin conversation", "置顶会话"],
+    ["Archive conversation", "归档会话"],
+    ["Stop execution", "停止执行"],
+    ["Project options", "项目设置选项"],
+    ["Undo changes up to this point", "撤销至此步的所有变更"],
     ["Mark all as read", "全部标记为已读"],
     ["Copy conversation markdown", "复制完整会话 Markdown"],
     ["Accept Step", "接受此步骤"],
@@ -315,57 +345,70 @@
   ]);
 
   // 2. 动态正则匹配规则 (处理带变量、数字、时间的文本)
+  // 注意：使用 RegExp 构造函数以避免转义歧义
   const regexRules = [
     // 输入框占位符
-    [/^Ask anything, @ to mention, \/ for actions$/i, "输入任何问题，输入 @ 引用，输入 / 触发动作..."],
-    [/^Ask anything, @ to mention$/i, "输入任何问题，输入 @ 引用文件..."],
+    [new RegExp("^Ask anything, @ to mention, / for actions$", "i"), "输入任何问题，输入 @ 引用，输入 / 触发动作..."],
+    [new RegExp("^Ask anything, @ to mention$", "i"), "输入任何问题，输入 @ 引用文件..."],
 
     // 套餐与计划
-    [/^Your Plan:\s*(.+)$/i, "当前套餐：$1"],
-    [/^You can upgrade to a Google AI Ultra plan to receive higher rate limits\.?$/i, "您可以升级至 Google AI Ultra 套餐以获取更高的速率限制与并发额度。"],
-    [/^When toggled on,\s*(.+?)\s*will use your AI credits to fulfill model requests once you're out of model quota\.\s*(.+?)\s*will always use your model quota first before using AI credits\.?$/i, "开启后，当模型额度耗尽时，系统将使用 AI 点数继续响应模型请求。系统始终会优先消耗免费额度，之后再使用 AI 点数。"],
-    [/^Available AI Credits:\s*(.+)$/i, "可用 AI 点数：$1"],
+    [new RegExp("^Your Plan:\\s*(.+)$", "i"), "当前套餐：$1"],
+    [new RegExp("^You can upgrade to a Google AI Ultra plan to receive higher rate limits\\.?$", "i"), "您可以升级至 Google AI Ultra 套餐以获取更高的速率限制与并发额度。"],
+    [new RegExp("^When toggled on,\\s*(.+?)\\s*will use your AI credits to fulfill model requests once you're out of model quota\\.\\s*(.+?)\\s*will always use your model quota first before using AI credits\\.?$", "i"), "开启后，当模型额度耗尽时，系统将使用 AI 点数继续响应模型请求。系统始终会优先消耗免费额度，之后再使用 AI 点数。"],
+    [new RegExp("^Available AI Credits:\\s*(.+)$", "i"), "可用 AI 点数：$1"],
 
-    // 配额刷新时间 (重点支持用户指定格式)
-    [/^You have used some of your weekly limit,\s*it will fully refresh in (\d+)\s*days?,\s*(\d+)\s*hours?\.?$/i, "您已消耗部分每周额度，将在 $1 天 $2 小时后完全刷新。"],
-    [/^You have used some of your weekly limit,\s*it will fully refresh in (\d+)\s*days?\.?$/i, "您已消耗部分每周额度，将在 $1 天后完全刷新。"],
-    [/^You have used some of your weekly limit,\s*it will fully refresh in (\d+)\s*hours?,\s*(\d+)\s*minutes?\.?$/i, "您已消耗部分每周额度，将在 $1 小时 $2 分钟后完全刷新。"],
-    [/^You have used some of your weekly limit,\s*it will fully refresh in (\d+)\s*hours?\.?$/i, "您已消耗部分每周额度，将在 $1 小时后完全刷新。"],
-    [/^You have used some of your weekly limit,\s*it will fully refresh in (.+)$/i, "您已消耗部分每周额度，将在 $1 后完全刷新。"],
-    [/^You have used some of your 5-hour limit,\s*it will fully refresh in (\d+)\s*hours?,\s*(\d+)\s*minutes?\.?$/i, "您已消耗部分 5 小时额度，将在 $1 小时 $2 分钟后完全刷新。"],
-    [/^You have used some of your 5-hour limit,\s*it will fully refresh in (\d+)\s*hours?\.?$/i, "您已消耗部分 5 小时额度，将在 $1 小时后完全刷新。"],
-    [/^You have used some of your 5-hour limit,\s*it will fully refresh in (\d+)\s*minutes?\.?$/i, "您已消耗部分 5 小时额度，将在 $1 分钟后完全刷新。"],
-    [/^You have used some of your 5-hour limit,\s*it will fully refresh in (.+)$/i, "您已消耗部分 5 小时额度，将在 $1 后完全刷新。"],
-    [/^You have used some of your (\d+)-hour limit,\s*it will fully refresh in (.+)$/i, "您已消耗部分 $1 小时额度，将在 $2 后完全刷新。"],
-    [/^it will fully refresh in (.+)$/i, "将在 $1 后完全刷新。"],
+    // 配额刷新时间
+    [new RegExp("^You have used some of your weekly limit,\\s*it will fully refresh in (\\d+)\\s*days?,\\s*(\\d+)\\s*hours?\\.?$", "i"), "您已消耗部分每周额度，将在 $1 天 $2 小时后完全刷新。"],
+    [new RegExp("^You have used some of your weekly limit,\\s*it will fully refresh in (\\d+)\\s*days?\\.?$", "i"), "您已消耗部分每周额度，将在 $1 天后完全刷新。"],
+    [new RegExp("^You have used some of your weekly limit,\\s*it will fully refresh in (\\d+)\\s*hours?,\\s*(\\d+)\\s*minutes?\\.?$", "i"), "您已消耗部分每周额度，将在 $1 小时 $2 分钟后完全刷新。"],
+    [new RegExp("^You have used some of your weekly limit,\\s*it will fully refresh in (\\d+)\\s*hours?\\.?$", "i"), "您已消耗部分每周额度，将在 $1 小时后完全刷新。"],
+    [new RegExp("^You have used some of your weekly limit,\\s*it will fully refresh in (.+)$", "i"), "您已消耗部分每周额度，将在 $1 后完全刷新。"],
+    [new RegExp("^You have used some of your 5-hour limit,\\s*it will fully refresh in (\\d+)\\s*hours?,\\s*(\\d+)\\s*minutes?\\.?$", "i"), "您已消耗部分 5 小时额度，将在 $1 小时 $2 分钟后完全刷新。"],
+    [new RegExp("^You have used some of your 5-hour limit,\\s*it will fully refresh in (\\d+)\\s*hours?\\.?$", "i"), "您已消耗部分 5 小时额度，将在 $1 小时后完全刷新。"],
+    [new RegExp("^You have used some of your 5-hour limit,\\s*it will fully refresh in (\\d+)\\s*minutes?\\.?$", "i"), "您已消耗部分 5 小时额度，将在 $1 分钟后完全刷新。"],
+    [new RegExp("^You have used some of your 5-hour limit,\\s*it will fully refresh in (.+)$", "i"), "您已消耗部分 5 小时额度，将在 $1 后完全刷新。"],
+    [new RegExp("^You have used some of your (\\d+)-hour limit,\\s*it will fully refresh in (.+)$", "i"), "您已消耗部分 $1 小时额度，将在 $2 后完全刷新。"],
+    [new RegExp("^it will fully refresh in (.+)$", "i"), "将在 $1 后完全刷新。"],
 
-    // Token 预算
-    [/^([\d.]+)% of the customization budget is available\.?$/i, "可用个性化扩展预算仍有 $1%。"],
-    [/^Show (\d+) breakdowns?$/i, "展开 $1 项明细"],
-    [/^\(([\d,]+) tokens\)\s*([\d.]+)%$/i, "($1 Tokens) $2%"],
+    // Token 预算与项目设置
+    [new RegExp("^([\\d.]+)%\\s*of the customization budget is available\\.?$", "i"), "可用个性化扩展预算仍有 $1%。"],
+    [new RegExp("of the customization budget is available", "i"), "的扩展预算仍可用"],
+    [new RegExp("^Show (\\d+) breakdowns?$", "i"), "展开 $1 项明细"],
+    [new RegExp("^\\(([\\d,]+) tokens\\)\\s*([\\d.]+)%$", "i"), "($1 Tokens) $2%"],
+
+
+    [new RegExp("^Permanently delete (.+?) including (\\d+) active conversations?\\.?$", "i"), "永久删除 $1（包含 $2 个活动会话）。"],
+    [new RegExp("^Permanently delete (.+?)\\s*\\.?$", "i"), "永久删除 $1。"],
+
+    // 项目管理与删除
+    [new RegExp("^Agent settings and permissions for conversations outside of (projects|workspaces)\\.?$", "i"), "非$1会话的智能体配置与执行权限。"],
+    [new RegExp("^Manage (project|workspace) folders, agent settings, and permissions\\.?$", "i"), "管理$1目录、智能体配置与专属执行权限。"],
+    [new RegExp("^Delete (Project|Workspace)$", "i"), "删除$1"],
+    [new RegExp("^This (project|workspace) is managed by the (.+?) automation and can only be deleted by deleting that automation\\.?$", "i"), "此$1由 $2 自动化任务管理，只能通过删除该自动化任务来删除。"],
+    [new RegExp("^A (project|workspace) with this name already exists\\.?$", "i"), "已存在同名的$1。"],
 
     // 智能体执行与步数
-    [/^Ran (\d+) commands?$/i, "已执行 $1 条指令"],
-    [/^Running (\d+) commands?$/i, "正在运行 $1 条指令..."],
-    [/^Explored (\d+) files?, (\d+) folders?$/i, "已探索 $1 个文件，$2 个目录"],
-    [/^Explored (\d+) files?, (\d+) search(?:es)?$/i, "已探索 $1 个文件，$2 次检索"],
-    [/^Explored (\d+) files?$/i, "已探索 $1 个文件"],
-    [/^Explored (\d+) folders?$/i, "已探索 $1 个目录"],
-    [/^Thought for (\d+)s?$/i, "深度思考 $1 秒"],
-    [/^Thought for (\d+)m (\d+)s?$/i, "深度思考 $1 分 $2 秒"],
-    [/^(\d+) steps?$/i, "$1 个步骤"],
-    [/^(\d+) conversations?$/i, "$1 个会话"],
-    [/^(\d+)m ago$/i, "$1 分钟前"],
-    [/^(\d+)h ago$/i, "$1 小时前"],
-    [/^(\d+)d ago$/i, "$1 天前"],
-    [/^just now$/i, "刚刚"],
+    [new RegExp("^Ran (\\d+) commands?$", "i"), "已执行 $1 条指令"],
+    [new RegExp("^Running (\\d+) commands?$", "i"), "正在运行 $1 条指令..."],
+    [new RegExp("^Explored (\\d+) files?, (\\d+) folders?$", "i"), "已探索 $1 个文件，$2 个目录"],
+    [new RegExp("^Explored (\\d+) files?, (\\d+) search(?:es)?$", "i"), "已探索 $1 个文件，$2 次检索"],
+    [new RegExp("^Explored (\\d+) files?$", "i"), "已探索 $1 个文件"],
+    [new RegExp("^Explored (\\d+) folders?$", "i"), "已探索 $1 个目录"],
+    [new RegExp("^Thought for (\\d+)s?$", "i"), "深度思考 $1 秒"],
+    [new RegExp("^Thought for (\\d+)m (\\d+)s?$", "i"), "深度思考 $1 分 $2 秒"],
+    [new RegExp("^(\\d+) steps?$", "i"), "$1 个步骤"],
+    [new RegExp("^(\\d+) conversations?$", "i"), "$1 个会话"],
+    [new RegExp("^(\\d+)m ago$", "i"), "$1 分钟前"],
+    [new RegExp("^(\\d+)h ago$", "i"), "$1 小时前"],
+    [new RegExp("^(\\d+)d ago$", "i"), "$1 天前"],
+    [new RegExp("^just now$", "i"), "刚刚"],
 
     // 设置描述长文本动态支持
-    [/^Also includes Global Permissions when working in this project\. Learn more\.?$/i, "在当前项目中工作时同时继承全局权限。了解更多。"],
-    [/^The breakdown below shows token usage from customizations like skills, rules, and MCP\. If the budget is exceeded, large customizations will be truncated automatically\.?$/i, "下方明细展示了技能 (Skills)、规则 (Rules) 及 MCP 等扩展占用的上下文 Token 额度。若超出上限，体积较大的扩展将被自动截断。"],
-    [/^Configure default behaviors, skills, and MCP servers\. Learn more\.?$/i, "配置默认行为策略、技能库 (Skills) 与 MCP 服务节点。了解更多。"],
-    [/^Configure global allowed and denied resource permissions\. Learn more\.?$/i, "配置全局允许与拒绝的资源访问权限。了解更多。"],
-    [/^Browser settings have moved to the Browser section of General settings\. Go to General settings$/i, "浏览器设置已整合至常规偏好设置中的“浏览器”专区。前往常规设置"]
+    [new RegExp("^Also includes Global Permissions when working in this project\\. Learn more\\.?$", "i"), "在当前项目中工作时同时继承全局权限。了解更多。"],
+    [new RegExp("^The breakdown below shows token usage from customizations like skills, rules, and MCP\\. If the budget is exceeded, large customizations will be truncated automatically\\.?$", "i"), "下方明细展示了技能 (Skills)、规则 (Rules) 及 MCP 等扩展占用的上下文 Token 额度。若超出上限，体积较大的扩展将被自动截断。"],
+    [new RegExp("^Configure default behaviors, skills, and MCP servers\\. Learn more\\.?$", "i"), "配置默认行为策略、技能库 (Skills) 与 MCP 服务节点。了解更多。"],
+    [new RegExp("^Configure global allowed and denied resource permissions\\. Learn more\\.?$", "i"), "配置全局允许与拒绝的资源访问权限。了解更多。"],
+    [new RegExp("^Browser settings have moved to the Browser section of General settings\\. Go to General settings$", "i"), "浏览器设置已整合至常规偏好设置中的“浏览器”专区。前往常规设置"]
   ];
 
   // 3. 安全检测：判断是否为不可汉化的代码块或数据区域
@@ -523,7 +566,7 @@
       });
     }
     // 周期扫描兜底（处理某些 React 异步重渲染）
-    setInterval(runLocalization, 1000);
+    setInterval(runLocalization, 800);
   }
 
   if (document.readyState === "loading") {
