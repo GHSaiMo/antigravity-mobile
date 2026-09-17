@@ -68,10 +68,15 @@ const DeviceCookieName = "agy_dt"
 
 // IsWhitelistedPath checks if a request path should bypass authentication.
 func IsWhitelistedPath(path string) bool {
-	// Root and standard static web files
+	// Root and standard static web files (Mobile & Desktop)
 	if path == "/" || path == "/index.html" || path == "/manifest.json" ||
 		path == "/sw.js" || path == "/style.css" || path == "/app.js" ||
-		path == "/mermaid.min.js" || path == "/favicon.ico" {
+		path == "/mermaid.min.js" || path == "/favicon.ico" ||
+		path == "/zh-CN.js" || path == "/view-switcher.js" || path == "/view-switcher.css" ||
+		path == "/main.js" || path == "/jetbox.css" || path == "/compiled_tailwind.css" ||
+		path == "/prism_bundle.js" || path == "/diff_worker.js" || path == "/icon.png" ||
+		strings.HasPrefix(path, "/symbols-icons/") ||
+		strings.HasPrefix(path, "/c/") || path == "/history" {
 		return true
 	}
 

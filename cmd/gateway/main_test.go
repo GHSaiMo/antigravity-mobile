@@ -138,3 +138,66 @@ func TestUnauthorizedAPIRejected(t *testing.T) {
 		t.Errorf("expected 401 Unauthorized for remote request without token, got %d", rr.Code)
 	}
 }
+
+func TestDetermineViewMode(t *testing.T) {
+	// 1. Explicit query parameter
+	reqDesktopQ := httptest.NewRequest(http.MethodGet, "/?view=desktop", nil)
+	if mode := determineViewMode(reqDesktopQ); mode != "desktop" {
+		t.Errorf("expected desktop from ?view=desktop, got %q", mode)
+	}
+
+	reqMobileQ := httptest.NewRequest(http.MethodGet, "/?view=mobile", nil)
+	if mode := determineViewMode(reqMobileQ); mode != "mobile" {
+		t.Errorf("expected mobile from ?view=mobile, got %q", mode)
+	}
+
+	// 2. Cookie preference
+	reqCookie := httptest.NewRequest(http.MethodGet, "/", nil)
+	reqCookie.AddCookie(&http.Cookie{Name: "agy_view_mode", Value: "desktop"})
+	if mode := determineViewMode(reqCookie); mode != "desktop" {
+		t.Errorf("expected desktop from cookie, got %q", mode)
+	}
+
+	// 3. User-Agent auto-detection
+	reqIPhone := httptest.NewRequest(http.MethodGet, "/", nil)
+	reqIPhone.Header.Set("User-Agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148")
+	if mode := determineViewMode(reqIPhone); mode != "mobile" {
+		t.Errorf("expected mobile from iPhone UA, got %q", mode)
+	}
+
+	reqIPad := httptest.NewRequest(http.MethodGet, "/", nil)
+	reqIPad.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15")
+	if mode := determineViewMode(reqIPad); mode != "desktop" {
+		t.Errorf("expected desktop from Mac/iPad UA, got %q", mode)
+	}
+}
+
+func TestIsDesktopStaticPath(t *testing.T) {
+	if !isDesktopStaticPath("/main.js") {
+		t.Errorf("expected /main.js to be desktop static")
+	}
+	if !isDesktopStaticPath("/jetbox.css") {
+		t.Errorf("expected /jetbox.css to be desktop static")
+	}
+	if !isDesktopStaticPath("/symbols-icons/folder.svg") {
+		t.Errorf("expected /symbols-icons/ to be desktop static")
+	}
+	if isDesktopStaticPath("/app.js") {
+		t.Errorf("/app.js should not be desktop static")
+	}
+}
+
+func TestStaticWebAssetsAccessible(t *testing.T) {
+	router := setupTestRouter(t)
+
+	for _, p := range []string{"/zh-CN.js", "/view-switcher.js", "/view-switcher.css"} {
+		req := httptest.NewRequest(http.MethodGet, p, nil)
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Errorf("expected 200 for %s, got %d", p, rr.Code)
+		}
+	}
+}
+

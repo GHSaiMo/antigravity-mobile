@@ -3479,6 +3479,13 @@ async function submitPairing() {
   try {
     await pairWithCode(code);
     closePairingSheet();
+    const userPref = localStorage.getItem("agy_view_mode");
+    if (!userPref && (window.innerWidth >= 768 || /iPad|Macintosh|Windows|Linux/i.test(navigator.userAgent))) {
+      setTimeout(() => {
+        window.location.href = "/?view=desktop";
+      }, 400);
+      return;
+    }
     loadConversations();
     checkGatewayStatus();
   } catch (err) {

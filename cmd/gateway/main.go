@@ -449,6 +449,15 @@ func buildRouter(
 	rootMux.Handle("/gateway/", p)
 	rootMux.Handle("/static/artifacts/", p)
 	rootMux.Handle("/connect-websocket", p)
+	rootMux.Handle("/exa.language_server_pb.", p)
+
+	// Desktop static assets (direct endpoints)
+	rootMux.HandleFunc("GET /main.js", p.HandleDesktopStatic)
+	rootMux.HandleFunc("GET /jetbox.css", p.HandleDesktopStatic)
+	rootMux.HandleFunc("GET /compiled_tailwind.css", p.HandleDesktopStatic)
+	rootMux.HandleFunc("GET /prism_bundle.js", p.HandleDesktopStatic)
+	rootMux.HandleFunc("GET /diff_worker.js", p.HandleDesktopStatic)
+	rootMux.Handle("/symbols-icons/", p)
 
 	// Health and readiness probes
 	rootMux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -469,8 +478,63 @@ func buildRouter(
 		})
 	})
 
-	// Web frontend (catch-all)
-	rootMux.Handle("/", webHandler)
+	// Adaptive Dual-Mode Web frontend (Desktop Workbench on iPad/PC, Lightweight PWA on Phones)
+	adaptiveWebHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+
+		// ConnectRPC direct proto calls (e.g. /exa.language_server_pb.LanguageServerService/...)
+		if strings.HasPrefix(path, "/exa.language_server_pb.") {
+			p.ServeHTTP(w, r)
+			return
+		}
+
+		// Embedded web files (localization, switcher, mobile app files)
+		if path == "/zh-CN.js" || path == "/view-switcher.js" || path == "/view-switcher.css" ||
+			path == "/style.css" || path == "/app.js" || path == "/mermaid.min.js" ||
+			path == "/manifest.json" || path == "/sw.js" || strings.HasPrefix(path, "/icons/") {
+			webHandler.ServeHTTP(w, r)
+			return
+		}
+
+		// Desktop static asset fallback
+		if isDesktopStaticPath(path) {
+			p.HandleDesktopStatic(w, r)
+			return
+		}
+
+		// Determine view mode (desktop vs mobile)
+		viewMode := determineViewMode(r)
+		qv := r.URL.Query().Get("view")
+
+		// Persist if explicitly requested via query param
+		if qv != "" {
+			http.SetCookie(w, &http.Cookie{
+				Name:     "agy_view_mode",
+				Value:    viewMode,
+				Path:     "/",
+				MaxAge:   86400 * 365,
+				SameSite: http.SameSiteLaxMode,
+			})
+		}
+
+		// Check if request is authenticated before serving desktop workbench.
+		// If unauthenticated and no explicit view parameter, show mobile view so user can pair.
+		token := auth.ExtractToken(r)
+		_, isAuthenticated := authStore.ValidateToken(token)
+		if !isAuthenticated && viewMode == "desktop" && qv == "" {
+			viewMode = "mobile"
+		}
+
+		if viewMode == "desktop" {
+			p.HandleDesktopIndex(w, r)
+			return
+		}
+
+		// Mobile view
+		webHandler.ServeHTTP(w, r)
+	})
+
+	rootMux.Handle("/", adaptiveWebHandler)
 
 	return auth.SecurityHeadersMiddleware(auth.AuthMiddlewareWithPolicy(authStore, rootMux, authPolicy))
 }
@@ -486,4 +550,51 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 	w.WriteHeader(status)
 	w.Write(data)
+}
+
+func determineViewMode(r *http.Request) string {
+	// 1. Explicit query parameter (?view=desktop / ?view=mobile, or ?mode=...)
+	qView := strings.ToLower(r.URL.Query().Get("view"))
+	if qView == "" {
+		qView = strings.ToLower(r.URL.Query().Get("mode"))
+	}
+	if qView == "desktop" || qView == "ipad" || qView == "pc" {
+		return "desktop"
+	}
+	if qView == "mobile" || qView == "phone" {
+		return "mobile"
+	}
+
+	// 2. Explicit cookie (agy_view_mode)
+	if c, err := r.Cookie("agy_view_mode"); err == nil {
+		val := strings.ToLower(c.Value)
+		if val == "desktop" || val == "mobile" {
+			return val
+		}
+	}
+
+	// 3. User-Agent auto-detection
+	ua := strings.ToLower(r.UserAgent())
+
+	// Mobile phones: iPhone, iPod, or Android with "Mobile"
+	if strings.Contains(ua, "iphone") || strings.Contains(ua, "ipod") {
+		return "mobile"
+	}
+	if strings.Contains(ua, "android") && strings.Contains(ua, "mobile") {
+		return "mobile"
+	}
+
+	// Default to desktop for iPad, Mac, Windows, Linux, Tablets, and desktop browsers
+	return "desktop"
+}
+
+func isDesktopStaticPath(path string) bool {
+	return path == "/main.js" ||
+		path == "/jetbox.css" ||
+		path == "/compiled_tailwind.css" ||
+		path == "/prism_bundle.js" ||
+		path == "/diff_worker.js" ||
+		path == "/icon.png" ||
+		path == "/favicon.ico" ||
+		strings.HasPrefix(path, "/symbols-icons/")
 }

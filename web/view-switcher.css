@@ -1,0 +1,43 @@
+/* Floating View Switcher Pill */
+.agy-view-switcher {
+  position: fixed;
+  bottom: 18px;
+  right: 18px;
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  color: #e2e8f0;
+  background-color: rgba(30, 41, 59, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  opacity: 0.8;
+}
+
+.agy-view-switcher:hover {
+  opacity: 1;
+  transform: translateY(-2px);
+  background-color: rgba(30, 41, 59, 0.95);
+  border-color: rgba(255, 255, 255, 0.25);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+
+.agy-view-switcher:active {
+  transform: translateY(0);
+}
+
+.agy-view-switcher-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

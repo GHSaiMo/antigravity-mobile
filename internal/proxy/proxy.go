@@ -320,8 +320,8 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ConnectRPC proxy route (prefixed with /api/)
-	if strings.HasPrefix(r.URL.Path, "/api/") {
+	// ConnectRPC proxy route (prefixed with /api/ or direct proto service prefix)
+	if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/exa.language_server_pb.") {
 		p.handleRpcProxy(w, r)
 		return
 	}
@@ -332,7 +332,24 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Desktop static assets (e.g. /symbols-icons/*, /main.js, etc.)
+	if strings.HasPrefix(r.URL.Path, "/symbols-icons/") || isDesktopStaticPath(r.URL.Path) {
+		p.HandleDesktopStatic(w, r)
+		return
+	}
+
 	http.NotFound(w, r)
+}
+
+func isDesktopStaticPath(path string) bool {
+	return path == "/main.js" ||
+		path == "/jetbox.css" ||
+		path == "/compiled_tailwind.css" ||
+		path == "/prism_bundle.js" ||
+		path == "/diff_worker.js" ||
+		path == "/icon.png" ||
+		path == "/favicon.ico" ||
+		strings.HasPrefix(path, "/symbols-icons/")
 }
 
 // SetActiveStream records the currently connected active cascade stream on mobile.
@@ -1787,4 +1804,105 @@ func isSubagentTrajectoryMap(s map[string]interface{}, id string) bool {
 	}
 
 	return false
+}
+
+// HandleDesktopStatic proxies desktop static assets directly to upstream language_server.
+func (p *Proxy) HandleDesktopStatic(w http.ResponseWriter, r *http.Request) {
+	p.mu.RLock()
+	rp := p.activeProxy
+	p.mu.RUnlock()
+
+	if rp == nil {
+		http.Error(w, "Antigravity language_server is not connected", http.StatusServiceUnavailable)
+		return
+	}
+
+	rp.ServeHTTP(w, r)
+}
+
+// HandleDesktopIndex serves the official desktop web index.html with live CSRF injection,
+// desktop Chinese localization (zh-CN.js), and view switcher (view-switcher.js).
+func (p *Proxy) HandleDesktopIndex(w http.ResponseWriter, r *http.Request) {
+	p.mu.RLock()
+	port := p.activePort
+	token := p.activeToken
+	p.mu.RUnlock()
+
+	if port == 0 {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>Antigravity 启动中...</title>
+  <style>
+    body { background: #131313; color: #e2e8f0; font-family: -apple-system, BlinkMacSystemFont, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+    .spinner { width: 36px; height: 36px; border: 3px solid rgba(255,255,255,0.1); border-top-color: #38bdf8; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 16px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="spinner"></div>
+  <h2>正在连接 Antigravity 智能体服务...</h2>
+  <p style="color: #94a3b8; font-size: 14px;">language_server 启动后将自动载入工作台</p>
+  <script>setTimeout(() => location.reload(), 2000);</script>
+</body>
+</html>`))
+		return
+	}
+
+	targetURL := fmt.Sprintf("https://127.0.0.1:%d/", port)
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, targetURL, nil)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if token != "" {
+		req.Header.Set("x-codeium-csrf-token", token)
+	}
+
+	resp, err := p.shortClient.Do(req)
+	if err != nil {
+		http.Error(w, "Upstream language_server error: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		http.Error(w, "Failed to read upstream response: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	htmlStr := string(bodyBytes)
+
+	// 1. Ensure fresh CSRF token is injected into window.__APP_CONFIG__
+	if token != "" {
+		reCSRF := regexp.MustCompile(`"csrfToken":"[^"]*"`)
+		htmlStr = reCSRF.ReplaceAllString(htmlStr, fmt.Sprintf(`"csrfToken":%q`, token))
+
+		// Set cookie so L9() and T6b() can read it
+		http.SetCookie(w, &http.Cookie{
+			Name:     "csrfToken",
+			Value:    token,
+			Path:     "/",
+			SameSite: http.SameSiteLaxMode,
+		})
+	}
+
+	// 2. Inject view-switcher.css into <head>
+	cssInject := "    <link rel=\"stylesheet\" href=\"/view-switcher.css\" />\n  </head>"
+	htmlStr = strings.Replace(htmlStr, "</head>", cssInject, 1)
+
+	// 3. Inject zh-CN.js and view-switcher.js before </body>
+	jsInject := "    <script src=\"/zh-CN.js\"></script>\n    <script src=\"/view-switcher.js\"></script>\n  </body>"
+	htmlStr = strings.Replace(htmlStr, "</body>", jsInject, 1)
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.gstatic.com https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https: ws: wss:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'")
+	w.Header().Set("Content-Length", strconv.Itoa(len(htmlStr)))
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(htmlStr))
 }
