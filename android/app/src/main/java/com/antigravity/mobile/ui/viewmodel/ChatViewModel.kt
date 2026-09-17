@@ -6,6 +6,7 @@ import com.antigravity.mobile.data.model.*
 import com.antigravity.mobile.data.service.ApiClient
 import com.antigravity.mobile.data.service.ConnectionStatus
 import com.antigravity.mobile.data.service.StreamWebSocketClient
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -40,28 +41,63 @@ class ChatViewModel(
     private val _inputText = MutableStateFlow("")
     val inputText: StateFlow<String> = _inputText.asStateFlow()
 
+    private var wsJob: Job? = null
+    private var fetchJob: Job? = null
+
+    fun resetSession() {
+        fetchJob?.cancel()
+        fetchJob = null
+        wsJob?.cancel()
+        wsJob = null
+        wsClient.disconnect()
+        _inputText.value = ""
+        _uiState.value = ChatUiState()
+    }
+
     fun initSession(cascadeId: String, initialTitle: String? = null) {
-        _uiState.value = _uiState.value.copy(
-            cascadeId = cascadeId,
-            title = initialTitle?.takeIf { it.isNotBlank() } ?: "会话 $cascadeId"
-        )
+        val isDifferentSession = _uiState.value.cascadeId != cascadeId
+        if (isDifferentSession) {
+            fetchJob?.cancel()
+            fetchJob = null
+            wsClient.disconnect()
+            _inputText.value = ""
+            _uiState.value = ChatUiState(
+                cascadeId = cascadeId,
+                title = initialTitle?.takeIf { it.isNotBlank() } ?: "会话 $cascadeId",
+                messages = emptyList(),
+                runningTasks = emptyList(),
+                queuedMessages = emptyList(),
+                isRunning = false,
+                canProceed = false,
+                proceedArtifactUri = null,
+                pendingInteraction = null,
+                activeModel = _uiState.value.activeModel,
+                errorMessage = null,
+                isLatestMessageError = false,
+                markdownViewerData = null
+            )
+        } else {
+            _uiState.value = _uiState.value.copy(
+                title = initialTitle?.takeIf { it.isNotBlank() } ?: _uiState.value.title
+            )
+        }
 
         viewModelScope.launch {
             apiClient.markConversationAsRead(cascadeId)
         }
 
-        // Immediately fetch cached messages via HTTP so entering session loads instantly
-        viewModelScope.launch {
+        // Fetch cached messages via HTTP so entering session loads instantly
+        fetchJob = viewModelScope.launch {
             apiClient.fetchMessages(cascadeId, limit = 15).onSuccess { payload ->
                 if (_uiState.value.cascadeId == cascadeId) {
-                    val msgs = payload.messages ?: _uiState.value.messages
+                    val msgs = payload.messages ?: emptyList()
                     val lastMsg = msgs.lastOrNull()
                     val isError = lastMsg?.status.equals("error", ignoreCase = true) || payload.hasError
                     _uiState.value = _uiState.value.copy(
                         title = payload.title?.takeIf { it.isNotBlank() } ?: _uiState.value.title,
                         messages = msgs,
-                        runningTasks = payload.runningTasks ?: _uiState.value.runningTasks,
-                        queuedMessages = payload.queuedMessages ?: _uiState.value.queuedMessages,
+                        runningTasks = payload.runningTasks ?: emptyList(),
+                        queuedMessages = payload.queuedMessages ?: emptyList(),
                         isRunning = payload.status.equals("RUNNING", ignoreCase = true),
                         canProceed = payload.canProceed,
                         proceedArtifactUri = payload.proceedArtifactUri,
@@ -81,45 +117,49 @@ class ChatViewModel(
         }
 
         wsClient.connect(cascadeId)
-        observeWebSocket()
+        ensureWebSocketObserving()
     }
 
-    private fun observeWebSocket() {
-        viewModelScope.launch {
-            wsClient.connectionStatus.collect { status ->
-                _uiState.value = _uiState.value.copy(connectionStatus = status)
+    private fun ensureWebSocketObserving() {
+        if (wsJob?.isActive == true) return
+
+        wsJob = viewModelScope.launch {
+            launch {
+                wsClient.connectionStatus.collect { status ->
+                    _uiState.value = _uiState.value.copy(connectionStatus = status)
+                }
             }
-        }
 
-        viewModelScope.launch {
-            wsClient.streamUpdates.collect { payload ->
-                if (payload == null) return@collect
-                if (payload.cascadeId != _uiState.value.cascadeId) return@collect
+            launch {
+                wsClient.streamUpdates.collect { payload ->
+                    if (payload == null) return@collect
+                    if (payload.cascadeId != _uiState.value.cascadeId) return@collect
 
-                val isRunning = payload.status.equals("RUNNING", ignoreCase = true)
-                val msgs = payload.messages ?: _uiState.value.messages
-                val lastMsg = msgs.lastOrNull()
-                val isError = lastMsg?.status.equals("error", ignoreCase = true) || payload.hasError
+                    val isRunning = payload.status.equals("RUNNING", ignoreCase = true)
+                    val msgs = payload.messages ?: _uiState.value.messages
+                    val lastMsg = msgs.lastOrNull()
+                    val isError = lastMsg?.status.equals("error", ignoreCase = true) || payload.hasError
 
-                _uiState.value = _uiState.value.copy(
-                    title = payload.title?.takeIf { it.isNotBlank() } ?: _uiState.value.title,
-                    messages = msgs,
-                    runningTasks = payload.runningTasks ?: emptyList(),
-                    queuedMessages = payload.queuedMessages ?: emptyList(),
-                    isRunning = isRunning,
-                    canProceed = payload.canProceed,
-                    proceedArtifactUri = payload.proceedArtifactUri,
-                    pendingInteraction = payload.pendingInteraction,
-                    activeModel = payload.activeModel?.let { raw ->
-                        if (raw.contains("claude", ignoreCase = true) || raw.contains("m26", ignoreCase = true)) {
-                            "claude-opus-4-6-thinking"
-                        } else {
-                            "gemini-3.8-flash-high"
-                        }
-                    } ?: _uiState.value.activeModel,
-                    errorMessage = if (payload.hasError) payload.errorMessage else null,
-                    isLatestMessageError = isError
-                )
+                    _uiState.value = _uiState.value.copy(
+                        title = payload.title?.takeIf { it.isNotBlank() } ?: _uiState.value.title,
+                        messages = msgs,
+                        runningTasks = payload.runningTasks ?: emptyList(),
+                        queuedMessages = payload.queuedMessages ?: emptyList(),
+                        isRunning = isRunning,
+                        canProceed = payload.canProceed,
+                        proceedArtifactUri = payload.proceedArtifactUri,
+                        pendingInteraction = payload.pendingInteraction,
+                        activeModel = payload.activeModel?.let { raw ->
+                            if (raw.contains("claude", ignoreCase = true) || raw.contains("m26", ignoreCase = true)) {
+                                "claude-opus-4-6-thinking"
+                            } else {
+                                "gemini-3.8-flash-high"
+                            }
+                        } ?: _uiState.value.activeModel,
+                        errorMessage = if (payload.hasError) payload.errorMessage else null,
+                        isLatestMessageError = isError
+                    )
+                }
             }
         }
     }
@@ -306,6 +346,8 @@ class ChatViewModel(
 
     override fun onCleared() {
         super.onCleared()
+        wsJob?.cancel()
+        fetchJob?.cancel()
         wsClient.disconnect()
     }
 }

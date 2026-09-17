@@ -93,6 +93,7 @@ class MainActivity : ComponentActivity() {
                         ConversationListScreen(
                             viewModel = conversationListViewModel,
                             onSelectConversation = { cascadeId, title ->
+                                chatViewModel.resetSession()
                                 val encodedTitle = URLEncoder.encode(title, "UTF-8")
                                 navController.navigate("chat/$cascadeId/$encodedTitle")
                             },

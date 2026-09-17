@@ -58,7 +58,21 @@ fun ConversationListScreen(
     var deletingItem by remember { mutableStateOf<ConversationItem?>(null) }
 
     val colors = AntigravityTheme.colors
-    val isRefreshing = uiState is ConversationListUiState.Loading
+    val isRefreshing by viewModel.isRefreshing.collectAsState()
+    val pullRefreshState = rememberPullToRefreshState()
+
+    LaunchedEffect(pullRefreshState.isRefreshing) {
+        if (pullRefreshState.isRefreshing) {
+            viewModel.refresh {
+                pullRefreshState.endRefresh()
+            }
+        }
+    }
+    LaunchedEffect(isRefreshing) {
+        if (!isRefreshing && pullRefreshState.isRefreshing) {
+            pullRefreshState.endRefresh()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -103,7 +117,7 @@ fun ConversationListScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // Quota Bar if available
+            // Quota Bar if available (directly under TopBar, exactly matching iOS layout)
             quotaData?.currentAccount?.let { acc ->
                 QuotaStatusBar(
                     account = acc,
@@ -112,77 +126,13 @@ fun ConversationListScreen(
                 )
             }
 
-            // iOS-Style Search Bar
+            // Content List with PullToRefresh and Bottom Floating Search Bar
             Box(
                 modifier = Modifier
+                    .weight(1f)
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(colors.searchBarBg)
-                    .padding(horizontal = 10.dp, vertical = 8.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = "Search",
-                        tint = colors.textSecondary,
-                        modifier = Modifier.size(17.dp)
-                    )
-                    BasicTextField(
-                        value = searchQuery,
-                        onValueChange = { viewModel.onSearchQueryChanged(it) },
-                        singleLine = true,
-                        textStyle = TextStyle(
-                            color = colors.textPrimary,
-                            fontSize = 15.sp
-                        ),
-                        cursorBrush = SolidColor(colors.accentIndigo),
-                        decorationBox = { innerTextField ->
-                            if (searchQuery.isEmpty()) {
-                                Text(
-                                    text = "搜索会话或工作区...",
-                                    color = colors.textSecondary,
-                                    fontSize = 15.sp
-                                )
-                            }
-                            innerTextField()
-                        },
-                        modifier = Modifier.weight(1f)
-                    )
-                    if (searchQuery.isNotEmpty()) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Clear",
-                            tint = colors.textMuted,
-                            modifier = Modifier
-                                .size(16.dp)
-                                .clip(CircleShape)
-                                .combinedClickable(onClick = { viewModel.onSearchQueryChanged("") })
-                        )
-                    }
-                }
-            }
-
-            val pullRefreshState = rememberPullToRefreshState()
-            if (pullRefreshState.isRefreshing) {
-                LaunchedEffect(true) {
-                    viewModel.loadConversations()
-                }
-            }
-            LaunchedEffect(isRefreshing) {
-                if (!isRefreshing) {
-                    pullRefreshState.endRefresh()
-                }
-            }
-
-            // Content List with PullToRefresh
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
                     .nestedScroll(pullRefreshState.nestedScrollConnection)
+                    .clipToBounds()
             ) {
                 when (val state = uiState) {
                     is ConversationListUiState.Loading -> {
@@ -290,12 +240,71 @@ fun ConversationListScreen(
                     }
                 }
 
-                PullToRefreshContainer(
-                    state = pullRefreshState,
-                    modifier = Modifier.align(Alignment.TopCenter),
-                    containerColor = colors.surface,
-                    contentColor = colors.accentIndigo
-                )
+                // Pull to refresh spinner (only shown when actively pulled down or refreshing)
+                if (pullRefreshState.verticalOffset > 0 || isRefreshing) {
+                    PullToRefreshContainer(
+                        state = pullRefreshState,
+                        modifier = Modifier.align(Alignment.TopCenter),
+                        containerColor = colors.surface,
+                        contentColor = colors.accentIndigo
+                    )
+                }
+
+                // iOS-Style Floating Bottom Search Bar (as specified in session_list.jpg)
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp, vertical = 14.dp)
+                        .clip(RoundedCornerShape(26.dp))
+                        .background(colors.surface)
+                        .border(0.8.dp, colors.border, RoundedCornerShape(26.dp))
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = "Search",
+                            tint = colors.textSecondary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        BasicTextField(
+                            value = searchQuery,
+                            onValueChange = { viewModel.onSearchQueryChanged(it) },
+                            singleLine = true,
+                            textStyle = TextStyle(
+                                color = colors.textPrimary,
+                                fontSize = 15.sp
+                            ),
+                            cursorBrush = SolidColor(colors.accentIndigo),
+                            decorationBox = { innerTextField ->
+                                if (searchQuery.isEmpty()) {
+                                    Text(
+                                        text = "搜索会话或工作区...",
+                                        color = colors.textSecondary,
+                                        fontSize = 15.sp
+                                    )
+                                }
+                                innerTextField()
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (searchQuery.isNotEmpty()) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Clear",
+                                tint = colors.textMuted,
+                                modifier = Modifier
+                                    .size(18.dp)
+                                    .clip(CircleShape)
+                                    .combinedClickable(onClick = { viewModel.onSearchQueryChanged("") })
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -327,10 +336,7 @@ fun ConversationListScreen(
 
     if (showSettingsSheet) {
         SettingsSheet(
-            gatewayUrl = viewModel.prefs.gatewayBaseUrl ?: "未配置",
-            deviceId = viewModel.prefs.deviceId ?: "未知",
-            deviceToken = viewModel.prefs.deviceToken ?: "未生成",
-            currentThemeMode = viewModel.prefs.themeMode,
+            prefs = viewModel.prefs,
             onThemeModeChange = { viewModel.prefs.themeMode = it },
             onUnpair = {
                 showSettingsSheet = false
@@ -425,7 +431,7 @@ private fun ConversationListContent(
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+        contentPadding = PaddingValues(top = 6.dp, bottom = 84.dp, start = 16.dp, end = 16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         items(conversations, key = { it.id }) { conversation ->

@@ -48,6 +48,30 @@ class PreferencesManager(context: Context) {
             _themeModeFlow.value = value
         }
 
+    var autoApprovePermissions: Boolean
+        get() = prefs.getBoolean(KEY_AUTO_APPROVE, false)
+        set(value) = prefs.edit().putBoolean(KEY_AUTO_APPROVE, value).apply()
+
+    var enableLiveNotifications: Boolean
+        get() = prefs.getBoolean(KEY_LIVE_NOTIFICATIONS, true)
+        set(value) = prefs.edit().putBoolean(KEY_LIVE_NOTIFICATIONS, value).apply()
+
+    var lanServerUrl: String?
+        get() = prefs.getString(KEY_LAN_URL, null)
+        set(value) = prefs.edit().putString(KEY_LAN_URL, value?.trimEnd('/')).apply()
+
+    var ipv6ServerUrl: String?
+        get() = prefs.getString(KEY_IPV6_URL, null)
+        set(value) = prefs.edit().putString(KEY_IPV6_URL, value?.trimEnd('/')).apply()
+
+    var relayServerUrl: String?
+        get() = prefs.getString(KEY_RELAY_URL, null)
+        set(value) = prefs.edit().putString(KEY_RELAY_URL, value?.trimEnd('/')).apply()
+
+    var customServerUrl: String?
+        get() = prefs.getString(KEY_CUSTOM_URL, null)
+        set(value) = prefs.edit().putString(KEY_CUSTOM_URL, value?.trimEnd('/')).apply()
+
     fun isPaired(): Boolean {
         return !gatewayBaseUrl.isNullOrBlank() && !deviceToken.isNullOrBlank()
     }
@@ -62,5 +86,11 @@ class PreferencesManager(context: Context) {
         private const val KEY_DEVICE_TOKEN = "device_token"
         private const val KEY_DEVICE_ID = "device_id"
         private const val KEY_THEME_MODE = "theme_mode"
+        private const val KEY_AUTO_APPROVE = "auto_approve_permissions"
+        private const val KEY_LIVE_NOTIFICATIONS = "live_notifications"
+        private const val KEY_LAN_URL = "lan_server_url"
+        private const val KEY_IPV6_URL = "ipv6_server_url"
+        private const val KEY_RELAY_URL = "relay_server_url"
+        private const val KEY_CUSTOM_URL = "custom_server_url"
     }
 }

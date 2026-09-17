@@ -140,7 +140,7 @@ fun MarkdownViewerSheet(
                     }
 
                     // Markdown Document Content
-                    SimpleMarkdownContent(text = data.content)
+                    MarkdownContentView(content = data.content)
                 }
             }
 

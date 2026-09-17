@@ -25,7 +25,8 @@ import com.antigravity.mobile.ui.theme.AntigravityTheme
 @Composable
 fun MessageBubble(
     message: GatewayMessageItem,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onPlanClick: ((uri: String, title: String) -> Unit)? = null
 ) {
     val colors = AntigravityTheme.colors
 
@@ -150,7 +151,10 @@ fun MessageBubble(
                         .border(0.5.dp, colors.border, RoundedCornerShape(18.dp))
                         .padding(horizontal = 14.dp, vertical = 12.dp)
                 ) {
-                    SimpleMarkdownContent(text = displayText)
+                    MarkdownContentView(
+                        content = displayText,
+                        onPlanClick = onPlanClick
+                    )
                 }
             }
         }
@@ -158,77 +162,18 @@ fun MessageBubble(
 }
 
 /**
- * Lightweight native Markdown / Code / Prose renderer for chat bubbles
+ * Native Markdown renderer for chat bubbles delegating to full-fidelity MarkdownContentView.
  */
 @Composable
 fun SimpleMarkdownContent(
     text: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onPlanClick: ((uri: String, title: String) -> Unit)? = null
 ) {
-    val colors = AntigravityTheme.colors
-    val blocks = text.split("```")
-
-    Column(
+    MarkdownContentView(
+        content = text,
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        blocks.forEachIndexed { index, block ->
-            if (index % 2 == 1) {
-                // Code block
-                val lines = block.lines()
-                val lang = lines.firstOrNull()?.trim() ?: ""
-                val code = if (lines.size > 1) lines.drop(1).joinToString("\n") else block
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(colors.codeBlockBg)
-                        .border(0.5.dp, colors.border, RoundedCornerShape(8.dp))
-                        .padding(10.dp)
-                ) {
-                    if (lang.isNotBlank()) {
-                        Text(
-                            text = lang,
-                            color = colors.textMuted,
-                            fontSize = 10.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier.padding(bottom = 4.dp)
-                        )
-                    }
-                    Text(
-                        text = code.trimEnd(),
-                        color = colors.textPrimary,
-                        fontSize = 12.5.sp,
-                        fontFamily = FontFamily.Monospace,
-                        lineHeight = 17.sp
-                    )
-                }
-            } else {
-                // Regular prose / paragraphs
-                if (block.isNotBlank()) {
-                    Text(
-                        text = preprocessArrows(block.trim()),
-                        color = colors.agentBubbleText,
-                        fontSize = 15.sp,
-                        lineHeight = 22.sp
-                    )
-                }
-            }
-        }
-    }
-}
-
-/**
- * Preprocesses bare LaTeX arrow commands into native Unicode arrows in prose.
- */
-private fun preprocessArrows(text: String): String {
-    if (!text.contains('\\')) return text
-    return text
-        .replace(Regex("""\\(?:to|rightarrow)\b"""), "→")
-        .replace(Regex("""\\(?:gets|leftarrow)\b"""), "←")
-        .replace(Regex("""\\(?:implies|Rightarrow)\b"""), "⇒")
-        .replace(Regex("""\\(?:iff|Leftrightarrow)\b"""), "⇔")
+        onPlanClick = onPlanClick
+    )
 }
 

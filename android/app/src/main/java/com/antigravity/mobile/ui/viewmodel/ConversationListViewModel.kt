@@ -41,12 +41,39 @@ class ConversationListViewModel(
     private val _isLoadingProjects = MutableStateFlow(false)
     val isLoadingProjects: StateFlow<Boolean> = _isLoadingProjects.asStateFlow()
 
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
     private var rawConversations = listOf<ConversationItem>()
 
     init {
         loadConversations()
         loadQuotas()
         loadProjects()
+    }
+
+    fun refresh(onComplete: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            try {
+                val convResult = apiClient.fetchConversations()
+                convResult.onSuccess { list ->
+                    rawConversations = list
+                    applyFilter()
+                }.onFailure { err ->
+                    _uiState.value = ConversationListUiState.Error(err.message ?: "无法获取会话列表")
+                }
+                apiClient.fetchCockpitQuotas().onSuccess {
+                    _quotaData.value = it
+                }
+                apiClient.fetchProjects().onSuccess {
+                    _projects.value = it
+                }
+            } finally {
+                _isRefreshing.value = false
+                onComplete?.invoke()
+            }
+        }
     }
 
     fun loadConversations() {

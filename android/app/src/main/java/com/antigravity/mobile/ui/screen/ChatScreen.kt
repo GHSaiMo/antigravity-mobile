@@ -142,7 +142,12 @@ fun ChatScreen(
                             uiState.messages,
                             key = { it.id.ifBlank { "${it.timestamp}_${it.content.hashCode()}" } }
                         ) { msg ->
-                            MessageBubble(message = msg)
+                            MessageBubble(
+                                message = msg,
+                                onPlanClick = { uri, title ->
+                                    viewModel.openMarkdownViewer(uri, title)
+                                }
+                            )
                         }
 
                         // Active Thinking Animation Card
