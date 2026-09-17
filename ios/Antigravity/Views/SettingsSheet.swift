@@ -122,7 +122,7 @@ public struct SettingsSheet: View {
                     HStack {
                         Text("应用名称")
                         Spacer()
-                        Text("Antigravity Mobile")
+                        Text("Multigravity Mobile")
                             .foregroundColor(.secondary)
                     }
                     HStack {

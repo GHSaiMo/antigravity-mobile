@@ -31,11 +31,11 @@ public struct OnboardingGuideView: View {
                         .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
                         .padding(.top, 24)
                     
-                    Text("欢迎使用 Antigravity")
+                    Text("欢迎使用 Multigravity")
                         .font(.system(size: 26, weight: .bold))
                         .foregroundColor(.primary)
                     
-                    Text("Google Antigravity 智能体全栈移动伴侣\n随时随地监控思考流、下发指令与方案决策")
+                    Text("Multigravity 智能体全栈移动伴侣\n随时随地监控思考流、下发指令与方案决策")
                         .font(.system(size: 14))
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)

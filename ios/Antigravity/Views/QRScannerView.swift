@@ -35,7 +35,7 @@ public struct QRScannerView: View {
                         Text("需要相机权限以扫描配对二维码")
                             .font(.headline)
                             .foregroundColor(.white)
-                        Text("请在系统设置中允许 Antigravity 访问相机")
+                        Text("请在系统设置中允许 Multigravity 访问相机")
                             .font(.subheadline)
                             .foregroundColor(.gray)
                             .multilineTextAlignment(.center)

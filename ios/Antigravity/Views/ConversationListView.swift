@@ -27,7 +27,7 @@ public struct ConversationListView: View {
     public var body: some View {
         NavigationStack(path: $navigationPath) {
             mainBodyView
-                .navigationTitle("Antigravity")
+                .navigationTitle("Multigravity")
             .searchable(text: $viewModel.searchQuery, prompt: "搜索会话或工作区...")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {

@@ -232,7 +232,7 @@ public struct ChatView: View {
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("请在系统设置中允许 Antigravity 访问相机以拍照。")
+            Text("请在系统设置中允许 Multigravity 访问相机以拍照。")
         }
     }
     
