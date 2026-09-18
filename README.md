@@ -24,20 +24,29 @@
 ## ⚡ 极速开始 (v1.0.0 正式版)
 
 ### 1. 🍎 Mac 服务端一句话安装 (推荐)
-打开 Mac 终端，执行以下官方安装命令，30 秒内全自动完成部署：
+打开 Mac 终端，执行以下智能安装指令（**自带本地代理智能探测 + 国内镜像双保险，开箱即装**）：
 
 ```bash
-# 方式 A：GitHub 官方源一键安装
-curl -fsSL https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.sh | bash
-
-# 方式 B：国内网络加速一键安装（免代理）
-curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.sh | bash
+/bin/bash -c "$(curl -fsSL $(for p in 7890 10808 1080 6152; do nc -z -w 1 127.0.0.1 $p 2>/dev/null && echo "--proxy http://127.0.0.1:$p" && break; done) https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.sh 2>/dev/null || curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.sh)"
 ```
-> **安装脚本自动完成**：
-> - 自动探测 Apple Silicon (M系列) 或 Intel Mac 架构；
-> - 从 GitHub Releases 下载最新通用二进制并安装到 `~/.local/bin/mgy`（**免 sudo**）；
-> - 自动配置环境 PATH 与绕过 macOS Gatekeeper；
-> - 初始化全局配置 `~/.multigravity/.env`，并自动无缝继承老版本配对凭据。
+
+<details>
+<summary><b>💡 备用安装命令</b></summary>
+
+```bash
+# 极简国内镜像（无代理环境直连）
+curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.sh | bash
+
+# 纯官方源（终端已 export 代理时使用）
+curl -fsSL https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.sh | bash
+```
+</details>
+
+> **智能安装特性**：
+> - ⚡ **自适应本地代理**：自动探测本机活跃代理（Clash: 7890、V2Ray: 10808、Surge: 6152 等），无需手动 export；
+> - 🚀 **镜像双保险**：无代理或直连受阻时，秒级无缝降级至国内加速节点；
+> - 🎯 **架构智能匹配**：自动识别 Apple Silicon (M系列) 或 Intel Mac，精准下载对应架构的 **~7MB 极简包**；
+> - 🔒 **平滑部署**：免 sudo 安装至 `~/.local/bin/mgy`，自动注入环境 PATH，无缝继承已有配对凭据。
 
 ### 2. 📱 Android 手机客户端安装
 前往 [GitHub Releases v1.0.0](https://github.com/GHSaiMo/antigravity-mobile/releases/latest)，下载：
