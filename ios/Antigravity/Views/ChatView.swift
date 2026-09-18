@@ -9,6 +9,13 @@ private struct ChatBottomAnchorOffsetPreferenceKey: PreferenceKey {
     }
 }
 
+private struct ChatContentHeightPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 public struct ChatView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
@@ -17,6 +24,8 @@ public struct ChatView: View {
     @State private var hasInitiallyAligned = false
     @State private var hasUserInteracted = false
     @State private var isNearBottom = true
+    @State private var messagesContentHeight: CGFloat = 0
+    @State private var currentViewportHeight: CGFloat = 0
     @State private var cardToggleTrigger = 0
     @State private var showCameraPicker = false
     @State private var showCameraUnavailableAlert = false
@@ -157,6 +166,8 @@ public struct ChatView: View {
             hasInitiallyAligned = false
             hasUserInteracted = false
             isNearBottom = true
+            messagesContentHeight = 0
+            currentViewportHeight = 0
             autoFocusTask?.cancel()
             autoFocusTask = nil
             viewModel.saveCurrentDraft()
@@ -260,12 +271,16 @@ public struct ChatView: View {
             GeometryReader { geometry in
                 ScrollViewReader { proxy in
                     messagesScrollView(proxy: proxy, viewportWidth: geometry.size.width, viewportHeight: geometry.size.height)
+                        .onAppear {
+                            currentViewportHeight = geometry.size.height
+                        }
                         .onChange(of: geometry.size.height) { oldHeight, newHeight in
+                            currentViewportHeight = newHeight
                             if newHeight != oldHeight {
-                                if isNearBottom {
-                                    performAdaptiveCardScroll(proxy: proxy)
-                                } else if !hasInitiallyAligned {
+                                if !hasInitiallyAligned {
                                     alignMessages(proxy: proxy, animated: false)
+                                } else if isNearBottom && !hasUserInteracted {
+                                    scrollToBottom(proxy: proxy, animated: true)
                                 }
                             }
                         }
@@ -313,9 +328,16 @@ public struct ChatView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .coordinateSpace(name: "ChatScrollViewSpace")
+        .onPreferenceChange(ChatContentHeightPreferenceKey.self) { height in
+            guard height > 0 else { return }
+            if abs(messagesContentHeight - height) > 1 {
+                messagesContentHeight = height
+            }
+        }
         .onPreferenceChange(ChatBottomAnchorOffsetPreferenceKey.self) { anchorMaxY in
             guard anchorMaxY.isFinite else { return }
-            let near = anchorMaxY <= viewportHeight + 90
+            let isContentFitting = messagesContentHeight > 0 && currentViewportHeight > 0 && messagesContentHeight <= currentViewportHeight
+            let near = isContentFitting || (anchorMaxY <= viewportHeight + 90)
             if near && hasUserInteracted {
                 hasUserInteracted = false
             }
@@ -343,23 +365,19 @@ public struct ChatView: View {
             await viewModel.loadMessages()
         }
         .onAppear {
-            // 第 1 阶段：快速非动画初位定位，避免看到历史顶部闪动
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
+            // 第 1 阶段：快速非动画初位定位（0.05s），避免看到历史顶部闪动
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                 alignMessages(proxy: proxy, animated: false)
             }
             // 第 2 阶段：等待 NavigationStack 转场动画完全完成（约 0.35s），视口展开至最终真实高度后二次对齐
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                 alignMessages(proxy: proxy, animated: false)
             }
-            // 第 3 阶段：兜底针对大篇幅 Markdown / Table 异步渲染完成后的终态贴边校准
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.60) {
-                alignMessages(proxy: proxy, animated: false)
-            }
         }
         .onChange(of: viewModel.isLoading) { _, loading in
             if !loading {
                 // 网络会话历史同步结算后校准对齐
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                     alignMessages(proxy: proxy, animated: false)
                 }
                 if canScheduleAutoFocus {
@@ -371,9 +389,9 @@ public struct ChatView: View {
             performAdaptiveCardScroll(proxy: proxy)
         }
         .onChange(of: viewModel.runningTasks.count) { oldVal, newVal in
-            if newVal != oldVal {
+            if newVal != oldVal && hasInitiallyAligned {
                 if isNearBottom || !hasUserInteracted {
-                    performAdaptiveCardScroll(proxy: proxy)
+                    scrollToBottom(proxy: proxy, animated: true)
                 }
             }
         }
@@ -381,7 +399,7 @@ public struct ChatView: View {
             scrollToTurnStart(proxy: proxy, animated: true)
         }
         .onChange(of: viewModel.scrollToBottomTrigger) { _, _ in
-            performAdaptiveCardScroll(proxy: proxy)
+            scrollToBottom(proxy: proxy, animated: true)
         }
         .onChange(of: viewModel.messages.last?.id) { _, lastId in
             guard lastId != nil else { return }
@@ -401,25 +419,21 @@ public struct ChatView: View {
             }
         }
         .onChange(of: viewModel.queuedMessages) { oldVal, newVal in
-            if newVal != oldVal {
+            if newVal != oldVal && hasInitiallyAligned {
                 if isNearBottom || !hasUserInteracted {
-                    performAdaptiveCardScroll(proxy: proxy)
+                    scrollToBottom(proxy: proxy, animated: true)
                 }
             }
         }
         .onChange(of: isInputFocused) { _, focused in
-            performAdaptiveCardScroll(proxy: proxy)
             if focused {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                    performAdaptiveCardScroll(proxy: proxy)
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
-                    performAdaptiveCardScroll(proxy: proxy)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    scrollToBottom(proxy: proxy, animated: true)
                 }
             } else {
                 // 等待键盘完全收起并恢复完整视口高度后，做底部对齐校准，消除悬空留白
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
-                    performAdaptiveCardScroll(proxy: proxy)
+                    scrollToBottom(proxy: proxy, animated: true)
                 }
             }
         }
@@ -433,7 +447,7 @@ public struct ChatView: View {
     
     @ViewBuilder
     private func messagesList(proxy: ScrollViewProxy) -> some View {
-        LazyVStack(spacing: 8) {
+        VStack(spacing: 8) {
             if viewModel.hasMore && !viewModel.messages.contains(where: { $0.id == "step-0" }) {
                 loadOlderMessagesButton(proxy: proxy)
             }
@@ -468,6 +482,14 @@ public struct ChatView: View {
         .padding(.top, 12)
         .padding(.bottom, 4)
         .frame(maxWidth: .infinity)
+        .background(
+            GeometryReader { geo in
+                Color.clear.preference(
+                    key: ChatContentHeightPreferenceKey.self,
+                    value: geo.size.height
+                )
+            }
+        )
     }
     
     private var shouldShowThinkingBubble: Bool {
@@ -1084,51 +1106,34 @@ public struct ChatView: View {
         // 1. 若会话正在运行、等待回复、或有活跃后台任务，必须保持在底部展示最新任务卡片与进展
         let isActivelyRunning = viewModel.isActivelyRunning || (initialStatus?.isRunning == true)
         if isActivelyRunning {
-            if !viewModel.runningTasks.isEmpty || !viewModel.queuedMessages.isEmpty {
-                performAdaptiveCardScroll(proxy: proxy)
-            } else {
-                scrollToBottom(proxy: proxy, animated: animated)
-            }
+            scrollToBottom(proxy: proxy, animated: animated)
             return
         }
         
         // 2. 若最后一条消息是用户发送的，或最新一轮对话中尚无 Agent 文本回复，直接滚动到底部展示最新内容
         if viewModel.messages.last?.sender == .user || viewModel.latestAgentMessageId == nil {
-            if !viewModel.runningTasks.isEmpty || !viewModel.queuedMessages.isEmpty {
-                performAdaptiveCardScroll(proxy: proxy)
-            } else {
-                scrollToBottom(proxy: proxy, animated: animated)
-            }
+            scrollToBottom(proxy: proxy, animated: animated)
             return
         }
         
         // 3. 判断是否需要从本轮 Agent 回复开头展示：
         // 仅在会话处于未读、报错或等待用户交互，且存在最新的 Agent 回复时，才定位到该回复开头
         let shouldScrollToTurnStart = viewModel.shouldScrollToTurnStartOnEntry
-            || initialIsUnread
-            || (initialStatus?.isError == true)
-            || (initialStatus?.needsAction == true)
+            || (initialIsUnread && viewModel.latestAgentMessageId != nil)
+            || (initialStatus?.isError == true && viewModel.latestAgentMessageId != nil)
+            || (initialStatus?.needsAction == true && viewModel.latestAgentMessageId != nil)
         
         if shouldScrollToTurnStart {
             scrollToTurnStart(proxy: proxy, animated: animated)
         } else {
-            // 已读状态下，默认拉到会话最下面
-            if !viewModel.runningTasks.isEmpty || !viewModel.queuedMessages.isEmpty {
-                performAdaptiveCardScroll(proxy: proxy)
-            } else {
-                scrollToBottom(proxy: proxy, animated: animated)
-            }
+            scrollToBottom(proxy: proxy, animated: animated)
         }
     }
     
     private func scrollToTurnStart(proxy: ScrollViewProxy, animated: Bool = true) {
         // Target agent response message start when opening a chat with unread messages, error, or pending action
         guard let targetId = viewModel.latestAgentMessageId else {
-            if !viewModel.runningTasks.isEmpty || !viewModel.queuedMessages.isEmpty {
-                performAdaptiveCardScroll(proxy: proxy)
-            } else {
-                scrollToBottom(proxy: proxy, animated: animated)
-            }
+            scrollToBottom(proxy: proxy, animated: animated)
             return
         }
         
@@ -1147,6 +1152,13 @@ public struct ChatView: View {
         if viewModel.messages.isEmpty && !isThinkingActive {
             return
         }
+        
+        // 当内容总高度小于等于视口可用高度时，所有消息均完整在可视区域内。
+        // 此时强行向底部锚点滚动会促使 UIScrollView 产生负偏移越界，触发橡皮筋反弹、抖动与闪烁漂移。
+        if messagesContentHeight > 0 && currentViewportHeight > 0 && messagesContentHeight <= currentViewportHeight {
+            return
+        }
+        
         let target = "BOTTOM_ANCHOR"
         if animated {
             withAnimation(.easeOut(duration: 0.2)) {
@@ -1166,28 +1178,22 @@ public struct ChatView: View {
     private func performAdaptiveCardScroll(proxy: ScrollViewProxy) {
         hasUserInteracted = false
         isNearBottom = true
+        guard messagesContentHeight == 0 || currentViewportHeight == 0 || messagesContentHeight > currentViewportHeight else {
+            return
+        }
+        
         // 1. 同步使用完全一致的弹性阻尼动画启动滚动，卡片展开向上弹起，卡片折叠直接贴着卡片边缘回弹
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
             scrollToBottom(proxy: proxy, animated: false)
         }
         
         // 2. 连续多阶段布局微调吸附，消除折叠卡片后的悬空留白，贴边回弹
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
             withAnimation(.spring(response: 0.30, dampingFraction: 0.82)) {
                 scrollToBottom(proxy: proxy, animated: false)
             }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
-                scrollToBottom(proxy: proxy, animated: false)
-            }
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.36) {
-            withAnimation(.easeOut(duration: 0.15)) {
-                scrollToBottom(proxy: proxy, animated: false)
-            }
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.48) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.30) {
             scrollToBottom(proxy: proxy, animated: false)
         }
     }
