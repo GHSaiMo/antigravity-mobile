@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -424,6 +425,64 @@ func TestAuthHandler_HandleDevices_ClearAll(t *testing.T) {
 	_ = json.Unmarshal(rrGet2.Body.Bytes(), &devList2)
 	if len(devList2) != 0 {
 		t.Fatalf("expected 0 devices after clear, got %d", len(devList2))
+	}
+}
+
+func TestAuthHandler_HandleUnpair(t *testing.T) {
+	t.Setenv("MULTIGRAVITY_ADMIN_TOKEN", "test-admin-secret")
+	dir := t.TempDir()
+	store, err := NewAuthStore(filepath.Join(dir, "devices.json"))
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+	pm := NewPairingManager()
+	h := NewAuthHandler(store, pm, "127.0.0.1", 58900, false)
+
+	// Add test device
+	token := "tok_client_123456"
+	dev := PairedDevice{
+		DeviceID:   "dev_client_1",
+		DeviceName: "Android Phone",
+		TokenHash:  HashToken(token),
+		CreatedAt:  time.Now(),
+		LastSeenAt: time.Now(),
+	}
+	if err := store.AddDevice(dev); err != nil {
+		t.Fatalf("failed to add device: %v", err)
+	}
+
+	// 1. Unpair without token -> 401
+	reqNoToken := httptest.NewRequest(http.MethodPost, "/api/v1/auth/unpair", nil)
+	rrNoToken := httptest.NewRecorder()
+	h.HandleUnpair(rrNoToken, reqNoToken)
+	if rrNoToken.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", rrNoToken.Code)
+	}
+
+	// 2. Unpair with invalid token -> 401
+	reqBadToken := httptest.NewRequest(http.MethodPost, "/api/v1/auth/unpair", nil)
+	reqBadToken.Header.Set("Authorization", "Bearer invalid-tok")
+	rrBadToken := httptest.NewRecorder()
+	h.HandleUnpair(rrBadToken, reqBadToken)
+	if rrBadToken.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", rrBadToken.Code)
+	}
+
+	// 3. Unpair with valid token -> 200 and device removed
+	reqValid := httptest.NewRequest(http.MethodPost, "/api/v1/auth/unpair", nil)
+	reqValid.Header.Set("Authorization", "Bearer "+token)
+	rrValid := httptest.NewRecorder()
+	h.HandleUnpair(rrValid, reqValid)
+	if rrValid.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rrValid.Code, rrValid.Body.String())
+	}
+
+	// Device should now be gone from store
+	if _, ok := store.ValidateToken(token); ok {
+		t.Fatalf("expected token to be invalid after unpair")
+	}
+	if len(store.ListDevices()) != 0 {
+		t.Fatalf("expected 0 devices, got %d", len(store.ListDevices()))
 	}
 }
 

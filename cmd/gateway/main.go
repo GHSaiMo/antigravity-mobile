@@ -197,28 +197,59 @@ func runGatewayServer(args []string) {
 	}
 
 	netAddrs := auth.DetectNetworkAddresses()
-	qrHost := *ddnsHost
-	var extraHosts []string
+	if netAddrs.PublicIPv6 == "" && includePublicIPv6 {
+		if status, changed, err := netutil.EnsureMacOSIPv6Automatic(); status != nil {
+			if changed {
+				log.Printf("🌐 检测到 macOS 当前网络服务「%s」未开启 IPv6 (原配置: %s)。", status.ServiceName, status.CurrentMode)
+				log.Println("⚡ 已自动帮您切换为「配置 IPv6: 自动」！正在等待网络接口分配公网 IPv6 地址...")
+				time.Sleep(2 * time.Second)
+				netAddrs = auth.DetectNetworkAddresses()
+				if netAddrs.PublicIPv6 != "" {
+					log.Printf("🎉 成功获取公网 IPv6 地址: %s", netAddrs.PublicIPv6)
+				}
+			} else if !status.IsAutomatic && err != nil {
+				log.Printf("⚠️  检测到 macOS 网络服务「%s」未开启 IPv6 (当前配置: %s)。", status.ServiceName, status.CurrentMode)
+				log.Printf("💡 建议开启步骤: 前往「系统设置 -> 网络 -> %s -> 详细信息 -> TCP/IP」将「配置 IPv6」设为「自动」，或在终端执行: sudo networksetup -setv6automatic %q", status.ServiceName, status.ServiceName)
+			}
+		}
+	}
+
 	publicIPv6 := ""
 	if includePublicIPv6 {
 		publicIPv6 = netAddrs.PublicIPv6
 	}
 
-	if *preferIPv6 && publicIPv6 != "" {
-		qrHost = publicIPv6
-		if netAddrs.LANIPv4 != "" {
-			extraHosts = append(extraHosts, netAddrs.LANIPv4)
+	qrHost := *ddnsHost
+	var extraHosts []string
+
+	// 如果检测到公网 IPv6 且未显式指定自定义监听 host，默认优先使用公网 IPv6 作为二维码主地址
+	if publicIPv6 != "" && (*host == "" || *host == "0.0.0.0" || *host == "::" || *host == "[::]") {
+		if qrHost == "" || *preferIPv6 {
+			qrHost = publicIPv6
+			if netAddrs.LANIPv4 != "" {
+				extraHosts = append(extraHosts, netAddrs.LANIPv4)
+			}
+			if *ddnsHost != "" && *ddnsHost != publicIPv6 {
+				extraHosts = append(extraHosts, *ddnsHost)
+			}
+		} else {
+			if publicIPv6 != qrHost {
+				extraHosts = append(extraHosts, publicIPv6)
+			}
+			if netAddrs.LANIPv4 != "" && netAddrs.LANIPv4 != qrHost {
+				extraHosts = append(extraHosts, netAddrs.LANIPv4)
+			}
 		}
 	} else if qrHost == "" {
 		if *host != "" && *host != "0.0.0.0" && *host != "::" && *host != "[::]" {
 			qrHost = *host
-		} else if netAddrs.LANIPv4 != "" {
-			qrHost = netAddrs.LANIPv4
-			if publicIPv6 != "" {
-				extraHosts = append(extraHosts, publicIPv6)
-			}
 		} else if publicIPv6 != "" {
 			qrHost = publicIPv6
+			if netAddrs.LANIPv4 != "" {
+				extraHosts = append(extraHosts, netAddrs.LANIPv4)
+			}
+		} else if netAddrs.LANIPv4 != "" {
+			qrHost = netAddrs.LANIPv4
 		} else {
 			qrHost = "127.0.0.1"
 		}
@@ -726,6 +757,7 @@ func buildRouter(
 
 	// Auth endpoints
 	rootMux.HandleFunc("/api/v1/auth/pair", authHandler.HandlePair)
+	rootMux.HandleFunc("/api/v1/auth/unpair", authHandler.HandleUnpair)
 	rootMux.HandleFunc("/api/v1/auth/session", authHandler.HandleNewPairingSession)
 	rootMux.HandleFunc("POST /api/v1/auth/ws-ticket", authHandler.HandleWSTicket)
 	rootMux.HandleFunc("/api/v1/devices/", authHandler.HandleDevices)

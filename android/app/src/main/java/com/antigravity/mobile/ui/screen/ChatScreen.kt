@@ -61,7 +61,9 @@ import com.antigravity.mobile.data.service.ConnectionStatus
 import com.antigravity.mobile.ui.components.*
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 import com.antigravity.mobile.ui.viewmodel.ChatViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -90,6 +92,8 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     val colors = AntigravityTheme.colors
     val shouldShowThinkingBubble = uiState.isAwaitingResponse || uiState.isRunning
+    val coroutineScope = rememberCoroutineScope()
+    var adaptiveScrollJob by remember { mutableStateOf<Job?>(null) }
 
     // Scroll state tracking: distinguish initial logical entry alignment vs in-session incremental scroll
     var hasInitiallyAligned by remember(cascadeId) { mutableStateOf(false) }
@@ -107,6 +111,54 @@ fun ChatScreen(
                 lastVisibleIndex >= layoutInfo.totalItemsCount - 2
             }
         }
+    }
+
+    // 对齐 iOS performAdaptiveCardScroll：多阶段弹性阻尼自适应滚动与贴边回弹
+    fun performAdaptiveCardScroll() {
+        hasUserInteracted = false
+        adaptiveScrollJob?.cancel()
+        adaptiveScrollJob = coroutineScope.launch {
+            val total = listState.layoutInfo.totalItemsCount
+            if (total <= 0) return@launch
+
+            // 阶段 1: 立即使用弹性动画启动滚动，卡片展开向上弹起，卡片折叠直接贴着卡片边缘回弹
+            try {
+                listState.animateScrollToItem(total - 1)
+            } catch (_: Exception) {}
+
+            // 阶段 2: 80ms 连续多阶段布局微调吸附
+            delay(80)
+            try {
+                val t1 = listState.layoutInfo.totalItemsCount
+                if (t1 > 0) listState.animateScrollToItem(t1 - 1)
+            } catch (_: Exception) {}
+
+            // 阶段 3: 200ms (80 + 120ms) 布局中间态贴边
+            delay(120)
+            try {
+                val t2 = listState.layoutInfo.totalItemsCount
+                if (t2 > 0) listState.animateScrollToItem(t2 - 1)
+            } catch (_: Exception) {}
+
+            // 阶段 4: 360ms (200 + 160ms) 接近终态吸附
+            delay(160)
+            try {
+                val t3 = listState.layoutInfo.totalItemsCount
+                if (t3 > 0) listState.animateScrollToItem(t3 - 1)
+            } catch (_: Exception) {}
+
+            // 阶段 5: 480ms (360 + 120ms) 消除折叠卡片后的悬空留白，终态贴边回弹
+            delay(120)
+            try {
+                val t4 = listState.layoutInfo.totalItemsCount
+                if (t4 > 0) listState.scrollToItem(t4 - 1)
+            } catch (_: Exception) {}
+        }
+    }
+
+    fun handleFloatingCardToggle(isExpanded: Boolean) {
+        hasUserInteracted = false
+        performAdaptiveCardScroll()
     }
 
     val isRefreshing by viewModel.isRefreshing.collectAsState()
@@ -255,12 +307,7 @@ fun ChatScreen(
         }
 
         if (isExplicitTrigger) {
-            hasUserInteracted = false
-            delay(20)
-            val total = listState.layoutInfo.totalItemsCount
-            if (total > 0) {
-                listState.animateScrollToItem(total - 1)
-            }
+            performAdaptiveCardScroll()
             return@LaunchedEffect
         }
 
@@ -272,6 +319,13 @@ fun ChatScreen(
                     listState.animateScrollToItem(total - 1)
                 }
             }
+        }
+    }
+
+    // Phase 4: 对齐 iOS：任务或队列列表数量变化时触发自适应吸附滚动
+    LaunchedEffect(uiState.runningTasks.size, uiState.queuedMessages.size) {
+        if (hasInitiallyAligned && (isNearBottom || !hasUserInteracted)) {
+            performAdaptiveCardScroll()
         }
     }
 
@@ -493,51 +547,6 @@ fun ChatScreen(
                                     }
                                 }
 
-                                // Active Running Tasks Card
-                                if (uiState.runningTasks.isNotEmpty()) {
-                                    item {
-                                        RunningTasksCard(
-                                            tasks = uiState.runningTasks,
-                                            onStopTask = { viewModel.stopTask(it) },
-                                            modifier = Modifier.padding(vertical = 4.dp)
-                                        )
-                                    }
-                                }
-
-                                // Queued Messages Panel
-                                if (uiState.queuedMessages.isNotEmpty()) {
-                                    item {
-                                        QueuedMessagesCard(
-                                            items = uiState.queuedMessages,
-                                            onSendNow = {
-                                                dismissKeyboard()
-                                                viewModel.sendQueuedMessageNow(it)
-                                            },
-                                            onEdit = { viewModel.editQueuedMessage(it) },
-                                            onDelete = { viewModel.deleteQueuedMessage(it) },
-                                            modifier = Modifier.padding(vertical = 4.dp)
-                                        )
-                                    }
-                                }
-
-                                // Interactive Decision Card (if pending)
-                                uiState.pendingInteraction?.let { interaction ->
-                                    item {
-                                        InteractionCard(
-                                            interaction = interaction,
-                                            onApprove = {
-                                                dismissKeyboard()
-                                                viewModel.approveInteraction()
-                                            },
-                                            onReject = {
-                                                dismissKeyboard()
-                                                viewModel.rejectInteraction()
-                                            },
-                                            modifier = Modifier.padding(vertical = 6.dp)
-                                        )
-                                    }
-                                }
-
                                 // Bottom breathing room spacer ensuring bubble is fully clear of input bar
                                 item(key = "chat_bottom_spacer") {
                                     Spacer(modifier = Modifier.height(10.dp))
@@ -553,6 +562,63 @@ fun ChatScreen(
                                 )
                             }
                         }
+                    }
+                }
+            }
+
+            // Floating Cards (InteractionCard, RunningTasksCard, QueuedMessagesCard) 对齐 iOS floatingCards
+            val hasFloatingCards = uiState.pendingInteraction != null ||
+                    uiState.runningTasks.isNotEmpty() ||
+                    uiState.queuedMessages.isNotEmpty()
+
+            if (hasFloatingCards) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp)
+                        .padding(bottom = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    uiState.pendingInteraction?.let { interaction ->
+                        InteractionCard(
+                            interaction = interaction,
+                            onApprove = {
+                                dismissKeyboard()
+                                viewModel.approveInteraction()
+                            },
+                            onReject = {
+                                dismissKeyboard()
+                                viewModel.rejectInteraction()
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+
+                    if (uiState.runningTasks.isNotEmpty()) {
+                        RunningTasksCard(
+                            tasks = uiState.runningTasks,
+                            onStopTask = { viewModel.stopTask(it) },
+                            onToggleExpand = { isExpanded ->
+                                handleFloatingCardToggle(isExpanded)
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+
+                    if (uiState.queuedMessages.isNotEmpty()) {
+                        QueuedMessagesCard(
+                            items = uiState.queuedMessages,
+                            onSendNow = {
+                                dismissKeyboard()
+                                viewModel.sendQueuedMessageNow(it)
+                            },
+                            onEdit = { viewModel.editQueuedMessage(it) },
+                            onDelete = { viewModel.deleteQueuedMessage(it) },
+                            onToggleExpand = { isExpanded ->
+                                handleFloatingCardToggle(isExpanded)
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
                 }
             }

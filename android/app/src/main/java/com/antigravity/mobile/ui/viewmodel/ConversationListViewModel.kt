@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.encodeToString
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -441,9 +442,24 @@ class ConversationListViewModel(
             ?: prefs.getLocalDraftSession(cascadeId)?.project
     }
 
-    fun unpair() {
+    fun unpair(onComplete: () -> Unit = {}) {
+        val client = apiClient
+        viewModelScope.launch {
+            try {
+                withTimeoutOrNull(3000) {
+                    client.unpair()
+                }
+            } catch (e: Exception) {
+                Log.w("ConversationListVM", "Gateway unpair failed: ${e.message}")
+            }
+        }
+        stopAutoRefresh()
         cacheManager?.clearAllSessions()
         prefs.clear()
+        _uiState.value = ConversationListUiState.Success(emptyList())
+        rawConversations = emptyList()
+        projects = emptyList()
+        onComplete()
     }
 
     override fun onCleared() {

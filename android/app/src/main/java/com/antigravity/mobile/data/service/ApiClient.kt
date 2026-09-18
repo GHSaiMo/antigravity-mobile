@@ -793,6 +793,33 @@ class ApiClient(private val prefs: PreferencesManager) {
         }
     }
 
+    /**
+     * Unpairs this device from the gateway and cleans up server-side state.
+     */
+    suspend fun unpair(): Result<Unit> = withContext(Dispatchers.IO) {
+        val baseUrl = prefs.gatewayBaseUrl?.trim()?.trimEnd('/')
+        val token = prefs.deviceToken
+        if (baseUrl.isNullOrBlank() || token.isNullOrBlank()) {
+            return@withContext Result.success(Unit)
+        }
+
+        try {
+            val endpoint = "$baseUrl/api/v1/auth/unpair"
+            val body = "{}".toRequestBody(jsonMediaType)
+            val request = buildAuthorizedRequest(endpoint)
+                .post(body)
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                Log.d("ApiClient", "Unpair response code: ${response.code}")
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.w("ApiClient", "Unpair call failed: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
     private fun buildAuthorizedRequest(url: String): Request.Builder {
         val builder = Request.Builder()
             .url(url)

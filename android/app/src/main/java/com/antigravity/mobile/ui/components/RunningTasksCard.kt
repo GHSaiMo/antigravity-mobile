@@ -2,6 +2,7 @@ package com.antigravity.mobile.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -15,7 +16,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -24,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -36,12 +37,23 @@ import com.antigravity.mobile.ui.theme.AntigravityTheme
 fun RunningTasksCard(
     tasks: List<RunningTaskItem>,
     onStopTask: (RunningTaskItem) -> Unit,
+    onToggleExpand: ((Boolean) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     if (tasks.isEmpty()) return
 
     var isExpanded by remember { mutableStateOf(true) }
     val colors = AntigravityTheme.colors
+
+    // iOS 对齐：展开时箭头朝下(0度)，折叠时箭头朝上(180度)，弹性动画旋转
+    val arrowRotation by animateFloatAsState(
+        targetValue = if (isExpanded) 0f else 180f,
+        animationSpec = spring(
+            dampingRatio = 0.82f,
+            stiffness = Spring.StiffnessMediumLow
+        ),
+        label = "tasksArrowRotation"
+    )
 
     Card(
         modifier = modifier
@@ -61,7 +73,10 @@ fun RunningTasksCard(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { isExpanded = !isExpanded },
+                    .clickable {
+                        isExpanded = !isExpanded
+                        onToggleExpand?.invoke(isExpanded)
+                    },
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -98,10 +113,12 @@ fun RunningTasksCard(
                 }
 
                 Icon(
-                    imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                    contentDescription = "Toggle Expand",
+                    imageVector = Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (isExpanded) "折叠任务" else "展开任务",
                     tint = colors.textSecondary,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier
+                        .size(20.dp)
+                        .graphicsLayer(rotationZ = arrowRotation)
                 )
             }
 

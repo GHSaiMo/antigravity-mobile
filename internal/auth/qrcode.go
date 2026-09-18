@@ -73,10 +73,10 @@ func GenerateMultiHostPairingURI(p MultiHostPairingParams) string {
 	params.Set("code", p.Code)
 	params.Set("ssl", sslVal)
 
-	if lan := strings.TrimSpace(p.LANHost); lan != "" && lan != cleanHost {
+	if lan := strings.TrimSpace(p.LANHost); lan != "" && (lan != cleanHost || strings.Contains(cleanHost, ":")) {
 		params.Set("lan", lan)
 	}
-	if ipv6 := strings.TrimSpace(p.IPv6Host); ipv6 != "" && ipv6 != cleanHost {
+	if ipv6 := strings.TrimSpace(p.IPv6Host); ipv6 != "" {
 		params.Set("ipv6", ipv6)
 	}
 	if ddns := strings.TrimSpace(p.DDNSHost); ddns != "" && ddns != cleanHost {
@@ -196,6 +196,8 @@ func FormatPairingQRCode(primaryHost string, port int, code string, ssl bool, ex
 		ipv6URI := GeneratePairingURI(params.IPv6Host, port, code, ssl)
 		fmt.Fprintf(&b, "🌐 外网 IPv6 直连 URI:   %s\n", ipv6URI)
 		appendIPv6Instructions(&b, params.IPv6Host, port, ssl)
+	} else {
+		appendIPv6DisabledInstructions(&b)
 	}
 	if params.RelayHost != "" {
 		relayURI := GeneratePairingURI(params.RelayHost, port, code, ssl)
@@ -212,6 +214,15 @@ func FormatPairingQRCode(primaryHost string, port int, code string, ssl bool, ex
 	return b.String()
 }
 
+func appendIPv6DisabledInstructions(b *strings.Builder) {
+	b.WriteString("\n--------------------------------------------------\n")
+	b.WriteString("💡 IPv6 外网直连提示:\n")
+	b.WriteString("   当前未检测到公网 IPv6 地址。若需在外网 5G/4G 随时随地直连 Mac:\n")
+	b.WriteString("   1. 检查 Mac「系统设置 -> 网络 -> TCP/IP」中「配置 IPv6」是否已设为「自动」；\n")
+	b.WriteString("   2. 确保家中光猫或主路由器已开启 IPv6 分配（SLAAC/DHCPv6）；\n")
+	b.WriteString("   3. 获取到 IPv6 后重新运行 mgy，将自动优先使用公网 IPv6 写入二维码！\n")
+}
+
 func appendIPv6Instructions(b *strings.Builder, ipv6Host string, port int, ssl bool) {
 	if ipv6Host == "" {
 		return
@@ -222,7 +233,7 @@ func appendIPv6Instructions(b *strings.Builder, ipv6Host string, port int, ssl b
 	}
 	testURL := fmt.Sprintf("%s://[%s]:%d", scheme, ipv6Host, port)
 	b.WriteString("\n--------------------------------------------------\n")
-	b.WriteString("📱 IPv6 外网直连自测与排错指引:\n")
+	b.WriteString("📱 移动端 5G/4G 外网直连验证指引:\n")
 	b.WriteString("   1. 手机断开家中 Wi-Fi（切换至 5G/4G 移动蜂窝网络）；\n")
 	fmt.Fprintf(b, "   2. 手机自带浏览器直接访问测试地址:\n      %s\n", testURL)
 	b.WriteString("   3. 验收标准与排错说明:\n")
@@ -304,6 +315,8 @@ func PrintRawPairingQRCode(code string, uri string) {
 			} else if strings.Contains(h, ":") {
 				fmt.Fprintf(&b, "🌐 外网 IPv6 直连 URI:   %s\n", GeneratePairingURI(h, pVal, code, sVal))
 				appendIPv6Instructions(&b, h, pVal, sVal)
+			} else {
+				appendIPv6DisabledInstructions(&b)
 			}
 			if ddns != "" {
 				fmt.Fprintf(&b, "⚡ DDNS / 域名直连 URI:  %s\n", GeneratePairingURI(ddns, pVal, code, sVal))

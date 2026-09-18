@@ -268,6 +268,95 @@ func (h *AuthHandler) HandlePair(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// HandleUnpair handles POST /api/v1/auth/unpair.
+// It allows a paired device to revoke its own pairing, or an admin to unpair a specified device.
+func (h *AuthHandler) HandleUnpair(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+
+	token := ExtractToken(r)
+	var req struct {
+		DeviceID string `json:"device_id"`
+	}
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+	targetID := strings.TrimSpace(req.DeviceID)
+	if targetID == "" {
+		targetID = strings.TrimSpace(r.URL.Query().Get("id"))
+	}
+
+	// 1. Admin path
+	if h.isAuthorizedAdmin(r) {
+		if targetID != "" {
+			_ = h.store.RemoveDevice(targetID)
+			log.Printf("[AUDIT:UNPAIR_SUCCESS] admin unpair device_id=%s ip=%s", targetID, CleanIP(r.RemoteAddr))
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]any{
+				"status":    "unpaired",
+				"device_id": targetID,
+			})
+			return
+		}
+	}
+
+	// 2. Device token path
+	if token == "" {
+		log.Printf("[AUDIT:AUTH_FAILURE] action=unpair reason=missing_token ip=%s", CleanIP(r.RemoteAddr))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized: missing authentication token"})
+		return
+	}
+
+	device, ok := h.store.ValidateToken(token)
+	if !ok || device == nil {
+		log.Printf("[AUDIT:AUTH_FAILURE] action=unpair reason=invalid_token ip=%s", CleanIP(r.RemoteAddr))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid or expired token"})
+		return
+	}
+
+	// If a specific targetID was provided, ensure it matches caller's deviceID unless caller is admin
+	if targetID != "" && targetID != device.DeviceID && !h.isAuthorizedAdmin(r) {
+		log.Printf("[AUDIT:AUTH_FAILURE] action=unpair reason=forbidden_target_mismatch device_id=%s target=%s ip=%s",
+			device.DeviceID, targetID, CleanIP(r.RemoteAddr))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]string{"error": "forbidden: cannot unpair another device"})
+		return
+	}
+
+	deviceIDToRemove := device.DeviceID
+	if err := h.store.RemoveDevice(deviceIDToRemove); err != nil {
+		log.Printf("[AUDIT:UNPAIR_ERROR] device_id=%s err=%v", deviceIDToRemove, err)
+	} else {
+		log.Printf("[AUDIT:UNPAIR_SUCCESS] device_id=%s ip=%s", deviceIDToRemove, CleanIP(r.RemoteAddr))
+	}
+
+	// Clear session cookie if set
+	http.SetCookie(w, &http.Cookie{
+		Name:     DeviceCookieName,
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+		Secure:   h.ssl,
+		MaxAge:   -1,
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]any{
+		"status":    "unpaired",
+		"device_id": deviceIDToRemove,
+	})
+}
+
 // HandleDevices handles GET /api/v1/devices and DELETE /api/v1/devices/{id}.
 func (h *AuthHandler) HandleDevices(w http.ResponseWriter, r *http.Request) {
 	if !h.isAuthorizedAdmin(r) {
@@ -381,7 +470,7 @@ func (h *AuthHandler) HandleNewPairingSession(w http.ResponseWriter, r *http.Req
 		lanHost, ipv6Host = "", ""
 	}
 	primaryHost := h.host
-	if r.URL.Query().Get("prefer") == "ipv6" && ipv6Host != "" {
+	if (r.URL.Query().Get("prefer") == "ipv6" || primaryHost == "" || primaryHost == "127.0.0.1" || primaryHost == lanHost) && ipv6Host != "" {
 		primaryHost = ipv6Host
 	}
 
