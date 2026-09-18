@@ -24,8 +24,7 @@ type NotificationConfig struct {
 	SoundComplete string
 }
 
-// GetDataDir returns the active configuration and data directory.
-// It prioritizes ~/.multigravity, falling back to ~/.antigravity-mobile if it already exists.
+// GetDataDir returns the active configuration and data directory (~/.multigravity or MULTIGRAVITY_DATA_DIR).
 func GetDataDir() string {
 	if custom := strings.TrimSpace(os.Getenv("MULTIGRAVITY_DATA_DIR")); custom != "" {
 		return custom
@@ -34,19 +33,11 @@ func GetDataDir() string {
 	if err != nil {
 		return ".multigravity"
 	}
-	newDir := filepath.Join(home, ".multigravity")
-	oldDir := filepath.Join(home, ".antigravity-mobile")
-
-	if _, err := os.Stat(newDir); os.IsNotExist(err) {
-		if fi, errOld := os.Stat(oldDir); errOld == nil && fi.IsDir() {
-			return oldDir
-		}
-	}
-	return newDir
+	return filepath.Join(home, ".multigravity")
 }
 
 // LoadDotEnv searches for a .env file in standard locations
-// (explicit env, CWD, ~/.multigravity, ~/.antigravity-mobile, binary directory)
+// (explicit env, CWD, ~/.multigravity/.env, binary directory)
 // and populates environment variables that are not already set.
 func LoadDotEnv(paths ...string) {
 	searchPaths := make([]string, 0, len(paths)+8)
@@ -59,10 +50,9 @@ func LoadDotEnv(paths ...string) {
 	// 1. Current directory and parent (for local development)
 	searchPaths = append(searchPaths, ".env", "../.env")
 
-	// 2. Global user directories (~/.multigravity/.env, then ~/.antigravity-mobile/.env)
+	// 2. Global user directory (~/.multigravity/.env)
 	if home, err := os.UserHomeDir(); err == nil {
 		searchPaths = append(searchPaths, filepath.Join(home, ".multigravity", ".env"))
-		searchPaths = append(searchPaths, filepath.Join(home, ".antigravity-mobile", ".env"))
 	}
 
 	// 3. Executable directory and parent
@@ -262,10 +252,6 @@ func GetTunnelConfig() TunnelConfig {
 		if p, err := strconv.Atoi(pStr); err == nil && p > 0 {
 			remotePort = p
 		}
-	} else if pStr := os.Getenv("GATEWAY_PORT"); pStr != "" {
-		if p, err := strconv.Atoi(pStr); err == nil && p > 0 {
-			remotePort = p
-		}
 	}
 
 	enabled := serverAddr != ""
@@ -319,7 +305,10 @@ func ValidateFRPTokenStrength(token string) string {
 // machine's global unicast IPv6. Defaults to true whenever a global IPv6 is detected,
 // unless explicitly disabled via INCLUDE_PUBLIC_IPV6=0, false, or no.
 func AdvertisePublicIPv6(sslEnabled bool) bool {
-	v := strings.ToLower(strings.TrimSpace(os.Getenv("INCLUDE_PUBLIC_IPV6")))
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("MULTIGRAVITY_INCLUDE_PUBLIC_IPV6")))
+	if v == "" {
+		v = strings.ToLower(strings.TrimSpace(os.Getenv("INCLUDE_PUBLIC_IPV6")))
+	}
 	if v == "0" || v == "false" || v == "no" {
 		return false
 	}

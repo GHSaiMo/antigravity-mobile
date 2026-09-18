@@ -11,7 +11,7 @@ import (
 )
 
 func TestAuthMiddleware_And_Handler(t *testing.T) {
-	t.Setenv("ADMIN_TOKEN", "")
+	t.Setenv("MULTIGRAVITY_ADMIN_TOKEN", "")
 	tempDir := t.TempDir()
 	storePath := filepath.Join(tempDir, "auth_store.json")
 	store, err := NewAuthStore(storePath)
@@ -223,7 +223,7 @@ func TestIsWhitelistedPath(t *testing.T) {
 }
 
 func TestAdminAuthorization(t *testing.T) {
-	t.Setenv("ADMIN_TOKEN", "")
+	t.Setenv("MULTIGRAVITY_ADMIN_TOKEN", "")
 	tempDir := t.TempDir()
 	storePath := filepath.Join(tempDir, "auth_store.json")
 	store, err := NewAuthStore(storePath)
@@ -277,23 +277,23 @@ func TestAdminAuthorization(t *testing.T) {
 		t.Errorf("expected loopback with X-Real-IP to be rejected")
 	}
 
-	// Case 5: ADMIN_TOKEN via Bearer header
-	t.Setenv("ADMIN_TOKEN", "secret-admin-123")
+	// Case 5: MULTIGRAVITY_ADMIN_TOKEN via Bearer header
+	t.Setenv("MULTIGRAVITY_ADMIN_TOKEN", "secret-admin-123")
 	reqAdminBearer := httptest.NewRequest(http.MethodGet, "/api/v1/devices", nil)
 	reqAdminBearer.RemoteAddr = "192.168.1.100:12345"
 	reqAdminBearer.Header.Set("Authorization", "Bearer secret-admin-123")
 	if !authHandler.isAuthorizedAdmin(reqAdminBearer) {
-		t.Errorf("expected ADMIN_TOKEN via Bearer header to be authorized")
+		t.Errorf("expected MULTIGRAVITY_ADMIN_TOKEN via Bearer header to be authorized")
 	}
 
-	// Case 6: ADMIN_TOKEN via query param is rejected (leaks in logs/Referer)
+	// Case 6: MULTIGRAVITY_ADMIN_TOKEN via query param is rejected (leaks in logs/Referer)
 	reqAdminQuery := httptest.NewRequest(http.MethodGet, "/api/v1/devices?admin_token=secret-admin-123", nil)
 	reqAdminQuery.RemoteAddr = "192.168.1.100:12345"
 	if authHandler.isAuthorizedAdmin(reqAdminQuery) {
-		t.Errorf("expected ADMIN_TOKEN via query parameter to be rejected")
+		t.Errorf("expected MULTIGRAVITY_ADMIN_TOKEN via query parameter to be rejected")
 	}
 
-	// Case 7: Invalid ADMIN_TOKEN
+	// Case 7: Invalid MULTIGRAVITY_ADMIN_TOKEN
 	reqAdminBad := httptest.NewRequest(http.MethodGet, "/api/v1/devices", nil)
 	reqAdminBad.RemoteAddr = "192.168.1.100:12345"
 	reqAdminBad.Header.Set("Authorization", "Bearer wrong-token")
@@ -301,11 +301,11 @@ func TestAdminAuthorization(t *testing.T) {
 		t.Errorf("expected invalid admin token to be rejected")
 	}
 
-	// Case 8: ADMIN_TOKEN configured — loopback fallback is disabled
+	// Case 8: MULTIGRAVITY_ADMIN_TOKEN configured — loopback fallback is disabled
 	reqLoopbackWithAdminEnv := httptest.NewRequest(http.MethodGet, "/api/v1/devices", nil)
 	reqLoopbackWithAdminEnv.RemoteAddr = "127.0.0.1:12345"
 	if authHandler.isAuthorizedAdmin(reqLoopbackWithAdminEnv) {
-		t.Errorf("expected loopback fallback to be disabled when ADMIN_TOKEN is set")
+		t.Errorf("expected loopback fallback to be disabled when MULTIGRAVITY_ADMIN_TOKEN is set")
 	}
 }
 
@@ -325,12 +325,12 @@ func TestAdminAuthorization_TunnelDisablesLoopback(t *testing.T) {
 		t.Errorf("expected loopback admin to be denied when tunnel is enabled")
 	}
 
-	t.Setenv("ADMIN_TOKEN", "frp-admin-token")
+	t.Setenv("MULTIGRAVITY_ADMIN_TOKEN", "frp-admin-token")
 	reqWithToken := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", nil)
 	reqWithToken.RemoteAddr = "127.0.0.1:12345"
 	reqWithToken.Header.Set("Authorization", "Bearer frp-admin-token")
 	if !authHandler.isAuthorizedAdmin(reqWithToken) {
-		t.Errorf("expected ADMIN_TOKEN bearer to work even when tunnel is enabled")
+		t.Errorf("expected MULTIGRAVITY_ADMIN_TOKEN bearer to work even when tunnel is enabled")
 	}
 }
 

@@ -142,7 +142,11 @@ func AllowedWorkspaceRoots() []string {
 		}
 		sep := string(filepath.Separator)
 		always := []string{filepath.Join(home, ".gemini", "antigravity") + sep}
-		if extra := strings.TrimSpace(os.Getenv("ALLOWED_WORKSPACE_ROOTS")); extra != "" {
+		extra := strings.TrimSpace(os.Getenv("MULTIGRAVITY_ALLOWED_WORKSPACE_ROOTS"))
+		if extra == "" {
+			extra = strings.TrimSpace(os.Getenv("ALLOWED_WORKSPACE_ROOTS"))
+		}
+		if extra != "" {
 			workspaceRoots = always
 			for _, raw := range strings.Split(extra, ":") {
 				raw = strings.TrimSpace(raw)

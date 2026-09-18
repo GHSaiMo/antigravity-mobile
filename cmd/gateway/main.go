@@ -75,18 +75,12 @@ func main() {
 }
 
 func defaultHost() string {
-	if envHost := os.Getenv("MULTIGRAVITY_HOST"); envHost != "" {
-		return envHost
-	}
-	return os.Getenv("GATEWAY_HOST")
+	return os.Getenv("MULTIGRAVITY_HOST")
 }
 
 func defaultPort() int {
 	defaultPort := 58900
 	envPort := os.Getenv("MULTIGRAVITY_PORT")
-	if envPort == "" {
-		envPort = os.Getenv("GATEWAY_PORT")
-	}
 	if envPort != "" {
 		if p, err := strconv.Atoi(envPort); err == nil && p > 0 {
 			defaultPort = p
@@ -95,18 +89,23 @@ func defaultPort() int {
 	return defaultPort
 }
 
+func isSSLEnabled() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("MULTIGRAVITY_SSL")))
+	return v == "1" || v == "true" || v == "yes"
+}
+
 func runGatewayServer(args []string) {
 	// ==============================================================================
 	// 启动项配置参数定义与中文说明
 	// 1. host: 监听主机/IP 地址。默认 "" 双栈监听本机所有 IPv4 与 IPv6 接口；设为 127.0.0.1 则仅限本机访问
 	defaultHost := defaultHost()
 
-	// 2. port: 网关服务 HTTP/WebSocket 监听端口，默认 58900 (可通过 MULTIGRAVITY_PORT/GATEWAY_PORT 环境变量覆盖)
+	// 2. port: 网关服务 HTTP/WebSocket 监听端口，默认 58900 (可通过 MULTIGRAVITY_PORT 环境变量覆盖)
 	defaultPort := defaultPort()
 
-	// 3. qr: 是否在启动时在终端默认打印一次扫码配对二维码，默认 true (可通过 GATEWAY_QR 环境变量或 -qr=false 控制)
+	// 3. qr: 是否在启动时在终端默认打印一次扫码配对二维码，默认 true (可通过 MULTIGRAVITY_QR 环境变量或 -qr=false 控制)
 	defaultQR := true
-	if envQR := os.Getenv("GATEWAY_QR"); envQR != "" {
+	if envQR := os.Getenv("MULTIGRAVITY_QR"); envQR != "" {
 		if envQR == "0" || strings.ToLower(envQR) == "false" || strings.ToLower(envQR) == "no" {
 			defaultQR = false
 		}
@@ -119,40 +118,48 @@ func runGatewayServer(args []string) {
 	printQR := fs.Bool("qr", defaultQR, "启动时是否在终端默认打印一次配对二维码（默认 true）")
 	pollSec := fs.Int("poll", 5, "探测本地 Antigravity 实例与健康检查的轮询间隔秒数（默认 5 秒）")
 	ddnsHost := fs.String("ddns", os.Getenv("DDNS_HOST"), "公网 DDNS 域名或固定 IPv6 地址，用于生成扫码配对链接及外部直连")
-	enableSSL := fs.Bool("ssl", os.Getenv("GATEWAY_SSL") == "1" || os.Getenv("GATEWAY_SSL") == "true", "是否开启 SSL/HTTPS 模式（默认 false，开启需配合 -tls-cert 与 -tls-key）")
-	tlsCert := fs.String("tls-cert", os.Getenv("TLS_CERT_FILE"), "HTTPS 服务 TLS 证书文件路径 (.cer/.crt/.pem)")
-	tlsKey := fs.String("tls-key", os.Getenv("TLS_KEY_FILE"), "HTTPS 服务 TLS 私钥文件路径 (.key)")
-	preferIPv6 := fs.Bool("ipv6", os.Getenv("MULTIGRAVITY_PREFER_IPV6") == "1" || os.Getenv("PREFER_IPV6") == "1", "优先使用公网 IPv6 地址作为配对二维码的主机（默认生成包含 LAN 与 IPv6 的复合二维码）")
+	enableSSL := fs.Bool("ssl", isSSLEnabled(), "是否开启 SSL/HTTPS 模式（默认 false，开启需配合 -tls-cert 与 -tls-key）")
+	tlsCertEnv := os.Getenv("MULTIGRAVITY_TLS_CERT")
+	if tlsCertEnv == "" {
+		tlsCertEnv = os.Getenv("TLS_CERT_FILE")
+	}
+	tlsCert := fs.String("tls-cert", tlsCertEnv, "HTTPS 服务 TLS 证书文件路径 (.cer/.crt/.pem)")
+	tlsKeyEnv := os.Getenv("MULTIGRAVITY_TLS_KEY")
+	if tlsKeyEnv == "" {
+		tlsKeyEnv = os.Getenv("TLS_KEY_FILE")
+	}
+	tlsKey := fs.String("tls-key", tlsKeyEnv, "HTTPS 服务 TLS 私钥文件路径 (.key)")
+	preferIPv6 := fs.Bool("ipv6", os.Getenv("MULTIGRAVITY_PREFER_IPV6") == "1", "优先使用公网 IPv6 地址作为配对二维码的主机（默认生成包含 LAN 与 IPv6 的复合二维码）")
 	_ = fs.Parse(args)
 
 	tunnelCfg := config.GetTunnelConfig()
 	tunnelOn := tunnelCfg.Enabled && tunnelCfg.ServerAddr != ""
 	if tokPath, generated, err := auth.EnsureAdminToken(tunnelOn); err != nil {
-		log.Fatalf("❌ Failed to initialize ADMIN_TOKEN: %v", err)
+		log.Fatalf("❌ Failed to initialize MULTIGRAVITY_ADMIN_TOKEN: %v", err)
 	} else if tokPath != "" {
 		if generated {
-			log.Printf("🔐 Generated ADMIN_TOKEN at %s (required because FRP is enabled). `make pair` reads this file.", tokPath)
+			log.Printf("🔐 Generated MULTIGRAVITY_ADMIN_TOKEN at %s (required because FRP is enabled). `mgy pair` reads this file.", tokPath)
 		} else {
-			log.Printf("🔐 Loaded ADMIN_TOKEN from %s", tokPath)
+			log.Printf("🔐 Loaded MULTIGRAVITY_ADMIN_TOKEN from %s", tokPath)
 		}
 	}
 	includePublicIPv6 := config.AdvertisePublicIPv6(*enableSSL)
 	if tunnelOn && strings.TrimSpace(*host) == "" && !includePublicIPv6 {
 		*host = "127.0.0.1"
-		log.Printf("🔒 FRP tunnel enabled with empty GATEWAY_HOST — binding 127.0.0.1 (set GATEWAY_HOST or INCLUDE_PUBLIC_IPV6=1 to keep dual-stack / IPv6 pairing)")
+		log.Printf("🔒 FRP tunnel enabled with empty MULTIGRAVITY_HOST — binding 127.0.0.1 (set MULTIGRAVITY_HOST or INCLUDE_PUBLIC_IPV6=1 to keep dual-stack / IPv6 pairing)")
 	}
 	if includePublicIPv6 && tunnelOn && strings.TrimSpace(*host) == "" {
 		log.Printf("📱 INCLUDE_PUBLIC_IPV6=1: keeping dual-stack listen so phones can pair over public IPv6 (FRP still dials 127.0.0.1)")
 	}
 	hasTLSFiles := *tlsCert != "" && *tlsKey != ""
 	if *enableSSL && !hasTLSFiles {
-		log.Fatalf("GATEWAY_SSL=1 requires TLS_CERT_FILE and TLS_KEY_FILE")
+		log.Fatalf("MULTIGRAVITY_SSL=1 requires MULTIGRAVITY_TLS_CERT and MULTIGRAVITY_TLS_KEY")
 	}
 	if *enableSSL && strings.TrimSpace(*ddnsHost) == "" {
-		log.Printf("⚠️  GATEWAY_SSL=1 without DDNS_HOST: pairing will advertise https:// to an IP and iOS certificate checks will fail. Set DDNS_HOST=agy.example.com")
+		log.Printf("⚠️  MULTIGRAVITY_SSL=1 without DDNS_HOST: pairing will advertise https:// to an IP and iOS certificate checks will fail. Set DDNS_HOST=agy.example.com")
 	}
 	if !auth.IsListenAddrLoopback(*host) && !hasTLSFiles {
-		log.Printf("⚠️  Gateway listening on a non-loopback address without TLS. LAN HTTP is supported; do not advertise this port on the public Internet. Set TLS_CERT_FILE/TLS_KEY_FILE or GATEWAY_SSL=1 for public access.")
+		log.Printf("⚠️  Gateway listening on a non-loopback address without TLS. LAN HTTP is supported; do not advertise this port on the public Internet. Set MULTIGRAVITY_TLS_CERT/MULTIGRAVITY_TLS_KEY or MULTIGRAVITY_SSL=1 for public access.")
 	}
 
 	listenDesc := *host
@@ -486,7 +493,7 @@ func runPairCmd(args []string) {
 		}
 	}
 
-	sslOn := os.Getenv("GATEWAY_SSL") == "1" || os.Getenv("GATEWAY_SSL") == "true"
+	sslOn := isSSLEnabled()
 	schemes := []string{"http", "https"}
 	if sslOn {
 		schemes = []string{"https", "http"}
@@ -567,7 +574,7 @@ func runListCmd(args []string) {
 	}
 
 	scheme := "http"
-	if os.Getenv("GATEWAY_SSL") == "1" || os.Getenv("GATEWAY_SSL") == "true" {
+	if isSSLEnabled() {
 		scheme = "https"
 	}
 	urlStr := fmt.Sprintf("%s://127.0.0.1:%d/api/v1/devices", scheme, targetPort)
@@ -660,7 +667,7 @@ func runClearCmd(args []string) {
 	}
 
 	scheme := "http"
-	if os.Getenv("GATEWAY_SSL") == "1" || os.Getenv("GATEWAY_SSL") == "true" {
+	if isSSLEnabled() {
 		scheme = "https"
 	}
 	client := &http.Client{

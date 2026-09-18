@@ -7,7 +7,7 @@ import (
 )
 
 func TestEnsureAdminTokenNoopWhenEnvSet(t *testing.T) {
-	t.Setenv("ADMIN_TOKEN", "from-env")
+	t.Setenv("MULTIGRAVITY_ADMIN_TOKEN", "from-env")
 	path, generated, err := EnsureAdminToken(true)
 	if err != nil {
 		t.Fatal(err)
@@ -15,13 +15,13 @@ func TestEnsureAdminTokenNoopWhenEnvSet(t *testing.T) {
 	if path != "" || generated {
 		t.Fatalf("expected env token to win, path=%q generated=%v", path, generated)
 	}
-	if os.Getenv("ADMIN_TOKEN") != "from-env" {
+	if os.Getenv("MULTIGRAVITY_ADMIN_TOKEN") != "from-env" {
 		t.Fatalf("env token mutated")
 	}
 }
 
 func TestEnsureAdminTokenGeneratesWhenTunnelOn(t *testing.T) {
-	t.Setenv("ADMIN_TOKEN", "")
+	t.Setenv("MULTIGRAVITY_ADMIN_TOKEN", "")
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	// ResolvePath uses UserHomeDir which reads HOME on Unix.
@@ -36,7 +36,7 @@ func TestEnsureAdminTokenGeneratesWhenTunnelOn(t *testing.T) {
 	if path != want {
 		t.Fatalf("path = %q, want %q", path, want)
 	}
-	tok := os.Getenv("ADMIN_TOKEN")
+	tok := os.Getenv("MULTIGRAVITY_ADMIN_TOKEN")
 	if len(tok) < 32 {
 		t.Fatalf("generated token too short: %q", tok)
 	}
@@ -48,7 +48,7 @@ func TestEnsureAdminTokenGeneratesWhenTunnelOn(t *testing.T) {
 		t.Fatalf("file token missing: %q", got)
 	}
 
-	t.Setenv("ADMIN_TOKEN", "")
+	t.Setenv("MULTIGRAVITY_ADMIN_TOKEN", "")
 	path2, generated2, err := EnsureAdminToken(true)
 	if err != nil {
 		t.Fatal(err)
@@ -59,24 +59,24 @@ func TestEnsureAdminTokenGeneratesWhenTunnelOn(t *testing.T) {
 	if path2 != path {
 		t.Fatalf("path2 = %q, want %q", path2, path)
 	}
-	if os.Getenv("ADMIN_TOKEN") != tok {
+	if os.Getenv("MULTIGRAVITY_ADMIN_TOKEN") != tok {
 		t.Fatalf("reloaded token mismatch")
 	}
 }
 
-func TestEnsureAdminTokenLegacyFallback(t *testing.T) {
-	t.Setenv("ADMIN_TOKEN", "")
+func TestEnsureAdminTokenStandardLocation(t *testing.T) {
+	t.Setenv("MULTIGRAVITY_ADMIN_TOKEN", "")
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	// Create legacy token in ~/.antigravity-mobile/admin_token
-	legacyDir := filepath.Join(home, ".antigravity-mobile")
-	if err := os.MkdirAll(legacyDir, 0700); err != nil {
+	// Create token in standard ~/.multigravity/admin_token
+	multigravityDir := filepath.Join(home, ".multigravity")
+	if err := os.MkdirAll(multigravityDir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	legacyToken := "legacy-admin-token-1234567890123456"
-	legacyPath := filepath.Join(legacyDir, "admin_token")
-	if err := os.WriteFile(legacyPath, []byte(legacyToken+"\n"), 0600); err != nil {
+	stdToken := "std-admin-token-1234567890123456"
+	stdPath := filepath.Join(multigravityDir, "admin_token")
+	if err := os.WriteFile(stdPath, []byte(stdToken+"\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -85,12 +85,12 @@ func TestEnsureAdminTokenLegacyFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	if generated {
-		t.Fatal("expected legacy token to be reused, not generated")
+		t.Fatal("expected standard token to be reused, not generated")
 	}
-	if path != legacyPath {
-		t.Fatalf("path = %q, want %q", path, legacyPath)
+	if path != stdPath {
+		t.Fatalf("path = %q, want %q", path, stdPath)
 	}
-	if os.Getenv("ADMIN_TOKEN") != legacyToken {
-		t.Fatalf("env ADMIN_TOKEN = %q, want %q", os.Getenv("ADMIN_TOKEN"), legacyToken)
+	if os.Getenv("MULTIGRAVITY_ADMIN_TOKEN") != stdToken {
+		t.Fatalf("env MULTIGRAVITY_ADMIN_TOKEN = %q, want %q", os.Getenv("MULTIGRAVITY_ADMIN_TOKEN"), stdToken)
 	}
 }

@@ -18,12 +18,16 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// allowedOrigins holds trusted origins loaded from the ALLOWED_ORIGINS environment variable.
+// allowedOrigins holds trusted origins loaded from MULTIGRAVITY_ALLOWED_ORIGINS (or ALLOWED_ORIGINS).
 // Format: comma-separated list of origins, e.g. "https://my-ddns.example.com,https://[2001:db8::1]:58900"
 var allowedOrigins []string
 
 func init() {
-	if origins := os.Getenv("ALLOWED_ORIGINS"); origins != "" {
+	origins := os.Getenv("MULTIGRAVITY_ALLOWED_ORIGINS")
+	if origins == "" {
+		origins = os.Getenv("ALLOWED_ORIGINS")
+	}
+	if origins != "" {
 		for _, o := range strings.Split(origins, ",") {
 			o = strings.TrimSpace(o)
 			if o != "" {
@@ -59,7 +63,9 @@ func IsAllowedOrigin(origin string, requestHost string) bool {
 	if dh := strings.TrimSpace(os.Getenv("DDNS_HOST")); dh != "" {
 		trustedHosts = append(trustedHosts, strings.ToLower(dh))
 	}
-	if gh := strings.TrimSpace(os.Getenv("GATEWAY_HOST")); gh != "" {
+	if gh := strings.TrimSpace(os.Getenv("MULTIGRAVITY_HOST")); gh != "" {
+		trustedHosts = append(trustedHosts, strings.ToLower(gh))
+	} else if gh := strings.TrimSpace(os.Getenv("GATEWAY_HOST")); gh != "" {
 		trustedHosts = append(trustedHosts, strings.ToLower(gh))
 	}
 	// S5: FRP_SERVER_ADDR intentionally excluded — it is a tunnel server address, not a

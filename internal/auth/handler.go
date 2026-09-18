@@ -360,7 +360,7 @@ func (h *AuthHandler) HandleNewPairingSession(w http.ResponseWriter, r *http.Req
 		w.WriteHeader(http.StatusUnauthorized)
 		msg := "unauthorized"
 		if h.policy.TunnelEnabled {
-			msg = "unauthorized: FRP tunnel is enabled, send Authorization: Bearer <ADMIN_TOKEN> (see ~/.antigravity-mobile/admin_token)"
+			msg = "unauthorized: FRP tunnel is enabled, send Authorization: Bearer <MULTIGRAVITY_ADMIN_TOKEN> (see ~/.multigravity/admin_token)"
 		}
 		json.NewEncoder(w).Encode(map[string]string{"error": msg})
 		return

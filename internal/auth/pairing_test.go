@@ -240,7 +240,7 @@ func TestGenerateMultiHostPairingURI_IncludesRelay(t *testing.T) {
 }
 
 func TestAuthHandler_NewPairingSessionIncludesRelay(t *testing.T) {
-	t.Setenv("ADMIN_TOKEN", "pair-admin-token")
+	t.Setenv("MULTIGRAVITY_ADMIN_TOKEN", "pair-admin-token")
 	store, err := NewAuthStore(t.TempDir() + "/auth.json")
 	if err != nil {
 		t.Fatalf("store: %v", err)
@@ -322,7 +322,7 @@ func TestAuthHandler_GetEndpoints(t *testing.T) {
 }
 
 func TestAuthHandler_NewPairingSession_SSLOmitsIPLiterals(t *testing.T) {
-	t.Setenv("ADMIN_TOKEN", "pair-admin-token")
+	t.Setenv("MULTIGRAVITY_ADMIN_TOKEN", "pair-admin-token")
 	store, err := NewAuthStore(t.TempDir() + "/auth.json")
 	if err != nil {
 		t.Fatalf("store: %v", err)
@@ -373,7 +373,7 @@ func TestAuthHandler_GetEndpoints_SSLOmitsIPLiterals(t *testing.T) {
 }
 
 func TestAuthHandler_HandleDevices_ClearAll(t *testing.T) {
-	t.Setenv("ADMIN_TOKEN", "test-admin-secret")
+	t.Setenv("MULTIGRAVITY_ADMIN_TOKEN", "test-admin-secret")
 	store, err := NewAuthStore(t.TempDir() + "/auth.json")
 	if err != nil {
 		t.Fatalf("store: %v", err)

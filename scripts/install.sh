@@ -10,7 +10,6 @@ REPO="${MULTIGRAVITY_REPO:-GHSaiMo/antigravity-mobile}"
 BIN_NAME="mgy"
 INSTALL_DIR="${HOME}/.local/bin"
 CONF_DIR="${HOME}/.multigravity"
-LEGACY_DIR="${HOME}/.antigravity-mobile"
 
 echo "=================================================="
 echo "🚀 正在安装 Multigravity (mgy) for macOS..."
@@ -46,19 +45,7 @@ echo "🖥️  检测到系统架构: ${ARCH_DESC} (${PKG_ARCH})"
 mkdir -p "${INSTALL_DIR}"
 mkdir -p "${CONF_DIR}" "${CONF_DIR}/logs"
 
-# 4. 自动继承老版本凭据 (如果存在)
-if [ -d "${LEGACY_DIR}" ]; then
-    if [ ! -f "${CONF_DIR}/auth_store.json" ] && [ -f "${LEGACY_DIR}/auth_store.json" ]; then
-        cp "${LEGACY_DIR}/auth_store.json" "${CONF_DIR}/auth_store.json"
-        echo "🔄 已平滑迁移已有设备配对凭据 (~/.antigravity-mobile -> ~/.multigravity)"
-    fi
-    if [ ! -f "${CONF_DIR}/admin_token" ] && [ -f "${LEGACY_DIR}/admin_token" ]; then
-        cp "${LEGACY_DIR}/admin_token" "${CONF_DIR}/admin_token"
-        echo "🔄 已平滑迁移已有管理员 Token"
-    fi
-fi
-
-# 5. 初始化全局默认配置文件 ~/.multigravity/.env (若不存在)
+# 4. 初始化全局默认配置文件 ~/.multigravity/.env (若不存在)
 if [ ! -f "${CONF_DIR}/.env" ]; then
     cat << 'ENVEOF' > "${CONF_DIR}/.env"
 # Multigravity 全局环境变量配置文件
@@ -79,17 +66,26 @@ INCLUDE_PUBLIC_IPV6=1
 # 是否默认优先使用纯 IPv6 作为二维码 (默认 0 生成双栈复合码；设为 1 纯 IPv6 码)
 # MULTIGRAVITY_PREFER_IPV6=0
 
+# HTTPS / SSL 加密访问 (启用需设为 1 并指定证书和私钥文件)
+# MULTIGRAVITY_SSL=0
+# MULTIGRAVITY_TLS_CERT=~/.multigravity/certs/fullchain.cer
+# MULTIGRAVITY_TLS_KEY=~/.multigravity/certs/private.key
+
 # iOS Bark 实时推送通知 (填入 Device Key 或 Bark 完整 URL)
 # BARK_URL=
+# BARK_ICON=https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/web/icons/icon-192.png
+# BARK_GROUP=Antigravity
+# BARK_SOUND_ACTION=alarm
+# BARK_SOUND_COMPLETE=glass
 
 # FRP 内网穿透云中继配置 (在外网无公网 IP 时使用)
-# FRP_ENABLE=0
+# FRP_ENABLED=false
 # FRP_SERVER_ADDR=frp.example.com
 # FRP_SERVER_PORT=7000
 # FRP_TOKEN=your-strong-token
 # FRP_REMOTE_PORT=58900
 
-# 管理员特权密钥 (外网访问或开启 FRP 时用于鉴权)
+# 管理员特权密钥 (外网访问或开启 FRP 时用于鉴权，留空则首次运行自动生成)
 # MULTIGRAVITY_ADMIN_TOKEN=
 ENVEOF
     chmod 600 "${CONF_DIR}/.env"

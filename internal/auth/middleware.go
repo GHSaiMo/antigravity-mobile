@@ -130,9 +130,12 @@ func ConstantTimeTokenEquals(got, want string) bool {
 	return subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
 }
 
-// AuthDisabledRequested reports whether AUTH_DISABLED is set in the environment.
+// AuthDisabledRequested reports whether MULTIGRAVITY_AUTH_DISABLED (or AUTH_DISABLED) is set in the environment.
 func AuthDisabledRequested() bool {
-	v := os.Getenv("AUTH_DISABLED")
+	v := os.Getenv("MULTIGRAVITY_AUTH_DISABLED")
+	if v == "" {
+		v = os.Getenv("AUTH_DISABLED")
+	}
 	return v == "true" || v == "1"
 }
 

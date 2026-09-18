@@ -89,7 +89,7 @@ type cascadeDedupEntry struct {
 // Cascade IDs are UUID-like strings: alphanumeric, hyphens, and underscores only.
 var (
 	cascadeIDRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$`)
-	verboseRPC  = os.Getenv("GATEWAY_VERBOSE_RPC") != "" || os.Getenv("GATEWAY_LOG_RPC") != ""
+	verboseRPC  = os.Getenv("MULTIGRAVITY_LOG_RPC") != "" || os.Getenv("MULTIGRAVITY_VERBOSE_RPC") != "" || os.Getenv("GATEWAY_VERBOSE_RPC") != "" || os.Getenv("GATEWAY_LOG_RPC") != ""
 )
 
 // shortCascadeID truncates a cascade ID for log redaction/sanitization.

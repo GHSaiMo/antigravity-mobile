@@ -62,8 +62,7 @@ func getTokenSalt() string {
 	return cachedSalt
 }
 
-// DefaultDataDir returns the active configuration and data directory.
-// It prioritizes ~/.multigravity, falling back to ~/.antigravity-mobile if it already exists.
+// DefaultDataDir returns the active configuration and data directory (~/.multigravity or MULTIGRAVITY_DATA_DIR).
 func DefaultDataDir() string {
 	if custom := strings.TrimSpace(os.Getenv("MULTIGRAVITY_DATA_DIR")); custom != "" {
 		return ResolvePath(custom)
@@ -72,33 +71,19 @@ func DefaultDataDir() string {
 	if err != nil {
 		return ".multigravity"
 	}
-	newDir := filepath.Join(home, ".multigravity")
-	oldDir := filepath.Join(home, ".antigravity-mobile")
-
-	if _, err := os.Stat(newDir); os.IsNotExist(err) {
-		if fi, errOld := os.Stat(oldDir); errOld == nil && fi.IsDir() {
-			return oldDir
-		}
-	}
-	return newDir
+	return filepath.Join(home, ".multigravity")
 }
 
 // DefaultAuthStorePath returns the path to the auth store file.
 func DefaultAuthStorePath() string {
+	if custom := strings.TrimSpace(os.Getenv("MULTIGRAVITY_AUTH_STORE_PATH")); custom != "" {
+		return ResolvePath(custom)
+	}
 	if custom := strings.TrimSpace(os.Getenv("AUTH_STORE_PATH")); custom != "" {
 		return ResolvePath(custom)
 	}
 	dir := DefaultDataDir()
-	newFile := filepath.Join(dir, "auth_store.json")
-	if home, err := os.UserHomeDir(); err == nil {
-		oldFile := filepath.Join(home, ".antigravity-mobile", "auth_store.json")
-		if _, err := os.Stat(newFile); os.IsNotExist(err) {
-			if _, errOld := os.Stat(oldFile); errOld == nil {
-				return oldFile
-			}
-		}
-	}
-	return newFile
+	return filepath.Join(dir, "auth_store.json")
 }
 
 func loadOrCreateAuthSalt(storePath string) string {
