@@ -124,17 +124,35 @@ fun DocumentPreviewSheet(
                         textAlign = TextAlign.Center
                     )
 
-                    // Share Button (matches iOS single action button)
-                    IconButton(onClick = {
-                        haptic.medium()
-                        shareDocument(context, file, decodedTitle)
-                    }) {
-                        Icon(
-                            imageVector = Icons.Default.Share,
-                            contentDescription = "分享文件",
-                            tint = colors.accentIndigo,
-                            modifier = Modifier.size(20.dp)
-                        )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        // Open in external browser/viewer button
+                        IconButton(onClick = {
+                            haptic.medium()
+                            openInExternalApp(context, file)
+                        }) {
+                            Icon(
+                                imageVector = Icons.Default.OpenInNew,
+                                contentDescription = "外部应用打开",
+                                tint = colors.textSecondary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        // Share Button
+                        IconButton(onClick = {
+                            haptic.medium()
+                            shareDocument(context, file, decodedTitle)
+                        }) {
+                            Icon(
+                                imageVector = Icons.Default.Share,
+                                contentDescription = "分享文件",
+                                tint = colors.accentIndigo,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
                 }
 
@@ -207,27 +225,120 @@ private fun HtmlDocumentViewer(file: File) {
                     }
 
                     val isMarp = htmlContent.contains("data-marpit-svg", ignoreCase = true) ||
-                            htmlContent.contains("bespoke-marp", ignoreCase = true)
+                            htmlContent.contains("bespoke-marp", ignoreCase = true) ||
+                            htmlContent.contains("marpit", ignoreCase = true)
 
-                    setBackgroundColor(if (isMarp) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
+                    if (isMarp) {
+                        setBackgroundColor(android.graphics.Color.parseColor("#F4F5F7"))
+                        val mobileSlideStyle = """
+                            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=3.0, user-scalable=yes">
+                            <style id="agy-mobile-slide-adapt">
+                            @media screen {
+                                html, body {
+                                    overflow-y: auto !important;
+                                    overflow-x: hidden !important;
+                                    height: auto !important;
+                                    min-height: 100% !important;
+                                    background-color: #f4f5f7 !important;
+                                    margin: 0 !important;
+                                    padding: 0 !important;
+                                    -webkit-overflow-scrolling: touch !important;
+                                }
+                                div#\:\${'$'}p, .bespoke-marp-parent {
+                                    display: flex !important;
+                                    flex-direction: column !important;
+                                    align-items: center !important;
+                                    padding: 16px 12px !important;
+                                    gap: 16px !important;
+                                    position: static !important;
+                                    inset: auto !important;
+                                    height: auto !important;
+                                    overflow: visible !important;
+                                }
+                                svg[data-marpit-svg], svg.bespoke-marp-slide {
+                                    display: block !important;
+                                    width: 100% !important;
+                                    max-width: 680px !important;
+                                    height: auto !important;
+                                    opacity: 1 !important;
+                                    visibility: visible !important;
+                                    content-visibility: visible !important;
+                                    position: static !important;
+                                    box-shadow: 0 4px 14px rgba(0,0,0,0.08) !important;
+                                    border-radius: 10px !important;
+                                    background: #ffffff !important;
+                                    margin: 0 auto !important;
+                                    transform: none !important;
+                                    filter: none !important;
+                                }
+                                svg.bespoke-marp-slide * {
+                                    visibility: visible !important;
+                                }
+                                [data-bespoke-marp-fragment] {
+                                    visibility: visible !important;
+                                    opacity: 1 !important;
+                                }
+                                .bespoke-marp-osc, .bespoke-progress-parent, .bespoke-marp-overview-header {
+                                    display: none !important;
+                                }
+                            }
+                            </style>
+                            <script id="agy-mobile-guard">
+                            try {
+                                const noop = () => {};
+                                window.history.replaceState = noop;
+                                window.history.pushState = noop;
+                            } catch (_) {}
+                            const activateAll = () => {
+                                try {
+                                    document.querySelectorAll("svg[data-marpit-svg], svg.bespoke-marp-slide").forEach(s => {
+                                        s.classList.add("bespoke-marp-active");
+                                        s.removeAttribute("aria-hidden");
+                                    });
+                                    document.querySelectorAll("[data-bespoke-marp-fragment]").forEach(f => {
+                                        f.setAttribute("data-bespoke-marp-fragment", "active");
+                                    });
+                                } catch (_) {}
+                            };
+                            activateAll();
+                            window.addEventListener("DOMContentLoaded", activateAll);
+                            window.addEventListener("load", () => {
+                                activateAll();
+                                setTimeout(activateAll, 100);
+                                setTimeout(activateAll, 500);
+                            });
+                            </script>
+                        """.trimIndent()
 
-                    if (!htmlContent.contains("viewport", ignoreCase = true)) {
-                        val viewportMeta = """<meta name="viewport" content="width=device-width, initial-scale=1.0">"""
-                        htmlContent = if (htmlContent.contains("<head>", ignoreCase = true)) {
-                            htmlContent.replaceFirst("<head>", "<head>$viewportMeta", ignoreCase = true)
+                        htmlContent = if (htmlContent.contains("</head>", ignoreCase = true)) {
+                            htmlContent.replaceFirst("</head>", "$mobileSlideStyle</head>", ignoreCase = true)
                         } else {
-                            "$viewportMeta$htmlContent"
+                            "$mobileSlideStyle$htmlContent"
+                        }
+                    } else {
+                        setBackgroundColor(android.graphics.Color.WHITE)
+                        if (!htmlContent.contains("viewport", ignoreCase = true)) {
+                            val viewportMeta = """<meta name="viewport" content="width=device-width, initial-scale=1.0">"""
+                            htmlContent = if (htmlContent.contains("<head>", ignoreCase = true)) {
+                                htmlContent.replaceFirst("<head>", "<head>$viewportMeta", ignoreCase = true)
+                            } else {
+                                "$viewportMeta$htmlContent"
+                            }
                         }
                     }
 
-                    val baseUrl = file.parentFile?.let { Uri.fromFile(it).toString() + "/" }
-                        ?: Uri.fromFile(file).toString()
-                    loadDataWithBaseURL(baseUrl, htmlContent, "text/html", "utf-8", null)
+                    val base64Data = Base64.encodeToString(htmlContent.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+                    loadDataWithBaseURL("https://localhost/", base64Data, "text/html; charset=utf-8", "base64", null)
                 } catch (_: Exception) {
                     try {
-                        loadUrl(Uri.fromFile(file).toString())
+                        val base64Fallback = Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
+                        loadDataWithBaseURL("https://localhost/", base64Fallback, "text/html; charset=utf-8", "base64", null)
                     } catch (_: Exception) {
-                        loadUrl("file://${file.absolutePath}")
+                        try {
+                            loadUrl(Uri.fromFile(file).toString())
+                        } catch (_: Exception) {
+                            loadUrl("file://${file.absolutePath}")
+                        }
                     }
                 }
             }
