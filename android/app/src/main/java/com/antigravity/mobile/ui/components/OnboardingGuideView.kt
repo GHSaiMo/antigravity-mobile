@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -15,6 +16,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -37,6 +39,7 @@ import com.antigravity.mobile.ui.util.rememberHaptic
 fun OnboardingGuideView(
     onScanTapped: () -> Unit,
     onManualInputTapped: () -> Unit,
+    onEasterEggTap: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -67,7 +70,13 @@ fun OnboardingGuideView(
                         )
                     )
                     .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(18.dp))
-                    .shadow(12.dp, RoundedCornerShape(18.dp), ambientColor = colors.accentIndigo.copy(alpha = 0.3f)),
+                    .shadow(12.dp, RoundedCornerShape(18.dp), ambientColor = colors.accentIndigo.copy(alpha = 0.3f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        enabled = onEasterEggTap != null,
+                        onClick = { onEasterEggTap?.invoke() }
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(

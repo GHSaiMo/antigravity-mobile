@@ -20,28 +20,71 @@ public struct ConversationListView: View {
     @State private var showPairingConfirm = false
     @State private var pairingErrorMessage: String?
     
+    @State private var easterEggTapCount: Int = 0
+    @State private var lastEasterEggTapTime: Date = .distantPast
+    @State private var showEasterEgg = false
+    
     public init() {
         _ = SwipeActionAdjuster.activateOnce
     }
     
-    public var body: some View {
-        NavigationStack(path: $navigationPath) {
-            mainBodyView
-                .navigationTitle("Multigravity")
-            .searchable(text: $viewModel.searchQuery, prompt: "搜索会话或工作区...")
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button(action: { showSettings = true }) {
-                        Image(systemName: "gearshape")
-                    }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(action: { showNewConversation = true }) {
-                        Image(systemName: "plus")
-                            .font(.system(size: 16, weight: .semibold))
-                    }
-                }
+    private func handleEasterEggTap() {
+        let now = Date()
+        if now.timeIntervalSince(lastEasterEggTapTime) > 2.0 {
+            easterEggTapCount = 1
+        } else {
+            easterEggTapCount += 1
+        }
+        lastEasterEggTapTime = now
+        
+        let impact = UIImpactFeedbackGenerator(style: .light)
+        impact.impactOccurred()
+        
+        if easterEggTapCount >= 10 {
+            easterEggTapCount = 0
+            let notification = UINotificationFeedbackGenerator()
+            notification.notificationOccurred(.success)
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                showEasterEgg = true
             }
+        }
+    }
+    
+    public var body: some View {
+        ZStack {
+            NavigationStack(path: $navigationPath) {
+                mainBodyView
+                    .navigationTitle("Multigravity")
+                    .navigationBarTitleDisplayMode(.inline)
+                .searchable(text: $viewModel.searchQuery, prompt: "搜索会话或工作区...")
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button(action: { showSettings = true }) {
+                            Image(systemName: "gearshape")
+                        }
+                    }
+                    ToolbarItem(placement: .principal) {
+                        Button(action: handleEasterEggTap) {
+                            HStack(spacing: 8) {
+                                Image("AppLogo")
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fit)
+                                    .frame(width: 24, height: 24)
+                                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                                Text("Multigravity")
+                                    .font(.system(size: 18, weight: .bold))
+                                    .foregroundColor(.primary)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button(action: { showNewConversation = true }) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 16, weight: .semibold))
+                        }
+                    }
+                }
             .sheet(isPresented: $showSettings) {
                 SettingsSheet()
             }
@@ -186,6 +229,12 @@ public struct ConversationListView: View {
                 }
             }
         }
+        
+        if showEasterEgg {
+            EasterEggModalView(isPresented: $showEasterEgg)
+                .zIndex(999)
+        }
+    }
     }
     
     @ViewBuilder
@@ -193,7 +242,8 @@ public struct ConversationListView: View {
         if !AppSettings.shared.isPaired && viewModel.conversations.isEmpty {
             OnboardingGuideView(
                 onScanTapped: { showQRScanner = true },
-                onManualInputTapped: { showSettings = true }
+                onManualInputTapped: { showSettings = true },
+                onEasterEggTap: handleEasterEggTap
             )
         } else if viewModel.isLoading && viewModel.conversations.isEmpty {
             loadingView

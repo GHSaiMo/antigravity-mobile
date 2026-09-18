@@ -3,15 +3,18 @@ import SwiftUI
 public struct OnboardingGuideView: View {
     public var onScanTapped: () -> Void
     public var onManualInputTapped: () -> Void
+    public var onEasterEggTap: (() -> Void)?
     
     @Environment(\.openURL) private var openURL
     
     public init(
         onScanTapped: @escaping () -> Void,
-        onManualInputTapped: @escaping () -> Void
+        onManualInputTapped: @escaping () -> Void,
+        onEasterEggTap: (() -> Void)? = nil
     ) {
         self.onScanTapped = onScanTapped
         self.onManualInputTapped = onManualInputTapped
+        self.onEasterEggTap = onEasterEggTap
     }
     
     public var body: some View {
@@ -30,6 +33,10 @@ public struct OnboardingGuideView: View {
                         )
                         .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
                         .padding(.top, 24)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            onEasterEggTap?()
+                        }
                     
                     Text("欢迎使用 Multigravity")
                         .font(.system(size: 26, weight: .bold))

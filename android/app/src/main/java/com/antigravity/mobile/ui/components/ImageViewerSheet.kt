@@ -20,14 +20,20 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.*
+import com.antigravity.mobile.ui.util.rememberHaptic
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -88,7 +94,7 @@ data class ImageViewerData(
     val title: String? get() = items.getOrNull(initialIndex)?.title
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun ImageViewerSheet(
     data: ImageViewerData,
@@ -96,6 +102,8 @@ fun ImageViewerSheet(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val haptic = rememberHaptic()
+    var showSaveSheet by remember { mutableStateOf(false) }
 
     val effectiveItems = remember(data) {
         if (data.items.isNotEmpty()) data.items
@@ -196,6 +204,10 @@ fun ImageViewerSheet(
                                         launch { offsetYAnim.animateTo(0f, springSpec) }
                                         launch { dismissOffsetY.animateTo(0f, springSpec) }
                                     }
+                                },
+                                onLongPress = {
+                                    haptic.longPress()
+                                    showSaveSheet = true
                                 }
                             )
                         }
@@ -270,89 +282,63 @@ fun ImageViewerSheet(
                 }
             }
 
-            // Top Action Bar (Close, Page Indicator, Save, Share)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Close button
-                Box(
-                    modifier = Modifier
-                        .size(38.dp)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.5f))
-                        .clickable { onDismiss() },
-                    contentAlignment = Alignment.Center
+            // Native ModalBottomSheet for Save to Album on long press
+            if (showSaveSheet) {
+                ModalBottomSheet(
+                    onDismissRequest = { showSaveSheet = false },
+                    sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+                    containerColor = Color(0xFF1E1E1E),
+                    dragHandle = {
+                        Box(
+                            modifier = Modifier
+                                .padding(top = 10.dp, bottom = 12.dp)
+                                .width(36.dp)
+                                .height(4.dp)
+                                .clip(CircleShape)
+                                .background(Color.White.copy(alpha = 0.35f))
+                        )
+                    },
+                    shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Close",
-                        tint = Color.White,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-
-                if (effectiveItems.size > 1) {
-                    Text(
-                        text = "${pagerState.currentPage + 1} / ${effectiveItems.size}",
-                        color = Color.White,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
+                    Column(
                         modifier = Modifier
-                            .clip(CircleShape)
-                            .background(Color.Black.copy(alpha = 0.5f))
-                            .padding(horizontal = 14.dp, vertical = 6.dp)
-                    )
-                }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    val currentItem = effectiveItems.getOrNull(pagerState.currentPage)
-                        ?: ImageViewerItem(data.bitmap, data.url, data.title)
-
-                    // Save Button
-                    Box(
-                        modifier = Modifier
-                            .size(38.dp)
-                            .clip(CircleShape)
-                            .background(Color.Black.copy(alpha = 0.5f))
-                            .clickable {
+                            .fillMaxWidth()
+                            .navigationBarsPadding()
+                            .padding(bottom = 16.dp)
+                    ) {
+                        Surface(
+                            onClick = {
+                                showSaveSheet = false
+                                val currentItem = effectiveItems.getOrNull(pagerState.currentPage)
+                                    ?: ImageViewerItem(data.bitmap, data.url, data.title)
                                 coroutineScope.launch {
                                     saveImageToGallery(context, currentItem)
                                 }
                             },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.FileDownload,
-                            contentDescription = "Save",
-                            tint = Color.White,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
-                    // Share Button
-                    Box(
-                        modifier = Modifier
-                            .size(38.dp)
-                            .clip(CircleShape)
-                            .background(Color.Black.copy(alpha = 0.5f))
-                            .clickable {
-                                coroutineScope.launch {
-                                    shareImage(context, currentItem)
-                                }
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Share,
-                            contentDescription = "Share",
-                            tint = Color.White,
-                            modifier = Modifier.size(19.dp)
-                        )
+                            color = Color.Transparent,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 20.dp, vertical = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.FileDownload,
+                                    contentDescription = "保存到相册",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Text(
+                                    text = "保存到相册",
+                                    color = Color.White,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
                     }
                 }
             }

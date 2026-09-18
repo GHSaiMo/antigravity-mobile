@@ -4,6 +4,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -11,7 +12,11 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.res.painterResource
+import com.antigravity.mobile.R
+import com.antigravity.mobile.ui.util.rememberHaptic
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
@@ -69,6 +74,28 @@ fun ConversationListScreen(
     var showQuotaSheet by remember { mutableStateOf(false) }
     var showNewConvSheet by remember { mutableStateOf(false) }
     var showSettingsSheet by remember { mutableStateOf(false) }
+
+    var easterEggTapCount by remember { mutableIntStateOf(0) }
+    var lastEasterEggTapTime by remember { mutableLongStateOf(0L) }
+    var showEasterEgg by remember { mutableStateOf(false) }
+    val haptic = rememberHaptic()
+
+    val handleEasterEggTap: () -> Unit = {
+        val now = System.currentTimeMillis()
+        if (now - lastEasterEggTapTime > 2000L) {
+            easterEggTapCount = 1
+        } else {
+            easterEggTapCount++
+        }
+        lastEasterEggTapTime = now
+        haptic.light()
+
+        if (easterEggTapCount >= 10) {
+            easterEggTapCount = 0
+            haptic.success()
+            showEasterEgg = true
+        }
+    }
 
     var renamingItem by remember { mutableStateOf<ConversationItem?>(null) }
     var renameText by remember { mutableStateOf("") }
@@ -133,12 +160,31 @@ fun ConversationListScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        text = "Multigravity",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 20.sp,
-                        color = colors.textPrimary
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = handleEasterEggTap
+                            )
+                    ) {
+                        Image(
+                            painter = painterResource(id = R.drawable.app_logo),
+                            contentDescription = "Multigravity Logo",
+                            modifier = Modifier
+                                .size(26.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                        )
+                        Text(
+                            text = "Multigravity",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 20.sp,
+                            color = colors.textPrimary
+                        )
+                    }
                 },
                 navigationIcon = {
                     IconButton(onClick = { showSettingsSheet = true }) {
@@ -243,7 +289,8 @@ fun ConversationListScreen(
                             if (searchQuery.isEmpty() && projects.isEmpty()) {
                                 OnboardingGuideView(
                                     onScanTapped = onNavigateToPair,
-                                    onManualInputTapped = onNavigateToPair
+                                    onManualInputTapped = onNavigateToPair,
+                                    onEasterEggTap = handleEasterEggTap
                                 )
                             } else {
                                 Column(
@@ -365,6 +412,12 @@ fun ConversationListScreen(
     }
 
     // Sheets & Dialogs
+    if (showEasterEgg) {
+        EasterEggDialog(
+            onDismiss = { showEasterEgg = false }
+        )
+    }
+
     if (showQuotaSheet) {
         AccountQuotaSheet(
             quotaData = quotaData,

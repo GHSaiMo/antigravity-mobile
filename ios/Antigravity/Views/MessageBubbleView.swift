@@ -1,4 +1,5 @@
 import SwiftUI
+import Photos
 
 // Shared Agent Avatar
 public struct AgentAvatarView: View {
@@ -721,9 +722,6 @@ public final class FullScreenGalleryViewController: UIViewController, UIPageView
     
     private var pageViewController: UIPageViewController!
     private let backgroundView = UIView()
-    private let topBar = UIView()
-    private let pageLabel = UILabel()
-    private let closeButton = UIButton(type: .system)
     
     override public var prefersStatusBarHidden: Bool { true }
     
@@ -775,63 +773,10 @@ public final class FullScreenGalleryViewController: UIViewController, UIPageView
             pageViewController.setViewControllers([initialVC], direction: .forward, animated: false)
         }
         
-        setupTopBar()
-        
         // Vertical pull-to-dismiss gesture recognizer
         let pan = UIPanGestureRecognizer(target: self, action: #selector(handleDismissPan(_:)))
         pan.delegate = self
         view.addGestureRecognizer(pan)
-    }
-    
-    private func setupTopBar() {
-        topBar.backgroundColor = .clear
-        view.addSubview(topBar)
-        topBar.translatesAutoresizingMaskIntoConstraints = false
-        
-        // Close button (X)
-        let xmarkImg = UIImage(systemName: "xmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .bold))
-        closeButton.setImage(xmarkImg, for: .normal)
-        closeButton.tintColor = .white
-        closeButton.backgroundColor = UIColor.black.withAlphaComponent(0.55)
-        closeButton.layer.cornerRadius = 18
-        closeButton.layer.masksToBounds = true
-        closeButton.addTarget(self, action: #selector(handleClose), for: .touchUpInside)
-        topBar.addSubview(closeButton)
-        closeButton.translatesAutoresizingMaskIntoConstraints = false
-        
-        // Page index counter capsule (e.g. 1 / 3)
-        pageLabel.textColor = .white
-        pageLabel.font = UIFont.systemFont(ofSize: 14, weight: .semibold)
-        pageLabel.textAlignment = .center
-        pageLabel.backgroundColor = UIColor.black.withAlphaComponent(0.55)
-        pageLabel.layer.cornerRadius = 14
-        pageLabel.layer.masksToBounds = true
-        pageLabel.isHidden = items.count <= 1
-        topBar.addSubview(pageLabel)
-        pageLabel.translatesAutoresizingMaskIntoConstraints = false
-        
-        updatePageLabel()
-        
-        NSLayoutConstraint.activate([
-            topBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
-            topBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            topBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            topBar.heightAnchor.constraint(equalToConstant: 44),
-            
-            closeButton.leadingAnchor.constraint(equalTo: topBar.leadingAnchor, constant: 16),
-            closeButton.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
-            closeButton.widthAnchor.constraint(equalToConstant: 36),
-            closeButton.heightAnchor.constraint(equalToConstant: 36),
-            
-            pageLabel.centerXAnchor.constraint(equalTo: topBar.centerXAnchor),
-            pageLabel.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
-            pageLabel.heightAnchor.constraint(equalToConstant: 28),
-            pageLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 64)
-        ])
-    }
-    
-    private func updatePageLabel() {
-        pageLabel.text = "  \(currentIndex + 1) / \(items.count)  "
     }
     
     private func makePageVC(for index: Int) -> SingleImagePreviewController? {
@@ -862,7 +807,6 @@ public final class FullScreenGalleryViewController: UIViewController, UIPageView
     public func pageViewController(_ pageViewController: UIPageViewController, didFinishAnimating finished: Bool, previousViewControllers: [UIViewController], transitionCompleted completed: Bool) {
         guard completed, let currentVC = pageViewController.viewControllers?.first else { return }
         currentIndex = currentVC.view.tag
-        updatePageLabel()
     }
     
     // MARK: - UIGestureRecognizerDelegate
@@ -894,7 +838,6 @@ public final class FullScreenGalleryViewController: UIViewController, UIPageView
         case .changed:
             // Background directly fades out as you drag, revealing the background behind immediately!
             backgroundView.alpha = max(0.0, 1.0 - progress * 1.25)
-            topBar.alpha = max(0.0, 1.0 - progress * 3.0)
             
             // Image follows finger, scales slightly down (1.0 -> ~0.72) and gradually fades
             let scale = max(0.72, 1.0 - progress * 0.28)
@@ -911,7 +854,6 @@ public final class FullScreenGalleryViewController: UIViewController, UIPageView
                     self.pageViewController.view.transform = CGAffineTransform(translationX: dx * 0.35, y: dy + extraY).scaledBy(x: endScale, y: endScale)
                     self.pageViewController.view.alpha = 0
                     self.backgroundView.alpha = 0
-                    self.topBar.alpha = 0
                 }) { _ in
                     self.onDismiss()
                 }
@@ -920,7 +862,6 @@ public final class FullScreenGalleryViewController: UIViewController, UIPageView
                     self.pageViewController.view.transform = .identity
                     self.pageViewController.view.alpha = 1.0
                     self.backgroundView.alpha = 1.0
-                    self.topBar.alpha = 1.0
                 })
             }
             
@@ -934,7 +875,6 @@ public final class FullScreenGalleryViewController: UIViewController, UIPageView
             self.pageViewController.view.transform = CGAffineTransform(scaleX: 0.85, y: 0.85)
             self.pageViewController.view.alpha = 0
             self.backgroundView.alpha = 0
-            self.topBar.alpha = 0
         }) { _ in
             self.onDismiss()
         }
@@ -989,6 +929,11 @@ final class SingleImagePreviewController: UIViewController, UIScrollViewDelegate
         singleTap.numberOfTapsRequired = 1
         singleTap.require(toFail: doubleTap)
         view.addGestureRecognizer(singleTap)
+        
+        // Long-press to save image to album
+        let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
+        longPress.minimumPressDuration = 0.4
+        view.addGestureRecognizer(longPress)
         
         loadImage()
     }
@@ -1094,6 +1039,151 @@ final class SingleImagePreviewController: UIViewController, UIScrollViewDelegate
     @objc private func handleSingleTap() {
         if scrollView.zoomScale <= 1.05 {
             onSingleTap()
+        }
+    }
+    
+    // MARK: - Long Press & Save to Album
+    
+    @objc private func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
+        guard gesture.state == .began else { return }
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        
+        let alert = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+        alert.addAction(UIAlertAction(title: "保存到相册", style: .default) { [weak self] _ in
+            self?.saveToPhotosAlbum()
+        })
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel, handler: nil))
+        
+        if let popover = alert.popoverPresentationController {
+            popover.sourceView = imageView
+            popover.sourceRect = imageView.bounds
+            popover.permittedArrowDirections = [.up, .down]
+        }
+        
+        present(alert, animated: true)
+    }
+    
+    private func saveToPhotosAlbum() {
+        guard let image = imageView.image else {
+            showToast(message: "图片正在加载，请稍后重试", isError: true)
+            return
+        }
+        
+        PHPhotoLibrary.requestAuthorization(for: .addOnly) { [weak self] status in
+            guard status == .authorized || status == .limited else {
+                DispatchQueue.main.async {
+                    self?.showPermissionAlert()
+                }
+                return
+            }
+            
+            if let url = self?.item.url, url.isFileURL, FileManager.default.fileExists(atPath: url.path) {
+                PHPhotoLibrary.shared().performChanges {
+                    let request = PHAssetCreationRequest.forAsset()
+                    request.addResource(with: .photo, fileURL: url, options: nil)
+                } completionHandler: { success, error in
+                    DispatchQueue.main.async {
+                        if success {
+                            UINotificationFeedbackGenerator().notificationOccurred(.success)
+                            self?.showToast(message: "已保存到相册", isError: false)
+                        } else {
+                            UINotificationFeedbackGenerator().notificationOccurred(.error)
+                            self?.showToast(message: "保存失败: \(error?.localizedDescription ?? "未知错误")", isError: true)
+                        }
+                    }
+                }
+            } else {
+                PHPhotoLibrary.shared().performChanges {
+                    PHAssetChangeRequest.creationRequestForAsset(from: image)
+                } completionHandler: { success, error in
+                    DispatchQueue.main.async {
+                        if success {
+                            UINotificationFeedbackGenerator().notificationOccurred(.success)
+                            self?.showToast(message: "已保存到相册", isError: false)
+                        } else {
+                            UINotificationFeedbackGenerator().notificationOccurred(.error)
+                            self?.showToast(message: "保存失败: \(error?.localizedDescription ?? "未知错误")", isError: true)
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    private func showPermissionAlert() {
+        let alert = UIAlertController(
+            title: "需要相册权限",
+            message: "请在系统“设置”中允许 Antigravity 访问相册以保存图片。",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "前往设置", style: .default) { _ in
+            if let settingsURL = URL(string: UIApplication.openSettingsURLString),
+               UIApplication.shared.canOpenURL(settingsURL) {
+                UIApplication.shared.open(settingsURL)
+            }
+        })
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel, handler: nil))
+        present(alert, animated: true)
+    }
+    
+    private func showToast(message: String, isError: Bool = false) {
+        guard let hostView = self.parent?.view ?? self.view else { return }
+        
+        hostView.subviews.filter { $0.tag == 998811 }.forEach { $0.removeFromSuperview() }
+        
+        let container = UIView()
+        container.tag = 998811
+        container.backgroundColor = UIColor.black.withAlphaComponent(0.85)
+        container.layer.cornerRadius = 18
+        container.layer.masksToBounds = true
+        container.translatesAutoresizingMaskIntoConstraints = false
+        
+        let iconName = isError ? "exclamationmark.circle.fill" : "checkmark.circle.fill"
+        let iconColor: UIColor = isError ? .systemRed : .systemGreen
+        let iconView = UIImageView(image: UIImage(systemName: iconName))
+        iconView.tintColor = iconColor
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        
+        let label = UILabel()
+        label.text = message
+        label.textColor = .white
+        label.font = UIFont.systemFont(ofSize: 14, weight: .medium)
+        label.textAlignment = .center
+        label.translatesAutoresizingMaskIntoConstraints = false
+        
+        let stack = UIStackView(arrangedSubviews: [iconView, label])
+        stack.axis = .horizontal
+        stack.spacing = 8
+        stack.alignment = .center
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        
+        container.addSubview(stack)
+        hostView.addSubview(container)
+        
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 10),
+            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -10),
+            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
+            iconView.widthAnchor.constraint(equalToConstant: 18),
+            iconView.heightAnchor.constraint(equalToConstant: 18),
+            container.centerXAnchor.constraint(equalTo: hostView.centerXAnchor),
+            container.bottomAnchor.constraint(equalTo: hostView.safeAreaLayoutGuide.bottomAnchor, constant: -50)
+        ])
+        
+        container.alpha = 0
+        container.transform = CGAffineTransform(scaleX: 0.9, y: 0.9)
+        
+        UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseOut], animations: {
+            container.alpha = 1.0
+            container.transform = .identity
+        }) { _ in
+            UIView.animate(withDuration: 0.25, delay: 2.0, options: [.curveEaseIn], animations: {
+                container.alpha = 0
+                container.transform = CGAffineTransform(scaleX: 0.9, y: 0.9)
+            }) { _ in
+                container.removeFromSuperview()
+            }
         }
     }
 }
