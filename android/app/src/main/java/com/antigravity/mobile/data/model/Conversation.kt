@@ -120,11 +120,13 @@ data class ConversationItem(
         }
 
         fun fromSummary(id: String, summary: TrajectorySummary, localViewTime: Long = 0): ConversationItem {
+            val annotationTitle = summary.annotations?.title
+            val summaryText = summary.summary
             val resolvedTitle = when {
-                !summary.annotations?.title.isNullOrBlank() && summary.annotations?.title != "未命名会话" ->
-                    sanitizeTitle(summary.annotations.title)
-                !summary.summary.isNullOrBlank() && summary.summary != "未命名会话" ->
-                    sanitizeTitle(summary.summary)
+                !annotationTitle.isNullOrBlank() && annotationTitle != "未命名会话" ->
+                    sanitizeTitle(annotationTitle)
+                !summaryText.isNullOrBlank() && summaryText != "未命名会话" ->
+                    sanitizeTitle(summaryText)
                 else -> "未命名会话"
             }
 

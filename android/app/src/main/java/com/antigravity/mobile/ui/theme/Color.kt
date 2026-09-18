@@ -144,3 +144,6 @@ val DarkAppColors = AppColors(
     inputBarBg = Color(0xFF121212),
     cardShadow = Color(0x33000000)
 )
+
+typealias AntigravityColors = AppColors
+

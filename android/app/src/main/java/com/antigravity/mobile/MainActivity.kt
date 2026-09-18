@@ -48,13 +48,13 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         // Initialize Coil SVG support globally
-        coil.Coil.setImageLoader { context ->
-            coil.ImageLoader.Builder(context)
+        coil.Coil.setImageLoader(
+            coil.ImageLoader.Builder(this)
                 .components {
                     add(coil.decode.SvgDecoder.Factory())
                 }
                 .build()
-        }
+        )
 
         // Initialize Services
         prefs = PreferencesManager(applicationContext)

@@ -762,7 +762,7 @@ private fun TableBlockView(
 
             // Effective display length: non-ASCII characters count as 2, ASCII as 1
             val maxLen = allTexts.maxOfOrNull { text ->
-                text.sumOf { ch -> if (ch.code > 127) 2 else 1 }
+                text.fold(0) { acc, ch -> acc + if (ch.code > 127) 2 else 1 }
             } ?: 0
 
             when {
