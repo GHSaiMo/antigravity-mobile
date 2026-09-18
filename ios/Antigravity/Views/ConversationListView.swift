@@ -429,7 +429,7 @@ public struct ConversationListView: View {
         viewModel.conversations.removeAll()
         viewModel.errorMessage = nil
         viewModel.isLoading = false
-        navigationPath = NavigationPath()
+        navigationPath = []
         selectedDraftSession = nil
         showSettings = false
         CacheManager.shared.clearCache()
@@ -487,10 +487,27 @@ public struct ConversationListView: View {
         
         guard !cascadeId.isEmpty else { return }
         
+        // Dismiss modal sheets that could cover the target conversation view
+        showSettings = false
+        showNewConversation = false
+        showAccountQuota = false
+        showQRScanner = false
+        showEasterEgg = false
+        
+        // If already looking at this exact conversation, avoid duplicate pushing
+        if selectedDraftSession == nil && navigationPath.last?.id == cascadeId {
+            return
+        }
+        
+        selectedDraftSession = nil
+        
+        let targetItem: ConversationItem
         if let existing = viewModel.conversations.first(where: { $0.id == cascadeId }) {
-            navigationPath.append(existing)
+            targetItem = existing
+        } else if let cached = CacheManager.shared.loadConversations().first(where: { $0.id == cascadeId }) {
+            targetItem = cached
         } else {
-            let placeholder = ConversationItem(
+            targetItem = ConversationItem(
                 id: cascadeId,
                 title: "会话",
                 status: .running,
@@ -500,8 +517,9 @@ public struct ConversationListView: View {
                 isSubagent: false,
                 isUnread: false
             )
-            navigationPath.append(placeholder)
         }
+        
+        navigationPath = [targetItem]
     }
     
     private func conversationCard(for item: ConversationItem) -> some View {
