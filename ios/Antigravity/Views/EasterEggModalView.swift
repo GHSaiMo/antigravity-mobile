@@ -18,23 +18,23 @@ private struct FireworkBurst: Identifiable {
     let duration: TimeInterval
     let particles: [FireworkParticle]
     
-    static func generate(at origin: CGPoint, delay: TimeInterval, count: Int = 28) -> FireworkBurst {
+    static func generate(at origin: CGPoint, delay: TimeInterval, count: Int = 30) -> FireworkBurst {
         let colors: [Color] = [
-            Color(red: 1.0, green: 0.82, blue: 0.1),  // Gold
-            Color(red: 0.65, green: 0.38, blue: 0.98), // Violet
-            Color(red: 0.08, green: 0.78, blue: 0.96), // Cyan
-            Color(red: 0.98, green: 0.32, blue: 0.52), // Rose
-            Color(red: 0.22, green: 0.88, blue: 0.58), // Emerald
-            Color(red: 1.0, green: 0.55, blue: 0.15),  // Amber
-            Color.white                                // Starlight
+            Color(red: 1.0, green: 0.843, blue: 0.0),    // Gold (0xFFFFD700)
+            Color(red: 0.659, green: 0.333, blue: 0.969), // Purple (0xFFA855F7)
+            Color(red: 0.024, green: 0.714, blue: 0.831), // Cyan (0xFF06B6D4)
+            Color(red: 0.957, green: 0.247, blue: 0.369), // Rose (0xFFF43F5E)
+            Color(red: 0.063, green: 0.725, blue: 0.506), // Emerald (0xFF10B981)
+            Color(red: 1.0, green: 0.596, blue: 0.0),    // Amber (0xFFFF9800)
+            Color.white                                   // Starlight (0xFFFFFFFF)
         ]
         
         let particles = (0..<count).map { i -> FireworkParticle in
             let angle = (Double(i) / Double(count)) * 2.0 * .pi + Double.random(in: -0.15...0.15)
-            let speed = CGFloat.random(in: 60...180)
+            let speed = CGFloat.random(in: 80...240)
             let color = colors.randomElement() ?? .yellow
-            let size = CGFloat.random(in: 3.0...6.5)
-            let initialAlpha = Double.random(in: 0.8...1.0)
+            let size = CGFloat.random(in: 4.0...9.0)
+            let initialAlpha = Double.random(in: 0.85...1.0)
             return FireworkParticle(angle: angle, speed: speed, color: color, size: size, initialAlpha: initialAlpha)
         }
         
@@ -74,7 +74,7 @@ private struct FireworksCanvasView: View {
                         let py = burst.origin.y + sin(particle.angle) * distance + CGFloat(gravity)
                         
                         let currentAlpha = particle.initialAlpha * max(0, 1.0 - progress)
-                        let currentSize = particle.size * CGFloat(max(0.2, 1.0 - progress * 0.7))
+                        let currentSize = particle.size * CGFloat(max(0.3, 1.0 - progress * 0.6))
                         
                         let rect = CGRect(
                             x: px - currentSize / 2,
@@ -87,13 +87,15 @@ private struct FireworksCanvasView: View {
                         context.fill(Path(ellipseIn: rect), with: .color(particle.color))
                         
                         // Add bright sparkling core for larger particles
-                        if particle.size > 5.0 && progress < 0.6 {
+                        if particle.size > 6.0 && progress < 0.6 {
+                            let coreSize = currentSize * 0.5
                             let coreRect = CGRect(
-                                x: px - currentSize * 0.3,
-                                y: py - currentSize * 0.3,
-                                width: currentSize * 0.6,
-                                height: currentSize * 0.6
+                                x: px - coreSize / 2,
+                                y: py - coreSize / 2,
+                                width: coreSize,
+                                height: coreSize
                             )
+                            context.opacity = currentAlpha * 0.8
                             context.fill(Path(ellipseIn: coreRect), with: .color(.white))
                         }
                     }
@@ -110,7 +112,7 @@ public struct EasterEggModalView: View {
     
     @State private var bursts: [FireworkBurst] = []
     @State private var startTime = Date()
-    @State private var cardScale: CGFloat = 0.8
+    @State private var cardScale: CGFloat = 0.82
     @State private var overallOpacity: Double = 0.0
     @State private var isDismissing = false
     
@@ -122,7 +124,7 @@ public struct EasterEggModalView: View {
         GeometryReader { geometry in
             ZStack {
                 // Dimmed translucent backdrop (absorbs taps so rapid clicks do not dismiss early)
-                Color.black.opacity(0.42 * overallOpacity)
+                Color.black.opacity(0.45 * overallOpacity)
                     .ignoresSafeArea()
                     .contentShape(Rectangle())
                 
@@ -132,7 +134,7 @@ public struct EasterEggModalView: View {
                     .allowsHitTesting(false)
                     .opacity(overallOpacity)
                 
-                // Centered Lightweight Easter Egg Card
+                // Centered Easter Egg Card (1:1 aligned with Android)
                 VStack(spacing: 16) {
                     // App Logo
                     Image("AppLogo")
@@ -142,68 +144,43 @@ public struct EasterEggModalView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                         .overlay(
                             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .stroke(
-                                    LinearGradient(
-                                        colors: [Color.white.opacity(0.35), Color.white.opacity(0.1)],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    ),
-                                    lineWidth: 1
-                                )
+                                .stroke(Color.white.opacity(0.2), lineWidth: 1)
                         )
-                        .shadow(color: Color.black.opacity(0.2), radius: 12, x: 0, y: 6)
                     
                     // Brand Title
                     Text("Multigravity")
-                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                        .font(.system(size: 22, weight: .bold))
                         .foregroundColor(.primary)
                         .tracking(0.5)
                     
                     // Subtitle / Credit: Design by Jiuge
                     HStack(spacing: 6) {
                         Image(systemName: "sparkles")
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(Color(UIColor.systemIndigo))
                         Text("Design by Jiuge")
-                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(Color(UIColor.systemIndigo))
                     }
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [
-                                Color(red: 0.42, green: 0.52, blue: 0.98),
-                                Color(red: 0.68, green: 0.38, blue: 0.98)
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
                     .padding(.horizontal, 14)
                     .padding(.vertical, 6)
                     .background(
                         Capsule()
-                            .fill(Color.primary.opacity(0.06))
+                            .fill(Color(UIColor.systemIndigo).opacity(0.12))
                     )
                 }
                 .padding(.horizontal, 36)
                 .padding(.vertical, 28)
                 .background(
                     RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .fill(.ultraThinMaterial)
+                        .fill(Color(UIColor.secondarySystemGroupedBackground).opacity(0.94))
                         .overlay(
                             RoundedRectangle(cornerRadius: 24, style: .continuous)
-                                .stroke(
-                                    LinearGradient(
-                                        colors: [
-                                            Color.white.opacity(0.3),
-                                            Color.white.opacity(0.08)
-                                        ],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    ),
-                                    lineWidth: 1
-                                )
+                                .stroke(Color.white.opacity(0.18), lineWidth: 1)
                         )
-                        .shadow(color: Color.black.opacity(0.25), radius: 24, x: 0, y: 12)
+                        .shadow(color: Color.black.opacity(0.18), radius: 24, x: 0, y: 8)
                 )
+                .padding(32)
                 .scaleEffect(cardScale)
                 .opacity(overallOpacity)
             }
@@ -211,7 +188,7 @@ public struct EasterEggModalView: View {
                 setupBursts(in: geometry.size)
                 
                 // Entrance animation
-                withAnimation(.spring(response: 0.45, dampingFraction: 0.72)) {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.72)) {
                     cardScale = 1.0
                     overallOpacity = 1.0
                 }
@@ -244,13 +221,13 @@ public struct EasterEggModalView: View {
         guard !isDismissing else { return }
         isDismissing = true
         
-        withAnimation(.easeOut(duration: 0.6)) {
+        withAnimation(.easeOut(duration: 0.55)) {
             overallOpacity = 0.0
             cardScale = 0.92
         }
         
         Task {
-            try? await Task.sleep(nanoseconds: 650_000_000)
+            try? await Task.sleep(nanoseconds: 600_000_000)
             isPresented = false
         }
     }

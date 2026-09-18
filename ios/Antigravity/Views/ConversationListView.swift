@@ -56,20 +56,13 @@ public struct ConversationListView: View {
             NavigationStack(path: $navigationPath) {
                 mainBodyView
                     .navigationTitle("Multigravity")
+                    .background(NavigationBarTapHelper(onTap: handleEasterEggTap))
                 .searchable(text: $viewModel.searchQuery, prompt: "搜索会话或工作区...")
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
                         Button(action: { showSettings = true }) {
                             Image(systemName: "gearshape")
                         }
-                    }
-                    ToolbarItem(placement: .principal) {
-                        Button(action: handleEasterEggTap) {
-                            Text("Multigravity")
-                                .font(.system(size: 18, weight: .bold))
-                                .foregroundColor(.primary)
-                        }
-                        .buttonStyle(.plain)
                     }
                     ToolbarItem(placement: .topBarTrailing) {
                         Button(action: { showNewConversation = true }) {
@@ -80,6 +73,7 @@ public struct ConversationListView: View {
                 }
             .sheet(isPresented: $showSettings) {
                 SettingsSheet()
+                    .presentationDragIndicator(.visible)
             }
             .sheet(isPresented: $showNewConversation) {
                 NewConversationSheet(onSelectProject: { project in
@@ -104,6 +98,7 @@ public struct ConversationListView: View {
                     },
                     enableSwitchButton: true
                 )
+                .presentationDragIndicator(.visible)
             }
             .alert("重命名会话", isPresented: $showRenameAlert) {
                 TextField("输入新标题", text: $renameText)
@@ -672,6 +667,45 @@ private extension UIView {
         let targetTransform = CGAffineTransform(translationX: -16, y: 0)
         if self.transform != targetTransform {
             self.transform = targetTransform
+        }
+    }
+}
+
+class NavigationBarTapGestureRecognizer: UITapGestureRecognizer {}
+
+struct NavigationBarTapHelper: UIViewControllerRepresentable {
+    let onTap: () -> Void
+    
+    func makeUIViewController(context: Context) -> UIViewController {
+        let vc = UIViewController()
+        DispatchQueue.main.async {
+            guard let navBar = vc.navigationController?.navigationBar else { return }
+            let recognizers = navBar.gestureRecognizers ?? []
+            if !recognizers.contains(where: { $0 is NavigationBarTapGestureRecognizer }) {
+                let tap = NavigationBarTapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap))
+                tap.cancelsTouchesInView = false
+                navBar.addGestureRecognizer(tap)
+            }
+        }
+        return vc
+    }
+    
+    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onTap: onTap)
+    }
+    
+    class Coordinator: NSObject {
+        let onTap: () -> Void
+        init(onTap: @escaping () -> Void) { self.onTap = onTap }
+        @objc func handleTap(_ gesture: UITapGestureRecognizer) {
+            guard let view = gesture.view else { return }
+            let point = gesture.location(in: view)
+            // Tap area restricted to the center region (20%...80% of width) so gear and plus buttons aren't intercepted
+            if point.x > view.bounds.width * 0.20 && point.x < view.bounds.width * 0.80 {
+                onTap()
+            }
         }
     }
 }

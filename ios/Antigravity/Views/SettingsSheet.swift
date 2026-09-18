@@ -122,15 +122,8 @@ public struct SettingsSheet: View {
             }
             .navigationTitle("设置")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("完成") {
-                        dismiss()
-                    }
-                    .font(.system(size: 16, weight: .semibold))
-                }
-            }
         }
+        .presentationDragIndicator(.visible)
         .alert("确定解除设备配对？", isPresented: $showUnpairAlert) {
             Button("取消", role: .cancel) {}
             Button("解除配对", role: .destructive) {
