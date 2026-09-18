@@ -294,14 +294,65 @@ public final class NetworkTransport: Sendable {
         guard let headerText = String(data: headerData, encoding: .isoLatin1) else { return false }
         let body = data.subdata(in: headerEnd.upperBound..<data.endIndex)
         let lines = headerText.split(separator: "\r\n")
+        var isChunked = false
         for line in lines {
             let parts = line.split(separator: ":", maxSplits: 1)
-            if parts.count == 2 && parts[0].lowercased() == "content-length" {
-                let n = Int(parts[1].trimmingCharacters(in: .whitespaces)) ?? 0
-                return body.count >= n
+            if parts.count == 2 {
+                let name = parts[0].trimmingCharacters(in: .whitespaces).lowercased()
+                let value = parts[1].trimmingCharacters(in: .whitespaces).lowercased()
+                if name == "content-length" {
+                    let n = Int(value) ?? 0
+                    return body.count >= n
+                }
+                if name == "transfer-encoding" && value.contains("chunked") {
+                    isChunked = true
+                }
+            }
+        }
+        if isChunked {
+            if body.range(of: Data("\r\n0\r\n\r\n".utf8)) != nil || body.starts(with: Data("0\r\n\r\n".utf8)) {
+                return true
             }
         }
         return false
+    }
+    
+    private static func decodeChunkedBody(_ data: Data) throws -> Data {
+        var unchunked = Data()
+        var offset = 0
+        let crlf = Data("\r\n".utf8)
+        
+        while offset < data.count {
+            guard let range = data.range(of: crlf, options: [], in: offset..<data.count) else {
+                break
+            }
+            let sizeData = data.subdata(in: offset..<range.lowerBound)
+            guard let sizeStr = String(data: sizeData, encoding: .ascii)?.trimmingCharacters(in: .whitespaces) else {
+                throw URLError(.cannotParseResponse)
+            }
+            if sizeStr.isEmpty {
+                offset = range.upperBound
+                continue
+            }
+            let hexStr = sizeStr.split(separator: ";").first.map(String.init) ?? sizeStr
+            guard let chunkSize = Int(hexStr.trimmingCharacters(in: .whitespaces), radix: 16) else {
+                throw URLError(.cannotParseResponse)
+            }
+            if chunkSize == 0 {
+                break
+            }
+            let chunkStart = range.upperBound
+            let chunkEnd = chunkStart + chunkSize
+            guard chunkEnd <= data.count else {
+                throw URLError(.cannotParseResponse)
+            }
+            unchunked.append(data.subdata(in: chunkStart..<chunkEnd))
+            offset = chunkEnd
+            if offset + 2 <= data.count && data.subdata(in: offset..<offset + 2) == crlf {
+                offset += 2
+            }
+        }
+        return unchunked
     }
     
     private static func parseHTTP11Response(_ data: Data, url: URL) throws -> (Data, URLResponse) {
@@ -325,7 +376,10 @@ public final class NetworkTransport: Sendable {
             fields[key] = value
         }
         var body = data.subdata(in: headerEnd.upperBound..<data.endIndex)
-        if let lenStr = fields.first(where: { $0.key.lowercased() == "content-length" })?.value,
+        let isChunked = fields.contains { $0.key.lowercased() == "transfer-encoding" && $0.value.lowercased().contains("chunked") }
+        if isChunked {
+            body = try decodeChunkedBody(body)
+        } else if let lenStr = fields.first(where: { $0.key.lowercased() == "content-length" })?.value,
            let len = Int(lenStr), len >= 0, body.count > len {
             body = body.prefix(len)
         }

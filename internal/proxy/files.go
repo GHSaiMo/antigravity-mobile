@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -338,15 +339,28 @@ func (p *Proxy) HandleFileContent(w http.ResponseWriter, r *http.Request) {
 
 	result, err := GetFileContent(uri, cascadeID)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
+		errBytes, _ := json.Marshal(map[string]string{"error": err.Error()})
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Content-Length", strconv.Itoa(len(errBytes)))
 		w.WriteHeader(http.StatusNotFound)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		_, _ = w.Write(errBytes)
+		return
+	}
+
+	data, err := json.Marshal(result)
+	if err != nil {
+		errBytes, _ := json.Marshal(map[string]string{"error": err.Error()})
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Content-Length", strconv.Itoa(len(errBytes)))
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write(errBytes)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(result)
+	_, _ = w.Write(data)
 }
 
 // HandleFileRaw streams binary or raw file contents with proper Content-Disposition and Range support.

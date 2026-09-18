@@ -342,16 +342,55 @@ public final class APIClient: Sendable {
     }
     
     /// Unpairs this device from the gateway and cleans up server-side state.
-    public func unpair() async {
-        guard let baseURL = AppSettings.shared.serverURL else { return }
-        let endpoint = baseURL.appendingPathComponent("api/v1/auth/unpair")
-        var request = URLRequest(url: endpoint)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 5
-        request.httpBody = "{}".data(using: .utf8)
+    public func unpair(
+        baseURL: URL? = nil,
+        candidates: [URL] = [],
+        token: String? = nil,
+        deviceID: String? = nil
+    ) async {
+        let primaryURL = baseURL ?? AppSettings.shared.serverURL
+        let deviceToken = token ?? KeychainHelper.shared.read(key: .deviceToken) ?? AppSettings.shared.deviceToken
+        let targetDeviceID = deviceID ?? KeychainHelper.shared.read(key: .deviceID) ?? AppSettings.shared.deviceID
         
-        _ = try? await transport.send(request: request)
+        guard let deviceToken, !deviceToken.isEmpty else { return }
+        
+        var targetURLs: [URL] = []
+        if let primaryURL {
+            targetURLs.append(primaryURL)
+        }
+        for cand in candidates {
+            if !targetURLs.contains(cand) {
+                targetURLs.append(cand)
+            }
+        }
+        if targetURLs.isEmpty {
+            targetURLs = AppSettings.shared.candidateEndpoints.compactMap { URL(string: $0.urlString) }
+        }
+        guard !targetURLs.isEmpty else { return }
+        
+        let body: [String: String] = [
+            "device_id": targetDeviceID ?? ""
+        ]
+        let bodyData = (try? JSONEncoder().encode(body)) ?? Data("{}".utf8)
+        
+        for url in targetURLs {
+            let endpoint = url.appendingPathComponent("api/v1/auth/unpair")
+            var request = URLRequest(url: endpoint)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Bearer \(deviceToken)", forHTTPHeaderField: "Authorization")
+            request.timeoutInterval = 3.5
+            request.httpBody = bodyData
+            
+            do {
+                let (_, response) = try await transport.send(request: request)
+                if let httpResp = response as? HTTPURLResponse, (200...299).contains(httpResp.statusCode) {
+                    return
+                }
+            } catch {
+                // Try next endpoint candidate
+            }
+        }
     }
     
     /// Resolves a raw media/image URI into an authenticated, loadable HTTP URL for the mobile client.

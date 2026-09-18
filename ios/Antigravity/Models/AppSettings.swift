@@ -299,12 +299,16 @@ public final class AppSettings {
         KeychainHelper.shared.read(key: .deviceID)
     }
     
-    public var isPaired: Bool {
-        guard let token = deviceToken, !token.isEmpty else { return false }
-        return true
+    public private(set) var isPaired: Bool
+    
+    public func refreshPairedState() {
+        let token = KeychainHelper.shared.read(key: .deviceToken)
+        self.isPaired = (token != nil && !token!.isEmpty)
     }
     
     public func updateEndpoints(lan: String? = nil, ipv6: String? = nil, relay: String? = nil, custom: String? = nil, active: String? = nil) {
+        let token = KeychainHelper.shared.read(key: .deviceToken)
+        self.isPaired = (token != nil && !token!.isEmpty)
         if let lan = lan, !lan.isEmpty {
             self.lanServerURL = lan
         }
@@ -325,6 +329,7 @@ public final class AppSettings {
     
     public func unpair() {
         KeychainHelper.shared.clearAll()
+        self.isPaired = false
         self.rawServerURL = ""
         self.lanServerURL = nil
         self.ipv6ServerURL = nil
@@ -346,6 +351,9 @@ public final class AppSettings {
         UserDefaults.standard.removeObject(forKey: "antigravity.cf_token")
         UserDefaults.standard.removeObject(forKey: "antigravity.cf_access_client_id")
         UserDefaults.standard.removeObject(forKey: "antigravity.cf_access_client_secret")
+        
+        let token = KeychainHelper.shared.read(key: .deviceToken)
+        self.isPaired = (token != nil && !token!.isEmpty)
         
         let savedURL = UserDefaults.standard.string(forKey: serverURLKey) ?? "http://127.0.0.1:58900"
         let savedLan = UserDefaults.standard.string(forKey: lanServerURLKey)

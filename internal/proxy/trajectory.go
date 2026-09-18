@@ -592,11 +592,11 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 	// Fetch or use cached trajectory
 	rawResp, err := p.fetchUpstreamTrajectory(cascadeID, port, token)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
+		errBytes, _ := json.Marshal(map[string]string{"error": err.Error()})
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Content-Length", strconv.Itoa(len(errBytes)))
 		w.WriteHeader(http.StatusBadGateway)
-		if encErr := json.NewEncoder(w).Encode(map[string]string{"error": err.Error()}); encErr != nil {
-			log.Printf("[Proxy] HandleGetCascadeMessages: failed to encode error response: %v", encErr)
-		}
+		_, _ = w.Write(errBytes)
 		return
 	}
 
@@ -642,8 +642,7 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 		nextOffset = targetStart
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	if encErr := json.NewEncoder(w).Encode(CascadeMessagesResponse{
+	respBytes, err := json.Marshal(CascadeMessagesResponse{
 		CascadeID:          cascadeID,
 		Title:              details.Title,
 		Status:             details.Status,
@@ -665,9 +664,15 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 		CanProceed:         details.CanProceed,
 		ProceedArtifactURI: details.ProceedArtifactURI,
 		PendingInteraction: details.PendingInteraction,
-	}); encErr != nil {
-		log.Printf("[Proxy] HandleGetCascadeMessages: failed to encode response: %v", encErr)
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Content-Length", strconv.Itoa(len(respBytes)))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(respBytes)
 }
 
 // TrajectoryDetails represents parsed and processed trajectory information.

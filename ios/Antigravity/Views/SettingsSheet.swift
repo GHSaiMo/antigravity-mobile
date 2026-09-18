@@ -128,8 +128,18 @@ public struct SettingsSheet: View {
         .alert("确定解除设备配对？", isPresented: $showUnpairAlert) {
             Button("取消", role: .cancel) {}
             Button("解除配对", role: .destructive) {
+                let currentURL = settings.serverURL
+                let currentCandidates = settings.candidateEndpoints.compactMap { URL(string: $0.urlString) }
+                let currentToken = settings.deviceToken
+                let currentDeviceID = settings.deviceID
+                
                 Task {
-                    await APIClient.shared.unpair()
+                    await APIClient.shared.unpair(
+                        baseURL: currentURL,
+                        candidates: currentCandidates,
+                        token: currentToken,
+                        deviceID: currentDeviceID
+                    )
                 }
                 settings.unpair()
                 CacheManager.shared.clearCache()

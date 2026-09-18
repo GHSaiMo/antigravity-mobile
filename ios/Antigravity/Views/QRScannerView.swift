@@ -4,7 +4,7 @@ import AVFoundation
 public struct QRScannerView: View {
     @Environment(\.dismiss) private var dismiss
     
-    public var onPairSuccess: ((PairingInfo) async -> Void)?
+    public var onScanDetected: ((PairingInfo) -> Void)?
     
     @State private var hasCameraPermission = false
     @State private var isCheckingPermission = true
@@ -12,11 +12,9 @@ public struct QRScannerView: View {
     @State private var showManualInput = false
     @State private var manualURI = ""
     @State private var errorMessage: String? = nil
-    @State private var isPairing = false
-    @State private var pairingSuccess = false
     
-    public init(onPairSuccess: ((PairingInfo) async -> Void)? = nil) {
-        self.onPairSuccess = onPairSuccess
+    public init(onScanDetected: ((PairingInfo) -> Void)? = nil) {
+        self.onScanDetected = onScanDetected
     }
     
     public var body: some View {
@@ -64,22 +62,6 @@ public struct QRScannerView: View {
                     
                     // Visual scanning overlay
                     scannerOverlayView
-                }
-                
-                // Loading overlay when pairing in progress
-                if isPairing {
-                    Color.black.opacity(0.6).ignoresSafeArea()
-                    VStack(spacing: 14) {
-                        ProgressView()
-                            .scaleEffect(1.3)
-                            .tint(.white)
-                        Text("正在与 Mac 网关配对...")
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundColor(.white)
-                    }
-                    .padding(24)
-                    .background(.ultraThinMaterial)
-                    .cornerRadius(16)
                 }
             }
             .navigationTitle("扫码配对")
@@ -179,8 +161,17 @@ public struct QRScannerView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("确认配对") {
-                        showManualInput = false
-                        handleScannedCode(manualURI)
+                        let code = manualURI
+                        switch PairingService.shared.parsePairingURI(code) {
+                        case .failure(let err):
+                            errorMessage = err.localizedDescription
+                            UINotificationFeedbackGenerator().notificationOccurred(.error)
+                        case .success(let info):
+                            UINotificationFeedbackGenerator().notificationOccurred(.success)
+                            showManualInput = false
+                            dismiss()
+                            onScanDetected?(info)
+                        }
                     }
                     .disabled(manualURI.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
@@ -210,35 +201,14 @@ public struct QRScannerView: View {
     }
     
     private func handleScannedCode(_ rawCode: String) {
-        guard !isPairing else { return }
-        
         switch PairingService.shared.parsePairingURI(rawCode) {
         case .failure(let err):
             errorMessage = err.localizedDescription
             UINotificationFeedbackGenerator().notificationOccurred(.error)
         case .success(let info):
             UINotificationFeedbackGenerator().notificationOccurred(.success)
-            isPairing = true
-            
-            Task {
-                do {
-                    _ = try await PairingService.shared.pair(with: info)
-                    if let onPairSuccess = onPairSuccess {
-                        await onPairSuccess(info)
-                    }
-                    await MainActor.run {
-                        isPairing = false
-                        pairingSuccess = true
-                        dismiss()
-                    }
-                } catch {
-                    await MainActor.run {
-                        isPairing = false
-                        errorMessage = error.localizedDescription
-                        UINotificationFeedbackGenerator().notificationOccurred(.error)
-                    }
-                }
-            }
+            dismiss()
+            onScanDetected?(info)
         }
     }
 }

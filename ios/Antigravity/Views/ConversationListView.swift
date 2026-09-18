@@ -2,6 +2,7 @@ import SwiftUI
 
 public struct ConversationListView: View {
     @Environment(\.scenePhase) private var scenePhase
+    @State private var settings = AppSettings.shared
     @State private var viewModel = ConversationListViewModel()
     @State private var showSettings = false
     @State private var showQRScanner = false
@@ -19,6 +20,7 @@ public struct ConversationListView: View {
     @State private var pendingPairing: PairingInfo?
     @State private var showPairingConfirm = false
     @State private var pairingErrorMessage: String?
+    @State private var isPairingInProgress = false
     
     @State private var easterEggTapCount: Int = 0
     @State private var lastEasterEggTapTime: Date = .distantPast
@@ -54,23 +56,34 @@ public struct ConversationListView: View {
     public var body: some View {
         ZStack {
             NavigationStack(path: $navigationPath) {
-                mainBodyView
-                    .navigationTitle("Multigravity")
-                    .background(NavigationBarTapHelper(onTap: handleEasterEggTap))
-                .searchable(text: $viewModel.searchQuery, prompt: "搜索会话或工作区...")
-                .toolbar {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button(action: { showSettings = true }) {
-                            Image(systemName: "gearshape")
-                        }
-                    }
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button(action: { showNewConversation = true }) {
-                            Image(systemName: "plus")
-                                .font(.system(size: 16, weight: .semibold))
-                        }
+                Group {
+                    if !settings.isPaired && !isPairingInProgress {
+                        OnboardingGuideView(
+                            onScanTapped: { showQRScanner = true },
+                            onManualInputTapped: { showQRScanner = true },
+                            onEasterEggTap: handleEasterEggTap
+                        )
+                        .navigationTitle("Multigravity")
+                    } else {
+                        pairedContentView
+                            .navigationTitle("Multigravity")
+                            .searchable(text: $viewModel.searchQuery, prompt: "搜索会话或工作区...")
+                            .toolbar {
+                                ToolbarItem(placement: .topBarLeading) {
+                                    Button(action: { showSettings = true }) {
+                                        Image(systemName: "gearshape")
+                                    }
+                                }
+                                ToolbarItem(placement: .topBarTrailing) {
+                                    Button(action: { showNewConversation = true }) {
+                                        Image(systemName: "plus")
+                                            .font(.system(size: 16, weight: .semibold))
+                                    }
+                                }
+                            }
                     }
                 }
+                .background(NavigationBarTapHelper(onTap: handleEasterEggTap))
             .sheet(isPresented: $showSettings) {
                 SettingsSheet()
                     .presentationDragIndicator(.visible)
@@ -153,7 +166,7 @@ public struct ConversationListView: View {
             }
             .onAppear {
                 viewModel.reloadFromCache()
-                if AppSettings.shared.isPaired {
+                if settings.isPaired {
                     viewModel.startAutoRefresh()
                     Task {
                         await viewModel.fetchConversations(isBackgroundPoll: !viewModel.conversations.isEmpty)
@@ -209,11 +222,8 @@ public struct ConversationListView: View {
                 }
             }
             .sheet(isPresented: $showQRScanner) {
-                QRScannerView { _ in
-                    viewModel.errorMessage = nil
-                    viewModel.startAutoRefresh()
-                    await viewModel.fetchConversations()
-                    await ProjectCacheManager.shared.fetchAndCacheProjects()
+                QRScannerView { info in
+                    startPairing(info: info)
                 }
             }
         }
@@ -226,15 +236,9 @@ public struct ConversationListView: View {
     }
     
     @ViewBuilder
-    private var mainBodyView: some View {
-        if !AppSettings.shared.isPaired {
-            OnboardingGuideView(
-                onScanTapped: { showQRScanner = true },
-                onManualInputTapped: { showQRScanner = true },
-                onEasterEggTap: handleEasterEggTap
-            )
-        } else if viewModel.isLoading && viewModel.conversations.isEmpty {
-            loadingView
+    private var pairedContentView: some View {
+        if isPairingInProgress || (viewModel.isLoading && viewModel.conversations.isEmpty) {
+            refreshingSkeletonView
         } else if let err = viewModel.errorMessage, viewModel.conversations.isEmpty {
             errorView(err)
         } else if viewModel.filteredConversations.isEmpty {
@@ -244,15 +248,57 @@ public struct ConversationListView: View {
         }
     }
     
-    private var loadingView: some View {
-        VStack(spacing: 16) {
-            ProgressView()
-                .scaleEffect(1.2)
-            Text("正在连接 Agent...")
-                .font(.system(size: 15))
-                .foregroundColor(.secondary)
+    private var refreshingSkeletonView: some View {
+        List {
+            // Status bar showing refreshing indicator
+            HStack(spacing: 10) {
+                ProgressView()
+                    .scaleEffect(0.9)
+                Text(isPairingInProgress ? "正在连接网关并同步会话列表..." : "正在同步会话列表...")
+                    .font(.system(size: 13.5, weight: .medium))
+                    .foregroundColor(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.vertical, 8)
+            .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 4, trailing: 16))
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+            
+            // Skeleton placeholder cards
+            ForEach(0..<4, id: \.self) { idx in
+                skeletonConversationCard(opacity: 1.0 - Double(idx) * 0.18)
+                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .listStyle(.plain)
+    }
+    
+    private func skeletonConversationCard(opacity: Double) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.primary.opacity(0.08 * opacity))
+                    .frame(width: 140, height: 16)
+                Spacer()
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.primary.opacity(0.06 * opacity))
+                    .frame(width: 48, height: 16)
+            }
+            HStack {
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color.primary.opacity(0.06 * opacity))
+                    .frame(width: 80, height: 12)
+                Spacer()
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color.primary.opacity(0.05 * opacity))
+                    .frame(width: 100, height: 12)
+            }
+        }
+        .padding(14)
+        .background(Color(uiColor: .secondarySystemBackground).opacity(opacity))
+        .cornerRadius(14)
     }
     
     private func errorView(_ err: String) -> some View {
@@ -420,7 +466,8 @@ public struct ConversationListView: View {
     }
     
     private func handleTokenRevoked() {
-        AppSettings.shared.unpair()
+        isPairingInProgress = false
+        settings.unpair()
         viewModel.stopAutoRefresh()
         viewModel.conversations.removeAll()
         viewModel.errorMessage = nil
@@ -441,20 +488,32 @@ public struct ConversationListView: View {
     }
     
     @MainActor
-    private func confirmPendingPairing() async {
-        guard let info = pendingPairing else { return }
+    private func startPairing(info: PairingInfo) {
+        showQRScanner = false
         pendingPairing = nil
         viewModel.errorMessage = nil
-        viewModel.isLoading = true
-        do {
-            _ = try await PairingService.shared.pair(with: info)
-            viewModel.startAutoRefresh()
-            await viewModel.fetchConversations()
-            await ProjectCacheManager.shared.fetchAndCacheProjects()
-        } catch {
-            viewModel.isLoading = false
-            pairingErrorMessage = error.localizedDescription
+        isPairingInProgress = true
+        
+        Task {
+            do {
+                _ = try await PairingService.shared.pair(with: info)
+                settings.refreshPairedState()
+                viewModel.startAutoRefresh()
+                await viewModel.fetchConversations()
+                await ProjectCacheManager.shared.fetchAndCacheProjects()
+                isPairingInProgress = false
+            } catch {
+                isPairingInProgress = false
+                settings.unpair()
+                pairingErrorMessage = error.localizedDescription
+            }
         }
+    }
+    
+    @MainActor
+    private func confirmPendingPairing() async {
+        guard let info = pendingPairing else { return }
+        startPairing(info: info)
     }
     
     private func handleDeepLink(_ url: URL) {
