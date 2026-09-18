@@ -27,7 +27,11 @@
 打开 Mac 终端，执行以下官方安装命令，30 秒内全自动完成部署：
 
 ```bash
+# 方式 A：GitHub 官方源一键安装
 curl -fsSL https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.sh | bash
+
+# 方式 B：国内网络加速一键安装（免代理）
+curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.sh | bash
 ```
 > **安装脚本自动完成**：
 > - 自动探测 Apple Silicon (M系列) 或 Intel Mac 架构；

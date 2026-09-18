@@ -91,12 +91,46 @@ fi
 # 6. 下载并安装 Universal 通用二进制
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "${TMP_DIR}"' EXIT
-
-DOWNLOAD_URL="https://github.com/${REPO}/releases/latest/download/multigravity-darwin-universal.tar.gz"
 TAR_FILE="${TMP_DIR}/multigravity.tar.gz"
 
-echo "📥 正在从 GitHub Releases 下载最新发行版..."
-if curl -fsSL --connect-timeout 15 -o "${TAR_FILE}" "${DOWNLOAD_URL}" 2>/dev/null; then
+# 自动探测本机常用代理端口 (Clash / V2Ray / Surge 等)
+PROXY_FLAG=""
+if [ -z "${https_proxy:-}" ] && [ -z "${http_proxy:-}" ] && [ -z "${all_proxy:-}" ]; then
+    for test_port in 7890 10808 1080 6152; do
+        if nc -z -w 1 127.0.0.1 "${test_port}" 2>/dev/null; then
+            echo "⚡ 检测到本机代理环境 (127.0.0.1:${test_port})，已自动接入加速"
+            PROXY_FLAG="--proxy http://127.0.0.1:${test_port}"
+            break
+        fi
+    done
+fi
+
+DOWNLOAD_URLS=(
+    "https://github.com/${REPO}/releases/latest/download/multigravity-darwin-universal.tar.gz"
+    "https://ghfast.top/https://github.com/${REPO}/releases/latest/download/multigravity-darwin-universal.tar.gz"
+    "https://ghproxy.net/https://github.com/${REPO}/releases/latest/download/multigravity-darwin-universal.tar.gz"
+)
+
+DOWNLOAD_SUCCESS=false
+echo "📥 正在获取 Multigravity 最新发行版..."
+
+for d_url in "${DOWNLOAD_URLS[@]}"; do
+    echo "🔗 尝试下载: ${d_url}"
+    # shellcheck disable=SC2086
+    if curl -fL ${PROXY_FLAG} --connect-timeout 6 --speed-limit 10240 --speed-time 8 -# -o "${TAR_FILE}" "${d_url}"; then
+        if tar -tzf "${TAR_FILE}" >/dev/null 2>&1; then
+            DOWNLOAD_SUCCESS=true
+            break
+        else
+            echo "⚠️  下载的文件损坏或非标准 tar.gz，正在尝试下一个源..."
+            rm -f "${TAR_FILE}"
+        fi
+    else
+        echo "⚠️  连接超时或速度较慢，正在自动切换加速镜像源..."
+    fi
+done
+
+if [ "${DOWNLOAD_SUCCESS}" = "true" ]; then
     echo "📦 下载完成，正在解压安装..."
     tar -xzf "${TAR_FILE}" -C "${TMP_DIR}"
     if [ -f "${TMP_DIR}/${BIN_NAME}" ]; then
@@ -108,14 +142,18 @@ if curl -fsSL --connect-timeout 15 -o "${TAR_FILE}" "${DOWNLOAD_URL}" 2>/dev/nul
         exit 1
     fi
 else
-    # 若无法连接到 Release 资产（如尚未发布第一个 Release），检查是否本地在源码仓库中运行
-    echo "⚠️  未能直接获取 Release 预编译包 (可能仓库尚未发布首个 Release Tag)。"
-    if command -v go >/dev/null 2>&1 && [ -f "go.mod" ]; then
-        echo "🔨 检测到当前处于源码目录且已安装 Go，正在本地就地编译..."
+    # 所有下载源均失败时的回退检查
+    echo "⚠️  未能从网络镜像获取预编译包。"
+    if [ -f "./bin/${BIN_NAME}" ]; then
+        echo "💡 检测到当前目录存在编译好的 ./bin/${BIN_NAME}，正在直接复制安装..."
+        cp "./bin/${BIN_NAME}" "${INSTALL_DIR}/${BIN_NAME}"
+    elif command -v go >/dev/null 2>&1 && [ -f "go.mod" ]; then
+        echo "🔨 检测到本地 Go 编译环境，正在就地编译..."
         go build -ldflags="-s -w -X 'main.Version=1.0.0'" -o "${INSTALL_DIR}/${BIN_NAME}" ./cmd/gateway
     else
-        echo "❌ 无法下载 Release 资产且本地未安装 Go 编译器。"
-        echo "   下载地址: ${DOWNLOAD_URL}"
+        echo "❌ 无法下载 Release 预编译包且无可用本地环境。"
+        echo "   您可以尝试开启代理或手动访问以下地址下载解压:"
+        echo "   https://github.com/${REPO}/releases/latest"
         exit 1
     fi
 fi
