@@ -150,7 +150,7 @@ class MainActivity : ComponentActivity() {
                     composable("conversations") {
                         ConversationListScreen(
                             viewModel = conversationListViewModel,
-                            onSelectConversation = { cascadeId, title, isNew, isUnread, status ->
+                            onSelectConversation = { cascadeId, title, isNew, isUnread, status, lastModifiedTime ->
                                 conversationListViewModel.notifySessionFocus(cascadeId)
                                 val wsName = conversationListViewModel.getWorkspaceName(cascadeId)
                                 val draftProject = conversationListViewModel.getDraftProject(cascadeId)
@@ -161,7 +161,8 @@ class MainActivity : ComponentActivity() {
                                     workspaceName = wsName,
                                     isUnread = isUnread,
                                     conversationStatus = status,
-                                    draftProject = draftProject
+                                    draftProject = draftProject,
+                                    lastModifiedTime = lastModifiedTime
                                 )
                                 conversationListViewModel.markConversationAsRead(cascadeId)
                                 val encodedTitle = URLEncoder.encode(title, "UTF-8")
@@ -213,11 +214,7 @@ class MainActivity : ComponentActivity() {
                             initialStatus = status,
                             viewModel = chatViewModel,
                             onNavigateBack = {
-                                chatViewModel.currentConversationItem()?.let { item ->
-                                    conversationListViewModel.upsertConversation(item)
-                                }
                                 conversationListViewModel.reloadFromCache()
-                                conversationListViewModel.loadConversations()
                                 navController.popBackStack()
                             }
                         )

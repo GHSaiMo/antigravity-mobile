@@ -155,6 +155,7 @@ class ChatViewModel(
     private var wsJob: Job? = null
     private var fetchJob: Job? = null
     private var pendingOptimisticMessageId: String? = null
+    private var currentLastModifiedTime: String? = null
 
     private fun extractStepIndex(id: String): Int? {
         if (id.startsWith("step-")) {
@@ -319,9 +320,6 @@ class ChatViewModel(
         val wsName = state.workspaceName.takeIf { it.isNotBlank() && it != "Chat" }
             ?: state.workspaceFolder?.trimEnd('/')?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
             ?: "Chat"
-        val nowIso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
-            timeZone = TimeZone.getTimeZone("UTC")
-        }.format(Date())
 
         val title = when {
             state.title.isNotBlank() && state.title != "会话详情" && state.title != "未命名会话" && !state.title.startsWith("会话 ") ->
@@ -336,7 +334,7 @@ class ChatViewModel(
             status = status,
             stepCount = stepCount,
             workspaceName = wsName,
-            lastModifiedTime = nowIso,
+            lastModifiedTime = currentLastModifiedTime,
             isSubagent = false,
             isUnread = false
         )
@@ -355,6 +353,7 @@ class ChatViewModel(
         wsJob = null
         wsClient.disconnect()
         currentDraftProject = null
+        currentLastModifiedTime = null
         _inputText.value = ""
         _uiState.value = ChatUiState()
     }
@@ -366,8 +365,10 @@ class ChatViewModel(
         workspaceName: String? = null,
         isUnread: Boolean = false,
         conversationStatus: ConversationStatus? = null,
-        draftProject: ProjectItem? = null
+        draftProject: ProjectItem? = null,
+        lastModifiedTime: String? = null
     ) {
+        this.currentLastModifiedTime = lastModifiedTime
         this.isUnreadOnEntry = isUnread
         this.initialConversationStatus = conversationStatus
 

@@ -467,4 +467,28 @@ func TestHandleCreateCascadePureChat(t *testing.T) {
 	}
 }
 
+func TestLiveOfficialProjects(t *testing.T) {
+	insp := inspector.NewInspector(5 * time.Second)
+	info := insp.Scan()
+	if info == nil {
+		t.Skip("Antigravity instance not available, skipping test")
+	}
+	t.Logf("info: PID=%d Port=%d CSRF=%s IsHealthy=%v", info.PID, info.Port, info.CSRFToken, info.IsHealthy)
+
+	p := NewProxy(insp)
+	p.activePort = info.Port
+	p.activeToken = info.CSRFToken
+
+	items, err := p.fetchOfficialProjects(info.Port, info.CSRFToken, nil)
+	t.Logf("fetchOfficialProjects err: %v, items count: %d", err, len(items))
+
+	projects, err := p.GetProjects()
+	t.Logf("GetProjects err: %v, count: %d", err, len(projects))
+	for i, prj := range projects {
+		if i < 3 || prj.Name == "antigravity-mobile" {
+			t.Logf("[%d] ID=%q Name=%q URI=%q Path=%q", i, prj.ID, prj.Name, prj.URI, prj.Path)
+		}
+	}
+}
+
 

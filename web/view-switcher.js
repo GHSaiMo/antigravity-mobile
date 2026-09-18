@@ -13,9 +13,15 @@
       document.title = "Multigravity";
     }
 
-    // 1.2 检查顶部左侧品牌文字元素
-    // 在 main.js 中，品牌文字为：<span class="font-semibold text-sm shrink-0 pl-2 pr-1.5 mr-1">Multigravity</span>
-    const brandCandidates = document.querySelectorAll(".font-semibold.text-sm, span.shrink-0");
+    // 1.2 宽屏版左上角不保留 logo，彻底清除任何注入或遗留的品牌 logo 节点
+    const existingLogos = document.querySelectorAll(".multigravity-brand-logo");
+    for (let i = 0; i < existingLogos.length; i++) {
+      existingLogos[i].remove();
+    }
+
+    // 1.3 确保顶部左侧品牌文字元素显示为 Multigravity，并只保留文字
+    // 在桌面工作台中，品牌文字节点为：<span class="font-semibold text-sm shrink-0 pl-2 pr-1.5 mr-1">Multigravity</span>
+    const brandCandidates = document.querySelectorAll(".font-semibold.text-sm");
     for (let i = 0; i < brandCandidates.length; i++) {
       const el = brandCandidates[i];
       const text = (el.textContent || "").trim();
@@ -23,38 +29,20 @@
         if (text !== "Multigravity") {
           el.textContent = "Multigravity";
         }
-        // 检查是否已有品牌 Logo
-        const prev = el.previousElementSibling;
-        if (!prev || !prev.classList.contains("multigravity-brand-logo")) {
-          const img = document.createElement("img");
-          img.src = "/icons/icon-192.png";
-          img.alt = "Multigravity";
-          img.className = "multigravity-brand-logo";
-          img.title = "Multigravity";
-          if (el.parentElement) {
-            el.parentElement.insertBefore(img, el);
-            el.style.paddingLeft = "0";
-          }
+        // 恢复原生内边距样式（清除此前为插入 logo 所设置的 style.paddingLeft = 0）
+        if (el.style.paddingLeft === "0px" || el.style.paddingLeft === "0") {
+          el.style.paddingLeft = "";
         }
       }
     }
 
-    // 1.3 兜底替换任何可能渲染出来的旧版 Antigravity 三角形 SVG (viewBox 0 0 180 180)
-    const oldIcons = document.querySelectorAll('svg[viewBox="0 0 180 180"]');
-    for (let i = 0; i < oldIcons.length; i++) {
-      const svg = oldIcons[i];
-      if (svg.dataset.replacedByM) continue;
-      svg.dataset.replacedByM = "true";
-      const img = document.createElement("img");
-      img.src = "/icons/icon-192.png";
-      img.alt = "Multigravity";
-      img.className = "multigravity-brand-logo";
-      const w = svg.getAttribute("width") || svg.clientWidth || 22;
-      const h = svg.getAttribute("height") || svg.clientHeight || 22;
-      img.style.width = w + "px";
-      img.style.height = h + "px";
-      if (svg.parentElement) {
-        svg.parentElement.replaceChild(img, svg);
+    // 1.4 确保所有 Favicon 链接均指向透明通道的高清图标与 favicon.ico
+    const favicons = document.querySelectorAll('link[rel*="icon"]');
+    for (let i = 0; i < favicons.length; i++) {
+      const fav = favicons[i];
+      if (fav.href && (fav.href.includes("data:image/svg+xml") || fav.href.includes("%F0%9F%8E%81") || fav.href.includes("🎁"))) {
+        fav.type = "image/x-icon";
+        fav.href = "/favicon.ico?v=3";
       }
     }
   }

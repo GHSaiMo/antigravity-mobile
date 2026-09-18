@@ -55,10 +55,17 @@ fun SettingsSheet(
     val colors = AntigravityTheme.colors
     val context = LocalContext.current
     val connectionManager = remember { ConnectionManager(context) }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    Dialog(
+    ModalBottomSheet(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        sheetState = sheetState,
+        containerColor = colors.background,
+        dragHandle = null,
+        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .fillMaxHeight(0.94f)
     ) {
         BackHandler {
             if (currentView == SettingsScreenView.NETWORK) {
@@ -68,51 +75,67 @@ fun SettingsSheet(
             }
         }
 
-        Scaffold(
-            topBar = {
-                TopAppBar(
-                    title = {
-                        Text(
-                            text = if (currentView == SettingsScreenView.MAIN) "设置" else "网络设置",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp,
-                            color = colors.textPrimary
-                        )
-                    },
-                    navigationIcon = {
-                        if (currentView == SettingsScreenView.NETWORK) {
-                            IconButton(onClick = { currentView = SettingsScreenView.MAIN }) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                    contentDescription = "Back",
-                                    tint = colors.accentIndigo
-                                )
-                            }
-                        }
-                    },
-                    actions = {
-                        TextButton(onClick = onDismiss) {
-                            Text(
-                                text = "完成",
-                                color = colors.accentIndigo,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = colors.background,
-                        titleContentColor = colors.textPrimary
-                    )
-                )
-            },
-            containerColor = colors.background,
-            modifier = modifier.fillMaxSize()
-        ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight()
+        ) {
+            // Floating grab handle hinting pull-down dismissal (matching iOS Capsule 38x5)
             Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
+                    .fillMaxWidth()
+                    .padding(top = 10.dp, bottom = 18.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(width = 38.dp, height = 5.dp)
+                        .clip(CircleShape)
+                        .background(colors.textMuted.copy(alpha = 0.35f))
+                )
+            }
+
+            // Header title row: centered title, optional back button on the left when in subview, no "完成" button
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                if (currentView == SettingsScreenView.NETWORK) {
+                    IconButton(
+                        onClick = { currentView = SettingsScreenView.MAIN },
+                        modifier = Modifier
+                            .align(Alignment.CenterStart)
+                            .padding(start = 8.dp)
+                            .size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = colors.accentIndigo
+                        )
+                    }
+                }
+
+                Text(
+                    text = if (currentView == SettingsScreenView.MAIN) "设置" else "网络设置",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    color = colors.textPrimary,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.Center)
+                )
+            }
+
+            HorizontalDivider(thickness = 0.5.dp, color = colors.border)
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
             ) {
                 if (currentView == SettingsScreenView.MAIN) {
                     MainSettingsContent(
@@ -227,7 +250,8 @@ private fun MainSettingsContent(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = 16.dp, vertical = 14.dp)
+            .navigationBarsPadding(),
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
         // MARK: - 1. 设备配对与鉴权 (1:1 iOS 对齐)

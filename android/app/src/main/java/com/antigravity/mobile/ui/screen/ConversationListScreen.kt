@@ -37,6 +37,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
@@ -44,11 +45,13 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+import com.antigravity.mobile.data.model.CockpitQuotaResponse
 import com.antigravity.mobile.data.model.ConversationItem
 import com.antigravity.mobile.ui.components.*
 import com.antigravity.mobile.ui.theme.AntigravityTheme
@@ -59,7 +62,7 @@ import com.antigravity.mobile.ui.viewmodel.ConversationListViewModel
 @Composable
 fun ConversationListScreen(
     viewModel: ConversationListViewModel,
-    onSelectConversation: (cascadeId: String, title: String, isNew: Boolean, isUnread: Boolean, status: com.antigravity.mobile.data.model.ConversationStatus) -> Unit,
+    onSelectConversation: (cascadeId: String, title: String, isNew: Boolean, isUnread: Boolean, status: com.antigravity.mobile.data.model.ConversationStatus, lastModifiedTime: String?) -> Unit,
     onNavigateToPair: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -109,15 +112,6 @@ fun ConversationListScreen(
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
 
-    // Auto scroll to top when list updates if user is already at or near the top
-    val conversations = (uiState as? ConversationListUiState.Success)?.conversations ?: emptyList()
-    val firstConversationId = remember(conversations) { conversations.firstOrNull()?.id }
-    LaunchedEffect(firstConversationId) {
-        if (firstConversationId != null && listState.firstVisibleItemIndex <= 1) {
-            listState.scrollToItem(0)
-        }
-    }
-
     LaunchedEffect(searchQuery) {
         if (listState.firstVisibleItemIndex > 0) {
             listState.scrollToItem(0)
@@ -141,181 +135,128 @@ fun ConversationListScreen(
         if (pullRefreshState.isRefreshing) {
             viewModel.refresh {
                 pullRefreshState.endRefresh()
-                coroutineScope.launch {
-                    listState.scrollToItem(0)
-                }
             }
         }
     }
     LaunchedEffect(isRefreshing) {
-        if (!isRefreshing) {
-            if (pullRefreshState.isRefreshing) {
-                pullRefreshState.endRefresh()
-            }
-            if (listState.firstVisibleItemIndex <= 2) {
-                listState.scrollToItem(0)
+        if (!isRefreshing && pullRefreshState.isRefreshing) {
+            pullRefreshState.endRefresh()
+        }
+    }
+
+    val density = LocalDensity.current
+    val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val topBarHeight = statusBarTop + 52.dp
+    val scrollThresholdPx = with(density) { 48.dp.toPx() }
+
+    val scrollProgress by remember {
+        derivedStateOf {
+            if (listState.firstVisibleItemIndex > 0) {
+                1f
+            } else {
+                val offset = listState.firstVisibleItemScrollOffset
+                (offset / scrollThresholdPx).coerceIn(0f, 1f)
             }
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = "Multigravity",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 20.sp,
-                        color = colors.textPrimary,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                                onClick = handleEasterEggTap
-                            )
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = { showSettingsSheet = true }) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = "Settings",
-                            tint = colors.accentIndigo
-                        )
-                    }
-                },
-                actions = {
-                    IconButton(onClick = {
-                        viewModel.loadProjects()
-                        showNewConvSheet = true
-                    }) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = "New Conversation",
-                            tint = colors.accentIndigo
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = colors.background,
-                    titleContentColor = colors.textPrimary
-                )
-            )
-        },
-        containerColor = colors.background,
+    val inlineTitleAlpha = remember(scrollProgress) {
+        if (scrollProgress < 0.25f) 0f else ((scrollProgress - 0.25f) / 0.75f).coerceIn(0f, 1f)
+    }
+
+    val largeTitleAlpha = remember(scrollProgress) {
+        (1f - scrollProgress * 1.5f).coerceIn(0f, 1f)
+    }
+
+    val topBarDividerAlpha = remember(scrollProgress) {
+        (scrollProgress * 1.2f).coerceIn(0f, 1f)
+    }
+
+    Box(
         modifier = modifier
-    ) { padding ->
-        Column(
+            .fillMaxSize()
+            .background(colors.background)
+    ) {
+        // Content Area with PullToRefresh and Bottom Floating Search Bar
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
+                .nestedScroll(pullRefreshState.nestedScrollConnection)
+                .clipToBounds()
         ) {
-            // Quota Bar if available (directly under TopBar, exactly matching iOS layout)
-            quotaData?.currentAccount?.let { acc ->
-                QuotaStatusBar(
-                    account = acc,
-                    onTap = { showQuotaSheet = true },
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                )
-            }
-
-            // Content List with PullToRefresh and Bottom Floating Search Bar
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .nestedScroll(pullRefreshState.nestedScrollConnection)
-                    .clipToBounds()
-            ) {
-                when (val state = uiState) {
-                    is ConversationListUiState.Loading -> {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
+            when (val state = uiState) {
+                is ConversationListUiState.Loading -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(top = topBarHeight),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(color = colors.accentIndigo)
+                    }
+                }
+                is ConversationListUiState.Error -> {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(top = topBarHeight)
+                            .padding(32.dp),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = "Error",
+                            tint = colors.accentOrange,
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = "无法连接网关",
+                            color = colors.textPrimary,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = state.message,
+                            color = colors.textSecondary,
+                            fontSize = 13.sp,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Button(
+                            onClick = { viewModel.loadConversations() },
+                            colors = ButtonDefaults.buttonColors(containerColor = colors.accentIndigo)
                         ) {
-                            CircularProgressIndicator(color = colors.accentIndigo)
+                            Text("重试连接")
                         }
                     }
-                    is ConversationListUiState.Error -> {
-                        Column(
+                }
+                is ConversationListUiState.Success -> {
+                    if (state.conversations.isEmpty() && searchQuery.isEmpty() && projects.isEmpty()) {
+                        Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(32.dp),
-                            verticalArrangement = Arrangement.Center,
-                            horizontalAlignment = Alignment.CenterHorizontally
+                                .padding(top = topBarHeight)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Warning,
-                                contentDescription = "Error",
-                                tint = colors.accentOrange,
-                                modifier = Modifier.size(48.dp)
+                            OnboardingGuideView(
+                                onScanTapped = onNavigateToPair,
+                                onManualInputTapped = onNavigateToPair,
+                                onEasterEggTap = handleEasterEggTap
                             )
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = "无法连接网关",
-                                color = colors.textPrimary,
-                                fontSize = 17.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = state.message,
-                                color = colors.textSecondary,
-                                fontSize = 13.sp,
-                                textAlign = TextAlign.Center
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Button(
-                                onClick = { viewModel.loadConversations() },
-                                colors = ButtonDefaults.buttonColors(containerColor = colors.accentIndigo)
-                            ) {
-                                Text("重试连接")
-                            }
-                        }
-                    }
-                    is ConversationListUiState.Success -> {
-                        if (state.conversations.isEmpty()) {
-                            if (searchQuery.isEmpty() && projects.isEmpty()) {
-                                OnboardingGuideView(
-                                    onScanTapped = onNavigateToPair,
-                                    onManualInputTapped = onNavigateToPair,
-                                    onEasterEggTap = handleEasterEggTap
-                                )
-                            } else {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(32.dp),
-                                    verticalArrangement = Arrangement.Center,
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                Icon(
-                                    imageVector = if (searchQuery.isEmpty()) Icons.Default.ChatBubbleOutline else Icons.Default.Search,
-                                    contentDescription = "Empty",
-                                    tint = colors.textMuted,
-                                    modifier = Modifier.size(44.dp)
-                                )
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Text(
-                                    text = if (searchQuery.isEmpty()) "暂无会话" else "未找到匹配会话",
-                                    color = colors.textPrimary,
-                                    fontSize = 17.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = if (searchQuery.isEmpty()) "可点击右上角 + 开启新会话，或下拉刷新同步" else "请尝试其他关键词搜索",
-                                    color = colors.textSecondary,
-                                    fontSize = 13.sp,
-                                    textAlign = TextAlign.Center
-                                )
-                            }
                         }
                     } else {
                         ConversationListContent(
                             conversations = state.conversations,
                             listState = listState,
+                            quotaData = quotaData,
+                            searchQuery = searchQuery,
+                            largeTitleAlpha = largeTitleAlpha,
+                            topPadding = topBarHeight,
+                            onEasterEggTap = handleEasterEggTap,
+                            onQuotaTap = { showQuotaSheet = true },
+                            onRefresh = { viewModel.loadConversations() },
                             hasDraftFor = { viewModel.prefs.hasDraft(it) },
                             onSelect = onSelectConversation,
                             onRename = { item ->
@@ -328,76 +269,182 @@ fun ConversationListScreen(
                                 deletingItem = item
                             }
                         )
-                        }
-                    }
-                }
-
-                // Pull to refresh spinner (only shown when actively pulled down or refreshing)
-                if (pullRefreshState.verticalOffset > 0 || isRefreshing) {
-                    PullToRefreshContainer(
-                        state = pullRefreshState,
-                        modifier = Modifier.align(Alignment.TopCenter),
-                        containerColor = colors.surface,
-                        contentColor = colors.accentIndigo
-                    )
-                }
-
-                // iOS-Style Floating Bottom Search Bar (as specified in session_list.jpg)
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .padding(horizontal = 24.dp, vertical = 14.dp)
-                        .clip(RoundedCornerShape(26.dp))
-                        .background(colors.surface)
-                        .border(0.8.dp, colors.border, RoundedCornerShape(26.dp))
-                        .padding(horizontal = 16.dp, vertical = 12.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = "Search",
-                            tint = colors.textSecondary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        BasicTextField(
-                            value = searchQuery,
-                            onValueChange = { viewModel.onSearchQueryChanged(it) },
-                            singleLine = true,
-                            textStyle = TextStyle(
-                                color = colors.textPrimary,
-                                fontSize = 15.sp
-                            ),
-                            cursorBrush = SolidColor(colors.accentIndigo),
-                            decorationBox = { innerTextField ->
-                                if (searchQuery.isEmpty()) {
-                                    Text(
-                                        text = "搜索会话或工作区...",
-                                        color = colors.textSecondary,
-                                        fontSize = 15.sp
-                                    )
-                                }
-                                innerTextField()
-                            },
-                            modifier = Modifier.weight(1f)
-                        )
-                        if (searchQuery.isNotEmpty()) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Clear",
-                                tint = colors.textMuted,
-                                modifier = Modifier
-                                    .size(18.dp)
-                                    .clip(CircleShape)
-                                    .combinedClickable(onClick = { viewModel.onSearchQueryChanged("") })
-                            )
-                        }
                     }
                 }
             }
+
+            // Pull to refresh spinner (only shown when actively pulled down or refreshing)
+            if (pullRefreshState.verticalOffset > 0 || isRefreshing) {
+                PullToRefreshContainer(
+                    state = pullRefreshState,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = topBarHeight),
+                    containerColor = colors.surface,
+                    contentColor = colors.accentIndigo
+                )
+            }
+
+            // iOS-Style Floating Bottom Search Bar (as specified in session_list.jpg)
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 24.dp, vertical = 14.dp)
+                    .clip(RoundedCornerShape(26.dp))
+                    .background(colors.surface)
+                    .border(0.8.dp, colors.border, RoundedCornerShape(26.dp))
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "Search",
+                        tint = colors.textSecondary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    BasicTextField(
+                        value = searchQuery,
+                        onValueChange = { viewModel.onSearchQueryChanged(it) },
+                        singleLine = true,
+                        textStyle = TextStyle(
+                            color = colors.textPrimary,
+                            fontSize = 15.sp
+                        ),
+                        cursorBrush = SolidColor(colors.accentIndigo),
+                        decorationBox = { innerTextField ->
+                            if (searchQuery.isEmpty()) {
+                                Text(
+                                    text = "搜索会话或工作区...",
+                                    color = colors.textSecondary,
+                                    fontSize = 15.sp
+                                )
+                            }
+                            innerTextField()
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (searchQuery.isNotEmpty()) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Clear",
+                            tint = colors.textMuted,
+                            modifier = Modifier
+                                .size(18.dp)
+                                .clip(CircleShape)
+                                .combinedClickable(onClick = { viewModel.onSearchQueryChanged("") })
+                        )
+                    }
+                }
+            }
+        }
+
+        // 2. Sticky iOS-Style Top Bar (Header)
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .background(colors.background)
+                .statusBarsPadding()
+                .height(52.dp)
+        ) {
+            // Settings Button (Left)
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .padding(start = 12.dp)
+                    .size(44.dp)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = { showSettingsSheet = true }
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(colors.surface)
+                        .border(0.8.dp, colors.border, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "Settings",
+                        tint = colors.accentIndigo,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            // Centered Title (Transitions in when scrolling up)
+            Text(
+                text = "Multigravity",
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp,
+                color = colors.textPrimary,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .graphicsLayer {
+                        alpha = inlineTitleAlpha
+                        translationY = (1f - inlineTitleAlpha) * 8.dp.toPx()
+                    }
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        enabled = inlineTitleAlpha > 0.5f,
+                        onClick = handleEasterEggTap
+                    )
+            )
+
+            // New Conversation Button (Right)
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 12.dp)
+                    .size(44.dp)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = {
+                            viewModel.loadProjects()
+                            showNewConvSheet = true
+                        }
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(colors.surface)
+                        .border(0.8.dp, colors.border, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "New Conversation",
+                        tint = colors.accentIndigo,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            // Bottom hairline border when scrolled
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(0.6.dp)
+                    .align(Alignment.BottomCenter)
+                    .background(colors.border.copy(alpha = topBarDividerAlpha))
+            )
         }
     }
 
@@ -428,7 +475,7 @@ fun ConversationListScreen(
                 showNewConvSheet = false
                 val draftSession = viewModel.createLocalDraftSession(project)
                 val title = if (project.isPureChat) "新对话" else project.name
-                onSelectConversation(draftSession.id, title, true, false, com.antigravity.mobile.data.model.ConversationStatus.IDLE)
+                onSelectConversation(draftSession.id, title, true, false, com.antigravity.mobile.data.model.ConversationStatus.IDLE, null)
             },
             onDismiss = { showNewConvSheet = false }
         )
@@ -526,26 +573,123 @@ fun ConversationListScreen(
 private fun ConversationListContent(
     conversations: List<ConversationItem>,
     listState: LazyListState,
+    quotaData: CockpitQuotaResponse?,
+    searchQuery: String,
+    largeTitleAlpha: Float,
+    topPadding: Dp,
+    onEasterEggTap: () -> Unit,
+    onQuotaTap: () -> Unit,
+    onRefresh: () -> Unit,
     hasDraftFor: (String) -> Boolean,
-    onSelect: (cascadeId: String, title: String, isNew: Boolean, isUnread: Boolean, status: com.antigravity.mobile.data.model.ConversationStatus) -> Unit,
+    onSelect: (cascadeId: String, title: String, isNew: Boolean, isUnread: Boolean, status: com.antigravity.mobile.data.model.ConversationStatus, lastModifiedTime: String?) -> Unit,
     onRename: (ConversationItem) -> Unit,
     onDelete: (ConversationItem) -> Unit
 ) {
+    val colors = AntigravityTheme.colors
+
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(top = 6.dp, bottom = 84.dp, start = 16.dp, end = 16.dp),
+        contentPadding = PaddingValues(
+            top = topPadding + 4.dp,
+            bottom = 84.dp,
+            start = 16.dp,
+            end = 16.dp
+        ),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        items(conversations, key = { it.id }) { conversation ->
-            val hasDraft = conversation.isDraft || hasDraftFor(conversation.id)
-            SwipeableConversationCard(
-                conversation = conversation,
-                hasDraft = hasDraft,
-                onClick = { onSelect(conversation.id, conversation.displayTitle, false, conversation.isUnread, conversation.status) },
-                onLongClick = { onRename(conversation) },
-                onDelete = { onDelete(conversation) }
-            )
+        // Large Title Header (matches iOS large title below settings button)
+        item(key = "header_large_title") {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 2.dp, bottom = 2.dp)
+                    .graphicsLayer {
+                        alpha = largeTitleAlpha
+                    }
+            ) {
+                Text(
+                    text = "Multigravity",
+                    fontSize = 34.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = (-0.5).sp,
+                    color = colors.textPrimary,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            enabled = largeTitleAlpha > 0.5f,
+                            onClick = onEasterEggTap
+                        )
+                )
+            }
+        }
+
+        // Quota Status Bar (matches iOS QuotaStatusBarView directly below large title)
+        quotaData?.currentAccount?.let { acc ->
+            if (acc.gemini5h != null) {
+                item(key = "header_quota") {
+                    QuotaStatusBar(
+                        account = acc,
+                        onTap = onQuotaTap,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        }
+
+        if (conversations.isEmpty()) {
+            item(key = "empty_placeholder") {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 48.dp, horizontal = 16.dp),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        imageVector = if (searchQuery.isEmpty()) Icons.Default.ChatBubbleOutline else Icons.Default.Search,
+                        contentDescription = "Empty",
+                        tint = colors.textMuted,
+                        modifier = Modifier.size(44.dp)
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = if (searchQuery.isEmpty()) "暂无会话" else "未找到匹配会话",
+                        color = colors.textPrimary,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = if (searchQuery.isEmpty()) "可点击右上角 + 开启新会话，或下拉刷新同步" else "请尝试其他关键词搜索",
+                        color = colors.textSecondary,
+                        fontSize = 13.sp,
+                        textAlign = TextAlign.Center
+                    )
+                    if (searchQuery.isEmpty()) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Button(
+                            onClick = onRefresh,
+                            colors = ButtonDefaults.buttonColors(containerColor = colors.accentIndigo)
+                        ) {
+                            Text("刷新列表")
+                        }
+                    }
+                }
+            }
+        } else {
+            items(conversations, key = { it.id }) { conversation ->
+                val hasDraft = conversation.isDraft || hasDraftFor(conversation.id)
+                SwipeableConversationCard(
+                    conversation = conversation,
+                    hasDraft = hasDraft,
+                    onClick = { onSelect(conversation.id, conversation.displayTitle, false, conversation.isUnread, conversation.status, conversation.lastModifiedTime) },
+                    onLongClick = { onRename(conversation) },
+                    onDelete = { onDelete(conversation) }
+                )
+            }
         }
     }
 }

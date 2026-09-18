@@ -56,7 +56,6 @@ public struct ConversationListView: View {
             NavigationStack(path: $navigationPath) {
                 mainBodyView
                     .navigationTitle("Multigravity")
-                    .navigationBarTitleDisplayMode(.inline)
                 .searchable(text: $viewModel.searchQuery, prompt: "搜索会话或工作区...")
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {

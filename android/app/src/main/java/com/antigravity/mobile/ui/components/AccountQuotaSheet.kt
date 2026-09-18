@@ -63,35 +63,43 @@ fun AccountQuotaSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = colors.background,
-        dragHandle = {
-            Box(
-                modifier = Modifier
-                    .padding(top = 10.dp, bottom = 8.dp)
-                    .width(38.dp)
-                    .height(5.dp)
-                    .clip(CircleShape)
-                    .background(colors.textMuted.copy(alpha = 0.35f))
-            )
-        },
+        dragHandle = null,
         shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         modifier = modifier
             .fillMaxWidth()
-            .fillMaxHeight(0.92f)
+            .fillMaxHeight(0.94f)
     ) {
         Column(
             modifier = Modifier.fillMaxSize()
         ) {
-            // iOS-Style Top Bar: Mask toggle (Left), Centered Title, Refresh (Right) - No "完成" button needed
-            Row(
+            // Floating grab handle hinting pull-down dismissal (matching iOS Capsule 38x5)
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                    .padding(top = 10.dp, bottom = 18.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(width = 38.dp, height = 5.dp)
+                        .clip(CircleShape)
+                        .background(colors.textMuted.copy(alpha = 0.35f))
+                )
+            }
+
+            // Header title row: Mask toggle (Left), Centered Title, Refresh (Right)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp),
+                contentAlignment = Alignment.Center
             ) {
                 IconButton(
                     onClick = { isMasked = !isMasked },
-                    modifier = Modifier.size(40.dp)
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .padding(start = 8.dp)
+                        .size(36.dp)
                 ) {
                     Icon(
                         imageVector = if (isMasked) Icons.Default.VisibilityOff else Icons.Default.Visibility,
@@ -104,16 +112,21 @@ fun AccountQuotaSheet(
                 Text(
                     text = "Cockpit Tools",
                     fontWeight = FontWeight.Bold,
-                    fontSize = 17.sp,
+                    fontSize = 18.sp,
                     color = colors.textPrimary,
                     textAlign = TextAlign.Center,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.Center)
                 )
 
                 IconButton(
                     onClick = onRefresh,
                     enabled = !isRefreshing,
-                    modifier = Modifier.size(40.dp)
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = 8.dp)
+                        .size(36.dp)
                 ) {
                     if (isRefreshing) {
                         CircularProgressIndicator(
@@ -132,12 +145,14 @@ fun AccountQuotaSheet(
                 }
             }
 
+            HorizontalDivider(thickness = 0.5.dp, color = colors.border)
+
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f, fill = false)
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 10.dp)
+                    .padding(horizontal = 16.dp, vertical = 14.dp)
                     .navigationBarsPadding(),
                 verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {

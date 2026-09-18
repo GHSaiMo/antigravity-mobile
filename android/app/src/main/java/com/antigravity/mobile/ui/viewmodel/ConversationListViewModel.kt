@@ -81,10 +81,12 @@ class ConversationListViewModel(
         } else {
             emptyList()
         }
-        val all = (drafts + serverItems).sortedWith(
-            compareByDescending<ConversationItem> { it.lastModifiedEpochMs }
-                .thenByDescending { it.id }
-        )
+        val serverNonDrafts = if (rawConversations.any { !it.isDraft }) {
+            rawConversations.filter { !it.isDraft && !deletedCascadeIds.contains(it.id) && !prefs.isDeletedConversation(it.id) }
+        } else {
+            serverItems
+        }
+        val all = drafts + serverNonDrafts
         if (all.isNotEmpty()) {
             rawConversations = all
             applyFilter()
@@ -132,10 +134,7 @@ class ConversationListViewModel(
         } else {
             emptyList()
         }
-        val all = (drafts + serverItems).sortedWith(
-            compareByDescending<ConversationItem> { it.lastModifiedEpochMs }
-                .thenByDescending { it.id }
-        )
+        val all = drafts + serverItems
         if (all.isNotEmpty()) {
             _uiState.value = ConversationListUiState.Success(all)
             cacheManager?.prewarmSessions(all.take(15).map { it.id })
@@ -212,10 +211,7 @@ class ConversationListViewModel(
 
         // Server list is authoritative for server conversations.
         // Any conversation deleted on computer is immediately removed.
-        return (drafts + enrichedServerItems).sortedWith(
-            compareByDescending<ConversationItem> { it.lastModifiedEpochMs }
-                .thenByDescending { it.id }
-        )
+        return drafts + enrichedServerItems
     }
 
     fun refresh(onComplete: (() -> Unit)? = null) {
@@ -336,22 +332,17 @@ class ConversationListViewModel(
                 status = if (item.status != ConversationStatus.UNKNOWN) item.status else old.status,
                 stepCount = maxOf(old.stepCount, item.stepCount),
                 workspaceName = if (item.workspaceName.isNotBlank() && item.workspaceName != "Chat") item.workspaceName else old.workspaceName,
-                lastModifiedTime = item.lastModifiedTime ?: old.lastModifiedTime,
+                lastModifiedTime = old.lastModifiedTime,
                 isUnread = item.isUnread
             )
             val list = rawConversations.toMutableList()
-            list.removeAt(existingIndex)
-            list.add(0, merged)
+            list[existingIndex] = merged
             list
         } else {
             listOf(item) + rawConversations
         }
-        val sortedList = updatedList.sortedWith(
-            compareByDescending<ConversationItem> { it.lastModifiedEpochMs }
-                .thenByDescending { it.id }
-        )
-        rawConversations = sortedList
-        persistConversationsToCache(sortedList)
+        rawConversations = updatedList
+        persistConversationsToCache(updatedList)
         applyFilter()
     }
 

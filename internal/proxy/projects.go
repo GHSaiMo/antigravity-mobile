@@ -220,6 +220,7 @@ func (p *Proxy) fetchOfficialProjects(port int, token string, sessionStats map[s
 		readURL := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/ReadProjects", port)
 		reqBody, _ := json.Marshal(map[string]interface{}{"ids": order})
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, readURL, bytes.NewReader(reqBody))
 		if err == nil {
 			req.Header.Set("Content-Type", "application/json")
@@ -228,7 +229,6 @@ func (p *Proxy) fetchOfficialProjects(port int, token string, sessionStats map[s
 				req.Header.Set("x-codeium-csrf-token", token)
 			}
 			resp, err := p.mediumClient.Do(req)
-			cancel()
 			if err == nil && resp.StatusCode == http.StatusOK {
 				defer resp.Body.Close()
 				var reader io.Reader = resp.Body
