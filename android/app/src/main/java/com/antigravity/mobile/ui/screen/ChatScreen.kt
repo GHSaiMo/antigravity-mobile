@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowUpward
@@ -43,6 +44,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.lifecycle.Lifecycle
@@ -69,18 +71,43 @@ fun ChatScreen(
     viewModel: ChatViewModel,
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier,
-    isNewConversation: Boolean = false
+    isNewConversation: Boolean = false,
+    isUnreadOnEntry: Boolean = false,
+    initialStatus: com.antigravity.mobile.data.model.ConversationStatus? = null
 ) {
     val context = LocalContext.current
     val haptic = rememberHaptic()
     val focusRequester = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
+    val dismissKeyboard: () -> Unit = {
+        focusManager.clearFocus()
+        keyboardController?.hide()
+    }
     val uiState by viewModel.uiState.collectAsState()
     val inputText by viewModel.inputText.collectAsState()
     val scrollToBottomTrigger by viewModel.scrollToBottomTrigger.collectAsState()
     val listState = rememberLazyListState()
     val colors = AntigravityTheme.colors
     val shouldShowThinkingBubble = uiState.isAwaitingResponse || uiState.isRunning
+
+    // Scroll state tracking: distinguish initial logical entry alignment vs in-session incremental scroll
+    var hasInitiallyAligned by remember(cascadeId) { mutableStateOf(false) }
+    var hasUserInteracted by remember(cascadeId) { mutableStateOf(false) }
+    var previousMessageCount by remember(cascadeId) { mutableIntStateOf(uiState.messages.size) }
+    var lastTrigger by remember(cascadeId) { mutableIntStateOf(scrollToBottomTrigger) }
+
+    val isNearBottom by remember {
+        derivedStateOf {
+            val layoutInfo = listState.layoutInfo
+            val visibleItems = layoutInfo.visibleItemsInfo
+            if (visibleItems.isEmpty()) true
+            else {
+                val lastVisibleIndex = visibleItems.last().index
+                lastVisibleIndex >= layoutInfo.totalItemsCount - 2
+            }
+        }
+    }
 
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val pullRefreshState = rememberPullToRefreshState()
@@ -113,7 +140,7 @@ fun ChatScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
 
     BackHandler {
-        viewModel.saveDraftFor(cascadeId, inputText, uiState.selectedImages.map { it.byteArray })
+        viewModel.handleBack(cascadeId, inputText)
         onNavigateBack()
     }
 
@@ -131,7 +158,17 @@ fun ChatScreen(
     }
 
     LaunchedEffect(cascadeId, isNewConversation) {
-        viewModel.initSession(cascadeId, initialTitle, isNewConversation)
+        hasInitiallyAligned = false
+        hasUserInteracted = false
+        previousMessageCount = 0
+        lastTrigger = scrollToBottomTrigger
+        viewModel.initSession(
+            cascadeId = cascadeId,
+            initialTitle = initialTitle,
+            isNewConversation = isNewConversation,
+            isUnread = isUnreadOnEntry,
+            conversationStatus = initialStatus
+        )
         // Automatically focus the input field and pop up soft keyboard ONLY on new conversation creation
         if (isNewConversation) {
             delay(250)
@@ -142,21 +179,118 @@ fun ChatScreen(
         }
     }
 
-    // Auto-scroll and bounce down to bottom on new messages, thinking state, or explicit triggers
-    LaunchedEffect(uiState.messages.size, shouldShowThinkingBubble, scrollToBottomTrigger) {
-        delay(25)
+    fun computeTargetPosition(): Int {
         val totalCount = listState.layoutInfo.totalItemsCount
-        if (totalCount > 0) {
-            listState.animateScrollToItem(totalCount - 1)
+        val shouldScrollToTurnStart = viewModel.shouldScrollToTurnStartOnEntry ||
+            isUnreadOnEntry ||
+            (initialStatus?.isError == true) ||
+            (initialStatus?.needsAction == true)
+
+        val hasHeader = if (uiState.hasMore) 1 else 0
+        val fallbackLastIndex = maxOf(0, uiState.messages.size + hasHeader)
+        val defaultBottomIndex = if (totalCount > 0) totalCount - 1 else fallbackLastIndex
+
+        if (shouldScrollToTurnStart) {
+            val targetId = viewModel.latestAgentMessageId ?: viewModel.latestTurnStartMessageId
+            val msgIndex = if (targetId != null) {
+                uiState.messages.indexOfFirst { it.id == targetId }
+            } else -1
+
+            return if (msgIndex >= 0) {
+                msgIndex + hasHeader
+            } else {
+                defaultBottomIndex
+            }
         }
-        delay(60)
-        val finalTotal = listState.layoutInfo.totalItemsCount
-        if (finalTotal > 0) {
-            listState.animateScrollToItem(finalTotal - 1)
+        return defaultBottomIndex
+    }
+
+    suspend fun performInitialAlignment() {
+        if (uiState.messages.isNotEmpty()) {
+            val targetIndex = computeTargetPosition()
+            if (targetIndex >= 0) {
+                listState.scrollToItem(targetIndex, 0)
+            }
+        }
+    }
+
+    // Phase 1: Instant alignment when messages become available (no animation to prevent slider bounce)
+    LaunchedEffect(uiState.messages.isNotEmpty(), cascadeId) {
+        if (uiState.messages.isNotEmpty() && !hasInitiallyAligned) {
+            performInitialAlignment()
+            delay(50)
+            if (!hasUserInteracted) {
+                performInitialAlignment()
+            }
+            delay(150)
+            if (!hasUserInteracted) {
+                performInitialAlignment()
+                hasInitiallyAligned = true
+            }
+        }
+    }
+
+    // Phase 2: Calibration after network sync completes (if user hasn't scrolled manually)
+    LaunchedEffect(uiState.isLoading) {
+        if (!uiState.isLoading && uiState.messages.isNotEmpty()) {
+            if (!hasUserInteracted) {
+                delay(30)
+                performInitialAlignment()
+                hasInitiallyAligned = true
+            }
+        }
+    }
+
+    // Phase 3: In-session incremental scrolling (sending new message, thinking bubble, or explicit triggers)
+    LaunchedEffect(uiState.messages.size, shouldShowThinkingBubble, scrollToBottomTrigger) {
+        val isExplicitTrigger = scrollToBottomTrigger != lastTrigger
+        lastTrigger = scrollToBottomTrigger
+
+        val msgSizeChanged = uiState.messages.size != previousMessageCount
+        previousMessageCount = uiState.messages.size
+
+        if (!hasInitiallyAligned) {
+            // Guard: Initial alignment handles entry positioning with instant scrollToItem
+            return@LaunchedEffect
+        }
+
+        if (isExplicitTrigger) {
+            hasUserInteracted = false
+            delay(20)
+            val total = listState.layoutInfo.totalItemsCount
+            if (total > 0) {
+                listState.animateScrollToItem(total - 1)
+            }
+            return@LaunchedEffect
+        }
+
+        if (msgSizeChanged || shouldShowThinkingBubble) {
+            if (isNearBottom || !hasUserInteracted) {
+                delay(20)
+                val total = listState.layoutInfo.totalItemsCount
+                if (total > 0) {
+                    listState.animateScrollToItem(total - 1)
+                }
+            }
+        }
+    }
+
+    // Auto-dismiss keyboard when scrolling through messages and track user manual scroll
+    LaunchedEffect(listState.isScrollInProgress) {
+        if (listState.isScrollInProgress) {
+            dismissKeyboard()
+            if (hasInitiallyAligned) {
+                if (isNearBottom) {
+                    hasUserInteracted = false
+                } else {
+                    hasUserInteracted = true
+                }
+            }
         }
     }
 
     val handleFileOrLinkClick: (String, String) -> Unit = { uri, title ->
+        dismissKeyboard()
         val clean = uri.trim()
         val lower = clean.lowercase()
         val rawName = title.ifEmpty { clean.substringAfterLast('/') }
@@ -235,7 +369,7 @@ fun ChatScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = {
-                        viewModel.saveDraftFor(cascadeId, inputText, uiState.selectedImages.map { it.byteArray })
+                        viewModel.handleBack(cascadeId, inputText)
                         onNavigateBack()
                     }) {
                         Icon(
@@ -375,7 +509,10 @@ fun ChatScreen(
                                     item {
                                         QueuedMessagesCard(
                                             items = uiState.queuedMessages,
-                                            onSendNow = { viewModel.sendQueuedMessageNow(it) },
+                                            onSendNow = {
+                                                dismissKeyboard()
+                                                viewModel.sendQueuedMessageNow(it)
+                                            },
                                             onEdit = { viewModel.editQueuedMessage(it) },
                                             onDelete = { viewModel.deleteQueuedMessage(it) },
                                             modifier = Modifier.padding(vertical = 4.dp)
@@ -388,20 +525,13 @@ fun ChatScreen(
                                     item {
                                         InteractionCard(
                                             interaction = interaction,
-                                            onApprove = { viewModel.approveInteraction() },
-                                            onReject = { viewModel.rejectInteraction() },
-                                            modifier = Modifier.padding(vertical = 6.dp)
-                                        )
-                                    }
-                                }
-
-                                // Proceed Banner (if ready)
-                                if (uiState.canProceed) {
-                                    item {
-                                        ProceedBanner(
-                                            onProceed = {
-                                                val planUri = uiState.proceedArtifactUri ?: "implementation_plan.md"
-                                                viewModel.openMarkdownViewer(planUri, "实施方案 (Implementation Plan)")
+                                            onApprove = {
+                                                dismissKeyboard()
+                                                viewModel.approveInteraction()
+                                            },
+                                            onReject = {
+                                                dismissKeyboard()
+                                                viewModel.rejectInteraction()
                                             },
                                             modifier = Modifier.padding(vertical = 6.dp)
                                         )
@@ -452,14 +582,20 @@ fun ChatScreen(
                             QuickActionChips(
                                 activeModel = uiState.activeModel,
                                 onToggleModel = { viewModel.toggleModel() },
-                                onAddImage = { photoPickerLauncher.launch("image/*") },
+                                onAddImage = {
+                                    dismissKeyboard()
+                                    photoPickerLauncher.launch("image/*")
+                                },
                                 onCommitAndPush = { viewModel.insertCommitAndPush() },
                                 showContinue = uiState.isLatestMessageError,
-                                onContinue = { viewModel.handleContinue() },
+                                onContinue = {
+                                    dismissKeyboard()
+                                    viewModel.handleContinue()
+                                },
                                 showProceed = uiState.canProceed,
                                 onProceed = {
-                                    val planUri = uiState.proceedArtifactUri ?: "implementation_plan.md"
-                                    viewModel.openMarkdownViewer(planUri, "实施方案 (Implementation Plan)")
+                                    dismissKeyboard()
+                                    viewModel.proceedArtifact()
                                 }
                             )
                         }
@@ -532,6 +668,14 @@ fun ChatScreen(
                                 ),
                                 cursorBrush = SolidColor(colors.accentIndigo),
                                 maxLines = 5,
+                                keyboardActions = KeyboardActions(
+                                    onSend = {
+                                        if (inputText.isNotBlank() || uiState.selectedImages.isNotEmpty()) {
+                                            dismissKeyboard()
+                                            viewModel.sendCurrentMessage()
+                                        }
+                                    }
+                                ),
                                 decorationBox = { innerTextField ->
                                     Box(
                                         modifier = Modifier
@@ -573,7 +717,10 @@ fun ChatScreen(
                                         .clip(CircleShape)
                                         .background(colors.surfaceVariant)
                                         .border(0.8.dp, colors.border, CircleShape)
-                                        .clickable { viewModel.cancelExecution() },
+                                        .clickable {
+                                            dismissKeyboard()
+                                            viewModel.cancelExecution()
+                                        },
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Box(
@@ -601,7 +748,10 @@ fun ChatScreen(
                                             if (!isEnabled) Modifier.border(0.8.dp, colors.border, CircleShape)
                                             else Modifier
                                         )
-                                        .clickable(enabled = isEnabled) { viewModel.sendCurrentMessage() },
+                                        .clickable(enabled = isEnabled) {
+                                            dismissKeyboard()
+                                            viewModel.sendCurrentMessage()
+                                        },
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(

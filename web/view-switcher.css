@@ -49,3 +49,28 @@
     display: none !important;
   }
 }
+
+/* Multigravity Brand Alignment for Desktop Workbench (iPad / Widescreen) */
+.multigravity-brand-logo {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  margin-right: 6px;
+  object-fit: contain;
+  flex-shrink: 0;
+  display: inline-block;
+  vertical-align: middle;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+}
+
+.multigravity-brand-logo:hover {
+  transform: scale(1.08);
+}
+
+.multigravity-brand-container {
+  display: inline-flex;
+  align-items: center;
+  user-select: none;
+}

@@ -189,10 +189,12 @@ class ConversationListViewModel(
             } else {
                 serverItem.title
             }
-            val resolvedStatus = if (local?.status == ConversationStatus.RUNNING && serverItem.status == ConversationStatus.IDLE) {
-                local.status
-            } else {
-                serverItem.status
+            val isRecentlyTriggeredLocally = local?.status == ConversationStatus.RUNNING &&
+                (System.currentTimeMillis() - (local.lastModifiedEpochMs)) in 0..6000L
+            val resolvedStatus = when {
+                isRecentlyTriggeredLocally && serverItem.status == ConversationStatus.IDLE -> ConversationStatus.RUNNING
+                serverItem.status != ConversationStatus.UNKNOWN -> serverItem.status
+                else -> local?.status ?: ConversationStatus.IDLE
             }
             val resolvedSteps = maxOf(serverItem.stepCount, local?.stepCount ?: 0)
             val resolvedWorkspace = if (serverItem.workspaceName == "Chat" && local?.workspaceName != "Chat" && !local?.workspaceName.isNullOrBlank()) {
@@ -441,6 +443,11 @@ class ConversationListViewModel(
     fun getWorkspaceName(cascadeId: String): String? {
         return rawConversations.find { it.id == cascadeId }?.workspaceName
             ?: prefs.getLocalDraftSession(cascadeId)?.let { if (it.project.isPureChat) "Chat" else it.project.name }
+    }
+
+    fun getDraftProject(cascadeId: String): ProjectItem? {
+        return rawConversations.find { it.id == cascadeId }?.draftProject
+            ?: prefs.getLocalDraftSession(cascadeId)?.project
     }
 
     fun unpair() {

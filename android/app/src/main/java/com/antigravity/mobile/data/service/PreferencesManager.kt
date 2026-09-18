@@ -287,14 +287,8 @@ class PreferencesManager(context: Context) {
     }
 
     fun saveLocalDraftSession(session: LocalDraftSession) {
-        val trimmed = session.draftText.trim()
-        val hasImages = hasDraftImages(session.id)
         val currentList = getLocalDraftSessions().filter { it.id != session.id }
-        if (trimmed.isEmpty() && !hasImages) {
-            saveLocalDraftSessions(currentList)
-        } else {
-            saveLocalDraftSessions(listOf(session) + currentList)
-        }
+        saveLocalDraftSessions(listOf(session) + currentList)
     }
 
     fun deleteLocalDraftSession(id: String) {

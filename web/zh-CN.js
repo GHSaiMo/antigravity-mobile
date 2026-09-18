@@ -363,9 +363,11 @@
     ["Select one of the three options. Agent settings and permissions can be further customized below.", "请选择其中一种预设模式。智能体设置与细化权限可在下方进一步自定义。"],
 
     // --- 应用偏好 (Application Settings) ---
-    ["Manage Antigravity app settings.", "管理 Antigravity 客户端应用设置。"],
+    ["Antigravity", "Multigravity"],
+    ["Google Antigravity", "Multigravity"],
+    ["Manage Antigravity app settings.", "管理 Multigravity 客户端应用设置。"],
     ["Prevent Sleep", "防止系统休眠"],
-    ["Prevent the computer from sleeping while the app is running.", "在 Antigravity 运行处理任务时阻止计算机进入休眠状态。"],
+    ["Prevent the computer from sleeping while the app is running.", "在 Multigravity 运行处理任务时阻止计算机进入休眠状态。"],
     ["Keep In Menu Bar", "常驻顶部菜单栏"],
     ["Keep the app accessible from the menu bar and running in the background when all windows are closed.", "关闭所有窗口后仍保持应用在后台运行，并可通过顶部菜单栏快速唤出。"],
     ["Remote Control", "远程控制与多端联动"],
@@ -378,8 +380,8 @@
     ["Advanced Settings", "高级开发者设置"],
     ["Enable Telemetry", "发送匿名诊断与性能数据"],
     ["Marketing Emails", "接收产品更新与资讯邮件"],
-    ["When toggled on, Antigravity collects usage data to help Google enhance performance and features.", "开启后，Antigravity 将收集匿名使用诊断数据，以帮助 Google 提升系统性能与体验。"],
-    ["Receive product updates, tips, and promotions from Google Antigravity via email.", "通过电子邮件接收来自 Google Antigravity 的产品更新速递、使用技巧与官方资讯。"],
+    ["When toggled on, Antigravity collects usage data to help Google enhance performance and features.", "开启后，Multigravity 将收集匿名使用诊断数据，以帮助提升系统性能与体验。"],
+    ["Receive product updates, tips, and promotions from Google Antigravity via email.", "通过电子邮件接收来自 Multigravity 的产品更新速递、使用技巧与官方资讯。"],
     ["Automatically prompt you to restart the app when a new update is available. When disabled, you can check for updates manually from the app menu.", "发现新版本时自动提示重启应用更新。关闭后可在菜单中手动检查更新。"],
 
     // --- 外观主题设置 (Appearance Settings) ---

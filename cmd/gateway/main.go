@@ -494,7 +494,7 @@ func buildRouter(
 		// Embedded web files (localization, switcher, mobile app files)
 		if path == "/zh-CN.js" || path == "/view-switcher.js" || path == "/view-switcher.css" ||
 			path == "/style.css" || path == "/app.js" || path == "/mermaid.min.js" ||
-			path == "/manifest.json" || path == "/sw.js" || strings.HasPrefix(path, "/icons/") {
+			path == "/manifest.json" || path == "/sw.js" || path == "/favicon.ico" || strings.HasPrefix(path, "/icons/") {
 			webHandler.ServeHTTP(w, r)
 			return
 		}

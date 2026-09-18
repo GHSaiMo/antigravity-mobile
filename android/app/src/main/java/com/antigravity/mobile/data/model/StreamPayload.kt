@@ -52,6 +52,12 @@ data class GatewayMessageItem(
     val isTools: Boolean
         get() = type.equals("tools", ignoreCase = true) || !toolNames.isNullOrEmpty() || (toolCount != null && toolCount > 0)
 
+    val isError: Boolean
+        get() = status.equals("error", ignoreCase = true) || type.equals("error", ignoreCase = true)
+
+    val isAgent: Boolean
+        get() = !isUser && !isTools && !isError
+
     val effectiveImageDataList: List<ByteArray>
         get() {
             if (imageDataList.isNotEmpty()) return imageDataList

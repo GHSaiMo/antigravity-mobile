@@ -252,6 +252,32 @@ html, body {
   display: none;
 }
 
+/* Nav Brand Header (List View) */
+.nav-brand-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  pointer-events: auto;
+}
+
+.nav-brand-logo {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  object-fit: contain;
+  flex-shrink: 0;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+
+.nav-brand-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--ios-label);
+  letter-spacing: -0.2px;
+}
+
 /* Content Container */
 .content-container {
   flex: 1;
@@ -322,6 +348,21 @@ html, body {
   letter-spacing: 0.37px;
   line-height: 41px;
   color: var(--ios-label);
+}
+
+.large-title-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.large-title-logo {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  object-fit: contain;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
 }
 
 .ios-search-bar {

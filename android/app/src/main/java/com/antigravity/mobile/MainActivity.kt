@@ -150,13 +150,22 @@ class MainActivity : ComponentActivity() {
                     composable("conversations") {
                         ConversationListScreen(
                             viewModel = conversationListViewModel,
-                            onSelectConversation = { cascadeId, title, isNew ->
+                            onSelectConversation = { cascadeId, title, isNew, isUnread, status ->
                                 conversationListViewModel.notifySessionFocus(cascadeId)
-                                conversationListViewModel.markConversationAsRead(cascadeId)
                                 val wsName = conversationListViewModel.getWorkspaceName(cascadeId)
-                                chatViewModel.prepareSession(cascadeId, title, isNew, wsName)
+                                val draftProject = conversationListViewModel.getDraftProject(cascadeId)
+                                chatViewModel.prepareSession(
+                                    cascadeId = cascadeId,
+                                    initialTitle = title,
+                                    isNewConversation = isNew,
+                                    workspaceName = wsName,
+                                    isUnread = isUnread,
+                                    conversationStatus = status,
+                                    draftProject = draftProject
+                                )
+                                conversationListViewModel.markConversationAsRead(cascadeId)
                                 val encodedTitle = URLEncoder.encode(title, "UTF-8")
-                                navController.navigate("chat/$cascadeId/$encodedTitle?isNew=$isNew")
+                                navController.navigate("chat/$cascadeId/$encodedTitle?isNew=$isNew&isUnread=$isUnread&status=${status.name}")
                             },
                             onNavigateToPair = {
                                 conversationListViewModel.unpair()
@@ -168,25 +177,40 @@ class MainActivity : ComponentActivity() {
                     }
 
                     composable(
-                        route = "chat/{cascadeId}/{title}?isNew={isNew}",
+                        route = "chat/{cascadeId}/{title}?isNew={isNew}&isUnread={isUnread}&status={status}",
                         arguments = listOf(
                             navArgument("cascadeId") { type = NavType.StringType },
                             navArgument("title") { type = NavType.StringType },
                             navArgument("isNew") {
                                 type = NavType.BoolType
                                 defaultValue = false
+                            },
+                            navArgument("isUnread") {
+                                type = NavType.BoolType
+                                defaultValue = false
+                            },
+                            navArgument("status") {
+                                type = NavType.StringType
+                                defaultValue = ""
                             }
                         )
                     ) { backStackEntry ->
                         val cascadeId = backStackEntry.arguments?.getString("cascadeId") ?: ""
                         val rawTitle = backStackEntry.arguments?.getString("title") ?: ""
                         val isNew = backStackEntry.arguments?.getBoolean("isNew") ?: false
+                        val isUnread = backStackEntry.arguments?.getBoolean("isUnread") ?: false
+                        val statusRaw = backStackEntry.arguments?.getString("status") ?: ""
+                        val status = try {
+                            if (statusRaw.isNotBlank()) com.antigravity.mobile.data.model.ConversationStatus.valueOf(statusRaw) else null
+                        } catch (_: Exception) { null }
                         val title = URLDecoder.decode(rawTitle, "UTF-8")
 
                         ChatScreen(
                             cascadeId = cascadeId,
                             initialTitle = title,
                             isNewConversation = isNew,
+                            isUnreadOnEntry = isUnread,
+                            initialStatus = status,
                             viewModel = chatViewModel,
                             onNavigateBack = {
                                 chatViewModel.currentConversationItem()?.let { item ->

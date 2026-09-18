@@ -154,7 +154,7 @@ fun EasterEggDialog(
     }
 
     Dialog(
-        onDismissRequest = dismissWithAnimation,
+        onDismissRequest = { /* Absorb clicks so rapid taps don't close early */ },
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
             decorFitsSystemWindows = false
@@ -171,7 +171,7 @@ fun EasterEggDialog(
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
-                    onClick = dismissWithAnimation
+                    onClick = { /* Absorb clicks so taps exceeding 10 do not dismiss early */ }
                 ),
             contentAlignment = Alignment.Center
         ) {
@@ -234,11 +234,6 @@ fun EasterEggDialog(
                     .padding(32.dp)
                     .scale(scaleAnim.value)
                     .alpha(alphaAnim.value)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = dismissWithAnimation
-                    )
             ) {
                 Column(
                     modifier = Modifier.padding(horizontal = 36.dp, vertical = 28.dp),

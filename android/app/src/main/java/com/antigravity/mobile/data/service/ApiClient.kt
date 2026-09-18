@@ -565,22 +565,42 @@ class ApiClient(private val prefs: PreferencesManager) {
     }
 
     /**
-     * Proceed with artifact plan execution
+     * Proceed with artifact plan execution (aligned 1:1 with iOS SendUserCascadeMessage protocol)
      */
-    suspend fun proceedArtifact(cascadeId: String, artifactUri: String): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun proceedArtifact(
+        cascadeId: String,
+        artifactUri: String,
+        model: String? = null
+    ): Result<Unit> = withContext(Dispatchers.IO) {
         val baseUrl = prefs.gatewayBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
         val url = "$baseUrl/api/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage"
 
+        val comment = buildJsonObject {
+            put("artifactUri", artifactUri)
+            put("scope", buildJsonObject {
+                put("case", "fullFile")
+                put("value", buildJsonObject {})
+            })
+            put("approvalStatus", 1)
+            put("comment", "")
+        }
+
         val payload = buildJsonObject {
             put("cascadeId", cascadeId)
-            put("text", "Proceed with implementation plan.")
-            put("media", JsonArray(emptyList()))
+            put("items", JsonArray(emptyList()))
+            put("artifactComments", buildJsonArray { add(comment) })
+            if (!model.isNullOrBlank()) {
+                put("model", model)
+            }
         }
 
         try {
-            val req = buildAuthorizedRequest(url)
+            val reqBuilder = buildAuthorizedRequest(url)
                 .post(payload.toString().toRequestBody(jsonMediaType))
-                .build()
+            if (!model.isNullOrBlank()) {
+                reqBuilder.addHeader("X-Antigravity-Model", model)
+            }
+            val req = reqBuilder.build()
 
             client.newCall(req).execute().use { response ->
                 if (response.isSuccessful) {

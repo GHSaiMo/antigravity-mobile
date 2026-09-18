@@ -104,6 +104,49 @@ class ChatViewModel(
     private val _scrollToBottomTrigger = MutableStateFlow(0)
     val scrollToBottomTrigger: StateFlow<Int> = _scrollToBottomTrigger.asStateFlow()
 
+    var isUnreadOnEntry: Boolean = false
+        private set
+
+    var initialConversationStatus: ConversationStatus? = null
+        private set
+
+    var currentDraftProject: ProjectItem? = null
+        private set
+
+    val latestAgentMessageId: String?
+        get() {
+            val msgs = _uiState.value.messages
+            val lastUserIdx = msgs.indexOfLast { it.isUser }
+            if (lastUserIdx >= 0) {
+                val subsequent = msgs.subList(lastUserIdx + 1, msgs.size)
+                return subsequent.firstOrNull { it.isAgent }?.id
+            }
+            return msgs.firstOrNull { it.isAgent }?.id
+        }
+
+    val latestTurnStartMessageId: String?
+        get() {
+            val msgs = _uiState.value.messages
+            val lastUserIdx = msgs.indexOfLast { it.isUser }
+            if (lastUserIdx >= 0) {
+                val subsequent = msgs.subList(lastUserIdx + 1, msgs.size)
+                return subsequent.firstOrNull()?.id
+            }
+            return msgs.firstOrNull { !it.isUser }?.id ?: msgs.firstOrNull()?.id
+        }
+
+    val shouldScrollToTurnStartOnEntry: Boolean
+        get() {
+            val state = _uiState.value
+            val isActivelyRunning = state.isRunning || state.isAwaitingResponse || state.runningTasks.isNotEmpty() || (initialConversationStatus?.isRunning == true)
+            if (isActivelyRunning) return false
+            if (state.messages.lastOrNull()?.isUser == true) return false
+            if (latestAgentMessageId == null && latestTurnStartMessageId == null) return false
+            val hasErrorState = state.isLatestMessageError || (initialConversationStatus?.isError == true)
+            val hasActionState = state.canProceed || state.pendingInteraction != null || (initialConversationStatus?.needsAction == true)
+            return isUnreadOnEntry || hasErrorState || hasActionState
+        }
+
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
@@ -118,6 +161,12 @@ class ChatViewModel(
             return id.removePrefix("step-").toIntOrNull()
         }
         return null
+    }
+
+    private fun isStatusRunning(status: String?): Boolean {
+        if (status.isNullOrBlank()) return false
+        return status.equals("CASCADE_RUN_STATUS_RUNNING", ignoreCase = true) ||
+               status.equals("RUNNING", ignoreCase = true)
     }
 
     private fun sanitizeMessageOrder(list: List<GatewayMessageItem>): List<GatewayMessageItem> {
@@ -255,7 +304,10 @@ class ChatViewModel(
             val draftText = prefs?.getDraftText(state.cascadeId).orEmpty().ifBlank { _inputText.value }
             val hasImages = prefs?.hasDraftImages(state.cascadeId) == true || state.selectedImages.isNotEmpty()
             if (draftText.isBlank() && !hasImages) return null
-            return draft?.copy(draftText = draftText)?.toConversationItem(hasImages)
+            val sessionToUse = draft ?: currentDraftProject?.let {
+                LocalDraftSession(id = state.cascadeId, project = it, draftText = draftText)
+            }
+            return sessionToUse?.copy(draftText = draftText)?.toConversationItem(hasImages)
         }
         val status = when {
             state.pendingInteraction != null || state.canProceed -> ConversationStatus.ACTION
@@ -302,6 +354,7 @@ class ChatViewModel(
         wsJob?.cancel()
         wsJob = null
         wsClient.disconnect()
+        currentDraftProject = null
         _inputText.value = ""
         _uiState.value = ChatUiState()
     }
@@ -310,8 +363,14 @@ class ChatViewModel(
         cascadeId: String,
         initialTitle: String? = null,
         isNewConversation: Boolean = false,
-        workspaceName: String? = null
+        workspaceName: String? = null,
+        isUnread: Boolean = false,
+        conversationStatus: ConversationStatus? = null,
+        draftProject: ProjectItem? = null
     ) {
+        this.isUnreadOnEntry = isUnread
+        this.initialConversationStatus = conversationStatus
+
         fetchJob?.cancel()
         fetchJob = null
         wsJob?.cancel()
@@ -319,9 +378,11 @@ class ChatViewModel(
         wsClient.disconnect()
 
         val isDraft = cascadeId.startsWith("local_draft_")
-        val draftProject = if (isDraft) prefs?.getLocalDraftSession(cascadeId)?.project else null
+        val resolvedDraftProject = draftProject ?: (if (isDraft) prefs?.getLocalDraftSession(cascadeId)?.project else null)
+        this.currentDraftProject = resolvedDraftProject
+
         val resolvedWs = workspaceName?.takeIf { it.isNotBlank() }
-            ?: (if (draftProject?.isPureChat == true) "Chat" else draftProject?.name.orEmpty())
+            ?: (if (resolvedDraftProject?.isPureChat == true) "Chat" else resolvedDraftProject?.name.orEmpty())
         val defaultTitle = if (isDraft) (if (resolvedWs.isNotBlank() && resolvedWs != "Chat") resolvedWs else "新对话") else "会话 $cascadeId"
 
         // Restore draft text and images immediately
@@ -409,13 +470,24 @@ class ChatViewModel(
         cascadeId: String,
         initialTitle: String? = null,
         isNewConversation: Boolean = false,
-        workspaceName: String? = null
+        workspaceName: String? = null,
+        isUnread: Boolean = false,
+        conversationStatus: ConversationStatus? = null,
+        draftProject: ProjectItem? = null
     ) {
         val isDifferentSession = _uiState.value.cascadeId != cascadeId
+        if (isDifferentSession) {
+            this.isUnreadOnEntry = isUnread
+            this.initialConversationStatus = conversationStatus
+        } else if (isUnread) {
+            this.isUnreadOnEntry = true
+        }
         val isDraft = cascadeId.startsWith("local_draft_")
+        val resolvedDraftProject = draftProject ?: this.currentDraftProject ?: (if (isDraft) prefs?.getLocalDraftSession(cascadeId)?.project else null)
+        this.currentDraftProject = resolvedDraftProject
+
         val shouldLoad = !isNewConversation && !isDraft
-        val draftProject = if (isDraft) prefs?.getLocalDraftSession(cascadeId)?.project else null
-        val fallbackWs = (if (draftProject?.isPureChat == true) "Chat" else draftProject?.name) ?: _uiState.value.workspaceName
+        val fallbackWs = (if (resolvedDraftProject?.isPureChat == true) "Chat" else resolvedDraftProject?.name) ?: _uiState.value.workspaceName
         val resolvedWs = workspaceName?.takeIf { it.isNotBlank() } ?: fallbackWs
         val defaultTitle = if (isDraft) (if (resolvedWs.isNotBlank() && resolvedWs != "Chat") resolvedWs else "新对话") else "会话 $cascadeId"
 
@@ -579,7 +651,7 @@ class ChatViewModel(
                             messages = mergedMsgs,
                             runningTasks = payload.runningTasks ?: emptyList(),
                             queuedMessages = payload.queuedMessages ?: emptyList(),
-                            isRunning = payload.status.equals("RUNNING", ignoreCase = true),
+                            isRunning = isStatusRunning(payload.status),
                             canProceed = payload.canProceed,
                             proceedArtifactUri = payload.proceedArtifactUri,
                             pendingInteraction = payload.pendingInteraction,
@@ -621,7 +693,14 @@ class ChatViewModel(
     fun retryLoadMessages() {
         val cascadeId = _uiState.value.cascadeId
         if (cascadeId.isBlank()) return
-        initSession(cascadeId, _uiState.value.title, _uiState.value.isNewConversation)
+        initSession(
+            cascadeId = cascadeId,
+            initialTitle = _uiState.value.title,
+            isNewConversation = _uiState.value.isNewConversation,
+            workspaceName = _uiState.value.workspaceName,
+            isUnread = isUnreadOnEntry,
+            conversationStatus = initialConversationStatus
+        )
     }
 
     private fun ensureWebSocketObserving() {
@@ -663,7 +742,7 @@ class ChatViewModel(
                         }
                     }
 
-                    val isRunning = payload.status.equals("RUNNING", ignoreCase = true) || awaiting
+                    val isRunning = isStatusRunning(payload.status) || awaiting
                     val wasRunning = _uiState.value.isRunning
                     val previousMsgCount = _uiState.value.messages.size
                     val wsFromPayload = payload.workspaceUri?.trimEnd('/')?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
@@ -768,7 +847,7 @@ class ChatViewModel(
                                 messages = msgs,
                                 runningTasks = payload.runningTasks ?: emptyList(),
                                 queuedMessages = payload.queuedMessages ?: emptyList(),
-                                isRunning = payload.status.equals("RUNNING", ignoreCase = true),
+                                isRunning = isStatusRunning(payload.status),
                                 isLatestMessageError = isError,
                                 hasMore = hasMore,
                                 nextOffset = nextOffset,
@@ -928,6 +1007,16 @@ class ChatViewModel(
                 val cid = _uiState.value.cascadeId
                 if (cid.isNotBlank()) {
                     prefs?.saveDraftImages(cid, updatedImages.map { it.byteArray })
+                    if (cid.startsWith("local_draft_")) {
+                        val existing = prefs?.getLocalDraftSession(cid)
+                        val project = currentDraftProject ?: existing?.project
+                        if (project != null) {
+                            val session = existing ?: LocalDraftSession(id = cid, project = project)
+                            session.draftText = _inputText.value
+                            session.updatedAtEpochMs = System.currentTimeMillis()
+                            prefs?.saveLocalDraftSession(session)
+                        }
+                    }
                 }
             }
         }
@@ -941,6 +1030,16 @@ class ChatViewModel(
             val cid = _uiState.value.cascadeId
             if (cid.isNotBlank()) {
                 prefs?.saveDraftImages(cid, current.map { it.byteArray })
+                if (cid.startsWith("local_draft_")) {
+                    val existing = prefs?.getLocalDraftSession(cid)
+                    val project = currentDraftProject ?: existing?.project
+                    if (project != null) {
+                        val session = existing ?: LocalDraftSession(id = cid, project = project)
+                        session.draftText = _inputText.value
+                        session.updatedAtEpochMs = System.currentTimeMillis()
+                        prefs?.saveLocalDraftSession(session)
+                    }
+                }
             }
         }
     }
@@ -987,8 +1086,10 @@ class ChatViewModel(
         val images = _uiState.value.selectedImages
         if (text.isEmpty() && images.isEmpty()) return
         val cid = _uiState.value.cascadeId
-        prefs?.clearDraftText(cid)
-        prefs?.clearDraftImages(cid)
+        if (!cid.startsWith("local_draft_")) {
+            prefs?.clearDraftText(cid)
+            prefs?.clearDraftImages(cid)
+        }
         _inputText.value = ""
         _uiState.value = _uiState.value.copy(selectedImages = emptyList())
         sendMessage(text, images)
@@ -1007,11 +1108,45 @@ class ChatViewModel(
                     session.draftText = text
                     session.updatedAtEpochMs = System.currentTimeMillis()
                     p.saveLocalDraftSession(session)
+                } else {
+                    val project = currentDraftProject
+                    if (project != null) {
+                        val newSession = LocalDraftSession(
+                            id = targetCid,
+                            project = project,
+                            draftText = text,
+                            createdAtEpochMs = System.currentTimeMillis(),
+                            updatedAtEpochMs = System.currentTimeMillis()
+                        )
+                        p.saveLocalDraftSession(newSession)
+                    }
                 }
             }
         }
         if (!targetCid.startsWith("local_draft_") && targetCid == _uiState.value.cascadeId) {
             saveSessionToCache()
+        }
+    }
+
+    fun deleteLocalDraftSession(cascadeId: String) {
+        prefs?.deleteLocalDraftSession(cascadeId)
+        prefs?.clearDraftText(cascadeId)
+        prefs?.clearDraftImages(cascadeId)
+        if (_uiState.value.cascadeId == cascadeId) {
+            currentDraftProject = null
+        }
+    }
+
+    fun hasDraftImages(cascadeId: String): Boolean {
+        return prefs?.hasDraftImages(cascadeId) == true
+    }
+
+    fun handleBack(cascadeId: String, inputText: String) {
+        val hasImages = _uiState.value.selectedImages.isNotEmpty() || (prefs?.hasDraftImages(cascadeId) == true)
+        if (cascadeId.startsWith("local_draft_") && inputText.isBlank() && !hasImages) {
+            deleteLocalDraftSession(cascadeId)
+        } else {
+            saveDraftFor(cascadeId, inputText, _uiState.value.selectedImages.map { it.byteArray })
         }
     }
 
@@ -1050,9 +1185,9 @@ class ChatViewModel(
 
         if (cascadeId.startsWith("local_draft_")) {
             val draftSession = prefs?.getLocalDraftSession(cascadeId)
-            val project = draftSession?.project ?: ProjectItem.PURE_CHAT
+            val project = currentDraftProject ?: draftSession?.project ?: ProjectItem.PURE_CHAT
             val isPure = project.isPureChat
-            val pid = if (isPure) "outside-of-project" else project.rawId
+            val pid = if (isPure) "outside-of-project" else (project.rawId ?: (if (project.id != project.uri) project.id else null))
             val wsUri = if (isPure) "" else project.uri
             val initialPrompt = if (attachments.isEmpty()) text else ""
 
@@ -1065,6 +1200,7 @@ class ChatViewModel(
                 )
                 createRes.onSuccess { newCascadeId ->
                     val oldDraftId = cascadeId
+                    currentDraftProject = null
                     prefs?.let { p ->
                         p.deleteLocalDraftSession(oldDraftId)
                         p.clearDraftText(oldDraftId)
@@ -1136,7 +1272,7 @@ class ChatViewModel(
                                 messages = if (msgs.isNotEmpty()) msgs else _uiState.value.messages,
                                 runningTasks = payload.runningTasks ?: emptyList(),
                                 queuedMessages = payload.queuedMessages ?: emptyList(),
-                                isRunning = payload.status.equals("RUNNING", ignoreCase = true),
+                                isRunning = isStatusRunning(payload.status),
                                 canProceed = payload.canProceed,
                                 proceedArtifactUri = payload.proceedArtifactUri,
                                 pendingInteraction = payload.pendingInteraction,
@@ -1258,42 +1394,85 @@ class ChatViewModel(
 
     fun proceedArtifact() {
         val cascadeId = _uiState.value.cascadeId
-        val uri = _uiState.value.proceedArtifactUri ?: ""
+        if (cascadeId.isBlank()) return
+        val uri = _uiState.value.proceedArtifactUri ?: "implementation_plan.md"
+        val model = _uiState.value.activeModel
+
+        _uiState.value = _uiState.value.copy(
+            canProceed = false,
+            proceedArtifactUri = null,
+            isRunning = true,
+            isAwaitingResponse = true,
+            isLatestMessageError = false
+        )
+        saveSessionToCache()
+        notifyConversationUpdated()
+        ensureWebSocketObserving()
+
         viewModelScope.launch {
-            apiClient.proceedArtifact(cascadeId, uri)
-            _uiState.value = _uiState.value.copy(canProceed = false)
-            saveSessionToCache()
+            val result = apiClient.proceedArtifact(cascadeId, uri, model)
+            if (result.isFailure) {
+                _uiState.value = _uiState.value.copy(
+                    canProceed = true,
+                    proceedArtifactUri = uri,
+                    isRunning = false,
+                    isAwaitingResponse = false,
+                    isLatestMessageError = true
+                )
+                saveSessionToCache()
+                notifyConversationUpdated()
+            } else {
+                delay(250)
+                loadMessages(isBackgroundPoll = true)
+            }
         }
     }
 
     fun openMarkdownViewer(uri: String, title: String) {
-        val rawFilename = uri.substringAfterLast('/')
+        val isPlan = uri.contains("implementation_plan", ignoreCase = true) || title.contains("implementation_plan", ignoreCase = true)
+        val targetUri = if (isPlan && !_uiState.value.proceedArtifactUri.isNullOrBlank()) {
+            _uiState.value.proceedArtifactUri!!
+        } else {
+            uri
+        }
+
+        val rawFilename = targetUri.substringAfterLast('/')
         val decodedFilename = try { URLDecoder.decode(rawFilename, "UTF-8") } catch (_: Exception) { rawFilename }
         val decodedTitle = try { URLDecoder.decode(title, "UTF-8") } catch (_: Exception) { title }
-        val initialTitle = if (decodedTitle.isNotBlank()) decodedTitle else decodedFilename
+        val initialTitle = when {
+            isPlan -> "Implementation Plan"
+            decodedTitle.isNotBlank() -> decodedTitle
+            else -> decodedFilename
+        }
+
+        val isProceedActive = _uiState.value.canProceed && isPlan
 
         _uiState.value = _uiState.value.copy(
             markdownViewerData = MarkdownFileViewerData(
-                uri = uri,
+                uri = targetUri,
                 title = initialTitle,
                 filename = decodedFilename,
                 content = "",
                 summary = null,
-                canProceed = _uiState.value.canProceed,
+                canProceed = isProceedActive,
                 isLoading = true
             )
         )
 
         viewModelScope.launch {
-            val res = apiClient.fetchFileContent(uri, _uiState.value.cascadeId)
+            val res = apiClient.fetchFileContent(targetUri, _uiState.value.cascadeId)
             res.onSuccess { resp ->
                 val serverFilename = try { URLDecoder.decode(resp.filename, "UTF-8") } catch (_: Exception) { resp.filename }
                 val resolvedFilename = serverFilename.ifBlank { decodedFilename }
-                val resolvedTitle = if (initialTitle.isBlank() || initialTitle == rawFilename || initialTitle.contains("%")) {
+                val resolvedTitle = if (isPlan) {
+                    "Implementation Plan"
+                } else if (initialTitle.isBlank() || initialTitle == rawFilename || initialTitle.contains("%")) {
                     resolvedFilename
                 } else {
                     initialTitle
                 }
+
+                val canProceedFromResp = isProceedActive || (resp.requestFeedback == true && _uiState.value.canProceed)
 
                 _uiState.value = _uiState.value.copy(
                     markdownViewerData = _uiState.value.markdownViewerData?.copy(
@@ -1301,6 +1480,7 @@ class ChatViewModel(
                         filename = resolvedFilename,
                         content = resp.content,
                         summary = resp.summary,
+                        canProceed = canProceedFromResp,
                         isLoading = false
                     )
                 )

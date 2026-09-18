@@ -11,7 +11,7 @@ import (
 	"sync"
 )
 
-//go:embed index.html style.css app.js manifest.json sw.js icons mermaid.min.js zh-CN.js view-switcher.js view-switcher.css
+//go:embed index.html style.css app.js manifest.json sw.js icons mermaid.min.js zh-CN.js view-switcher.js view-switcher.css favicon.ico
 var staticFiles embed.FS
 
 var gzipPool = sync.Pool{

@@ -350,6 +350,7 @@ function renderRoute() {
   const settingsBtn = document.getElementById("btn-settings");
   const newBtn = document.getElementById("btn-new");
   const backBtn = document.getElementById("btn-back");
+  const brandHeader = document.getElementById("nav-brand-header");
   const inlineTitle = document.getElementById("nav-inline-title");
   const titleText = document.getElementById("chat-title-text");
   const wsText = document.getElementById("chat-workspace-text");
@@ -379,6 +380,7 @@ function renderRoute() {
     if (settingsBtn) settingsBtn.classList.add("hidden");
     if (newBtn) newBtn.classList.add("hidden");
     if (backBtn) backBtn.classList.remove("hidden");
+    if (brandHeader) brandHeader.classList.add("hidden");
     if (inlineTitle) inlineTitle.classList.remove("hidden");
 
     // Title resolution
@@ -434,6 +436,7 @@ function renderRoute() {
     if (settingsBtn) settingsBtn.classList.add("hidden");
     if (newBtn) newBtn.classList.add("hidden");
     if (backBtn) backBtn.classList.remove("hidden");
+    if (brandHeader) brandHeader.classList.add("hidden");
     if (inlineTitle) inlineTitle.classList.remove("hidden");
 
     if (titleText) titleText.textContent = activeDraftSession.isPure ? "新对话" : activeDraftSession.name;
@@ -479,6 +482,7 @@ function renderRoute() {
     if (settingsBtn) settingsBtn.classList.remove("hidden");
     if (newBtn) newBtn.classList.remove("hidden");
     if (backBtn) backBtn.classList.add("hidden");
+    if (brandHeader) brandHeader.classList.remove("hidden");
     if (inlineTitle) inlineTitle.classList.add("hidden");
 
     loadConversations();

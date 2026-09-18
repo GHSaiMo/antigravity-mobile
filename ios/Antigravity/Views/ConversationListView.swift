@@ -29,6 +29,7 @@ public struct ConversationListView: View {
     }
     
     private func handleEasterEggTap() {
+        guard !showEasterEgg else { return }
         let now = Date()
         if now.timeIntervalSince(lastEasterEggTapTime) > 2.0 {
             easterEggTapCount = 1
@@ -65,16 +66,9 @@ public struct ConversationListView: View {
                     }
                     ToolbarItem(placement: .principal) {
                         Button(action: handleEasterEggTap) {
-                            HStack(spacing: 8) {
-                                Image("AppLogo")
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fit)
-                                    .frame(width: 24, height: 24)
-                                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                                Text("Multigravity")
-                                    .font(.system(size: 18, weight: .bold))
-                                    .foregroundColor(.primary)
-                            }
+                            Text("Multigravity")
+                                .font(.system(size: 18, weight: .bold))
+                                .foregroundColor(.primary)
                         }
                         .buttonStyle(.plain)
                     }

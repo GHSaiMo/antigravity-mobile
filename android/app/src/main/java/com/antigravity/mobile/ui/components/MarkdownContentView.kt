@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -918,38 +919,216 @@ private fun BulletListBlockView(
     }
 }
 
+sealed class PlanSegment {
+    abstract val id: String
+    data class Text(val content: String, override val id: String) : PlanSegment()
+    data class PlanButton(val title: String, val uri: String, override val id: String) : PlanSegment()
+}
+
+private val PLAN_REGEX = Regex(
+    """(?:(?<!\!)\[([^\]]+)\]\(([^)]+)\)|(?<![a-zA-Z0-9_\-./])((?:implementation_plan|walkthrough)\.md)(?![a-zA-Z0-9_\-./]))""",
+    RegexOption.IGNORE_CASE
+)
+
+fun parsePlanSegments(rawText: String): List<PlanSegment> {
+    if (!rawText.contains("implementation_plan", ignoreCase = true) &&
+        !rawText.contains("walkthrough", ignoreCase = true)
+    ) {
+        return listOf(PlanSegment.Text(rawText, "text-0"))
+    }
+
+    val allMatches = PLAN_REGEX.findAll(rawText).toList()
+    val matches = allMatches.filter { match ->
+        val g1 = match.groups[1]?.value?.lowercase()
+        val g2 = match.groups[2]?.value?.lowercase()
+        val g3 = match.groups[3]?.value
+        if (g1 != null && g2 != null) {
+            g1.contains("implementation_plan") || g1.contains("walkthrough") ||
+            g2.contains("implementation_plan") || g2.contains("walkthrough")
+        } else {
+            g3 != null
+        }
+    }
+
+    if (matches.isEmpty()) {
+        return listOf(PlanSegment.Text(rawText, "text-0"))
+    }
+
+    val segments = mutableListOf<PlanSegment>()
+    var lastEnd = 0
+    var segIdx = 0
+
+    for ((idx, match) in matches.withIndex()) {
+        val range = match.range
+        var prefix = ""
+        if (range.first > lastEnd) {
+            prefix = rawText.substring(lastEnd, range.first)
+        }
+
+        val nextIndex = range.last + 1
+        val suffixLength = if (idx + 1 < matches.size) {
+            matches[idx + 1].range.first - nextIndex
+        } else {
+            rawText.length - nextIndex
+        }
+        val suffixPreview = if (suffixLength > 0 && nextIndex + suffixLength <= rawText.length) {
+            rawText.substring(nextIndex, nextIndex + suffixLength)
+        } else {
+            ""
+        }
+
+        var strippedLength = 0
+        if (prefix.endsWith("**") && suffixPreview.startsWith("**")) {
+            prefix = prefix.dropLast(2)
+            strippedLength = 2
+        } else if (prefix.endsWith("*") && suffixPreview.startsWith("*")) {
+            prefix = prefix.dropLast(1)
+            strippedLength = 1
+        } else if (prefix.endsWith("__") && suffixPreview.startsWith("__")) {
+            prefix = prefix.dropLast(2)
+            strippedLength = 2
+        } else if (prefix.endsWith("`") && suffixPreview.startsWith("`")) {
+            prefix = prefix.dropLast(1)
+            strippedLength = 1
+        }
+
+        val trimmedPrefix = prefix.trim()
+        if (trimmedPrefix.isNotEmpty()) {
+            segments.add(PlanSegment.Text(prefix, "seg-${segIdx++}"))
+        }
+
+        val g1 = match.groups[1]?.value
+        val g2 = match.groups[2]?.value
+        val g3 = match.groups[3]?.value
+
+        val (title, uri) = when {
+            g1 != null && g2 != null -> g1.trim() to g2.trim()
+            g3 != null -> g3.trim() to g3.trim()
+            else -> "implementation_plan.md" to "implementation_plan.md"
+        }
+
+        segments.add(PlanSegment.PlanButton(title, uri, "seg-${segIdx++}"))
+        lastEnd = range.last + 1 + strippedLength
+    }
+
+    if (lastEnd < rawText.length) {
+        val suffix = rawText.substring(lastEnd)
+        val punctChars = setOf('。', '.', '，', ',', '！', '!', '？', '?', '；', ';', '：', ':')
+        val trimmedSuffix = suffix.trim()
+        val hasMeaningfulContent = trimmedSuffix.any { it !in punctChars }
+        if (hasMeaningfulContent) {
+            segments.add(PlanSegment.Text(suffix, "seg-${segIdx++}"))
+        }
+    }
+
+    return segments
+}
+
+@Composable
+fun PlanButtonView(
+    title: String,
+    uri: String,
+    colors: AppColors,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val haptic = com.antigravity.mobile.ui.util.rememberHaptic()
+    val iconName = remember(uri, title) {
+        FileIconResolver.resolveIcon(uri) ?: FileIconResolver.resolveIcon(title)
+    }
+
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(colors.accentBlue.copy(alpha = 0.12f))
+            .border(1.dp, colors.accentBlue.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+            .clickable {
+                haptic.light()
+                onClick()
+            }
+            .padding(horizontal = 9.dp, vertical = 4.5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        if (iconName != null) {
+            FileIconSvgView(
+                iconName = iconName,
+                modifier = Modifier.size(14.dp)
+            )
+        } else {
+            Icon(
+                imageVector = Icons.Default.Description,
+                contentDescription = null,
+                tint = colors.accentBlue,
+                modifier = Modifier.size(14.dp)
+            )
+        }
+
+        Text(
+            text = title,
+            color = colors.accentBlue,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            fontFamily = FontFamily.Monospace,
+            maxLines = 1
+        )
+
+        Icon(
+            imageVector = Icons.Default.OpenInNew,
+            contentDescription = null,
+            tint = colors.accentBlue.copy(alpha = 0.65f),
+            modifier = Modifier.size(11.dp)
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ParagraphBlockView(
     text: String,
     colors: AppColors,
     onPlanClick: ((String, String) -> Unit)?
 ) {
-    // If text references implementation_plan.md or walkthrough.md, provide standalone plan pill button
-    val hasPlanRef = text.contains("implementation_plan.md", ignoreCase = true) ||
-            text.contains("walkthrough.md", ignoreCase = true)
+    val cleanText = replaceHtmlBreaks(text).trim()
+    val segments = remember(cleanText) { parsePlanSegments(cleanText) }
 
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    if (segments.size <= 1 && segments.firstOrNull() !is PlanSegment.PlanButton) {
         RichTextRenderer(
-            text = text,
+            text = cleanText,
             colors = colors,
             baseFontSize = 15.sp,
             onPlanClick = onPlanClick
         )
-
-        if (hasPlanRef && onPlanClick != null) {
-            val planFile = if (text.contains("walkthrough.md", ignoreCase = true)) {
-                "walkthrough.md"
-            } else {
-                "implementation_plan.md"
+    } else {
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            segments.forEach { segment ->
+                when (segment) {
+                    is PlanSegment.Text -> {
+                        val trimmed = segment.content.trim()
+                        if (trimmed.isNotEmpty()) {
+                            RichTextRenderer(
+                                text = trimmed,
+                                colors = colors,
+                                baseFontSize = 15.sp,
+                                onPlanClick = onPlanClick
+                            )
+                        }
+                    }
+                    is PlanSegment.PlanButton -> {
+                        PlanButtonView(
+                            title = segment.title,
+                            uri = segment.uri,
+                            colors = colors,
+                            onClick = {
+                                onPlanClick?.invoke(segment.uri, segment.title)
+                            }
+                        )
+                    }
+                }
             }
-            val title = if (planFile == "walkthrough.md") "实施结果走查 (Walkthrough)" else "实施方案 (Implementation Plan)"
-
-            PlanButtonCard(
-                title = title,
-                filename = planFile,
-                colors = colors,
-                onClick = { onPlanClick(planFile, title) }
-            )
         }
     }
 }
@@ -969,85 +1148,6 @@ fun FileIconSvgView(
         modifier = modifier,
         contentScale = ContentScale.Fit
     )
-}
-
-@Composable
-private fun PlanButtonCard(
-    title: String,
-    filename: String,
-    colors: AppColors,
-    onClick: () -> Unit
-) {
-    val iconName = remember(filename, title) {
-        FileIconResolver.resolveIcon(filename) ?: FileIconResolver.resolveIcon(title)
-    }
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(colors.accentIndigo.copy(alpha = 0.10f))
-            .border(0.8.dp, colors.accentIndigo.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 9.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .size(32.dp)
-                .clip(CircleShape)
-                .background(colors.accentIndigo.copy(alpha = 0.15f)),
-            contentAlignment = Alignment.Center
-        ) {
-            if (iconName != null) {
-                FileIconSvgView(
-                    iconName = iconName,
-                    modifier = Modifier.size(16.dp)
-                )
-            } else {
-                Icon(
-                    imageVector = Icons.Default.Description,
-                    contentDescription = null,
-                    tint = colors.accentIndigo,
-                    modifier = Modifier.size(16.dp)
-                )
-            }
-        }
-
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                color = colors.textPrimary,
-                fontSize = 13.5.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-            Text(
-                text = filename,
-                color = colors.accentIndigo,
-                fontSize = 11.sp,
-                fontFamily = FontFamily.Monospace
-            )
-        }
-
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Text(
-                text = "点击查看",
-                color = colors.accentIndigo,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium
-            )
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
-                contentDescription = null,
-                tint = colors.accentIndigo,
-                modifier = Modifier.size(11.dp)
-            )
-        }
-    }
 }
 
 private data class RichTextRenderData(

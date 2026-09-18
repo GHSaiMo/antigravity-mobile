@@ -121,13 +121,10 @@ public struct EasterEggModalView: View {
     public var body: some View {
         GeometryReader { geometry in
             ZStack {
-                // Dimmed translucent backdrop
+                // Dimmed translucent backdrop (absorbs taps so rapid clicks do not dismiss early)
                 Color.black.opacity(0.42 * overallOpacity)
                     .ignoresSafeArea()
                     .contentShape(Rectangle())
-                    .onTapGesture {
-                        dismissWithAnimation()
-                    }
                 
                 // Fireworks particle layer behind and around the card
                 FireworksCanvasView(bursts: bursts, startTime: startTime)
@@ -209,9 +206,6 @@ public struct EasterEggModalView: View {
                 )
                 .scaleEffect(cardScale)
                 .opacity(overallOpacity)
-                .onTapGesture {
-                    dismissWithAnimation()
-                }
             }
             .onAppear {
                 setupBursts(in: geometry.size)

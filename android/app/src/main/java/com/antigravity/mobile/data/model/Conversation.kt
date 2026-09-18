@@ -131,10 +131,10 @@ data class ConversationItem(
             }
 
             val status = when {
-                summary.needsInput == true -> ConversationStatus.ACTION
-                summary.hasError == true || summary.status == "CASCADE_RUN_STATUS_ERROR" -> ConversationStatus.ERROR
-                summary.status == "CASCADE_RUN_STATUS_RUNNING" -> ConversationStatus.RUNNING
-                summary.status == "CASCADE_RUN_STATUS_IDLE" -> ConversationStatus.IDLE
+                summary.needsInput == true || summary.status?.contains("WAITING", ignoreCase = true) == true -> ConversationStatus.ACTION
+                summary.hasError == true || summary.status.equals("CASCADE_RUN_STATUS_ERROR", ignoreCase = true) || summary.status.equals("ERROR", ignoreCase = true) || summary.status.equals("CASCADE_RUN_STATUS_FAILED", ignoreCase = true) -> ConversationStatus.ERROR
+                summary.status.equals("CASCADE_RUN_STATUS_RUNNING", ignoreCase = true) || summary.status.equals("RUNNING", ignoreCase = true) -> ConversationStatus.RUNNING
+                summary.status.equals("CASCADE_RUN_STATUS_IDLE", ignoreCase = true) || summary.status.equals("IDLE", ignoreCase = true) || summary.status.equals("CASCADE_RUN_STATUS_DONE", ignoreCase = true) || summary.status.equals("CASCADE_RUN_STATUS_COMPLETED", ignoreCase = true) -> ConversationStatus.IDLE
                 else -> ConversationStatus.UNKNOWN
             }
 

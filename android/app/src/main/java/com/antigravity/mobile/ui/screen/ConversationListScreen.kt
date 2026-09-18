@@ -59,7 +59,7 @@ import com.antigravity.mobile.ui.viewmodel.ConversationListViewModel
 @Composable
 fun ConversationListScreen(
     viewModel: ConversationListViewModel,
-    onSelectConversation: (cascadeId: String, title: String, isNew: Boolean) -> Unit,
+    onSelectConversation: (cascadeId: String, title: String, isNew: Boolean, isUnread: Boolean, status: com.antigravity.mobile.data.model.ConversationStatus) -> Unit,
     onNavigateToPair: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -81,6 +81,7 @@ fun ConversationListScreen(
     val haptic = rememberHaptic()
 
     val handleEasterEggTap: () -> Unit = {
+        if (showEasterEgg) return@handleEasterEggTap
         val now = System.currentTimeMillis()
         if (now - lastEasterEggTapTime > 2000L) {
             easterEggTapCount = 1
@@ -160,9 +161,11 @@ fun ConversationListScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    Text(
+                        text = "Multigravity",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 20.sp,
+                        color = colors.textPrimary,
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
                             .clickable(
@@ -170,21 +173,7 @@ fun ConversationListScreen(
                                 indication = null,
                                 onClick = handleEasterEggTap
                             )
-                    ) {
-                        Image(
-                            painter = painterResource(id = R.drawable.app_logo),
-                            contentDescription = "Multigravity Logo",
-                            modifier = Modifier
-                                .size(26.dp)
-                                .clip(RoundedCornerShape(6.dp))
-                        )
-                        Text(
-                            text = "Multigravity",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 20.sp,
-                            color = colors.textPrimary
-                        )
-                    }
+                    )
                 },
                 navigationIcon = {
                     IconButton(onClick = { showSettingsSheet = true }) {
@@ -438,7 +427,7 @@ fun ConversationListScreen(
                 showNewConvSheet = false
                 val draftSession = viewModel.createLocalDraftSession(project)
                 val title = if (project.isPureChat) "新对话" else project.name
-                onSelectConversation(draftSession.id, title, true)
+                onSelectConversation(draftSession.id, title, true, false, com.antigravity.mobile.data.model.ConversationStatus.IDLE)
             },
             onDismiss = { showNewConvSheet = false }
         )
@@ -537,7 +526,7 @@ private fun ConversationListContent(
     conversations: List<ConversationItem>,
     listState: LazyListState,
     hasDraftFor: (String) -> Boolean,
-    onSelect: (cascadeId: String, title: String, isNew: Boolean) -> Unit,
+    onSelect: (cascadeId: String, title: String, isNew: Boolean, isUnread: Boolean, status: com.antigravity.mobile.data.model.ConversationStatus) -> Unit,
     onRename: (ConversationItem) -> Unit,
     onDelete: (ConversationItem) -> Unit
 ) {
@@ -552,7 +541,7 @@ private fun ConversationListContent(
             SwipeableConversationCard(
                 conversation = conversation,
                 hasDraft = hasDraft,
-                onClick = { onSelect(conversation.id, conversation.displayTitle, false) },
+                onClick = { onSelect(conversation.id, conversation.displayTitle, false, conversation.isUnread, conversation.status) },
                 onLongClick = { onRename(conversation) },
                 onDelete = { onDelete(conversation) }
             )

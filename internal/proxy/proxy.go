@@ -1843,7 +1843,9 @@ func (p *Proxy) HandleDesktopIndex(w http.ResponseWriter, r *http.Request) {
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <title>Antigravity 启动中...</title>
+  <title>Multigravity 启动中...</title>
+  <link rel="icon" type="image/png" href="/icons/icon-192.png?v=2" />
+  <link rel="apple-touch-icon" href="/icons/icon-192.png?v=2" />
   <style>
     body { background: #131313; color: #e2e8f0; font-family: -apple-system, BlinkMacSystemFont, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
     .spinner { width: 36px; height: 36px; border: 3px solid rgba(255,255,255,0.1); border-top-color: #38bdf8; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 16px; }
@@ -1852,7 +1854,7 @@ func (p *Proxy) HandleDesktopIndex(w http.ResponseWriter, r *http.Request) {
 </head>
 <body>
   <div class="spinner"></div>
-  <h2>正在连接 Antigravity 智能体服务...</h2>
+  <h2>正在连接 Multigravity 智能体服务...</h2>
   <p style="color: #94a3b8; font-size: 14px;">language_server 启动后将自动载入工作台</p>
   <script>setTimeout(() => location.reload(), 2000);</script>
 </body>
@@ -1899,11 +1901,34 @@ func (p *Proxy) HandleDesktopIndex(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// 2. Inject view-switcher.css into <head>
+	// 2. Align productName to Multigravity in window.__APP_CONFIG__
+	reProduct := regexp.MustCompile(`"productName":"[^"]*"`)
+	htmlStr = reProduct.ReplaceAllString(htmlStr, `"productName":"multigravity"`)
+
+	// 3. Align page title to Multigravity
+	reTitle := regexp.MustCompile(`(?i)<title>[^<]*</title>`)
+	htmlStr = reTitle.ReplaceAllString(htmlStr, "<title>Multigravity</title>")
+
+	// 4. Replace upstream gift box icon with Multigravity branded icons & PWA metadata
+	reFavicon := regexp.MustCompile(`(?s)<link\s+(?:[^"'<>]|"[^"]*"|'[^']*')*rel=["'](?:shortcut\s+)?icon["'](?:[^"'<>]|"[^"]*"|'[^']*')*/?\s*>`)
+	multigravityIconsMeta := `    <link rel="icon" type="image/png" href="/icons/icon-192.png?v=2" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png?v=2" />
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="apple-mobile-web-app-title" content="Multigravity" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="theme-color" content="#0f172a" />`
+	if reFavicon.MatchString(htmlStr) {
+		htmlStr = reFavicon.ReplaceAllString(htmlStr, multigravityIconsMeta)
+	} else {
+		htmlStr = strings.Replace(htmlStr, "<head>", "<head>\n"+multigravityIconsMeta, 1)
+	}
+
+	// 5. Inject view-switcher.css into <head>
 	cssInject := "    <link rel=\"stylesheet\" href=\"/view-switcher.css\" />\n  </head>"
 	htmlStr = strings.Replace(htmlStr, "</head>", cssInject, 1)
 
-	// 3. Inject zh-CN.js and view-switcher.js before </body>
+	// 6. Inject zh-CN.js and view-switcher.js before </body>
 	jsInject := "    <script src=\"/zh-CN.js\"></script>\n    <script src=\"/view-switcher.js\"></script>\n  </body>"
 	htmlStr = strings.Replace(htmlStr, "</body>", jsInject, 1)
 
