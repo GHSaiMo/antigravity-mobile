@@ -325,11 +325,18 @@ public final class AppSettings {
     
     public func unpair() {
         KeychainHelper.shared.clearAll()
+        self.rawServerURL = ""
         self.lanServerURL = nil
         self.ipv6ServerURL = nil
         self.relayServerURL = nil
         self.customServerURL = nil
         self.activeServerURL = nil
+        UserDefaults.standard.removeObject(forKey: serverURLKey)
+        UserDefaults.standard.removeObject(forKey: lanServerURLKey)
+        UserDefaults.standard.removeObject(forKey: ipv6ServerURLKey)
+        UserDefaults.standard.removeObject(forKey: relayServerURLKey)
+        UserDefaults.standard.removeObject(forKey: customServerURLKey)
+        UserDefaults.standard.removeObject(forKey: activeServerURLKey)
     }
     
     public init() {
