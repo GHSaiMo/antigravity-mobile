@@ -122,6 +122,7 @@ public struct SettingsSheet: View {
             }
             .navigationTitle("设置")
             .navigationBarTitleDisplayMode(.inline)
+            .presentationDragIndicator(.visible)
         }
         .presentationDragIndicator(.visible)
         .alert("确定解除设备配对？", isPresented: $showUnpairAlert) {

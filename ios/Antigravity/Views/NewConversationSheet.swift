@@ -22,23 +22,7 @@ public struct NewConversationSheet: View {
     }
     
     public var body: some View {
-        VStack(spacing: 0) {
-            // Floating grab handle hinting pull-down dismissal
-            Capsule()
-                .fill(Color(uiColor: .tertiaryLabel))
-                .frame(width: 38, height: 5)
-                .padding(.top, 10)
-                .padding(.bottom, 20)
-            
-            // Header title
-            Text("新建会话")
-                .font(.system(size: 18, weight: .bold))
-                .foregroundColor(.primary)
-                .frame(maxWidth: .infinity)
-                .padding(.bottom, 12)
-            
-            Divider()
-            
+        NavigationStack {
             VStack(spacing: 0) {
                 // Header description
                 HStack {
@@ -101,8 +85,11 @@ public struct NewConversationSheet: View {
                     .padding(.bottom, 24)
                 }
             }
+            .navigationTitle("新建会话")
+            .navigationBarTitleDisplayMode(.inline)
+            .presentationDragIndicator(.visible)
         }
-        .presentationDragIndicator(.hidden)
+        .presentationDragIndicator(.visible)
         .task {
             await refreshProjectsInBackground()
         }

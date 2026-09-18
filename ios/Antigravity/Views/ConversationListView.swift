@@ -83,6 +83,7 @@ public struct ConversationListView: View {
                         selectedDraftSession = session
                     }
                 })
+                .presentationDragIndicator(.visible)
             }
             .sheet(isPresented: $showAccountQuota) {
                 AccountQuotaSheet(
