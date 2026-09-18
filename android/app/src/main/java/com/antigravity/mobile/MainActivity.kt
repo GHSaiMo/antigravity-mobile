@@ -169,9 +169,11 @@ class MainActivity : ComponentActivity() {
                                 navController.navigate("chat/$cascadeId/$encodedTitle?isNew=$isNew&isUnread=$isUnread&status=${status.name}")
                             },
                             onNavigateToPair = {
-                                conversationListViewModel.unpair()
-                                navController.navigate("pair") {
-                                    popUpTo("conversations") { inclusive = true }
+                                wsClient.disconnect(intentional = true)
+                                conversationListViewModel.unpair {
+                                    navController.navigate("pair") {
+                                        popUpTo(0) { inclusive = true }
+                                    }
                                 }
                             }
                         )
