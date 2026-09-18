@@ -89,10 +89,29 @@ data class QueuedMessageItem(
 @Serializable
 data class RunningTaskItem(
     val id: String = "",
+    val stepIndex: Int = 0,
+    val toolName: String? = null,
+    val commandLine: String = "",
+    val toolSummary: String? = null,
+    val toolAction: String? = null,
+    val logUri: String? = null,
+    val startedAt: String? = null,
     val type: String = "",
     val command: String? = null,
     val status: String? = null
-)
+) {
+    val displayTitle: String
+        get() = toolSummary?.takeIf { it.isNotBlank() }
+            ?: toolAction?.takeIf { it.isNotBlank() }
+            ?: toolName?.takeIf { it.isNotBlank() }
+            ?: type.takeIf { it.isNotBlank() }
+            ?: "run_command"
+
+    val displayCommand: String
+        get() = commandLine.takeIf { it.isNotBlank() }
+            ?: command?.takeIf { it.isNotBlank() }
+            ?: ""
+}
 
 @Serializable
 data class StreamUpdatePayload(

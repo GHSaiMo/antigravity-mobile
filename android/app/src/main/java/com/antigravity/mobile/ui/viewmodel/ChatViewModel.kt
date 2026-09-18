@@ -1003,7 +1003,7 @@ class ChatViewModel(
                         val stepCount = msgs.count { !it.isUser }
                         val latestAction = when {
                             payload.pendingInteraction != null -> payload.pendingInteraction.prompt ?: "需要审批操作"
-                            !payload.runningTasks.isNullOrEmpty() -> payload.runningTasks.firstOrNull()?.command ?: "正在执行后台任务..."
+                            !payload.runningTasks.isNullOrEmpty() -> payload.runningTasks.firstOrNull()?.displayCommand?.ifBlank { "正在执行后台任务..." } ?: "正在执行后台任务..."
                             lastMsg?.toolCalls?.isNotEmpty() == true -> "正在执行: " + (lastMsg.toolCalls.lastOrNull()?.name ?: "操作")
                             awaiting -> "正在思考并组织回复..."
                             else -> "正在执行任务..."
@@ -1627,7 +1627,7 @@ class ChatViewModel(
     fun stopTask(task: RunningTaskItem) {
         val cascadeId = _uiState.value.cascadeId
         viewModelScope.launch {
-            apiClient.stopTask(cascadeId, task.id)
+            apiClient.stopTask(cascadeId, task.id, task.stepIndex)
         }
     }
 

@@ -1251,7 +1251,6 @@ public struct MarkdownViewerSheet: View {
     public let onRefresh: (() -> Void)?
     
     @State private var previewImage: IdentifiableImage? = nil
-    @State private var isSharing: Bool = false
     
     public init(
         data: MarkdownFileViewerData,
@@ -1267,21 +1266,19 @@ public struct MarkdownViewerSheet: View {
         self.onRefresh = onRefresh
     }
     
-    private func getShareItems() -> [Any] {
+    private var shareURL: URL? {
         if let fileURL = data.cachedFileURL, FileManager.default.fileExists(atPath: fileURL.path) {
-            return [fileURL]
+            return fileURL
         }
-        if !data.content.isEmpty {
-            let baseName = data.title.isEmpty ? "document" : data.title
-            let safeName = baseName.replacingOccurrences(of: "/", with: "_")
-            let fileName = safeName.hasSuffix(".md") ? safeName : "\(safeName).md"
-            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
-            if let _ = try? data.content.write(to: tempURL, atomically: true, encoding: .utf8) {
-                return [tempURL]
-            }
-            return [data.content]
+        guard !data.content.isEmpty else { return nil }
+        let baseName = data.title.isEmpty ? "document" : data.title
+        let safeName = baseName.replacingOccurrences(of: "/", with: "_")
+        let fileName = safeName.hasSuffix(".md") ? safeName : "\(safeName).md"
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
+        if !FileManager.default.fileExists(atPath: tempURL.path) {
+            try? data.content.write(to: tempURL, atomically: true, encoding: .utf8)
         }
-        return []
+        return tempURL
     }
     
     public var body: some View {
@@ -1383,17 +1380,16 @@ public struct MarkdownViewerSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    FrostedShareButton {
-                        isSharing = true
+                    if let url = shareURL {
+                        ShareLink(item: url, preview: SharePreview(data.title.isEmpty ? "文档详情" : data.title)) {
+                            Image(systemName: "square.and.arrow.up")
+                                .font(.system(size: 16, weight: .semibold))
+                        }
                     }
                 }
             }
         }
         .presentationDragIndicator(.visible)
-        .sheet(isPresented: $isSharing) {
-            let items = getShareItems()
-            ShareSheetView(activityItems: items)
-        }
         .fullScreenCover(item: $previewImage) { item in
             ImageViewerSheet(item: item)
                 .presentationBackground(.clear)

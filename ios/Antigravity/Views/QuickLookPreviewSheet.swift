@@ -4,41 +4,12 @@ import WebKit
 import Photos
 import LinkPresentation
 
-// MARK: - Frosted Glass Share Button (Unified Modern Blur Style)
-
-public struct FrostedShareButton: View {
-    public let action: () -> Void
-    
-    public init(action: @escaping () -> Void) {
-        self.action = action
-    }
-    
-    public var body: some View {
-        Button(action: action) {
-            Image(systemName: "square.and.arrow.up")
-                .font(.system(size: 14.5, weight: .semibold))
-                .foregroundColor(.primary)
-                .frame(width: 34, height: 34)
-                .background(.ultraThinMaterial)
-                .clipShape(Circle())
-                .overlay(
-                    Circle()
-                        .stroke(Color.primary.opacity(0.12), lineWidth: 0.8)
-                )
-                .shadow(color: Color.black.opacity(0.06), radius: 3, x: 0, y: 1.5)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("分享")
-    }
-}
-
 // MARK: - Native QuickLook Presentation Sheet (PPTX, DOCX, XLSX, PDF, KEY)
 
 public struct QuickLookPreviewSheet: View {
     public let url: URL
     public let title: String
     public let onDismiss: () -> Void
-    @State private var isSharing: Bool = false
     @State private var isSavingPhoto: Bool = false
     @State private var savePhotoSuccessMessage: String? = nil
     @State private var savePhotoErrorMessage: String? = nil
@@ -53,26 +24,14 @@ public struct QuickLookPreviewSheet: View {
     @ViewBuilder
     private var savePhotoButton: some View {
         Button(action: saveToPhotosAlbum) {
-            Group {
-                if isSavingPhoto {
-                    ProgressView()
-                        .scaleEffect(0.8)
-                } else {
-                    Image(systemName: "square.and.arrow.down")
-                        .font(.system(size: 14.5, weight: .semibold))
-                        .foregroundColor(.primary)
-                }
+            if isSavingPhoto {
+                ProgressView()
+                    .scaleEffect(0.8)
+            } else {
+                Image(systemName: "square.and.arrow.down")
+                    .font(.system(size: 16, weight: .semibold))
             }
-            .frame(width: 34, height: 34)
-            .background(.ultraThinMaterial)
-            .clipShape(Circle())
-            .overlay(
-                Circle()
-                    .stroke(Color.primary.opacity(0.12), lineWidth: 0.8)
-            )
-            .shadow(color: Color.black.opacity(0.06), radius: 3, x: 0, y: 1.5)
         }
-        .buttonStyle(.plain)
         .disabled(isSavingPhoto)
         .accessibilityLabel("保存到相册")
     }
@@ -92,12 +51,13 @@ public struct QuickLookPreviewSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    HStack(spacing: 8) {
+                    HStack(spacing: 12) {
                         if isImageFile(url: url) {
                             savePhotoButton
                         }
-                        FrostedShareButton {
-                            isSharing = true
+                        ShareLink(item: url, preview: SharePreview(title)) {
+                            Image(systemName: "square.and.arrow.up")
+                                .font(.system(size: 16, weight: .semibold))
                         }
                     }
                 }
@@ -105,10 +65,6 @@ public struct QuickLookPreviewSheet: View {
             .presentationDragIndicator(.visible)
         }
         .presentationDragIndicator(.visible)
-        .sheet(isPresented: $isSharing) {
-            let items: [Any] = isImageFile(url: url) ? [ImageActivityItemSource(fileURL: url, title: title)] : [url]
-            ShareSheetView(activityItems: items)
-        }
         .overlay(alignment: .center) {
             if let msg = savePhotoSuccessMessage {
                 VStack(spacing: 12) {
@@ -541,8 +497,6 @@ public struct HTMLPreviewSheet: View {
     public let url: URL
     public let title: String
     public let onDismiss: () -> Void
-    @State private var isSharing: Bool = false
-    
     public init(url: URL, title: String = "", onDismiss: @escaping () -> Void) {
         self.url = url
         let fallback = url.lastPathComponent.removingPercentEncoding ?? url.lastPathComponent
@@ -558,16 +512,14 @@ public struct HTMLPreviewSheet: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
-                        FrostedShareButton {
-                            isSharing = true
+                        ShareLink(item: url, preview: SharePreview(title)) {
+                            Image(systemName: "square.and.arrow.up")
+                                .font(.system(size: 16, weight: .semibold))
                         }
                     }
                 }
         }
         .presentationDragIndicator(.visible)
-        .sheet(isPresented: $isSharing) {
-            ShareSheetView(activityItems: [url])
-        }
     }
 }
 
