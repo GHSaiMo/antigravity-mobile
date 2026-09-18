@@ -1,0 +1,172 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ==============================================================================
+# Multigravity (mgy) macOS 一键极简安装脚本
+# 用法: curl -fsSL https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.sh | bash
+# ==============================================================================
+
+REPO="${MULTIGRAVITY_REPO:-GHSaiMo/antigravity-mobile}"
+BIN_NAME="mgy"
+INSTALL_DIR="${HOME}/.local/bin"
+CONF_DIR="${HOME}/.multigravity"
+LEGACY_DIR="${HOME}/.antigravity-mobile"
+
+echo "=================================================="
+echo "🚀 正在安装 Multigravity (mgy) for macOS..."
+echo "=================================================="
+
+# 1. 检查操作系统 (仅支持 macOS)
+OS="$(uname -s)"
+if [ "${OS}" != "Darwin" ]; then
+    echo "❌ 错误: 本一键脚本仅适用于 macOS。当前操作系统: ${OS}"
+    echo "   Linux 或 Windows 用户请参考项目文档手动安装。"
+    exit 1
+fi
+
+# 2. 探测芯片架构
+ARCH="$(uname -m)"
+case "${ARCH}" in
+    arm64|aarch64)
+        ARCH_DESC="Apple Silicon (M1/M2/M3/M4)"
+        ;;
+    x86_64|amd64)
+        ARCH_DESC="Intel x86_64"
+        ;;
+    *)
+        echo "❌ 暂不支持的 Mac 架构: ${ARCH}"
+        exit 1
+        ;;
+esac
+echo "🖥️  检测到系统架构: ${ARCH_DESC}"
+
+# 3. 准备安装与配置目录
+mkdir -p "${INSTALL_DIR}"
+mkdir -p "${CONF_DIR}" "${CONF_DIR}/logs"
+
+# 4. 自动继承老版本凭据 (如果存在)
+if [ -d "${LEGACY_DIR}" ]; then
+    if [ ! -f "${CONF_DIR}/auth_store.json" ] && [ -f "${LEGACY_DIR}/auth_store.json" ]; then
+        cp "${LEGACY_DIR}/auth_store.json" "${CONF_DIR}/auth_store.json"
+        echo "🔄 已平滑迁移已有设备配对凭据 (~/.antigravity-mobile -> ~/.multigravity)"
+    fi
+    if [ ! -f "${CONF_DIR}/admin_token" ] && [ -f "${LEGACY_DIR}/admin_token" ]; then
+        cp "${LEGACY_DIR}/admin_token" "${CONF_DIR}/admin_token"
+        echo "🔄 已平滑迁移已有管理员 Token"
+    fi
+fi
+
+# 5. 初始化全局默认配置文件 ~/.multigravity/.env (若不存在)
+if [ ! -f "${CONF_DIR}/.env" ]; then
+    cat << 'ENVEOF' > "${CONF_DIR}/.env"
+# Multigravity 全局环境变量配置文件
+# 保存路径: ~/.multigravity/.env
+
+# 网关监听端口 (默认 58900)
+MULTIGRAVITY_PORT=58900
+
+# 网关监听主机/IP (默认留空双栈绑定所有网卡，设为 127.0.0.1 仅限本机)
+# MULTIGRAVITY_HOST=127.0.0.1
+
+# 公网 DDNS 域名或固定 IPv6 地址 (若需要外网直连)
+# DDNS_HOST=agy.example.com
+
+# iOS Bark 实时推送通知 (填入 Device Key 或 Bark 完整 URL)
+# BARK_URL=
+
+# FRP 内网穿透云中继配置 (在外网无公网 IP 时使用)
+# FRP_ENABLE=0
+# FRP_SERVER_ADDR=frp.example.com
+# FRP_SERVER_PORT=7000
+# FRP_TOKEN=your-strong-token
+# FRP_REMOTE_PORT=58900
+
+# 管理员特权密钥 (外网访问或开启 FRP 时用于鉴权)
+# MULTIGRAVITY_ADMIN_TOKEN=
+ENVEOF
+    chmod 600 "${CONF_DIR}/.env"
+    echo "📝 已生成全局默认配置: ${CONF_DIR}/.env"
+fi
+
+# 6. 下载并安装 Universal 通用二进制
+TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "${TMP_DIR}"' EXIT
+
+DOWNLOAD_URL="https://github.com/${REPO}/releases/latest/download/multigravity-darwin-universal.tar.gz"
+TAR_FILE="${TMP_DIR}/multigravity.tar.gz"
+
+echo "📥 正在从 GitHub Releases 下载最新发行版..."
+if curl -fsSL --connect-timeout 15 -o "${TAR_FILE}" "${DOWNLOAD_URL}" 2>/dev/null; then
+    echo "📦 下载完成，正在解压安装..."
+    tar -xzf "${TAR_FILE}" -C "${TMP_DIR}"
+    if [ -f "${TMP_DIR}/${BIN_NAME}" ]; then
+        mv "${TMP_DIR}/${BIN_NAME}" "${INSTALL_DIR}/${BIN_NAME}"
+    elif [ -f "${TMP_DIR}/gateway" ]; then
+        mv "${TMP_DIR}/gateway" "${INSTALL_DIR}/${BIN_NAME}"
+    else
+        echo "❌ 解压归档中未找到可执行文件。"
+        exit 1
+    fi
+else
+    # 若无法连接到 Release 资产（如尚未发布第一个 Release），检查是否本地在源码仓库中运行
+    echo "⚠️  未能直接获取 Release 预编译包 (可能仓库尚未发布首个 Release Tag)。"
+    if command -v go >/dev/null 2>&1 && [ -f "go.mod" ]; then
+        echo "🔨 检测到当前处于源码目录且已安装 Go，正在本地就地编译..."
+        go build -ldflags="-s -w -X 'main.Version=1.0.0'" -o "${INSTALL_DIR}/${BIN_NAME}" ./cmd/gateway
+    else
+        echo "❌ 无法下载 Release 资产且本地未安装 Go 编译器。"
+        echo "   下载地址: ${DOWNLOAD_URL}"
+        exit 1
+    fi
+fi
+
+chmod +x "${INSTALL_DIR}/${BIN_NAME}"
+
+# 7. 绕过 macOS Gatekeeper / Quarantine
+xattr -d com.apple.quarantine "${INSTALL_DIR}/${BIN_NAME}" 2>/dev/null || true
+
+# 8. 检查 PATH 环境变量
+SHELL_NAME="$(basename "${SHELL:-zsh}")"
+RC_FILE="${HOME}/.zshrc"
+if [ "${SHELL_NAME}" = "bash" ]; then
+    RC_FILE="${HOME}/.bash_profile"
+fi
+
+PATH_CONFIGURED=true
+if [[ ":${PATH}:" != *":${INSTALL_DIR}:"* ]]; then
+    PATH_CONFIGURED=false
+    if [ -f "${RC_FILE}" ]; then
+        if ! grep -q '\.local/bin' "${RC_FILE}" 2>/dev/null; then
+            echo '' >> "${RC_FILE}"
+            echo '# Multigravity CLI PATH' >> "${RC_FILE}"
+            echo 'export PATH="$HOME/.local/bin:$PATH"' >> "${RC_FILE}"
+            echo "🔧 已自动将 ~/.local/bin 追加到 ${RC_FILE}"
+        fi
+    fi
+fi
+
+# 9. 验证安装
+INSTALLED_VER="$("${INSTALL_DIR}/${BIN_NAME}" version 2>/dev/null || echo "1.0.0")"
+
+echo ""
+echo "=================================================="
+echo "🎉 安装完成！${INSTALLED_VER}"
+echo "=================================================="
+echo "📍 二进制安装位置:   ${INSTALL_DIR}/${BIN_NAME}"
+echo "📁 全局配置与数据:   ${CONF_DIR}/"
+echo "📄 配置文件路径:     ${CONF_DIR}/.env"
+echo ""
+echo "🚀 常用指令:"
+echo "   • 启动网关主服务:   mgy"
+echo "   • 终端打印配对码:   mgy pair"
+echo "   • 查看已连接设备:   mgy list"
+echo "   • 清空已配对设备:   mgy clear all"
+echo "   • 查看命令帮助:     mgy help"
+echo ""
+if [ "${PATH_CONFIGURED}" = "false" ]; then
+    echo "💡 提示: 请先在新打开的终端运行，或执行生效环境: source ${RC_FILE}"
+fi
+echo "📱 手机端使用:"
+echo "   请在 GitHub Releases 下载安装 Multigravity-*.apk，"
+echo "   打开 App 扫描终端打印的二维码即可完成配对！"
+echo "=================================================="

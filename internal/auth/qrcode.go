@@ -240,3 +240,32 @@ func GenerateQRCodePNG(host string, port int, code string, ssl bool, size int, e
 	params := BuildMultiHostPairingParams(host, port, code, ssl, extraHosts...)
 	return GenerateMultiHostQRCodePNG(params, size)
 }
+
+// PrintRawPairingQRCode prints the pairing banner, QR code, and instructions for a given URI and code.
+func PrintRawPairingQRCode(code string, uri string) {
+	var b strings.Builder
+	qr, err := qrcode.New(uri, qrcode.Medium)
+	if err != nil {
+		fmt.Fprintf(&b, "\n⚠️  无法生成配对二维码: %v\n🔗 配对链接: %s\n\n", err, uri)
+	} else {
+		b.WriteString("\n==================================================\n")
+		b.WriteString("📱 Multigravity 客户端扫码一键配对\n")
+		b.WriteString("==================================================\n")
+		if code != "" {
+			fmt.Fprintf(&b, "🔑 配对码 (5分钟有效):\n   %s\n\n", code)
+		}
+		qrStr := qr.ToSmallString(false)
+		b.WriteString(qrStr)
+		if !strings.HasSuffix(qrStr, "\n") {
+			b.WriteString("\n")
+		}
+		b.WriteString("💡 请使用 Multigravity 手机客户端扫描上方二维码完成配对\n\n")
+		fmt.Fprintf(&b, "🔗 配对链接 (URI):\n   %s\n", uri)
+		b.WriteString("==================================================\n\n")
+	}
+
+	consoleMu.Lock()
+	defer consoleMu.Unlock()
+	_, _ = os.Stdout.WriteString(b.String())
+}
+

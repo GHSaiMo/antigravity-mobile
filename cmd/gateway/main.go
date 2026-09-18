@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -13,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"text/tabwriter"
 	"time"
 
 	"antigravity-mobile/internal/auth"
@@ -26,6 +29,9 @@ import (
 	"antigravity-mobile/web"
 )
 
+// Version represents the Multigravity Gateway release version.
+var Version = "1.0.0"
+
 func main() {
 	// 0. Initialize console output synchronization so concurrent logs don't tear terminal output
 	auth.InitConsoleSync()
@@ -33,21 +39,70 @@ func main() {
 	// 0.1. Load .env configuration
 	config.LoadDotEnv()
 
-	// ==============================================================================
-	// 启动项配置参数定义与中文说明
-	// 1. host: 监听主机/IP 地址。默认 "" 双栈监听本机所有 IPv4 与 IPv6 接口；设为 127.0.0.1 则仅限本机访问
-	defaultHost := ""
-	if envHost := os.Getenv("GATEWAY_HOST"); envHost != "" {
-		defaultHost = envHost
+	args := os.Args[1:]
+	if len(args) > 0 {
+		switch args[0] {
+		case "pair":
+			runPairCmd(args[1:])
+			return
+		case "list":
+			runListCmd(args[1:])
+			return
+		case "clear":
+			runClearCmd(args[1:])
+			return
+		case "version", "-v", "--version":
+			runVersionCmd()
+			return
+		case "help", "-h", "--help":
+			runHelpCmd()
+			return
+		case "run":
+			runGatewayServer(args[1:])
+			return
+		default:
+			if strings.HasPrefix(args[0], "-") {
+				runGatewayServer(args)
+				return
+			}
+			fmt.Fprintf(os.Stderr, "❌ 未知子命令: %s\n\n", args[0])
+			runHelpCmd()
+			os.Exit(1)
+		}
+	} else {
+		runGatewayServer(nil)
 	}
+}
 
-	// 2. port: 网关服务 HTTP/WebSocket 监听端口，默认 58900 (可通过 GATEWAY_PORT 环境变量覆盖)
+func defaultHost() string {
+	if envHost := os.Getenv("MULTIGRAVITY_HOST"); envHost != "" {
+		return envHost
+	}
+	return os.Getenv("GATEWAY_HOST")
+}
+
+func defaultPort() int {
 	defaultPort := 58900
-	if envPort := os.Getenv("GATEWAY_PORT"); envPort != "" {
+	envPort := os.Getenv("MULTIGRAVITY_PORT")
+	if envPort == "" {
+		envPort = os.Getenv("GATEWAY_PORT")
+	}
+	if envPort != "" {
 		if p, err := strconv.Atoi(envPort); err == nil && p > 0 {
 			defaultPort = p
 		}
 	}
+	return defaultPort
+}
+
+func runGatewayServer(args []string) {
+	// ==============================================================================
+	// 启动项配置参数定义与中文说明
+	// 1. host: 监听主机/IP 地址。默认 "" 双栈监听本机所有 IPv4 与 IPv6 接口；设为 127.0.0.1 则仅限本机访问
+	defaultHost := defaultHost()
+
+	// 2. port: 网关服务 HTTP/WebSocket 监听端口，默认 58900 (可通过 MULTIGRAVITY_PORT/GATEWAY_PORT 环境变量覆盖)
+	defaultPort := defaultPort()
 
 	// 3. qr: 是否在启动时在终端默认打印一次扫码配对二维码，默认 true (可通过 GATEWAY_QR 环境变量或 -qr=false 控制)
 	defaultQR := true
@@ -58,15 +113,16 @@ func main() {
 	}
 
 	// 命令行 Flags 定义与中文说明
-	host := flag.String("host", defaultHost, "网关监听的主机/IP 地址（默认 \"\" 双栈绑定所有 IPv4/IPv6 网卡，设为 127.0.0.1 仅限本机访问）")
-	port := flag.Int("port", defaultPort, "网关 HTTP/WebSocket 监听端口（默认 58900）")
-	printQR := flag.Bool("qr", defaultQR, "启动时是否在终端默认打印一次配对二维码（默认 true）")
-	pollSec := flag.Int("poll", 5, "探测本地 Antigravity 实例与健康检查的轮询间隔秒数（默认 5 秒）")
-	ddnsHost := flag.String("ddns", os.Getenv("DDNS_HOST"), "公网 DDNS 域名或固定 IPv6 地址，用于生成扫码配对链接及外部直连")
-	enableSSL := flag.Bool("ssl", os.Getenv("GATEWAY_SSL") == "1" || os.Getenv("GATEWAY_SSL") == "true", "是否开启 SSL/HTTPS 模式（默认 false，开启需配合 -tls-cert 与 -tls-key）")
-	tlsCert := flag.String("tls-cert", os.Getenv("TLS_CERT_FILE"), "HTTPS 服务 TLS 证书文件路径 (.cer/.crt/.pem)")
-	tlsKey := flag.String("tls-key", os.Getenv("TLS_KEY_FILE"), "HTTPS 服务 TLS 私钥文件路径 (.key)")
-	flag.Parse()
+	fs := flag.NewFlagSet("mgy", flag.ExitOnError)
+	host := fs.String("host", defaultHost, "网关监听的主机/IP 地址（默认 \"\" 双栈绑定所有 IPv4/IPv6 网卡，设为 127.0.0.1 仅限本机访问）")
+	port := fs.Int("port", defaultPort, "网关 HTTP/WebSocket 监听端口（默认 58900）")
+	printQR := fs.Bool("qr", defaultQR, "启动时是否在终端默认打印一次配对二维码（默认 true）")
+	pollSec := fs.Int("poll", 5, "探测本地 Antigravity 实例与健康检查的轮询间隔秒数（默认 5 秒）")
+	ddnsHost := fs.String("ddns", os.Getenv("DDNS_HOST"), "公网 DDNS 域名或固定 IPv6 地址，用于生成扫码配对链接及外部直连")
+	enableSSL := fs.Bool("ssl", os.Getenv("GATEWAY_SSL") == "1" || os.Getenv("GATEWAY_SSL") == "true", "是否开启 SSL/HTTPS 模式（默认 false，开启需配合 -tls-cert 与 -tls-key）")
+	tlsCert := fs.String("tls-cert", os.Getenv("TLS_CERT_FILE"), "HTTPS 服务 TLS 证书文件路径 (.cer/.crt/.pem)")
+	tlsKey := fs.String("tls-key", os.Getenv("TLS_KEY_FILE"), "HTTPS 服务 TLS 私钥文件路径 (.key)")
+	_ = fs.Parse(args)
 
 	tunnelCfg := config.GetTunnelConfig()
 	tunnelOn := tunnelCfg.Enabled && tunnelCfg.ServerAddr != ""
@@ -376,6 +432,257 @@ func main() {
 		log.Printf("Server shutdown error: %v", err)
 	}
 	log.Println("Gateway stopped gracefully.")
+}
+
+func runVersionCmd() {
+	fmt.Printf("Multigravity (mgy) %s\n", Version)
+}
+
+func runHelpCmd() {
+	fmt.Printf(`Multigravity (mgy) %s - Unified Mobile Gateway for Antigravity
+
+用法:
+  mgy [子命令] [参数]
+
+常用子命令:
+  run (默认)        启动网关服务 (双栈监听 + 自动打印一次配对二维码)
+  pair              向正在运行的网关申请并打印新配对二维码与链接
+  list              查看所有已配对授权的移动设备 (支持在线与离线查看)
+  clear [all|id]    清除已配对的设备授权 (支持: mgy clear all 或 mgy clear <device-id>)
+  version           查看当前版本信息
+  help              显示帮助信息
+
+网关运行参数 (用于 mgy 或 mgy run):
+  -port <端口号>    HTTP/WebSocket 监听端口 (默认: 58900, 环境变量: MULTIGRAVITY_PORT)
+  -host <主机/IP>   监听地址 (默认: "" 双栈全网卡监听; 设为 127.0.0.1 仅限本机)
+  -qr=<true|false>  启动时是否打印配对二维码 (默认: true)
+  -poll <秒数>      Antigravity 实例轮询间隔 (默认: 5秒)
+  -ddns <域名/IP>   公网 DDNS 域名或固定 IPv6 地址
+  -ssl              启用 HTTPS 模式 (需配置 -tls-cert 与 -tls-key)
+`, Version)
+}
+
+func runPairCmd(args []string) {
+	fs := flag.NewFlagSet("pair", flag.ExitOnError)
+	port := defaultPort()
+	portFlag := fs.Int("port", port, "网关端口")
+	_ = fs.Parse(args)
+
+	targetPort := *portFlag
+	adminToken := auth.GetAdminToken()
+	if adminToken == "" {
+		if path, _, err := auth.EnsureAdminToken(false); err == nil && path != "" {
+			if b, err := os.ReadFile(path); err == nil {
+				adminToken = strings.TrimSpace(string(b))
+			}
+		}
+	}
+
+	sslOn := os.Getenv("GATEWAY_SSL") == "1" || os.Getenv("GATEWAY_SSL") == "true"
+	scheme := "http"
+	if sslOn {
+		scheme = "https"
+	}
+	urlStr := fmt.Sprintf("%s://127.0.0.1:%d/api/v1/auth/session", scheme, targetPort)
+
+	req, err := http.NewRequest(http.MethodPost, urlStr, nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "❌ 创建请求失败: %v\n", err)
+		os.Exit(1)
+	}
+	if adminToken != "" {
+		req.Header.Set("Authorization", "Bearer "+adminToken)
+	}
+
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "❌ 无法连接到网关 (%s)，请确认网关是否已启动。\n", urlStr)
+		fmt.Fprintf(os.Stderr, "   启动网关命令: mgy 或 mgy run\n")
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		fmt.Fprintf(os.Stderr, "❌ 网关拒绝签发配对码 (HTTP %d): %s\n", resp.StatusCode, strings.TrimSpace(string(body)))
+		if resp.StatusCode == http.StatusUnauthorized {
+			fmt.Fprintf(os.Stderr, "   提示: 若启用了 FRP 穿透，请把 ADMIN_TOKEN 配置在环境变量或 ~/.multigravity/admin_token。\n")
+		}
+		os.Exit(1)
+	}
+
+	var sessionResp struct {
+		Code string `json:"code"`
+		URI  string `json:"uri"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&sessionResp); err != nil {
+		fmt.Fprintf(os.Stderr, "❌ 解析网关返回失败: %v\n", err)
+		os.Exit(1)
+	}
+
+	auth.PrintRawPairingQRCode(sessionResp.Code, sessionResp.URI)
+}
+
+func runListCmd(args []string) {
+	fs := flag.NewFlagSet("list", flag.ExitOnError)
+	port := defaultPort()
+	portFlag := fs.Int("port", port, "网关端口")
+	_ = fs.Parse(args)
+
+	targetPort := *portFlag
+	adminToken := auth.GetAdminToken()
+	if adminToken == "" {
+		if path, _, err := auth.EnsureAdminToken(false); err == nil && path != "" {
+			if b, err := os.ReadFile(path); err == nil {
+				adminToken = strings.TrimSpace(string(b))
+			}
+		}
+	}
+
+	scheme := "http"
+	if os.Getenv("GATEWAY_SSL") == "1" || os.Getenv("GATEWAY_SSL") == "true" {
+		scheme = "https"
+	}
+	urlStr := fmt.Sprintf("%s://127.0.0.1:%d/api/v1/devices", scheme, targetPort)
+
+	var devices []auth.PairedDevice
+	mode := "离线模式 (直接读取本地凭据)"
+
+	client := &http.Client{
+		Timeout: 2 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
+	req, _ := http.NewRequest(http.MethodGet, urlStr, nil)
+	if adminToken != "" {
+		req.Header.Set("Authorization", "Bearer "+adminToken)
+	}
+
+	if resp, err := client.Do(req); err == nil && resp.StatusCode == http.StatusOK {
+		mode = "在线模式 (网关实时探测)"
+		_ = json.NewDecoder(resp.Body).Decode(&devices)
+		resp.Body.Close()
+	} else {
+		store, err := auth.NewAuthStore("")
+		if err == nil {
+			devices = store.ListDevices()
+		}
+	}
+
+	printDeviceTable(devices, mode)
+}
+
+func printDeviceTable(devices []auth.PairedDevice, mode string) {
+	fmt.Println("========================================================================================================")
+	if len(devices) == 0 {
+		fmt.Printf("ℹ️  当前暂无已配对设备 (%s)\n", mode)
+		fmt.Println("💡 提示: 执行 mgy pair 可生成配对二维码与扫码链接。")
+		fmt.Println("========================================================================================================")
+		return
+	}
+
+	fmt.Printf("📱 Multigravity 已配对设备列表 (共 %d 台 | %s)\n", len(devices), mode)
+	fmt.Println("========================================================================================================")
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
+	fmt.Fprintln(w, "设备 ID\t设备名称\t平台\t首次配对时间\t最后活跃时间\t最后 IP")
+	fmt.Fprintln(w, "-------\t--------\t----\t------------\t------------\t-------")
+	for _, dev := range devices {
+		created := "-"
+		if !dev.CreatedAt.IsZero() {
+			created = dev.CreatedAt.Format("2006-01-02 15:04:05")
+		}
+		lastSeen := "-"
+		if !dev.LastSeenAt.IsZero() {
+			lastSeen = dev.LastSeenAt.Format("2006-01-02 15:04:05")
+		}
+		lastIP := dev.LastSeenIP
+		if lastIP == "" {
+			lastIP = "-"
+		}
+		name := dev.DeviceName
+		if name == "" {
+			name = "未知设备"
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", dev.DeviceID, name, dev.Platform, created, lastSeen, lastIP)
+	}
+	w.Flush()
+	fmt.Println("========================================================================================================")
+	fmt.Println("💡 提示: 执行 mgy clear all 可清空所有设备授权；执行 mgy pair 可生成新配对二维码。")
+}
+
+func runClearCmd(args []string) {
+	target := "all"
+	if len(args) > 0 && args[0] != "" {
+		if args[0] == "all" && len(args) > 1 {
+			target = args[1]
+		} else {
+			target = args[0]
+		}
+	}
+
+	targetPort := defaultPort()
+	adminToken := auth.GetAdminToken()
+	if adminToken == "" {
+		if path, _, err := auth.EnsureAdminToken(false); err == nil && path != "" {
+			if b, err := os.ReadFile(path); err == nil {
+				adminToken = strings.TrimSpace(string(b))
+			}
+		}
+	}
+
+	scheme := "http"
+	if os.Getenv("GATEWAY_SSL") == "1" || os.Getenv("GATEWAY_SSL") == "true" {
+		scheme = "https"
+	}
+	client := &http.Client{
+		Timeout: 3 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
+
+	urlStr := fmt.Sprintf("%s://127.0.0.1:%d/api/v1/devices/%s", scheme, targetPort, target)
+	req, _ := http.NewRequest(http.MethodDelete, urlStr, nil)
+	if adminToken != "" {
+		req.Header.Set("Authorization", "Bearer "+adminToken)
+	}
+
+	if resp, err := client.Do(req); err == nil && (resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusNoContent) {
+		resp.Body.Close()
+		if target == "all" {
+			fmt.Println("✅ [在线网关] 已成功清除所有已配对设备授权。")
+		} else {
+			fmt.Printf("✅ [在线网关] 已成功清除设备 [%s] 的授权。\n", target)
+		}
+		return
+	}
+
+	// Offline fallback
+	store, err := auth.NewAuthStore("")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "❌ 无法打开设备凭据存储: %v\n", err)
+		os.Exit(1)
+	}
+	if target == "all" {
+		count := len(store.ListDevices())
+		store.ClearAll()
+		fmt.Printf("✅ [离线模式] 已清除全部 %d 台已配对设备授权。\n", count)
+	} else {
+		if err := store.RemoveDevice(target); err == nil {
+			fmt.Printf("✅ [离线模式] 已成功清除设备 [%s] 的授权。\n", target)
+		} else {
+			fmt.Printf("⚠️  [离线模式] 清除设备失败: %v\n", err)
+		}
+	}
 }
 
 // buildRouter constructs and wraps the HTTP routing mux with middleware.

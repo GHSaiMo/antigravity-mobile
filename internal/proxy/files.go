@@ -182,6 +182,7 @@ func IsSafeFilePath(path string) bool {
 		"/.ssh/", "/.gnupg/", "/.aws/", "/.docker/", "/Library/Keychains/",
 		"/Library/Application Support/",
 		"/.kube/", "/.config/gcloud/",
+		"/.multigravity/",
 		"/.antigravity-mobile/",
 		"/.acme.sh/", "/.lego/", "/.certbot/",
 	}

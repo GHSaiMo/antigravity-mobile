@@ -1,0 +1,153 @@
+name: Release Multigravity
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # ============================================================================
+  # 1. 构建 Android APK (已配置 debug 自签，用户可直接点击安装)
+  # ============================================================================
+  build-android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Cache Gradle packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x android/gradlew
+
+      - name: Build Android Release APK
+        run: |
+          cd android
+          ./gradlew assembleRelease --no-daemon
+
+      - name: Prepare APK Asset
+        run: |
+          mkdir -p dist
+          TAG_NAME="${{ github.ref_name }}"
+          if [ -z "$TAG_NAME" ] || [ "$TAG_NAME" = "main" ]; then
+            TAG_NAME="v1.0.0"
+          fi
+          APK_PATH=$(find android/app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          if [ -z "$APK_PATH" ]; then
+            echo "❌ 未找到构建好的 APK 文件"
+            exit 1
+          fi
+          cp "$APK_PATH" "dist/Multigravity-${TAG_NAME}.apk"
+          echo "✅ 成功生成 APK 资产: dist/Multigravity-${TAG_NAME}.apk"
+
+      - name: Upload Android Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: dist/*.apk
+
+  # ============================================================================
+  # 2. 构建 macOS Universal 通用二进制 (Apple Silicon + Intel Mac)
+  # ============================================================================
+  build-macos:
+    name: Build macOS Universal Binary
+    runs-on: macos-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build macOS Universal Binary
+        run: |
+          mkdir -p dist/bin
+          TAG_NAME="${{ github.ref_name }}"
+          if [ -z "$TAG_NAME" ] || [ "$TAG_NAME" = "main" ]; then
+            TAG_NAME="1.0.0"
+          fi
+
+          # 编译 Apple Silicon (M1/M2/M3/M4)
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X 'main.Version=${TAG_NAME}'" -o dist/bin/mgy-arm64 ./cmd/gateway
+          # 编译 Intel Mac (x86_64)
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X 'main.Version=${TAG_NAME}'" -o dist/bin/mgy-amd64 ./cmd/gateway
+
+          # 合成 Universal 二进制
+          lipo -create -output dist/bin/mgy dist/bin/mgy-arm64 dist/bin/mgy-amd64
+          chmod +x dist/bin/mgy
+          rm dist/bin/mgy-arm64 dist/bin/mgy-amd64
+
+      - name: Package macOS Tarball
+        run: |
+          cd dist/bin
+          tar -czf ../multigravity-darwin-universal.tar.gz mgy
+          cd ..
+          shasum -a 256 multigravity-darwin-universal.tar.gz > checksums-darwin.txt
+
+      - name: Upload macOS Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-universal
+          path: dist/multigravity-darwin-universal.tar.gz
+
+  # ============================================================================
+  # 3. 聚合所有构建产物并发布 GitHub Release
+  # ============================================================================
+  publish-release:
+    name: Publish GitHub Release
+    needs: [build-android, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Download Android Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: android-apk
+          path: release-assets
+
+      - name: Download macOS Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-universal
+          path: release-assets
+
+      - name: Generate Checksums
+        run: |
+          cd release-assets
+          shasum -a 256 * > checksums.txt 2>/dev/null || sha256sum * > checksums.txt
+          cat checksums.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          name: "Multigravity ${{ github.ref_name }}"
+          draft: false
+          prerelease: false
+          generate_release_notes: true

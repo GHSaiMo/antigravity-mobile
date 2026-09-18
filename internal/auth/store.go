@@ -62,12 +62,51 @@ func getTokenSalt() string {
 	return cachedSalt
 }
 
+// DefaultDataDir returns the active configuration and data directory.
+// It prioritizes ~/.multigravity, falling back to ~/.antigravity-mobile if it already exists.
+func DefaultDataDir() string {
+	if custom := strings.TrimSpace(os.Getenv("MULTIGRAVITY_DATA_DIR")); custom != "" {
+		return ResolvePath(custom)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ".multigravity"
+	}
+	newDir := filepath.Join(home, ".multigravity")
+	oldDir := filepath.Join(home, ".antigravity-mobile")
+
+	if _, err := os.Stat(newDir); os.IsNotExist(err) {
+		if fi, errOld := os.Stat(oldDir); errOld == nil && fi.IsDir() {
+			return oldDir
+		}
+	}
+	return newDir
+}
+
+// DefaultAuthStorePath returns the path to the auth store file.
+func DefaultAuthStorePath() string {
+	if custom := strings.TrimSpace(os.Getenv("AUTH_STORE_PATH")); custom != "" {
+		return ResolvePath(custom)
+	}
+	dir := DefaultDataDir()
+	newFile := filepath.Join(dir, "auth_store.json")
+	if home, err := os.UserHomeDir(); err == nil {
+		oldFile := filepath.Join(home, ".antigravity-mobile", "auth_store.json")
+		if _, err := os.Stat(newFile); os.IsNotExist(err) {
+			if _, errOld := os.Stat(oldFile); errOld == nil {
+				return oldFile
+			}
+		}
+	}
+	return newFile
+}
+
 func loadOrCreateAuthSalt(storePath string) string {
 	dir := ""
 	if storePath != "" {
 		dir = filepath.Dir(storePath)
 	} else {
-		dir = ResolvePath("~/.antigravity-mobile")
+		dir = DefaultDataDir()
 	}
 	saltPath := filepath.Join(dir, "auth_salt")
 	if b, err := os.ReadFile(saltPath); err == nil {
@@ -119,10 +158,10 @@ func ResolvePath(path string) string {
 }
 
 // NewAuthStore creates a new AuthStore loading from filePath.
-// If filePath is empty, defaults to ~/.antigravity-mobile/auth_store.json.
+// If filePath is empty, defaults to DefaultAuthStorePath().
 func NewAuthStore(filePath string) (*AuthStore, error) {
 	if filePath == "" {
-		filePath = "~/.antigravity-mobile/auth_store.json"
+		filePath = DefaultAuthStorePath()
 	}
 	resolved := ResolvePath(filePath)
 

@@ -13,12 +13,26 @@ const adminTokenFileName = "admin_token"
 
 // GetAdminToken returns the currently configured admin token from the environment.
 func GetAdminToken() string {
+	tok := strings.TrimSpace(os.Getenv("MULTIGRAVITY_ADMIN_TOKEN"))
+	if tok != "" {
+		return tok
+	}
 	return strings.TrimSpace(os.Getenv("ADMIN_TOKEN"))
 }
 
 // DefaultAdminTokenPath is where a generated admin token is stored.
 func DefaultAdminTokenPath() string {
-	return filepath.Join(ResolvePath("~/.antigravity-mobile"), adminTokenFileName)
+	dir := DefaultDataDir()
+	newPath := filepath.Join(dir, adminTokenFileName)
+	if home, err := os.UserHomeDir(); err == nil {
+		oldPath := filepath.Join(home, ".antigravity-mobile", adminTokenFileName)
+		if _, err := os.Stat(newPath); os.IsNotExist(err) {
+			if _, errOld := os.Stat(oldPath); errOld == nil {
+				return oldPath
+			}
+		}
+	}
+	return newPath
 }
 
 // EnsureAdminToken loads ADMIN_TOKEN from the environment or a 0600 file.

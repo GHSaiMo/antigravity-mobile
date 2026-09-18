@@ -24,12 +24,48 @@ type NotificationConfig struct {
 	SoundComplete string
 }
 
-// LoadDotEnv searches for a .env file in standard locations (CWD, parent directory, binary directory)
+// GetDataDir returns the active configuration and data directory.
+// It prioritizes ~/.multigravity, falling back to ~/.antigravity-mobile if it already exists.
+func GetDataDir() string {
+	if custom := strings.TrimSpace(os.Getenv("MULTIGRAVITY_DATA_DIR")); custom != "" {
+		return custom
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ".multigravity"
+	}
+	newDir := filepath.Join(home, ".multigravity")
+	oldDir := filepath.Join(home, ".antigravity-mobile")
+
+	if _, err := os.Stat(newDir); os.IsNotExist(err) {
+		if fi, errOld := os.Stat(oldDir); errOld == nil && fi.IsDir() {
+			return oldDir
+		}
+	}
+	return newDir
+}
+
+// LoadDotEnv searches for a .env file in standard locations
+// (explicit env, CWD, ~/.multigravity, ~/.antigravity-mobile, binary directory)
 // and populates environment variables that are not already set.
 func LoadDotEnv(paths ...string) {
-	searchPaths := make([]string, 0, len(paths)+4)
+	searchPaths := make([]string, 0, len(paths)+8)
 	searchPaths = append(searchPaths, paths...)
+
+	if custom := os.Getenv("MULTIGRAVITY_ENV"); custom != "" {
+		searchPaths = append(searchPaths, custom)
+	}
+
+	// 1. Current directory and parent (for local development)
 	searchPaths = append(searchPaths, ".env", "../.env")
+
+	// 2. Global user directories (~/.multigravity/.env, then ~/.antigravity-mobile/.env)
+	if home, err := os.UserHomeDir(); err == nil {
+		searchPaths = append(searchPaths, filepath.Join(home, ".multigravity", ".env"))
+		searchPaths = append(searchPaths, filepath.Join(home, ".antigravity-mobile", ".env"))
+	}
+
+	// 3. Executable directory and parent
 	if execPath, err := os.Executable(); err == nil {
 		searchPaths = append(searchPaths, filepath.Join(filepath.Dir(execPath), ".env"))
 		searchPaths = append(searchPaths, filepath.Join(filepath.Dir(execPath), "..", ".env"))
@@ -41,7 +77,6 @@ func LoadDotEnv(paths ...string) {
 		}
 		if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
 			parseEnvFile(p)
-			return // Load the first found .env
 		}
 	}
 }
@@ -220,6 +255,10 @@ func GetTunnelConfig() TunnelConfig {
 
 	remotePort := 58900
 	if pStr := os.Getenv("FRP_REMOTE_PORT"); pStr != "" {
+		if p, err := strconv.Atoi(pStr); err == nil && p > 0 {
+			remotePort = p
+		}
+	} else if pStr := os.Getenv("MULTIGRAVITY_PORT"); pStr != "" {
 		if p, err := strconv.Atoi(pStr); err == nil && p > 0 {
 			remotePort = p
 		}

@@ -32,7 +32,7 @@ func TestEnsureAdminTokenGeneratesWhenTunnelOn(t *testing.T) {
 	if !generated {
 		t.Fatal("expected a new token to be generated")
 	}
-	want := filepath.Join(home, ".antigravity-mobile", "admin_token")
+	want := DefaultAdminTokenPath()
 	if path != want {
 		t.Fatalf("path = %q, want %q", path, want)
 	}
@@ -61,5 +61,36 @@ func TestEnsureAdminTokenGeneratesWhenTunnelOn(t *testing.T) {
 	}
 	if os.Getenv("ADMIN_TOKEN") != tok {
 		t.Fatalf("reloaded token mismatch")
+	}
+}
+
+func TestEnsureAdminTokenLegacyFallback(t *testing.T) {
+	t.Setenv("ADMIN_TOKEN", "")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// Create legacy token in ~/.antigravity-mobile/admin_token
+	legacyDir := filepath.Join(home, ".antigravity-mobile")
+	if err := os.MkdirAll(legacyDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	legacyToken := "legacy-admin-token-1234567890123456"
+	legacyPath := filepath.Join(legacyDir, "admin_token")
+	if err := os.WriteFile(legacyPath, []byte(legacyToken+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	path, generated, err := EnsureAdminToken(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if generated {
+		t.Fatal("expected legacy token to be reused, not generated")
+	}
+	if path != legacyPath {
+		t.Fatalf("path = %q, want %q", path, legacyPath)
+	}
+	if os.Getenv("ADMIN_TOKEN") != legacyToken {
+		t.Fatalf("env ADMIN_TOKEN = %q, want %q", os.Getenv("ADMIN_TOKEN"), legacyToken)
 	}
 }

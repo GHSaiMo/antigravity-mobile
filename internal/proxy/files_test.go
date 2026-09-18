@@ -114,6 +114,9 @@ func TestIsSafeFilePath(t *testing.T) {
 	if IsSafeFilePath(filepath.Join(home, ".antigravity-mobile/auth_store.json")) {
 		t.Errorf("expected auth_store.json to be blocked")
 	}
+	if IsSafeFilePath(filepath.Join(home, ".multigravity/auth_store.json")) {
+		t.Errorf("expected .multigravity/auth_store.json to be blocked")
+	}
 }
 
 func TestResolveLocalFilePathUnsafePathsRejected(t *testing.T) {
@@ -130,6 +133,9 @@ func TestResolveLocalFilePathUnsafePathsRejected(t *testing.T) {
 	}
 	if _, err := ResolveLocalFilePath(filepath.Join(home, ".antigravity-mobile/auth_store.json"), ""); err == nil {
 		t.Errorf("expected error resolving auth_store.json")
+	}
+	if _, err := ResolveLocalFilePath(filepath.Join(home, ".multigravity/auth_store.json"), ""); err == nil {
+		t.Errorf("expected error resolving .multigravity/auth_store.json")
 	}
 }
 
