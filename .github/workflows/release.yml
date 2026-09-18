@@ -132,12 +132,6 @@ jobs:
           name: macos-universal
           path: release-assets
 
-      - name: Generate Checksums
-        run: |
-          cd release-assets
-          shasum -a 256 * > checksums.txt 2>/dev/null || sha256sum * > checksums.txt
-          cat checksums.txt
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
