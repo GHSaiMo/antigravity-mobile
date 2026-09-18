@@ -195,6 +195,7 @@ func FormatPairingQRCode(primaryHost string, port int, code string, ssl bool, ex
 	if params.IPv6Host != "" {
 		ipv6URI := GeneratePairingURI(params.IPv6Host, port, code, ssl)
 		fmt.Fprintf(&b, "🌐 外网 IPv6 直连 URI:   %s\n", ipv6URI)
+		appendIPv6Instructions(&b, params.IPv6Host, port, ssl)
 	}
 	if params.RelayHost != "" {
 		relayURI := GeneratePairingURI(params.RelayHost, port, code, ssl)
@@ -209,6 +210,25 @@ func FormatPairingQRCode(primaryHost string, port int, code string, ssl bool, ex
 	b.WriteString("==================================================\n\n")
 
 	return b.String()
+}
+
+func appendIPv6Instructions(b *strings.Builder, ipv6Host string, port int, ssl bool) {
+	if ipv6Host == "" {
+		return
+	}
+	scheme := "http"
+	if ssl {
+		scheme = "https"
+	}
+	testURL := fmt.Sprintf("%s://[%s]:%d", scheme, ipv6Host, port)
+	b.WriteString("\n--------------------------------------------------\n")
+	b.WriteString("📱 IPv6 外网直连自测与排错指引:\n")
+	b.WriteString("   1. 手机断开家中 Wi-Fi（切换至 5G/4G 移动蜂窝网络）；\n")
+	fmt.Fprintf(b, "   2. 手机自带浏览器直接访问测试地址:\n      %s\n", testURL)
+	b.WriteString("   3. 验收标准与排错说明:\n")
+	b.WriteString("      • 正常打开网页: 家中光猫/主路由已放行 IPv6 入站流量，外网直连完全畅通！\n")
+	b.WriteString("      • 访问超时/无法连接: 通常因家用光猫或路由器开启了『IPv6 防火墙入站阻断』。\n")
+	b.WriteString("        解决办法: 登录光猫/主路由管理后台，关闭 IPv6 防火墙或添加 58900 端口放行即可。\n")
 }
 
 // PrintPairingQRCode generates and renders an ANSI QR code to stdout encoding all candidate
@@ -280,8 +300,10 @@ func PrintRawPairingQRCode(code string, uri string) {
 			}
 			if ipv6 != "" {
 				fmt.Fprintf(&b, "🌐 外网 IPv6 直连 URI:   %s\n", GeneratePairingURI(ipv6, pVal, code, sVal))
+				appendIPv6Instructions(&b, ipv6, pVal, sVal)
 			} else if strings.Contains(h, ":") {
 				fmt.Fprintf(&b, "🌐 外网 IPv6 直连 URI:   %s\n", GeneratePairingURI(h, pVal, code, sVal))
+				appendIPv6Instructions(&b, h, pVal, sVal)
 			}
 			if ddns != "" {
 				fmt.Fprintf(&b, "⚡ DDNS / 域名直连 URI:  %s\n", GeneratePairingURI(ddns, pVal, code, sVal))

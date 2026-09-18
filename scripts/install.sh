@@ -28,7 +28,7 @@ fi
 ARCH="$(uname -m)"
 case "${ARCH}" in
     arm64|aarch64)
-        ARCH_DESC="Apple Silicon (M1/M2/M3/M4)"
+        ARCH_DESC="Apple Silicon (M系列)"
         PKG_ARCH="arm64"
         ;;
     x86_64|amd64)
