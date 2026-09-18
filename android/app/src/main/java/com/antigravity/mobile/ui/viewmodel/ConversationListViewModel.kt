@@ -458,7 +458,7 @@ class ConversationListViewModel(
         prefs.clear()
         _uiState.value = ConversationListUiState.Success(emptyList())
         rawConversations = emptyList()
-        projects = emptyList()
+        _projects.value = emptyList()
         onComplete()
     }
 
