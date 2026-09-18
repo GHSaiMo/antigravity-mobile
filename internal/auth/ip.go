@@ -3,6 +3,7 @@ package auth
 import (
 	"net"
 	"net/http"
+	"os"
 	"strings"
 )
 
@@ -15,6 +16,22 @@ type NetworkAddresses struct {
 // DetectNetworkAddresses discovers local network IPv4 and public IPv6 addresses.
 func DetectNetworkAddresses() NetworkAddresses {
 	var result NetworkAddresses
+
+	if v := strings.TrimSpace(os.Getenv("MULTIGRAVITY_LAN_IPV4")); v != "" {
+		result.LANIPv4 = v
+	} else if v := strings.TrimSpace(os.Getenv("LAN_IPV4")); v != "" {
+		result.LANIPv4 = v
+	}
+
+	if v := strings.TrimSpace(os.Getenv("MULTIGRAVITY_PUBLIC_IPV6")); v != "" {
+		result.PublicIPv6 = v
+	} else if v := strings.TrimSpace(os.Getenv("PUBLIC_IPV6")); v != "" {
+		result.PublicIPv6 = v
+	}
+
+	if result.LANIPv4 != "" && result.PublicIPv6 != "" {
+		return result
+	}
 
 	interfaces, err := net.Interfaces()
 	if err != nil {

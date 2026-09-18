@@ -428,7 +428,7 @@ func runGatewayServer(args []string) {
 
 	go func() {
 		var err error
-		if *tlsCert != "" && *tlsKey != "" {
+		if *enableSSL && *tlsCert != "" && *tlsKey != "" {
 			log.Printf("🔒 TLS enabled with cert=%s key=%s", *tlsCert, *tlsKey)
 			err = server.ServeTLS(listener, *tlsCert, *tlsKey)
 		} else {
@@ -439,10 +439,14 @@ func runGatewayServer(args []string) {
 		}
 	}()
 
+	scheme := "http"
+	if *enableSSL {
+		scheme = "https"
+	}
 	if qrHost != "127.0.0.1" {
-		log.Printf("📱 Mobile Web UI ready at: http://%s:%d (LAN) | http://127.0.0.1:%d (Local)", qrHost, *port, *port)
+		log.Printf("📱 Mobile Web UI ready at: %s://%s:%d (LAN) | %s://127.0.0.1:%d (Local)", scheme, qrHost, *port, scheme, *port)
 	} else {
-		log.Printf("📱 Mobile Web UI ready at: http://127.0.0.1:%d", *port)
+		log.Printf("📱 Mobile Web UI ready at: %s://127.0.0.1:%d", scheme, *port)
 	}
 
 	// Settle briefly so asynchronous startup logs (e.g. FRP tunnel connect, baseline sync)

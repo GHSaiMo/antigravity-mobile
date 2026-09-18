@@ -5,12 +5,14 @@ build:
 	@mkdir -p bin
 	go build -ldflags="-s -w -X 'main.Version=1.0.0'" -o bin/mgy ./cmd/gateway
 	@ln -sf mgy bin/gateway
+	@codesign -s - -f bin/mgy 2>/dev/null || true
 	@echo "Build complete: bin/mgy (symlinked as bin/gateway)"
 
 # Install mgy to ~/.local/bin/mgy for quick local testing
 install-local: build
 	@mkdir -p $(HOME)/.local/bin
 	@cp bin/mgy $(HOME)/.local/bin/mgy
+	@codesign -s - -f $(HOME)/.local/bin/mgy 2>/dev/null || true
 	@echo "Installed mgy to $(HOME)/.local/bin/mgy"
 
 # ==============================================================================

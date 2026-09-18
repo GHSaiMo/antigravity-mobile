@@ -10,6 +10,7 @@ private struct ChatBottomAnchorOffsetPreferenceKey: PreferenceKey {
 }
 
 public struct ChatView: View {
+    @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @State private var viewModel: ChatViewModel
     @FocusState private var isInputFocused: Bool
@@ -100,6 +101,17 @@ public struct ChatView: View {
         }
         .navigationTitle(viewModel.currentTitle)
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button(action: {
+                    dismiss()
+                }) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 16, weight: .semibold))
+                }
+            }
+        }
         .onAppear {
             isViewAppeared = true
             viewModel.restoreDraftsIfNeeded()
