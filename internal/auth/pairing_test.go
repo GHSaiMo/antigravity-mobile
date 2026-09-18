@@ -126,7 +126,7 @@ func TestPrintPairingQRCode(t *testing.T) {
 
 func TestFormatPairingQRCode(t *testing.T) {
 	out := FormatPairingQRCode("192.168.50.9", 58900, "abc123code", false, "2001:db8::1", "124.222.226.143")
-	if !strings.Contains(out, "Antigravity Mobile 客户端扫码一键配对") {
+	if !strings.Contains(out, "Multigravity 客户端扫码一键配对") && !strings.Contains(out, "Antigravity Mobile 客户端扫码一键配对") {
 		t.Errorf("expected header banner in output")
 	}
 	if !strings.Contains(out, "agy://pair?code=abc123code") {
@@ -141,7 +141,7 @@ func TestFormatPairingQRCode(t *testing.T) {
 	if !strings.Contains(out, "云服务器中继 URI:") {
 		t.Errorf("expected relay URI in output")
 	}
-	if !strings.Contains(out, "请使用 Antigravity 手机客户端扫描上方二维码") {
+	if !strings.Contains(out, "请使用 Multigravity 手机客户端扫描上方二维码") && !strings.Contains(out, "请使用 Antigravity 手机客户端扫描上方二维码") {
 		t.Errorf("expected footer instructions in output")
 	}
 }

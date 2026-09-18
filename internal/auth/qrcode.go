@@ -178,14 +178,14 @@ func FormatPairingQRCode(primaryHost string, port int, code string, ssl bool, ex
 	}
 
 	b.WriteString("\n==================================================\n")
-	b.WriteString("📱 Antigravity Mobile 客户端扫码一键配对\n")
+	b.WriteString("📱 Multigravity 客户端扫码一键配对\n")
 	b.WriteString("==================================================\n")
 	qrStr := qr.ToSmallString(false)
 	b.WriteString(qrStr)
 	if !strings.HasSuffix(qrStr, "\n") {
 		b.WriteString("\n")
 	}
-	b.WriteString("请使用 Antigravity 手机客户端扫描上方二维码 (5分钟内有效)\n\n")
+	b.WriteString("请使用 Multigravity 手机客户端扫描上方二维码 (5分钟内有效)\n\n")
 	fmt.Fprintf(&b, "🔗 复合配对 URI:          %s\n", uri)
 
 	if params.LANHost != "" {
@@ -259,8 +259,39 @@ func PrintRawPairingQRCode(code string, uri string) {
 		if !strings.HasSuffix(qrStr, "\n") {
 			b.WriteString("\n")
 		}
-		b.WriteString("💡 请使用 Multigravity 手机客户端扫描上方二维码完成配对\n\n")
-		fmt.Fprintf(&b, "🔗 配对链接 (URI):\n   %s\n", uri)
+		b.WriteString("请使用 Multigravity 手机客户端扫描上方二维码 (5分钟内有效)\n\n")
+		fmt.Fprintf(&b, "🔗 复合配对 URI:          %s\n", uri)
+
+		if u, err := url.Parse(uri); err == nil {
+			q := u.Query()
+			h := q.Get("host")
+			pStr := q.Get("port")
+			pVal, _ := strconv.Atoi(pStr)
+			sVal := q.Get("ssl") == "1"
+			lan := q.Get("lan")
+			ipv6 := q.Get("ipv6")
+			relay := q.Get("relay")
+			ddns := q.Get("ddns")
+
+			if lan != "" {
+				fmt.Fprintf(&b, "🏠 局域网 Wi-Fi 直连 URI: %s\n", GeneratePairingURI(lan, pVal, code, sVal))
+			} else if h != "" && !strings.Contains(h, ":") {
+				fmt.Fprintf(&b, "🏠 局域网 Wi-Fi 直连 URI: %s\n", GeneratePairingURI(h, pVal, code, sVal))
+			}
+			if ipv6 != "" {
+				fmt.Fprintf(&b, "🌐 外网 IPv6 直连 URI:   %s\n", GeneratePairingURI(ipv6, pVal, code, sVal))
+			} else if strings.Contains(h, ":") {
+				fmt.Fprintf(&b, "🌐 外网 IPv6 直连 URI:   %s\n", GeneratePairingURI(h, pVal, code, sVal))
+			}
+			if ddns != "" {
+				fmt.Fprintf(&b, "⚡ DDNS / 域名直连 URI:  %s\n", GeneratePairingURI(ddns, pVal, code, sVal))
+			}
+			if relay != "" {
+				fmt.Fprintf(&b, "☁️  云服务器中继 URI:     %s\n", GeneratePairingURI(relay, pVal, code, sVal))
+			}
+		}
+
+		b.WriteString("\n💡 提示: 扫码会自动同步局域网、IPv6 与云服务器中继网址，局域网极速秒连，外网智能自适应。\n")
 		b.WriteString("==================================================\n\n")
 	}
 

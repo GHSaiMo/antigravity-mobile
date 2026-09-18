@@ -316,12 +316,12 @@ func ValidateFRPTokenStrength(token string) string {
 }
 
 // AdvertisePublicIPv6 reports whether pairing QR / endpoints should include the
-// machine's global unicast IPv6. TLS/GATEWAY_SSL implies yes; otherwise the
-// operator must set INCLUDE_PUBLIC_IPV6=1.
+// machine's global unicast IPv6. Defaults to true whenever a global IPv6 is detected,
+// unless explicitly disabled via INCLUDE_PUBLIC_IPV6=0, false, or no.
 func AdvertisePublicIPv6(sslEnabled bool) bool {
-	if sslEnabled {
-		return true
-	}
 	v := strings.ToLower(strings.TrimSpace(os.Getenv("INCLUDE_PUBLIC_IPV6")))
-	return v == "1" || v == "true" || v == "yes"
+	if v == "0" || v == "false" || v == "no" {
+		return false
+	}
+	return true
 }

@@ -122,6 +122,7 @@ func runGatewayServer(args []string) {
 	enableSSL := fs.Bool("ssl", os.Getenv("GATEWAY_SSL") == "1" || os.Getenv("GATEWAY_SSL") == "true", "是否开启 SSL/HTTPS 模式（默认 false，开启需配合 -tls-cert 与 -tls-key）")
 	tlsCert := fs.String("tls-cert", os.Getenv("TLS_CERT_FILE"), "HTTPS 服务 TLS 证书文件路径 (.cer/.crt/.pem)")
 	tlsKey := fs.String("tls-key", os.Getenv("TLS_KEY_FILE"), "HTTPS 服务 TLS 私钥文件路径 (.key)")
+	preferIPv6 := fs.Bool("ipv6", os.Getenv("MULTIGRAVITY_PREFER_IPV6") == "1" || os.Getenv("PREFER_IPV6") == "1", "优先使用公网 IPv6 地址作为配对二维码的主机（默认生成包含 LAN 与 IPv6 的复合二维码）")
 	_ = fs.Parse(args)
 
 	tunnelCfg := config.GetTunnelConfig()
@@ -196,7 +197,12 @@ func runGatewayServer(args []string) {
 		publicIPv6 = netAddrs.PublicIPv6
 	}
 
-	if qrHost == "" {
+	if *preferIPv6 && publicIPv6 != "" {
+		qrHost = publicIPv6
+		if netAddrs.LANIPv4 != "" {
+			extraHosts = append(extraHosts, netAddrs.LANIPv4)
+		}
+	} else if qrHost == "" {
 		if *host != "" && *host != "0.0.0.0" && *host != "::" && *host != "[::]" {
 			qrHost = *host
 		} else if netAddrs.LANIPv4 != "" {
@@ -445,8 +451,8 @@ func runHelpCmd() {
   mgy [子命令] [参数]
 
 常用子命令:
-  run (默认)        启动网关服务 (双栈监听 + 自动打印一次配对二维码)
-  pair              向正在运行的网关申请并打印新配对二维码与链接
+  run (默认)        启动网关服务 (双栈监听 + 自动识别局域网与公网 IPv6 复合配对)
+  pair              向正在运行的网关申请并打印新配对二维码与链接 (支持 -ipv6)
   list              查看所有已配对授权的移动设备 (支持在线与离线查看)
   clear [all|id]    清除已配对的设备授权 (支持: mgy clear all 或 mgy clear <device-id>)
   version           查看当前版本信息
@@ -455,6 +461,7 @@ func runHelpCmd() {
 网关运行参数 (用于 mgy 或 mgy run):
   -port <端口号>    HTTP/WebSocket 监听端口 (默认: 58900, 环境变量: MULTIGRAVITY_PORT)
   -host <主机/IP>   监听地址 (默认: "" 双栈全网卡监听; 设为 127.0.0.1 仅限本机)
+  -ipv6             优先使用公网 IPv6 作为配对二维码主地址 (默认包含 IPv6 复合码)
   -qr=<true|false>  启动时是否打印配对二维码 (默认: true)
   -poll <秒数>      Antigravity 实例轮询间隔 (默认: 5秒)
   -ddns <域名/IP>   公网 DDNS 域名或固定 IPv6 地址
@@ -466,6 +473,7 @@ func runPairCmd(args []string) {
 	fs := flag.NewFlagSet("pair", flag.ExitOnError)
 	port := defaultPort()
 	portFlag := fs.Int("port", port, "网关端口")
+	ipv6Flag := fs.Bool("ipv6", false, "是否优先生成纯公网 IPv6 配对二维码与链接")
 	_ = fs.Parse(args)
 
 	targetPort := *portFlag
@@ -479,32 +487,44 @@ func runPairCmd(args []string) {
 	}
 
 	sslOn := os.Getenv("GATEWAY_SSL") == "1" || os.Getenv("GATEWAY_SSL") == "true"
-	scheme := "http"
+	schemes := []string{"http", "https"}
 	if sslOn {
-		scheme = "https"
-	}
-	urlStr := fmt.Sprintf("%s://127.0.0.1:%d/api/v1/auth/session", scheme, targetPort)
-
-	req, err := http.NewRequest(http.MethodPost, urlStr, nil)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "❌ 创建请求失败: %v\n", err)
-		os.Exit(1)
-	}
-	if adminToken != "" {
-		req.Header.Set("Authorization", "Bearer "+adminToken)
+		schemes = []string{"https", "http"}
 	}
 
 	client := &http.Client{
-		Timeout: 5 * time.Second,
+		Timeout: 3 * time.Second,
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		},
 	}
 
-	resp, err := client.Do(req)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "❌ 无法连接到网关 (%s)，请确认网关是否已启动。\n", urlStr)
-		fmt.Fprintf(os.Stderr, "   启动网关命令: mgy 或 mgy run\n")
+	var resp *http.Response
+	var lastErr error
+
+	for _, s := range schemes {
+		u := fmt.Sprintf("%s://127.0.0.1:%d/api/v1/auth/session", s, targetPort)
+		if *ipv6Flag {
+			u += "?prefer=ipv6"
+		}
+		req, err := http.NewRequest(http.MethodPost, u, nil)
+		if err != nil {
+			continue
+		}
+		if adminToken != "" {
+			req.Header.Set("Authorization", "Bearer "+adminToken)
+		}
+		r, err := client.Do(req)
+		if err == nil {
+			resp = r
+			break
+		}
+		lastErr = err
+	}
+
+	if resp == nil {
+		fmt.Fprintf(os.Stderr, "❌ 无法连接到网关 (端口 %d): %v\n", targetPort, lastErr)
+		fmt.Fprintf(os.Stderr, "   请确认网关是否已在运行 (启动命令: mgy 或 mgy run)\n")
 		os.Exit(1)
 	}
 	defer resp.Body.Close()

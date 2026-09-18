@@ -73,6 +73,12 @@ MULTIGRAVITY_PORT=58900
 # 公网 DDNS 域名或固定 IPv6 地址 (若需要外网直连)
 # DDNS_HOST=agy.example.com
 
+# 公网 IPv6 自动广播 (默认 1：检测到公网 IPv6 时自动打入复合配对二维码与链接；设为 0 关闭)
+INCLUDE_PUBLIC_IPV6=1
+
+# 是否默认优先使用纯 IPv6 作为二维码 (默认 0 生成双栈复合码；设为 1 纯 IPv6 码)
+# MULTIGRAVITY_PREFER_IPV6=0
+
 # iOS Bark 实时推送通知 (填入 Device Key 或 Bark 完整 URL)
 # BARK_URL=
 
@@ -168,8 +174,9 @@ fi
 
 chmod +x "${INSTALL_DIR}/${BIN_NAME}"
 
-# 7. 绕过 macOS Gatekeeper / Quarantine
+# 7. 绕过 macOS Gatekeeper / Quarantine 并完成 Ad-hoc 签名
 xattr -d com.apple.quarantine "${INSTALL_DIR}/${BIN_NAME}" 2>/dev/null || true
+codesign -s - -f "${INSTALL_DIR}/${BIN_NAME}" 2>/dev/null || true
 
 # 8. 检查 PATH 环境变量
 SHELL_NAME="$(basename "${SHELL:-zsh}")"

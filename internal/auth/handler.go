@@ -380,8 +380,13 @@ func (h *AuthHandler) HandleNewPairingSession(w http.ResponseWriter, r *http.Req
 		// Cert is issued for DDNS_HOST only; IP literals fail iOS ATS/trust.
 		lanHost, ipv6Host = "", ""
 	}
+	primaryHost := h.host
+	if r.URL.Query().Get("prefer") == "ipv6" && ipv6Host != "" {
+		primaryHost = ipv6Host
+	}
+
 	uri := GenerateMultiHostPairingURI(MultiHostPairingParams{
-		PrimaryHost: h.host,
+		PrimaryHost: primaryHost,
 		Port:        h.port,
 		Code:        session.Code,
 		SSL:         h.ssl,

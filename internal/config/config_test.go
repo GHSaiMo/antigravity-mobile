@@ -122,11 +122,19 @@ func TestGetTunnelConfig(t *testing.T) {
 
 func TestAdvertisePublicIPv6(t *testing.T) {
 	t.Setenv("INCLUDE_PUBLIC_IPV6", "")
-	if AdvertisePublicIPv6(false) {
-		t.Errorf("expected false when unset and ssl disabled")
+	if !AdvertisePublicIPv6(false) {
+		t.Errorf("expected true when unset by default")
 	}
 	if !AdvertisePublicIPv6(true) {
 		t.Errorf("expected true when ssl enabled")
+	}
+	t.Setenv("INCLUDE_PUBLIC_IPV6", "0")
+	if AdvertisePublicIPv6(false) {
+		t.Errorf("expected false when INCLUDE_PUBLIC_IPV6=0")
+	}
+	t.Setenv("INCLUDE_PUBLIC_IPV6", "false")
+	if AdvertisePublicIPv6(false) {
+		t.Errorf("expected false when INCLUDE_PUBLIC_IPV6=false")
 	}
 	t.Setenv("INCLUDE_PUBLIC_IPV6", "1")
 	if !AdvertisePublicIPv6(false) {
