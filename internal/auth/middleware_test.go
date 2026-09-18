@@ -3,9 +3,11 @@ package auth
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -406,5 +408,80 @@ func TestSecurityHeadersMiddlewarePermissionsPolicy(t *testing.T) {
 		t.Errorf("unexpected Permissions-Policy: %q", policy)
 	}
 }
+
+func TestIsQueryTokenDisabled(t *testing.T) {
+	t.Setenv("MULTIGRAVITY_DISABLE_QUERY_TOKEN", "")
+	if IsQueryTokenDisabled() {
+		t.Errorf("expected false when unset")
+	}
+	t.Setenv("MULTIGRAVITY_DISABLE_QUERY_TOKEN", "1")
+	if !IsQueryTokenDisabled() {
+		t.Errorf("expected true when set to 1")
+	}
+
+	// When disabled, ExtractToken on WS path with query param should return empty
+	req := httptest.NewRequest(http.MethodGet, "/connect-websocket?token=some_token", nil)
+	if tok := ExtractToken(req); tok != "" {
+		t.Errorf("expected empty token when query tokens are disabled, got %q", tok)
+	}
+}
+
+func TestSecurityHeadersMiddlewareHSTS_SSL(t *testing.T) {
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := SecurityHeadersMiddleware(next)
+
+	// 1. Without SSL env -> No HSTS
+	t.Setenv("MULTIGRAVITY_SSL", "0")
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Header().Get("Strict-Transport-Security") != "" {
+		t.Errorf("expected no HSTS on plain HTTP without SSL env")
+	}
+
+	// 2. With MULTIGRAVITY_SSL=1 -> HSTS present
+	t.Setenv("MULTIGRAVITY_SSL", "1")
+	req2 := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr2 := httptest.NewRecorder()
+	handler.ServeHTTP(rr2, req2)
+	if rr2.Header().Get("Strict-Transport-Security") == "" {
+		t.Errorf("expected HSTS header when MULTIGRAVITY_SSL=1")
+	}
+}
+
+func TestMaxBytesMiddleware(t *testing.T) {
+	// Handler that reads the body
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusRequestEntityTooLarge)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+
+	// Wrap with 100-byte limit
+	handler := MaxBytesMiddleware(100, next)
+
+	// Small payload (< 100 bytes) -> 200 OK
+	smallReq := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("small payload"))
+	smallRR := httptest.NewRecorder()
+	handler.ServeHTTP(smallRR, smallReq)
+	if smallRR.Code != http.StatusOK {
+		t.Errorf("expected 200 OK for small payload, got %d", smallRR.Code)
+	}
+
+	// Large payload (> 100 bytes) -> 413 Request Entity Too Large
+	largeReq := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(strings.Repeat("A", 200)))
+	largeRR := httptest.NewRecorder()
+	handler.ServeHTTP(largeRR, largeReq)
+	if largeRR.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("expected 413 RequestEntityTooLarge for oversized payload, got %d", largeRR.Code)
+	}
+}
+
+
 
 

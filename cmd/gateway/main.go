@@ -905,7 +905,8 @@ func buildRouter(
 
 	rootMux.Handle("/", adaptiveWebHandler)
 
-	return auth.SecurityHeadersMiddleware(auth.AuthMiddlewareWithPolicy(authStore, rootMux, authPolicy))
+	// Wrap with security headers, body size ceiling (64MB), and authentication policy
+	return auth.SecurityHeadersMiddleware(auth.MaxBytesMiddleware(64*1024*1024, auth.AuthMiddlewareWithPolicy(authStore, rootMux, authPolicy)))
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

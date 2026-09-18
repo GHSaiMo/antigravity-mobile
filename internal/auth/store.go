@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -103,6 +104,7 @@ func loadOrCreateAuthSalt(storePath string) string {
 	// S7: if rand.Read fails we must not fall back to a predictable value — log and return
 	// an empty string so callers can detect the failure and abort rather than use a weak salt.
 	if _, err := rand.Read(raw); err != nil {
+		log.Printf("❌ [AuthStore] crypto/rand.Read failed to generate salt: %v", err)
 		return ""
 	}
 	s := hex.EncodeToString(raw)
@@ -165,13 +167,16 @@ func NewAuthStore(filePath string) (*AuthStore, error) {
 		}
 		cachedSalt = loadOrCreateAuthSalt(resolved)
 	})
+	if cachedSalt == "" {
+		return nil, fmt.Errorf("cryptographic failure: failed to initialize secure auth salt")
+	}
 
 	if err := store.load(); err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("failed to load auth store from %s: %w", resolved, err)
 	}
 
 	if err := os.Chmod(resolved, 0600); err != nil && !os.IsNotExist(err) {
-		// best-effort; ignore missing file
+		log.Printf("⚠️  [AuthStore] failed to set 0600 permissions on %s: %v", resolved, err)
 	}
 
 	// P5: single background worker drains lastSeenCh so the hot auth middleware path
@@ -332,6 +337,7 @@ func (s *AuthStore) ValidateToken(rawToken string) (*PairedDevice, bool) {
 	// S8: Transparent in-place migration — upgrade legacy unsalted hash to modern salted hash.
 	// The next call to ValidateToken will find the salted hash directly, removing the legacy path.
 	if isLegacy && hash != "" {
+		log.Printf("[AUDIT:TOKEN_MIGRATION] device_id=%s legacy unsalted hash upgraded to salted hash", deviceID)
 		go func() {
 			s.mu.Lock()
 			defer s.mu.Unlock()

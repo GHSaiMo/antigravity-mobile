@@ -39,7 +39,9 @@ func antigravityStateDBPaths() []string {
 }
 
 func sqliteQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+	// SEC: Strip NULL bytes to prevent premature string truncation in SQLite
+	cleaned := strings.ReplaceAll(s, "\x00", "")
+	return "'" + strings.ReplaceAll(cleaned, "'", "''") + "'"
 }
 
 // prepareAntigravityProfileForSwitch runs after Antigravity has been quit and

@@ -12,6 +12,37 @@ func TestSQLiteQuote(t *testing.T) {
 	if got := sqliteQuote("a'b"); got != "'a''b'" {
 		t.Fatalf("sqliteQuote = %q", got)
 	}
+	if got := sqliteQuote("a\x00b'c"); got != "'ab''c'" {
+		t.Fatalf("sqliteQuote with null byte = %q, want 'ab''c'", got)
+	}
+}
+
+func TestIsSafeProxyURL(t *testing.T) {
+	valid := []string{
+		"http://127.0.0.1:7890",
+		"https://proxy.example.com:8080",
+		"socks5://127.0.0.1:1080",
+		"socks5h://localhost:1080",
+	}
+	for _, v := range valid {
+		if !isSafeProxyURL(v) {
+			t.Errorf("expected %q to be safe proxy URL", v)
+		}
+	}
+	invalid := []string{
+		"",
+		"ftp://127.0.0.1",
+		"javascript:alert(1)",
+		"http://127.0.0.1\nmalicious",
+		"http://127.0.0.1\r\nmalicious",
+		"http://",
+		"just-a-string",
+	}
+	for _, inv := range invalid {
+		if isSafeProxyURL(inv) {
+			t.Errorf("expected %q to be unsafe proxy URL", inv)
+		}
+	}
 }
 
 func TestValidateSQLiteKey(t *testing.T) {

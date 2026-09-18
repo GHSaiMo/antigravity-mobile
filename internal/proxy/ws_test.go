@@ -119,3 +119,39 @@ func TestWebSocketUpgradeAndPingPong(t *testing.T) {
 		t.Logf("Pong was handled automatically by dialer")
 	}
 }
+
+func TestCheckWebSocketOrigin_BrowserProtection(t *testing.T) {
+	// 1. Browser request without Origin -> Rejected
+	reqBrowserNoOrigin := httptest.NewRequest(http.MethodGet, "/connect-websocket", nil)
+	reqBrowserNoOrigin.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
+	reqBrowserNoOrigin.Header.Set("Sec-Fetch-Mode", "websocket")
+	if CheckWebSocketOrigin(reqBrowserNoOrigin) {
+		t.Errorf("expected rejection for browser WebSocket request missing Origin")
+	}
+
+	// 2. Native client without Origin -> Allowed
+	reqNativeNoOrigin := httptest.NewRequest(http.MethodGet, "/connect-websocket", nil)
+	reqNativeNoOrigin.Header.Set("User-Agent", "Antigravity/1.0 (iOS 18.0)")
+	if !CheckWebSocketOrigin(reqNativeNoOrigin) {
+		t.Errorf("expected acceptance for native client missing Origin")
+	}
+
+	// 3. Browser with valid Origin -> Allowed
+	reqBrowserValidOrigin := httptest.NewRequest(http.MethodGet, "/connect-websocket", nil)
+	reqBrowserValidOrigin.Host = "127.0.0.1:58900"
+	reqBrowserValidOrigin.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)")
+	reqBrowserValidOrigin.Header.Set("Origin", "http://127.0.0.1:58900")
+	if !CheckWebSocketOrigin(reqBrowserValidOrigin) {
+		t.Errorf("expected acceptance for browser with valid Origin")
+	}
+
+	// 4. Browser with untrusted Origin -> Rejected
+	reqBrowserUntrustedOrigin := httptest.NewRequest(http.MethodGet, "/connect-websocket", nil)
+	reqBrowserUntrustedOrigin.Host = "127.0.0.1:58900"
+	reqBrowserUntrustedOrigin.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)")
+	reqBrowserUntrustedOrigin.Header.Set("Origin", "http://evil-attacker.com")
+	if CheckWebSocketOrigin(reqBrowserUntrustedOrigin) {
+		t.Errorf("expected rejection for untrusted Origin")
+	}
+}
+

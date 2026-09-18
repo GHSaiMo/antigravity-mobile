@@ -50,6 +50,11 @@ func ExtractToken(r *http.Request) string {
 	// - WebSocket upgrade requests (browsers cannot set headers on WebSocket connections)
 	// - File/media raw download endpoints (e.g. <img> or file downloads where headers cannot be set)
 	// Clients are strongly urged to migrate to short-lived WS tickets or HttpOnly Cookie.
+	// Can be completely disabled via MULTIGRAVITY_DISABLE_QUERY_TOKEN=1 (M-4).
+	if IsQueryTokenDisabled() {
+		return ""
+	}
+
 	isWS := strings.Contains(strings.ToLower(r.Header.Get("Upgrade")), "websocket") ||
 		r.URL.Path == "/connect-websocket" ||
 		strings.HasPrefix(r.URL.Path, "/gateway/cascade/stream")
@@ -66,6 +71,15 @@ func ExtractToken(r *http.Request) string {
 	}
 
 	return ""
+}
+
+// IsQueryTokenDisabled reports whether query string token authentication is disabled via environment variable (M-4).
+func IsQueryTokenDisabled() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("MULTIGRAVITY_DISABLE_QUERY_TOKEN")))
+	if v == "" {
+		v = strings.ToLower(strings.TrimSpace(os.Getenv("DISABLE_QUERY_TOKEN")))
+	}
+	return v == "1" || v == "true" || v == "yes"
 }
 
 const DeviceCookieName = "agy_dt"
@@ -255,9 +269,27 @@ func SecurityHeadersMiddleware(next http.Handler) http.Handler {
 		for i := 0; i < len(defaultSecurityHeaders); i++ {
 			h.Set(defaultSecurityHeaders[i].key, defaultSecurityHeaders[i].val)
 		}
-		if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+		isSSL := r.TLS != nil ||
+			strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") ||
+			os.Getenv("MULTIGRAVITY_SSL") == "1" ||
+			strings.EqualFold(os.Getenv("MULTIGRAVITY_SSL"), "true")
+		if isSSL {
 			h.Set("Strict-Transport-Security", defaultHSTSValue)
 		}
 		next.ServeHTTP(w, r)
 	})
 }
+
+// MaxBytesMiddleware wraps incoming request bodies with http.MaxBytesReader to mitigate OOM / body flooding attacks (L-4).
+func MaxBytesMiddleware(maxBytes int64, next http.Handler) http.Handler {
+	if maxBytes <= 0 {
+		maxBytes = 64 * 1024 * 1024 // 64MB default safety limit
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+

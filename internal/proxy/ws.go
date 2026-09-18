@@ -119,17 +119,40 @@ func IsAllowedOrigin(origin string, requestHost string) bool {
 	return false
 }
 
+// HasBrowserFingerprint detects whether an incoming HTTP request originates from a standard web browser.
+// Standard web browsers compliant with RFC 6455 MUST include an Origin header during WebSocket handshakes.
+func HasBrowserFingerprint(r *http.Request) bool {
+	if r.Header.Get("Sec-Fetch-Site") != "" || r.Header.Get("Sec-Fetch-Mode") != "" || r.Header.Get("Sec-Fetch-Dest") != "" {
+		return true
+	}
+	ua := r.Header.Get("User-Agent")
+	if strings.Contains(ua, "Mozilla/") && !strings.Contains(ua, "Antigravity") && !strings.Contains(ua, "CFNetwork") && !strings.Contains(ua, "Darwin") {
+		return true
+	}
+	return false
+}
+
+// CheckWebSocketOrigin validates the Origin of an incoming WebSocket upgrade request.
+func CheckWebSocketOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		if HasBrowserFingerprint(r) {
+			log.Printf("[WS] Rejected WebSocket connection: missing Origin header from browser client (host: %s, UA: %s)", r.Host, r.Header.Get("User-Agent"))
+			return false
+		}
+		return true
+	}
+	allowed := IsAllowedOrigin(origin, r.Host)
+	if !allowed {
+		log.Printf("[WS] Rejected WebSocket connection from untrusted origin: %s (host: %s)", origin, r.Host)
+	}
+	return allowed
+}
+
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  32768,
 	WriteBufferSize: 32768,
-	CheckOrigin: func(r *http.Request) bool {
-		origin := r.Header.Get("Origin")
-		allowed := IsAllowedOrigin(origin, r.Host)
-		if !allowed {
-			log.Printf("[WS] Rejected WebSocket connection from untrusted origin: %s (host: %s)", origin, r.Host)
-		}
-		return allowed
-	},
+	CheckOrigin:     CheckWebSocketOrigin,
 }
 
 // sanitizeWebSocketHeaders normalizes HTTP headers required for WebSocket upgrade.

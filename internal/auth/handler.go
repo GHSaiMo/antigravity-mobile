@@ -10,6 +10,9 @@ import (
 	"time"
 )
 
+// DefaultDeviceCookieMaxAge is the session cookie validity duration (30 days, reduced from 400 days - H-3).
+const DefaultDeviceCookieMaxAge = 86400 * 30
+
 // PairRequest is the payload sent by clients to pair.
 type PairRequest struct {
 	PairingCode string `json:"pairing_code"`
@@ -256,7 +259,7 @@ func (h *AuthHandler) HandlePair(w http.ResponseWriter, r *http.Request) {
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
 		Secure:   h.ssl,
-		MaxAge:   86400 * 400,
+		MaxAge:   DefaultDeviceCookieMaxAge,
 	})
 
 	w.Header().Set("Content-Type", "application/json")

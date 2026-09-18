@@ -5,24 +5,40 @@ PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ADMIN_TOKEN_FILE="${HOME}/.antigravity-mobile/admin_token"
 DEFAULT_STORE_FILE="${HOME}/.antigravity-mobile/auth_store.json"
 
-PORT="58900"
-if [ -f "${PROJECT_DIR}/.env" ]; then
-    set -a
-    # shellcheck source=/dev/null
-    source "${PROJECT_DIR}/.env" 2>/dev/null || true
-    set +a
-    ENV_PORT=$(grep -E '^GATEWAY_PORT=' "${PROJECT_DIR}/.env" | cut -d'=' -f2 | tr -d ' "\r\n' || true)
-    if [ -n "${ENV_PORT:-}" ]; then
-        PORT="$ENV_PORT"
+read_env_val() {
+    local key="$1"
+    local file="${PROJECT_DIR}/.env"
+    if [ -f "${file}" ]; then
+        grep -E "^${key}=" "${file}" 2>/dev/null | tail -n 1 | cut -d'=' -f2- | tr -d '\r' | sed -e 's/^[[:space:]]*["'"'"']//' -e 's/["'"'"'][[:space:]]*$//' || true
     fi
+}
+
+# Read configuration safely without sourcing (M-5)
+PORT="58900"
+ENV_PORT="$(read_env_val "MULTIGRAVITY_PORT")"
+if [ -z "${ENV_PORT}" ]; then
+    ENV_PORT="$(read_env_val "GATEWAY_PORT")"
+fi
+if [ -n "${ENV_PORT}" ]; then
+    PORT="${ENV_PORT}"
 fi
 if [ -n "${GATEWAY_PORT:-}" ]; then
     PORT="$GATEWAY_PORT"
 fi
 
-STORE_FILE="${AUTH_STORE_PATH:-${DEFAULT_STORE_FILE}}"
+ENV_STORE_FILE="$(read_env_val "MULTIGRAVITY_AUTH_STORE_PATH")"
+if [ -z "${ENV_STORE_FILE}" ]; then
+    ENV_STORE_FILE="$(read_env_val "AUTH_STORE_PATH")"
+fi
+STORE_FILE="${AUTH_STORE_PATH:-${ENV_STORE_FILE:-${DEFAULT_STORE_FILE}}}"
 STORE_FILE="${STORE_FILE/#\~/$HOME}"
 
+if [ -z "${ADMIN_TOKEN:-}" ]; then
+    ADMIN_TOKEN="$(read_env_val "MULTIGRAVITY_ADMIN_TOKEN")"
+    if [ -z "${ADMIN_TOKEN}" ]; then
+        ADMIN_TOKEN="$(read_env_val "ADMIN_TOKEN")"
+    fi
+fi
 if [ -z "${ADMIN_TOKEN:-}" ] && [ -f "${ADMIN_TOKEN_FILE}" ]; then
     ADMIN_TOKEN="$(tr -d ' \r\n' < "${ADMIN_TOKEN_FILE}")"
 fi
@@ -32,16 +48,24 @@ if [ -n "${ADMIN_TOKEN:-}" ]; then
     AUTH_ARGS=(-H "Authorization: Bearer ${ADMIN_TOKEN}")
 fi
 
+SSL_VAL="${GATEWAY_SSL:-$(read_env_val "MULTIGRAVITY_SSL")}"
+if [ -z "${SSL_VAL}" ]; then
+    SSL_VAL="$(read_env_val "GATEWAY_SSL")"
+fi
 ssl_on=false
-case "${GATEWAY_SSL:-}" in
+case "${SSL_VAL}" in
     1|true|TRUE|yes|YES) ssl_on=true ;;
 esac
 
+DDNS_VAL="${DDNS_HOST:-$(read_env_val "DDNS_HOST")}"
+TLS_CERT_VAL="${TLS_CERT_FILE:-$(read_env_val "MULTIGRAVITY_TLS_CERT")}"
+TLS_KEY_VAL="${TLS_KEY_FILE:-$(read_env_val "MULTIGRAVITY_TLS_KEY")}"
+
 CURL_OPTS=(-sS)
-if $ssl_on || { [ -n "${TLS_CERT_FILE:-}" ] && [ -n "${TLS_KEY_FILE:-}" ]; }; then
-    if [ -n "${DDNS_HOST:-}" ]; then
-        CURL_OPTS=(--resolve "${DDNS_HOST}:${PORT}:127.0.0.1" -k -sS)
-        BASE_URL="https://${DDNS_HOST}:${PORT}"
+if $ssl_on || { [ -n "${TLS_CERT_VAL:-}" ] && [ -n "${TLS_KEY_VAL:-}" ]; }; then
+    if [ -n "${DDNS_VAL:-}" ]; then
+        CURL_OPTS=(--resolve "${DDNS_VAL}:${PORT}:127.0.0.1" -k -sS)
+        BASE_URL="https://${DDNS_VAL}:${PORT}"
     else
         CURL_OPTS=(-k -sS)
         BASE_URL="https://127.0.0.1:${PORT}"

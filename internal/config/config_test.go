@@ -163,7 +163,10 @@ func TestValidateFRPTokenStrength(t *testing.T) {
 		t.Errorf("expected warning for placeholder token")
 	}
 	if ValidateFRPTokenStrength("short-token") == "" {
-		t.Errorf("expected warning for short token (< 16 chars)")
+		t.Errorf("expected warning for short token (< 24 chars)")
+	}
+	if ValidateFRPTokenStrength("AgySecure2026Token") == "" {
+		t.Errorf("expected warning for AgySecure2026Token (predictable words pattern)")
 	}
 	strongToken := "a1b2c3d4e5f60718293a4b5c6d7e8f90"
 	if ValidateFRPTokenStrength(strongToken) != "" {

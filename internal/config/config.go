@@ -78,6 +78,13 @@ func parseEnvFile(filename string) {
 	}
 	defer file.Close()
 
+	// SEC: Enforce restrictive permissions on .env files if they contain sensitive secrets
+	if fi, err := file.Stat(); err == nil {
+		if fi.Mode().Perm()&0077 != 0 {
+			_ = os.Chmod(filename, 0600)
+		}
+	}
+
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -279,7 +286,7 @@ func GetTunnelConfig() TunnelConfig {
 	}
 }
 
-// ValidateFRPTokenStrength checks if the configured FRP_TOKEN is weak or low-entropy (M-1).
+// ValidateFRPTokenStrength checks if the configured FRP_TOKEN is weak or low-entropy (C-2).
 // It returns an advisory warning message if the token is sub-optimal.
 func ValidateFRPTokenStrength(token string) string {
 	tok := strings.TrimSpace(token)
@@ -288,15 +295,29 @@ func ValidateFRPTokenStrength(token string) string {
 	}
 	weakTokens := []string{
 		"admin", "123456", "12345678", "password", "frp", "frp123", "frptoken",
-		"your_frp_auth_token", "your_token", "default", "secret",
+		"your_frp_auth_token", "your_token", "default", "secret", "agysecure2026token",
 	}
+	tokLower := strings.ToLower(tok)
 	for _, w := range weakTokens {
-		if strings.EqualFold(tok, w) {
+		if tokLower == w {
 			return fmt.Sprintf("⚠️  [SECURITY WARNING] FRP_TOKEN %q is a well-known weak/example token! Generate a secure random token using: openssl rand -hex 32", tok)
 		}
 	}
-	if len(tok) < 16 {
-		return fmt.Sprintf("⚠️  [SECURITY WARNING] FRP_TOKEN length (%d) is shorter than 16 characters. For internet-facing relay security, generate at least 32 random hex characters: openssl rand -hex 32", len(tok))
+
+	// Detect dictionary combinations or predictable word patterns
+	predictableWords := []string{"agy", "token", "secure", "pass", "admin", "server", "2026", "2025"}
+	hitCount := 0
+	for _, pw := range predictableWords {
+		if strings.Contains(tokLower, pw) {
+			hitCount++
+		}
+	}
+	if hitCount >= 2 && len(tok) < 32 {
+		return fmt.Sprintf("⚠️  [SECURITY WARNING] FRP_TOKEN %q appears to be composed of predictable dictionary words. Recommended: openssl rand -hex 32", tok)
+	}
+
+	if len(tok) < 24 {
+		return fmt.Sprintf("⚠️  [SECURITY WARNING] FRP_TOKEN length (%d) is shorter than 24 characters. For internet-facing relay security, generate at least 32 random hex characters: openssl rand -hex 32", len(tok))
 	}
 	return ""
 }

@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -131,19 +132,36 @@ func writeGeminiKeychainOAuth(tok *parsedOAuth) error {
 	return nil
 }
 
+func isSafeProxyURL(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || strings.ContainsAny(raw, "\r\n\x00") {
+		return false
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	scheme := strings.ToLower(u.Scheme)
+	return scheme == "http" || scheme == "https" || scheme == "socks5" || scheme == "socks5h"
+}
+
 func launchAntigravityWithCockpitProxy() error {
 	args := []string{"-a", "Antigravity"}
 	if cfg, err := getCockpitConfig(); err == nil && cfg.GlobalProxyEnabled && strings.TrimSpace(cfg.GlobalProxyURL) != "" {
 		proxy := strings.TrimSpace(cfg.GlobalProxyURL)
-		noProxy := strings.TrimSpace(cfg.GlobalProxyNoProxy)
-		if noProxy == "" {
-			noProxy = "127.0.0.1,localhost,::1"
+		if !isSafeProxyURL(proxy) {
+			log.Printf("[Cockpit] ⚠️ rejected unsafe GlobalProxyURL %q; launching without proxy", proxy)
+		} else {
+			noProxy := strings.TrimSpace(cfg.GlobalProxyNoProxy)
+			if noProxy == "" || strings.ContainsAny(noProxy, "\r\n\x00") {
+				noProxy = "127.0.0.1,localhost,::1"
+			}
+			for _, key := range []string{"http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "all_proxy", "ALL_PROXY"} {
+				args = append(args, "--env", key+"="+proxy)
+			}
+			args = append(args, "--env", "no_proxy="+noProxy, "--env", "NO_PROXY="+noProxy)
+			log.Printf("[Cockpit] launching Antigravity.app with proxy %s", proxy)
 		}
-		for _, key := range []string{"http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "all_proxy", "ALL_PROXY"} {
-			args = append(args, "--env", key+"="+proxy)
-		}
-		args = append(args, "--env", "no_proxy="+noProxy, "--env", "NO_PROXY="+noProxy)
-		log.Printf("[Cockpit] launching Antigravity.app with proxy %s", proxy)
 	} else {
 		log.Printf("[Cockpit] launching Antigravity.app without global proxy")
 	}
