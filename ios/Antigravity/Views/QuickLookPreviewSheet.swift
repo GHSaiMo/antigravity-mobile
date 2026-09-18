@@ -4,6 +4,34 @@ import WebKit
 import Photos
 import LinkPresentation
 
+// MARK: - Frosted Glass Share Button (Unified Modern Blur Style)
+
+public struct FrostedShareButton: View {
+    public let action: () -> Void
+    
+    public init(action: @escaping () -> Void) {
+        self.action = action
+    }
+    
+    public var body: some View {
+        Button(action: action) {
+            Image(systemName: "square.and.arrow.up")
+                .font(.system(size: 14.5, weight: .semibold))
+                .foregroundColor(.primary)
+                .frame(width: 34, height: 34)
+                .background(.ultraThinMaterial)
+                .clipShape(Circle())
+                .overlay(
+                    Circle()
+                        .stroke(Color.primary.opacity(0.12), lineWidth: 0.8)
+                )
+                .shadow(color: Color.black.opacity(0.06), radius: 3, x: 0, y: 1.5)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("分享")
+    }
+}
+
 // MARK: - Native QuickLook Presentation Sheet (PPTX, DOCX, XLSX, PDF, KEY)
 
 public struct QuickLookPreviewSheet: View {
@@ -22,78 +50,61 @@ public struct QuickLookPreviewSheet: View {
         self.onDismiss = onDismiss
     }
     
+    @ViewBuilder
+    private var savePhotoButton: some View {
+        Button(action: saveToPhotosAlbum) {
+            Group {
+                if isSavingPhoto {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                } else {
+                    Image(systemName: "square.and.arrow.down")
+                        .font(.system(size: 14.5, weight: .semibold))
+                        .foregroundColor(.primary)
+                }
+            }
+            .frame(width: 34, height: 34)
+            .background(.ultraThinMaterial)
+            .clipShape(Circle())
+            .overlay(
+                Circle()
+                    .stroke(Color.primary.opacity(0.12), lineWidth: 0.8)
+            )
+            .shadow(color: Color.black.opacity(0.06), radius: 3, x: 0, y: 1.5)
+        }
+        .buttonStyle(.plain)
+        .disabled(isSavingPhoto)
+        .accessibilityLabel("保存到相册")
+    }
+    
     public var body: some View {
-        VStack(spacing: 0) {
-            // Floating grab handle hinting pull-down dismissal
-            Capsule()
-                .fill(Color(uiColor: .tertiaryLabel))
-                .frame(width: 38, height: 5)
-                .padding(.top, 10)
-                .padding(.bottom, 12)
-            
-            // Header bar
-            HStack {
+        NavigationStack {
+            Group {
                 if isImageFile(url: url) {
-                    Button {
-                        saveToPhotosAlbum()
-                    } label: {
-                        if isSavingPhoto {
-                            ProgressView()
-                                .frame(width: 44, height: 44)
-                        } else {
-                            Image(systemName: "square.and.arrow.down")
-                                .font(.system(size: 21, weight: .semibold))
-                                .foregroundColor(.primary)
-                                .frame(width: 44, height: 44, alignment: .leading)
+                    HighResolutionImageViewer(url: url)
+                        .ignoresSafeArea(edges: .bottom)
+                } else {
+                    QuickLookControllerRepresentable(url: url)
+                        .ignoresSafeArea(edges: .bottom)
+                }
+            }
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    HStack(spacing: 8) {
+                        if isImageFile(url: url) {
+                            savePhotoButton
+                        }
+                        FrostedShareButton {
+                            isSharing = true
                         }
                     }
-                    .disabled(isSavingPhoto)
-                    .accessibilityLabel("保存到相册")
-                } else {
-                    Button {
-                        onDismiss()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 19, weight: .semibold))
-                            .foregroundColor(.primary)
-                            .frame(width: 44, height: 44, alignment: .leading)
-                    }
-                    .accessibilityLabel("关闭")
                 }
-                
-                Spacer()
-                
-                Text(title)
-                    .font(.system(size: 17, weight: .bold))
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                
-                Spacer()
-                
-                Button {
-                    isSharing = true
-                } label: {
-                    Image(systemName: "square.and.arrow.up")
-                        .font(.system(size: 21, weight: .semibold))
-                        .foregroundColor(.primary)
-                        .frame(width: 44, height: 44, alignment: .trailing)
-                }
-                .accessibilityLabel("分享")
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 10)
-            
-            Divider()
-            
-            if isImageFile(url: url) {
-                HighResolutionImageViewer(url: url)
-                    .ignoresSafeArea(edges: .bottom)
-            } else {
-                QuickLookControllerRepresentable(url: url)
-                    .ignoresSafeArea(edges: .bottom)
-            }
+            .presentationDragIndicator(.visible)
         }
+        .presentationDragIndicator(.visible)
         .sheet(isPresented: $isSharing) {
             let items: [Any] = isImageFile(url: url) ? [ImageActivityItemSource(fileURL: url, title: title)] : [url]
             ShareSheetView(activityItems: items)
@@ -540,49 +551,20 @@ public struct HTMLPreviewSheet: View {
     }
     
     public var body: some View {
-        VStack(spacing: 0) {
-            // Floating grab handle hinting pull-down dismissal
-            Capsule()
-                .fill(Color(uiColor: .tertiaryLabel))
-                .frame(width: 38, height: 5)
-                .padding(.top, 10)
-                .padding(.bottom, 12)
-            
-            // Header bar
-            HStack {
-                Button("完成") {
-                    onDismiss()
-                }
-                .font(.system(size: 16, weight: .semibold))
-                .frame(width: 60, alignment: .leading)
-                
-                Spacer()
-                
-                Text(title)
-                    .font(.system(size: 17, weight: .bold))
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                
-                Spacer()
-                
-                Button {
-                    isSharing = true
-                } label: {
-                    Image(systemName: "square.and.arrow.up")
-                        .font(.system(size: 16, weight: .semibold))
-                }
-                .frame(width: 60, alignment: .trailing)
-                .accessibilityLabel("发送")
-            }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 12)
-            
-            Divider()
-            
+        NavigationStack {
             HTMLWebViewRepresentable(url: url)
                 .ignoresSafeArea(edges: .bottom)
+                .navigationTitle(title)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        FrostedShareButton {
+                            isSharing = true
+                        }
+                    }
+                }
         }
+        .presentationDragIndicator(.visible)
         .sheet(isPresented: $isSharing) {
             ShareSheetView(activityItems: [url])
         }

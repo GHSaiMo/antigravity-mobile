@@ -156,7 +156,7 @@ public struct ChatView: View {
             viewModel.closeMarkdownViewer()
         }) { (item: MarkdownFileViewerData) in
             renderMarkdownViewer(data: item)
-                .presentationDragIndicator(.hidden)
+                .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: Binding(
             get: { viewModel.quickLookURL != nil },
@@ -166,7 +166,7 @@ public struct ChatView: View {
                 QuickLookPreviewSheet(url: qlURL, title: viewModel.quickLookTitle) {
                     viewModel.closeQuickLook()
                 }
-                .presentationDragIndicator(.hidden)
+                .presentationDragIndicator(.visible)
             }
         }
         .sheet(isPresented: Binding(
@@ -177,7 +177,7 @@ public struct ChatView: View {
                 HTMLPreviewSheet(url: htmlURL, title: viewModel.htmlPreviewTitle) {
                     viewModel.closeHTMLPreview()
                 }
-                .presentationDragIndicator(.hidden)
+                .presentationDragIndicator(.visible)
             }
         }
         .overlay {
@@ -1251,6 +1251,7 @@ public struct MarkdownViewerSheet: View {
     public let onRefresh: (() -> Void)?
     
     @State private var previewImage: IdentifiableImage? = nil
+    @State private var isSharing: Bool = false
     
     public init(
         data: MarkdownFileViewerData,
@@ -1266,29 +1267,25 @@ public struct MarkdownViewerSheet: View {
         self.onRefresh = onRefresh
     }
     
-    public var body: some View {
-        VStack(spacing: 0) {
-            // Floating grab handle hinting pull-down dismissal
-            Capsule()
-                .fill(Color(uiColor: .tertiaryLabel))
-                .frame(width: 38, height: 5)
-                .padding(.top, 10)
-                .padding(.bottom, 10)
-            
-            // Header bar with centered document title
-            HStack {
-                Spacer()
-                Text(data.title.isEmpty ? "文档详情" : data.title)
-                    .font(.system(size: 17, weight: .bold))
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-                Spacer()
+    private func getShareItems() -> [Any] {
+        if let fileURL = data.cachedFileURL, FileManager.default.fileExists(atPath: fileURL.path) {
+            return [fileURL]
+        }
+        if !data.content.isEmpty {
+            let baseName = data.title.isEmpty ? "document" : data.title
+            let safeName = baseName.replacingOccurrences(of: "/", with: "_")
+            let fileName = safeName.hasSuffix(".md") ? safeName : "\(safeName).md"
+            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
+            if let _ = try? data.content.write(to: tempURL, atomically: true, encoding: .utf8) {
+                return [tempURL]
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 10)
-            
-            Divider()
-            
+            return [data.content]
+        }
+        return []
+    }
+    
+    public var body: some View {
+        NavigationStack {
             ZStack(alignment: .bottom) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
@@ -1333,7 +1330,7 @@ public struct MarkdownViewerSheet: View {
                             MarkdownContentView(content: data.content, onImageTap: { url in
                                 previewImage = IdentifiableImage(url: url)
                             })
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
                     .padding(.horizontal, 16)
@@ -1382,8 +1379,21 @@ public struct MarkdownViewerSheet: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
+            .navigationTitle(data.title.isEmpty ? "文档详情" : data.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    FrostedShareButton {
+                        isSharing = true
+                    }
+                }
+            }
         }
-        .presentationDragIndicator(.hidden)
+        .presentationDragIndicator(.visible)
+        .sheet(isPresented: $isSharing) {
+            let items = getShareItems()
+            ShareSheetView(activityItems: items)
+        }
         .fullScreenCover(item: $previewImage) { item in
             ImageViewerSheet(item: item)
                 .presentationBackground(.clear)
