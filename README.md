@@ -74,6 +74,9 @@ mgy version        # 查看当前网关版本信息
 mgy help           # 查看完整命令与启动参数帮助
 ```
 
+> 📖 **进阶维护指南**：
+> 完整安装机制、多场景本地自测（架构匹配 / 纯净首次安装 / IPv6 自动修复 / 5G 直连排错）与一键卸载方案，详见 ➔ [**安装、本地自测与卸载运维指南 (docs/installation_and_testing_guide.md)**](docs/installation_and_testing_guide.md)。
+
 ---
 
 ## 💡 为什么需要 Multigravity？

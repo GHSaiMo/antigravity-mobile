@@ -78,7 +78,9 @@ data class GatewayMessageItem(
 data class QueuedMessageItem(
     val id: String = "",
     val text: String = "",
-    val createdAt: String? = null
+    val createdAt: String? = null,
+    val media: List<String>? = null,
+    val imageUrls: List<String>? = null
 )
 
 @Serializable

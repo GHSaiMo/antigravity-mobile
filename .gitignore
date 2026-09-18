@@ -71,7 +71,6 @@ temp/
 *.bak
 
 # --- Internal Docs & Notes ---
-/docs/
 Agent.md
 
 # --- IDE & Editor Settings ---

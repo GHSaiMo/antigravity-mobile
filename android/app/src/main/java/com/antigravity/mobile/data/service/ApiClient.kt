@@ -412,7 +412,9 @@ class ApiClient(private val prefs: PreferencesManager) {
         cascadeId: String,
         text: String,
         model: String? = null,
-        images: List<Pair<ByteArray, String>> = emptyList()
+        images: List<Pair<ByteArray, String>> = emptyList(),
+        deliveryStrategy: Int? = null,
+        clientMessageId: String? = null
     ): Result<Unit> = withContext(Dispatchers.IO) {
         val baseUrl = prefs.gatewayBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
         val url = "$baseUrl/api/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage"
@@ -445,7 +447,48 @@ class ApiClient(private val prefs: PreferencesManager) {
             } else {
                 put("media", JsonArray(emptyList()))
             }
+            deliveryStrategy?.let { put("deliveryStrategy", it) }
             model?.let { put("model", it) }
+        }
+
+        try {
+            val reqBuilder = buildAuthorizedRequest(url)
+                .post(payload.toString().toRequestBody(jsonMediaType))
+
+            if (!clientMessageId.isNullOrBlank()) {
+                reqBuilder.header("X-Client-Message-Id", clientMessageId)
+            }
+            if (!model.isNullOrBlank()) {
+                reqBuilder.header("X-Antigravity-Model", model)
+            }
+
+            val req = reqBuilder.build()
+
+            client.newCall(req).execute().use { response ->
+                if (response.isSuccessful) {
+                    Result.success(Unit)
+                } else {
+                    Result.failure(RuntimeException("发送失败: HTTP ${response.code}"))
+                }
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 删除队列中的消息 (DeleteAgentMessage)
+     */
+    suspend fun deleteAgentMessage(
+        cascadeId: String,
+        messageId: String
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        val baseUrl = prefs.gatewayBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val url = "$baseUrl/api/exa.language_server_pb.LanguageServerService/DeleteAgentMessage"
+
+        val payload = buildJsonObject {
+            put("messageId", messageId)
+            put("recipient", cascadeId)
         }
 
         try {
@@ -457,7 +500,7 @@ class ApiClient(private val prefs: PreferencesManager) {
                 if (response.isSuccessful) {
                     Result.success(Unit)
                 } else {
-                    Result.failure(RuntimeException("发送失败: HTTP ${response.code}"))
+                    Result.failure(RuntimeException("删除队列消息失败: HTTP ${response.code}"))
                 }
             }
         } catch (e: Exception) {
