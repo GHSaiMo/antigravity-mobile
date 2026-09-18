@@ -35,6 +35,7 @@ jobs:
       - name: Build Android Release APK
         run: |
           cd android
+          echo "android.useAndroidX=true" >> gradle.properties
           if [ ! -f gradlew ]; then
             gradle wrapper
           fi

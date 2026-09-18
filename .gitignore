@@ -88,7 +88,6 @@ android/local.properties
 android/**/.cxx/
 *.apk
 *.aab
-android/gradle.properties
 android/*.zip
 android/*.hprof
 android/.idea/
