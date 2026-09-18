@@ -220,6 +220,7 @@ public struct MarkdownContentView: View {
     public static func renderRichText(_ rawText: String, size: CGFloat = 15, weight: Font.Weight = .regular) -> Text {
         var text = MathSymbolProcessor.process(rawText)
         text = replaceHtmlBreaks(in: text)
+        text = unwrapBacktickBold(in: text)
         
         // Auto-link bare implementation_plan.md, walkthrough.md, task.md outside code spans
         func autoLinkPlans(in s: String) -> String {
@@ -460,9 +461,23 @@ public struct MarkdownContentView: View {
         }.joined()
     }
     
+    // Unwraps bold text mistakenly wrapped in inline code backticks,
+    // e.g. "`** BUILD SUCCEEDED **`" -> "**BUILD SUCCEEDED**"
+    // so it parses and renders as true bold text rather than raw code with asterisks.
+    private static let backtickBoldRegex = try? NSRegularExpression(
+        pattern: #"`+(\*{2,3})\s*([^\*`\n]+?)\s*\1`+"#
+    )
+    
+    public static func unwrapBacktickBold(in text: String) -> String {
+        guard text.contains("`") && text.contains("**"), let regex = backtickBoldRegex else { return text }
+        let nsText = text as NSString
+        let range = NSRange(location: 0, length: nsText.length)
+        return regex.stringByReplacingMatches(in: text, options: [], range: range, withTemplate: "$1$2$1")
+    }
+    
     // Normalizes inner whitespace in bold markdown, e.g. "** text **" -> " **text** "
     private static let boldPairRegex = try? NSRegularExpression(
-        pattern: #"(?<!\*)\*\*((?:[^\*]|\*(?!\*))+?)\*\*(?!\*)"#
+        pattern: #"(?<!\*)(\*{2,3})((?:[^\*]|\*(?!\*))+?)\1(?!\*)"#
     )
     
     private static func normalizeBoldSpaces(in text: String) -> String {
@@ -480,7 +495,8 @@ public struct MarkdownContentView: View {
                 result += nsText.substring(with: NSRange(location: lastEnd, length: fullRange.location - lastEnd))
             }
             
-            let inner = nsText.substring(with: match.range(at: 1))
+            let stars = nsText.substring(with: match.range(at: 1))
+            let inner = nsText.substring(with: match.range(at: 2))
             
             var leadingSpaces = ""
             var trailingSpaces = ""
@@ -498,7 +514,7 @@ public struct MarkdownContentView: View {
             if trimmed.isEmpty {
                 result += nsText.substring(with: fullRange)
             } else {
-                result += leadingSpaces + "**" + trimmed + "**" + trailingSpaces
+                result += leadingSpaces + stars + trimmed + stars + trailingSpaces
             }
             
             lastEnd = fullRange.location + fullRange.length
@@ -614,12 +630,13 @@ public struct MarkdownContentView: View {
         }
         
         let textWithBreaks = replaceHtmlBreaks(in: text)
-        let (preprocessedText, hasMarkers) = fixCJKDelimiters(in: textWithBreaks)
+        let unwrappedText = unwrapBacktickBold(in: textWithBreaks)
+        let (preprocessedText, hasMarkers) = fixCJKDelimiters(in: unwrappedText)
         
         var options = AttributedString.MarkdownParsingOptions()
         options.interpretedSyntax = .inlineOnlyPreservingWhitespace
         guard var attr = try? AttributedString(markdown: preprocessedText, options: options) else {
-            let fallback = AttributedString(textWithBreaks)
+            let fallback = AttributedString(unwrappedText)
             InlineMarkdownCache.shared.set(cacheKey, value: fallback)
             return fallback
         }

@@ -1371,6 +1371,35 @@ private fun RichTextRenderer(
     )
 }
 
+private val BACKTICK_BOLD_REGEX = Regex("""`+(\*{2,3})\s*([^\*`\n]+?)\s*\1`+""")
+
+private fun unwrapBacktickBold(text: String): String {
+    if (!text.contains('`') || !text.contains("**")) return text
+    return BACKTICK_BOLD_REGEX.replace(text) { match ->
+        val stars = match.groups[1]?.value.orEmpty()
+        val inner = match.groups[2]?.value.orEmpty()
+        "$stars$inner$stars"
+    }
+}
+
+private val BOLD_PAIR_REGEX = Regex("""(?<!\*)(\*{2,3})((?:[^\*]|\*(?!\*))+?)\1(?!\*)""")
+
+private fun normalizeBoldSpaces(text: String): String {
+    if (!text.contains("**")) return text
+    return BOLD_PAIR_REGEX.replace(text) { match ->
+        val stars = match.groups[1]?.value.orEmpty()
+        val inner = match.groups[2]?.value.orEmpty()
+        val trimmed = inner.trim(' ', '\t')
+        if (trimmed.isEmpty()) {
+            match.value
+        } else {
+            val leading = inner.takeWhile { it == ' ' || it == '\t' }
+            val trailing = inner.takeLastWhile { it == ' ' || it == '\t' }
+            "$leading$stars$trimmed$stars$trailing"
+        }
+    }
+}
+
 private val INLINE_TOKEN_REGEX = Regex(
     """(?<!\!)\[([^\]]+)\]\(([^)]+)\)|`([^`]+)`|\*\*\*([^\n]+?)\*\*\*|___([^\n]+?)___|\*\*([^\n]+?)\*\*|__([^\n]+?)__|(?<!\*)\*([^*\n]+?)\*(?!\*)|(?<!_)_([^_\n]+?)_(?!_)|~~([^\n]+?)~~"""
 )
@@ -1383,6 +1412,8 @@ private fun buildRichTextRenderData(
 ): RichTextRenderData {
     var processed = MathSymbolProcessor.process(rawText)
     processed = replaceHtmlBreaks(processed)
+    processed = unwrapBacktickBold(processed)
+    processed = normalizeBoldSpaces(processed)
 
     // Auto-link bare implementation_plan.md, walkthrough.md, task.md if not already in markdown link and outside code spans
     if (processed.contains("implementation_plan.md") || processed.contains("walkthrough.md") || processed.contains("task.md")) {
