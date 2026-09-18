@@ -78,9 +78,12 @@ sealed class MarkdownBlock {
         val alignments: List<TableColumnAlignment>
     ) : MarkdownBlock()
     data class BulletList(val id: String, val items: List<String>) : MarkdownBlock()
+    data class OrderedList(val id: String, val startIndex: Int, val items: List<String>) : MarkdownBlock()
     data class Paragraph(val id: String, val text: String) : MarkdownBlock()
     data class Image(val id: String, val alt: String, val url: String) : MarkdownBlock()
 }
+
+private val ORDERED_LIST_REGEX = Regex("""^(\d{1,9})[.)]\s+(.*)$""")
 
 /**
  * 1:1 Markdown parser replicating iOS MarkdownContentView.swift AST generation.
@@ -240,6 +243,25 @@ object MarkdownParser {
                 continue
             }
 
+            // 5b. Ordered List
+            val orderedMatch = ORDERED_LIST_REGEX.find(trimmed)
+            if (orderedMatch != null) {
+                val startNum = orderedMatch.groups[1]?.value?.toIntOrNull() ?: 1
+                val items = mutableListOf<String>()
+                while (i < lines.size) {
+                    val lLine = lines[i].trim()
+                    val m = ORDERED_LIST_REGEX.find(lLine)
+                    if (m != null) {
+                        items.add(m.groups[2]?.value?.trim() ?: "")
+                        i++
+                    } else {
+                        break
+                    }
+                }
+                blocks.add(MarkdownBlock.OrderedList("block-${blockIdx++}", startNum, items))
+                continue
+            }
+
             // 6. Standalone image line: ![alt](url), [![alt](thumb)](url), MEDIA:url
             val standaloneImg = parseStandaloneImage(trimmed)
             if (standaloneImg != null) {
@@ -263,6 +285,7 @@ object MarkdownParser {
                     nTrimmed.startsWith("- ") ||
                     nTrimmed.startsWith("* ") ||
                     nTrimmed.startsWith("• ") ||
+                    ORDERED_LIST_REGEX.containsMatchIn(nTrimmed) ||
                     parseStandaloneImage(nTrimmed) != null
                 ) {
                     break
@@ -427,6 +450,15 @@ fun MarkdownContentView(
 
                 is MarkdownBlock.BulletList -> {
                     BulletListBlockView(
+                        items = block.items,
+                        colors = colors,
+                        onPlanClick = onPlanClick
+                    )
+                }
+
+                is MarkdownBlock.OrderedList -> {
+                    OrderedListBlockView(
+                        startIndex = block.startIndex,
                         items = block.items,
                         colors = colors,
                         onPlanClick = onPlanClick
@@ -919,10 +951,108 @@ private fun BulletListBlockView(
     }
 }
 
+@Composable
+private fun OrderedListBlockView(
+    startIndex: Int,
+    items: List<String>,
+    colors: AppColors,
+    onPlanClick: ((String, String) -> Unit)?
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        items.forEachIndexed { idx, item ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = "${startIndex + idx}.",
+                    color = colors.textSecondary,
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+                Box(modifier = Modifier.weight(1f)) {
+                    ParagraphBlockView(
+                        text = item,
+                        colors = colors,
+                        onPlanClick = onPlanClick
+                    )
+                }
+            }
+        }
+    }
+}
+
 sealed class PlanSegment {
     abstract val id: String
     data class Text(val content: String, override val id: String) : PlanSegment()
     data class PlanButton(val title: String, val uri: String, override val id: String) : PlanSegment()
+}
+
+fun splitCodeSpans(text: String): List<Pair<String, Boolean>> {
+    if (!text.contains('`')) {
+        return listOf(text to false)
+    }
+    val segments = mutableListOf<Pair<String, Boolean>>()
+    val chars = text.toCharArray()
+    var i = 0
+    var lastIdx = 0
+    while (i < chars.size) {
+        if (chars[i] == '`') {
+            val tickStart = i
+            while (i < chars.size && chars[i] == '`') {
+                i++
+            }
+            val tickLen = i - tickStart
+            if (tickStart > lastIdx) {
+                segments.add(text.substring(lastIdx, tickStart) to false)
+            }
+            var closeFound = false
+            var j = i
+            while (j < chars.size) {
+                if (chars[j] == '`') {
+                    val cStart = j
+                    while (j < chars.size && chars[j] == '`') {
+                        j++
+                    }
+                    if (j - cStart == tickLen) {
+                        closeFound = true
+                        segments.add(text.substring(tickStart, j) to true)
+                        i = j
+                        lastIdx = j
+                        break
+                    }
+                } else {
+                    j++
+                }
+            }
+            if (!closeFound) {
+                i = tickStart + 1
+            }
+        } else {
+            i++
+        }
+    }
+    if (lastIdx < chars.size) {
+        segments.add(text.substring(lastIdx) to false)
+    }
+    return segments
+}
+
+fun findCodeSpanRanges(text: String): List<IntRange> {
+    if (!text.contains('`')) return emptyList()
+    val ranges = mutableListOf<IntRange>()
+    var loc = 0
+    for ((content, isCode) in splitCodeSpans(text)) {
+        val len = content.length
+        if (isCode && len > 0) {
+            ranges.add(loc until (loc + len))
+        }
+        loc += len
+    }
+    return ranges
 }
 
 private val PLAN_REGEX = Regex(
@@ -938,7 +1068,14 @@ fun parsePlanSegments(rawText: String): List<PlanSegment> {
     }
 
     val allMatches = PLAN_REGEX.findAll(rawText).toList()
+    val codeSpanRanges = if (rawText.contains('`')) findCodeSpanRanges(rawText) else emptyList()
     val matches = allMatches.filter { match ->
+        if (codeSpanRanges.isNotEmpty()) {
+            val r = match.range
+            if (codeSpanRanges.any { cs -> r.first < cs.last && r.last >= cs.first }) {
+                return@filter false
+            }
+        }
         val g1 = match.groups[1]?.value?.lowercase()
         val g2 = match.groups[2]?.value?.lowercase()
         val g3 = match.groups[3]?.value

@@ -29,6 +29,7 @@ public enum MarkdownBlock: Identifiable {
     case codeBlock(id: String, lang: String, code: String)
     case table(id: String, headers: [String], rows: [[String]], alignments: [TableColumnAlignment] = [])
     case list(id: String, items: [String])
+    case orderedList(id: String, startIndex: Int, items: [String])
     case paragraph(id: String, text: String)
     case image(id: String, alt: String, url: String)
     
@@ -40,6 +41,7 @@ public enum MarkdownBlock: Identifiable {
         case .codeBlock(let id, _, _): return id
         case .table(let id, _, _, _): return id
         case .list(let id, _): return id
+        case .orderedList(let id, _, _): return id
         case .paragraph(let id, _): return id
         case .image(let id, _, _): return id
         }
@@ -111,6 +113,9 @@ public struct MarkdownContentView: View {
                     
                 case .list(_, let items):
                     listView(items: items)
+                    
+                case .orderedList(_, let startIndex, let items):
+                    orderedListView(startIndex: startIndex, items: items)
                     
                 case .paragraph(_, let text):
                     paragraphView(text: text, size: 15)
@@ -216,15 +221,30 @@ public struct MarkdownContentView: View {
         var text = MathSymbolProcessor.process(rawText)
         text = replaceHtmlBreaks(in: text)
         
-        // Auto-link bare implementation_plan.md, walkthrough.md, task.md if not already in markdown link
-        if text.contains("implementation_plan.md") && !text.contains("[implementation_plan.md]") && !text.contains("](implementation_plan.md)") {
-            text = text.replacingOccurrences(of: "implementation_plan.md", with: "[implementation_plan.md](implementation_plan.md)")
+        // Auto-link bare implementation_plan.md, walkthrough.md, task.md outside code spans
+        func autoLinkPlans(in s: String) -> String {
+            var res = s
+            if res.contains("implementation_plan.md") && !res.contains("[implementation_plan.md]") && !res.contains("](implementation_plan.md)") {
+                res = res.replacingOccurrences(of: "implementation_plan.md", with: "[implementation_plan.md](implementation_plan.md)")
+            }
+            if res.contains("walkthrough.md") && !res.contains("[walkthrough.md]") && !res.contains("](walkthrough.md)") {
+                res = res.replacingOccurrences(of: "walkthrough.md", with: "[walkthrough.md](walkthrough.md)")
+            }
+            if res.contains("task.md") && !res.contains("[task.md]") && !res.contains("](task.md)") {
+                res = res.replacingOccurrences(of: "task.md", with: "[task.md](task.md)")
+            }
+            return res
         }
-        if text.contains("walkthrough.md") && !text.contains("[walkthrough.md]") && !text.contains("](walkthrough.md)") {
-            text = text.replacingOccurrences(of: "walkthrough.md", with: "[walkthrough.md](walkthrough.md)")
-        }
-        if text.contains("task.md") && !text.contains("[task.md]") && !text.contains("](task.md)") {
-            text = text.replacingOccurrences(of: "task.md", with: "[task.md](task.md)")
+        
+        if text.contains("implementation_plan.md") || text.contains("walkthrough.md") || text.contains("task.md") {
+            if text.contains("`") {
+                let segments = splitCodeSpans(in: text)
+                text = segments.map { segment in
+                    segment.isCode ? segment.content : autoLinkPlans(in: segment.content)
+                }.joined()
+            } else {
+                text = autoLinkPlans(in: text)
+            }
         }
         
         // Auto-link MEDIA: paths (e.g. MEDIA:/path/to/image.png) into clickable image links
@@ -397,6 +417,20 @@ public struct MarkdownContentView: View {
             segments.append((String(chars[lastIdx..<chars.count]), false))
         }
         return segments
+    }
+    
+    public static func codeSpanIndexSet(in text: String) -> IndexSet {
+        guard text.contains("`") else { return IndexSet() }
+        var occupied = IndexSet()
+        var loc = 0
+        for seg in splitCodeSpans(in: text) {
+            let len = (seg.content as NSString).length
+            if seg.isCode && len > 0 {
+                occupied.insert(integersIn: loc ..< (loc + len))
+            }
+            loc += len
+        }
+        return occupied
     }
     
     /// Replaces HTML line breaks (<br>, <br/>, <br />, </br>) with newlines while protecting inline code spans.
@@ -792,6 +826,22 @@ public struct MarkdownContentView: View {
         }
     }
     
+    @ViewBuilder
+    private func orderedListView(startIndex: Int, items: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(Array(items.enumerated()), id: \.offset) { idx, item in
+                HStack(alignment: .top, spacing: 6) {
+                    Text("\(startIndex + idx).")
+                        .font(.system(size: 13.5, weight: .semibold, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .padding(.top, 2)
+                    paragraphView(text: item, size: 15)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+    }
+    
     // MARK: - Plan Link Segmentation & Paragraph Flow
     
     @ViewBuilder
@@ -841,7 +891,15 @@ public struct MarkdownContentView: View {
         let nsText = rawText as NSString
         let allMatches = regex.matches(in: rawText, range: NSRange(location: 0, length: nsText.length))
         
+        let codeSpans = rawText.contains("`") ? codeSpanIndexSet(in: rawText) : IndexSet()
+        
         let matches = allMatches.filter { m in
+            if !codeSpans.isEmpty {
+                let r = m.range
+                if !codeSpans.intersection(IndexSet(integersIn: r.location ..< (r.location + r.length))).isEmpty {
+                    return false
+                }
+            }
             if m.range(at: 1).location != NSNotFound && m.range(at: 2).location != NSNotFound {
                 let g1 = nsText.substring(with: m.range(at: 1)).lowercased()
                 let g2 = nsText.substring(with: m.range(at: 2)).lowercased()
@@ -1140,6 +1198,24 @@ public enum MarkdownParser {
                 continue
             }
             
+            // Ordered list: 1. or 1)
+            if let match = parseOrderedListItem(trimmed) {
+                var listItems: [String] = [match.content]
+                let startNumber = match.number
+                i += 1
+                while i < lines.count {
+                    let lLine = lines[i].trimmingCharacters(in: .whitespaces)
+                    if let nextMatch = parseOrderedListItem(lLine) {
+                        listItems.append(nextMatch.content)
+                        i += 1
+                    } else {
+                        break
+                    }
+                }
+                appendOrderedListOrSplitImages(startIndex: startNumber, listItems: listItems, into: &blocks, blockIdx: &blockIdx)
+                continue
+            }
+            
             // Standalone image line: ![alt](url), [![alt](thumb)](url), MEDIA:url
             if let img = parseStandaloneImage(trimmed) {
                 blocks.append(.image(id: "block-\(blockIdx)", alt: img.alt, url: img.url))
@@ -1154,7 +1230,7 @@ public enum MarkdownParser {
             while i < lines.count {
                 let nextLine = lines[i]
                 let nTrimmed = nextLine.trimmingCharacters(in: .whitespaces)
-                if nTrimmed.isEmpty || nTrimmed.hasPrefix("```") || nTrimmed.hasPrefix("#") || nTrimmed == "---" || (nTrimmed.hasPrefix("|") && nTrimmed.hasSuffix("|")) || nTrimmed.hasPrefix("- ") || nTrimmed.hasPrefix("* ") || nTrimmed.hasPrefix("• ") || parseStandaloneImage(nTrimmed) != nil {
+                if nTrimmed.isEmpty || nTrimmed.hasPrefix("```") || nTrimmed.hasPrefix("#") || nTrimmed == "---" || (nTrimmed.hasPrefix("|") && nTrimmed.hasSuffix("|")) || nTrimmed.hasPrefix("- ") || nTrimmed.hasPrefix("* ") || nTrimmed.hasPrefix("• ") || parseOrderedListItem(nTrimmed) != nil || parseStandaloneImage(nTrimmed) != nil {
                     break
                 }
                 paraLines.append(nextLine)
@@ -1202,16 +1278,7 @@ public enum MarkdownParser {
     }
     
     private static func codeSpanIndexSet(in text: String) -> IndexSet {
-        var occupied = IndexSet()
-        var loc = 0
-        for seg in MarkdownContentView.splitCodeSpans(in: text) {
-            let len = (seg.content as NSString).length
-            if seg.isCode && len > 0 {
-                occupied.insert(integersIn: loc ..< (loc + len))
-            }
-            loc += len
-        }
-        return occupied
+        MarkdownContentView.codeSpanIndexSet(in: text)
     }
     
     fileprivate static func findImages(in text: String) -> [(alt: String, url: String, range: NSRange)] {
@@ -1338,6 +1405,46 @@ public enum MarkdownParser {
             }
         }
         flushPlainList()
+    }
+    
+    private static let orderedListRegex = try? NSRegularExpression(
+        pattern: #"^(\d{1,9})[\.\)]\s+(.*)$"#
+    )
+    
+    fileprivate static func parseOrderedListItem(_ line: String) -> (number: Int, content: String)? {
+        guard let regex = orderedListRegex else { return nil }
+        let ns = line as NSString
+        guard let match = regex.firstMatch(in: line, range: NSRange(location: 0, length: ns.length)) else {
+            return nil
+        }
+        let numStr = ns.substring(with: match.range(at: 1))
+        let contentStr = ns.substring(with: match.range(at: 2))
+        guard let num = Int(numStr) else { return nil }
+        return (number: num, content: contentStr)
+    }
+    
+    private static func appendOrderedListOrSplitImages(startIndex: Int, listItems: [String], into blocks: inout [MarkdownBlock], blockIdx: inout Int) {
+        var currentPlain: [(offset: Int, text: String)] = []
+        
+        func flushPlainOrderedList() {
+            guard !currentPlain.isEmpty else { return }
+            let firstOffset = currentPlain.first!.offset
+            let items = currentPlain.map(\.text)
+            blocks.append(.orderedList(id: "block-\(blockIdx)", startIndex: startIndex + firstOffset, items: items))
+            blockIdx += 1
+            currentPlain.removeAll(keepingCapacity: true)
+        }
+        
+        for (idx, item) in listItems.enumerated() {
+            if findImages(in: item).isEmpty {
+                currentPlain.append((offset: idx, text: item))
+            } else {
+                flushPlainOrderedList()
+                let split = splitParagraphIntoBlocks(text: item, blockIdx: &blockIdx)
+                blocks.append(contentsOf: split)
+            }
+        }
+        flushPlainOrderedList()
     }
 }
 

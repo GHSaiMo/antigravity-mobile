@@ -1423,7 +1423,7 @@ class ChatViewModel(
                 notifyConversationUpdated()
             } else {
                 delay(250)
-                loadMessages(isBackgroundPoll = true)
+                refresh()
             }
         }
     }

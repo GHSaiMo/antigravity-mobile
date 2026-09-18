@@ -81,20 +81,21 @@ fun ConversationListScreen(
     val haptic = rememberHaptic()
 
     val handleEasterEggTap: () -> Unit = {
-        if (showEasterEgg) return@handleEasterEggTap
-        val now = System.currentTimeMillis()
-        if (now - lastEasterEggTapTime > 2000L) {
-            easterEggTapCount = 1
-        } else {
-            easterEggTapCount++
-        }
-        lastEasterEggTapTime = now
-        haptic.light()
+        if (!showEasterEgg) {
+            val now = System.currentTimeMillis()
+            if (now - lastEasterEggTapTime > 2000L) {
+                easterEggTapCount = 1
+            } else {
+                easterEggTapCount++
+            }
+            lastEasterEggTapTime = now
+            haptic.light()
 
-        if (easterEggTapCount >= 10) {
-            easterEggTapCount = 0
-            haptic.success()
-            showEasterEgg = true
+            if (easterEggTapCount >= 10) {
+                easterEggTapCount = 0
+                haptic.success()
+                showEasterEgg = true
+            }
         }
     }
 
