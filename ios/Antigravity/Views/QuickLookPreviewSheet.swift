@@ -528,9 +528,10 @@ public struct HTMLWebViewRepresentable: UIViewRepresentable {
     
     public func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
+        config.allowsInlineMediaPlayback = true
         config.preferences.setValue(false, forKey: "allowFileAccessFromFileURLs")
         let prefs = WKWebpagePreferences()
-        prefs.allowsContentJavaScript = false
+        prefs.allowsContentJavaScript = true
         config.defaultWebpagePreferences = prefs
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.allowsBackForwardNavigationGestures = false
