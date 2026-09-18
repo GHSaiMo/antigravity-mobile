@@ -35,6 +35,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.antigravity.mobile.data.service.ConnectionManager
 import com.antigravity.mobile.data.service.PreferencesManager
 import com.antigravity.mobile.ui.theme.AntigravityTheme
+import com.antigravity.mobile.ui.util.rememberHaptic
 
 private enum class SettingsScreenView {
     MAIN, NETWORK
@@ -57,6 +58,7 @@ fun SettingsSheet(
     val context = LocalContext.current
     val connectionManager = remember { ConnectionManager(context) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val currentThemeMode by prefs.themeModeFlow.collectAsState()
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -141,6 +143,7 @@ fun SettingsSheet(
                 if (currentView == SettingsScreenView.MAIN) {
                     MainSettingsContent(
                         prefs = prefs,
+                        currentThemeMode = currentThemeMode,
                         onNavigateToNetwork = { currentView = SettingsScreenView.NETWORK },
                         onThemeModeChange = onThemeModeChange,
                         onRescanQR = onRescanQR,
@@ -235,6 +238,7 @@ fun SettingsSheet(
 @Composable
 private fun MainSettingsContent(
     prefs: PreferencesManager,
+    currentThemeMode: String,
     onNavigateToNetwork: () -> Unit,
     onThemeModeChange: (String) -> Unit,
     onRescanQR: (() -> Unit)?,
@@ -484,21 +488,21 @@ private fun MainSettingsContent(
                 ThemeOptionSegment(
                     title = "跟随系统",
                     icon = Icons.Default.SettingsBrightness,
-                    isSelected = prefs.themeMode == "system",
+                    isSelected = currentThemeMode == "system",
                     onClick = { onThemeModeChange("system") },
                     modifier = Modifier.weight(1f)
                 )
                 ThemeOptionSegment(
                     title = "浅色模式",
                     icon = Icons.Default.LightMode,
-                    isSelected = prefs.themeMode == "light",
+                    isSelected = currentThemeMode == "light",
                     onClick = { onThemeModeChange("light") },
                     modifier = Modifier.weight(1f)
                 )
                 ThemeOptionSegment(
                     title = "深色模式",
                     icon = Icons.Default.DarkMode,
-                    isSelected = prefs.themeMode == "dark",
+                    isSelected = currentThemeMode == "dark",
                     onClick = { onThemeModeChange("dark") },
                     modifier = Modifier.weight(1f)
                 )
@@ -581,11 +585,15 @@ private fun ThemeOptionSegment(
     modifier: Modifier = Modifier
 ) {
     val colors = AntigravityTheme.colors
+    val haptic = rememberHaptic()
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(8.dp))
             .background(if (isSelected) colors.surface else Color.Transparent)
-            .clickable { onClick() }
+            .clickable {
+                haptic.light()
+                onClick()
+            }
             .padding(vertical = 8.dp),
         contentAlignment = Alignment.Center
     ) {
