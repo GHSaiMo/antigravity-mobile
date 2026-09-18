@@ -930,14 +930,14 @@ private fun BulletListBlockView(
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.Top,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Text(
                     text = "•",
-                    color = colors.accentIndigo,
-                    fontSize = 15.sp,
+                    color = colors.textSecondary,
+                    fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(top = 1.dp)
+                    modifier = Modifier.padding(top = 2.dp)
                 )
                 Box(modifier = Modifier.weight(1f)) {
                     ParagraphBlockView(
@@ -1372,7 +1372,7 @@ private fun RichTextRenderer(
 }
 
 private val INLINE_TOKEN_REGEX = Regex(
-    """(?<!\!)\[([^\]]+)\]\(([^)]+)\)|`([^`]+)`|\*\*([^*]+)\*\*|__([^_]+)__|(?<!\*)\*([^*\n]+)\*(?!\*)|(?<!_)_([^_\n]+)_(?!_)|~~([^~]+)~~"""
+    """(?<!\!)\[([^\]]+)\]\(([^)]+)\)|`([^`]+)`|\*\*\*([^\n]+?)\*\*\*|___([^\n]+?)___|\*\*([^\n]+?)\*\*|__([^\n]+?)__|(?<!\*)\*([^*\n]+?)\*(?!\*)|(?<!_)_([^_\n]+?)_(?!_)|~~([^\n]+?)~~"""
 )
 
 private fun buildRichTextRenderData(
@@ -1384,15 +1384,28 @@ private fun buildRichTextRenderData(
     var processed = MathSymbolProcessor.process(rawText)
     processed = replaceHtmlBreaks(processed)
 
-    // Auto-link bare implementation_plan.md, walkthrough.md, task.md if not already in markdown link
-    if (processed.contains("implementation_plan.md") && !processed.contains("[implementation_plan.md]") && !processed.contains("](implementation_plan.md)")) {
-        processed = processed.replace("implementation_plan.md", "[implementation_plan.md](implementation_plan.md)")
-    }
-    if (processed.contains("walkthrough.md") && !processed.contains("[walkthrough.md]") && !processed.contains("](walkthrough.md)")) {
-        processed = processed.replace("walkthrough.md", "[walkthrough.md](walkthrough.md)")
-    }
-    if (processed.contains("task.md") && !processed.contains("[task.md]") && !processed.contains("](task.md)")) {
-        processed = processed.replace("task.md", "[task.md](task.md)")
+    // Auto-link bare implementation_plan.md, walkthrough.md, task.md if not already in markdown link and outside code spans
+    if (processed.contains("implementation_plan.md") || processed.contains("walkthrough.md") || processed.contains("task.md")) {
+        val segments = splitCodeSpans(processed)
+        val sb = StringBuilder()
+        for ((content, isCode) in segments) {
+            if (isCode) {
+                sb.append(content)
+            } else {
+                var seg = content
+                if (seg.contains("implementation_plan.md") && !seg.contains("[implementation_plan.md]") && !seg.contains("](implementation_plan.md)")) {
+                    seg = seg.replace("implementation_plan.md", "[implementation_plan.md](implementation_plan.md)")
+                }
+                if (seg.contains("walkthrough.md") && !seg.contains("[walkthrough.md]") && !seg.contains("](walkthrough.md)")) {
+                    seg = seg.replace("walkthrough.md", "[walkthrough.md](walkthrough.md)")
+                }
+                if (seg.contains("task.md") && !seg.contains("[task.md]") && !seg.contains("](task.md)")) {
+                    seg = seg.replace("task.md", "[task.md](task.md)")
+                }
+                sb.append(seg)
+            }
+        }
+        processed = sb.toString()
     }
 
     // Auto-link MEDIA: paths into clickable image links
@@ -1409,184 +1422,259 @@ private fun buildRichTextRenderData(
 
     val inlineContentMap = mutableMapOf<String, InlineTextContent>()
     val codeColor = Color(0xFFE5C07B) // Desktop Amber
+    var iconIndex = 0
 
     val annotatedString = buildAnnotatedString {
-        var lastIndex = 0
-        var iconIndex = 0
-        val matches = INLINE_TOKEN_REGEX.findAll(processed)
+        fun appendStyledText(
+            plain: String,
+            isBold: Boolean,
+            isItalic: Boolean,
+            isStrike: Boolean
+        ) {
+            if (plain.isEmpty()) return
+            val start = length
+            append(plain)
+            if (isBold || isItalic || isStrike) {
+                addStyle(
+                    SpanStyle(
+                        fontWeight = if (isBold) FontWeight.Bold else baseFontWeight,
+                        fontStyle = if (isItalic) FontStyle.Italic else FontStyle.Normal,
+                        textDecoration = if (isStrike) TextDecoration.LineThrough else TextDecoration.None
+                    ),
+                    start,
+                    length
+                )
+            }
+        }
 
-        for (match in matches) {
-            val range = match.range
-            if (range.first > lastIndex) {
-                append(processed.substring(lastIndex, range.first))
+        fun appendInline(
+            text: String,
+            isBold: Boolean = false,
+            isItalic: Boolean = false,
+            isStrike: Boolean = false,
+            depth: Int = 0
+        ) {
+            if (text.isEmpty()) return
+            if (depth > 5) {
+                appendStyledText(text, isBold, isItalic, isStrike)
+                return
             }
 
-            val linkText = match.groups[1]?.value
-            val linkUrl = match.groups[2]?.value
-            val inlineCode = match.groups[3]?.value
-            val boldText1 = match.groups[4]?.value
-            val boldText2 = match.groups[5]?.value
-            val italicText1 = match.groups[6]?.value
-            val italicText2 = match.groups[7]?.value
-            val strikeText = match.groups[8]?.value
+            var lastIndex = 0
+            val matches = INLINE_TOKEN_REGEX.findAll(text)
 
-            when {
-                linkText != null && linkUrl != null -> {
-                    val cleanDisplayTitle = linkText.trim('`', '\'', '"')
-                    val isPlan = linkUrl.contains("implementation_plan") || linkUrl.contains("walkthrough")
-                    val isScript = FileIconResolver.isScriptFile(linkUrl) || FileIconResolver.isScriptFile(cleanDisplayTitle)
-
-                    // 1. Resolve SVG Icon (1:1 with iOS resolveIcon)
-                    val iconName = FileIconResolver.resolveIcon(cleanDisplayTitle) ?: FileIconResolver.resolveIcon(linkUrl)
-                    if (iconName != null) {
-                        val inlineId = "icon_${iconName}_${iconIndex++}"
-                        val iconSp = (baseFontSize.value * 0.9f).sp
-                        appendInlineContent(id = inlineId, alternateText = " ")
-                        append("\u2009") // Thin space (Unicode U+2009) identical to iOS
-                        inlineContentMap[inlineId] = InlineTextContent(
-                            placeholder = Placeholder(
-                                width = iconSp,
-                                height = iconSp,
-                                placeholderVerticalAlign = PlaceholderVerticalAlign.Center
-                            )
-                        ) {
-                            FileIconSvgView(
-                                iconName = iconName,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        }
-                    }
-
-                    // 2. Append link text with scaled down font, monospaced, Apple Blue, no underline
-                    val start = length
-                    append(cleanDisplayTitle)
-                    addStyle(
-                        style = SpanStyle(
-                            color = colors.accentBlue,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = (baseFontSize.value * 0.88f).sp,
-                            fontWeight = FontWeight.Normal,
-                            textDecoration = TextDecoration.None,
-                            background = if (isPlan) colors.accentBlue.copy(alpha = 0.12f) else Color.Transparent
-                        ),
-                        start = start,
-                        end = length
+            for (match in matches) {
+                val range = match.range
+                if (range.first > lastIndex) {
+                    appendStyledText(
+                        plain = text.substring(lastIndex, range.first),
+                        isBold = isBold,
+                        isItalic = isItalic,
+                        isStrike = isStrike
                     )
-
-                    // 3. Script files do NOT need to be accessible, so do not add URL annotation
-                    if (!isScript) {
-                        addStringAnnotation(
-                            tag = "URL",
-                            annotation = linkUrl,
-                            start = start,
-                            end = length
-                        )
-                        addStringAnnotation(
-                            tag = "URL_TITLE",
-                            annotation = cleanDisplayTitle,
-                            start = start,
-                            end = length
-                        )
-                    }
                 }
 
-                inlineCode != null -> {
-                    // Check if bare inline code is a file reference that has a known icon
-                    val isFileCode = (inlineCode.contains('.') || inlineCode.contains('/')) &&
-                            FileIconResolver.resolveIcon(inlineCode) != null
-                    val codeIcon = if (isFileCode) FileIconResolver.resolveIcon(inlineCode) else null
+                val linkText = match.groups[1]?.value
+                val linkUrl = match.groups[2]?.value
+                val inlineCode = match.groups[3]?.value
+                val boldItalic1 = match.groups[4]?.value
+                val boldItalic2 = match.groups[5]?.value
+                val boldText1 = match.groups[6]?.value
+                val boldText2 = match.groups[7]?.value
+                val italicText1 = match.groups[8]?.value
+                val italicText2 = match.groups[9]?.value
+                val strikeText = match.groups[10]?.value
 
-                    if (codeIcon != null) {
-                        val inlineId = "icon_${codeIcon}_${iconIndex++}"
-                        val iconSp = (baseFontSize.value * 0.9f).sp
-                        appendInlineContent(id = inlineId, alternateText = " ")
-                        append("\u2009")
-                        inlineContentMap[inlineId] = InlineTextContent(
-                            placeholder = Placeholder(
-                                width = iconSp,
-                                height = iconSp,
-                                placeholderVerticalAlign = PlaceholderVerticalAlign.Center
-                            )
-                        ) {
-                            FileIconSvgView(
-                                iconName = codeIcon,
-                                modifier = Modifier.fillMaxSize()
-                            )
+                when {
+                    linkText != null && linkUrl != null -> {
+                        val isInnerBold = (linkText.startsWith("**") && linkText.endsWith("**") && linkText.length >= 4) ||
+                                (linkText.startsWith("__") && linkText.endsWith("__") && linkText.length >= 4)
+                        val cleanTitle = linkText.trim('`', '\'', '"', '*', '_', ' ').ifEmpty {
+                            linkUrl.substringAfterLast('/').ifEmpty { linkText }
                         }
+                        val effectiveBold = isBold || isInnerBold
+                        val isPlan = linkUrl.contains("implementation_plan") || linkUrl.contains("walkthrough")
+                        val isScript = FileIconResolver.isScriptFile(linkUrl) || FileIconResolver.isScriptFile(cleanTitle)
+
+                        // 1. Resolve SVG Icon (1:1 with iOS resolveIcon)
+                        val iconName = FileIconResolver.resolveIcon(cleanTitle) ?: FileIconResolver.resolveIcon(linkUrl)
+                        if (iconName != null) {
+                            val inlineId = "icon_${iconName}_${iconIndex++}"
+                            val iconSp = (baseFontSize.value * 0.9f).sp
+                            appendInlineContent(id = inlineId, alternateText = " ")
+                            append("\u2009") // Thin space (Unicode U+2009) identical to iOS
+                            inlineContentMap[inlineId] = InlineTextContent(
+                                placeholder = Placeholder(
+                                    width = iconSp,
+                                    height = iconSp,
+                                    placeholderVerticalAlign = PlaceholderVerticalAlign.Center
+                                )
+                            ) {
+                                FileIconSvgView(
+                                    iconName = iconName,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                        }
+
+                        // 2. Append link text with scaled down font, monospaced, Apple Blue, no underline
                         val start = length
-                        append(inlineCode)
+                        append(cleanTitle)
                         addStyle(
                             style = SpanStyle(
                                 color = colors.accentBlue,
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = (baseFontSize.value * 0.88f).sp,
-                                fontWeight = FontWeight.Normal,
-                                textDecoration = TextDecoration.None
+                                fontWeight = if (effectiveBold || baseFontWeight == FontWeight.Bold) FontWeight.Bold else FontWeight.Medium,
+                                fontStyle = if (isItalic) FontStyle.Italic else FontStyle.Normal,
+                                textDecoration = if (isStrike) TextDecoration.LineThrough else TextDecoration.None,
+                                background = if (isPlan) colors.accentBlue.copy(alpha = 0.12f) else Color.Transparent
                             ),
                             start = start,
                             end = length
                         )
-                    } else {
-                        // Standard inline code symbol (e.g. rawTrajectorySignature, readBodyToPool) in Amber
-                        val start = length
-                        append(inlineCode)
-                        addStyle(
-                            style = SpanStyle(
-                                color = codeColor,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Medium,
-                                fontSize = (baseFontSize.value * 0.9f).sp,
-                                background = colors.surfaceVariant.copy(alpha = 0.45f)
-                            ),
-                            start = start,
-                            end = length
+
+                        // 3. Script files do NOT need to be accessible, so do not add URL annotation
+                        if (!isScript) {
+                            addStringAnnotation(
+                                tag = "URL",
+                                annotation = linkUrl,
+                                start = start,
+                                end = length
+                            )
+                            addStringAnnotation(
+                                tag = "URL_TITLE",
+                                annotation = cleanTitle,
+                                start = start,
+                                end = length
+                            )
+                        }
+                    }
+
+                    inlineCode != null -> {
+                        // Check if bare inline code is a file reference that has a known icon
+                        val isFileCode = (inlineCode.contains('.') || inlineCode.contains('/')) &&
+                                FileIconResolver.resolveIcon(inlineCode) != null
+                        val codeIcon = if (isFileCode) FileIconResolver.resolveIcon(inlineCode) else null
+
+                        if (codeIcon != null) {
+                            val inlineId = "icon_${codeIcon}_${iconIndex++}"
+                            val iconSp = (baseFontSize.value * 0.9f).sp
+                            appendInlineContent(id = inlineId, alternateText = " ")
+                            append("\u2009")
+                            inlineContentMap[inlineId] = InlineTextContent(
+                                placeholder = Placeholder(
+                                    width = iconSp,
+                                    height = iconSp,
+                                    placeholderVerticalAlign = PlaceholderVerticalAlign.Center
+                                )
+                            ) {
+                                FileIconSvgView(
+                                    iconName = codeIcon,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                            val start = length
+                            append(inlineCode)
+                            addStyle(
+                                style = SpanStyle(
+                                    color = colors.accentBlue,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = (baseFontSize.value * 0.88f).sp,
+                                    fontWeight = if (isBold || baseFontWeight == FontWeight.Bold) FontWeight.Bold else FontWeight.Medium,
+                                    fontStyle = if (isItalic) FontStyle.Italic else FontStyle.Normal,
+                                    textDecoration = if (isStrike) TextDecoration.LineThrough else TextDecoration.None
+                                ),
+                                start = start,
+                                end = length
+                            )
+                        } else {
+                            // Standard inline code symbol (e.g. rawTrajectorySignature, readBodyToPool) in Amber
+                            val start = length
+                            append(inlineCode)
+                            addStyle(
+                                style = SpanStyle(
+                                    color = codeColor,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = if (isBold || baseFontWeight == FontWeight.Bold) FontWeight.Bold else FontWeight.Medium,
+                                    fontSize = (baseFontSize.value * 0.9f).sp,
+                                    fontStyle = if (isItalic) FontStyle.Italic else FontStyle.Normal,
+                                    textDecoration = if (isStrike) TextDecoration.LineThrough else TextDecoration.None,
+                                    background = colors.surfaceVariant.copy(alpha = 0.45f)
+                                ),
+                                start = start,
+                                end = length
+                            )
+                        }
+                    }
+
+                    (boldItalic1 != null || boldItalic2 != null) -> {
+                        val content = boldItalic1 ?: boldItalic2 ?: ""
+                        appendInline(
+                            text = content,
+                            isBold = true,
+                            isItalic = true,
+                            isStrike = isStrike,
+                            depth = depth + 1
+                        )
+                    }
+
+                    (boldText1 != null || boldText2 != null) -> {
+                        val content = boldText1 ?: boldText2 ?: ""
+                        appendInline(
+                            text = content,
+                            isBold = true,
+                            isItalic = isItalic,
+                            isStrike = isStrike,
+                            depth = depth + 1
+                        )
+                    }
+
+                    (italicText1 != null || italicText2 != null) -> {
+                        val content = italicText1 ?: italicText2 ?: ""
+                        appendInline(
+                            text = content,
+                            isBold = isBold,
+                            isItalic = true,
+                            isStrike = isStrike,
+                            depth = depth + 1
+                        )
+                    }
+
+                    strikeText != null -> {
+                        appendInline(
+                            text = strikeText,
+                            isBold = isBold,
+                            isItalic = isItalic,
+                            isStrike = true,
+                            depth = depth + 1
+                        )
+                    }
+
+                    else -> {
+                        appendStyledText(
+                            plain = match.value,
+                            isBold = isBold,
+                            isItalic = isItalic,
+                            isStrike = isStrike
                         )
                     }
                 }
 
-                (boldText1 != null || boldText2 != null) -> {
-                    val content = boldText1 ?: boldText2 ?: ""
-                    val start = length
-                    append(content)
-                    addStyle(
-                        style = SpanStyle(fontWeight = FontWeight.Bold),
-                        start = start,
-                        end = length
-                    )
-                }
-
-                (italicText1 != null || italicText2 != null) -> {
-                    val content = italicText1 ?: italicText2 ?: ""
-                    val start = length
-                    append(content)
-                    addStyle(
-                        style = SpanStyle(fontStyle = FontStyle.Italic),
-                        start = start,
-                        end = length
-                    )
-                }
-
-                strikeText != null -> {
-                    val start = length
-                    append(strikeText)
-                    addStyle(
-                        style = SpanStyle(textDecoration = TextDecoration.LineThrough),
-                        start = start,
-                        end = length
-                    )
-                }
-
-                else -> {
-                    append(match.value)
-                }
+                lastIndex = range.last + 1
             }
 
-            lastIndex = range.last + 1
+            if (lastIndex < text.length) {
+                appendStyledText(
+                    plain = text.substring(lastIndex),
+                    isBold = isBold,
+                    isItalic = isItalic,
+                    isStrike = isStrike
+                )
+            }
         }
 
-        if (lastIndex < processed.length) {
-            append(processed.substring(lastIndex))
-        }
+        appendInline(processed)
     }
 
     return RichTextRenderData(annotatedString, inlineContentMap)
