@@ -7,6 +7,9 @@ public struct OnboardingGuideView: View {
     
     @Environment(\.openURL) private var openURL
     
+    private let installCommand = "curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.sh | bash"
+    @State private var isCopied = false
+    
     public init(
         onScanTapped: @escaping () -> Void,
         onManualInputTapped: @escaping () -> Void,
@@ -15,6 +18,20 @@ public struct OnboardingGuideView: View {
         self.onScanTapped = onScanTapped
         self.onManualInputTapped = onManualInputTapped
         self.onEasterEggTap = onEasterEggTap
+    }
+    
+    private func copyInstallCommand() {
+        UIPasteboard.general.string = installCommand
+        let generator = UINotificationFeedbackGenerator()
+        generator.notificationOccurred(.success)
+        withAnimation(.easeInOut(duration: 0.2)) {
+            isCopied = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isCopied = false
+            }
+        }
     }
     
     public var body: some View {
@@ -32,7 +49,7 @@ public struct OnboardingGuideView: View {
                                 .stroke(Color.primary.opacity(0.08), lineWidth: 1)
                         )
                         .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
-                        .padding(.top, 24)
+                        .padding(.top, 16)
                         .contentShape(Rectangle())
                         .onTapGesture {
                             onEasterEggTap?()
@@ -70,6 +87,61 @@ public struct OnboardingGuideView: View {
                         .foregroundColor(.secondary)
                         .lineSpacing(3)
                     
+                    // Mac Terminal one-click installation script block
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            HStack(spacing: 6) {
+                                Image(systemName: "terminal.fill")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.secondary)
+                                Text("Mac 终端一键安装脚本")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            Button(action: copyInstallCommand) {
+                                HStack(spacing: 4) {
+                                    Image(systemName: isCopied ? "checkmark" : "doc.on.doc")
+                                        .font(.system(size: 11, weight: .semibold))
+                                    Text(isCopied ? "已复制" : "一键复制")
+                                        .font(.system(size: 12, weight: .semibold))
+                                }
+                                .foregroundColor(isCopied ? .green : .blue)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .fill(isCopied ? Color.green.opacity(0.12) : Color.blue.opacity(0.1))
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        
+                        Button(action: copyInstallCommand) {
+                            Text(installCommand)
+                                .font(.system(size: 11.5, weight: .regular, design: .monospaced))
+                                .foregroundColor(.primary)
+                                .multilineTextAlignment(.leading)
+                                .padding(10)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .fill(Color(uiColor: .tertiarySystemBackground))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .stroke(Color.primary.opacity(0.06), lineWidth: 1)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color(uiColor: .tertiarySystemFill).opacity(0.5))
+                    )
+                    
+                    // GitHub guide button
                     Button(action: {
                         if let url = URL(string: "https://github.com/GHSaiMo/antigravity-mobile#readme") {
                             openURL(url)

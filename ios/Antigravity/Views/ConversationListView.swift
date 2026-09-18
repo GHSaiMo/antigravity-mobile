@@ -6,6 +6,7 @@ public struct ConversationListView: View {
     @State private var viewModel = ConversationListViewModel()
     @State private var showSettings = false
     @State private var showQRScanner = false
+    @State private var showManualInput = false
     @State private var showNewConversation = false
     @State private var showAccountQuota = false
     @State private var selectedDraftSession: LocalDraftSession?
@@ -55,184 +56,186 @@ public struct ConversationListView: View {
     
     public var body: some View {
         ZStack {
-            NavigationStack(path: $navigationPath) {
-                Group {
-                    if !settings.isPaired && !isPairingInProgress {
-                        OnboardingGuideView(
-                            onScanTapped: { showQRScanner = true },
-                            onManualInputTapped: { showQRScanner = true },
-                            onEasterEggTap: handleEasterEggTap
-                        )
-                        .navigationTitle("Multigravity")
-                    } else {
-                        pairedContentView
-                            .navigationTitle("Multigravity")
-                            .searchable(text: $viewModel.searchQuery, prompt: "搜索会话或工作区...")
-                            .toolbar {
-                                ToolbarItem(placement: .topBarLeading) {
-                                    Button(action: { showSettings = true }) {
-                                        Image(systemName: "gearshape")
-                                    }
-                                }
-                                ToolbarItem(placement: .topBarTrailing) {
-                                    Button(action: { showNewConversation = true }) {
-                                        Image(systemName: "plus")
-                                            .font(.system(size: 16, weight: .semibold))
-                                    }
-                                }
-                            }
-                    }
-                }
-                .background(NavigationBarTapHelper(onTap: handleEasterEggTap))
-            .sheet(isPresented: $showSettings) {
-                SettingsSheet()
-                    .presentationDragIndicator(.visible)
-            }
-            .sheet(isPresented: $showNewConversation) {
-                NewConversationSheet(onSelectProject: { project in
-                    Task { @MainActor in
-                        try? await Task.sleep(nanoseconds: 200_000_000)
-                        let session = CacheManager.shared.createLocalDraftSession(project: project)
-                        selectedDraftSession = session
-                    }
-                })
-                .presentationDragIndicator(.visible)
-            }
-            .sheet(isPresented: $showAccountQuota) {
-                AccountQuotaSheet(
-                    quotaResponse: $viewModel.quotaResponse,
-                    onSwitch: { id in
-                        try await viewModel.switchCockpitAccount(id: id)
-                    },
-                    onRefresh: {
-                        try await viewModel.refreshCockpitQuotas()
-                    },
-                    onAppearFetch: {
-                        await viewModel.fetchQuotas(force: true)
-                    },
-                    enableSwitchButton: true
+            if !settings.isPaired && !isPairingInProgress {
+                OnboardingGuideView(
+                    onScanTapped: { showQRScanner = true },
+                    onManualInputTapped: { showManualInput = true },
+                    onEasterEggTap: handleEasterEggTap
                 )
-                .presentationDragIndicator(.visible)
-            }
-            .alert("重命名会话", isPresented: $showRenameAlert) {
-                TextField("输入新标题", text: $renameText)
-                Button("取消", role: .cancel) {}
-                Button("保存") {
-                    if let item = conversationToRename {
-                        Task {
-                            await viewModel.renameConversation(item: item, newTitle: renameText)
-                        }
-                    }
-                }
-            }
-            .alert("提示", isPresented: Binding(
-                get: { viewModel.errorMessage != nil && !viewModel.conversations.isEmpty },
-                set: { if !$0 { viewModel.errorMessage = nil } }
-            )) {
-                Button("确定") { viewModel.errorMessage = nil }
-            } message: {
-                if let msg = viewModel.errorMessage {
-                    Text(msg)
-                }
-            }
-            .navigationDestination(for: ConversationItem.self) { item in
-                ChatView(conversation: item, isNewConversation: item.stepCount == 0)
-                    .id(item.id)
-                    .onAppear {
-                        guard !item.isDraft else { return }
-                        if let url = AppSettings.shared.gatewayURL {
-                            APIClient.shared.notifySessionFocus(cascadeId: item.id, baseURL: url)
-                        }
-                        Task {
-                            if let url = AppSettings.shared.gatewayURL {
-                                await APIClient.shared.markConversationAsRead(cascadeId: item.id, baseURL: url)
-                            } else {
-                                CacheManager.shared.markConversationAsRead(cascadeId: item.id)
+            } else {
+                NavigationStack(path: $navigationPath) {
+                    pairedContentView
+                        .navigationTitle("Multigravity")
+                        .searchable(text: $viewModel.searchQuery, prompt: "搜索会话或工作区...")
+                        .toolbar {
+                            ToolbarItem(placement: .topBarLeading) {
+                                Button(action: { showSettings = true }) {
+                                    Image(systemName: "gearshape")
+                                }
+                            }
+                            ToolbarItem(placement: .topBarTrailing) {
+                                Button(action: { showNewConversation = true }) {
+                                    Image(systemName: "plus")
+                                        .font(.system(size: 16, weight: .semibold))
+                                }
                             }
                         }
-                    }
-                    .onDisappear {
-                        draftsVersion += 1
-                        viewModel.reloadFromCache()
-                    }
+                        .background(NavigationBarTapHelper(onTap: handleEasterEggTap))
+                        .navigationDestination(for: ConversationItem.self) { item in
+                            ChatView(conversation: item, isNewConversation: item.stepCount == 0)
+                                .id(item.id)
+                                .onAppear {
+                                    guard !item.isDraft else { return }
+                                    if let url = AppSettings.shared.gatewayURL {
+                                        APIClient.shared.notifySessionFocus(cascadeId: item.id, baseURL: url)
+                                    }
+                                    Task {
+                                        if let url = AppSettings.shared.gatewayURL {
+                                            await APIClient.shared.markConversationAsRead(cascadeId: item.id, baseURL: url)
+                                        } else {
+                                            CacheManager.shared.markConversationAsRead(cascadeId: item.id)
+                                        }
+                                    }
+                                }
+                                .onDisappear {
+                                    draftsVersion += 1
+                                    viewModel.reloadFromCache()
+                                }
+                        }
+                        .navigationDestination(item: $selectedDraftSession) { session in
+                            ChatView(draftSession: session)
+                                .id(session.id)
+                                .onDisappear {
+                                    draftsVersion += 1
+                                    viewModel.reloadFromCache()
+                                }
+                        }
+                }
             }
-            .navigationDestination(item: $selectedDraftSession) { session in
-                ChatView(draftSession: session)
-                    .id(session.id)
-                    .onDisappear {
-                        draftsVersion += 1
-                        viewModel.reloadFromCache()
-                    }
+            
+            if showEasterEgg {
+                EasterEggModalView(isPresented: $showEasterEgg)
+                    .zIndex(999)
             }
-            .onAppear {
-                viewModel.reloadFromCache()
-                if settings.isPaired {
-                    viewModel.startAutoRefresh()
+        }
+        .sheet(isPresented: $showManualInput) {
+            ManualPairingSheet { info in
+                startPairing(info: info)
+            }
+        }
+        .sheet(isPresented: $showQRScanner) {
+            QRScannerView { info in
+                startPairing(info: info)
+            }
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsSheet()
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showNewConversation) {
+            NewConversationSheet(onSelectProject: { project in
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                    let session = CacheManager.shared.createLocalDraftSession(project: project)
+                    selectedDraftSession = session
+                }
+            })
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showAccountQuota) {
+            AccountQuotaSheet(
+                quotaResponse: $viewModel.quotaResponse,
+                onSwitch: { id in
+                    try await viewModel.switchCockpitAccount(id: id)
+                },
+                onRefresh: {
+                    try await viewModel.refreshCockpitQuotas()
+                },
+                onAppearFetch: {
+                    await viewModel.fetchQuotas(force: true)
+                },
+                enableSwitchButton: true
+            )
+            .presentationDragIndicator(.visible)
+        }
+        .alert("重命名会话", isPresented: $showRenameAlert) {
+            TextField("输入新标题", text: $renameText)
+            Button("取消", role: .cancel) {}
+            Button("保存") {
+                if let item = conversationToRename {
                     Task {
-                        await viewModel.fetchConversations(isBackgroundPoll: !viewModel.conversations.isEmpty)
+                        await viewModel.renameConversation(item: item, newTitle: renameText)
                     }
-                    Task {
-                        await ProjectCacheManager.shared.fetchAndCacheProjects()
-                    }
-                }
-            }
-            .onDisappear {
-                viewModel.stopAutoRefresh()
-            }
-            .onChange(of: scenePhase) { _, newPhase in
-                handleScenePhaseChange(newPhase)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
-                handleAppDidBecomeActive()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
-                viewModel.stopAutoRefresh()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .deviceTokenRevoked)) { _ in
-                handleTokenRevoked()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .conversationDraftChanged)) { _ in
-                draftsVersion += 1
-            }
-            .onOpenURL { url in
-                handleDeepLink(url)
-            }
-            .confirmationDialog(
-                "确认配对网关",
-                isPresented: $showPairingConfirm,
-                titleVisibility: .visible
-            ) {
-                Button("配对") {
-                    Task { await confirmPendingPairing() }
-                }
-                Button("取消", role: .cancel) {
-                    pendingPairing = nil
-                }
-            } message: {
-                Text(pendingPairingConfirmText)
-            }
-            .alert("配对失败", isPresented: Binding(
-                get: { pairingErrorMessage != nil },
-                set: { if !$0 { pairingErrorMessage = nil } }
-            )) {
-                Button("确定") { pairingErrorMessage = nil }
-            } message: {
-                if let msg = pairingErrorMessage {
-                    Text(msg)
-                }
-            }
-            .sheet(isPresented: $showQRScanner) {
-                QRScannerView { info in
-                    startPairing(info: info)
                 }
             }
         }
-        
-        if showEasterEgg {
-            EasterEggModalView(isPresented: $showEasterEgg)
-                .zIndex(999)
+        .alert("提示", isPresented: Binding(
+            get: { viewModel.errorMessage != nil && !viewModel.conversations.isEmpty },
+            set: { if !$0 { viewModel.errorMessage = nil } }
+        )) {
+            Button("确定") { viewModel.errorMessage = nil }
+        } message: {
+            if let msg = viewModel.errorMessage {
+                Text(msg)
+            }
         }
-    }
+        .confirmationDialog(
+            "确认配对网关",
+            isPresented: $showPairingConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("配对") {
+                Task { await confirmPendingPairing() }
+            }
+            Button("取消", role: .cancel) {
+                pendingPairing = nil
+            }
+        } message: {
+            Text(pendingPairingConfirmText)
+        }
+        .alert("配对失败", isPresented: Binding(
+            get: { pairingErrorMessage != nil },
+            set: { if !$0 { pairingErrorMessage = nil } }
+        )) {
+            Button("确定") { pairingErrorMessage = nil }
+        } message: {
+            if let msg = pairingErrorMessage {
+                Text(msg)
+            }
+        }
+        .onAppear {
+            viewModel.reloadFromCache()
+            if settings.isPaired {
+                viewModel.startAutoRefresh()
+                Task {
+                    await viewModel.fetchConversations(isBackgroundPoll: !viewModel.conversations.isEmpty)
+                }
+                Task {
+                    await ProjectCacheManager.shared.fetchAndCacheProjects()
+                }
+            }
+        }
+        .onDisappear {
+            viewModel.stopAutoRefresh()
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            handleScenePhaseChange(newPhase)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            handleAppDidBecomeActive()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
+            viewModel.stopAutoRefresh()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .deviceTokenRevoked)) { _ in
+            handleTokenRevoked()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .conversationDraftChanged)) { _ in
+            draftsVersion += 1
+        }
+        .onOpenURL { url in
+            handleDeepLink(url)
+        }
     }
     
     @ViewBuilder

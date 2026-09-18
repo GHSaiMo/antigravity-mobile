@@ -10,7 +10,6 @@ public struct QRScannerView: View {
     @State private var isCheckingPermission = true
     @State private var permissionDenied = false
     @State private var showManualInput = false
-    @State private var manualURI = ""
     @State private var errorMessage: String? = nil
     
     public init(onScanDetected: ((PairingInfo) -> Void)? = nil) {
@@ -82,7 +81,11 @@ public struct QRScannerView: View {
                 }
             }
             .sheet(isPresented: $showManualInput) {
-                manualInputSheet
+                ManualPairingSheet { info in
+                    showManualInput = false
+                    dismiss()
+                    onScanDetected?(info)
+                }
             }
             .alert("配对错误", isPresented: Binding(
                 get: { errorMessage != nil },
@@ -136,48 +139,6 @@ public struct QRScannerView: View {
             }
             .padding(.bottom, 32)
         }
-    }
-    
-    private var manualInputSheet: some View {
-        NavigationStack {
-            Form {
-                Section(header: Text("配对链接 (URI)"), footer: Text("可在 Mac 终端中直接复制以 agy://pair 开头的配对链接并粘贴于此。")) {
-                    TextField("agy://pair?host=...&port=...", text: $manualURI)
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
-                    
-                    if let clipboard = UIPasteboard.general.string, clipboard.hasPrefix("agy://pair") {
-                        Button("粘贴剪贴板内容") {
-                            manualURI = clipboard
-                        }
-                    }
-                }
-            }
-            .navigationTitle("手动输入配对链接")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { showManualInput = false }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("确认配对") {
-                        let code = manualURI
-                        switch PairingService.shared.parsePairingURI(code) {
-                        case .failure(let err):
-                            errorMessage = err.localizedDescription
-                            UINotificationFeedbackGenerator().notificationOccurred(.error)
-                        case .success(let info):
-                            UINotificationFeedbackGenerator().notificationOccurred(.success)
-                            showManualInput = false
-                            dismiss()
-                            onScanDetected?(info)
-                        }
-                    }
-                    .disabled(manualURI.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            }
-        }
-        .presentationDetents([.medium])
     }
     
     private func checkCameraPermission() async {

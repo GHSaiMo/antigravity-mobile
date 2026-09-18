@@ -881,7 +881,7 @@ public final class FullScreenGalleryViewController: UIViewController, UIPageView
     }
 }
 
-final class SingleImagePreviewController: UIViewController, UIScrollViewDelegate {
+final class SingleImagePreviewController: UIViewController, UIScrollViewDelegate, UIPopoverPresentationControllerDelegate {
     let item: IdentifiableImage
     let onSingleTap: () -> Void
     
@@ -1055,12 +1055,23 @@ final class SingleImagePreviewController: UIViewController, UIScrollViewDelegate
         alert.addAction(UIAlertAction(title: "取消", style: .cancel, handler: nil))
         
         if let popover = alert.popoverPresentationController {
-            popover.sourceView = imageView
-            popover.sourceRect = imageView.bounds
-            popover.permittedArrowDirections = [.up, .down]
+            popover.sourceView = view
+            popover.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 0, height: 0)
+            popover.permittedArrowDirections = []
+            popover.delegate = self
         }
         
         present(alert, animated: true)
+    }
+    
+    // MARK: - UIPopoverPresentationControllerDelegate
+    
+    public func adaptivePresentationStyle(for controller: UIPresentationController) -> UIModalPresentationStyle {
+        return .none
+    }
+    
+    public func adaptivePresentationStyle(for controller: UIPresentationController, traitCollection: UITraitCollection) -> UIModalPresentationStyle {
+        return .none
     }
     
     private func saveToPhotosAlbum() {
