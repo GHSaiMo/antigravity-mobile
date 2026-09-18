@@ -98,7 +98,4 @@
       });
     }
   }
-
-  // 定时兜底（处理 React 路由与重渲染）
-  setInterval(alignDesktopBrand, 600);
 })();

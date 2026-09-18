@@ -568,7 +568,7 @@ func runPairCmd(args []string) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		fmt.Fprintf(os.Stderr, "❌ 网关拒绝签发配对码 (HTTP %d): %s\n", resp.StatusCode, strings.TrimSpace(string(body)))
 		if resp.StatusCode == http.StatusUnauthorized {
 			fmt.Fprintf(os.Stderr, "   提示: 若启用了 FRP 穿透，请把 ADMIN_TOKEN 配置在环境变量或 ~/.multigravity/admin_token。\n")

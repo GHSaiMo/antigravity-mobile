@@ -30,6 +30,7 @@ import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshContainer
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -66,13 +67,13 @@ fun ConversationListScreen(
     onNavigateToPair: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val uiState by viewModel.uiState.collectAsState()
-    val searchQuery by viewModel.searchQuery.collectAsState()
-    val quotaData by viewModel.quotaData.collectAsState()
-    val isRefreshingQuota by viewModel.isRefreshingQuota.collectAsState()
-    val projects by viewModel.projects.collectAsState()
-    val isLoadingProjects by viewModel.isLoadingProjects.collectAsState()
-    val projectsError by viewModel.projectsError.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
+    val quotaData by viewModel.quotaData.collectAsStateWithLifecycle()
+    val isRefreshingQuota by viewModel.isRefreshingQuota.collectAsStateWithLifecycle()
+    val projects by viewModel.projects.collectAsStateWithLifecycle()
+    val isLoadingProjects by viewModel.isLoadingProjects.collectAsStateWithLifecycle()
+    val projectsError by viewModel.projectsError.collectAsStateWithLifecycle()
 
     var showQuotaSheet by remember { mutableStateOf(false) }
     var showNewConvSheet by remember { mutableStateOf(false) }
@@ -107,7 +108,7 @@ fun ConversationListScreen(
     var deletingItem by remember { mutableStateOf<ConversationItem?>(null) }
 
     val colors = AntigravityTheme.colors
-    val isRefreshing by viewModel.isRefreshing.collectAsState()
+    val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     val pullRefreshState = rememberPullToRefreshState()
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()

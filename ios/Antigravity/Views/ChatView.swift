@@ -420,7 +420,7 @@ public struct ChatView: View {
     
     @ViewBuilder
     private func messagesList(proxy: ScrollViewProxy) -> some View {
-        VStack(spacing: 8) {
+        LazyVStack(spacing: 8) {
             if viewModel.hasMore && !viewModel.messages.contains(where: { $0.id == "step-0" }) {
                 loadOlderMessagesButton(proxy: proxy)
             }
@@ -956,7 +956,7 @@ public struct ChatView: View {
     }
     
     private func compressAndResizeImage(_ uiImage: UIImage) -> Data? {
-        let maxDim: CGFloat = 2048
+        let maxDim: CGFloat = 1600
         let size = uiImage.size
         let targetImage: UIImage
         if size.width > maxDim || size.height > maxDim {
@@ -971,7 +971,7 @@ public struct ChatView: View {
         } else {
             targetImage = uiImage
         }
-        return targetImage.jpegData(compressionQuality: 0.8)
+        return targetImage.jpegData(compressionQuality: 0.65)
     }
     
     private func handleCapturedImage(_ uiImage: UIImage) {

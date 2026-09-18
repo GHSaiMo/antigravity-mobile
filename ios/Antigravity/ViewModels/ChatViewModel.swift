@@ -1868,7 +1868,8 @@ public final class ChatViewModel {
         )
         self.viewingMarkdownFile = viewer
         
-        Task {
+        Task { [weak self] in
+            guard let self else { return }
             guard let url = settings.serverURL else {
                 if self.viewingMarkdownFile?.id == viewerId {
                     self.viewingMarkdownFile?.isRefreshing = false
@@ -1935,7 +1936,8 @@ public final class ChatViewModel {
             fileName = "\(fileName).md"
         }
         
-        Task {
+        Task { [weak self] in
+            guard let self else { return }
             do {
                 let resp = try await apiClient.fetchFileContent(
                     uri: cleanURI,
@@ -1971,8 +1973,8 @@ public final class ChatViewModel {
     @MainActor
     public func proceedFromViewer() {
         self.viewingMarkdownFile = nil
-        Task {
-            await self.proceedArtifact()
+        Task { [weak self] in
+            await self?.proceedArtifact()
         }
     }
     
@@ -2441,10 +2443,10 @@ public final class ChatViewModel {
         
         lastAutoApprovedInteractionId = interaction.id
         
-        Task { @MainActor in
+        Task { @MainActor [weak self] in
             // Small delay to allow any current render cycle to settle
             try? await Task.sleep(nanoseconds: 200_000_000)
-            guard self.pendingInteraction?.id == interaction.id, !self.isSubmittingInteraction else { return }
+            guard let self, self.pendingInteraction?.id == interaction.id, !self.isSubmittingInteraction else { return }
             await self.submitInteraction(optionId: opt.id, writeInText: nil, target: interaction.target)
         }
     }

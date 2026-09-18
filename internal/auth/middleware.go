@@ -2,7 +2,6 @@ package auth
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -136,12 +135,16 @@ func BearerToken(r *http.Request) string {
 	return ""
 }
 
-// ConstantTimeTokenEquals compares two tokens in constant time.
+// ConstantTimeTokenEquals compares two tokens in constant time without heap allocations.
 func ConstantTimeTokenEquals(got, want string) bool {
-	if want == "" {
+	if want == "" || len(got) != len(want) {
 		return false
 	}
-	return subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
+	var diff byte
+	for i := 0; i < len(got); i++ {
+		diff |= got[i] ^ want[i]
+	}
+	return diff == 0
 }
 
 // AuthDisabledRequested reports whether MULTIGRAVITY_AUTH_DISABLED (or AUTH_DISABLED) is set in the environment.

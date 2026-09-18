@@ -309,18 +309,25 @@ func extractQueuedMessageText(pam upstreamAgentMessage) string {
 	}
 
 	for _, raw := range rawCandidates {
-		// 1. Try decoding as base64-encoded protobuf binary (ProtoJSON bytes field format)
-		var b64Str string
-		if err := json.Unmarshal(raw, &b64Str); err == nil && len(b64Str) > 0 {
-			if protoBytes, err := base64.StdEncoding.DecodeString(b64Str); err == nil && len(protoBytes) > 0 {
-				if t := extractTextFromProto(protoBytes, 0); t != "" {
-					return t
+		trimmed := bytes.TrimSpace(raw)
+		if len(trimmed) == 0 {
+			continue
+		}
+
+		// 1. Try decoding as base64-encoded protobuf binary (only if it's a JSON string)
+		if trimmed[0] == '"' {
+			var b64Str string
+			if err := json.Unmarshal(trimmed, &b64Str); err == nil && len(b64Str) > 0 {
+				if protoBytes, err := base64.StdEncoding.DecodeString(b64Str); err == nil && len(protoBytes) > 0 {
+					if t := extractTextFromProto(protoBytes, 0); t != "" {
+						return t
+					}
 				}
 			}
 		}
 
-		// 2. Try Protobuf-ES Step schema: { "step": { "case": "userInput", "value": { "items": [...] } } }
-		var esPayload struct {
+		// 2. Try structured JSON schemas (Protobuf-ES Step schema & ProtoJSON UserInput schema) in a single pass
+		var combined struct {
 			Step struct {
 				Case  string `json:"case"`
 				Value struct {
@@ -333,29 +340,13 @@ func extractQueuedMessageText(pam upstreamAgentMessage) string {
 					} `json:"items"`
 				} `json:"value"`
 			} `json:"step"`
-		}
-		if err := json.Unmarshal(raw, &esPayload); err == nil && len(esPayload.Step.Value.Items) > 0 {
-			var b strings.Builder
-			for _, it := range esPayload.Step.Value.Items {
-				if it.Text != "" {
-					b.WriteString(it.Text)
-				} else if it.Chunk != nil && it.Chunk.Value != "" {
-					b.WriteString(it.Chunk.Value)
-				}
-			}
-			if t := strings.TrimSpace(b.String()); t != "" {
-				return t
-			}
-		}
-
-		// Try ProtoJSON UserInput schema: { "userInput": { "items": [...] } }
-		var protoPayload struct {
 			UserInput struct {
 				UserResponse string `json:"userResponse"`
 				Response     string `json:"response"`
 				Items        []struct {
 					Text  string `json:"text"`
 					Chunk *struct {
+						Case  string `json:"case"`
 						Value string `json:"value"`
 					} `json:"chunk"`
 				} `json:"items"`
@@ -363,26 +354,35 @@ func extractQueuedMessageText(pam upstreamAgentMessage) string {
 			Items []struct {
 				Text  string `json:"text"`
 				Chunk *struct {
+					Case  string `json:"case"`
 					Value string `json:"value"`
 				} `json:"chunk"`
 			} `json:"items"`
 		}
-		if err := json.Unmarshal(raw, &protoPayload); err == nil {
-			if strings.TrimSpace(protoPayload.UserInput.UserResponse) != "" {
-				return strings.TrimSpace(protoPayload.UserInput.UserResponse)
+		if err := json.Unmarshal(raw, &combined); err == nil {
+			if strings.TrimSpace(combined.UserInput.UserResponse) != "" {
+				return strings.TrimSpace(combined.UserInput.UserResponse)
 			}
-			if strings.TrimSpace(protoPayload.UserInput.Response) != "" {
-				return strings.TrimSpace(protoPayload.UserInput.Response)
+			if strings.TrimSpace(combined.UserInput.Response) != "" {
+				return strings.TrimSpace(combined.UserInput.Response)
 			}
+
 			var b strings.Builder
-			for _, it := range protoPayload.UserInput.Items {
+			for _, it := range combined.Step.Value.Items {
 				if it.Text != "" {
 					b.WriteString(it.Text)
 				} else if it.Chunk != nil && it.Chunk.Value != "" {
 					b.WriteString(it.Chunk.Value)
 				}
 			}
-			for _, it := range protoPayload.Items {
+			for _, it := range combined.UserInput.Items {
+				if it.Text != "" {
+					b.WriteString(it.Text)
+				} else if it.Chunk != nil && it.Chunk.Value != "" {
+					b.WriteString(it.Chunk.Value)
+				}
+			}
+			for _, it := range combined.Items {
 				if it.Text != "" {
 					b.WriteString(it.Text)
 				} else if it.Chunk != nil && it.Chunk.Value != "" {

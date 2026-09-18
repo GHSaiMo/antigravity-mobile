@@ -153,11 +153,7 @@ fun MessageBubble(
             val allUserImages = remember(message, urlResolver) {
                 val list = mutableListOf<ImageViewerItem>()
                 message.effectiveImageDataList.forEach { bytes ->
-                    val bitmap = try {
-                        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                    } catch (e: Exception) {
-                        null
-                    }
+                    val bitmap = decodeSampledBitmap(bytes, 1600)
                     if (bitmap != null) {
                         list.add(ImageViewerItem(bitmap = bitmap))
                     }
@@ -283,5 +279,26 @@ fun SimpleMarkdownContent(
         urlResolver = urlResolver,
         onImageClick = onImageClick
     )
+}
+
+private fun decodeSampledBitmap(bytes: ByteArray, maxDim: Int = 1600): Bitmap? {
+    if (bytes.isEmpty()) return null
+    return try {
+        val boundsOptions = BitmapFactory.Options().apply {
+            inJustDecodeBounds = true
+        }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, boundsOptions)
+        var sampleSize = 1
+        val maxOriginal = maxOf(boundsOptions.outWidth, boundsOptions.outHeight)
+        while (maxOriginal / (sampleSize * 2) >= maxDim) {
+            sampleSize *= 2
+        }
+        val decodeOptions = BitmapFactory.Options().apply {
+            inSampleSize = sampleSize
+        }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decodeOptions)
+    } catch (e: Throwable) {
+        null
+    }
 }
 

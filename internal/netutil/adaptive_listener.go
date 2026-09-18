@@ -66,7 +66,7 @@ func (l *AdaptiveListener) Accept() (net.Conn, error) {
 
 		// Set a short read deadline while sniffing the initial bytes
 		_ = conn.SetReadDeadline(time.Now().Add(timeout))
-		br := bufio.NewReader(conn)
+		br := bufio.NewReaderSize(conn, 512)
 		header, parseErr := proxyproto.Read(br)
 		// Clear read deadline so normal application timeouts take over
 		_ = conn.SetReadDeadline(time.Time{})

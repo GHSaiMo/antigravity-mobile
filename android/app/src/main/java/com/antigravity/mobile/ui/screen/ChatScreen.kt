@@ -49,6 +49,7 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -86,9 +87,9 @@ fun ChatScreen(
         focusManager.clearFocus()
         keyboardController?.hide()
     }
-    val uiState by viewModel.uiState.collectAsState()
-    val inputText by viewModel.inputText.collectAsState()
-    val scrollToBottomTrigger by viewModel.scrollToBottomTrigger.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val inputText by viewModel.inputText.collectAsStateWithLifecycle()
+    val scrollToBottomTrigger by viewModel.scrollToBottomTrigger.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val colors = AntigravityTheme.colors
     val shouldShowThinkingBubble = uiState.isAwaitingResponse || uiState.isRunning
@@ -161,7 +162,7 @@ fun ChatScreen(
         performAdaptiveCardScroll()
     }
 
-    val isRefreshing by viewModel.isRefreshing.collectAsState()
+    val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     val pullRefreshState = rememberPullToRefreshState()
 
     LaunchedEffect(pullRefreshState.isRefreshing) {

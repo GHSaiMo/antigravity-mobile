@@ -40,6 +40,7 @@ class StreamWebSocketClient(private val prefs: PreferencesManager) {
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var reconnectJob: Job? = null
+    private var reconnectAttempt = 0
 
     fun connect(cascadeId: String) {
         if (_connectionStatus.value == ConnectionStatus.CONNECTED && activeCascadeId == cascadeId) {
@@ -47,6 +48,7 @@ class StreamWebSocketClient(private val prefs: PreferencesManager) {
         }
 
         disconnect(intentional = false)
+        reconnectAttempt = 0
         activeCascadeId = cascadeId
         isIntentionallyClosed = false
         startConnection()
@@ -54,6 +56,7 @@ class StreamWebSocketClient(private val prefs: PreferencesManager) {
 
     fun disconnect(intentional: Boolean = true) {
         isIntentionallyClosed = intentional
+        reconnectAttempt = 0
         reconnectJob?.cancel()
         reconnectJob = null
         try {
@@ -82,6 +85,7 @@ class StreamWebSocketClient(private val prefs: PreferencesManager) {
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 Log.d("StreamWS", "Connected to cascade stream: $cascadeId")
+                reconnectAttempt = 0
                 _connectionStatus.value = ConnectionStatus.CONNECTED
             }
 
@@ -114,10 +118,14 @@ class StreamWebSocketClient(private val prefs: PreferencesManager) {
         if (isIntentionallyClosed || activeCascadeId == null) return
         if (reconnectJob?.isActive == true) return
 
+        val attempt = reconnectAttempt
+        val delayMs = (2500L * (1 shl attempt.coerceAtMost(5))).coerceAtMost(60_000L)
+        reconnectAttempt++
+
         reconnectJob = scope.launch {
-            delay(2500)
+            delay(delayMs)
             if (!isIntentionallyClosed && activeCascadeId != null) {
-                Log.d("StreamWS", "Attempting reconnection...")
+                Log.d("StreamWS", "Attempting reconnection (attempt #$reconnectAttempt, delay=${delayMs}ms)...")
                 startConnection()
             }
         }
