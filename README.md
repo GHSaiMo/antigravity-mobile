@@ -24,20 +24,17 @@
 ## ⚡ 极速开始 (v1.0.0 正式版)
 
 ### 1. 🍎 Mac 服务端一句话安装 (推荐)
-打开 Mac 终端，执行以下智能安装指令（**自带本地代理智能探测 + 国内镜像双保险，开箱即装**）：
+打开 Mac 终端，执行以下国内网络加速安装命令（**免翻墙免代理，秒级全自动完成部署**）：
 
 ```bash
-/bin/bash -c "$(curl -fsSL $(for p in 7890 10808 1080 6152; do nc -z -w 1 127.0.0.1 $p 2>/dev/null && echo "--proxy http://127.0.0.1:$p" && break; done) https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.sh 2>/dev/null || curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.sh)"
+# 国内极速一键安装（默认推荐）
+curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.sh | bash
 ```
 
 <details>
-<summary><b>💡 备用安装命令</b></summary>
+<summary><b>🌐 海外或已配置终端代理用户（GitHub 官方源）</b></summary>
 
 ```bash
-# 极简国内镜像（无代理环境直连）
-curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.sh | bash
-
-# 纯官方源（终端已 export 代理时使用）
 curl -fsSL https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.sh | bash
 ```
 </details>
