@@ -133,25 +133,12 @@ fun ConversationListScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable {
-                                coroutineScope.launch {
-                                    listState.animateScrollToItem(0)
-                                }
-                                viewModel.refresh()
-                            }
-                            .padding(horizontal = 4.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = "Multigravity",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 20.sp,
-                            color = colors.textPrimary
-                        )
-                    }
+                    Text(
+                        text = "Multigravity",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 20.sp,
+                        color = colors.textPrimary
+                    )
                 },
                 navigationIcon = {
                     IconButton(onClick = { showSettingsSheet = true }) {
@@ -163,29 +150,6 @@ fun ConversationListScreen(
                     }
                 },
                 actions = {
-                    IconButton(
-                        onClick = {
-                            coroutineScope.launch {
-                                listState.animateScrollToItem(0)
-                            }
-                            viewModel.refresh()
-                        },
-                        enabled = !isRefreshing
-                    ) {
-                        if (isRefreshing) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                strokeWidth = 2.dp,
-                                color = colors.accentIndigo
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.Refresh,
-                                contentDescription = "Refresh",
-                                tint = colors.accentIndigo
-                            )
-                        }
-                    }
                     IconButton(onClick = {
                         viewModel.loadProjects()
                         showNewConvSheet = true
