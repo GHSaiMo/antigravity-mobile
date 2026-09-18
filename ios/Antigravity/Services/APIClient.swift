@@ -341,6 +341,20 @@ public final class APIClient: Sendable {
         _ = try await rpc(method: "UpdateConversationAnnotations", body: body, baseURL: baseURL) as EmptyResp
     }
     
+    /// Unpairs this device from the gateway and cleans up server-side state.
+    public func unpair() async {
+        guard let urlString = AppSettings.shared.serverURL,
+              let baseURL = URL(string: urlString) else { return }
+        let endpoint = baseURL.appendingPathComponent("api/v1/auth/unpair")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 5
+        request.httpBody = "{}".data(using: .utf8)
+        
+        _ = try? await transport.send(request: request)
+    }
+    
     /// Resolves a raw media/image URI into an authenticated, loadable HTTP URL for the mobile client.
     public func resolveMediaURL(_ raw: String, baseURL: URL) -> String {
         var clean = raw.trimmingCharacters(in: .whitespacesAndNewlines)

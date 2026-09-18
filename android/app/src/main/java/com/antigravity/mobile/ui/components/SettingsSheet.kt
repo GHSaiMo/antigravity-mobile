@@ -173,7 +173,7 @@ fun SettingsSheet(
             },
             text = {
                 Text(
-                    text = "解除配对将清除此设备的访问令牌与已保存的网关地址。",
+                    text = "解除配对将通知网关清理此设备绑定，并清除本地访问令牌与网关配置。",
                     color = colors.textSecondary,
                     fontSize = 14.sp
                 )
@@ -318,22 +318,6 @@ private fun MainSettingsContent(
                     }
                 }
 
-                HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
-                // 重新扫描配对
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onRescanQR?.invoke() }
-                        .padding(horizontal = 16.dp, vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = if (isPaired) "重新扫描配对二维码" else "扫描二维码配对",
-                        color = colors.accentIndigo,
-                        fontSize = 15.sp
-                    )
-                }
-
                 if (isPaired) {
                     HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
                     Row(
@@ -346,6 +330,21 @@ private fun MainSettingsContent(
                         Text(
                             text = "解除设备配对",
                             color = colors.accentRed,
+                            fontSize = 15.sp
+                        )
+                    }
+                } else {
+                    HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onRescanQR?.invoke() }
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "扫描二维码配对",
+                            color = colors.accentIndigo,
                             fontSize = 15.sp
                         )
                     }
@@ -366,20 +365,30 @@ private fun MainSettingsContent(
                     .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
                     .clickable { onNavigateToNetwork() }
                     .padding(horizontal = 16.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(text = "网络设置", color = colors.textPrimary, fontSize = 15.sp)
+                Text(
+                    text = "网络设置",
+                    color = colors.textPrimary,
+                    fontSize = 15.sp
+                )
+                Spacer(modifier = Modifier.width(12.dp))
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = prefs.gatewayBaseUrl?.takeIf { it.isNotBlank() } ?: "未设置",
+                        text = formatDisplayUrl(prefs.gatewayBaseUrl),
                         color = colors.textSecondary,
                         fontSize = 13.sp,
-                        fontFamily = FontFamily.Monospace
+                        fontFamily = FontFamily.Monospace,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.End,
+                        modifier = Modifier.weight(1f, fill = false)
                     )
+                    Spacer(modifier = Modifier.width(6.dp))
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
                         contentDescription = "Forward",
@@ -617,3 +626,27 @@ private fun ThemeOptionSegment(
         }
     }
 }
+
+private fun formatDisplayUrl(url: String?): String {
+    if (url.isNullOrBlank()) return "未设置"
+    val trimmed = url.trim()
+    val openBracket = trimmed.indexOf('[')
+    val closeBracket = trimmed.indexOf(']')
+    if (openBracket != -1 && closeBracket != -1 && closeBracket > openBracket) {
+        val scheme = trimmed.substring(0, openBracket)
+        val v6Host = trimmed.substring(openBracket + 1, closeBracket)
+        val portAndPath = trimmed.substring(closeBracket + 1)
+
+        val groups = v6Host.split(":")
+        val shortenedHost = if (groups.size >= 4) {
+            "${groups.take(2).joinToString(":")}:...:${groups.takeLast(2).joinToString(":")}"
+        } else if (v6Host.length > 16) {
+            "${v6Host.take(8)}...${v6Host.takeLast(6)}"
+        } else {
+            v6Host
+        }
+        return "$scheme[$shortenedHost]$portAndPath"
+    }
+    return trimmed
+}
+

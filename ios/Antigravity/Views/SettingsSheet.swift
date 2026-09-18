@@ -43,10 +43,6 @@ public struct SettingsSheet: View {
                             }
                         }
                         
-                        Button(action: { showQRScanner = true }) {
-                            Text("重新扫描配对二维码")
-                        }
-                        
                         Button(role: .destructive, action: {
                             showUnpairAlert = true
                         }) {
@@ -150,11 +146,18 @@ public struct SettingsSheet: View {
         .alert("确定解除设备配对？", isPresented: $showUnpairAlert) {
             Button("取消", role: .cancel) {}
             Button("解除配对", role: .destructive) {
+                Task {
+                    await APIClient.shared.unpair()
+                }
                 settings.unpair()
+                CacheManager.shared.clearCache()
+                DocumentCacheManager.shared.clearCache()
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                NotificationCenter.default.post(name: .deviceTokenRevoked, object: nil)
+                dismiss()
             }
         } message: {
-            Text("解除配对将清除此设备的访问令牌与已保存的网关地址。")
+            Text("解除配对将通知网关清理此设备绑定，并清除本地访问令牌与网关配置。")
         }
         .alert("确定清空本地缓存？", isPresented: $showClearCacheAlert) {
             Button("取消", role: .cancel) {}

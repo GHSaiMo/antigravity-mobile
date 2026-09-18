@@ -433,6 +433,10 @@ public struct ConversationListView: View {
     
     private func handleTokenRevoked() {
         AppSettings.shared.unpair()
+        viewModel.stopAutoRefresh()
+        viewModel.conversations.removeAll()
+        CacheManager.shared.clearCache()
+        DocumentCacheManager.shared.clearCache()
     }
     
     private var pendingPairingConfirmText: String {
