@@ -124,35 +124,17 @@ fun DocumentPreviewSheet(
                         textAlign = TextAlign.Center
                     )
 
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(2.dp)
-                    ) {
-                        // Open in external browser/viewer button
-                        IconButton(onClick = {
-                            haptic.medium()
-                            openInExternalApp(context, file)
-                        }) {
-                            Icon(
-                                imageVector = Icons.Default.OpenInNew,
-                                contentDescription = "外部应用打开",
-                                tint = colors.textSecondary,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-
-                        // Share Button
-                        IconButton(onClick = {
-                            haptic.medium()
-                            shareDocument(context, file, decodedTitle)
-                        }) {
-                            Icon(
-                                imageVector = Icons.Default.Share,
-                                contentDescription = "分享文件",
-                                tint = colors.accentIndigo,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
+                    // Share Button (matches iOS single action button)
+                    IconButton(onClick = {
+                        haptic.medium()
+                        shareDocument(context, file, decodedTitle)
+                    }) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = "分享文件",
+                            tint = colors.accentIndigo,
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
                 }
 
@@ -327,18 +309,14 @@ private fun HtmlDocumentViewer(file: File) {
                         }
                     }
 
-                    val base64Data = Base64.encodeToString(htmlContent.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
-                    loadDataWithBaseURL("https://localhost/", base64Data, "text/html; charset=utf-8", "base64", null)
+                    val baseUrl = file.parentFile?.let { Uri.fromFile(it).toString() + "/" }
+                        ?: Uri.fromFile(file).toString()
+                    loadDataWithBaseURL(baseUrl, htmlContent, "text/html", "utf-8", null)
                 } catch (_: Exception) {
                     try {
-                        val base64Fallback = Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
-                        loadDataWithBaseURL("https://localhost/", base64Fallback, "text/html; charset=utf-8", "base64", null)
+                        loadUrl(Uri.fromFile(file).toString())
                     } catch (_: Exception) {
-                        try {
-                            loadUrl(Uri.fromFile(file).toString())
-                        } catch (_: Exception) {
-                            loadUrl("file://${file.absolutePath}")
-                        }
+                        loadUrl("file://${file.absolutePath}")
                     }
                 }
             }
