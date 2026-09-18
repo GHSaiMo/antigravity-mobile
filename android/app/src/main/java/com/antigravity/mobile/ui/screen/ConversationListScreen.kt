@@ -196,55 +196,53 @@ fun ConversationListScreen(
                     }
                 }
                 is ConversationListUiState.Error -> {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(top = topBarHeight)
-                            .padding(32.dp),
-                        verticalArrangement = Arrangement.Center,
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Warning,
-                            contentDescription = "Error",
-                            tint = colors.accentOrange,
-                            modifier = Modifier.size(48.dp)
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = "无法连接网关",
-                            color = colors.textPrimary,
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = state.message,
-                            color = colors.textSecondary,
-                            fontSize = 13.sp,
-                            textAlign = TextAlign.Center
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Button(
-                            onClick = { viewModel.loadConversations() },
-                            colors = ButtonDefaults.buttonColors(containerColor = colors.accentIndigo)
+                    if (!viewModel.prefs.isPaired()) {
+                        LaunchedEffect(Unit) {
+                            onNavigateToPair()
+                        }
+                    } else {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(top = topBarHeight)
+                                .padding(32.dp),
+                            verticalArrangement = Arrangement.Center,
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Text("重试连接")
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = "Error",
+                                tint = colors.accentOrange,
+                                modifier = Modifier.size(48.dp)
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = "无法连接网关",
+                                color = colors.textPrimary,
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = state.message,
+                                color = colors.textSecondary,
+                                fontSize = 13.sp,
+                                textAlign = TextAlign.Center
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Button(
+                                onClick = { viewModel.loadConversations() },
+                                colors = ButtonDefaults.buttonColors(containerColor = colors.accentIndigo)
+                            ) {
+                                Text("重试连接")
+                            }
                         }
                     }
                 }
                 is ConversationListUiState.Success -> {
-                    if (state.conversations.isEmpty() && searchQuery.isEmpty() && projects.isEmpty()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(top = topBarHeight)
-                        ) {
-                            OnboardingGuideView(
-                                onScanTapped = onNavigateToPair,
-                                onManualInputTapped = onNavigateToPair,
-                                onEasterEggTap = handleEasterEggTap
-                            )
+                    if (!viewModel.prefs.isPaired()) {
+                        LaunchedEffect(Unit) {
+                            onNavigateToPair()
                         }
                     } else {
                         ConversationListContent(

@@ -8,7 +8,7 @@ public struct ConversationListView: View {
     @State private var showNewConversation = false
     @State private var showAccountQuota = false
     @State private var selectedDraftSession: LocalDraftSession?
-    @State private var navigationPath = NavigationPath()
+    @State private var navigationPath: [ConversationItem] = []
     
     @State private var conversationToDelete: ConversationItem?
     @State private var showDeleteConfirm = false
@@ -214,11 +214,10 @@ public struct ConversationListView: View {
             }
             .sheet(isPresented: $showQRScanner) {
                 QRScannerView { _ in
-                    Task {
-                        viewModel.startAutoRefresh()
-                        await viewModel.fetchConversations()
-                        await ProjectCacheManager.shared.fetchAndCacheProjects()
-                    }
+                    viewModel.errorMessage = nil
+                    viewModel.startAutoRefresh()
+                    await viewModel.fetchConversations()
+                    await ProjectCacheManager.shared.fetchAndCacheProjects()
                 }
             }
         }
@@ -232,10 +231,10 @@ public struct ConversationListView: View {
     
     @ViewBuilder
     private var mainBodyView: some View {
-        if !AppSettings.shared.isPaired && viewModel.conversations.isEmpty {
+        if !AppSettings.shared.isPaired {
             OnboardingGuideView(
                 onScanTapped: { showQRScanner = true },
-                onManualInputTapped: { showSettings = true },
+                onManualInputTapped: { showQRScanner = true },
                 onEasterEggTap: handleEasterEggTap
             )
         } else if viewModel.isLoading && viewModel.conversations.isEmpty {
@@ -275,27 +274,20 @@ public struct ConversationListView: View {
             
             VStack(spacing: 10) {
                 HStack(spacing: 12) {
-                    if !AppSettings.shared.isPaired {
-                        Button("扫码配对") {
-                            showQRScanner = true
+                    Button("智能重测端点") {
+                        Task {
+                            await ConnectionManager.shared.probeEndpoints()
+                            await viewModel.fetchConversations()
                         }
-                        .buttonStyle(.borderedProminent)
-                    } else {
-                        Button("智能重测端点") {
-                            Task {
-                                await ConnectionManager.shared.probeEndpoints()
-                                await viewModel.fetchConversations()
-                            }
-                        }
-                        .buttonStyle(.borderedProminent)
-                        
-                        Button("重试") {
-                            Task {
-                                await viewModel.fetchConversations()
-                            }
-                        }
-                        .buttonStyle(.bordered)
                     }
+                    .buttonStyle(.borderedProminent)
+                    
+                    Button("重试") {
+                        Task {
+                            await viewModel.fetchConversations()
+                        }
+                    }
+                    .buttonStyle(.bordered)
                 }
                 
                 Button("打开设置") {
@@ -435,6 +427,11 @@ public struct ConversationListView: View {
         AppSettings.shared.unpair()
         viewModel.stopAutoRefresh()
         viewModel.conversations.removeAll()
+        viewModel.errorMessage = nil
+        viewModel.isLoading = false
+        navigationPath = NavigationPath()
+        selectedDraftSession = nil
+        showSettings = false
         CacheManager.shared.clearCache()
         DocumentCacheManager.shared.clearCache()
     }
@@ -451,12 +448,15 @@ public struct ConversationListView: View {
     private func confirmPendingPairing() async {
         guard let info = pendingPairing else { return }
         pendingPairing = nil
+        viewModel.errorMessage = nil
+        viewModel.isLoading = true
         do {
             _ = try await PairingService.shared.pair(with: info)
             viewModel.startAutoRefresh()
             await viewModel.fetchConversations()
             await ProjectCacheManager.shared.fetchAndCacheProjects()
         } catch {
+            viewModel.isLoading = false
             pairingErrorMessage = error.localizedDescription
         }
     }

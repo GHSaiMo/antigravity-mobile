@@ -66,6 +66,9 @@ class MainActivity : ComponentActivity() {
         // Initialize ViewModels
         pairingViewModel = PairingViewModel(apiClient, prefs)
         conversationListViewModel = ConversationListViewModel(apiClient, prefs, cacheManager)
+        pairingViewModel.setPreheatAction {
+            conversationListViewModel.loadInitialData()
+        }
         val liveActivityManager = com.antigravity.mobile.data.service.LiveActivityNotificationManager(applicationContext, prefs)
         chatViewModel = ChatViewModel(apiClient, wsClient, prefs, documentCacheManager, liveActivityManager, cacheManager).apply {
             onConversationUpdated = { item ->
@@ -137,9 +140,7 @@ class MainActivity : ComponentActivity() {
                             viewModel = pairingViewModel,
                             onLaunchScanner = { launchScanner() },
                             onPairedSuccess = {
-                                conversationListViewModel.loadConversations()
-                                conversationListViewModel.loadProjects()
-                                conversationListViewModel.loadQuotas()
+                                conversationListViewModel.startAutoRefresh()
                                 navController.navigate("conversations") {
                                     popUpTo("pair") { inclusive = true }
                                 }
@@ -170,6 +171,7 @@ class MainActivity : ComponentActivity() {
                             },
                             onNavigateToPair = {
                                 wsClient.disconnect(intentional = true)
+                                pairingViewModel.resetState()
                                 conversationListViewModel.unpair {
                                     navController.navigate("pair") {
                                         popUpTo(0) { inclusive = true }

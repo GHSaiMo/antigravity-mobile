@@ -4,7 +4,7 @@ import AVFoundation
 public struct QRScannerView: View {
     @Environment(\.dismiss) private var dismiss
     
-    public var onPairSuccess: ((PairingInfo) -> Void)?
+    public var onPairSuccess: ((PairingInfo) async -> Void)?
     
     @State private var hasCameraPermission = false
     @State private var isCheckingPermission = true
@@ -15,7 +15,7 @@ public struct QRScannerView: View {
     @State private var isPairing = false
     @State private var pairingSuccess = false
     
-    public init(onPairSuccess: ((PairingInfo) -> Void)? = nil) {
+    public init(onPairSuccess: ((PairingInfo) async -> Void)? = nil) {
         self.onPairSuccess = onPairSuccess
     }
     
@@ -223,10 +223,12 @@ public struct QRScannerView: View {
             Task {
                 do {
                     _ = try await PairingService.shared.pair(with: info)
+                    if let onPairSuccess = onPairSuccess {
+                        await onPairSuccess(info)
+                    }
                     await MainActor.run {
                         isPairing = false
                         pairingSuccess = true
-                        onPairSuccess?(info)
                         dismiss()
                     }
                 } catch {

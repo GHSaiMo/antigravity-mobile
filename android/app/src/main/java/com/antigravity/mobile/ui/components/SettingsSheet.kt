@@ -47,7 +47,6 @@ private enum class SettingsScreenView {
 fun SettingsSheet(
     prefs: PreferencesManager,
     onThemeModeChange: (String) -> Unit,
-    onRescanQR: (() -> Unit)? = null,
     onUnpair: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
@@ -147,7 +146,6 @@ fun SettingsSheet(
                         currentThemeMode = currentThemeMode,
                         onNavigateToNetwork = { currentView = SettingsScreenView.NETWORK },
                         onThemeModeChange = onThemeModeChange,
-                        onRescanQR = onRescanQR,
                         onPromptUnpair = { showUnpairAlert = true },
                         onPromptClearCache = { showClearCacheAlert = true }
                     )
@@ -182,6 +180,7 @@ fun SettingsSheet(
                 Button(
                     onClick = {
                         showUnpairAlert = false
+                        onDismiss()
                         onUnpair()
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = colors.accentRed)
@@ -242,7 +241,6 @@ private fun MainSettingsContent(
     currentThemeMode: String,
     onNavigateToNetwork: () -> Unit,
     onThemeModeChange: (String) -> Unit,
-    onRescanQR: (() -> Unit)?,
     onPromptUnpair: () -> Unit,
     onPromptClearCache: () -> Unit
 ) {
@@ -263,7 +261,7 @@ private fun MainSettingsContent(
         // MARK: - 1. 设备配对与鉴权 (1:1 iOS 对齐)
         SettingsSection(
             title = "设备配对",
-            footer = "扫描 Mac 终端配对二维码，完成设备绑定与鉴权。"
+            footer = "管理当前设备与 Mac 网关的配对状态。"
         ) {
             Column(
                 modifier = Modifier
@@ -318,36 +316,19 @@ private fun MainSettingsContent(
                     }
                 }
 
-                if (isPaired) {
-                    HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onPromptUnpair() }
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "解除设备配对",
-                            color = colors.accentRed,
-                            fontSize = 15.sp
-                        )
-                    }
-                } else {
-                    HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onRescanQR?.invoke() }
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "扫描二维码配对",
-                            color = colors.accentIndigo,
-                            fontSize = 15.sp
-                        )
-                    }
+                HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onPromptUnpair() }
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "解除设备配对",
+                        color = colors.accentRed,
+                        fontSize = 15.sp
+                    )
                 }
             }
         }

@@ -81,7 +81,10 @@ data class QueuedMessageItem(
     val createdAt: String? = null,
     val media: List<String>? = null,
     val imageUrls: List<String>? = null
-)
+) {
+    val hasAttachments: Boolean
+        get() = !media.isNullOrEmpty() || !imageUrls.isNullOrEmpty()
+}
 
 @Serializable
 data class RunningTaskItem(

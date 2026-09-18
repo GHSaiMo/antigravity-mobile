@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.util.Base64
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.antigravity.mobile.data.model.*
@@ -49,6 +51,21 @@ data class AttachmentImage(
 
     override fun hashCode(): Int = id.hashCode()
 }
+
+data class PendingOptimisticQueueItem(
+    val id: String,
+    val text: String,
+    val media: List<String>? = null,
+    val imageUrls: List<String>? = null,
+    val createdAt: Long = System.currentTimeMillis(),
+    val enqueuedAfterMessageId: String? = null
+)
+
+data class QueuedMessageTombstone(
+    val id: String?,
+    val text: String,
+    val deletedAt: Long = System.currentTimeMillis()
+)
 
 data class ChatUiState(
     val cascadeId: String = "",
@@ -156,6 +173,9 @@ class ChatViewModel(
     private var fetchJob: Job? = null
     private var pendingOptimisticMessageId: String? = null
     private var currentLastModifiedTime: String? = null
+    private val pendingOptimisticQueueItems = mutableListOf<PendingOptimisticQueueItem>()
+    private val deletedQueueTombstones = mutableListOf<QueuedMessageTombstone>()
+    private val inFlightDeletingQueueIds = mutableSetOf<String>()
 
     private fun extractStepIndex(id: String): Int? {
         if (id.startsWith("step-")) {
@@ -262,6 +282,195 @@ class ChatViewModel(
         return sanitizeMessageOrder(base)
     }
 
+    private fun isUserQueuedMessage(text: String): Boolean {
+        val trimmed = text.trim()
+        if (trimmed.isEmpty()) return false
+        if (trimmed.startsWith("Task id \"") || trimmed.startsWith("Task \"") ||
+            trimmed.contains("was canceled with result:") || trimmed.contains("completed with result:") ||
+            trimmed.contains("Tool execution was canceled")) {
+            return false
+        }
+        return true
+    }
+
+    private fun isUserQueuedItem(item: QueuedMessageItem): Boolean {
+        val trimmed = item.text.trim()
+        if (trimmed.isEmpty() && !item.hasAttachments) return false
+        if (trimmed.startsWith("Task id \"") || trimmed.startsWith("Task \"") ||
+            trimmed.contains("was canceled with result:") || trimmed.contains("completed with result:") ||
+            trimmed.contains("Tool execution was canceled")) {
+            return false
+        }
+        return true
+    }
+
+    private fun normalizeForComparison(text: String): String {
+        return text.filter { c ->
+            !c.isWhitespace() && !c.isISOControl() && c != '\u200B' && c != '\uFEFF' && c != '\u3000'
+        }.lowercase()
+    }
+
+    private fun isQueuedItemInMessages(
+        text: String,
+        media: List<String>?,
+        imageUrls: List<String>?,
+        enqueuedAfterMessageId: String? = null,
+        userMessages: List<GatewayMessageItem>
+    ): Boolean {
+        val normText = normalizeForComparison(text)
+        val hasAttachments = !media.isNullOrEmpty() || !imageUrls.isNullOrEmpty()
+
+        for (uMsg in userMessages.reversed()) {
+            if (enqueuedAfterMessageId != null && uMsg.id == enqueuedAfterMessageId) {
+                break
+            }
+            val normMsg = normalizeForComparison(uMsg.effectiveText)
+            val msgHasAttachments = uMsg.imageDataList.isNotEmpty() || !uMsg.media.isNullOrEmpty()
+
+            if (normText.isNotEmpty()) {
+                if (normText == normMsg) {
+                    return true
+                }
+                if (normText.length >= 6 && normMsg.length >= 6 && (normText.contains(normMsg) || normMsg.contains(normText))) {
+                    return true
+                }
+            } else if (hasAttachments && msgHasAttachments) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private fun syncQueuedMessages(
+        serverQueue: List<QueuedMessageItem>?,
+        currentMessages: List<GatewayMessageItem>? = null
+    ): List<QueuedMessageItem> {
+        val now = System.currentTimeMillis()
+        // 1. Expire stale optimistic items older than 15 seconds
+        pendingOptimisticQueueItems.removeAll { now - it.createdAt > 15_000L }
+
+        // 2. Expire stale tombstones older than 10 seconds
+        deletedQueueTombstones.removeAll { now - it.deletedAt > 10_000L }
+        val tombstoneIds = deletedQueueTombstones.mapNotNull { it.id }.toSet()
+        val tombstoneTexts = deletedQueueTombstones.map { normalizeForComparison(it.text) }.toSet()
+
+        // 3. Identify user messages in the active conversation
+        val msgSource = currentMessages ?: _uiState.value.messages
+        val userMessages = msgSource.filter { it.isUser }
+
+        // 4. Clear optimistic items if server has incorporated them OR if entered chat OR if tombstoned
+        pendingOptimisticQueueItems.removeAll { opt ->
+            val trimmed = opt.text.trim()
+            val normOpt = normalizeForComparison(opt.text)
+            val inServer = serverQueue?.any { s ->
+                if (normOpt.isNotEmpty()) {
+                    normalizeForComparison(s.text) == normOpt
+                } else {
+                    s.id == opt.id
+                }
+            } == true
+            val inChat = isQueuedItemInMessages(
+                text = opt.text,
+                media = opt.media,
+                imageUrls = opt.imageUrls,
+                enqueuedAfterMessageId = opt.enqueuedAfterMessageId,
+                userMessages = userMessages
+            )
+            val isTombstoned = tombstoneIds.contains(opt.id) || (normOpt.isNotEmpty() && tombstoneTexts.contains(normOpt))
+            if (inChat) {
+                deletedQueueTombstones.add(QueuedMessageTombstone(id = opt.id, text = trimmed, deletedAt = now))
+            }
+            inServer || inChat || isTombstoned
+        }
+
+        // 5. Compute base queue from server if provided, otherwise filter existing queue
+        val baseQueue: List<QueuedMessageItem> = if (serverQueue != null) {
+            serverQueue.filter { sItem ->
+                val trimmed = sItem.text.trim()
+                val normItem = normalizeForComparison(sItem.text)
+                val inChat = isQueuedItemInMessages(
+                    text = sItem.text,
+                    media = sItem.media,
+                    imageUrls = sItem.imageUrls,
+                    enqueuedAfterMessageId = null,
+                    userMessages = userMessages
+                )
+                val isTombstoned = tombstoneIds.contains(sItem.id) || (normItem.isNotEmpty() && tombstoneTexts.contains(normItem))
+                if (inChat) {
+                    deletedQueueTombstones.add(QueuedMessageTombstone(id = sItem.id, text = trimmed, deletedAt = now))
+                }
+                isUserQueuedItem(sItem) && !inChat && !isTombstoned
+            }
+        } else {
+            _uiState.value.queuedMessages.filter { qm ->
+                val trimmed = qm.text.trim()
+                val normItem = normalizeForComparison(qm.text)
+                val inChat = isQueuedItemInMessages(
+                    text = qm.text,
+                    media = qm.media,
+                    imageUrls = qm.imageUrls,
+                    enqueuedAfterMessageId = null,
+                    userMessages = userMessages
+                )
+                val isTombstoned = tombstoneIds.contains(qm.id) || (normItem.isNotEmpty() && tombstoneTexts.contains(normItem))
+                if (inChat) {
+                    deletedQueueTombstones.add(QueuedMessageTombstone(id = qm.id, text = trimmed, deletedAt = now))
+                }
+                isUserQueuedItem(qm) && !qm.id.startsWith("queue-") && !inChat && !isTombstoned
+            }
+        }
+
+        // 6. Append unconfirmed optimistic items (not yet in server queue, not entered chat, not tombstoned)
+        val remainingOptItems = pendingOptimisticQueueItems.mapNotNull { opt ->
+            val normOpt = normalizeForComparison(opt.text)
+            if (tombstoneIds.contains(opt.id) || (normOpt.isNotEmpty() && tombstoneTexts.contains(normOpt))) {
+                return@mapNotNull null
+            }
+            if (baseQueue.any { b ->
+                if (normOpt.isNotEmpty()) {
+                    normalizeForComparison(b.text) == normOpt
+                } else {
+                    b.id == opt.id
+                }
+            }) {
+                return@mapNotNull null
+            }
+            val inChat = isQueuedItemInMessages(
+                text = opt.text,
+                media = opt.media,
+                imageUrls = opt.imageUrls,
+                enqueuedAfterMessageId = opt.enqueuedAfterMessageId,
+                userMessages = userMessages
+            )
+            if (inChat) {
+                return@mapNotNull null
+            }
+            QueuedMessageItem(
+                id = opt.id,
+                text = opt.text,
+                media = opt.media,
+                imageUrls = opt.imageUrls
+            )
+        }
+
+        return baseQueue + remainingOptItems
+    }
+
+    private fun decodeBase64ToAttachment(raw: String): AttachmentImage? {
+        return try {
+            val cleaned = if (raw.contains(",")) raw.substringAfter(",") else raw
+            val bytes = Base64.decode(cleaned, Base64.DEFAULT)
+            val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+            AttachmentImage(
+                uri = Uri.EMPTY,
+                bitmap = bitmap,
+                byteArray = bytes
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     fun saveSessionToCache() {
         val state = _uiState.value
         val cid = state.cascadeId
@@ -352,6 +561,9 @@ class ChatViewModel(
         wsJob?.cancel()
         wsJob = null
         wsClient.disconnect()
+        pendingOptimisticQueueItems.clear()
+        deletedQueueTombstones.clear()
+        inFlightDeletingQueueIds.clear()
         currentDraftProject = null
         currentLastModifiedTime = null
         _inputText.value = ""
@@ -377,6 +589,9 @@ class ChatViewModel(
         wsJob?.cancel()
         wsJob = null
         wsClient.disconnect()
+        pendingOptimisticQueueItems.clear()
+        deletedQueueTombstones.clear()
+        inFlightDeletingQueueIds.clear()
 
         val isDraft = cascadeId.startsWith("local_draft_")
         val resolvedDraftProject = draftProject ?: (if (isDraft) prefs?.getLocalDraftSession(cascadeId)?.project else null)
@@ -424,7 +639,7 @@ class ChatViewModel(
                 workspaceName = cached.workspaceName?.takeIf { it.isNotBlank() } ?: resolvedWs,
                 messages = healed,
                 runningTasks = cached.runningTasks ?: emptyList(),
-                queuedMessages = cached.queuedMessages ?: emptyList(),
+                queuedMessages = (cached.queuedMessages ?: emptyList()).filter { isUserQueuedItem(it) },
                 isLoading = false,
                 isNewConversation = false,
                 isRunning = isRunning,
@@ -496,6 +711,9 @@ class ChatViewModel(
             fetchJob?.cancel()
             fetchJob = null
             wsClient.disconnect()
+            pendingOptimisticQueueItems.clear()
+            deletedQueueTombstones.clear()
+            inFlightDeletingQueueIds.clear()
 
             val savedDraftText = prefs?.getDraftText(cascadeId).orEmpty()
             _inputText.value = savedDraftText
@@ -533,7 +751,7 @@ class ChatViewModel(
                     workspaceName = cached.workspaceName?.takeIf { it.isNotBlank() } ?: resolvedWs,
                     messages = healed,
                     runningTasks = cached.runningTasks ?: emptyList(),
-                    queuedMessages = cached.queuedMessages ?: emptyList(),
+                    queuedMessages = (cached.queuedMessages ?: emptyList()).filter { isUserQueuedItem(it) },
                     isLoading = false,
                     isNewConversation = false,
                     isRunning = isRunning,
@@ -651,7 +869,7 @@ class ChatViewModel(
                             workspaceName = wsFromPayload ?: _uiState.value.workspaceName,
                             messages = mergedMsgs,
                             runningTasks = payload.runningTasks ?: emptyList(),
-                            queuedMessages = payload.queuedMessages ?: emptyList(),
+                            queuedMessages = syncQueuedMessages(payload.queuedMessages, mergedMsgs),
                             isRunning = isStatusRunning(payload.status),
                             canProceed = payload.canProceed,
                             proceedArtifactUri = payload.proceedArtifactUri,
@@ -758,7 +976,7 @@ class ChatViewModel(
                         workspaceName = wsFromPayload ?: _uiState.value.workspaceName,
                         messages = msgs,
                         runningTasks = payload.runningTasks ?: emptyList(),
-                        queuedMessages = payload.queuedMessages ?: emptyList(),
+                        queuedMessages = syncQueuedMessages(payload.queuedMessages, msgs),
                         isRunning = isRunning,
                         isAwaitingResponse = awaiting,
                         canProceed = payload.canProceed,
@@ -847,7 +1065,7 @@ class ChatViewModel(
                                 workspaceName = wsFromPayload ?: _uiState.value.workspaceName,
                                 messages = msgs,
                                 runningTasks = payload.runningTasks ?: emptyList(),
-                                queuedMessages = payload.queuedMessages ?: emptyList(),
+                                queuedMessages = syncQueuedMessages(payload.queuedMessages, msgs),
                                 isRunning = isStatusRunning(payload.status),
                                 isLatestMessageError = isError,
                                 hasMore = hasMore,
@@ -1157,9 +1375,68 @@ class ChatViewModel(
         saveDraftFor(cid, _inputText.value, _uiState.value.selectedImages.map { it.byteArray })
     }
 
-    private fun sendMessage(text: String, attachments: List<AttachmentImage> = emptyList()) {
+    private fun sendMessage(
+        text: String,
+        attachments: List<AttachmentImage> = emptyList(),
+        forceImmediate: Boolean = false
+    ) {
         val cascadeId = _uiState.value.cascadeId
         val model = _uiState.value.activeModel
+
+        val isRunningOrAwaiting = _uiState.value.isRunning || _uiState.value.isAwaitingResponse
+        val canQueue = !forceImmediate && isRunningOrAwaiting && cascadeId.isNotBlank() && !cascadeId.startsWith("local_draft_")
+
+        if (canQueue) {
+            val trimmed = text.trim()
+            if (trimmed.isNotEmpty()) {
+                val norm = normalizeForComparison(trimmed)
+                deletedQueueTombstones.removeAll { normalizeForComparison(it.text) == norm }
+            }
+            val mediaBase64 = attachments.map { att ->
+                Base64.encodeToString(att.byteArray, Base64.NO_WRAP)
+            }.takeIf { it.isNotEmpty() }
+
+            val queueItem = QueuedMessageItem(
+                id = "queue-${UUID.randomUUID()}",
+                text = text,
+                media = mediaBase64
+            )
+            val lastUserMsgId = _uiState.value.messages.lastOrNull { it.isUser }?.id
+            pendingOptimisticQueueItems.add(
+                PendingOptimisticQueueItem(
+                    id = queueItem.id,
+                    text = text,
+                    media = mediaBase64,
+                    imageUrls = null,
+                    createdAt = System.currentTimeMillis(),
+                    enqueuedAfterMessageId = lastUserMsgId
+                )
+            )
+            _uiState.value = _uiState.value.copy(
+                queuedMessages = syncQueuedMessages(_uiState.value.queuedMessages)
+            )
+            _scrollToBottomTrigger.value++
+            saveSessionToCache()
+            notifyConversationUpdated()
+
+            val queueClientMsgId = UUID.randomUUID().toString()
+            val imagePayloads = attachments.map { Pair(it.byteArray, it.mimeType) }
+            viewModelScope.launch {
+                try {
+                    apiClient.sendMessage(
+                        cascadeId = cascadeId,
+                        text = text,
+                        model = model,
+                        images = imagePayloads,
+                        deliveryStrategy = 2,
+                        clientMessageId = queueClientMsgId
+                    )
+                } catch (e: Exception) {
+                    Log.w("ChatViewModel", "Failed to deliver queued message upstream", e)
+                }
+            }
+            return
+        }
 
         val imageBytesList = attachments.map { it.byteArray }
 
@@ -1272,7 +1549,7 @@ class ChatViewModel(
                                 workspaceName = payload.workspaceUri?.trimEnd('/')?.substringAfterLast('/')?.takeIf { it.isNotBlank() } ?: _uiState.value.workspaceName,
                                 messages = if (msgs.isNotEmpty()) msgs else _uiState.value.messages,
                                 runningTasks = payload.runningTasks ?: emptyList(),
-                                queuedMessages = payload.queuedMessages ?: emptyList(),
+                                queuedMessages = syncQueuedMessages(payload.queuedMessages, msgs),
                                 isRunning = isStatusRunning(payload.status),
                                 canProceed = payload.canProceed,
                                 proceedArtifactUri = payload.proceedArtifactUri,
@@ -1312,9 +1589,17 @@ class ChatViewModel(
         )
 
         val imagePayloads = attachments.map { Pair(it.byteArray, it.mimeType) }
+        val deliveryStrategy = if (forceImmediate) 1 else null
 
         viewModelScope.launch {
-            val result = apiClient.sendMessage(cascadeId, text, model, imagePayloads)
+            val result = apiClient.sendMessage(
+                cascadeId = cascadeId,
+                text = text,
+                model = model,
+                images = imagePayloads,
+                deliveryStrategy = deliveryStrategy,
+                clientMessageId = optId
+            )
             result.onFailure { err ->
                 _uiState.value = _uiState.value.copy(
                     errorMessage = "发送失败: ${err.message}",
@@ -1347,20 +1632,133 @@ class ChatViewModel(
     }
 
     fun sendQueuedMessageNow(item: QueuedMessageItem) {
-        sendMessage(item.text)
-        deleteQueuedMessage(item)
-    }
+        val cascadeId = _uiState.value.cascadeId
+        val trimmedText = item.text.trim()
+        val now = System.currentTimeMillis()
 
-    fun editQueuedMessage(item: QueuedMessageItem) {
-        _inputText.value = item.text
-        deleteQueuedMessage(item)
-    }
-
-    fun deleteQueuedMessage(item: QueuedMessageItem) {
+        deletedQueueTombstones.add(QueuedMessageTombstone(id = item.id, text = trimmedText, deletedAt = now))
+        pendingOptimisticQueueItems.removeAll { it.id == item.id || (trimmedText.isNotEmpty() && normalizeForComparison(it.text) == normalizeForComparison(trimmedText)) }
         _uiState.value = _uiState.value.copy(
             queuedMessages = _uiState.value.queuedMessages.filter { it.id != item.id }
         )
+
+        val attachments = item.media?.mapNotNull { decodeBase64ToAttachment(it) } ?: emptyList()
+        sendMessage(item.text, attachments, forceImmediate = true)
+
+        viewModelScope.launch {
+            var targetMsgId: String? = if (item.id.startsWith("queue-")) null else item.id
+            if (targetMsgId == null) {
+                delay(350)
+                apiClient.fetchMessages(cascadeId, limit = 15).onSuccess { res ->
+                    val match = res.queuedMessages?.firstOrNull { it.text.trim() == trimmedText }
+                    if (match != null) {
+                        targetMsgId = match.id
+                    }
+                }
+            }
+            val msgId = targetMsgId
+            if (!msgId.isNullOrBlank() && !msgId.startsWith("queue-")) {
+                apiClient.deleteAgentMessage(cascadeId, msgId)
+            }
+        }
+    }
+
+    fun editQueuedMessage(item: QueuedMessageItem) {
+        if (inFlightDeletingQueueIds.contains(item.id)) return
+        inFlightDeletingQueueIds.add(item.id)
+
+        val cascadeId = _uiState.value.cascadeId
+        val trimmedText = item.text.trim()
+        val now = System.currentTimeMillis()
+
+        deletedQueueTombstones.add(QueuedMessageTombstone(id = item.id, text = trimmedText, deletedAt = now))
+        pendingOptimisticQueueItems.removeAll { it.id == item.id || (trimmedText.isNotEmpty() && normalizeForComparison(it.text) == normalizeForComparison(trimmedText)) }
+        _uiState.value = _uiState.value.copy(
+            queuedMessages = _uiState.value.queuedMessages.filter { it.id != item.id }
+        )
+        _scrollToBottomTrigger.value++
         saveSessionToCache()
+
+        _inputText.value = item.text
+        if (!item.media.isNullOrEmpty()) {
+            val attachments = item.media.mapNotNull { decodeBase64ToAttachment(it) }
+            if (attachments.isNotEmpty()) {
+                _uiState.value = _uiState.value.copy(selectedImages = attachments)
+            }
+        }
+
+        if (cascadeId.isNotBlank() && !cascadeId.startsWith("local_draft_")) {
+            viewModelScope.launch {
+                try {
+                    var targetMsgId: String? = if (item.id.startsWith("queue-")) null else item.id
+                    if (targetMsgId == null) {
+                        delay(350)
+                        apiClient.fetchMessages(cascadeId, limit = 15).onSuccess { res ->
+                            val match = res.queuedMessages?.firstOrNull { it.text.trim() == trimmedText }
+                            if (match != null) {
+                                targetMsgId = match.id
+                                deletedQueueTombstones.add(QueuedMessageTombstone(id = match.id, text = trimmedText, deletedAt = System.currentTimeMillis()))
+                                inFlightDeletingQueueIds.add(match.id)
+                            }
+                        }
+                    }
+                    val msgId = targetMsgId
+                    if (!msgId.isNullOrBlank() && !msgId.startsWith("queue-")) {
+                        apiClient.deleteAgentMessage(cascadeId, msgId)
+                        inFlightDeletingQueueIds.remove(msgId)
+                    }
+                } finally {
+                    inFlightDeletingQueueIds.remove(item.id)
+                }
+            }
+        } else {
+            inFlightDeletingQueueIds.remove(item.id)
+        }
+    }
+
+    fun deleteQueuedMessage(item: QueuedMessageItem) {
+        if (inFlightDeletingQueueIds.contains(item.id)) return
+        inFlightDeletingQueueIds.add(item.id)
+
+        val cascadeId = _uiState.value.cascadeId
+        val trimmedText = item.text.trim()
+        val now = System.currentTimeMillis()
+
+        deletedQueueTombstones.add(QueuedMessageTombstone(id = item.id, text = trimmedText, deletedAt = now))
+        pendingOptimisticQueueItems.removeAll { it.id == item.id || (trimmedText.isNotEmpty() && normalizeForComparison(it.text) == normalizeForComparison(trimmedText)) }
+        _uiState.value = _uiState.value.copy(
+            queuedMessages = _uiState.value.queuedMessages.filter { it.id != item.id }
+        )
+        _scrollToBottomTrigger.value++
+        saveSessionToCache()
+
+        if (cascadeId.isNotBlank() && !cascadeId.startsWith("local_draft_")) {
+            viewModelScope.launch {
+                try {
+                    var targetMsgId: String? = if (item.id.startsWith("queue-")) null else item.id
+                    if (targetMsgId == null) {
+                        delay(350)
+                        apiClient.fetchMessages(cascadeId, limit = 15).onSuccess { res ->
+                            val match = res.queuedMessages?.firstOrNull { it.text.trim() == trimmedText }
+                            if (match != null) {
+                                targetMsgId = match.id
+                                deletedQueueTombstones.add(QueuedMessageTombstone(id = match.id, text = trimmedText, deletedAt = System.currentTimeMillis()))
+                                inFlightDeletingQueueIds.add(match.id)
+                            }
+                        }
+                    }
+                    val msgId = targetMsgId
+                    if (!msgId.isNullOrBlank() && !msgId.startsWith("queue-")) {
+                        apiClient.deleteAgentMessage(cascadeId, msgId)
+                        inFlightDeletingQueueIds.remove(msgId)
+                    }
+                } finally {
+                    inFlightDeletingQueueIds.remove(item.id)
+                }
+            }
+        } else {
+            inFlightDeletingQueueIds.remove(item.id)
+        }
     }
 
     fun approveInteraction() {

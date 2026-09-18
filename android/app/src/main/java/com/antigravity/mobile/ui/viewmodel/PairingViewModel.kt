@@ -10,6 +10,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
+import android.util.Log
+
 sealed interface PairingUiState {
     data object Idle : PairingUiState
     data class Pairing(val message: String) : PairingUiState
@@ -19,13 +21,18 @@ sealed interface PairingUiState {
 
 class PairingViewModel(
     private val apiClient: ApiClient,
-    private val prefs: PreferencesManager
+    private val prefs: PreferencesManager,
+    private var onPreheatData: (suspend () -> Unit)? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<PairingUiState>(
         if (prefs.isPaired()) PairingUiState.Success else PairingUiState.Idle
     )
     val uiState: StateFlow<PairingUiState> = _uiState.asStateFlow()
+
+    fun setPreheatAction(action: suspend () -> Unit) {
+        onPreheatData = action
+    }
 
     fun pairWithUri(uriString: String) {
         val info = PairingInfo.parseFromUri(uriString)
@@ -52,6 +59,12 @@ class PairingViewModel(
         viewModelScope.launch {
             val result = apiClient.pair(info)
             result.onSuccess {
+                _uiState.value = PairingUiState.Pairing("正在同步会话与工作区...")
+                try {
+                    onPreheatData?.invoke()
+                } catch (e: Exception) {
+                    Log.w("PairingViewModel", "Failed to preheat data: ${e.message}")
+                }
                 _uiState.value = PairingUiState.Success
             }.onFailure { err ->
                 _uiState.value = PairingUiState.Error(err.message ?: "配对失败，请检查网络和网关")

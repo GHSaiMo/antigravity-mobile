@@ -63,9 +63,13 @@ class ConversationListViewModel(
     private var pollJob: kotlinx.coroutines.Job? = null
 
     init {
-        loadConversations()
-        loadQuotas()
-        loadProjects()
+        if (prefs.isPaired()) {
+            loadConversations()
+            loadQuotas()
+            loadProjects()
+        } else {
+            _uiState.value = ConversationListUiState.Success(emptyList())
+        }
     }
 
     fun reloadFromCache() {
@@ -215,7 +219,49 @@ class ConversationListViewModel(
         return drafts + enrichedServerItems
     }
 
+    suspend fun loadInitialData(): Boolean {
+        if (!prefs.isPaired()) return false
+        var success = false
+        try {
+            val convResult = apiClient.fetchConversations()
+            convResult.onSuccess { list ->
+                rawConversations = mergeWithLocalConversations(list)
+                persistConversationsToCache(rawConversations)
+                applyFilter()
+                cacheManager?.prewarmSessions(rawConversations.take(15).map { it.id })
+                success = true
+            }.onFailure { err ->
+                if (rawConversations.isNotEmpty()) {
+                    applyFilter()
+                    success = true
+                } else {
+                    _uiState.value = ConversationListUiState.Success(emptyList())
+                }
+            }
+            apiClient.fetchCockpitQuotas().onSuccess {
+                _quotaData.value = it
+            }
+            apiClient.fetchProjects().onSuccess { list ->
+                _projects.value = list
+                _projectsError.value = null
+                if (list.isNotEmpty()) {
+                    try {
+                        prefs.cachedProjectsJson = apiClient.json.encodeToString(list)
+                    } catch (_: Exception) {}
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("ConvListVM", "loadInitialData failed: ${e.message}")
+        }
+        return success
+    }
+
     fun refresh(onComplete: (() -> Unit)? = null) {
+        if (!prefs.isPaired()) {
+            _uiState.value = ConversationListUiState.Success(emptyList())
+            onComplete?.invoke()
+            return
+        }
         viewModelScope.launch {
             _isRefreshing.value = true
             try {
@@ -250,6 +296,10 @@ class ConversationListViewModel(
     }
 
     fun loadConversations() {
+        if (!prefs.isPaired()) {
+            _uiState.value = ConversationListUiState.Success(emptyList())
+            return
+        }
         viewModelScope.launch {
             val result = apiClient.fetchConversations()
             result.onSuccess { list ->
@@ -459,6 +509,8 @@ class ConversationListViewModel(
         _uiState.value = ConversationListUiState.Success(emptyList())
         rawConversations = emptyList()
         _projects.value = emptyList()
+        _projectsError.value = null
+        _quotaData.value = null
         onComplete()
     }
 

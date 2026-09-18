@@ -4,7 +4,6 @@ public struct SettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var settings = AppSettings.shared
     @State private var connectionManager = ConnectionManager.shared
-    @State private var showQRScanner: Bool = false
     @State private var showClearCacheAlert: Bool = false
     @State private var showUnpairAlert: Bool = false
     
@@ -16,12 +15,12 @@ public struct SettingsSheet: View {
                 // MARK: - 1. 设备配对与鉴权
                 Section(
                     header: Text("设备配对"),
-                    footer: Text("扫描 Mac 终端配对二维码，完成设备绑定与鉴权。")
+                    footer: Text("管理当前设备与 Mac 网关的配对状态。")
                 ) {
-                    if settings.isPaired {
-                        HStack {
-                            Text("配对状态")
-                            Spacer()
+                    HStack {
+                        Text("配对状态")
+                        Spacer()
+                        if settings.isPaired {
                             HStack(spacing: 4) {
                                 Image(systemName: "checkmark.circle.fill")
                                     .foregroundColor(.green)
@@ -29,36 +28,28 @@ public struct SettingsSheet: View {
                                 Text("已配对")
                                     .foregroundColor(.secondary)
                             }
-                        }
-                        
-                        if let id = settings.deviceID {
-                            HStack {
-                                Text("设备 ID")
-                                Spacer()
-                                Text(id)
-                                    .font(.system(size: 13, design: .monospaced))
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                            }
-                        }
-                        
-                        Button(role: .destructive, action: {
-                            showUnpairAlert = true
-                        }) {
-                            Text("解除设备配对")
-                        }
-                    } else {
-                        HStack {
-                            Text("配对状态")
-                            Spacer()
+                        } else {
                             Text("未配对")
                                 .foregroundColor(.secondary)
                         }
-                        
-                        Button(action: { showQRScanner = true }) {
-                            Text("扫描二维码配对")
+                    }
+                    
+                    if let id = settings.deviceID {
+                        HStack {
+                            Text("设备 ID")
+                            Spacer()
+                            Text(id)
+                                .font(.system(size: 13, design: .monospaced))
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
                         }
+                    }
+                    
+                    Button(role: .destructive, action: {
+                        showUnpairAlert = true
+                    }) {
+                        Text("解除设备配对")
                     }
                 }
                 
@@ -139,9 +130,6 @@ public struct SettingsSheet: View {
                     .font(.system(size: 16, weight: .semibold))
                 }
             }
-        }
-        .sheet(isPresented: $showQRScanner) {
-            QRScannerView()
         }
         .alert("确定解除设备配对？", isPresented: $showUnpairAlert) {
             Button("取消", role: .cancel) {}
