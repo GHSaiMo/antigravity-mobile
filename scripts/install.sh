@@ -29,16 +29,18 @@ ARCH="$(uname -m)"
 case "${ARCH}" in
     arm64|aarch64)
         ARCH_DESC="Apple Silicon (M1/M2/M3/M4)"
+        PKG_ARCH="arm64"
         ;;
     x86_64|amd64)
         ARCH_DESC="Intel x86_64"
+        PKG_ARCH="amd64"
         ;;
     *)
         echo "❌ 暂不支持的 Mac 架构: ${ARCH}"
         exit 1
         ;;
 esac
-echo "🖥️  检测到系统架构: ${ARCH_DESC}"
+echo "🖥️  检测到系统架构: ${ARCH_DESC} (${PKG_ARCH})"
 
 # 3. 准备安装与配置目录
 mkdir -p "${INSTALL_DIR}"
@@ -88,7 +90,7 @@ ENVEOF
     echo "📝 已生成全局默认配置: ${CONF_DIR}/.env"
 fi
 
-# 6. 下载并安装 Universal 通用二进制
+# 6. 下载并安装对应架构二进制 (优先单架构轻量包 ~7MB，降级回退 Universal 包 ~15MB)
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "${TMP_DIR}"' EXIT
 TAR_FILE="${TMP_DIR}/multigravity.tar.gz"
@@ -105,14 +107,20 @@ if [ -z "${https_proxy:-}" ] && [ -z "${http_proxy:-}" ] && [ -z "${all_proxy:-}
     done
 fi
 
+ARCH_TAR="multigravity-darwin-${PKG_ARCH}.tar.gz"
+UNIV_TAR="multigravity-darwin-universal.tar.gz"
+
 DOWNLOAD_URLS=(
-    "https://github.com/${REPO}/releases/latest/download/multigravity-darwin-universal.tar.gz"
-    "https://ghfast.top/https://github.com/${REPO}/releases/latest/download/multigravity-darwin-universal.tar.gz"
-    "https://ghproxy.net/https://github.com/${REPO}/releases/latest/download/multigravity-darwin-universal.tar.gz"
+    "https://github.com/${REPO}/releases/latest/download/${ARCH_TAR}"
+    "https://ghfast.top/https://github.com/${REPO}/releases/latest/download/${ARCH_TAR}"
+    "https://ghproxy.net/https://github.com/${REPO}/releases/latest/download/${ARCH_TAR}"
+    "https://github.com/${REPO}/releases/latest/download/${UNIV_TAR}"
+    "https://ghfast.top/https://github.com/${REPO}/releases/latest/download/${UNIV_TAR}"
+    "https://ghproxy.net/https://github.com/${REPO}/releases/latest/download/${UNIV_TAR}"
 )
 
 DOWNLOAD_SUCCESS=false
-echo "📥 正在获取 Multigravity 最新发行版..."
+echo "📥 正在获取 Multigravity (${PKG_ARCH}) 最新发行版..."
 
 for d_url in "${DOWNLOAD_URLS[@]}"; do
     echo "🔗 尝试下载: ${d_url}"

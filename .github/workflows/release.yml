@@ -78,36 +78,34 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Build macOS Universal Binary
+      - name: Build macOS Binaries (arm64, amd64 & Universal)
         run: |
-          mkdir -p dist/bin
+          mkdir -p dist/arm64 dist/amd64 dist/universal
           TAG_NAME="${{ github.ref_name }}"
           if [ -z "$TAG_NAME" ] || [ "$TAG_NAME" = "main" ]; then
             TAG_NAME="1.0.0"
           fi
 
-          # 编译 Apple Silicon (M1/M2/M3/M4)
-          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X 'main.Version=${TAG_NAME}'" -o dist/bin/mgy-arm64 ./cmd/gateway
-          # 编译 Intel Mac (x86_64)
-          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X 'main.Version=${TAG_NAME}'" -o dist/bin/mgy-amd64 ./cmd/gateway
+          # 1. 编译 Apple Silicon (M1/M2/M3/M4)
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X 'main.Version=${TAG_NAME}'" -o dist/arm64/mgy ./cmd/gateway
+          # 2. 编译 Intel Mac (x86_64)
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X 'main.Version=${TAG_NAME}'" -o dist/amd64/mgy ./cmd/gateway
 
-          # 合成 Universal 二进制
-          lipo -create -output dist/bin/mgy dist/bin/mgy-arm64 dist/bin/mgy-amd64
-          chmod +x dist/bin/mgy
-          rm dist/bin/mgy-arm64 dist/bin/mgy-amd64
+          # 3. 合成 Universal 二进制
+          lipo -create -output dist/universal/mgy dist/arm64/mgy dist/amd64/mgy
+          chmod +x dist/arm64/mgy dist/amd64/mgy dist/universal/mgy
 
-      - name: Package macOS Tarball
+      - name: Package macOS Tarballs
         run: |
-          cd dist/bin
-          tar -czf ../multigravity-darwin-universal.tar.gz mgy
-          cd ..
-          shasum -a 256 multigravity-darwin-universal.tar.gz > checksums-darwin.txt
+          tar -czf dist/multigravity-darwin-arm64.tar.gz -C dist/arm64 mgy
+          tar -czf dist/multigravity-darwin-amd64.tar.gz -C dist/amd64 mgy
+          tar -czf dist/multigravity-darwin-universal.tar.gz -C dist/universal mgy
 
       - name: Upload macOS Artifact
         uses: actions/upload-artifact@v4
         with:
           name: macos-universal
-          path: dist/multigravity-darwin-universal.tar.gz
+          path: dist/multigravity-darwin-*.tar.gz
 
   # ============================================================================
   # 3. 聚合所有构建产物并发布 GitHub Release
