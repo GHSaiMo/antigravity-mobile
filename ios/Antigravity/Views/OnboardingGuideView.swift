@@ -8,7 +8,9 @@ public struct OnboardingGuideView: View {
     @Environment(\.openURL) private var openURL
     
     private let installCommand = "curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.sh | bash"
+    private let runCommand = "mgy"
     @State private var isCopied = false
+    @State private var isRunCopied = false
     
     public init(
         onScanTapped: @escaping () -> Void,
@@ -30,6 +32,20 @@ public struct OnboardingGuideView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
             withAnimation(.easeInOut(duration: 0.2)) {
                 isCopied = false
+            }
+        }
+    }
+    
+    private func copyRunCommand() {
+        UIPasteboard.general.string = runCommand
+        let generator = UINotificationFeedbackGenerator()
+        generator.notificationOccurred(.success)
+        withAnimation(.easeInOut(duration: 0.2)) {
+            isRunCopied = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isRunCopied = false
             }
         }
     }
@@ -132,6 +148,31 @@ public struct OnboardingGuideView: View {
                                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                                         .stroke(Color.primary.opacity(0.06), lineWidth: 1)
                                 )
+                        }
+                        .buttonStyle(.plain)
+                        
+                        // Run command helper row for mgy
+                        Button(action: copyRunCommand) {
+                            HStack(spacing: 6) {
+                                Text("若已安装网关，直接在终端执行:")
+                                    .font(.system(size: 11.5))
+                                    .foregroundColor(.secondary)
+                                Text(runCommand)
+                                    .font(.system(size: 11.5, weight: .bold, design: .monospaced))
+                                    .foregroundColor(.indigo)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                            .fill(Color(uiColor: .tertiarySystemBackground))
+                                    )
+                                Spacer()
+                                Text(isRunCopied ? "已复制" : "复制启动指令")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundColor(isRunCopied ? .green : .indigo)
+                            }
+                            .padding(.horizontal, 2)
+                            .padding(.top, 2)
                         }
                         .buttonStyle(.plain)
                     }

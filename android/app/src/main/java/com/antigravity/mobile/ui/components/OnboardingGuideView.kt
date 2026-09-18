@@ -2,6 +2,7 @@ package com.antigravity.mobile.ui.components
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -15,25 +16,31 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.antigravity.mobile.R
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 import com.antigravity.mobile.ui.util.rememberHaptic
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * 1:1 Kotlin port of iOS OnboardingGuideView.swift.
- * First-launch onboarding view guiding user to download Mac gateway and scan QR code.
+ * First-launch onboarding view guiding user to download Mac gateway, run mgy, and scan QR code.
  */
 @Composable
 fun OnboardingGuideView(
@@ -45,6 +52,34 @@ fun OnboardingGuideView(
     val context = LocalContext.current
     val colors = AntigravityTheme.colors
     val haptic = rememberHaptic()
+    val clipboardManager = LocalClipboardManager.current
+    val coroutineScope = rememberCoroutineScope()
+
+    val installCommand = "curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.sh | bash"
+    val runCommand = "mgy"
+
+    var isInstallCopied by remember { mutableStateOf(false) }
+    var isRunCopied by remember { mutableStateOf(false) }
+
+    val copyInstallCommand: () -> Unit = {
+        clipboardManager.setText(AnnotatedString(installCommand))
+        haptic.success()
+        isInstallCopied = true
+        coroutineScope.launch {
+            delay(2000L)
+            isInstallCopied = false
+        }
+    }
+
+    val copyRunCommand: () -> Unit = {
+        clipboardManager.setText(AnnotatedString(runCommand))
+        haptic.success()
+        isRunCopied = true
+        coroutineScope.launch {
+            delay(2000L)
+            isRunCopied = false
+        }
+    }
 
     Column(
         modifier = modifier
@@ -60,32 +95,21 @@ fun OnboardingGuideView(
             verticalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier.padding(top = 16.dp)
         ) {
-            Box(
+            Image(
+                painter = painterResource(id = R.drawable.app_logo),
+                contentDescription = "Multigravity Logo",
                 modifier = Modifier
                     .size(80.dp)
                     .clip(RoundedCornerShape(18.dp))
-                    .background(
-                        Brush.linearGradient(
-                            listOf(colors.accentIndigo, Color(0xFF9333EA))
-                        )
-                    )
-                    .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(18.dp))
-                    .shadow(12.dp, RoundedCornerShape(18.dp), ambientColor = colors.accentIndigo.copy(alpha = 0.3f))
+                    .border(1.dp, colors.textPrimary.copy(alpha = 0.08f), RoundedCornerShape(18.dp))
+                    .shadow(10.dp, RoundedCornerShape(18.dp), ambientColor = Color.Black.copy(alpha = 0.12f))
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
                         enabled = onEasterEggTap != null,
                         onClick = { onEasterEggTap?.invoke() }
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.AutoAwesome,
-                    contentDescription = "Logo",
-                    tint = Color.White,
-                    modifier = Modifier.size(42.dp)
-                )
-            }
+                    )
+            )
 
             Text(
                 text = "欢迎使用 Multigravity",
@@ -149,6 +173,134 @@ fun OnboardingGuideView(
                     lineHeight = 19.sp
                 )
 
+                // Mac Terminal one-click installation and run script block
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(colors.surfaceVariant.copy(alpha = 0.45f))
+                        .border(0.6.dp, colors.border.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Terminal,
+                                contentDescription = null,
+                                tint = colors.textSecondary,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Text(
+                                text = "Mac 终端一键安装脚本",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = colors.textSecondary
+                            )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(
+                                    if (isInstallCopied) colors.accentGreen.copy(alpha = 0.15f)
+                                    else colors.accentBlue.copy(alpha = 0.12f)
+                                )
+                                .clickable(onClick = copyInstallCommand)
+                                .padding(horizontal = 10.dp, vertical = 5.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (isInstallCopied) Icons.Default.Check else Icons.Default.ContentCopy,
+                                    contentDescription = null,
+                                    tint = if (isInstallCopied) colors.accentGreen else colors.accentBlue,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Text(
+                                    text = if (isInstallCopied) "已复制" else "一键复制",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (isInstallCopied) colors.accentGreen else colors.accentBlue
+                                )
+                            }
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(colors.surface)
+                            .border(1.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                            .clickable(onClick = copyInstallCommand)
+                            .padding(10.dp)
+                    ) {
+                        Text(
+                            text = installCommand,
+                            fontSize = 11.5.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = colors.textPrimary,
+                            lineHeight = 16.sp
+                        )
+                    }
+
+                    // Run command helper row for mgy
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable(onClick = copyRunCommand)
+                            .padding(horizontal = 4.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = "若已安装网关，直接在终端执行:",
+                                fontSize = 11.5.sp,
+                                color = colors.textMuted
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(colors.surface)
+                                    .border(0.5.dp, colors.border, RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = runCommand,
+                                    fontSize = 11.5.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    color = colors.accentIndigo
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = if (isRunCopied) "已复制" else "复制启动指令",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = if (isRunCopied) colors.accentGreen else colors.accentIndigo
+                        )
+                    }
+                }
+
+                // GitHub guide button
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()

@@ -34,7 +34,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.antigravity.mobile.R
+import com.antigravity.mobile.ui.components.EasterEggDialog
+import com.antigravity.mobile.ui.components.OnboardingGuideView
 import com.antigravity.mobile.ui.theme.AntigravityTheme
+import com.antigravity.mobile.ui.util.rememberHaptic
 import com.antigravity.mobile.ui.viewmodel.PairingUiState
 import com.antigravity.mobile.ui.viewmodel.PairingViewModel
 
@@ -50,12 +53,36 @@ fun PairingScreen(
     val colors = AntigravityTheme.colors
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
+    val haptic = rememberHaptic()
 
     var showManualInput by remember { mutableStateOf(false) }
     var host by remember { mutableStateOf("") }
     var port by remember { mutableStateOf("58900") }
     var code by remember { mutableStateOf("") }
     var ssl by remember { mutableStateOf(false) }
+
+    var easterEggTapCount by remember { mutableIntStateOf(0) }
+    var lastEasterEggTapTime by remember { mutableLongStateOf(0L) }
+    var showEasterEgg by remember { mutableStateOf(false) }
+
+    val handleEasterEggTap: () -> Unit = {
+        if (!showEasterEgg) {
+            val now = System.currentTimeMillis()
+            if (now - lastEasterEggTapTime > 2000L) {
+                easterEggTapCount = 1
+            } else {
+                easterEggTapCount++
+            }
+            lastEasterEggTapTime = now
+            haptic.light()
+
+            if (easterEggTapCount >= 10) {
+                easterEggTapCount = 0
+                haptic.success()
+                showEasterEgg = true
+            }
+        }
+    }
 
     LaunchedEffect(uiState) {
         if (uiState is PairingUiState.Success) {
@@ -68,231 +95,19 @@ fun PairingScreen(
             .fillMaxSize()
             .background(colors.background)
     ) {
-        Column(
+        OnboardingGuideView(
+            onScanTapped = onLaunchScanner,
+            onManualInputTapped = { showManualInput = true },
+            onEasterEggTap = handleEasterEggTap,
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            // Header & Branding (Strict 1:1 match to iOS OnboardingGuideView)
-            Spacer(modifier = Modifier.height(24.dp))
-            Image(
-                painter = painterResource(id = R.drawable.app_logo),
-                contentDescription = "Multigravity Logo",
-                modifier = Modifier
-                    .size(80.dp)
-                    .clip(RoundedCornerShape(18.dp))
-                    .border(1.dp, colors.textPrimary.copy(alpha = 0.08f), RoundedCornerShape(18.dp))
+        )
+
+        if (showEasterEgg) {
+            EasterEggDialog(
+                onDismiss = { showEasterEgg = false }
             )
-            Spacer(modifier = Modifier.height(14.dp))
-            Text(
-                text = "欢迎使用 Multigravity",
-                fontSize = 26.sp,
-                fontWeight = FontWeight.Bold,
-                color = colors.textPrimary,
-                textAlign = TextAlign.Center
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "Multigravity 智能体全栈移动伴侣\n随时随地监控思考流、下发指令与方案决策",
-                fontSize = 14.sp,
-                color = colors.textSecondary,
-                textAlign = TextAlign.Center,
-                lineHeight = 20.sp,
-                modifier = Modifier.padding(horizontal = 24.dp)
-            )
-
-            Spacer(modifier = Modifier.height(28.dp))
-
-            // Step 1 Card: Download & Run Gateway
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = colors.surface)
-            ) {
-                Column(
-                    modifier = Modifier.padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(28.dp)
-                                .clip(CircleShape)
-                                .background(colors.accentBlue.copy(alpha = 0.15f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "1",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = colors.accentBlue
-                            )
-                        }
-                        Text(
-                            text = "在 Mac 上启动网关服务",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = colors.textPrimary
-                        )
-                    }
-
-                    Text(
-                        text = "手机端需配合运行在 Mac 电脑上的 Antigravity 本地网关协同工作。网关会自动嗅探后台实例并打通安全直连。",
-                        fontSize = 13.5.sp,
-                        color = colors.textSecondary,
-                        lineHeight = 19.sp
-                    )
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(colors.accentBlue.copy(alpha = 0.08f))
-                            .clickable {
-                                val intent = Intent(
-                                    Intent.ACTION_VIEW,
-                                    Uri.parse("https://github.com/GHSaiMo/antigravity-mobile#readme")
-                                )
-                                context.startActivity(intent)
-                            }
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.ArrowCircleDown,
-                            contentDescription = null,
-                            tint = colors.accentBlue,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "查看 GitHub 部署指南与下载",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = colors.accentBlue
-                        )
-                        Spacer(modifier = Modifier.weight(1f))
-                        Icon(
-                            imageVector = Icons.Default.OpenInNew,
-                            contentDescription = null,
-                            tint = colors.accentBlue,
-                            modifier = Modifier.size(13.dp)
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            // Step 2 Card: Scan QR Code & Pair
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = colors.surface)
-            ) {
-                Column(
-                    modifier = Modifier.padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(28.dp)
-                                .clip(CircleShape)
-                                .background(colors.accentIndigo.copy(alpha = 0.15f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "2",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = colors.accentIndigo
-                            )
-                        }
-                        Text(
-                            text = "扫码一键自动配对",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = colors.textPrimary
-                        )
-                    }
-
-                    Text(
-                        text = "电脑终端运行网关后会自动生成复合二维码，同时包含 Wi-Fi 局域网与外网 IPv6 网址。手机扫码即可直接交换凭证并绑定，零手动配置。",
-                        fontSize = 13.5.sp,
-                        color = colors.textSecondary,
-                        lineHeight = 19.sp
-                    )
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(
-                                Brush.horizontalGradient(
-                                    listOf(colors.accentIndigo, colors.accentPurple)
-                                )
-                            )
-                            .clickable(onClick = onLaunchScanner)
-                            .padding(vertical = 14.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.QrCodeScanner,
-                                contentDescription = "Scan QR",
-                                tint = Color.White,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Text(
-                                text = "扫描电脑端配对二维码",
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Color.White
-                            )
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Secondary Action: Manual Input
-            Row(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable { showManualInput = true }
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Keyboard,
-                    contentDescription = null,
-                    tint = colors.textSecondary,
-                    modifier = Modifier.size(16.dp)
-                )
-                Text(
-                    text = "高级选项：手动输入网址或配对码",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = colors.textSecondary
-                )
-            }
-
-            Spacer(modifier = Modifier.height(32.dp))
         }
 
         // Manual Input Bottom Sheet
