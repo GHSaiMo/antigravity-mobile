@@ -112,6 +112,7 @@ public struct ChatView: View {
                 }
             }
         }
+        .background(SwipeBackEnabler())
         .onAppear {
             isViewAppeared = true
             viewModel.restoreDraftsIfNeeded()
@@ -1408,5 +1409,66 @@ public struct MarkdownViewerSheet: View {
         }
     }
 }
+
+// MARK: - Interactive Swipe-Back Support
+
+private struct SwipeBackEnabler: UIViewRepresentable {
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+    
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.isUserInteractionEnabled = false
+        view.backgroundColor = .clear
+        DispatchQueue.main.async {
+            setupGesture(view: view, coordinator: context.coordinator)
+        }
+        return view
+    }
+    
+    func updateUIView(_ uiView: UIView, context: Context) {
+        DispatchQueue.main.async {
+            setupGesture(view: uiView, coordinator: context.coordinator)
+        }
+    }
+    
+    private func setupGesture(view: UIView, coordinator: Coordinator) {
+        guard let nav = view.nearestNavigationController else { return }
+        coordinator.navigationController = nav
+        nav.interactivePopGestureRecognizer?.isEnabled = true
+        nav.interactivePopGestureRecognizer?.delegate = coordinator
+    }
+    
+    class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        weak var navigationController: UINavigationController?
+        
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard let nav = navigationController else { return false }
+            return nav.viewControllers.count > 1
+        }
+        
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+            return true
+        }
+    }
+}
+
+private extension UIView {
+    var nearestNavigationController: UINavigationController? {
+        var responder: UIResponder? = self
+        while let next = responder?.next {
+            if let nav = next as? UINavigationController {
+                return nav
+            }
+            if let vc = next as? UIViewController, let nav = vc.navigationController {
+                return nav
+            }
+            responder = next
+        }
+        return nil
+    }
+}
+
 
 

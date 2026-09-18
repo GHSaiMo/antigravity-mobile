@@ -742,9 +742,6 @@ struct NavigationBarTapHelper: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UIViewController {
         let vc = UIViewController()
         DispatchQueue.main.async {
-            if let nav = vc.navigationController {
-                nav.interactivePopGestureRecognizer?.delegate = nav
-            }
             guard let navBar = vc.navigationController?.navigationBar else { return }
             let recognizers = navBar.gestureRecognizers ?? []
             if !recognizers.contains(where: { $0 is NavigationBarTapGestureRecognizer }) {
@@ -773,17 +770,6 @@ struct NavigationBarTapHelper: UIViewControllerRepresentable {
                 onTap()
             }
         }
-    }
-}
-
-extension UINavigationController: UIGestureRecognizerDelegate {
-    override open func viewDidLoad() {
-        super.viewDidLoad()
-        interactivePopGestureRecognizer?.delegate = self
-    }
-    
-    public func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        return viewControllers.count > 1
     }
 }
 
