@@ -343,8 +343,7 @@ public final class APIClient: Sendable {
     
     /// Unpairs this device from the gateway and cleans up server-side state.
     public func unpair() async {
-        guard let urlString = AppSettings.shared.serverURL,
-              let baseURL = URL(string: urlString) else { return }
+        guard let baseURL = AppSettings.shared.serverURL else { return }
         let endpoint = baseURL.appendingPathComponent("api/v1/auth/unpair")
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
