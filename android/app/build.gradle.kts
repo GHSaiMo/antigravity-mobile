@@ -69,8 +69,9 @@ dependencies {
     // Navigation Compose
     implementation("androidx.navigation:navigation-compose:2.7.7")
 
-    // Image Loading (Coil Compose)
+    // Image Loading (Coil Compose + SVG Decoder)
     implementation("io.coil-kt:coil-compose:2.6.0")
+    implementation("io.coil-kt:coil-svg:2.6.0")
 
     // Network: OkHttp 4.12.0 + WebSocket
     implementation("com.squareup.okhttp3:okhttp:4.12.0")

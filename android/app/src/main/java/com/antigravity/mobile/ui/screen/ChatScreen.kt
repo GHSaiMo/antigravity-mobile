@@ -166,6 +166,13 @@ fun ChatScreen(
             rawName
         }
 
+        // Script and code files do not need to be accessible (aligned 1:1 with iOS)
+        if (com.antigravity.mobile.data.service.FileIconResolver.isScriptFile(clean) ||
+            com.antigravity.mobile.data.service.FileIconResolver.isScriptFile(decodedFileName)
+        ) {
+            return@handleFileOrLinkClick
+        }
+
         // 1. Markdown & Plan Artifacts
         if (lower.endsWith(".md") || lower.endsWith(".markdown") ||
             lower.contains("/brain/") || lower.contains("/static/artifacts/") ||
@@ -177,27 +184,20 @@ fun ChatScreen(
                 else -> decodedFileName
             }
             viewModel.openMarkdownViewer(clean, docTitle)
-        } else {
-            val previewExtensions = listOf(
-                ".pdf", ".pptx", ".ppt", ".docx", ".doc", ".xlsx", ".xls",
-                ".html", ".htm", ".txt", ".json", ".csv", ".log", ".xml",
-                ".yaml", ".yml", ".py", ".js", ".ts", ".kt", ".swift", ".sh"
-            )
-            val isPreviewable = previewExtensions.any { ext ->
-                lower.endsWith(ext) || lower.contains("$ext?") || lower.contains("$ext#")
-            } || clean.startsWith("file://") || clean.startsWith("/")
-
-            if (isPreviewable) {
-                haptic.medium()
-                viewModel.downloadAndPreviewDocument(clean, decodedFileName)
-            } else if (clean.startsWith("http://") || clean.startsWith("https://")) {
-                try {
-                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(clean)).apply {
-                        flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
-                    }
-                    context.startActivity(intent)
-                } catch (_: Exception) {}
-            }
+        } else if (com.antigravity.mobile.data.service.FileIconResolver.isAccessibleDocument(clean) ||
+            com.antigravity.mobile.data.service.FileIconResolver.isAccessibleDocument(decodedFileName)
+        ) {
+            // 2. Office Documents, Presentations, PDFs & Images (matching iOS allPreviewExtensions)
+            haptic.medium()
+            viewModel.downloadAndPreviewDocument(clean, decodedFileName)
+        } else if (clean.startsWith("http://") || clean.startsWith("https://")) {
+            // 3. External Web links
+            try {
+                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(clean)).apply {
+                    flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                context.startActivity(intent)
+            } catch (_: Exception) {}
         }
     }
 

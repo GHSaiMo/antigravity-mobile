@@ -47,6 +47,15 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Initialize Coil SVG support globally
+        coil.Coil.setImageLoader { context ->
+            coil.ImageLoader.Builder(context)
+                .components {
+                    add(coil.decode.SvgDecoder.Factory())
+                }
+                .build()
+        }
+
         // Initialize Services
         prefs = PreferencesManager(applicationContext)
         apiClient = ApiClient(prefs)

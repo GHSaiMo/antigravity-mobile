@@ -14,12 +14,14 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.ClickableText
+import androidx.compose.foundation.text.InlineTextContent
+import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
@@ -34,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.*
@@ -43,6 +46,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.Placeholder
+import androidx.compose.ui.text.PlaceholderVerticalAlign
+import androidx.compose.ui.text.TextLayoutResult
+import com.antigravity.mobile.data.service.FileIconResolver
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -948,12 +955,33 @@ private fun ParagraphBlockView(
 }
 
 @Composable
+fun FileIconSvgView(
+    iconName: String,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    SubcomposeAsyncImage(
+        model = ImageRequest.Builder(context)
+            .data("file:///android_asset/file_icons/$iconName.svg")
+            .crossfade(false)
+            .build(),
+        contentDescription = null,
+        modifier = modifier,
+        contentScale = ContentScale.Fit
+    )
+}
+
+@Composable
 private fun PlanButtonCard(
     title: String,
     filename: String,
     colors: AppColors,
     onClick: () -> Unit
 ) {
+    val iconName = remember(filename, title) {
+        FileIconResolver.resolveIcon(filename) ?: FileIconResolver.resolveIcon(title)
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -972,12 +1000,19 @@ private fun PlanButtonCard(
                 .background(colors.accentIndigo.copy(alpha = 0.15f)),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                imageVector = Icons.Default.Description,
-                contentDescription = null,
-                tint = colors.accentIndigo,
-                modifier = Modifier.size(16.dp)
-            )
+            if (iconName != null) {
+                FileIconSvgView(
+                    iconName = iconName,
+                    modifier = Modifier.size(16.dp)
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Default.Description,
+                    contentDescription = null,
+                    tint = colors.accentIndigo,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
         }
 
         Column(modifier = Modifier.weight(1f)) {
@@ -1015,12 +1050,17 @@ private fun PlanButtonCard(
     }
 }
 
+private data class RichTextRenderData(
+    val annotatedString: AnnotatedString,
+    val inlineContent: Map<String, InlineTextContent>
+)
+
 /**
  * Parses and renders inline markdown formatting:
  * - Bold: `**text**` or `__text__`
  * - Italic: `*text*` or `_text_`
  * - Inline code: `` `code` `` in Desktop Amber (#E5C07B)
- * - Links: `[text](url)`
+ * - Links: `[text](url)` with inline file icon SVG, compact monospace font, and script filtering
  * - LaTeX Arrows: `\to` -> `→`, etc.
  */
 @Composable
@@ -1032,8 +1072,8 @@ private fun RichTextRenderer(
     onPlanClick: ((String, String) -> Unit)? = null
 ) {
     val context = LocalContext.current
-    val annotatedString = remember(text, colors, baseFontSize, baseFontWeight) {
-        buildRichTextAnnotatedString(
+    val renderData = remember(text, colors, baseFontSize, baseFontWeight) {
+        buildRichTextRenderData(
             rawText = text,
             colors = colors,
             baseFontSize = baseFontSize,
@@ -1041,55 +1081,56 @@ private fun RichTextRenderer(
         )
     }
 
-    ClickableText(
-        text = annotatedString,
+    var layoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
+
+    Text(
+        text = renderData.annotatedString,
+        modifier = Modifier.pointerInput(renderData.annotatedString) {
+            detectTapGestures { pos ->
+                layoutResult?.let { layout ->
+                    val offset = layout.getOffsetForPosition(pos)
+                    renderData.annotatedString.getStringAnnotations(tag = "URL", start = offset, end = offset)
+                        .firstOrNull()?.let { annotation ->
+                            val url = annotation.item
+                            val titleAnnotation = renderData.annotatedString.getStringAnnotations(tag = "URL_TITLE", start = offset, end = offset).firstOrNull()
+                            val rawTitle = titleAnnotation?.item?.ifBlank { url.substringAfterLast('/') } ?: url.substringAfterLast('/')
+                            val decodedTitle = try {
+                                URLDecoder.decode(rawTitle, "UTF-8")
+                            } catch (_: Exception) {
+                                rawTitle
+                            }
+
+                            // Script and code files do not need to be accessible (safety filter)
+                            if (FileIconResolver.isScriptFile(url) || FileIconResolver.isScriptFile(decodedTitle)) {
+                                return@let
+                            }
+
+                            if (onPlanClick != null && FileIconResolver.isAccessibleDocument(url)) {
+                                onPlanClick(url, decodedTitle)
+                            } else if (url.startsWith("http://") || url.startsWith("https://")) {
+                                try {
+                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                    }
+                                    context.startActivity(intent)
+                                } catch (_: Exception) {
+                                    onPlanClick?.invoke(url, decodedTitle)
+                                }
+                            } else if (onPlanClick != null && !FileIconResolver.isScriptFile(url)) {
+                                onPlanClick(url, decodedTitle)
+                            }
+                        }
+                }
+            }
+        },
         style = TextStyle(
             color = colors.textPrimary,
             fontSize = baseFontSize,
             fontWeight = baseFontWeight,
             lineHeight = (baseFontSize.value * 1.45f).sp
         ),
-        onClick = { offset ->
-            annotatedString.getStringAnnotations(tag = "URL", start = offset, end = offset)
-                .firstOrNull()?.let { annotation ->
-                    val url = annotation.item
-                    val titleAnnotation = annotatedString.getStringAnnotations(tag = "URL_TITLE", start = offset, end = offset).firstOrNull()
-                    val rawTitle = titleAnnotation?.item?.ifBlank { url.substringAfterLast('/') } ?: url.substringAfterLast('/')
-                    val decodedTitle = try {
-                        URLDecoder.decode(rawTitle, "UTF-8")
-                    } catch (_: Exception) {
-                        rawTitle
-                    }
-
-                    val lower = url.lowercase()
-                    val isDocumentOrLocal = url.startsWith("file://") ||
-                        url.startsWith("/") ||
-                        url.startsWith("~") ||
-                        url.contains("/brain/") ||
-                        url.contains("/static/artifacts/") ||
-                        url.contains("/api/v1/files/") ||
-                        url.contains("implementation_plan") ||
-                        url.contains("walkthrough") ||
-                        listOf(".md", ".markdown", ".html", ".htm", ".pptx", ".ppt", ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".txt", ".json", ".csv", ".log", ".xml", ".yaml", ".yml", ".py", ".js", ".ts", ".kt", ".swift", ".sh").any {
-                            lower.endsWith(it) || lower.contains("$it?") || lower.contains("$it#")
-                        }
-
-                    if (onPlanClick != null && isDocumentOrLocal) {
-                        onPlanClick(url, decodedTitle)
-                    } else if (url.startsWith("http://") || url.startsWith("https://")) {
-                        try {
-                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                            }
-                            context.startActivity(intent)
-                        } catch (_: Exception) {
-                            onPlanClick?.invoke(url, decodedTitle)
-                        }
-                    } else {
-                        onPlanClick?.invoke(url, decodedTitle)
-                    }
-                }
-        }
+        inlineContent = renderData.inlineContent,
+        onTextLayout = { layoutResult = it }
     )
 }
 
@@ -1097,12 +1138,12 @@ private val INLINE_TOKEN_REGEX = Regex(
     """(?<!\!)\[([^\]]+)\]\(([^)]+)\)|`([^`]+)`|\*\*([^*]+)\*\*|__([^_]+)__|(?<!\*)\*([^*\n]+)\*(?!\*)|(?<!_)_([^_\n]+)_(?!_)|~~([^~]+)~~"""
 )
 
-private fun buildRichTextAnnotatedString(
+private fun buildRichTextRenderData(
     rawText: String,
     colors: AppColors,
     baseFontSize: TextUnit,
     baseFontWeight: FontWeight
-): AnnotatedString {
+): RichTextRenderData {
     var processed = MathSymbolProcessor.process(rawText)
     processed = replaceHtmlBreaks(processed)
 
@@ -1117,11 +1158,24 @@ private fun buildRichTextAnnotatedString(
         processed = processed.replace("task.md", "[task.md](task.md)")
     }
 
-    // Antigravity Desktop Code Amber/Yellow color: #E5C07B (RGB: 229, 192, 123)
-    val codeColor = Color(0xFFE5C07B)
+    // Auto-link MEDIA: paths into clickable image links
+    if (processed.contains("MEDIA:")) {
+        val mediaPattern = Regex("""(?:^|\s|<br\s*/?>)MEDIA:\s*([^\s\)\<\>\"\'\`]+)""", RegexOption.IGNORE_CASE)
+        processed = mediaPattern.replace(processed) { match ->
+            val rawPath = match.groups[1]?.value.orEmpty()
+            val clean = rawPath.trim('`', '"', '\'', '(', ')', '[', ']', '<', '>')
+            val fn = clean.substringAfterLast('/')
+            val linkTarget = if (clean.startsWith("file://") || clean.startsWith("http://") || clean.startsWith("https://")) clean else "file://$clean"
+            "\n[点击放大查看图片 ($fn)]($linkTarget)"
+        }
+    }
 
-    return buildAnnotatedString {
+    val inlineContentMap = mutableMapOf<String, InlineTextContent>()
+    val codeColor = Color(0xFFE5C07B) // Desktop Amber
+
+    val annotatedString = buildAnnotatedString {
         var lastIndex = 0
+        var iconIndex = 0
         val matches = INLINE_TOKEN_REGEX.findAll(processed)
 
         for (match in matches) {
@@ -1141,47 +1195,116 @@ private fun buildRichTextAnnotatedString(
 
             when {
                 linkText != null && linkUrl != null -> {
-                    val start = length
-                    append(linkText)
+                    val cleanDisplayTitle = linkText.trim('`', '\'', '"')
                     val isPlan = linkUrl.contains("implementation_plan") || linkUrl.contains("walkthrough")
+                    val isScript = FileIconResolver.isScriptFile(linkUrl) || FileIconResolver.isScriptFile(cleanDisplayTitle)
+
+                    // 1. Resolve SVG Icon (1:1 with iOS resolveIcon)
+                    val iconName = FileIconResolver.resolveIcon(cleanDisplayTitle) ?: FileIconResolver.resolveIcon(linkUrl)
+                    if (iconName != null) {
+                        val inlineId = "icon_${iconName}_${iconIndex++}"
+                        val iconSp = (baseFontSize.value * 0.9f).sp
+                        appendInlineContent(id = inlineId, alternateText = " ")
+                        append("\u2009") // Thin space (Unicode U+2009) identical to iOS
+                        inlineContentMap[inlineId] = InlineTextContent(
+                            placeholder = Placeholder(
+                                width = iconSp,
+                                height = iconSp,
+                                placeholderVerticalAlign = PlaceholderVerticalAlign.Center
+                            )
+                        ) {
+                            FileIconSvgView(
+                                iconName = iconName,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                    }
+
+                    // 2. Append link text with scaled down font, monospaced, Apple Blue, no underline
+                    val start = length
+                    append(cleanDisplayTitle)
                     addStyle(
                         style = SpanStyle(
-                            color = colors.accentIndigo,
-                            fontWeight = FontWeight.SemiBold,
-                            textDecoration = TextDecoration.Underline,
-                            background = if (isPlan) colors.accentIndigo.copy(alpha = 0.12f) else Color.Transparent
+                            color = colors.accentBlue,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = (baseFontSize.value * 0.88f).sp,
+                            fontWeight = FontWeight.Normal,
+                            textDecoration = TextDecoration.None,
+                            background = if (isPlan) colors.accentBlue.copy(alpha = 0.12f) else Color.Transparent
                         ),
                         start = start,
                         end = length
                     )
-                    addStringAnnotation(
-                        tag = "URL",
-                        annotation = linkUrl,
-                        start = start,
-                        end = length
-                    )
-                    addStringAnnotation(
-                        tag = "URL_TITLE",
-                        annotation = linkText,
-                        start = start,
-                        end = length
-                    )
+
+                    // 3. Script files do NOT need to be accessible, so do not add URL annotation
+                    if (!isScript) {
+                        addStringAnnotation(
+                            tag = "URL",
+                            annotation = linkUrl,
+                            start = start,
+                            end = length
+                        )
+                        addStringAnnotation(
+                            tag = "URL_TITLE",
+                            annotation = cleanDisplayTitle,
+                            start = start,
+                            end = length
+                        )
+                    }
                 }
 
                 inlineCode != null -> {
-                    val start = length
-                    append(inlineCode)
-                    addStyle(
-                        style = SpanStyle(
-                            color = codeColor,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Medium,
-                            fontSize = (baseFontSize.value * 0.9f).sp,
-                            background = colors.surfaceVariant.copy(alpha = 0.45f)
-                        ),
-                        start = start,
-                        end = length
-                    )
+                    // Check if bare inline code is a file reference that has a known icon
+                    val isFileCode = (inlineCode.contains('.') || inlineCode.contains('/')) &&
+                            FileIconResolver.resolveIcon(inlineCode) != null
+                    val codeIcon = if (isFileCode) FileIconResolver.resolveIcon(inlineCode) else null
+
+                    if (codeIcon != null) {
+                        val inlineId = "icon_${codeIcon}_${iconIndex++}"
+                        val iconSp = (baseFontSize.value * 0.9f).sp
+                        appendInlineContent(id = inlineId, alternateText = " ")
+                        append("\u2009")
+                        inlineContentMap[inlineId] = InlineTextContent(
+                            placeholder = Placeholder(
+                                width = iconSp,
+                                height = iconSp,
+                                placeholderVerticalAlign = PlaceholderVerticalAlign.Center
+                            )
+                        ) {
+                            FileIconSvgView(
+                                iconName = codeIcon,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                        val start = length
+                        append(inlineCode)
+                        addStyle(
+                            style = SpanStyle(
+                                color = colors.accentBlue,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = (baseFontSize.value * 0.88f).sp,
+                                fontWeight = FontWeight.Normal,
+                                textDecoration = TextDecoration.None
+                            ),
+                            start = start,
+                            end = length
+                        )
+                    } else {
+                        // Standard inline code symbol (e.g. rawTrajectorySignature, readBodyToPool) in Amber
+                        val start = length
+                        append(inlineCode)
+                        addStyle(
+                            style = SpanStyle(
+                                color = codeColor,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Medium,
+                                fontSize = (baseFontSize.value * 0.9f).sp,
+                                background = colors.surfaceVariant.copy(alpha = 0.45f)
+                            ),
+                            start = start,
+                            end = length
+                        )
+                    }
                 }
 
                 (boldText1 != null || boldText2 != null) -> {
@@ -1228,6 +1351,8 @@ private fun buildRichTextAnnotatedString(
             append(processed.substring(lastIndex))
         }
     }
+
+    return RichTextRenderData(annotatedString, inlineContentMap)
 }
 
 /**
