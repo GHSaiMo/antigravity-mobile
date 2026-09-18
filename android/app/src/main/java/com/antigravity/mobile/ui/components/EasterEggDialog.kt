@@ -227,7 +227,7 @@ fun EasterEggDialog(
             // Centered Easter Egg Card
             Surface(
                 shape = RoundedCornerShape(24.dp),
-                color = colors.surfaceElevated.copy(alpha = 0.94f),
+                color = colors.surface.copy(alpha = 0.94f),
                 border = BorderStroke(1.dp, Color.White.copy(alpha = 0.18f)),
                 shadowElevation = 24.dp,
                 modifier = Modifier

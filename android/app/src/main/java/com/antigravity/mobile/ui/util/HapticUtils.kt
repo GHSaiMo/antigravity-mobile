@@ -76,6 +76,13 @@ class HapticManager(
     }
 
     /**
+     * Success confirmation feedback
+     */
+    fun success() {
+        heavy()
+    }
+
+    /**
      * Long press tactile feedback
      */
     fun longPress() {
