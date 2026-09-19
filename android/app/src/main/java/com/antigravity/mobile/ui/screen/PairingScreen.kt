@@ -102,6 +102,7 @@ fun PairingScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
+                .navigationBarsPadding()
         )
 
         if (showEasterEgg) {

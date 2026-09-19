@@ -71,20 +71,24 @@ fun OnboardingGuideView(
         }
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+    BoxWithConstraints(
+        modifier = modifier.fillMaxSize()
     ) {
-        // App Logo & Welcome Header
+        val minHeight = maxHeight
         Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .heightIn(min = minHeight)
+                .padding(horizontal = 20.dp, vertical = 14.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(top = 4.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically)
         ) {
+            // App Logo & Welcome Header
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
             Image(
                 painter = painterResource(id = R.drawable.app_logo),
                 contentDescription = "Multigravity Logo",
@@ -427,4 +431,5 @@ fun OnboardingGuideView(
             )
         }
     }
+}
 }
