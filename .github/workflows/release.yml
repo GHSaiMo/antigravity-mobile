@@ -190,6 +190,7 @@ jobs:
           files: release-assets/*
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag || 'v1.0.0' }}
           name: "Multigravity ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag || 'v1.0.0' }}"
+          body_path: .github/release_notes.md
           draft: false
           prerelease: false
-          generate_release_notes: true
+          generate_release_notes: false
