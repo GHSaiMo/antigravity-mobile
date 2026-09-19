@@ -12,16 +12,10 @@ Write-Host "==================================================" -ForegroundColor
 Write-Host "  📱 Multigravity (mgy) - Windows 一键安装与配置  " -ForegroundColor Cyan
 Write-Host "==================================================" -ForegroundColor Cyan
 
-# 2. 架构检测
+# 2. 架构检测 (Windows 优先使用 amd64 预编译包，ARM64 系统通过内置仿真无缝运行)
 $arch = $env:PROCESSOR_ARCHITECTURE
 $pkgArch = "amd64"
-if ($arch -eq "ARM64") {
-    $pkgArch = "arm64"
-    $archDesc = "Windows ARM64"
-} else {
-    $pkgArch = "amd64"
-    $archDesc = "Windows x86_64 (amd64)"
-}
+$archDesc = "Windows x86_64 (amd64)"
 Write-Host "🖥️  检测到系统架构: $archDesc ($pkgArch)" -ForegroundColor Cyan
 
 # 3. 准备安装与配置目录

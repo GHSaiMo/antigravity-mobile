@@ -8,8 +8,7 @@
 [![Release](https://img.shields.io/github/v/release/GHSaiMo/antigravity-mobile?color=blue&style=flat-square&logo=github)](https://github.com/GHSaiMo/antigravity-mobile/releases/latest)
 [![Android](https://img.shields.io/badge/Android-APK%20Direct%20Install-3DDC84?style=flat-square&logo=android&logoColor=white)](https://github.com/GHSaiMo/antigravity-mobile/releases/latest)
 [![macOS](https://img.shields.io/badge/macOS-Apple%20Silicon%20%2B%20Intel-000000?style=flat-square&logo=apple&logoColor=white)](https://github.com/GHSaiMo/antigravity-mobile/releases/latest)
-[![Windows](https://img.shields.io/badge/Windows-x86__64%20%2B%20ARM64-0078D6?style=flat-square&logo=windows&logoColor=white)](https://github.com/GHSaiMo/antigravity-mobile/releases/latest)
-[![Linux](https://img.shields.io/badge/Linux-x86__64%20%2B%20ARM64-FCC624?style=flat-square&logo=linux&logoColor=black)](https://github.com/GHSaiMo/antigravity-mobile/releases/latest)
+[![Windows](https://img.shields.io/badge/Windows-x86__64-0078D6?style=flat-square&logo=windows&logoColor=white)](https://github.com/GHSaiMo/antigravity-mobile/releases/latest)
 [![Kotlin](https://img.shields.io/badge/Kotlin-1.9+-7F52FF?style=flat-square&logo=kotlin&logoColor=white)](https://kotlinlang.org)
 [![Swift](https://img.shields.io/badge/Swift-6.0-F05138?style=flat-square&logo=swift&logoColor=white)](https://swift.org)
 [![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat-square&logo=go&logoColor=white)](https://go.dev)
@@ -25,11 +24,11 @@
 
 ## ⚡ 极速开始 (v1.0.0 正式版)
 
-### 1. 🍎 macOS / 🪟 Windows / 🐧 Linux 服务端一键安装 (推荐)
+### 1. 🍎 macOS / 🪟 Windows 服务端一键安装 (推荐)
 
 一键安装指令**支持全自动根据操作系统与架构自适应下载匹配的二进制包**（**免翻墙免代理，秒级全自动完成部署**）：
 
-#### 🍎 macOS / 🐧 Linux / 🪟 Windows (Git Bash / MSYS) 用户：
+#### 🍎 macOS / 🪟 Windows (Git Bash / MSYS) 用户：
 打开终端，直接执行：
 ```bash
 # 国内网络加速一键安装（默认推荐）
@@ -60,10 +59,10 @@ irm https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/in
 </details>
 
 > **智能安装特性**：
-> - 🖥️ **全平台自适应**：自动识别 **macOS**（Apple Silicon M系列 / Intel）、**Windows**（x86_64 / ARM64）与 **Linux**（x86_64 / ARM64），精准下载对应系统的 **~7MB 单架构极简包**；
+> - 🖥️ **跨平台自适应**：自动识别 **macOS**（Apple Silicon M系列 / Intel）与 **Windows**（x86_64），精准下载对应系统的 **~7MB 单架构极简包**；
 > - ⚡ **自适应本地代理**：自动探测本机活跃代理（Clash: 7890、V2Ray: 10808、Surge: 6152 等），无需手动 export；
 > - 🚀 **镜像双保险**：无代理或直连受阻时，秒级无缝降级至国内加速节点；
-> - 🔒 **平滑部署**：macOS/Linux 免 sudo 部署至 `~/.local/bin/mgy`；Windows 自动注册至用户 PATH 及 WindowsApps 目录，开箱即用免重启终端。
+> - 🔒 **平滑部署**：macOS 免 sudo 部署至 `~/.local/bin/mgy`；Windows 自动注册至用户 PATH 及 WindowsApps 目录，开箱即用免重启终端。
 
 ### 2. 📱 Android 手机客户端安装
 前往 [GitHub Releases v1.0.0](https://github.com/GHSaiMo/antigravity-mobile/releases/latest)，下载：
@@ -71,7 +70,7 @@ irm https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/in
 - *安装包已配置标准签名，任何安卓手机下载后均可直接点击安装，零编译门槛。*
 
 ### 3. 🔑 启动服务与扫码配对
-在终端（macOS / Linux / Windows PowerShell / CMD）中直接运行：
+在终端（macOS / Windows PowerShell / CMD）中直接运行：
 ```bash
 mgy
 ```

@@ -20,12 +20,6 @@ case "${OS}" in
         BIN_NAME="mgy"
         PKG_EXT="tar.gz"
         ;;
-    Linux)
-        OS_TYPE="linux"
-        OS_DESC="Linux"
-        BIN_NAME="mgy"
-        PKG_EXT="tar.gz"
-        ;;
     MINGW*|MSYS*|CYGWIN*|Windows_NT)
         OS_TYPE="windows"
         OS_DESC="Windows"
@@ -33,7 +27,7 @@ case "${OS}" in
         PKG_EXT="zip"
         ;;
     *)
-        echo "❌ 暂不支持的操作系统: ${OS}"
+        echo "❌ 暂不支持的操作系统: ${OS} (目前官方正式版支持 macOS 及 Windows)"
         exit 1
         ;;
 esac
@@ -48,10 +42,11 @@ case "${ARCH}" in
     arm64|aarch64)
         if [ "${OS_TYPE}" = "darwin" ]; then
             ARCH_DESC="Apple Silicon (M系列)"
+            PKG_ARCH="arm64"
         else
-            ARCH_DESC="${OS_DESC} ARM64"
+            ARCH_DESC="Windows x86_64 (amd64 仿真)"
+            PKG_ARCH="amd64"
         fi
-        PKG_ARCH="arm64"
         ;;
     x86_64|amd64)
         ARCH_DESC="${OS_DESC} x86_64 (amd64)"
