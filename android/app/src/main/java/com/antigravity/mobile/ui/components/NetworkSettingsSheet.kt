@@ -67,6 +67,7 @@ fun NetworkSettingsSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .fillMaxHeight()
+                .imePadding()
         ) {
             // Floating grab handle hinting pull-down dismissal (matching iOS Capsule 38x5)
             Box(

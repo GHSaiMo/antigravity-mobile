@@ -457,6 +457,8 @@ fun ChatScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .consumeWindowInsets(padding)
+                .imePadding()
         ) {
             // Content Area (Loading / Error / Empty / Messages)
             Box(
