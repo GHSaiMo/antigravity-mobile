@@ -113,8 +113,10 @@ fun PairingScreen(
 
         // Manual Input Bottom Sheet
         if (showManualInput) {
+            val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
             ModalBottomSheet(
                 onDismissRequest = { showManualInput = false },
+                sheetState = sheetState,
                 containerColor = colors.surface,
                 dragHandle = null,
                 shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
@@ -122,6 +124,9 @@ fun PairingScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .imePadding()
+                        .verticalScroll(rememberScrollState())
                         .padding(bottom = 24.dp)
                 ) {
                     // Grab handle
