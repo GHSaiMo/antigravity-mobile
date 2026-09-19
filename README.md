@@ -15,9 +15,14 @@
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 
 <p align="center">
-  <img src="images/session_list.jpg" alt="Multigravity 会话列表与分类信号" width="340" />
+  <img src="images/welcome_pairing.jpg" alt="Multigravity 极速开箱与扫码一键配对" width="360" />
   &nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="images/native_components.jpg" alt="Multigravity 原生交互组件、后台任务与指令队列" width="340" />
+  <img src="images/chat_multimodal.jpg" alt="Multigravity 实时思考流与多模态绘图交互" width="360" />
+</p>
+<p align="center">
+  <img src="images/cockpit_tools.jpg" alt="Multigravity Cockpit Tools 配额四象限与多账号无感热切" width="360" />
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="images/network_settings.jpg" alt="Multigravity 多通道智能选路与一键并发测速" width="360" />
 </p>
 
 ---
@@ -113,93 +118,112 @@ mgy help           # 查看完整命令与启动参数帮助
 
 | 层级 | 核心组件 | 关键职责与技术特性 |
 | :--- | :--- | :--- |
-| **📱 移动访问层** | **Android 原生客户端** (Compose) | **全功能对齐**：Kotlin 1.9+、Jetpack Compose Material 3 纯黑美学、OkHttp + WebSocket 实时打字机流分发、动态 QuotaStatusBar 额度条、Claude/Gemini 5h & Weekly 多账号配额抽屉、新建会话抽屉（工作区选择 / Pure Chat 模式）、Markdown 伴生浮窗与 Proceed 闭环、多步工具折叠胶囊、交互式审批卡片、排队指令管理面板、后台任务感知与终止、工程快捷动作胶囊、ZXing 离线二维码秒级配对、`EncryptedSharedPreferences` 硬件密钥持久化、全态分类信号 |
-| | **iOS 原生客户端** (SwiftUI 5) | Swift 6 严格并发、单趟 O(N) LaTeX 渲染、Markdown 富媒体图片渲染与 `ImageViewerSheet` 全手势大图缩放、VS Code 文件图标、Markdown 浮窗预览与伴生摘要、实施方案 Proceed 推进闭环、Gemini 3.8 / Claude 4.6 模型切换胶囊、多模态图片上传、排队追问队列与自适应输入、后台任务实时管控与终止、交互式命令审批卡片、全态分类信号 (`RUNNING` / `ERROR` / `ACTION` / 未读呼吸小蓝点)、左滑删除与长按重命名、0ms 会话焦点上报、灵动岛 (Live Activity) |
+| **📱 移动访问层** | **Android 原生客户端** (Compose) | **全功能旗舰体验**：Kotlin 1.9+、Jetpack Compose Material 3 纯黑美学、Edge-to-Edge 全面屏沉浸显示、IME 软键盘自适应防遮挡与聚焦触底平滑滚动；OkHttp + WebSocket 实时打字机流分发、多步工具折叠胶囊；**多模态生图直出渲染**与 `ImageViewerSheet` 全手势大图缩放；**网络设置一键并发探活测速与智能路由选路**；**Cockpit Tools 四象限配额看板与多账号池无感热切**；方案产物原生浮窗 (Markdown / PPTX 幻灯片渲染 / Brain 元数据逆向解析 / 本地一键下载导出) 与 Proceed 推进闭环；**消息撤回与代码修改方案回滚**；排队追问面板、后台任务感知与终止、工程快捷动作胶囊、ZXing 离线二维码秒级配对、`EncryptedSharedPreferences` 硬件密钥持久化、全态分类信号 |
+| | **iOS 原生客户端** (SwiftUI 5) | **Swift 6 严格并发**：零数据竞态、丝滑流畅；单趟 O(N) LaTeX 渲染、Markdown 富媒体与多模态生图直出、`ImageViewerSheet` 双指捏合无级缩放与系统分享保存；方案产物浮窗与 Proceed 闭环；统一文件预览工具栏与 PPTX 幻灯片渲染；**Cockpit Tools 四象限额度看板与多账号热切**；**网络设置一键并发探活与智能选路**；**消息撤回与代码修改回滚**（毛玻璃材质浮窗）；排队追问队列与自适应输入；交互式命令审批卡片；交互式侧滑返回（Swipe-Back）原生手势体验；全态分类信号 (`RUNNING` / `ERROR` / `ACTION` / 未读呼吸小蓝点)；0ms 会话焦点上报、灵动岛 (Live Activity) |
 | | **移动端 PWA / Web** (Vanilla JS) | 零构建打包、嵌入 Go 二进制 (`embed.FS`)、全面对齐 iOS 原生设计系统与 NavigationStack 导航、列表滚动/侧滑手势消抖（防误触进入）、居中对称标题与 38px 悬浮垃圾桶删除、自适应安全区与键盘防遮挡、Markdown 浮窗与方案 Proceed 推进、排队消息与后台任务同步、添加到主屏幕 |
 | **🎯 跨端游标与焦点层** | **随人而动游标引擎 (Follow-Me Cursor Engine)** | 毫秒级多端焦点仲裁：活跃长连接流 (Active Stream) > 移动端黏性焦点 (Mobile Sticky 30m) > 桌面端 IDE 活跃焦点 (Desktop Focus) > 磁盘最后活跃会话兜底；提供 0ms 会话焦点上报与预热；防自反保护机制 (Anti-Reflection 1.5s 抑制期) 彻底消除已读回环误判；幽灵会话三重防御过滤 |
 | **🦞 物理外设网桥层** | **YoooClaw 物理硬件网桥 (`integrations/yoooclaw/`)** | 随身外设按键录音 ➔ ASR ➔ Gateway-First 代理直连注入活跃 Cascade 会话；双层协同分流（第一层 Hermes 业务守卫放行，第二层统一游标精准定位目标会话）；四色交织 RGB 流光动效与 OLED 屏幕状态回显 |
-| **⚡ 远程连接与鉴权层** | **HTTPS 域名中继与端到端 TLS 1.3** | 支持公网域名直连或通过 FRP 隧道穿透配合 Let's Encrypt 证书 (`scripts/issue-agy-tls.sh`)，实现无公网 IPv4 下的域名安全中继；配对二维码优先携带安全 HTTPS 链接 (`ssl=1`)，Mac 本地终止解密，VPS 仅透明转发 TCP 密文，手机端无缝绕过 iOS ATS 拦截并启用 HSTS |
+| **⚡ 远程连接与鉴权层** | **智能路由与一键并发测速 (Smart Multi-Channel Routing)** | 移动端动态管理 Wi-Fi 局域网 (LAN IPv4)、外网直连 (Public IPv6) 与云端中继 (FRP / DDNS)；提供一键并发探活，秒级测速回显并自动优选延迟最低链路，支持客户端手动动态切换端点 |
+| | **HTTPS 域名中继与端到端 TLS 1.3** | 支持公网域名直连或通过 FRP 隧道穿透配合 Let's Encrypt 证书 (`scripts/issue-agy-tls.sh`)，实现无公网 IPv4 下的域名安全中继；配对二维码优先携带安全 HTTPS 链接 (`ssl=1`)，Mac/PC 本地终止解密，VPS 仅透明转发 TCP 密文，手机端无缝绕过 iOS ATS 拦截并启用 HSTS |
 | | **IPv6 双栈直连 (Dual-Stack Direct)** | 网关默认监听 IPv4/IPv6 全网卡，公网 IPv6 / DDNS 直连免中继，极低延迟，客户端蜂窝网络 (Cellular) 智能优先路由 |
-| | **二维码扫码配对 (QR Pairing)** | 终端或 `mgy pair` 自动生成一次性 `agy://pair` 配对二维码，扫码秒级签发独占 Device Token，存入系统安全存储 (Keychain / EncryptedSharedPreferences)，与 IP 完全解耦 |
+| | **二维码扫码配对 (QR Pairing)** | 终端或 `mgy pair` 自动生成一次性 `agy://pair` 配对二维码，扫码秒级签发独占 Device Token，存入系统安全存储 (Keychain / EncryptedSharedPreferences)，与 IP 完全解耦；支持高级手动大小写不敏感配对 |
 | | **Tailscale / 私有 Mesh VPN (备选)** | 点对点加密 WireGuard 网络，无公网 IP 时安全组网互联 |
-| **🖥️ 本地网关层** | **自愈实例探测器 (Inspector)** | 自动嗅探 `language_server` 进程、实时捕获动态端口与鉴权令牌、进程重启零感知毫秒级自愈；离线状态具备指数退避 (5s→10s→20s→40s) 防 CPU 空转 |
+| **🖥️ 本地网关层** | **自愈实例探测器 (Inspector)** | **原生支持 macOS 与 Windows**：深度逆向自动嗅探各平台 `language_server` 进程、实时捕获动态端口与鉴权令牌、进程重启零感知毫秒级自愈；离线状态具备指数退避 (5s→10s→20s→40s) 防 CPU 空转 |
 | | **ConnectRPC & WebSocket 代理** | 双向流式转发与长连接保活、自动注入 `x-codeium-csrf-token`、免二次编码大图透传优化 (`needsModification`)、单 IP 60次/分 WS Ticket 限流加固、安全沙箱文件代理 (`/api/v1/files/content`) 与 Brain 伴生元数据解析、内置提供 Web 静态资产与排队追问代理 |
-| | **Cockpit 配额引擎 (Cockpit Engine)** | 实时提取多账号配额数据、支持双模型 5h/Weekly 四象限监控、一键切号与邮箱脱敏遮罩 |
+| | **Cockpit 配额引擎 (Cockpit Engine)** | 实时提取多账号配额数据、支持双模型 5h/Weekly 四象限监控与精准重置时间倒计时、多账号池一键无感热切与邮箱脱敏遮罩 |
 | | **Bark 实时推送守护 (Notification Watcher)** | 后台持续监听 Agent 状态，任务完成/失败/审批拦截/提问/Proceed 自动触发 Bark 实时推送与 DeepLink 唤醒 |
-| **⚙️ 核心引擎层** | **Antigravity Core** | `language_server` 核心智能体进程，运行于 Mac 本地回环 |
+| **⚙️ 核心引擎层** | **Antigravity Core** | `language_server` 核心智能体进程，运行于 Mac 或 Windows 本地回环 |
 
 ---
 
 ## ✨ 核心能力与功能特性
 
-### 1. 🤖 Android 原生客户端 (`android/`)
-> **采用现代 Android 顶级架构规范，已产出预编译 APK。**
-
-- **现代化技术栈**：基于 **Kotlin 1.9+**、**Jetpack Compose Material 3** 暗黑美学设计系统，使用 **Coroutines + Flow** 驱动流式状态，完美适配全面屏手势与高刷显示。
-- **首页配额状态条 (`QuotaStatusBar`) 与配额抽屉 (`AccountQuotaSheet`)**：
-  - 首页顶部常驻动态配额条，实时计算 Gemini 5h 剩余额度百分比、彩色动态进度条与重置倒计时；
-  - 点击弹出全功能配额抽屉：实时呈现 Claude / Gemini 5h 与每周四象限配额看板，支持多账号一键热切换与邮箱脱敏。
-- **新建会话抽屉 (`NewConversationSheet`)**：
-  - 支持工作区模式切换：一键选择指定工程目录开启任务，或开启「纯对话模式 (Pure Chat)」，满足轻量化技术咨询。
-- **全态分类信号与上下文标注**：
-  - 列表呈现 `RUNNING`（绿色）、`ERROR`（红色）、`ACTION`（蓝色）状态徽标与呼吸微光未读小蓝点；
-  - 显示归属工程工作区、累计步骤数与自适应人性化相对时间（刚刚、几分钟前、昨天等）。
-- **实时打字机流式长连接与多步工具折叠 (`ToolStepCollapseCard`)**：
-  - 基于 **OkHttp 4.12 + WebSocket** 构建健壮长连接流，支持自动重连与离线状态恢复；
-  - 自动折叠长串工具调用为轻量胶囊条，标明执行项数与工具类型（如 `⚡ 已思考并执行 12 项操作`），杜绝刷屏卡顿。
-- **交互式命令审批与实施方案推进 (Action & Proceed Cards)**：
-  - 渲染危险终端命令执行审批卡片，手机端一键执行「批准 (Approve)」或「拒绝 (Reject)」；
-  - 方案就绪时呈现高亮 **Proceed** 推进卡片，快速推动智能体进入下一阶段。
-- **方案产物原生浮窗 (`MarkdownViewerSheet`)**：
-  - 点击会话内 Markdown 链接即刻展开原生浮窗，逆向解析 Brain 伴生元数据摘要，底部常驻 Proceed 一键推进闭环。
-- **排队指令管理面板 (`QueuedMessagesCard`)**：
-  - Agent 忙碌时自动切换为排队输入状态；排队面板支持查看待发送序列、单条移除、插队立即发送与文本修改。
-- **后台常驻任务实时监控 (`RunningTasksCard`)**：
-  - 实时感知后台执行的长耗时命令，支持一键发送 Kill 终止信号。
-- **工程快捷动作胶囊 (`QuickActionChips`)**：
-  - 快捷切换 Gemini 3.8 / Claude 4.6 模型、一键附加图片、快捷触发 Git 提交等指令。
-- **离线极速扫码配对与硬件级加密存储**：
-  - 原生内嵌 **ZXing 离线二维码扫描器**（无需 Google Play Services，纯离线快速扫码）；
-  - 自动解析 `agy://pair` URI，设备凭证安全存入 Android Keystore 保护的 `EncryptedSharedPreferences`。
+### 1. 🧭 开箱即用与跨平台秒级配对 (Onboarding Guide & QR Pairing)
+- **单页紧凑型引导设计**：对齐 iOS / Android 双端视觉，首次启动或重新配对呈现极简两步式操作；
+- **跨平台一键安装指令**：macOS (Apple Silicon & Intel) 与 Windows (PowerShell) 一键部署命令直接一键复制，支持横向防折叠滚动展示；若已安装网关，直接提示终端执行 `mgy`；
+- **扫码一键自动配对**：电脑终端前台运行网关后自动生成复合 ASCII 二维码，手机端打开扫码器秒级捕获并完成凭据交换与设备绑定，零手动配置；
+- **高级手动配对选项**：支持手动输入网关 URL 或 6 位配对码，支持大小写不敏感容错校验，全展开抽屉自适应软键盘防遮挡。
 
 ---
 
-### 2. 📱 iOS 原生客户端 (`ios/`)
-- **现代化架构**：基于 SwiftUI 5 与 **Swift 6 严格并发模式**（Strict Concurrency Checking）构建，零数据竞态、流畅丝滑。
-- **Cockpit 额度监控与多账号看板**：
-  - 首页 5h 额度状态条实时直观呈现，支持多账号一键热切换与即时生效校准，内置邮箱脱敏遮罩；
-- **全屏手势级富媒体查看器 (`ImageViewerSheet`)**：
-  - 点击任意对话或文档图片，唤起手势大图查看器，支持双击缩放、双指捏合无级缩放、下拉退出与保存分享；
-- **Markdown 产物浮窗与实施方案推进闭环 (Plan Proceed Sheet)**：
-  - 适配桌面端 `~/.gemini/antigravity/brain/` 产物结构，浮窗常驻高亮「确认执行 (Proceed)」蓝色操作条；
-- **排队追问与自适应输入**：
-  - Agent 忙碌时自适应变形为排队输入，支持全宽中文化卡片式排队管理；
-- **后台任务精准终止**：实时感知后台守护进程与长耗时任务，手机端一键精准 kill；
-- **0ms 跨端会话焦点上报**：进入会话瞬刻上报焦点并预热缓存；
-- **扫码秒级配对与安全认证**：钥匙串硬件存储 Device Token，优先蜂窝网络直连。
+### 2. ⚡ 多通道网络管理、一键并发探活与智能选路 (Smart Routing & Probing)
+- **多通道端点统一管理**：移动端「网络设置」面板直观管理局域网 Wi-Fi (LAN IPv4)、外网直连 (Public IPv6) 与云端域名/FRP 穿透中继；
+- **一键并发探活与测速**：点击「开始测速」，毫秒级并发探测所有已配置通道的连通性与往返延迟（如 `17ms · Wi-Fi 局域网` / `27ms · 外网直连`）；
+- **智能自动选路机制**：并发探测后自动优选并平滑切换至延迟最低的通道，确保通勤移动与跨网场景下长连接不中断；
+- **手动路由控制**：支持在路由端点列表中点击「设为生效」手动指定目标链路，实时呈现连接状态指示灯与当前生效延迟。
 
 ---
 
-### 3. 🌐 嵌入式 Mobile Web & PWA (`web/`)
-- **零构建（Zero-Build）**：极简现代原生 JavaScript + CSS，利用 Go `embed.FS` 编译进单个二进制。
-- **手势消抖机制（防滚动误触）**：精确区分手指纵向滚动与横向侧滑，消除列表滑动误触进入会话的痛点。
-- **完全对齐 iOS 原生设计系统**：NavigationStack 导航、居中对称标题、浮窗操作与侧滑删除圆形垃圾桶图标。
+### 3. 📊 Cockpit Tools 配额罗盘与多账号池无感热切 (Account Pool & Quota Engine)
+- **动态 Quota 状态条 (`QuotaStatusBar`)**：首页顶部常驻实时额度状态条，一眼掌握核心配额健康度；
+- **全方位四象限配额看板**：全景监控当前使用账号的 **Claude 5h、Gemini 5h、Claude Weekly、Gemini Weekly** 四象限配额百分比，精确显示额度恢复与重置倒计时（精确到分/秒，如 `4h 55m (09/20 00:49)`、`3d 20h 34m`）；
+- **备用账号池管理**：支持展示与维护多个备用账号，一键点击「切换」按钮即可在移动端完成热切换（Hot-switching），无需重新登录与退出；
+- **隐私保护与实时刷新**：支持邮箱脱敏遮罩展示（支持一键眼睛图标切换隐藏明文），支持手动添加新账号与一键实时刷新配额。
+
+---
+
+### 4. 🎨 实时流式会话、多模态绘图与富媒体产物闭环 (Multimodal & Artifacts)
+- **实时打字机流式长连接**：基于 **OkHttp 4.12 + WebSocket**（Android）与 **URLSession WebSocket**（iOS）驱动流式响应，支持断网重连与状态同步；
+- **多步工具折叠胶囊 (`ToolStepCollapseCard`)**：自动聚合长串工具调用与思考流为轻量胶囊条（如 `⚡ 已思考并执行 23 项操作 (run_command, view_file, g...)`），杜绝刷屏卡顿，点击即可展开查看详情；
+- **多模态绘图直出原生渲染**：深度支持图像生成工具直出（如赛博朋克霓虹猫咪等高质量大图），直接在会话流中高质量渲染；
+- **全屏手势级大图查看器 (`ImageViewerSheet`)**：点击会话内任意图片即可进入沉浸式查看器，支持双击缩放、双指捏合无级缩放、自由平移拖拽、保存至相册与系统分享；
+- **方案产物浮窗与 Proceed 推进闭环**：会话内 Markdown 链接即刻展开原生浮窗，逆向解析 Brain 伴生元数据摘要，底部常驻 Proceed 一键推进闭环；
+- **PPTX 幻灯片原生渲染与下载**：原生支持幻灯片文档预览，提供统一文件预览工具栏并支持本地一键下载导出。
+
+---
+
+### 5. ⏪ 消息撤回与代码修改方案回滚 (Message Undo & Revert)
+- **用户指令一键撤回**：会话中支持对最近发送的指令一键撤回（Undo），并自动还原至输入框草稿置顶排序，方便快速编辑与重新提问；
+- **代码修改方案回滚**：关联代码修改时提供方案回滚预览，搭配毛玻璃磨砂质感浮窗与原生材质胶囊按钮，保障操作安全。
+
+---
+
+### 6. 📱 双旗舰原生移动端深度体验打磨 (Android & iOS)
+- **Android 原生客户端 (`android/`)**：
+  - 基于 **Kotlin 1.9+** 与 **Jetpack Compose Material 3** 暗黑美学；
+  - **Edge-to-Edge 全面屏沉浸显示**：完美消除多任务切换与底部手势条黑边；
+  - **输入体验优化**：软键盘 IME Insets 防遮挡，输入框聚焦时自动平滑滚动至会话最底；
+  - **新建会话抽屉 (`NewConversationSheet`)**：支持工作区选择与纯对话模式（Pure Chat）。
+- **iOS 原生客户端 (`ios/`)**：
+  - 基于 **SwiftUI 5** 与 **Swift 6 严格并发模式**（Strict Concurrency Checking），零数据竞态；
+  - **原生手势修复**：全面恢复交互式侧滑返回（Swipe-Back）手势，消除进出会话时的抖动与高度跳跃；
+  - **单趟 O(N) LaTeX 渲染** 与 VS Code 原生文件图标支持。
+- **共有交互能力**：
+  - **工程快捷动作胶囊 (`QuickActionChips`)**：Gemini 3.8 / Claude 4.6 模型一键切换、图片选择、Git 提交快捷指令；
+  - **交互式命令审批卡片**：终端高危命令一键「批准 (Approve)」或「拒绝 (Reject)」；
+  - **排队追问面板 (`QueuedMessagesCard`)**：Agent 忙碌时自适应排队输入，支持单条移除、插队立即发送与文本修改；
+  - **后台任务感知与终止 (`RunningTasksCard`)**：实时感知后台长耗时命令并支持一键 Kill；
+  - **全态分类信号**：`RUNNING`（绿）、`ERROR`（红）、`ACTION`（蓝）与呼吸未读小蓝点。
+
+---
+
+### 7. 🌐 嵌入式 Mobile Web & PWA (`web/`)
+- **零构建（Zero-Build）**：极简现代原生 JavaScript + CSS，利用 Go `embed.FS` 编译进单个二进制；
+- **手势消抖机制（防滚动误触）**：精确区分手指纵向滚动与横向侧滑，消除列表滑动误触进入会话的痛点；
+- **完全对齐 iOS 原生设计系统**：NavigationStack 导航、居中对称标题、浮窗操作与侧滑删除圆形垃圾桶图标；
 - **PWA 沉浸体验**：支持 iOS Safari 与 Chrome「添加到主屏幕」，全屏独立 App 模式运行。
 
 ---
 
-### 4. 🎯 跨端活跃会话游标与“随人而动”焦点引擎
+### 8. 🎯 跨端活跃会话游标与“随人而动”焦点引擎
 - **Follow-Me 动态多端焦点仲裁**：
   $$\text{Active Stream (活跃长连接)} > \text{Mobile Sticky (移动端聚焦 30m)} > \text{Desktop Focus (桌面 IDE 切换)} > \text{Disk Fallback (磁盘最后活动)}$$
-- **0ms 会话焦点上报 (`POST /gateway/cascade/focus`)**：移动端进入会话卡片瞬刻无感知上报焦点，提前预热缓存。
-- **防自反保护机制 (Anti-Reflection Protection, 1.5s 抑制期)**：彻底杜绝多端状态同步过程中的死循环误判。
+- **0ms 会话焦点上报 (`POST /gateway/cascade/focus`)**：移动端进入会话卡片瞬刻无感知上报焦点，提前预热缓存；
+- **防自反保护机制 (Anti-Reflection Protection, 1.5s 抑制期)**：彻底杜绝多端状态同步过程中的死循环误判；
 - **幽灵会话三重防御过滤**：自动过滤子代理内部杂音，杜绝空白卡片。
 
 ---
 
-### 5. 🔔 实时通知推送与 DeepLink (Bark 集成)
-- **全自动化智能推送**：任务完成、异常报错、交互审批（命令/修改）、方案就绪（Proceed 提醒）自动触发 Bark 推送。
-- **DeepLink 毫秒直达**：点击手机横幅通知直接唤醒打开对应会话。
+### 9. 🦞 YoooClaw 物理外设随身网桥 (`integrations/yoooclaw/`)
+- **硬件直连 Cascade**：随身外设按键录音 ➔ ASR ➔ Gateway-First 代理直连注入活跃 Cascade 会话；
+- **双层协同分流**：第一层 Hermes 业务守卫放行，第二层统一游标精准定位目标会话；
+- **状态物理回显**：四色交织 RGB 流光动效与 OLED 屏幕状态实时反馈。
+
+---
+
+### 10. 🔔 实时全自动通知推送与 DeepLink (Bark 集成)
+- **全自动化智能推送**：任务完成、异常报错、交互审批（命令/修改）、方案就绪（Proceed 提醒）自动触发 Bark 推送；
+- **DeepLink 毫秒直达**：点击手机横幅通知直接唤醒打开对应会话；
 - **开箱即用**：在配置中填入 `BARK_URL` 即可立即激活。
 
 ---
