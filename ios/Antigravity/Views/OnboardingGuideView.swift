@@ -59,6 +59,10 @@ public struct OnboardingGuideView: View {
                         Text("欢迎使用 Multigravity")
                             .font(.system(size: 21, weight: .bold))
                             .foregroundColor(.primary)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                onEasterEggTap?()
+                            }
                         
                         Text("Multigravity 智能体全栈移动伴侣\n随时随地监控思考流、下发指令与决策")
                             .font(.system(size: 12.5))

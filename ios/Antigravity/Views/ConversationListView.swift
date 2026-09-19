@@ -732,44 +732,160 @@ private extension UIView {
             self.transform = targetTransform
         }
     }
+    
+    var nearestNavigationController: UINavigationController? {
+        var responder: UIResponder? = self
+        while let next = responder?.next {
+            if let nav = next as? UINavigationController {
+                return nav
+            }
+            if let vc = next as? UIViewController, let nav = vc.navigationController {
+                return nav
+            }
+            responder = next
+        }
+        return nil
+    }
 }
 
 class NavigationBarTapGestureRecognizer: UITapGestureRecognizer {}
 
-struct NavigationBarTapHelper: UIViewControllerRepresentable {
-    let onTap: () -> Void
+private final class NavigationBarHookView: UIView {
+    weak var coordinator: NavigationBarTapHelper.Coordinator?
     
-    func makeUIViewController(context: Context) -> UIViewController {
-        let vc = UIViewController()
-        DispatchQueue.main.async {
-            guard let navBar = vc.navigationController?.navigationBar else { return }
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil {
+            configure()
+        }
+    }
+    
+    override func didMoveToSuperview() {
+        super.didMoveToSuperview()
+        if superview != nil {
+            configure()
+        }
+    }
+    
+    func configure() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            guard let nav = self.nearestNavigationController else { return }
+            let navBar = nav.navigationBar
             let recognizers = navBar.gestureRecognizers ?? []
             if !recognizers.contains(where: { $0 is NavigationBarTapGestureRecognizer }) {
-                let tap = NavigationBarTapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap))
+                guard let coordinator = self.coordinator else { return }
+                let tap = NavigationBarTapGestureRecognizer(target: coordinator, action: #selector(NavigationBarTapHelper.Coordinator.handleTap))
                 tap.cancelsTouchesInView = false
+                tap.delegate = coordinator
                 navBar.addGestureRecognizer(tap)
             }
         }
-        return vc
     }
-    
-    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
+}
+
+private struct NavigationBarTapHelper: UIViewRepresentable {
+    let onTap: () -> Void
     
     func makeCoordinator() -> Coordinator {
         Coordinator(onTap: onTap)
     }
     
-    class Coordinator: NSObject {
+    func makeUIView(context: Context) -> NavigationBarHookView {
+        let view = NavigationBarHookView()
+        view.isUserInteractionEnabled = false
+        view.backgroundColor = .clear
+        view.coordinator = context.coordinator
+        return view
+    }
+    
+    func updateUIView(_ uiView: NavigationBarHookView, context: Context) {
+        uiView.coordinator = context.coordinator
+        uiView.configure()
+    }
+    
+    class Coordinator: NSObject, UIGestureRecognizerDelegate {
         let onTap: () -> Void
         init(onTap: @escaping () -> Void) { self.onTap = onTap }
+        
         @objc func handleTap(_ gesture: UITapGestureRecognizer) {
-            guard let view = gesture.view else { return }
-            let point = gesture.location(in: view)
-            // Tap area restricted to the center region (20%...80% of width) so gear and plus buttons aren't intercepted
-            if point.x > view.bounds.width * 0.20 && point.x < view.bounds.width * 0.80 {
+            guard gesture.state == .ended else { return }
+            guard let navBar = gesture.view as? UINavigationBar else { return }
+            let point = gesture.location(in: navBar)
+            if isTouchOnTitle(point: point, in: navBar) {
                 onTap()
             }
         }
+        
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+            return true
+        }
+        
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            guard let navBar = gestureRecognizer.view as? UINavigationBar else { return false }
+            // Only active when the top item is the root Multigravity view
+            if let topTitle = navBar.topItem?.title, !topTitle.contains("Multigravity") {
+                return false
+            }
+            
+            // Check if touch is on an interactive control (gear, plus, search, etc.)
+            var current: UIView? = touch.view
+            while let v = current, v !== navBar {
+                if v is UIControl && !(v is UILabel) {
+                    return false
+                }
+                let clsName = NSStringFromClass(type(of: v))
+                if clsName.contains("ButtonBarButton") || clsName.contains("Search") {
+                    return false
+                }
+                current = v.superview
+            }
+            
+            let point = touch.location(in: navBar)
+            return isTouchOnTitle(point: point, in: navBar)
+        }
+        
+        private func isTouchOnTitle(point: CGPoint, in navBar: UINavigationBar) -> Bool {
+            // 1. Search for any label containing "Multigravity"
+            let labels = findTitleLabels(in: navBar)
+            for label in labels where !label.isHidden && label.alpha > 0.05 {
+                let frameInNavBar = label.convert(label.bounds, to: navBar)
+                let hitRect = frameInNavBar.insetBy(dx: -20, dy: -12)
+                if hitRect.contains(point) {
+                    return true
+                }
+            }
+            
+            // 2. Fallback geometry heuristic
+            let width = navBar.bounds.width
+            let height = navBar.bounds.height
+            if height > 54 {
+                // Large title expanded: located in leading area below top bar (y: 36..height, x: 12..width * 0.75)
+                let largeTitleRect = CGRect(x: 12, y: 36, width: min(260, width * 0.75), height: height - 36)
+                if largeTitleRect.contains(point) {
+                    return true
+                }
+            } else {
+                // Inline title collapsed: centered in top bar (y: 0..44, x: center 50%)
+                let inlineTitleRect = CGRect(x: width * 0.22, y: 0, width: width * 0.56, height: 44)
+                if inlineTitleRect.contains(point) {
+                    return true
+                }
+            }
+            return false
+        }
+        
+        private func findTitleLabels(in view: UIView) -> [UILabel] {
+            var results: [UILabel] = []
+            if let label = view as? UILabel, let text = label.text, text.contains("Multigravity") {
+                results.append(label)
+            }
+            for subview in view.subviews {
+                results.append(contentsOf: findTitleLabels(in: subview))
+            }
+            return results
+        }
     }
 }
+
 
