@@ -1,18 +1,20 @@
 import SwiftUI
 import QuickLook
+import QuickLookThumbnailing
 import WebKit
 import Photos
 import LinkPresentation
 
-// MARK: - Native QuickLook Presentation Sheet (PPTX, DOCX, XLSX, PDF, KEY)
+// MARK: - Native QuickLook Presentation Sheet (PPTX, DOCX, XLSX, PDF, KEY, SVG, Images)
 
 public struct QuickLookPreviewSheet: View {
     public let url: URL
     public let title: String
     public let onDismiss: () -> Void
     @State private var isSavingPhoto: Bool = false
-    @State private var savePhotoSuccessMessage: String? = nil
-    @State private var savePhotoErrorMessage: String? = nil
+    @State private var isShowingDocumentPicker: Bool = false
+    @State private var toastSuccessMessage: String? = nil
+    @State private var toastErrorMessage: String? = nil
     
     public init(url: URL, title: String = "", onDismiss: @escaping () -> Void) {
         self.url = url
@@ -22,24 +24,69 @@ public struct QuickLookPreviewSheet: View {
     }
     
     @ViewBuilder
-    private var savePhotoButton: some View {
-        Button(action: saveToPhotosAlbum) {
-            if isSavingPhoto {
-                ProgressView()
-                    .scaleEffect(0.8)
-            } else {
+    private var saveButton: some View {
+        if isRasterImage(url: url) {
+            Menu {
+                Button(action: saveToPhotosAlbum) {
+                    Label("保存到相册", systemImage: "photo")
+                }
+                Button(action: {
+                    isShowingDocumentPicker = true
+                }) {
+                    Label("存储到“文件”", systemImage: "folder")
+                }
+            } label: {
+                if isSavingPhoto {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                } else {
+                    Image(systemName: "square.and.arrow.down")
+                        .font(.system(size: 16, weight: .semibold))
+                }
+            } primaryAction: {
+                saveToPhotosAlbum()
+            }
+            .disabled(isSavingPhoto)
+            .accessibilityLabel("保存到相册或文件")
+        } else if isSVG(url: url) {
+            Menu {
+                Button(action: {
+                    isShowingDocumentPicker = true
+                }) {
+                    Label("存储到“文件”", systemImage: "folder")
+                }
+                Button(action: saveSVGAsImageToPhotos) {
+                    Label("保存到相册", systemImage: "photo")
+                }
+            } label: {
+                if isSavingPhoto {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                } else {
+                    Image(systemName: "square.and.arrow.down")
+                        .font(.system(size: 16, weight: .semibold))
+                }
+            } primaryAction: {
+                isShowingDocumentPicker = true
+            }
+            .disabled(isSavingPhoto)
+            .accessibilityLabel("保存到文件或相册")
+        } else {
+            Button(action: {
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                isShowingDocumentPicker = true
+            }) {
                 Image(systemName: "square.and.arrow.down")
                     .font(.system(size: 16, weight: .semibold))
             }
+            .accessibilityLabel("存储到“文件”")
         }
-        .disabled(isSavingPhoto)
-        .accessibilityLabel("保存到相册")
     }
     
     public var body: some View {
         NavigationStack {
             Group {
-                if isImageFile(url: url) {
+                if isRasterImage(url: url) {
                     HighResolutionImageViewer(url: url)
                         .ignoresSafeArea(edges: .bottom)
                 } else {
@@ -50,76 +97,114 @@ public struct QuickLookPreviewSheet: View {
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    saveButton
+                }
                 ToolbarItem(placement: .topBarTrailing) {
-                    HStack(spacing: 12) {
-                        if isImageFile(url: url) {
-                            savePhotoButton
-                        }
-                        ShareLink(item: url, preview: SharePreview(title)) {
-                            Image(systemName: "square.and.arrow.up")
-                                .font(.system(size: 16, weight: .semibold))
-                        }
+                    ShareLink(item: url, preview: SharePreview(title)) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 16, weight: .semibold))
                     }
+                    .accessibilityLabel("分享")
+                }
+            }
+            .sheet(isPresented: $isShowingDocumentPicker) {
+                DocumentExporterRepresentable(url: url) { _ in
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                    showSuccessToast("已保存至“文件”")
                 }
             }
             .presentationDragIndicator(.visible)
         }
         .presentationDragIndicator(.visible)
         .overlay(alignment: .center) {
-            if let msg = savePhotoSuccessMessage {
-                VStack(spacing: 12) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 40, weight: .semibold))
-                        .foregroundColor(.green)
-                    Text(msg)
-                        .font(.system(size: 14.5, weight: .medium))
-                        .foregroundColor(.primary)
-                        .multilineTextAlignment(.center)
-                }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 20)
-                .background(.ultraThinMaterial)
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .stroke(Color.primary.opacity(0.08), lineWidth: 0.8)
-                )
-                .shadow(color: Color.black.opacity(0.18), radius: 20, x: 0, y: 8)
-                .transition(.scale(scale: 0.85).combined(with: .opacity))
-            } else if let err = savePhotoErrorMessage {
-                VStack(spacing: 12) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 40, weight: .semibold))
-                        .foregroundColor(.orange)
-                    Text(err)
-                        .font(.system(size: 14.5, weight: .medium))
-                        .foregroundColor(.primary)
-                        .multilineTextAlignment(.center)
-                }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 20)
-                .background(.ultraThinMaterial)
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .stroke(Color.primary.opacity(0.08), lineWidth: 0.8)
-                )
-                .shadow(color: Color.black.opacity(0.18), radius: 20, x: 0, y: 8)
-                .transition(.scale(scale: 0.85).combined(with: .opacity))
-            }
+            toastOverlay
         }
-        .animation(.spring(response: 0.3, dampingFraction: 0.78), value: savePhotoSuccessMessage)
-        .animation(.spring(response: 0.3, dampingFraction: 0.78), value: savePhotoErrorMessage)
+        .animation(.spring(response: 0.3, dampingFraction: 0.78), value: toastSuccessMessage)
+        .animation(.spring(response: 0.3, dampingFraction: 0.78), value: toastErrorMessage)
     }
     
-    private func isImageFile(url: URL) -> Bool {
+    @ViewBuilder
+    private var toastOverlay: some View {
+        if let msg = toastSuccessMessage {
+            VStack(spacing: 12) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 40, weight: .semibold))
+                    .foregroundColor(.green)
+                Text(msg)
+                    .font(.system(size: 14.5, weight: .medium))
+                    .foregroundColor(.primary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 20)
+            .background(.ultraThinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(Color.primary.opacity(0.08), lineWidth: 0.8)
+            )
+            .shadow(color: Color.black.opacity(0.18), radius: 20, x: 0, y: 8)
+            .transition(.scale(scale: 0.85).combined(with: .opacity))
+        } else if let err = toastErrorMessage {
+            VStack(spacing: 12) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 40, weight: .semibold))
+                    .foregroundColor(.orange)
+                Text(err)
+                    .font(.system(size: 14.5, weight: .medium))
+                    .foregroundColor(.primary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 20)
+            .background(.ultraThinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(Color.primary.opacity(0.08), lineWidth: 0.8)
+            )
+            .shadow(color: Color.black.opacity(0.18), radius: 20, x: 0, y: 8)
+            .transition(.scale(scale: 0.85).combined(with: .opacity))
+        }
+    }
+    
+    private func showSuccessToast(_ msg: String) {
+        toastSuccessMessage = msg
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.6) {
+            if toastSuccessMessage == msg {
+                toastSuccessMessage = nil
+            }
+        }
+    }
+    
+    private func showErrorToast(_ msg: String) {
+        toastErrorMessage = msg
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+            if toastErrorMessage == msg {
+                toastErrorMessage = nil
+            }
+        }
+    }
+    
+    private func isRasterImage(url: URL) -> Bool {
         let ext = url.pathExtension.lowercased()
-        let imageExtensions = ["png", "jpg", "jpeg", "webp", "gif", "heic", "heif", "bmp", "svg", "tiff", "tif"]
-        if imageExtensions.contains(ext) { return true }
+        let rasterExtensions = ["png", "jpg", "jpeg", "webp", "gif", "heic", "heif", "bmp", "tiff", "tif"]
+        if rasterExtensions.contains(ext) { return true }
         if let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
            let uri = comps.queryItems?.first(where: { $0.name == "uri" })?.value {
             let uriExt = (uri as NSString).pathExtension.lowercased()
-            if imageExtensions.contains(uriExt) { return true }
+            if rasterExtensions.contains(uriExt) { return true }
+        }
+        return false
+    }
+    
+    private func isSVG(url: URL) -> Bool {
+        let ext = url.pathExtension.lowercased()
+        if ext == "svg" { return true }
+        if let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
+           let uri = comps.queryItems?.first(where: { $0.name == "uri" })?.value {
+            return (uri as NSString).pathExtension.lowercased() == "svg"
         }
         return false
     }
@@ -132,10 +217,7 @@ public struct QuickLookPreviewSheet: View {
             guard status == .authorized || status == .limited else {
                 DispatchQueue.main.async {
                     self.isSavingPhoto = false
-                    self.savePhotoErrorMessage = "未获得相册权限，请在系统设置中开启"
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-                        self.savePhotoErrorMessage = nil
-                    }
+                    self.showErrorToast("未获得相册权限，请在系统设置中开启")
                 }
                 return
             }
@@ -148,16 +230,62 @@ public struct QuickLookPreviewSheet: View {
                     self.isSavingPhoto = false
                     if success {
                         UINotificationFeedbackGenerator().notificationOccurred(.success)
-                        self.savePhotoSuccessMessage = "已保存至相册，可在微信中直接发原图"
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-                            self.savePhotoSuccessMessage = nil
-                        }
+                        self.showSuccessToast("已保存至相册，可在微信中直接发原图")
                     } else {
                         UINotificationFeedbackGenerator().notificationOccurred(.error)
-                        self.savePhotoErrorMessage = "保存失败: \(error?.localizedDescription ?? "未知错误")"
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-                            self.savePhotoErrorMessage = nil
-                        }
+                        self.showErrorToast("保存失败: \(error?.localizedDescription ?? "未知错误")")
+                    }
+                }
+            }
+        }
+    }
+    
+    private func saveSVGAsImageToPhotos() {
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        isSavingPhoto = true
+        let targetURL = self.url
+        
+        let request = QLThumbnailGenerator.Request(
+            fileAt: targetURL,
+            size: CGSize(width: 2048, height: 2048),
+            scale: UIScreen.main.scale,
+            representationTypes: .all
+        )
+        QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { thumbnail, _ in
+            DispatchQueue.main.async {
+                if let uiImage = thumbnail?.uiImage {
+                    self.saveUIImageToPhotos(uiImage)
+                } else {
+                    self.saveToPhotosAlbum()
+                }
+            }
+        }
+    }
+    
+    private func saveUIImageToPhotos(_ image: UIImage) {
+        PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+            guard status == .authorized || status == .limited else {
+                DispatchQueue.main.async {
+                    self.isSavingPhoto = false
+                    self.showErrorToast("未获得相册权限，请在系统设置中开启")
+                }
+                return
+            }
+            
+            PHPhotoLibrary.shared().performChanges {
+                let req = PHAssetCreationRequest.forAsset()
+                if let pngData = image.pngData() {
+                    req.addResource(with: .photo, data: pngData, options: nil)
+                }
+            } completionHandler: { success, error in
+                DispatchQueue.main.async {
+                    self.isSavingPhoto = false
+                    if success {
+                        UINotificationFeedbackGenerator().notificationOccurred(.success)
+                        self.showSuccessToast("已保存至相册，可在微信中直接发原图")
+                    } else {
+                        UINotificationFeedbackGenerator().notificationOccurred(.error)
+                        self.showErrorToast("保存失败: \(error?.localizedDescription ?? "未知错误")")
                     }
                 }
             }
@@ -497,6 +625,9 @@ public struct HTMLPreviewSheet: View {
     public let url: URL
     public let title: String
     public let onDismiss: () -> Void
+    @State private var isShowingDocumentPicker: Bool = false
+    @State private var toastSuccessMessage: String? = nil
+    
     public init(url: URL, title: String = "", onDismiss: @escaping () -> Void) {
         self.url = url
         let fallback = url.lastPathComponent.removingPercentEncoding ?? url.lastPathComponent
@@ -511,17 +642,107 @@ public struct HTMLPreviewSheet: View {
                 .navigationTitle(title)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button(action: {
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                            isShowingDocumentPicker = true
+                        }) {
+                            Image(systemName: "square.and.arrow.down")
+                                .font(.system(size: 16, weight: .semibold))
+                        }
+                        .accessibilityLabel("存储到“文件”")
+                    }
                     ToolbarItem(placement: .topBarTrailing) {
                         ShareLink(item: url, preview: SharePreview(title)) {
                             Image(systemName: "square.and.arrow.up")
                                 .font(.system(size: 16, weight: .semibold))
                         }
+                        .accessibilityLabel("分享")
+                    }
+                }
+                .sheet(isPresented: $isShowingDocumentPicker) {
+                    DocumentExporterRepresentable(url: url) { _ in
+                        UINotificationFeedbackGenerator().notificationOccurred(.success)
+                        toastSuccessMessage = "已保存至“文件”"
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.6) {
+                            toastSuccessMessage = nil
+                        }
                     }
                 }
         }
         .presentationDragIndicator(.visible)
+        .overlay(alignment: .center) {
+            if let msg = toastSuccessMessage {
+                VStack(spacing: 12) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 40, weight: .semibold))
+                        .foregroundColor(.green)
+                    Text(msg)
+                        .font(.system(size: 14.5, weight: .medium))
+                        .foregroundColor(.primary)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(.horizontal, 24)
+                .padding(.vertical, 20)
+                .background(.ultraThinMaterial)
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(Color.primary.opacity(0.08), lineWidth: 0.8)
+                )
+                .shadow(color: Color.black.opacity(0.18), radius: 20, x: 0, y: 8)
+                .transition(.scale(scale: 0.85).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(response: 0.3, dampingFraction: 0.78), value: toastSuccessMessage)
     }
 }
+
+// MARK: - Native Document Exporter (Save to Files app)
+
+public struct DocumentExporterRepresentable: UIViewControllerRepresentable {
+    public let url: URL
+    public var onCompletion: ((URL) -> Void)? = nil
+    public var onDismiss: (() -> Void)? = nil
+    
+    public init(url: URL, onCompletion: ((URL) -> Void)? = nil, onDismiss: (() -> Void)? = nil) {
+        self.url = url
+        self.onCompletion = onCompletion
+        self.onDismiss = onDismiss
+    }
+    
+    public func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forExporting: [url], asCopy: true)
+        picker.delegate = context.coordinator
+        picker.shouldShowFileExtensions = true
+        return picker
+    }
+    
+    public func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
+    
+    public func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+    
+    public final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let parent: DocumentExporterRepresentable
+        
+        init(_ parent: DocumentExporterRepresentable) {
+            self.parent = parent
+        }
+        
+        public func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            if let target = urls.first {
+                parent.onCompletion?(target)
+            }
+        }
+        
+        public func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            parent.onDismiss?()
+        }
+    }
+}
+
 
 public struct HTMLWebViewRepresentable: UIViewRepresentable {
     public let url: URL

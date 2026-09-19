@@ -1291,6 +1291,8 @@ public struct MarkdownViewerSheet: View {
     public let onRefresh: (() -> Void)?
     
     @State private var previewImage: IdentifiableImage? = nil
+    @State private var isShowingDocumentPicker: Bool = false
+    @State private var toastSuccessMessage: String? = nil
     
     public init(
         data: MarkdownFileViewerData,
@@ -1419,17 +1421,66 @@ public struct MarkdownViewerSheet: View {
             .navigationTitle(data.title.isEmpty ? "文档详情" : data.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(action: {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        if shareURL != nil {
+                            isShowingDocumentPicker = true
+                        }
+                    }) {
+                        Image(systemName: "square.and.arrow.down")
+                            .font(.system(size: 16, weight: .semibold))
+                    }
+                    .disabled(shareURL == nil)
+                    .accessibilityLabel("存储到“文件”")
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     if let url = shareURL {
                         ShareLink(item: url, preview: SharePreview(data.title.isEmpty ? "文档详情" : data.title)) {
                             Image(systemName: "square.and.arrow.up")
                                 .font(.system(size: 16, weight: .semibold))
                         }
+                        .accessibilityLabel("分享")
+                    }
+                }
+            }
+            .sheet(isPresented: $isShowingDocumentPicker) {
+                if let url = shareURL {
+                    DocumentExporterRepresentable(url: url) { _ in
+                        UINotificationFeedbackGenerator().notificationOccurred(.success)
+                        toastSuccessMessage = "已保存至“文件”"
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.6) {
+                            toastSuccessMessage = nil
+                        }
                     }
                 }
             }
         }
         .presentationDragIndicator(.visible)
+        .overlay(alignment: .center) {
+            if let msg = toastSuccessMessage {
+                VStack(spacing: 12) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 40, weight: .semibold))
+                        .foregroundColor(.green)
+                    Text(msg)
+                        .font(.system(size: 14.5, weight: .medium))
+                        .foregroundColor(.primary)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(.horizontal, 24)
+                .padding(.vertical, 20)
+                .background(.ultraThinMaterial)
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(Color.primary.opacity(0.08), lineWidth: 0.8)
+                )
+                .shadow(color: Color.black.opacity(0.18), radius: 20, x: 0, y: 8)
+                .transition(.scale(scale: 0.85).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(response: 0.3, dampingFraction: 0.78), value: toastSuccessMessage)
         .fullScreenCover(item: $previewImage) { item in
             ImageViewerSheet(item: item)
                 .presentationBackground(.clear)

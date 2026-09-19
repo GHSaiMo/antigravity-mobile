@@ -101,9 +101,10 @@ public struct ConfirmUndoSheet: View {
                 
                 Divider()
                 
-                // Bottom Action Buttons
+                // Bottom Action Buttons (Native Material Capsule Style from Image 4)
                 HStack(spacing: 12) {
                     Button(action: {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
                         viewModel.showConfirmUndoSheet = false
                         viewModel.activeUndoMessage = nil
                         viewModel.revertPreview = nil
@@ -112,17 +113,9 @@ public struct ConfirmUndoSheet: View {
                             .font(.system(size: 16, weight: .medium))
                             .foregroundColor(.primary)
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .fill(.ultraThinMaterial)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .stroke(Color.primary.opacity(0.1), lineWidth: 0.5)
-                            )
+                            .frame(height: 50)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(NativeMaterialCapsuleButtonStyle(isDestructive: false))
                     .disabled(viewModel.isReverting)
                     
                     Button(action: {
@@ -131,34 +124,21 @@ public struct ConfirmUndoSheet: View {
                         HStack(spacing: 6) {
                             if viewModel.isReverting {
                                 ProgressView()
-                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                    .progressViewStyle(CircularProgressViewStyle(tint: .red))
                                     .scaleEffect(0.8)
                             }
                             Text(viewModel.isReverting ? "正在撤回..." : "确认撤回")
                                 .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(.white)
+                                .foregroundColor(.red)
                         }
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .fill(.ultraThinMaterial)
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .fill(Color.red.opacity(viewModel.isReverting ? 0.5 : 0.82))
-                            }
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .stroke(Color.white.opacity(0.22), lineWidth: 0.5)
-                        )
-                        .shadow(color: Color.red.opacity(0.2), radius: 6, x: 0, y: 3)
+                        .frame(height: 50)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(NativeMaterialCapsuleButtonStyle(isDestructive: true))
                     .disabled(viewModel.isReverting || viewModel.isLoadingRevertPreview)
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 12)
+                .padding(.vertical, 14)
                 .background(.ultraThinMaterial)
             }
             .navigationTitle("撤回确认")
@@ -237,3 +217,44 @@ public struct ConfirmUndoSheet: View {
             .clipShape(RoundedRectangle(cornerRadius: 3))
     }
 }
+
+// MARK: - Apple Native Material Capsule Button Style (Matching Image 4)
+
+public struct NativeMaterialCapsuleButtonStyle: ButtonStyle {
+    public var isDestructive: Bool
+    
+    public init(isDestructive: Bool = false) {
+        self.isDestructive = isDestructive
+    }
+    
+    public func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(
+                ZStack {
+                    Capsule()
+                        .fill(.regularMaterial)
+                    if isDestructive {
+                        Capsule()
+                            .fill(Color.red.opacity(configuration.isPressed ? 0.12 : 0.06))
+                    }
+                }
+            )
+            .overlay(
+                Capsule()
+                    .stroke(
+                        isDestructive ? Color.red.opacity(configuration.isPressed ? 0.35 : 0.22) : Color.primary.opacity(0.08),
+                        lineWidth: 0.5
+                    )
+            )
+            .shadow(
+                color: isDestructive ? Color.red.opacity(configuration.isPressed ? 0.05 : 0.12) : Color.black.opacity(configuration.isPressed ? 0.02 : 0.07),
+                radius: configuration.isPressed ? 3 : 8,
+                x: 0,
+                y: configuration.isPressed ? 1 : 2.5
+            )
+            .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
+            .opacity(configuration.isPressed ? 0.88 : 1.0)
+            .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
+    }
+}
+
