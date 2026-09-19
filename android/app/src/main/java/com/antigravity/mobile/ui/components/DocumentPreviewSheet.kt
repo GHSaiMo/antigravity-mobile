@@ -1,17 +1,22 @@
 package com.antigravity.mobile.ui.components
 
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
+import android.os.Build
+import android.os.Environment
 import android.os.ParcelFileDescriptor
+import android.provider.MediaStore
 import android.util.Base64
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
+import java.io.File
 import java.net.URLDecoder
 import java.util.zip.ZipFile
 import androidx.compose.foundation.Image
@@ -27,7 +32,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -36,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -45,24 +50,27 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
+import coil.compose.SubcomposeAsyncImage
+import coil.decode.SvgDecoder
+import coil.request.ImageRequest
 import com.antigravity.mobile.ui.theme.AppColors
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 import com.antigravity.mobile.ui.util.rememberHaptic
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
 
 /**
- * Android Document & Code Native Preview Sheet (1:1 with iOS QuickLookPreviewSheet & HTMLPreviewSheet).
- * Supports:
- * - HTML files via local WebView
- * - PDF documents via native Android PdfRenderer
- * - Code & plain text via scrollable monospaced viewer
- * - Office presentations & spreadsheets (PPTX, DOCX, XLSX) via external app launch and file sharing
+ * Android Document & Code Native Preview Sheet (1:1 aligned with iOS QuickLookPreviewSheet).
+ * Features:
+ * - Top-centered iOS-style drag handle indicator (36x5dp capsule).
+ * - Top navigation bar: Top-left Apple native Save button, Center Document Title, Top-right Apple native Share button.
+ * - Sheet container with 16dp rounded top corners.
+ * - Supports SVG vector graphics (via Coil SVG), PPTX (multi-slide XML structure parser + theme),
+ *   PDF (PdfRenderer), HTML/Marp (WebView), code & text, and Office docs (DOCX, XLSX).
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DocumentPreviewSheet(
     file: File,
@@ -71,6 +79,7 @@ fun DocumentPreviewSheet(
     colors: AppColors = AntigravityTheme.colors
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val haptic = rememberHaptic()
     val ext = file.extension.lowercase()
     val decodedTitle = remember(title, file) {
@@ -81,87 +90,104 @@ fun DocumentPreviewSheet(
             raw
         }
     }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    Dialog(
+    ModalBottomSheet(
         onDismissRequest = { onDismiss() },
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        sheetState = sheetState,
+        containerColor = colors.background,
+        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        dragHandle = {
+            Box(
+                modifier = Modifier
+                    .padding(top = 10.dp, bottom = 6.dp)
+                    .width(36.dp)
+                    .height(5.dp)
+                    .clip(CircleShape)
+                    .background(colors.textMuted.copy(alpha = 0.35f))
+            )
+        },
+        modifier = Modifier
+            .fillMaxWidth()
+            .fillMaxHeight()
     ) {
-        Surface(
-            modifier = Modifier.fillMaxSize(),
-            color = colors.background
-        ) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                // Top Header Bar
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .statusBarsPadding()
-                        .padding(horizontal = 8.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    IconButton(onClick = {
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Top Navigation Bar (Apple Native Component Layout)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Top-left: Apple native Save button
+                ApplePreviewCircleButton(
+                    icon = Icons.Default.FileDownload,
+                    contentDescription = "保存文件",
+                    colors = colors,
+                    onClick = {
                         haptic.light()
-                        onDismiss()
-                    }) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "关闭",
-                            tint = colors.textPrimary
-                        )
+                        coroutineScope.launch {
+                            saveFileToDownloads(context, file, decodedTitle)
+                        }
                     }
+                )
 
-                    Text(
-                        text = decodedTitle,
-                        color = colors.textPrimary,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(horizontal = 8.dp),
-                        textAlign = TextAlign.Center
-                    )
+                // Center: Title
+                Text(
+                    text = decodedTitle,
+                    color = colors.textPrimary,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 12.dp),
+                    textAlign = TextAlign.Center
+                )
 
-                    // Share Button (matches iOS single action button)
-                    IconButton(onClick = {
+                // Top-right: Apple native Share button
+                ApplePreviewCircleButton(
+                    icon = Icons.Default.Share,
+                    contentDescription = "分享文件",
+                    colors = colors,
+                    onClick = {
                         haptic.medium()
                         shareDocument(context, file, decodedTitle)
-                    }) {
-                        Icon(
-                            imageVector = Icons.Default.Share,
-                            contentDescription = "分享文件",
-                            tint = colors.accentIndigo,
-                            modifier = Modifier.size(20.dp)
-                        )
                     }
-                }
+                )
+            }
 
-                HorizontalDivider(color = colors.border.copy(alpha = 0.4f), thickness = 0.8.dp)
+            HorizontalDivider(color = colors.border.copy(alpha = 0.4f), thickness = 0.8.dp)
 
-                // Body content based on file extension
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                ) {
-                    when (ext) {
-                        "html", "htm" -> {
-                            HtmlDocumentViewer(file = file)
-                        }
-                        "pptx", "ppt" -> {
-                            PptxDocumentViewer(file = file, colors = colors)
-                        }
-                        "pdf" -> {
-                            PdfDocumentViewer(file = file, colors = colors)
-                        }
-                        "txt", "json", "csv", "log", "xml", "yaml", "yml", "sh", "py", "js", "ts", "kt", "swift" -> {
-                            TextDocumentViewer(file = file, colors = colors)
-                        }
-                        else -> {
-                            OfficeDocumentFallback(file = file, colors = colors)
-                        }
+            // Body content based on file extension
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            ) {
+                when (ext) {
+                    "svg" -> {
+                        SvgDocumentViewer(file = file, colors = colors)
+                    }
+                    "png", "jpg", "jpeg", "webp", "gif" -> {
+                        ImageDocumentViewer(file = file, colors = colors)
+                    }
+                    "html", "htm" -> {
+                        HtmlDocumentViewer(file = file)
+                    }
+                    "pptx", "ppt" -> {
+                        PptxDocumentViewer(file = file, colors = colors)
+                    }
+                    "pdf" -> {
+                        PdfDocumentViewer(file = file, colors = colors)
+                    }
+                    "txt", "json", "csv", "log", "xml", "yaml", "yml", "sh", "py", "js", "ts", "kt", "swift", "md" -> {
+                        TextDocumentViewer(file = file, colors = colors)
+                    }
+                    else -> {
+                        OfficeDocumentFallback(file = file, colors = colors)
                     }
                 }
             }
@@ -170,6 +196,133 @@ fun DocumentPreviewSheet(
 }
 
 typealias VoidHandler = () -> Unit
+
+/**
+ * Apple Native Component Style Circular Button (translucent frosted circle with subtle hairline border).
+ */
+@Composable
+fun ApplePreviewCircleButton(
+    icon: ImageVector,
+    contentDescription: String,
+    colors: AppColors,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = colors.surfaceVariant.copy(alpha = 0.65f),
+        border = androidx.compose.foundation.BorderStroke(0.5.dp, colors.border.copy(alpha = 0.35f)),
+        modifier = modifier.size(36.dp)
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                tint = colors.textPrimary,
+                modifier = Modifier.size(19.dp)
+            )
+        }
+    }
+}
+
+/**
+ * SVG Document Viewer using Coil with SvgDecoder.
+ */
+@Composable
+private fun SvgDocumentViewer(file: File, colors: AppColors) {
+    val context = LocalContext.current
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        SubcomposeAsyncImage(
+            model = ImageRequest.Builder(context)
+                .data(file)
+                .decoderFactory(SvgDecoder.Factory())
+                .crossfade(true)
+                .build(),
+            contentDescription = "SVG Preview",
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Fit,
+            loading = {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = colors.accentIndigo, modifier = Modifier.size(32.dp))
+                }
+            },
+            error = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.BrokenImage,
+                        contentDescription = null,
+                        tint = colors.textMuted,
+                        modifier = Modifier.size(48.dp)
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("SVG 矢量图加载失败", color = colors.textSecondary, fontSize = 14.sp)
+                }
+            }
+        )
+    }
+}
+
+/**
+ * Image Viewer for standard image formats.
+ */
+@Composable
+private fun ImageDocumentViewer(file: File, colors: AppColors) {
+    val context = LocalContext.current
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        SubcomposeAsyncImage(
+            model = ImageRequest.Builder(context)
+                .data(file)
+                .crossfade(true)
+                .build(),
+            contentDescription = "Image Preview",
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Fit,
+            loading = {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = colors.accentIndigo, modifier = Modifier.size(32.dp))
+                }
+            },
+            error = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.BrokenImage,
+                        contentDescription = null,
+                        tint = colors.textMuted,
+                        modifier = Modifier.size(48.dp)
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("图片加载失败", color = colors.textSecondary, fontSize = 14.sp)
+                }
+            }
+        )
+    }
+}
 
 @Composable
 private fun HtmlDocumentViewer(file: File) {
@@ -196,7 +349,6 @@ private fun HtmlDocumentViewer(file: File) {
                 }
                 try {
                     var htmlContent = file.readText(Charsets.UTF_8).trim()
-                    // Defensive check: if the file content itself was base64-encoded
                     if (!htmlContent.startsWith("<") && (htmlContent.startsWith("PCFE") || htmlContent.startsWith("PD!"))) {
                         try {
                             val decoded = String(Base64.decode(htmlContent, Base64.DEFAULT), Charsets.UTF_8)
@@ -327,12 +479,24 @@ private fun HtmlDocumentViewer(file: File) {
 private data class PptxSlide(
     val slideNumber: Int,
     val bitmap: Bitmap? = null,
+    val categoryBadge: String? = null,
     val title: String? = null,
-    val paragraphs: List<String> = emptyList()
+    val subtitle: String? = null,
+    val items: List<String> = emptyList(),
+    val isDarkTheme: Boolean = true
 )
 
+/**
+ * PPTX Document Viewer.
+ * Solves the previous preview bug where a blank white template dummy thumbnail in docProps/thumbnail.jpeg
+ * caused all slide XML parsing to be skipped.
+ * Now parses all ppt/slides/slide{N}.xml numerically, extracts structured shapes, categories, titles,
+ * subtitles, bullet items, and slide theme, and renders each as a 16:9 presentation slide card.
+ */
 @Composable
 private fun PptxDocumentViewer(file: File, colors: AppColors) {
+    val context = LocalContext.current
+    val haptic = rememberHaptic()
     var slides by remember { mutableStateOf<List<PptxSlide>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -340,14 +504,13 @@ private fun PptxDocumentViewer(file: File, colors: AppColors) {
     LaunchedEffect(file) {
         withContext(Dispatchers.IO) {
             try {
-                val zip = ZipFile(file)
-                val entries = zip.entries().toList()
                 val parsedSlides = mutableListOf<PptxSlide>()
+                val zip = ZipFile(file)
+                val entries = zip.entries().asSequence().toList()
 
-                // 1. Check for extracted slide images in ppt/media/
-                val slideImageRegex = Regex("""ppt/media/Slide-(\d+)-image-\d+\.(png|jpe?g|webp)""", RegexOption.IGNORE_CASE)
+                // Check for slide-rendered image exports (e.g. ppt/media/slide_1.png)
+                val slideImageRegex = Regex("""ppt/media/slide_?(\d+)\.(png|jpe?g|webp)""", RegexOption.IGNORE_CASE)
                 val slideImageEntries = mutableMapOf<Int, java.util.zip.ZipEntry>()
-
                 for (entry in entries) {
                     val match = slideImageRegex.find(entry.name)
                     if (match != null) {
@@ -359,6 +522,7 @@ private fun PptxDocumentViewer(file: File, colors: AppColors) {
                 }
 
                 if (slideImageEntries.isNotEmpty()) {
+                    // Render pure image slides if present
                     val sortedKeys = slideImageEntries.keys.sorted()
                     for (num in sortedKeys) {
                         val entry = slideImageEntries[num]!!
@@ -369,48 +533,80 @@ private fun PptxDocumentViewer(file: File, colors: AppColors) {
                         }
                     }
                 } else {
-                    // Check for general images or thumbnails
-                    val generalImageRegex = Regex("""ppt/media/image(\d+)\.(png|jpe?g|webp)""", RegexOption.IGNORE_CASE)
-                    val genericEntries = entries.filter { generalImageRegex.find(it.name) != null }
-                        .sortedBy { generalImageRegex.find(it.name)?.groupValues?.get(1)?.toIntOrNull() ?: 999 }
-
-                    if (genericEntries.isNotEmpty()) {
-                        genericEntries.forEachIndexed { idx, entry ->
-                            val bytes = zip.getInputStream(entry).use { it.readBytes() }
-                            val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                            if (bmp != null) {
-                                parsedSlides.add(PptxSlide(slideNumber = idx + 1, bitmap = bmp))
-                            }
-                        }
-                    } else {
-                        // Check for docProps/thumbnail
-                        val thumb = entries.firstOrNull { it.name.contains("thumbnail", ignoreCase = true) }
-                        if (thumb != null) {
-                            val bytes = zip.getInputStream(thumb).use { it.readBytes() }
-                            val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                            if (bmp != null) {
-                                parsedSlides.add(PptxSlide(slideNumber = 1, bitmap = bmp))
-                            }
-                        }
-                    }
-                }
-
-                // 2. If no slide images found, parse text from ppt/slides/slide{N}.xml
-                if (parsedSlides.isEmpty()) {
+                    // Parse structured XML slides from ppt/slides/slide{N}.xml (numerical order)
                     val slideXmlRegex = Regex("""ppt/slides/slide(\d+)\.xml""", RegexOption.IGNORE_CASE)
                     val xmlEntries = entries.filter { slideXmlRegex.matches(it.name) }
                         .sortedBy { slideXmlRegex.find(it.name)?.groupValues?.get(1)?.toIntOrNull() ?: 999 }
 
-                    val textRegex = Regex("""<a:t[^>]*>(.*?)</a:t>""")
+                    val shapeRegex = Regex("""<p:sp\b.*?</p:sp>""", RegexOption.DOTALL)
+                    val textRegex = Regex("""<a:t\b[^>]*>(.*?)</a:t>""", RegexOption.DOTALL)
+                    val darkHexRegex = Regex("""srgbClr val="(0B0F19|111827|1E293B|0A0F1D|000000|0F172A)""", RegexOption.IGNORE_CASE)
+
                     for (xmlEntry in xmlEntries) {
-                        val num = slideXmlRegex.find(xmlEntry.name)?.groupValues?.get(1)?.toIntOrNull() ?: (parsedSlides.size + 1)
-                        val textContent = zip.getInputStream(xmlEntry).use { it.bufferedReader(Charsets.UTF_8).readText() }
-                        val matches = textRegex.findAll(textContent).map { it.groupValues[1].trim() }.filter { it.isNotBlank() }.toList()
-                        if (matches.isNotEmpty()) {
-                            val title = matches.firstOrNull() ?: "幻灯片 $num"
-                            val paragraphs = if (matches.size > 1) matches.subList(1, matches.size) else emptyList()
-                            parsedSlides.add(PptxSlide(slideNumber = num, title = title, paragraphs = paragraphs))
+                        val slideNum = slideXmlRegex.find(xmlEntry.name)?.groupValues?.get(1)?.toIntOrNull()
+                            ?: (parsedSlides.size + 1)
+                        val xmlContent = zip.getInputStream(xmlEntry).use { it.bufferedReader(Charsets.UTF_8).readText() }
+
+                        val isDark = darkHexRegex.containsMatchIn(xmlContent) || xmlContent.contains("0B0F19", ignoreCase = true)
+                        val shapes = shapeRegex.findAll(xmlContent).map { it.value }.toList()
+                        val texts = mutableListOf<String>()
+
+                        for (shape in shapes) {
+                            val matchedTexts = textRegex.findAll(shape).map { m ->
+                                unescapeXml(m.groupValues[1].trim())
+                            }.filter { it.isNotBlank() }.toList()
+
+                            if (matchedTexts.isNotEmpty()) {
+                                val joined = matchedTexts.joinToString(" ")
+                                if (joined.isNotBlank()) {
+                                    texts.add(joined)
+                                }
+                            }
                         }
+
+                        var categoryBadge: String? = null
+                        var slideTitle: String? = null
+                        var subtitle: String? = null
+                        var rem = texts.toList()
+
+                        if (rem.isNotEmpty()) {
+                            val first = rem.first()
+                            // Determine if first shape is category/theme badge
+                            if (first.length <= 32 && (first.all { it.isUpperCase() || it.isDigit() || it.isWhitespace() || it == '-' || it == '_' || it == '/' || it == ':' }
+                                    || listOf("DEMO", "SYSTEM", "EVOLUTION", "CHALLENGES", "ARCHITECTURE", "OVERVIEW", "KEYNOTE").any { first.contains(it, ignoreCase = true) })) {
+                                categoryBadge = first
+                                rem = rem.drop(1)
+                            }
+                        }
+
+                        if (rem.isNotEmpty()) {
+                            slideTitle = rem.first()
+                            rem = rem.drop(1)
+                        }
+
+                        if (rem.isNotEmpty()) {
+                            val candidateSub = rem.first()
+                            if (candidateSub.length <= 120 && !candidateSub.startsWith("01") && !candidateSub.startsWith("第一代") && !candidateSub.startsWith("•")) {
+                                subtitle = candidateSub
+                                rem = rem.drop(1)
+                            }
+                        }
+
+                        // Filter out bottom footer boilerplate
+                        val items = rem.filter { t ->
+                            !listOf("PPT Master", "Tech Presentation", "Release: v", "Page 0", "• Page").any { t.contains(it, ignoreCase = true) }
+                        }
+
+                        parsedSlides.add(
+                            PptxSlide(
+                                slideNumber = slideNum,
+                                categoryBadge = categoryBadge,
+                                title = slideTitle ?: "幻灯片 $slideNum",
+                                subtitle = subtitle,
+                                items = items,
+                                isDarkTheme = isDark
+                            )
+                        )
                     }
                 }
 
@@ -441,7 +637,7 @@ private fun PptxDocumentViewer(file: File, colors: AppColors) {
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            itemsIndexed(slides) { index, slide ->
+            itemsIndexed(slides) { _, slide ->
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalAlignment = Alignment.CenterHorizontally
@@ -453,46 +649,169 @@ private fun PptxDocumentViewer(file: File, colors: AppColors) {
                             contentScale = ContentScale.FillWidth,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .border(0.5.dp, colors.border, RoundedCornerShape(8.dp))
+                                .clip(RoundedCornerShape(12.dp))
+                                .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
                         )
                     } else {
+                        // Presentation Slide Widescreen Card
+                        val cardBg = if (slide.isDarkTheme) Color(0xFF0F172A) else colors.surfaceVariant.copy(alpha = 0.5f)
+                        val cardBorder = if (slide.isDarkTheme) Color(0xFF334155) else colors.border
+                        val titleColor = if (slide.isDarkTheme) Color(0xFFF8FAFC) else colors.textPrimary
+                        val subColor = if (slide.isDarkTheme) Color(0xFF94A3B8) else colors.textSecondary
+                        val textColor = if (slide.isDarkTheme) Color(0xFFE2E8F0) else colors.textPrimary
+
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(colors.surfaceVariant.copy(alpha = 0.5f))
-                                .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(cardBg)
+                                .border(0.8.dp, cardBorder, RoundedCornerShape(14.dp))
                                 .padding(16.dp)
                         ) {
+                            // Slide Top Bar
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                if (!slide.categoryBadge.isNullOrBlank()) {
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = colors.accentIndigo.copy(alpha = 0.2f)
+                                    ) {
+                                        Text(
+                                            text = slide.categoryBadge,
+                                            color = colors.accentIndigo,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                } else {
+                                    Spacer(modifier = Modifier.width(1.dp))
+                                }
+
+                                Text(
+                                    text = String.format("%02d / %02d", slide.slideNumber, slides.size),
+                                    color = colors.textMuted,
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            // Slide Title
                             Text(
                                 text = slide.title ?: "幻灯片 ${slide.slideNumber}",
-                                color = colors.textPrimary,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold
+                                color = titleColor,
+                                fontSize = 16.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                lineHeight = 22.sp
                             )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            slide.paragraphs.forEach { p ->
+
+                            // Slide Subtitle
+                            if (!slide.subtitle.isNullOrBlank()) {
+                                Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = "• $p",
-                                    color = colors.textSecondary,
-                                    fontSize = 13.5.sp,
-                                    lineHeight = 18.sp,
-                                    modifier = Modifier.padding(vertical = 2.dp)
+                                    text = slide.subtitle,
+                                    color = subColor,
+                                    fontSize = 12.5.sp,
+                                    lineHeight = 17.sp
                                 )
+                            }
+
+                            // Slide Items
+                            if (slide.items.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(12.dp))
+                                HorizontalDivider(color = cardBorder.copy(alpha = 0.6f), thickness = 0.5.dp)
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    slide.items.take(10).forEach { item ->
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.Top
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .padding(top = 6.dp, end = 8.dp)
+                                                    .size(5.dp)
+                                                    .clip(CircleShape)
+                                                    .background(colors.accentIndigo)
+                                            )
+                                            Text(
+                                                text = item,
+                                                color = textColor,
+                                                fontSize = 12.sp,
+                                                lineHeight = 16.5.sp
+                                            )
+                                        }
+                                    }
+                                    if (slide.items.size > 10) {
+                                        Text(
+                                            text = "• 还有 ${slide.items.size - 10} 项演示内容...",
+                                            color = colors.textMuted,
+                                            fontSize = 11.sp,
+                                            modifier = Modifier.padding(top = 2.dp)
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
+
                     Text(
                         text = "第 ${slide.slideNumber} / ${slides.size} 页",
                         color = colors.textMuted,
                         fontSize = 11.5.sp,
-                        modifier = Modifier.padding(top = 4.dp)
+                        modifier = Modifier.padding(top = 6.dp)
                     )
                 }
             }
+
+            // Bottom Action: Open in External App
+            item {
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(
+                    onClick = {
+                        haptic.medium()
+                        openInExternalApp(context, file)
+                    },
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = colors.surfaceVariant,
+                        contentColor = colors.textPrimary
+                    ),
+                    border = androidx.compose.foundation.BorderStroke(0.5.dp, colors.border),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.OpenInNew,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "在第三方应用中打开 (WPS / Office 完整放映)",
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
         }
     }
+}
+
+private fun unescapeXml(text: String): String {
+    return text.replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&#39;", "'")
 }
 
 @Composable
@@ -511,7 +830,6 @@ private fun PdfDocumentViewer(file: File, colors: AppColors) {
 
                 for (i in 0 until count) {
                     val page = renderer.openPage(i)
-                    // Render page into high-res bitmap
                     val width = page.width * 2
                     val height = page.height * 2
                     val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
@@ -609,6 +927,7 @@ private fun OfficeDocumentFallback(
     customMessage: String? = null
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val haptic = rememberHaptic()
     val sizeStr = remember(file) {
         val bytes = file.length()
@@ -690,18 +1009,20 @@ private fun OfficeDocumentFallback(
         OutlinedButton(
             onClick = {
                 haptic.light()
-                shareDocument(context, file, file.name)
+                coroutineScope.launch {
+                    saveFileToDownloads(context, file, file.name)
+                }
             },
             shape = RoundedCornerShape(10.dp),
             modifier = Modifier.fillMaxWidth(0.75f)
         ) {
             Icon(
-                imageVector = Icons.Default.Share,
+                imageVector = Icons.Default.FileDownload,
                 contentDescription = null,
                 modifier = Modifier.size(16.dp)
             )
             Spacer(modifier = Modifier.width(8.dp))
-            Text(text = "分享文件", fontSize = 14.sp)
+            Text(text = "保存到下载目录", fontSize = 14.sp)
         }
     }
 }
@@ -745,6 +1066,67 @@ private fun shareDocument(context: Context, file: File, title: String) {
     }
 }
 
+suspend fun saveFileToDownloads(context: Context, file: File, displayName: String) {
+    withContext(Dispatchers.IO) {
+        try {
+            val mimeType = getMimeType(file)
+            val isImage = mimeType.startsWith("image/")
+            val resolver = context.contentResolver
+            val contentValues = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
+                put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    val relativePath = if (isImage) {
+                        Environment.DIRECTORY_PICTURES + "/Antigravity"
+                    } else {
+                        Environment.DIRECTORY_DOWNLOADS + "/Antigravity"
+                    }
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
+                    put(MediaStore.MediaColumns.IS_PENDING, 1)
+                }
+            }
+
+            val collectionUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                if (isImage) MediaStore.Images.Media.EXTERNAL_CONTENT_URI else MediaStore.Downloads.EXTERNAL_CONTENT_URI
+            } else {
+                if (isImage) MediaStore.Images.Media.EXTERNAL_CONTENT_URI else MediaStore.Files.getContentUri("external")
+            }
+
+            val itemUri = resolver.insert(collectionUri, contentValues)
+            if (itemUri != null) {
+                resolver.openOutputStream(itemUri)?.use { out ->
+                    file.inputStream().use { input ->
+                        input.copyTo(out)
+                    }
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    contentValues.clear()
+                    contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
+                    resolver.update(itemUri, contentValues, null, null)
+                }
+                withContext(Dispatchers.Main) {
+                    val destDesc = if (isImage) "相册" else "下载目录"
+                    Toast.makeText(context, "已保存到$destDesc", Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                val targetDir = Environment.getExternalStoragePublicDirectory(
+                    if (isImage) Environment.DIRECTORY_PICTURES else Environment.DIRECTORY_DOWNLOADS
+                )
+                val destFile = File(targetDir, displayName)
+                file.copyTo(destFile, overwrite = true)
+                withContext(Dispatchers.Main) {
+                    val destDesc = if (isImage) "相册" else "下载目录"
+                    Toast.makeText(context, "已保存到$destDesc", Toast.LENGTH_SHORT).show()
+                }
+            }
+        } catch (e: Exception) {
+            withContext(Dispatchers.Main) {
+                Toast.makeText(context, "保存失败: ${e.localizedMessage ?: e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+}
+
 private fun getMimeType(file: File): String {
     return when (file.extension.lowercase()) {
         "pdf" -> "application/pdf"
@@ -755,8 +1137,14 @@ private fun getMimeType(file: File): String {
         "xlsx" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         "xls" -> "application/vnd.ms-excel"
         "html", "htm" -> "text/html"
+        "svg" -> "image/svg+xml"
+        "png" -> "image/png"
+        "jpg", "jpeg" -> "image/jpeg"
+        "webp" -> "image/webp"
+        "gif" -> "image/gif"
         "txt", "log", "csv" -> "text/plain"
         "json" -> "application/json"
+        "md" -> "text/markdown"
         "zip" -> "application/zip"
         else -> "*/*"
     }
