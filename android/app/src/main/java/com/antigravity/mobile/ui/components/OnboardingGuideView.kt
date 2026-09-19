@@ -133,8 +133,8 @@ fun OnboardingGuideView(
             border = androidx.compose.foundation.BorderStroke(0.6.dp, colors.border.copy(alpha = 0.5f))
         ) {
             Column(
-                modifier = Modifier.padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -166,61 +166,66 @@ fun OnboardingGuideView(
                     text = "手机端需配合运行在 Mac 或 Windows 电脑上的本地网关协同工作，嗅探后台实例打通直连。",
                     fontSize = 12.sp,
                     color = colors.textSecondary,
-                    lineHeight = 17.sp
+                    lineHeight = 16.sp
                 )
 
                 // Terminal one-click installation and run script blocks container
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
+                        .clip(RoundedCornerShape(8.dp))
                         .background(colors.surfaceVariant.copy(alpha = 0.45f))
-                        .border(0.6.dp, colors.border.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
-                        .padding(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                        .border(0.6.dp, colors.border.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 9.dp, vertical = 7.dp),
+                    verticalArrangement = Arrangement.spacedBy(7.dp)
                 ) {
                     // macOS
                     Column(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(22.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                modifier = Modifier.weight(1f, fill = false)
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Terminal,
+                                    painter = painterResource(id = R.drawable.ic_apple_logo),
                                     contentDescription = null,
                                     tint = colors.textSecondary,
-                                    modifier = Modifier.size(13.dp)
+                                    modifier = Modifier.size(12.dp)
                                 )
                                 Text(
-                                    text = "macOS",
+                                    text = "macOS (Apple Silicon & Intel)",
                                     fontSize = 11.5.sp,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = colors.textPrimary
+                                    color = colors.textPrimary,
+                                    maxLines = 1
                                 )
                             }
 
                             Box(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
+                                    .width(66.dp)
+                                    .height(22.dp)
+                                    .clip(RoundedCornerShape(5.dp))
                                     .background(
                                         if (isMacCopied) colors.accentGreen.copy(alpha = 0.15f)
                                         else colors.accentBlue.copy(alpha = 0.12f)
                                     )
-                                    .clickable(onClick = { copyCommand(macInstallCommand, true) })
-                                    .padding(horizontal = 8.dp, vertical = 3.5.dp),
+                                    .clickable(onClick = { copyCommand(macInstallCommand, true) }),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(3.5.dp)
                                 ) {
                                     Icon(
                                         imageVector = if (isMacCopied) Icons.Default.Check else Icons.Default.ContentCopy,
@@ -230,7 +235,7 @@ fun OnboardingGuideView(
                                     )
                                     Text(
                                         text = if (isMacCopied) "已复制" else "一键复制",
-                                        fontSize = 11.sp,
+                                        fontSize = 10.5.sp,
                                         fontWeight = FontWeight.SemiBold,
                                         color = if (isMacCopied) colors.accentGreen else colors.accentBlue
                                     )
@@ -242,11 +247,11 @@ fun OnboardingGuideView(
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(6.dp))
+                                .clip(RoundedCornerShape(5.dp))
                                 .background(colors.surface)
-                                .border(0.6.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                                .border(0.6.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(5.dp))
                                 .clickable(onClick = { copyCommand(macInstallCommand, true) })
-                                .padding(horizontal = 8.dp, vertical = 7.dp)
+                                .padding(horizontal = 8.dp, vertical = 4.5.dp)
                         ) {
                             Row(
                                 modifier = Modifier
@@ -269,45 +274,50 @@ fun OnboardingGuideView(
                     // Windows (PowerShell)
                     Column(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(22.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                modifier = Modifier.weight(1f, fill = false)
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Terminal,
+                                    painter = painterResource(id = R.drawable.ic_windows_logo),
                                     contentDescription = null,
                                     tint = colors.textSecondary,
-                                    modifier = Modifier.size(13.dp)
+                                    modifier = Modifier.size(12.dp)
                                 )
                                 Text(
                                     text = "Windows (PowerShell)",
                                     fontSize = 11.5.sp,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = colors.textPrimary
+                                    color = colors.textPrimary,
+                                    maxLines = 1
                                 )
                             }
 
                             Box(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
+                                    .width(66.dp)
+                                    .height(22.dp)
+                                    .clip(RoundedCornerShape(5.dp))
                                     .background(
                                         if (isWinCopied) colors.accentGreen.copy(alpha = 0.15f)
                                         else colors.accentBlue.copy(alpha = 0.12f)
                                     )
-                                    .clickable(onClick = { copyCommand(winInstallCommand, false) })
-                                    .padding(horizontal = 8.dp, vertical = 3.5.dp),
+                                    .clickable(onClick = { copyCommand(winInstallCommand, false) }),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(3.5.dp)
                                 ) {
                                     Icon(
                                         imageVector = if (isWinCopied) Icons.Default.Check else Icons.Default.ContentCopy,
@@ -317,7 +327,7 @@ fun OnboardingGuideView(
                                     )
                                     Text(
                                         text = if (isWinCopied) "已复制" else "一键复制",
-                                        fontSize = 11.sp,
+                                        fontSize = 10.5.sp,
                                         fontWeight = FontWeight.SemiBold,
                                         color = if (isWinCopied) colors.accentGreen else colors.accentBlue
                                     )
@@ -329,11 +339,11 @@ fun OnboardingGuideView(
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(6.dp))
+                                .clip(RoundedCornerShape(5.dp))
                                 .background(colors.surface)
-                                .border(0.6.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                                .border(0.6.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(5.dp))
                                 .clickable(onClick = { copyCommand(winInstallCommand, false) })
-                                .padding(horizontal = 8.dp, vertical = 7.dp)
+                                .padding(horizontal = 8.dp, vertical = 4.5.dp)
                         ) {
                             Row(
                                 modifier = Modifier
@@ -355,9 +365,9 @@ fun OnboardingGuideView(
 
                     // Clean mgy prompt without redundant copy button
                     Row(
-                        modifier = Modifier.padding(horizontal = 2.dp, vertical = 1.dp),
+                        modifier = Modifier.padding(horizontal = 2.dp, vertical = 0.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
                     ) {
                         Text(
                             text = "若已安装网关，直接在终端执行",
@@ -369,7 +379,7 @@ fun OnboardingGuideView(
                                 .clip(RoundedCornerShape(4.dp))
                                 .background(colors.surface)
                                 .border(0.5.dp, colors.border.copy(alpha = 0.6f), RoundedCornerShape(4.dp))
-                                .padding(horizontal = 6.dp, vertical = 1.5.dp)
+                                .padding(horizontal = 5.dp, vertical = 1.dp)
                         ) {
                             Text(
                                 text = runCommand,
@@ -396,28 +406,28 @@ fun OnboardingGuideView(
                             )
                             context.startActivity(intent)
                         }
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
                         imageVector = Icons.Default.ArrowCircleDown,
                         contentDescription = null,
                         tint = colors.accentBlue,
-                        modifier = Modifier.size(15.dp)
+                        modifier = Modifier.size(14.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = "查看 GitHub 部署指南与下载",
-                        fontSize = 13.sp,
+                        fontSize = 12.5.sp,
                         fontWeight = FontWeight.Medium,
                         color = colors.accentBlue
                     )
                     Spacer(modifier = Modifier.weight(1f))
                     Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                        painter = painterResource(id = R.drawable.ic_arrow_up_right),
                         contentDescription = null,
-                        tint = colors.accentBlue.copy(alpha = 0.6f),
-                        modifier = Modifier.size(10.dp)
+                        tint = colors.accentBlue.copy(alpha = 0.7f),
+                        modifier = Modifier.size(11.dp)
                     )
                 }
             }
