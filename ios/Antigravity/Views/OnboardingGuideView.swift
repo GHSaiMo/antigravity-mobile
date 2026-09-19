@@ -7,9 +7,11 @@ public struct OnboardingGuideView: View {
     
     @Environment(\.openURL) private var openURL
     
-    private let installCommand = "curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.sh | bash"
+    private let macInstallCommand = "curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.sh | bash"
+    private let winInstallCommand = "irm https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.ps1 | iex"
     private let runCommand = "mgy"
-    @State private var isCopied = false
+    @State private var isMacCopied = false
+    @State private var isWinCopied = false
     
     public init(
         onScanTapped: @escaping () -> Void,
@@ -21,16 +23,24 @@ public struct OnboardingGuideView: View {
         self.onEasterEggTap = onEasterEggTap
     }
     
-    private func copyInstallCommand() {
-        UIPasteboard.general.string = installCommand
+    private func copyCommand(_ command: String, isMac: Bool) {
+        UIPasteboard.general.string = command
         let generator = UINotificationFeedbackGenerator()
         generator.notificationOccurred(.success)
         withAnimation(.easeInOut(duration: 0.2)) {
-            isCopied = true
+            if isMac {
+                isMacCopied = true
+            } else {
+                isWinCopied = true
+            }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
             withAnimation(.easeInOut(duration: 0.2)) {
-                isCopied = false
+                if isMac {
+                    isMacCopied = false
+                } else {
+                    isWinCopied = false
+                }
             }
         }
     }
@@ -82,67 +92,121 @@ public struct OnboardingGuideView: View {
                                     .font(.system(size: 13, weight: .bold))
                                     .foregroundColor(.blue)
                             }
-                            Text("在 Mac 上启动网关服务")
+                            Text("在电脑上启动网关服务")
                                 .font(.system(size: 15, weight: .semibold))
                                 .foregroundColor(.primary)
                         }
                         
-                        Text("手机端需配合运行在 Mac 上的本地网关协同工作，嗅探后台实例打通直连。")
+                        Text("手机端需配合运行在 Mac 或 Windows 电脑上的本地网关协同工作，嗅探后台实例打通直连。")
                             .font(.system(size: 12))
                             .foregroundColor(.secondary)
                             .lineSpacing(2)
                         
-                        // Mac Terminal one-click installation script block
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                HStack(spacing: 5) {
-                                    Image(systemName: "terminal.fill")
-                                        .font(.system(size: 11))
-                                        .foregroundColor(.secondary)
-                                    Text("Mac 终端一键安装脚本")
-                                        .font(.system(size: 11.5, weight: .medium))
-                                        .foregroundColor(.secondary)
-                                }
-                                Spacer()
-                                Button(action: copyInstallCommand) {
-                                    HStack(spacing: 4) {
-                                        Image(systemName: isCopied ? "checkmark" : "doc.on.doc")
-                                            .font(.system(size: 11, weight: .semibold))
-                                        Text(isCopied ? "已复制" : "一键复制")
-                                            .font(.system(size: 11, weight: .semibold))
+                        // Terminal one-click installation script blocks container
+                        VStack(alignment: .leading, spacing: 10) {
+                            // macOS
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack {
+                                    HStack(spacing: 5) {
+                                        Image(systemName: "applelogo")
+                                            .font(.system(size: 11))
+                                            .foregroundColor(.secondary)
+                                        Text("macOS")
+                                            .font(.system(size: 11.5, weight: .semibold))
+                                            .foregroundColor(.primary)
                                     }
-                                    .foregroundColor(isCopied ? .green : .blue)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
+                                    Spacer()
+                                    Button(action: { copyCommand(macInstallCommand, isMac: true) }) {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: isMacCopied ? "checkmark" : "doc.on.doc")
+                                                .font(.system(size: 11, weight: .semibold))
+                                            Text(isMacCopied ? "已复制" : "一键复制")
+                                                .font(.system(size: 11, weight: .semibold))
+                                        }
+                                        .foregroundColor(isMacCopied ? .green : .blue)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 3.5)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                                .fill(isMacCopied ? Color.green.opacity(0.12) : Color.blue.opacity(0.1))
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                                
+                                Button(action: { copyCommand(macInstallCommand, isMac: true) }) {
+                                    ScrollView(.horizontal, showsIndicators: false) {
+                                        Text(macInstallCommand)
+                                            .font(.system(size: 11, weight: .regular, design: .monospaced))
+                                            .foregroundColor(.primary)
+                                            .lineLimit(1)
+                                            .padding(.horizontal, 8)
+                                            .padding(.vertical, 7)
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                                     .background(
                                         RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                            .fill(isCopied ? Color.green.opacity(0.12) : Color.blue.opacity(0.1))
+                                            .fill(Color(uiColor: .tertiarySystemBackground))
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                            .stroke(Color.primary.opacity(0.06), lineWidth: 1)
                                     )
                                 }
                                 .buttonStyle(.plain)
                             }
                             
-                            // Horizontal scrollable single-line code block
-                            Button(action: copyInstallCommand) {
-                                ScrollView(.horizontal, showsIndicators: false) {
-                                    Text(installCommand)
-                                        .font(.system(size: 11, weight: .regular, design: .monospaced))
-                                        .foregroundColor(.primary)
-                                        .lineLimit(1)
+                            // Windows (PowerShell)
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack {
+                                    HStack(spacing: 5) {
+                                        Image(systemName: "terminal.fill")
+                                            .font(.system(size: 11))
+                                            .foregroundColor(.secondary)
+                                        Text("Windows (PowerShell)")
+                                            .font(.system(size: 11.5, weight: .semibold))
+                                            .foregroundColor(.primary)
+                                    }
+                                    Spacer()
+                                    Button(action: { copyCommand(winInstallCommand, isMac: false) }) {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: isWinCopied ? "checkmark" : "doc.on.doc")
+                                                .font(.system(size: 11, weight: .semibold))
+                                            Text(isWinCopied ? "已复制" : "一键复制")
+                                                .font(.system(size: 11, weight: .semibold))
+                                        }
+                                        .foregroundColor(isWinCopied ? .green : .blue)
                                         .padding(.horizontal, 8)
-                                        .padding(.vertical, 7)
+                                        .padding(.vertical, 3.5)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                                .fill(isWinCopied ? Color.green.opacity(0.12) : Color.blue.opacity(0.1))
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
                                 }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                        .fill(Color(uiColor: .tertiarySystemBackground))
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                        .stroke(Color.primary.opacity(0.06), lineWidth: 1)
-                                )
+                                
+                                Button(action: { copyCommand(winInstallCommand, isMac: false) }) {
+                                    ScrollView(.horizontal, showsIndicators: false) {
+                                        Text(winInstallCommand)
+                                            .font(.system(size: 11, weight: .regular, design: .monospaced))
+                                            .foregroundColor(.primary)
+                                            .lineLimit(1)
+                                            .padding(.horizontal, 8)
+                                            .padding(.vertical, 7)
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                            .fill(Color(uiColor: .tertiarySystemBackground))
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                            .stroke(Color.primary.opacity(0.06), lineWidth: 1)
+                                    )
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                             
                             // Run command helper row for mgy (no copy button)
                             HStack(spacing: 6) {

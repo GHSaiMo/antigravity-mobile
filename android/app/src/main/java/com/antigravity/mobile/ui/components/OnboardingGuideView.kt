@@ -56,18 +56,20 @@ fun OnboardingGuideView(
     val clipboardManager = LocalClipboardManager.current
     val coroutineScope = rememberCoroutineScope()
 
-    val installCommand = "curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.sh | bash"
+    val macInstallCommand = "curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.sh | bash"
+    val winInstallCommand = "irm https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.ps1 | iex"
     val runCommand = "mgy"
 
-    var isInstallCopied by remember { mutableStateOf(false) }
+    var isMacCopied by remember { mutableStateOf(false) }
+    var isWinCopied by remember { mutableStateOf(false) }
 
-    val copyInstallCommand: () -> Unit = {
-        clipboardManager.setText(AnnotatedString(installCommand))
+    val copyCommand: (String, Boolean) -> Unit = { command, isMac ->
+        clipboardManager.setText(AnnotatedString(command))
         haptic.success()
-        isInstallCopied = true
+        if (isMac) isMacCopied = true else isWinCopied = true
         coroutineScope.launch {
             delay(2000L)
-            isInstallCopied = false
+            if (isMac) isMacCopied = false else isWinCopied = false
         }
     }
 
@@ -153,7 +155,7 @@ fun OnboardingGuideView(
                         )
                     }
                     Text(
-                        text = "在 Mac 上启动网关服务",
+                        text = "在电脑上启动网关服务",
                         fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = colors.textPrimary
@@ -161,13 +163,13 @@ fun OnboardingGuideView(
                 }
 
                 Text(
-                    text = "手机端需配合运行在 Mac 上的本地网关协同工作，嗅探后台实例打通直连。",
+                    text = "手机端需配合运行在 Mac 或 Windows 电脑上的本地网关协同工作，嗅探后台实例打通直连。",
                     fontSize = 12.sp,
                     color = colors.textSecondary,
                     lineHeight = 17.sp
                 )
 
-                // Mac Terminal one-click installation and run script block
+                // Terminal one-click installation and run script blocks container
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -175,86 +177,179 @@ fun OnboardingGuideView(
                         .background(colors.surfaceVariant.copy(alpha = 0.45f))
                         .border(0.6.dp, colors.border.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
                         .padding(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Row(
+                    // macOS
+                    Column(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Row(
+                            modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(5.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Terminal,
-                                contentDescription = null,
-                                tint = colors.textSecondary,
-                                modifier = Modifier.size(13.dp)
-                            )
-                            Text(
-                                text = "Mac 终端一键安装脚本",
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = colors.textSecondary
-                            )
-                        }
-
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(
-                                    if (isInstallCopied) colors.accentGreen.copy(alpha = 0.15f)
-                                    else colors.accentBlue.copy(alpha = 0.12f)
-                                )
-                                .clickable(onClick = copyInstallCommand)
-                                .padding(horizontal = 8.dp, vertical = 4.dp),
-                            contentAlignment = Alignment.Center
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)
                             ) {
                                 Icon(
-                                    imageVector = if (isInstallCopied) Icons.Default.Check else Icons.Default.ContentCopy,
+                                    imageVector = Icons.Default.Terminal,
                                     contentDescription = null,
-                                    tint = if (isInstallCopied) colors.accentGreen else colors.accentBlue,
-                                    modifier = Modifier.size(11.dp)
+                                    tint = colors.textSecondary,
+                                    modifier = Modifier.size(13.dp)
                                 )
                                 Text(
-                                    text = if (isInstallCopied) "已复制" else "一键复制",
-                                    fontSize = 11.sp,
+                                    text = "macOS",
+                                    fontSize = 11.5.sp,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = if (isInstallCopied) colors.accentGreen else colors.accentBlue
+                                    color = colors.textPrimary
+                                )
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(
+                                        if (isMacCopied) colors.accentGreen.copy(alpha = 0.15f)
+                                        else colors.accentBlue.copy(alpha = 0.12f)
+                                    )
+                                    .clickable(onClick = { copyCommand(macInstallCommand, true) })
+                                    .padding(horizontal = 8.dp, vertical = 3.5.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (isMacCopied) Icons.Default.Check else Icons.Default.ContentCopy,
+                                        contentDescription = null,
+                                        tint = if (isMacCopied) colors.accentGreen else colors.accentBlue,
+                                        modifier = Modifier.size(11.dp)
+                                    )
+                                    Text(
+                                        text = if (isMacCopied) "已复制" else "一键复制",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = if (isMacCopied) colors.accentGreen else colors.accentBlue
+                                    )
+                                }
+                            }
+                        }
+
+                        // Horizontal scrollable single-line code block for macOS
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(colors.surface)
+                                .border(0.6.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                                .clickable(onClick = { copyCommand(macInstallCommand, true) })
+                                .padding(horizontal = 8.dp, vertical = 7.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = macInstallCommand,
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = colors.textPrimary,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                             }
                         }
                     }
 
-                    // Horizontal scrollable single-line code block
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(colors.surface)
-                            .border(0.6.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
-                            .clickable(onClick = copyInstallCommand)
-                            .padding(horizontal = 8.dp, vertical = 7.dp)
+                    // Windows (PowerShell)
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Terminal,
+                                    contentDescription = null,
+                                    tint = colors.textSecondary,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Text(
+                                    text = "Windows (PowerShell)",
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = colors.textPrimary
+                                )
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(
+                                        if (isWinCopied) colors.accentGreen.copy(alpha = 0.15f)
+                                        else colors.accentBlue.copy(alpha = 0.12f)
+                                    )
+                                    .clickable(onClick = { copyCommand(winInstallCommand, false) })
+                                    .padding(horizontal = 8.dp, vertical = 3.5.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (isWinCopied) Icons.Default.Check else Icons.Default.ContentCopy,
+                                        contentDescription = null,
+                                        tint = if (isWinCopied) colors.accentGreen else colors.accentBlue,
+                                        modifier = Modifier.size(11.dp)
+                                    )
+                                    Text(
+                                        text = if (isWinCopied) "已复制" else "一键复制",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = if (isWinCopied) colors.accentGreen else colors.accentBlue
+                                    )
+                                }
+                            }
+                        }
+
+                        // Horizontal scrollable single-line code block for Windows
+                        Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            verticalAlignment = Alignment.CenterVertically
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(colors.surface)
+                                .border(0.6.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                                .clickable(onClick = { copyCommand(winInstallCommand, false) })
+                                .padding(horizontal = 8.dp, vertical = 7.dp)
                         ) {
-                            Text(
-                                text = installCommand,
-                                fontSize = 11.sp,
-                                fontFamily = FontFamily.Monospace,
-                                color = colors.textPrimary,
-                                maxLines = 1,
-                                softWrap = false
-                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = winInstallCommand,
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = colors.textPrimary,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
                         }
                     }
 
