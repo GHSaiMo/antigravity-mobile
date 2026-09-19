@@ -239,13 +239,6 @@ public struct ManualPairingSheet: View {
             }
             .navigationTitle("手动输入配对信息")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") {
-                        dismiss()
-                    }
-                }
-            }
             .alert("输入错误", isPresented: Binding(
                 get: { errorMessage != nil },
                 set: { if !$0 { errorMessage = nil } }
