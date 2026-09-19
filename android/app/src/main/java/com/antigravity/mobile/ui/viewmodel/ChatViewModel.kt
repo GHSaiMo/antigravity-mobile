@@ -2065,7 +2065,7 @@ class ChatViewModel(
                             isNewConversation = true,
                             title = emptyTitle
                         )
-                        cacheManager.updateConversationTitle(cascadeId, emptyTitle)
+                        cacheManager?.updateSessionTitle(cascadeId, emptyTitle)
                     } else {
                         val sanitized = sanitizeMessageOrder(incoming)
                         _uiState.value = _uiState.value.copy(
@@ -2096,7 +2096,7 @@ class ChatViewModel(
 
         viewModelScope.launch {
             val validStepIndex = initialStepIndex ?: 0
-            val res = apiClient.fetchRevertPreview(cascadeId = cascadeId, stepIndex = validStepIndex)
+            val res = apiClient.getRevertPreview(cascadeId = cascadeId, stepIndex = validStepIndex)
             res.onSuccess { preview ->
                 _uiState.value = _uiState.value.copy(
                     revertPreview = preview,
@@ -2179,7 +2179,7 @@ class ChatViewModel(
                         isNewConversation = true,
                         title = emptyTitle
                     )
-                    cacheManager.updateConversationTitle(cascadeId, emptyTitle)
+                    cacheManager?.updateSessionTitle(cascadeId, emptyTitle)
                 } else {
                     val filtered = _uiState.value.messages.filter { msg ->
                         val idx = msg.stepIndex ?: msg.id.removePrefix("step-").toIntOrNull()

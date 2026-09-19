@@ -538,8 +538,8 @@ private fun PptxDocumentViewer(file: File, colors: AppColors) {
                     val xmlEntries = entries.filter { slideXmlRegex.matches(it.name) }
                         .sortedBy { slideXmlRegex.find(it.name)?.groupValues?.get(1)?.toIntOrNull() ?: 999 }
 
-                    val shapeRegex = Regex("""<p:sp\b.*?</p:sp>""", RegexOption.DOTALL)
-                    val textRegex = Regex("""<a:t\b[^>]*>(.*?)</a:t>""", RegexOption.DOTALL)
+                    val shapeRegex = Regex("""<p:sp\b.*?</p:sp>""", RegexOption.DOT_MATCHES_ALL)
+                    val textRegex = Regex("""<a:t\b[^>]*>(.*?)</a:t>""", RegexOption.DOT_MATCHES_ALL)
                     val darkHexRegex = Regex("""srgbClr val="(0B0F19|111827|1E293B|0A0F1D|000000|0F172A)""", RegexOption.IGNORE_CASE)
 
                     for (xmlEntry in xmlEntries) {
