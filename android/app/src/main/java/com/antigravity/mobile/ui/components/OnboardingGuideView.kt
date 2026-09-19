@@ -8,6 +8,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -59,7 +60,6 @@ fun OnboardingGuideView(
     val runCommand = "mgy"
 
     var isInstallCopied by remember { mutableStateOf(false) }
-    var isRunCopied by remember { mutableStateOf(false) }
 
     val copyInstallCommand: () -> Unit = {
         clipboardManager.setText(AnnotatedString(installCommand))
@@ -71,38 +71,28 @@ fun OnboardingGuideView(
         }
     }
 
-    val copyRunCommand: () -> Unit = {
-        clipboardManager.setText(AnnotatedString(runCommand))
-        haptic.success()
-        isRunCopied = true
-        coroutineScope.launch {
-            delay(2000L)
-            isRunCopied = false
-        }
-    }
-
     Column(
         modifier = modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 24.dp),
+            .padding(horizontal = 20.dp, vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(24.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         // App Logo & Welcome Header
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier.padding(top = 16.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(top = 4.dp)
         ) {
             Image(
                 painter = painterResource(id = R.drawable.app_logo),
                 contentDescription = "Multigravity Logo",
                 modifier = Modifier
-                    .size(80.dp)
-                    .clip(RoundedCornerShape(18.dp))
-                    .border(1.dp, colors.textPrimary.copy(alpha = 0.08f), RoundedCornerShape(18.dp))
-                    .shadow(10.dp, RoundedCornerShape(18.dp), ambientColor = Color.Black.copy(alpha = 0.12f))
+                    .size(60.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .border(1.dp, colors.textPrimary.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
+                    .shadow(8.dp, RoundedCornerShape(14.dp), ambientColor = Color.Black.copy(alpha = 0.12f))
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
@@ -113,74 +103,74 @@ fun OnboardingGuideView(
 
             Text(
                 text = "欢迎使用 Multigravity",
-                fontSize = 26.sp,
+                fontSize = 21.sp,
                 fontWeight = FontWeight.Bold,
                 color = colors.textPrimary,
                 textAlign = TextAlign.Center
             )
 
             Text(
-                text = "Multigravity 智能体全栈移动伴侣\n随时随地监控思考流、下发指令与方案决策",
-                fontSize = 14.sp,
+                text = "Multigravity 智能体全栈移动伴侣\n随时随地监控思考流、下发指令与决策",
+                fontSize = 12.5.sp,
                 color = colors.textSecondary,
                 textAlign = TextAlign.Center,
-                lineHeight = 20.sp,
-                modifier = Modifier.padding(horizontal = 16.dp)
+                lineHeight = 17.sp,
+                modifier = Modifier.padding(horizontal = 12.dp)
             )
         }
 
         // Step 1: Download & Run Gateway
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(14.dp),
             colors = CardDefaults.cardColors(containerColor = colors.surface),
             border = androidx.compose.foundation.BorderStroke(0.6.dp, colors.border.copy(alpha = 0.5f))
         ) {
             Column(
-                modifier = Modifier.padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(28.dp)
+                            .size(24.dp)
                             .clip(CircleShape)
                             .background(colors.accentBlue.copy(alpha = 0.15f)),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             text = "1",
-                            fontSize = 14.sp,
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
                             color = colors.accentBlue
                         )
                     }
                     Text(
                         text = "在 Mac 上启动网关服务",
-                        fontSize = 16.sp,
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = colors.textPrimary
                     )
                 }
 
                 Text(
-                    text = "手机端需配合运行在 Mac 电脑上的 Antigravity 本地网关协同工作。网关会自动嗅探后台实例并打通安全直连。",
-                    fontSize = 13.5.sp,
+                    text = "手机端需配合运行在 Mac 上的本地网关协同工作，嗅探后台实例打通直连。",
+                    fontSize = 12.sp,
                     color = colors.textSecondary,
-                    lineHeight = 19.sp
+                    lineHeight = 17.sp
                 )
 
                 // Mac Terminal one-click installation and run script block
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(RoundedCornerShape(10.dp))
                         .background(colors.surfaceVariant.copy(alpha = 0.45f))
-                        .border(0.6.dp, colors.border.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
-                        .padding(12.dp),
+                        .border(0.6.dp, colors.border.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
+                        .padding(10.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Row(
@@ -190,7 +180,7 @@ fun OnboardingGuideView(
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Terminal,
@@ -200,7 +190,7 @@ fun OnboardingGuideView(
                             )
                             Text(
                                 text = "Mac 终端一键安装脚本",
-                                fontSize = 12.sp,
+                                fontSize = 11.5.sp,
                                 fontWeight = FontWeight.Medium,
                                 color = colors.textSecondary
                             )
@@ -208,13 +198,13 @@ fun OnboardingGuideView(
 
                         Box(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
+                                .clip(RoundedCornerShape(6.dp))
                                 .background(
                                     if (isInstallCopied) colors.accentGreen.copy(alpha = 0.15f)
                                     else colors.accentBlue.copy(alpha = 0.12f)
                                 )
                                 .clickable(onClick = copyInstallCommand)
-                                .padding(horizontal = 10.dp, vertical = 5.dp),
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Row(
@@ -225,11 +215,11 @@ fun OnboardingGuideView(
                                     imageVector = if (isInstallCopied) Icons.Default.Check else Icons.Default.ContentCopy,
                                     contentDescription = null,
                                     tint = if (isInstallCopied) colors.accentGreen else colors.accentBlue,
-                                    modifier = Modifier.size(12.dp)
+                                    modifier = Modifier.size(11.dp)
                                 )
                                 Text(
                                     text = if (isInstallCopied) "已复制" else "一键复制",
-                                    fontSize = 12.sp,
+                                    fontSize = 11.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = if (isInstallCopied) colors.accentGreen else colors.accentBlue
                                 )
@@ -237,66 +227,59 @@ fun OnboardingGuideView(
                         }
                     }
 
+                    // Horizontal scrollable single-line code block
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(6.dp))
                             .background(colors.surface)
-                            .border(1.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                            .border(0.6.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
                             .clickable(onClick = copyInstallCommand)
-                            .padding(10.dp)
-                    ) {
-                        Text(
-                            text = installCommand,
-                            fontSize = 11.5.sp,
-                            fontFamily = FontFamily.Monospace,
-                            color = colors.textPrimary,
-                            lineHeight = 16.sp
-                        )
-                    }
-
-                    // Run command helper row for mgy
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable(onClick = copyRunCommand)
-                            .padding(horizontal = 4.dp, vertical = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                            .padding(horizontal = 8.dp, vertical = 7.dp)
                     ) {
                         Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "若已安装网关，直接在终端执行:",
-                                fontSize = 11.5.sp,
-                                color = colors.textMuted
+                                text = installCommand,
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = colors.textPrimary,
+                                maxLines = 1,
+                                softWrap = false
                             )
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(colors.surface)
-                                    .border(0.5.dp, colors.border, RoundedCornerShape(4.dp))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text(
-                                    text = runCommand,
-                                    fontSize = 11.5.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Bold,
-                                    color = colors.accentIndigo
-                                )
-                            }
                         }
+                    }
 
+                    // Clean mgy prompt without redundant copy button
+                    Row(
+                        modifier = Modifier.padding(horizontal = 2.dp, vertical = 1.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
                         Text(
-                            text = if (isRunCopied) "已复制" else "复制启动指令",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = if (isRunCopied) colors.accentGreen else colors.accentIndigo
+                            text = "若已安装网关，直接在终端执行",
+                            fontSize = 11.5.sp,
+                            color = colors.textMuted
                         )
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(colors.surface)
+                                .border(0.5.dp, colors.border.copy(alpha = 0.6f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 6.dp, vertical = 1.5.dp)
+                        ) {
+                            Text(
+                                text = runCommand,
+                                fontSize = 11.5.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                color = colors.accentIndigo
+                            )
+                        }
                     }
                 }
 
@@ -304,7 +287,7 @@ fun OnboardingGuideView(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
+                        .clip(RoundedCornerShape(8.dp))
                         .background(colors.accentBlue.copy(alpha = 0.08f))
                         .clickable {
                             haptic.light()
@@ -314,19 +297,19 @@ fun OnboardingGuideView(
                             )
                             context.startActivity(intent)
                         }
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
                         imageVector = Icons.Default.ArrowCircleDown,
                         contentDescription = null,
                         tint = colors.accentBlue,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(15.dp)
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = "查看 GitHub 部署指南与下载",
-                        fontSize = 14.sp,
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,
                         color = colors.accentBlue
                     )
@@ -335,7 +318,7 @@ fun OnboardingGuideView(
                         imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
                         contentDescription = null,
                         tint = colors.accentBlue.copy(alpha = 0.6f),
-                        modifier = Modifier.size(11.dp)
+                        modifier = Modifier.size(10.dp)
                     )
                 }
             }
@@ -344,45 +327,45 @@ fun OnboardingGuideView(
         // Step 2: Scan QR Code & Pair
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(14.dp),
             colors = CardDefaults.cardColors(containerColor = colors.surface),
             border = androidx.compose.foundation.BorderStroke(0.6.dp, colors.border.copy(alpha = 0.5f))
         ) {
             Column(
-                modifier = Modifier.padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(28.dp)
+                            .size(24.dp)
                             .clip(CircleShape)
                             .background(colors.accentIndigo.copy(alpha = 0.15f)),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             text = "2",
-                            fontSize = 14.sp,
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
                             color = colors.accentIndigo
                         )
                     }
                     Text(
                         text = "扫码一键自动配对",
-                        fontSize = 16.sp,
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = colors.textPrimary
                     )
                 }
 
                 Text(
-                    text = "电脑终端运行网关后会自动生成复合二维码，同时包含 Wi-Fi 局域网与外网 IPv6 网址。手机扫码即可直接交换凭证并绑定，零手动配置。",
-                    fontSize = 13.5.sp,
+                    text = "电脑终端运行网关后会自动生成复合二维码，手机扫码即可直接交换凭证并绑定，零手动配置。",
+                    fontSize = 12.sp,
                     color = colors.textSecondary,
-                    lineHeight = 19.sp
+                    lineHeight = 17.sp
                 )
 
                 Button(
@@ -392,8 +375,8 @@ fun OnboardingGuideView(
                     },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(50.dp)
-                        .clip(RoundedCornerShape(12.dp))
+                        .height(44.dp)
+                        .clip(RoundedCornerShape(10.dp))
                         .background(
                             Brush.horizontalGradient(
                                 listOf(colors.accentIndigo, Color(0xFF9333EA))
@@ -405,12 +388,12 @@ fun OnboardingGuideView(
                         imageVector = Icons.Default.QrCodeScanner,
                         contentDescription = "Scan",
                         tint = Color.White,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(18.dp)
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = "扫描电脑端配对二维码",
-                        fontSize = 15.sp,
+                        fontSize = 14.5.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = Color.White
                     )
@@ -426,20 +409,20 @@ fun OnboardingGuideView(
                     haptic.light()
                     onManualInputTapped()
                 }
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .padding(horizontal = 10.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
         ) {
             Icon(
                 imageVector = Icons.Default.Keyboard,
                 contentDescription = null,
                 tint = colors.textMuted,
-                modifier = Modifier.size(16.dp)
+                modifier = Modifier.size(15.dp)
             )
             Text(
                 text = "高级选项：手动输入网址或配对码",
                 color = colors.textSecondary,
-                fontSize = 13.sp,
+                fontSize = 12.5.sp,
                 fontWeight = FontWeight.Medium
             )
         }

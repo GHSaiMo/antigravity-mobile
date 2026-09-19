@@ -141,12 +141,20 @@ public struct AccountQuotaSheet: View {
                             await performRefresh()
                         }
                     }) {
-                        if isRefreshing {
-                            ProgressView()
-                                .scaleEffect(0.8)
+                        if #available(iOS 18.0, *) {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 15, weight: .semibold))
+                                .symbolEffect(.rotate.clockwise, isActive: isRefreshing)
                         } else {
                             Image(systemName: "arrow.clockwise")
                                 .font(.system(size: 15, weight: .semibold))
+                                .rotationEffect(.degrees(isRefreshing ? 360 : 0))
+                                .animation(
+                                    isRefreshing
+                                        ? .linear(duration: 1).repeatForever(autoreverses: false)
+                                        : .default,
+                                    value: isRefreshing
+                                )
                         }
                     }
                     .disabled(isRefreshing || switchingAccountId != nil)
