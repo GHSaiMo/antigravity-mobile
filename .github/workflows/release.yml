@@ -119,11 +119,86 @@ jobs:
           path: dist/multigravity-darwin-*.tar.gz
 
   # ============================================================================
-  # 3. 聚合所有构建产物并发布 GitHub Release
+  # 3. 构建 Windows 二进制 (amd64 + arm64)
+  # ============================================================================
+  build-windows:
+    name: Build Windows Binaries
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install zip
+        run: sudo apt-get update && sudo apt-get install -y zip
+
+      - name: Build Windows Binaries
+        run: |
+          mkdir -p dist/amd64 dist/arm64 dist/out
+          TAG_NAME="${{ github.ref_name }}"
+          if [ -z "$TAG_NAME" ] || [ "$TAG_NAME" = "main" ]; then
+            TAG_NAME="${{ inputs.tag || '1.0.0' }}"
+          fi
+          VERSION_NUM="${TAG_NAME#v}"
+
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -X 'main.Version=${VERSION_NUM}'" -o dist/amd64/mgy.exe ./cmd/gateway
+          CGO_ENABLED=0 GOOS=windows GOARCH=arm64 go build -ldflags="-s -w -X 'main.Version=${VERSION_NUM}'" -o dist/arm64/mgy.exe ./cmd/gateway
+
+          (cd dist/amd64 && zip -q -9 ../out/multigravity-windows-amd64.zip mgy.exe)
+          (cd dist/arm64 && zip -q -9 ../out/multigravity-windows-arm64.zip mgy.exe)
+
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-binaries
+          path: dist/out/multigravity-windows-*.zip
+
+  # ============================================================================
+  # 4. 构建 Linux 二进制 (amd64 + arm64)
+  # ============================================================================
+  build-linux:
+    name: Build Linux Binaries
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build Linux Binaries
+        run: |
+          mkdir -p dist/linux-amd64 dist/linux-arm64 dist/out
+          TAG_NAME="${{ github.ref_name }}"
+          if [ -z "$TAG_NAME" ] || [ "$TAG_NAME" = "main" ]; then
+            TAG_NAME="${{ inputs.tag || '1.0.0' }}"
+          fi
+          VERSION_NUM="${TAG_NAME#v}"
+
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X 'main.Version=${VERSION_NUM}'" -o dist/linux-amd64/mgy ./cmd/gateway
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w -X 'main.Version=${VERSION_NUM}'" -o dist/linux-arm64/mgy ./cmd/gateway
+
+          tar -czf dist/out/multigravity-linux-amd64.tar.gz -C dist/linux-amd64 mgy
+          tar -czf dist/out/multigravity-linux-arm64.tar.gz -C dist/linux-arm64 mgy
+
+      - name: Upload Linux Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-binaries
+          path: dist/out/multigravity-linux-*.tar.gz
+
+  # ============================================================================
+  # 5. 聚合所有构建产物并发布 GitHub Release
   # ============================================================================
   publish-release:
     name: Publish GitHub Release
-    needs: [build-android, build-macos]
+    needs: [build-android, build-macos, build-windows, build-linux]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -139,6 +214,18 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: macos-universal
+          path: release-assets
+
+      - name: Download Windows Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-binaries
+          path: release-assets
+
+      - name: Download Linux Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-binaries
           path: release-assets
 
       - name: Create GitHub Release

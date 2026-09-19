@@ -2,40 +2,63 @@
 set -euo pipefail
 
 # ==============================================================================
-# Multigravity (mgy) macOS 一键极简安装脚本
+# Multigravity (mgy) 全平台一键极简安装脚本
+# 支持: macOS (Apple Silicon / Intel), Linux (x86_64 / arm64), Windows (Git Bash / MSYS)
 # 用法: curl -fsSL https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.sh | bash
 # ==============================================================================
 
 REPO="${MULTIGRAVITY_REPO:-GHSaiMo/antigravity-mobile}"
-BIN_NAME="mgy"
 INSTALL_DIR="${HOME}/.local/bin"
 CONF_DIR="${HOME}/.multigravity"
 
-echo "=================================================="
-echo "🚀 正在安装 Multigravity (mgy) for macOS..."
-echo "=================================================="
-
-# 1. 检查操作系统 (仅支持 macOS)
+# 1. 检查操作系统
 OS="$(uname -s)"
-if [ "${OS}" != "Darwin" ]; then
-    echo "❌ 错误: 本一键脚本仅适用于 macOS。当前操作系统: ${OS}"
-    echo "   Linux 或 Windows 用户请参考项目文档手动安装。"
-    exit 1
-fi
+case "${OS}" in
+    Darwin)
+        OS_TYPE="darwin"
+        OS_DESC="macOS"
+        BIN_NAME="mgy"
+        PKG_EXT="tar.gz"
+        ;;
+    Linux)
+        OS_TYPE="linux"
+        OS_DESC="Linux"
+        BIN_NAME="mgy"
+        PKG_EXT="tar.gz"
+        ;;
+    MINGW*|MSYS*|CYGWIN*|Windows_NT)
+        OS_TYPE="windows"
+        OS_DESC="Windows"
+        BIN_NAME="mgy.exe"
+        PKG_EXT="zip"
+        ;;
+    *)
+        echo "❌ 暂不支持的操作系统: ${OS}"
+        exit 1
+        ;;
+esac
+
+echo "=================================================="
+echo "🚀 正在安装 Multigravity (mgy) for ${OS_DESC}..."
+echo "=================================================="
 
 # 2. 探测芯片架构
 ARCH="$(uname -m)"
 case "${ARCH}" in
     arm64|aarch64)
-        ARCH_DESC="Apple Silicon (M系列)"
+        if [ "${OS_TYPE}" = "darwin" ]; then
+            ARCH_DESC="Apple Silicon (M系列)"
+        else
+            ARCH_DESC="${OS_DESC} ARM64"
+        fi
         PKG_ARCH="arm64"
         ;;
     x86_64|amd64)
-        ARCH_DESC="Intel x86_64"
+        ARCH_DESC="${OS_DESC} x86_64 (amd64)"
         PKG_ARCH="amd64"
         ;;
     *)
-        echo "❌ 暂不支持的 Mac 架构: ${ARCH}"
+        echo "❌ 暂不支持的系统架构: ${ARCH}"
         exit 1
         ;;
 esac
@@ -88,14 +111,14 @@ INCLUDE_PUBLIC_IPV6=1
 # 管理员特权密钥 (外网访问或开启 FRP 时用于鉴权，留空则首次运行自动生成)
 # MULTIGRAVITY_ADMIN_TOKEN=
 ENVEOF
-    chmod 600 "${CONF_DIR}/.env"
+    chmod 600 "${CONF_DIR}/.env" 2>/dev/null || true
     echo "📝 已生成全局默认配置: ${CONF_DIR}/.env"
 fi
 
-# 6. 下载并安装对应架构二进制 (优先单架构轻量包 ~7MB，降级回退 Universal 包 ~15MB)
+# 5. 下载并安装对应架构二进制
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "${TMP_DIR}"' EXIT
-TAR_FILE="${TMP_DIR}/multigravity.tar.gz"
+PKG_FILE="${TMP_DIR}/multigravity.${PKG_EXT}"
 
 # 自动探测本机常用代理端口 (Clash / V2Ray / Surge 等)
 PROXY_FLAG=""
@@ -109,32 +132,45 @@ if [ -z "${https_proxy:-}" ] && [ -z "${http_proxy:-}" ] && [ -z "${all_proxy:-}
     done
 fi
 
-ARCH_TAR="multigravity-darwin-${PKG_ARCH}.tar.gz"
-UNIV_TAR="multigravity-darwin-universal.tar.gz"
+ARCH_PKG="multigravity-${OS_TYPE}-${PKG_ARCH}.${PKG_EXT}"
+UNIV_PKG="multigravity-darwin-universal.tar.gz"
 
 DOWNLOAD_URLS=(
-    "https://github.com/${REPO}/releases/latest/download/${ARCH_TAR}"
-    "https://ghfast.top/https://github.com/${REPO}/releases/latest/download/${ARCH_TAR}"
-    "https://ghproxy.net/https://github.com/${REPO}/releases/latest/download/${ARCH_TAR}"
-    "https://github.com/${REPO}/releases/latest/download/${UNIV_TAR}"
-    "https://ghfast.top/https://github.com/${REPO}/releases/latest/download/${UNIV_TAR}"
-    "https://ghproxy.net/https://github.com/${REPO}/releases/latest/download/${UNIV_TAR}"
+    "https://github.com/${REPO}/releases/latest/download/${ARCH_PKG}"
+    "https://ghfast.top/https://github.com/${REPO}/releases/latest/download/${ARCH_PKG}"
+    "https://ghproxy.net/https://github.com/${REPO}/releases/latest/download/${ARCH_PKG}"
 )
+if [ "${OS_TYPE}" = "darwin" ]; then
+    DOWNLOAD_URLS+=(
+        "https://github.com/${REPO}/releases/latest/download/${UNIV_PKG}"
+        "https://ghfast.top/https://github.com/${REPO}/releases/latest/download/${UNIV_PKG}"
+        "https://ghproxy.net/https://github.com/${REPO}/releases/latest/download/${UNIV_PKG}"
+    )
+fi
 
 DOWNLOAD_SUCCESS=false
-echo "📥 正在获取 Multigravity (${PKG_ARCH}) 最新发行版..."
+echo "📥 正在获取 Multigravity (${OS_DESC} ${PKG_ARCH}) 最新发行版..."
 
 for d_url in "${DOWNLOAD_URLS[@]}"; do
     echo "🔗 尝试下载: ${d_url}"
     # shellcheck disable=SC2086
-    if curl -fL ${PROXY_FLAG} --connect-timeout 6 --speed-limit 10240 --speed-time 8 -# -o "${TAR_FILE}" "${d_url}"; then
-        if tar -tzf "${TAR_FILE}" >/dev/null 2>&1; then
-            DOWNLOAD_SUCCESS=true
-            break
+    if curl -fL ${PROXY_FLAG} --connect-timeout 6 --speed-limit 10240 --speed-time 8 -# -o "${PKG_FILE}" "${d_url}"; then
+        if [ "${PKG_EXT}" = "zip" ]; then
+            if command -v unzip >/dev/null 2>&1 && unzip -tq "${PKG_FILE}" >/dev/null 2>&1; then
+                DOWNLOAD_SUCCESS=true
+                break
+            elif command -v tar >/dev/null 2>&1 && tar -tf "${PKG_FILE}" >/dev/null 2>&1; then
+                DOWNLOAD_SUCCESS=true
+                break
+            fi
         else
-            echo "⚠️  下载的文件损坏或非标准 tar.gz，正在尝试下一个源..."
-            rm -f "${TAR_FILE}"
+            if tar -tzf "${PKG_FILE}" >/dev/null 2>&1; then
+                DOWNLOAD_SUCCESS=true
+                break
+            fi
         fi
+        echo "⚠️  下载的文件损坏或非标准包，正在尝试下一个源..."
+        rm -f "${PKG_FILE}"
     else
         echo "⚠️  连接超时或速度较慢，正在自动切换加速镜像源..."
     fi
@@ -142,11 +178,33 @@ done
 
 if [ "${DOWNLOAD_SUCCESS}" = "true" ]; then
     echo "📦 下载完成，正在解压安装..."
-    tar -xzf "${TAR_FILE}" -C "${TMP_DIR}"
+    if [ "${PKG_EXT}" = "zip" ]; then
+        if command -v unzip >/dev/null 2>&1; then
+            unzip -q -o "${PKG_FILE}" -d "${TMP_DIR}"
+        elif command -v tar.exe >/dev/null 2>&1; then
+            tar.exe -xf "${PKG_FILE}" -C "${TMP_DIR}"
+        elif command -v tar >/dev/null 2>&1; then
+            tar -xf "${PKG_FILE}" -C "${TMP_DIR}"
+        elif command -v powershell.exe >/dev/null 2>&1; then
+            powershell.exe -NoProfile -Command "Expand-Archive -Path '${PKG_FILE}' -DestinationPath '${TMP_DIR}' -Force"
+        fi
+    else
+        tar -xzf "${PKG_FILE}" -C "${TMP_DIR}"
+    fi
+
+    # 停止正在运行的旧版本进程以防文件写入锁
+    if [ "${OS_TYPE}" = "windows" ]; then
+        taskkill //F //IM mgy.exe >/dev/null 2>&1 || true
+    fi
+
     if [ -f "${TMP_DIR}/${BIN_NAME}" ]; then
-        mv "${TMP_DIR}/${BIN_NAME}" "${INSTALL_DIR}/${BIN_NAME}"
+        mv -f "${TMP_DIR}/${BIN_NAME}" "${INSTALL_DIR}/${BIN_NAME}"
+    elif [ -f "${TMP_DIR}/mgy" ]; then
+        mv -f "${TMP_DIR}/mgy" "${INSTALL_DIR}/${BIN_NAME}"
     elif [ -f "${TMP_DIR}/gateway" ]; then
-        mv "${TMP_DIR}/gateway" "${INSTALL_DIR}/${BIN_NAME}"
+        mv -f "${TMP_DIR}/gateway" "${INSTALL_DIR}/${BIN_NAME}"
+    elif [ -f "${TMP_DIR}/mgy.exe" ]; then
+        mv -f "${TMP_DIR}/mgy.exe" "${INSTALL_DIR}/${BIN_NAME}"
     else
         echo "❌ 解压归档中未找到可执行文件。"
         exit 1
@@ -156,7 +214,7 @@ else
     echo "⚠️  未能从网络镜像获取预编译包。"
     if [ -f "./bin/${BIN_NAME}" ]; then
         echo "💡 检测到当前目录存在编译好的 ./bin/${BIN_NAME}，正在直接复制安装..."
-        cp "./bin/${BIN_NAME}" "${INSTALL_DIR}/${BIN_NAME}"
+        cp -f "./bin/${BIN_NAME}" "${INSTALL_DIR}/${BIN_NAME}"
     elif command -v go >/dev/null 2>&1 && [ -f "go.mod" ]; then
         echo "🔨 检测到本地 Go 编译环境，正在就地编译..."
         go build -ldflags="-s -w -X 'main.Version=1.0.0'" -o "${INSTALL_DIR}/${BIN_NAME}" ./cmd/gateway
@@ -168,17 +226,41 @@ else
     fi
 fi
 
-chmod +x "${INSTALL_DIR}/${BIN_NAME}"
+chmod +x "${INSTALL_DIR}/${BIN_NAME}" 2>/dev/null || true
 
-# 7. 绕过 macOS Gatekeeper / Quarantine 并完成 Ad-hoc 签名
-xattr -d com.apple.quarantine "${INSTALL_DIR}/${BIN_NAME}" 2>/dev/null || true
-codesign -s - -f "${INSTALL_DIR}/${BIN_NAME}" 2>/dev/null || true
+# 6. Windows / macOS 平台特性处理
+if [ "${OS_TYPE}" = "darwin" ]; then
+    xattr -d com.apple.quarantine "${INSTALL_DIR}/${BIN_NAME}" 2>/dev/null || true
+    codesign -s - -f "${INSTALL_DIR}/${BIN_NAME}" 2>/dev/null || true
+elif [ "${OS_TYPE}" = "windows" ]; then
+    # 拷贝一份至 WindowsApps (Windows 默认系统级用户 PATH，开箱即用免重启)
+    if [ -n "${LOCALAPPDATA:-}" ] && [ -d "${LOCALAPPDATA}/Microsoft/WindowsApps" ]; then
+        cp -f "${INSTALL_DIR}/${BIN_NAME}" "${LOCALAPPDATA}/Microsoft/WindowsApps/${BIN_NAME}" 2>/dev/null || true
+    fi
+    # 将 ~/.local/bin 追加到 Windows User PATH
+    if command -v powershell.exe >/dev/null 2>&1; then
+        powershell.exe -NoProfile -ExecutionPolicy Bypass -Command '
+            try {
+                $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+                $dir = [System.IO.Path]::Combine($env:USERPROFILE, ".local", "bin")
+                if ($userPath -notlike "*$dir*") {
+                    [Environment]::SetEnvironmentVariable("Path", "$userPath;$dir", "User")
+                }
+            } catch {}
+        ' 2>/dev/null || true
+    fi
+fi
 
-# 8. 检查 PATH 环境变量
-SHELL_NAME="$(basename "${SHELL:-zsh}")"
-RC_FILE="${HOME}/.zshrc"
-if [ "${SHELL_NAME}" = "bash" ]; then
-    RC_FILE="${HOME}/.bash_profile"
+# 7. 检查 Shell PATH 环境变量 (针对 macOS / Linux / Git Bash)
+SHELL_NAME="$(basename "${SHELL:-bash}")"
+RC_FILE="${HOME}/.bashrc"
+if [ "${OS_TYPE}" = "darwin" ]; then
+    RC_FILE="${HOME}/.zshrc"
+    if [ "${SHELL_NAME}" = "bash" ]; then
+        RC_FILE="${HOME}/.bash_profile"
+    fi
+elif [ -f "${HOME}/.zshrc" ] && [ "${SHELL_NAME}" = "zsh" ]; then
+    RC_FILE="${HOME}/.zshrc"
 fi
 
 PATH_CONFIGURED=true
@@ -194,7 +276,7 @@ if [[ ":${PATH}:" != *":${INSTALL_DIR}:"* ]]; then
     fi
 fi
 
-# 9. 验证安装
+# 8. 验证安装
 INSTALLED_VER="$("${INSTALL_DIR}/${BIN_NAME}" version 2>/dev/null || echo "1.0.0")"
 
 echo ""
@@ -212,7 +294,7 @@ echo "   • 查看已连接设备:   mgy list"
 echo "   • 清空已配对设备:   mgy clear all"
 echo "   • 查看命令帮助:     mgy help"
 echo ""
-if [ "${PATH_CONFIGURED}" = "false" ]; then
+if [ "${PATH_CONFIGURED}" = "false" ] && [ "${OS_TYPE}" != "windows" ]; then
     echo "💡 提示: 请先在新打开的终端运行，或执行生效环境: source ${RC_FILE}"
 fi
 echo "📱 手机端使用:"

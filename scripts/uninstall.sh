@@ -2,13 +2,13 @@
 set -euo pipefail
 
 # ==============================================================================
-# Multigravity (mgy) 一键卸载脚本
+# Multigravity (mgy) 一键卸载脚本 (macOS / Linux / Windows)
 # 用法:
 #   ./scripts/uninstall.sh          # 卸载二进制，保留配置与配对数据
 #   ./scripts/uninstall.sh --all    # 彻底卸载二进制并清除 ~/.multigravity
 # ==============================================================================
 
-BIN_PATH="${HOME}/.local/bin/mgy"
+INSTALL_DIR="${HOME}/.local/bin"
 CONF_DIR="${HOME}/.multigravity"
 
 echo "=================================================="
@@ -20,14 +20,23 @@ if pgrep -x "mgy" >/dev/null 2>&1; then
     echo "⏹️  正在停止运行中的 mgy 进程..."
     pkill -x "mgy" || true
 fi
+if command -v taskkill >/dev/null 2>&1; then
+    taskkill //F //IM mgy.exe >/dev/null 2>&1 || true
+fi
 
 # 2. 移除二进制执行文件
-if [ -f "${BIN_PATH}" ]; then
-    rm -f "${BIN_PATH}"
-    echo "✅ 已移除二进制: ${BIN_PATH}"
-else
-    echo "ℹ️  未检测到二进制: ${BIN_PATH}"
-fi
+TARGETS=(
+    "${INSTALL_DIR}/mgy"
+    "${INSTALL_DIR}/mgy.exe"
+    "${LOCALAPPDATA:-}/Microsoft/WindowsApps/mgy.exe"
+)
+
+for target in "${TARGETS[@]}"; do
+    if [ -n "${target}" ] && [ -f "${target}" ]; then
+        rm -f "${target}"
+        echo "✅ 已移除二进制: ${target}"
+    fi
+done
 
 # 3. 检查并清理数据目录
 if [ -d "${CONF_DIR}" ]; then

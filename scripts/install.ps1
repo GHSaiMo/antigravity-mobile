@@ -1,7 +1,7 @@
-﻿# Multigravity Windows 一键构建与安装脚本
+# Multigravity Windows 一键安装脚本
 $ErrorActionPreference = "Stop"
 
-# 1. 强制控制台与输出流使用 UTF-8 编码，彻底防止 Windows PowerShell 默认 GBK 导致中文乱码
+# 1. 强制控制台与输出流使用 UTF-8 编码，防止 Windows PowerShell 默认 GBK 导致乱码
 try {
     [Console]::InputEncoding = [System.Text.Encoding]::UTF8
     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -9,62 +9,172 @@ try {
 } catch {}
 
 Write-Host "==================================================" -ForegroundColor Cyan
-Write-Host "  📱 Multigravity (mgy) - Windows 一键安装与构建  " -ForegroundColor Cyan
+Write-Host "  📱 Multigravity (mgy) - Windows 一键安装与配置  " -ForegroundColor Cyan
 Write-Host "==================================================" -ForegroundColor Cyan
 
-# 2. 查找或准备 Go 环境
-$goCmd = "go"
-if (!(Get-Command go -ErrorAction SilentlyContinue)) {
-    if (Test-Path "$HOME\go-sdk\go\bin\go.exe") {
-        $goCmd = "$HOME\go-sdk\go\bin\go.exe"
-        $env:PATH = "$HOME\go-sdk\go\bin;$env:PATH"
-    } else {
-        Write-Host "⚠️ 未检测到系统 Go 环境，正在下载便携式 Go SDK..." -ForegroundColor Yellow
-        $sdkDir = "$HOME\go-sdk"
-        if (!(Test-Path $sdkDir)) { New-Item -ItemType Directory -Path $sdkDir -Force | Out-Null }
-        $zipFile = "$sdkDir\go.zip"
-        curl.exe -L -o $zipFile "https://dl.google.com/go/go1.22.10.windows-amd64.zip"
-        if (Get-Command tar.exe -ErrorAction SilentlyContinue) {
-            tar.exe -xf $zipFile -C $sdkDir
+# 2. 架构检测
+$arch = $env:PROCESSOR_ARCHITECTURE
+$pkgArch = "amd64"
+if ($arch -eq "ARM64") {
+    $pkgArch = "arm64"
+    $archDesc = "Windows ARM64"
+} else {
+    $pkgArch = "amd64"
+    $archDesc = "Windows x86_64 (amd64)"
+}
+Write-Host "🖥️  检测到系统架构: $archDesc ($pkgArch)" -ForegroundColor Cyan
+
+# 3. 准备安装与配置目录
+$installDir = "$HOME\.local\bin"
+$confDir = "$HOME\.multigravity"
+if (!(Test-Path $installDir)) { New-Item -ItemType Directory -Path $installDir -Force | Out-Null }
+if (!(Test-Path "$confDir\logs")) { New-Item -ItemType Directory -Path "$confDir\logs" -Force | Out-Null }
+
+# 4. 初始化默认配置 .env (若不存在)
+if (!(Test-Path "$confDir\.env")) {
+    $defaultEnv = @"
+# Multigravity 全局环境变量配置文件
+# 保存路径: ~/.multigravity/.env
+
+# 网关监听端口 (默认 58900)
+MULTIGRAVITY_PORT=58900
+
+# 网关监听主机/IP (默认留空双栈绑定所有网卡，设为 127.0.0.1 仅限本机)
+# MULTIGRAVITY_HOST=127.0.0.1
+
+# 公网 DDNS 域名或固定 IPv6 地址 (若需要外网直连)
+# DDNS_HOST=agy.example.com
+
+# 公网 IPv6 自动广播 (默认 1：检测到公网 IPv6 时自动打入复合配对二维码与链接；设为 0 关闭)
+INCLUDE_PUBLIC_IPV6=1
+
+# 是否默认优先使用纯 IPv6 作为二维码 (默认 0 生成双栈复合码；设为 1 纯 IPv6 码)
+# MULTIGRAVITY_PREFER_IPV6=0
+
+# HTTPS / SSL 加密访问 (启用需设为 1 并指定证书和私钥文件)
+# MULTIGRAVITY_SSL=0
+# MULTIGRAVITY_TLS_CERT=~/.multigravity/certs/fullchain.cer
+# MULTIGRAVITY_TLS_KEY=~/.multigravity/certs/private.key
+
+# iOS Bark 实时推送通知 (填入 Device Key 或 Bark 完整 URL)
+# BARK_URL=
+# BARK_ICON=https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/web/icons/icon-192.png
+# BARK_GROUP=Antigravity
+# BARK_SOUND_ACTION=alarm
+# BARK_SOUND_COMPLETE=glass
+
+# FRP 内网穿透云中继配置 (在外网无公网 IP 时使用)
+# FRP_ENABLED=false
+# FRP_SERVER_ADDR=frp.example.com
+# FRP_SERVER_PORT=7000
+# FRP_TOKEN=your-strong-token
+# FRP_REMOTE_PORT=58900
+
+# 管理员特权密钥 (外网访问或开启 FRP 时用于鉴权，留空则首次运行自动生成)
+# MULTIGRAVITY_ADMIN_TOKEN=
+"@
+    [System.IO.File]::WriteAllText("$confDir\.env", $defaultEnv, [System.Text.Encoding]::UTF8)
+    Write-Host "📝 已生成全局默认配置: $confDir\.env" -ForegroundColor Green
+}
+
+# 5. 下载预编译 Release 包 (多镜像容灾)
+$repo = if ($env:MULTIGRAVITY_REPO) { $env:MULTIGRAVITY_REPO } else { "GHSaiMo/antigravity-mobile" }
+$zipName = "multigravity-windows-$pkgArch.zip"
+$urls = @(
+    "https://github.com/$repo/releases/latest/download/$zipName",
+    "https://ghfast.top/https://github.com/$repo/releases/latest/download/$zipName",
+    "https://ghproxy.net/https://github.com/$repo/releases/latest/download/$zipName"
+)
+
+$tempDir = Join-Path ([System.IO.Path]::GetTempPath()) ("mgy-" + [System.Guid]::NewGuid().ToString().Substring(0, 8))
+New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+$zipFile = Join-Path $tempDir $zipName
+
+$downloadSuccess = $false
+Write-Host "📥 正在获取 Multigravity ($pkgArch) 最新发行版..." -ForegroundColor Cyan
+
+foreach ($url in $urls) {
+    Write-Host "🔗 尝试下载: $url" -ForegroundColor Gray
+    try {
+        if (Get-Command curl.exe -ErrorAction SilentlyContinue) {
+            curl.exe -fL --connect-timeout 8 --speed-limit 10240 --speed-time 10 -# -o $zipFile $url
         } else {
-            Expand-Archive -Path $zipFile -DestinationPath $sdkDir -Force
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+            $wc = New-Object System.Net.WebClient
+            $wc.DownloadFile($url, $zipFile)
         }
-        Remove-Item $zipFile -Force
-        $goCmd = "$sdkDir\go\bin\go.exe"
-        $env:PATH = "$sdkDir\go\bin;$env:PATH"
+        if ((Test-Path $zipFile) -and ((Get-Item $zipFile).Length -gt 100000)) {
+            $downloadSuccess = $true
+            break
+        }
+    } catch {
+        Write-Host "⚠️  下载异常或连接超时，正在切换下一个镜像源..." -ForegroundColor Yellow
+        if (Test-Path $zipFile) { Remove-Item $zipFile -Force }
     }
 }
 
-Write-Host "✅ 编译器就绪: $(& $goCmd version)" -ForegroundColor Green
+if ($downloadSuccess) {
+    Write-Host "📦 下载完成，正在解压安装..." -ForegroundColor Green
+    
+    # 停止旧版本 mgy 进程以防文件占用锁
+    Get-Process -Name mgy -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Milliseconds 200
 
-# 3. 编译项目
-$repoRoot = Split-Path -Parent $PSScriptRoot
-Set-Location $repoRoot
+    if (Get-Command tar.exe -ErrorAction SilentlyContinue) {
+        tar.exe -xf $zipFile -C $tempDir
+    } else {
+        Expand-Archive -Path $zipFile -DestinationPath $tempDir -Force
+    }
 
-$binDir = "$repoRoot\bin"
-if (!(Test-Path $binDir)) { New-Item -ItemType Directory -Path $binDir -Force | Out-Null }
-
-Write-Host "🔨 正在编译 Windows 单体二进制包 (bin\mgy.exe)..." -ForegroundColor Cyan
-& $goCmd build -ldflags="-s -w -X 'main.Version=1.0.0'" -o "$binDir\mgy.exe" ./cmd/gateway
-
-if (Test-Path "$binDir\mgy.exe") {
-    $size = (Get-Item "$binDir\mgy.exe").Length / 1MB
-    Write-Host ("🎉 构建成功: bin\mgy.exe ({0:N1} MB)" -f $size) -ForegroundColor Green
+    $exeSource = Join-Path $tempDir "mgy.exe"
+    if (Test-Path $exeSource) {
+        Copy-Item -Path $exeSource -Destination "$installDir\mgy.exe" -Force
+    } else {
+        Write-Host "❌ 解压归档中未找到 mgy.exe" -ForegroundColor Red
+        exit 1
+    }
 } else {
-    Write-Host "❌ 构建失败，未能生成 bin\mgy.exe" -ForegroundColor Red
-    exit 1
+    Write-Host "⚠️  未能从网络镜像获取预编译包，尝试回退本地编译..." -ForegroundColor Yellow
+    
+    # 查找本地 Go
+    $goCmd = "go"
+    if (!(Get-Command go -ErrorAction SilentlyContinue)) {
+        if (Test-Path "$HOME\go-sdk\go\bin\go.exe") {
+            $goCmd = "$HOME\go-sdk\go\bin\go.exe"
+            $env:PATH = "$HOME\go-sdk\go\bin;$env:PATH"
+        } else {
+            Write-Host "⚠️ 未检测到系统 Go 环境，正在下载便携式 Go SDK..." -ForegroundColor Yellow
+            $sdkDir = "$HOME\go-sdk"
+            if (!(Test-Path $sdkDir)) { New-Item -ItemType Directory -Path $sdkDir -Force | Out-Null }
+            $goZip = "$sdkDir\go.zip"
+            curl.exe -L -o $goZip "https://dl.google.com/go/go1.22.10.windows-amd64.zip"
+            if (Get-Command tar.exe -ErrorAction SilentlyContinue) {
+                tar.exe -xf $goZip -C $sdkDir
+            } else {
+                Expand-Archive -Path $goZip -DestinationPath $sdkDir -Force
+            }
+            Remove-Item $goZip -Force
+            $goCmd = "$sdkDir\go\bin\go.exe"
+            $env:PATH = "$sdkDir\go\bin;$env:PATH"
+        }
+    }
+
+    $repoRoot = $PSScriptRoot
+    if ($repoRoot -and (Test-Path "$repoRoot\..\cmd\gateway")) {
+        Set-Location (Join-Path $repoRoot "..")
+    }
+    & $goCmd build -ldflags="-s -w -X 'main.Version=1.0.0'" -o "$installDir\mgy.exe" ./cmd/gateway
 }
 
-# 4. 安装到系统用户 PATH，支持全局直接键入 mgy 命令
-# 如果旧版本 mgy 正在运行，先优雅关闭以释放文件锁
-Get-Process -Name mgy -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-Start-Sleep -Milliseconds 200
+# 6. 安装到 WindowsApps (Windows 默认已在 PATH 中的用户级目录，免重启即生效)
+$windowsApps = "$env:LOCALAPPDATA\Microsoft\WindowsApps"
+if (Test-Path $windowsApps) {
+    try {
+        Copy-Item -Path "$installDir\mgy.exe" -Destination "$windowsApps\mgy.exe" -Force
+    } catch {}
+}
 
-$installDir = "$HOME\.local\bin"
-if (!(Test-Path $installDir)) { New-Item -ItemType Directory -Path $installDir -Force | Out-Null }
-Copy-Item -Path "$binDir\mgy.exe" -Destination "$installDir\mgy.exe" -Force
-
-# 确保 ~/.local/bin 写入用户环境变量 PATH
+# 7. 确保 ~/.local/bin 写入系统用户 PATH 环境变量
 try {
     $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
     if ($userPath -notlike "*$installDir*") {
@@ -72,26 +182,32 @@ try {
     }
 } catch {}
 
-# 同步安装到 WindowsApps（Windows 默认免配置全局 PATH，无需重启当前终端即可秒级生效）
-$windowsApps = "$env:LOCALAPPDATA\Microsoft\WindowsApps"
-if (Test-Path $windowsApps) {
-    try {
-        Copy-Item -Path "$binDir\mgy.exe" -Destination "$windowsApps\mgy.exe" -Force
-    } catch {
-        Write-Warning "未能复制到 $windowsApps，请确保无其他进程正在使用 mgy.exe"
-    }
-}
-
-# 刷新当前会话的 PATH 变量
+# 刷新当前会话的 PATH
 $env:PATH = "$installDir;$windowsApps;$env:PATH"
 
-Write-Host "📦 已安装至全局快捷指令目录: $installDir\mgy.exe" -ForegroundColor Green
+# 8. 验证与打印完成信息
+$installedVer = & "$installDir\mgy.exe" version 2>$null
+if (!$installedVer) { $installedVer = "Multigravity (mgy) 1.0.0" }
 
-# 提示运行
-Write-Host "`n🚀 安装完成！现在您可以像在 Mac 上一样，在任何终端直接输入 mgy 指令:" -ForegroundColor Yellow
-Write-Host "   mgy                   (前台启动主网关服务并生成配对二维码)" -ForegroundColor White
-Write-Host "   mgy pair              (申请新配对码与 URI)" -ForegroundColor White
-Write-Host "   mgy list              (查看已授权设备)" -ForegroundColor White
-Write-Host "   mgy clear all         (清除所有设备授权)" -ForegroundColor White
-Write-Host "   mgy --help            (查看完整参数帮助)" -ForegroundColor White
+Write-Host ""
 Write-Host "==================================================" -ForegroundColor Cyan
+Write-Host "🎉 安装完成！$installedVer" -ForegroundColor Green
+Write-Host "==================================================" -ForegroundColor Cyan
+Write-Host "📍 二进制安装位置:   $installDir\mgy.exe"
+Write-Host "📁 全局配置与数据:   $confDir\"
+Write-Host "📄 配置文件路径:     $confDir\.env"
+Write-Host ""
+Write-Host "🚀 常用指令:" -ForegroundColor Yellow
+Write-Host "   • 启动网关主服务:   mgy" -ForegroundColor White
+Write-Host "   • 终端打印配对码:   mgy pair" -ForegroundColor White
+Write-Host "   • 查看已连接设备:   mgy list" -ForegroundColor White
+Write-Host "   • 清空已配对设备:   mgy clear all" -ForegroundColor White
+Write-Host "   • 查看命令帮助:     mgy help" -ForegroundColor White
+Write-Host ""
+Write-Host "📱 手机端使用:" -ForegroundColor Yellow
+Write-Host "   请在 GitHub Releases 下载安装 Multigravity-*.apk，" -ForegroundColor White
+Write-Host "   打开 App 扫描终端打印的二维码即可完成配对！" -ForegroundColor White
+Write-Host "==================================================" -ForegroundColor Cyan
+
+# 清理临时文件
+Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
