@@ -233,7 +233,7 @@ fun PairingScreen(
                             value = code,
                             onValueChange = { code = it },
                             label = { Text("配对码 (Code)", color = colors.textSecondary) },
-                            placeholder = { Text("6位一次性配对码", color = colors.textMuted) },
+                            placeholder = { Text("终端输出的配对码 (5分钟有效)", color = colors.textMuted) },
                             singleLine = true,
                             shape = RoundedCornerShape(12.dp),
                             colors = OutlinedTextFieldDefaults.colors(

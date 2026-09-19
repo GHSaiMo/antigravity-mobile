@@ -153,9 +153,9 @@ public struct ManualPairingSheet: View {
                                 .foregroundColor(.secondary)
                                 .frame(width: 20)
                             
-                            TextField("6位一次性配对码", text: $code)
+                            TextField("终端输出的配对码 (5分钟有效)", text: $code)
                                 .font(.system(size: 14.5, design: .monospaced))
-                                .textInputAutocapitalization(.characters)
+                                .textInputAutocapitalization(.never)
                                 .autocorrectionDisabled()
                             
                             if !code.isEmpty {

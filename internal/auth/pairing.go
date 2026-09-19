@@ -96,7 +96,7 @@ func (pm *PairingManager) LatestSession() *PairingSession {
 
 // ValidateAndConsume validates the pairing code and immediately consumes/deletes it if valid.
 func (pm *PairingManager) ValidateAndConsume(code string) bool {
-	code = strings.TrimSpace(code)
+	code = strings.ToLower(strings.TrimSpace(code))
 	if code == "" {
 		return false
 	}
