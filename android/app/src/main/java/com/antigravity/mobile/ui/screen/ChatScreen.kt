@@ -38,6 +38,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
@@ -95,6 +96,9 @@ fun ChatScreen(
     val shouldShowThinkingBubble = uiState.isAwaitingResponse || uiState.isRunning
     val coroutineScope = rememberCoroutineScope()
     var adaptiveScrollJob by remember { mutableStateOf<Job?>(null) }
+    var isProgrammaticScrolling by remember { mutableStateOf(false) }
+    var isInputFocused by remember { mutableStateOf(false) }
+    val isImeVisible = WindowInsets.isImeVisible
 
     // Scroll state tracking: distinguish initial logical entry alignment vs in-session incremental scroll
     var hasInitiallyAligned by remember(cascadeId) { mutableStateOf(false) }
@@ -119,41 +123,47 @@ fun ChatScreen(
         hasUserInteracted = false
         adaptiveScrollJob?.cancel()
         adaptiveScrollJob = coroutineScope.launch {
-            val total = listState.layoutInfo.totalItemsCount
-            if (total <= 0) return@launch
-
-            // 阶段 1: 立即使用弹性动画启动滚动，卡片展开向上弹起，卡片折叠直接贴着卡片边缘回弹
+            isProgrammaticScrolling = true
             try {
-                listState.animateScrollToItem(total - 1)
-            } catch (_: Exception) {}
+                val total = listState.layoutInfo.totalItemsCount
+                if (total <= 0) return@launch
 
-            // 阶段 2: 80ms 连续多阶段布局微调吸附
-            delay(80)
-            try {
-                val t1 = listState.layoutInfo.totalItemsCount
-                if (t1 > 0) listState.animateScrollToItem(t1 - 1)
-            } catch (_: Exception) {}
+                // 阶段 1: 立即使用弹性动画启动滚动，卡片展开向上弹起，卡片折叠直接贴着卡片边缘回弹
+                try {
+                    listState.animateScrollToItem(total - 1)
+                } catch (_: Exception) {}
 
-            // 阶段 3: 200ms (80 + 120ms) 布局中间态贴边
-            delay(120)
-            try {
-                val t2 = listState.layoutInfo.totalItemsCount
-                if (t2 > 0) listState.animateScrollToItem(t2 - 1)
-            } catch (_: Exception) {}
+                // 阶段 2: 80ms 连续多阶段布局微调吸附
+                delay(80)
+                try {
+                    val t1 = listState.layoutInfo.totalItemsCount
+                    if (t1 > 0) listState.animateScrollToItem(t1 - 1)
+                } catch (_: Exception) {}
 
-            // 阶段 4: 360ms (200 + 160ms) 接近终态吸附
-            delay(160)
-            try {
-                val t3 = listState.layoutInfo.totalItemsCount
-                if (t3 > 0) listState.animateScrollToItem(t3 - 1)
-            } catch (_: Exception) {}
+                // 阶段 3: 200ms (80 + 120ms) 布局中间态贴边
+                delay(120)
+                try {
+                    val t2 = listState.layoutInfo.totalItemsCount
+                    if (t2 > 0) listState.animateScrollToItem(t2 - 1)
+                } catch (_: Exception) {}
 
-            // 阶段 5: 480ms (360 + 120ms) 消除折叠卡片后的悬空留白，终态贴边回弹
-            delay(120)
-            try {
-                val t4 = listState.layoutInfo.totalItemsCount
-                if (t4 > 0) listState.scrollToItem(t4 - 1)
-            } catch (_: Exception) {}
+                // 阶段 4: 360ms (200 + 160ms) 接近终态吸附
+                delay(160)
+                try {
+                    val t3 = listState.layoutInfo.totalItemsCount
+                    if (t3 > 0) listState.animateScrollToItem(t3 - 1)
+                } catch (_: Exception) {}
+
+                // 阶段 5: 480ms (360 + 120ms) 消除折叠卡片后的悬空留白，终态贴边回弹
+                delay(120)
+                try {
+                    val t4 = listState.layoutInfo.totalItemsCount
+                    if (t4 > 0) listState.scrollToItem(t4 - 1)
+                } catch (_: Exception) {}
+            } finally {
+                delay(50)
+                isProgrammaticScrolling = false
+            }
         }
     }
 
@@ -272,7 +282,13 @@ fun ChatScreen(
         if (uiState.messages.isNotEmpty()) {
             val targetIndex = computeTargetPosition()
             if (targetIndex >= 0) {
-                listState.scrollToItem(targetIndex, 0)
+                isProgrammaticScrolling = true
+                try {
+                    listState.scrollToItem(targetIndex, 0)
+                } finally {
+                    delay(50)
+                    isProgrammaticScrolling = false
+                }
             }
         }
     }
@@ -327,7 +343,13 @@ fun ChatScreen(
                 delay(20)
                 val total = listState.layoutInfo.totalItemsCount
                 if (total > 0) {
-                    listState.animateScrollToItem(total - 1)
+                    isProgrammaticScrolling = true
+                    try {
+                        listState.animateScrollToItem(total - 1)
+                    } finally {
+                        delay(50)
+                        isProgrammaticScrolling = false
+                    }
                 }
             }
         }
@@ -340,9 +362,23 @@ fun ChatScreen(
         }
     }
 
-    // Auto-dismiss keyboard when scrolling through messages and track user manual scroll
+    // Phase 5: 对齐 iOS isInputFocused：输入框获焦或键盘弹出时，会话内容自动往上顶，让用户可以看到会话的最底端
+    LaunchedEffect(isInputFocused, isImeVisible) {
+        if (isInputFocused || isImeVisible) {
+            hasUserInteracted = false
+            performAdaptiveCardScroll()
+        } else if (hasInitiallyAligned) {
+            // 键盘完全收起并恢复完整视口高度后，做底部对齐校准，消除悬空留白
+            delay(280)
+            if (isNearBottom || !hasUserInteracted) {
+                performAdaptiveCardScroll()
+            }
+        }
+    }
+
+    // Auto-dismiss keyboard when user manually scrolls through messages and track user manual scroll
     LaunchedEffect(listState.isScrollInProgress) {
-        if (listState.isScrollInProgress) {
+        if (listState.isScrollInProgress && !isProgrammaticScrolling) {
             dismissKeyboard()
             if (hasInitiallyAligned) {
                 if (isNearBottom) {
@@ -742,6 +778,11 @@ fun ChatScreen(
                                 modifier = Modifier
                                     .weight(1f)
                                     .focusRequester(focusRequester)
+                                    .onFocusChanged { focusState ->
+                                        if (focusState.isFocused != isInputFocused) {
+                                            isInputFocused = focusState.isFocused
+                                        }
+                                    }
                                     .heightIn(min = 44.dp),
                                 textStyle = TextStyle(
                                     color = colors.textPrimary,
