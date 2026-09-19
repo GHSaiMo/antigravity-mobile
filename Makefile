@@ -1,19 +1,32 @@
 .PHONY: build run test clean tmux-start tmux-stop pair list clear clear-all install-local
 
+BIN_NAME := mgy
+ifeq ($(OS),Windows_NT)
+  BIN_NAME := mgy.exe
+endif
+
 # Build the unified single binary with embedded web assets
 build:
 	@mkdir -p bin
-	go build -ldflags="-s -w -X 'main.Version=1.0.0'" -o bin/mgy ./cmd/gateway
+	go build -ldflags="-s -w -X 'main.Version=1.0.0'" -o bin/$(BIN_NAME) ./cmd/gateway
+ifeq ($(OS),Windows_NT)
+	@echo Build complete: bin/$(BIN_NAME)
+else
 	@ln -sf mgy bin/gateway
 	@codesign -s - -f bin/mgy 2>/dev/null || true
 	@echo "Build complete: bin/mgy (symlinked as bin/gateway)"
+endif
 
-# Install mgy to ~/.local/bin/mgy for quick local testing
+# Install mgy to user PATH for quick local testing
 install-local: build
+ifeq ($(OS),Windows_NT)
+	@powershell -ExecutionPolicy Bypass -File scripts/install.ps1
+else
 	@mkdir -p $(HOME)/.local/bin
 	@cp bin/mgy $(HOME)/.local/bin/mgy
 	@codesign -s - -f $(HOME)/.local/bin/mgy 2>/dev/null || true
 	@echo "Installed mgy to $(HOME)/.local/bin/mgy"
+endif
 
 # ==============================================================================
 # 本地前台运行网关 (make run)

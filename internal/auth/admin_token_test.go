@@ -24,7 +24,8 @@ func TestEnsureAdminTokenGeneratesWhenTunnelOn(t *testing.T) {
 	t.Setenv("MULTIGRAVITY_ADMIN_TOKEN", "")
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	// ResolvePath uses UserHomeDir which reads HOME on Unix.
+	t.Setenv("USERPROFILE", home)
+	// ResolvePath uses UserHomeDir which reads HOME on Unix and USERPROFILE on Windows.
 	path, generated, err := EnsureAdminToken(true)
 	if err != nil {
 		t.Fatal(err)
@@ -68,6 +69,7 @@ func TestEnsureAdminTokenStandardLocation(t *testing.T) {
 	t.Setenv("MULTIGRAVITY_ADMIN_TOKEN", "")
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 
 	// Create token in standard ~/.multigravity/admin_token
 	multigravityDir := filepath.Join(home, ".multigravity")

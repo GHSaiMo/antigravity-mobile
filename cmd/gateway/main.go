@@ -443,8 +443,14 @@ func runGatewayServer(args []string) {
 	if *enableSSL {
 		scheme = "https"
 	}
-	if qrHost != "127.0.0.1" {
-		log.Printf("📱 Mobile Web UI ready at: %s://%s:%d (LAN) | %s://127.0.0.1:%d (Local)", scheme, qrHost, *port, scheme, *port)
+	lanDisplay := netAddrs.LANIPv4
+	if lanDisplay == "" && qrHost != "127.0.0.1" && !strings.Contains(qrHost, ":") {
+		lanDisplay = qrHost
+	}
+	if lanDisplay != "" {
+		log.Printf("📱 Mobile Web UI ready at: %s://%s:%d (LAN) | %s://127.0.0.1:%d (Local)", scheme, lanDisplay, *port, scheme, *port)
+	} else if qrHost != "127.0.0.1" {
+		log.Printf("📱 Mobile Web UI ready at: %s://%s:%d (WAN/IPv6) | %s://127.0.0.1:%d (Local)", scheme, qrHost, *port, scheme, *port)
 	} else {
 		log.Printf("📱 Mobile Web UI ready at: %s://127.0.0.1:%d", scheme, *port)
 	}

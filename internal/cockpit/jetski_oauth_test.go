@@ -98,6 +98,7 @@ func TestGeminiKeychainEnvelope(t *testing.T) {
 func TestWriteJetskiOAuthFile(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
+	t.Setenv("USERPROFILE", tmp)
 
 	tok := &parsedOAuth{
 		AccessToken:  "ya29.a0abc",

@@ -90,6 +90,8 @@ func TestClearStaleAntigravityIdentity(t *testing.T) {
 
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
+	t.Setenv("USERPROFILE", tmp)
+	t.Setenv("APPDATA", filepath.Join(tmp, "AppData", "Roaming"))
 
 	dbPath := filepath.Join(tmp, "Library", "Application Support", "Antigravity", "User", "globalStorage", "state.vscdb")
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {

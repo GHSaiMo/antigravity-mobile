@@ -5,6 +5,7 @@ import (
 	"log"
 	"os/exec"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -21,6 +22,13 @@ const (
 var quitAntigravityBeforeSwitch = quitRunningAntigravity
 
 func antigravityStillRunning() bool {
+	if runtime.GOOS == "windows" {
+		out, err := exec.Command("tasklist", "/fi", "IMAGENAME eq Antigravity.exe").Output()
+		if err == nil && strings.Contains(string(out), "Antigravity.exe") {
+			return true
+		}
+		return false
+	}
 	if runtime.GOOS != "darwin" {
 		cmd := exec.Command("pgrep", "-f", "Antigravity.app")
 		return cmd.Run() == nil
@@ -45,6 +53,11 @@ func waitUntilAntigravityExited(d time.Duration) bool {
 }
 
 func signalAntigravity(sig syscall.Signal) {
+	if runtime.GOOS == "windows" {
+		_ = exec.Command("taskkill", "/F", "/IM", "Antigravity.exe", "/T").Run()
+		_ = exec.Command("taskkill", "/F", "/IM", "language_server.exe", "/T").Run()
+		return
+	}
 	patterns := []string{antigravityBundlePattern, antigravityIDEBundlePattern}
 	for _, pat := range patterns {
 		_ = exec.Command("pkill", fmt.Sprintf("-%d", sig), "-f", pat).Run()
@@ -77,6 +90,23 @@ func quitRunningAntigravity() error {
 	}
 
 	log.Printf("[Cockpit] Quitting Antigravity before account switch")
+	if runtime.GOOS == "windows" {
+		// 1. Graceful close on Windows (sends WM_CLOSE)
+		_ = exec.Command("taskkill", "/IM", "Antigravity.exe").Run()
+		if waitUntilAntigravityExited(6 * time.Second) {
+			log.Printf("[Cockpit] Antigravity quit cleanly on Windows")
+			return nil
+		}
+
+		log.Printf("[Cockpit] Antigravity still running; force killing tree on Windows")
+		_ = exec.Command("taskkill", "/F", "/IM", "Antigravity.exe", "/T").Run()
+		_ = exec.Command("taskkill", "/F", "/IM", "language_server.exe", "/T").Run()
+		if waitUntilAntigravityExited(3 * time.Second) {
+			return nil
+		}
+		return fmt.Errorf("Antigravity still running after force kill on Windows")
+	}
+
 	if runtime.GOOS == "darwin" {
 		for _, name := range []string{antigravityAppName, antigravityIDEAppName} {
 			_ = quitAppDarwin(name)

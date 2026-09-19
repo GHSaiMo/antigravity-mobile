@@ -1,6 +1,7 @@
 package cockpit
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -123,6 +125,17 @@ func writeGeminiKeychainOAuth(tok *parsedOAuth) error {
 		return err
 	}
 	secret := "go-keyring-base64:" + base64.StdEncoding.EncodeToString(raw)
+
+	if runtime.GOOS == "windows" {
+		cmd := exec.Command("cmdkey", "/generic:LegacyGeneric:target=gemini:antigravity", "/user:antigravity", "/pass:"+secret)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("cmdkey write: %w (%s)", err, strings.TrimSpace(string(out)))
+		}
+		log.Printf("[Cockpit] updated Windows Credential Manager gemini/antigravity for %s", tok.Email)
+		return nil
+	}
+
 	cmd := exec.Command("security", "add-generic-password", "-U", "-s", "gemini", "-a", "antigravity", "-w", secret)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -146,22 +159,74 @@ func isSafeProxyURL(raw string) bool {
 }
 
 func launchAntigravityWithCockpitProxy() error {
-	args := []string{"-a", "Antigravity"}
+	var proxy, noProxy string
+	hasProxy := false
 	if cfg, err := getCockpitConfig(); err == nil && cfg.GlobalProxyEnabled && strings.TrimSpace(cfg.GlobalProxyURL) != "" {
-		proxy := strings.TrimSpace(cfg.GlobalProxyURL)
-		if !isSafeProxyURL(proxy) {
-			log.Printf("[Cockpit] ⚠️ rejected unsafe GlobalProxyURL %q; launching without proxy", proxy)
+		p := strings.TrimSpace(cfg.GlobalProxyURL)
+		if !isSafeProxyURL(p) {
+			log.Printf("[Cockpit] ⚠️ rejected unsafe GlobalProxyURL %q; launching without proxy", p)
 		} else {
-			noProxy := strings.TrimSpace(cfg.GlobalProxyNoProxy)
+			proxy = p
+			noProxy = strings.TrimSpace(cfg.GlobalProxyNoProxy)
 			if noProxy == "" || strings.ContainsAny(noProxy, "\r\n\x00") {
 				noProxy = "127.0.0.1,localhost,::1"
 			}
-			for _, key := range []string{"http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "all_proxy", "ALL_PROXY"} {
-				args = append(args, "--env", key+"="+proxy)
-			}
-			args = append(args, "--env", "no_proxy="+noProxy, "--env", "NO_PROXY="+noProxy)
-			log.Printf("[Cockpit] launching Antigravity.app with proxy %s", proxy)
+			hasProxy = true
 		}
+	}
+
+	if runtime.GOOS == "windows" {
+		var candidatePaths []string
+		if localApp := os.Getenv("LOCALAPPDATA"); localApp != "" {
+			candidatePaths = append(candidatePaths, filepath.Join(localApp, "Programs", "antigravity", "Antigravity.exe"))
+		}
+		if progFiles := os.Getenv("ProgramFiles"); progFiles != "" {
+			candidatePaths = append(candidatePaths, filepath.Join(progFiles, "Antigravity", "Antigravity.exe"))
+		}
+		if progFilesX86 := os.Getenv("ProgramFiles(x86)"); progFilesX86 != "" {
+			candidatePaths = append(candidatePaths, filepath.Join(progFilesX86, "Antigravity", "Antigravity.exe"))
+		}
+		if home, err := os.UserHomeDir(); err == nil {
+			candidatePaths = append(candidatePaths, filepath.Join(home, "AppData", "Local", "Programs", "antigravity", "Antigravity.exe"))
+		}
+
+		var exePath string
+		for _, p := range candidatePaths {
+			if _, err := os.Stat(p); err == nil {
+				exePath = p
+				break
+			}
+		}
+		if exePath == "" {
+			if looked, err := exec.LookPath("Antigravity.exe"); err == nil {
+				exePath = looked
+			}
+		}
+		if exePath == "" {
+			return fmt.Errorf("Antigravity.exe executable not found on Windows")
+		}
+
+		cmd := exec.Command(exePath)
+		if hasProxy {
+			cmd.Env = os.Environ()
+			for _, key := range []string{"http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "all_proxy", "ALL_PROXY"} {
+				cmd.Env = append(cmd.Env, key+"="+proxy)
+			}
+			cmd.Env = append(cmd.Env, "no_proxy="+noProxy, "NO_PROXY="+noProxy)
+			log.Printf("[Cockpit] launching Antigravity.exe with proxy %s", proxy)
+		} else {
+			log.Printf("[Cockpit] launching Antigravity.exe without global proxy")
+		}
+		return cmd.Start()
+	}
+
+	args := []string{"-a", "Antigravity"}
+	if hasProxy {
+		for _, key := range []string{"http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "all_proxy", "ALL_PROXY"} {
+			args = append(args, "--env", key+"="+proxy)
+		}
+		args = append(args, "--env", "no_proxy="+noProxy, "--env", "NO_PROXY="+noProxy)
+		log.Printf("[Cockpit] launching Antigravity.app with proxy %s", proxy)
 	} else {
 		log.Printf("[Cockpit] launching Antigravity.app without global proxy")
 	}
@@ -207,10 +272,29 @@ func loadOAuthFromVscdb() (*parsedOAuth, error) {
 		if _, err := os.Stat(dbPath); err != nil {
 			continue
 		}
-		cmd := exec.Command("sqlite3", "-batch", "-noheader", dbPath, "SELECT value FROM ItemTable WHERE key = "+sqliteQuote("antigravityUnifiedStateSync.oauthToken")+";")
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			lastErr = fmt.Errorf("%s: %w (%s)", dbPath, err, strings.TrimSpace(string(out)))
+		var out []byte
+		var err error
+		if _, lookErr := exec.LookPath("sqlite3"); lookErr == nil {
+			cmd := exec.Command("sqlite3", "-batch", "-noheader", dbPath, "SELECT value FROM ItemTable WHERE key = "+sqliteQuote("antigravityUnifiedStateSync.oauthToken")+";")
+			out, err = cmd.CombinedOutput()
+		}
+		if len(out) == 0 {
+			pyScript := "import sqlite3, sys; conn = sqlite3.connect(sys.argv[1]); cur = conn.cursor(); cur.execute('SELECT value FROM ItemTable WHERE key = ?', (sys.argv[2],)); row = cur.fetchone(); sys.stdout.write(row[0] if row and row[0] else '')"
+			for _, pyExe := range []string{"python", "python3"} {
+				if _, lookErr := exec.LookPath(pyExe); lookErr == nil {
+					cmd := exec.Command(pyExe, "-c", pyScript, dbPath, "antigravityUnifiedStateSync.oauthToken")
+					if pyOut, pyErr := cmd.Output(); pyErr == nil && len(pyOut) > 0 {
+						out = pyOut
+						err = nil
+						break
+					}
+				}
+			}
+		}
+		if err != nil || len(out) == 0 {
+			if err != nil {
+				lastErr = fmt.Errorf("%s: %w (%s)", dbPath, err, strings.TrimSpace(string(out)))
+			}
 			continue
 		}
 		tok, err := parseJetskiOAuth(string(out))
@@ -446,6 +530,67 @@ func liveUserEmail() (string, error) {
 }
 
 func lookupLanguageServer() (int, string, error) {
+	if runtime.GOOS == "windows" {
+		psScript := `Get-CimInstance Win32_Process | Where-Object { $_.Name -like '*language_server*' } | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress`
+		cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", psScript)
+		out, err := cmd.Output()
+		if err != nil {
+			return 0, "", err
+		}
+		trimmed := strings.TrimSpace(string(out))
+		if trimmed == "" || trimmed == "null" {
+			return 0, "", fmt.Errorf("language_server not found")
+		}
+		type winProc struct {
+			ProcessID   int    `json:"ProcessId"`
+			CommandLine string `json:"CommandLine"`
+		}
+		var procs []winProc
+		if strings.HasPrefix(trimmed, "[") {
+			_ = json.Unmarshal([]byte(trimmed), &procs)
+		} else if strings.HasPrefix(trimmed, "{") {
+			var s winProc
+			if json.Unmarshal([]byte(trimmed), &s) == nil {
+				procs = append(procs, s)
+			}
+		}
+		var pid int
+		var csrf string
+		for _, p := range procs {
+			if strings.Contains(p.CommandLine, "language_server") && strings.Contains(p.CommandLine, "--csrf_token") {
+				if m := lsCSRFRE.FindStringSubmatch(p.CommandLine); len(m) > 1 {
+					pid = p.ProcessID
+					csrf = m[1]
+					break
+				}
+			}
+		}
+		if pid == 0 || csrf == "" {
+			return 0, "", fmt.Errorf("language_server not found or missing csrf")
+		}
+		netstatOut, err := exec.Command("netstat", "-ano", "-p", "tcp").Output()
+		if err != nil {
+			return 0, "", err
+		}
+		pidStr := strconv.Itoa(pid)
+		for _, rawLine := range bytes.Split(netstatOut, []byte("\n")) {
+			line := strings.TrimSpace(string(rawLine))
+			if !strings.HasPrefix(line, "TCP") {
+				continue
+			}
+			fields := strings.Fields(line)
+			if len(fields) >= 5 && strings.EqualFold(fields[3], "LISTENING") && fields[4] == pidStr {
+				localAddr := fields[1]
+				if idx := strings.LastIndex(localAddr, ":"); idx != -1 {
+					if p, convErr := strconv.Atoi(localAddr[idx+1:]); convErr == nil && p > 0 {
+						return p, csrf, nil
+					}
+				}
+			}
+		}
+		return 0, "", fmt.Errorf("language_server has no listen port")
+	}
+
 	out, err := exec.Command("ps", "-axo", "pid=,command=").Output()
 	if err != nil {
 		return 0, "", err

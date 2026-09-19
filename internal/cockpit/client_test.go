@@ -110,10 +110,10 @@ func TestSwitchAccountMockWS(t *testing.T) {
 	bytes, _ := json.Marshal(serverInfo)
 	_ = os.WriteFile(filepath.Join(cockpitDir, "server.json"), bytes, 0644)
 
-	// Override HOME
-	origHome := os.Getenv("HOME")
-	defer os.Setenv("HOME", origHome)
-	os.Setenv("HOME", tmpDir)
+	// Override HOME, USERPROFILE, and COCKPIT_DATA_DIR for cross-platform isolation
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
+	t.Setenv("COCKPIT_DATA_DIR", cockpitDir)
 
 	// Test success
 	err := SwitchAccount("valid-id")

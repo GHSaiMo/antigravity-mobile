@@ -9,10 +9,10 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 )
 
 // FileContentResult represents the structured response of file reading.
@@ -58,16 +58,22 @@ func ResolveLocalFilePath(rawURI, cascadeID string) (string, error) {
 	// 2. file:// protocol
 	if strings.HasPrefix(clean, "file://") {
 		clean = strings.TrimPrefix(clean, "file://")
+		if runtime.GOOS == "windows" {
+			if len(clean) > 2 && (clean[0] == '/' || clean[0] == '\\') && isWindowsDriveLetter(clean[1]) && clean[2] == ':' {
+				clean = clean[1:]
+			}
+		}
 	}
 
 	// 3. Brain path detection: if it points to .gemini/antigravity/brain or /brain/
-	if idx := strings.Index(clean, "/brain/"); idx != -1 {
+	slashClean := filepath.ToSlash(clean)
+	if idx := strings.Index(slashClean, "/brain/"); idx != -1 {
 		sub := clean[idx+len("/brain/"):]
 		return joinUnder(filepath.Join(home, ".gemini", "antigravity", "brain"), sub)
 	}
 
 	// 4. Bare filename like "implementation_plan.md" or "walkthrough.md" with cascadeID
-	if !strings.Contains(clean, "/") && cascadeID != "" {
+	if !strings.ContainsAny(clean, "/\\") && cascadeID != "" {
 		planPath, err := joinUnder(filepath.Join(home, ".gemini", "antigravity", "brain"), filepath.Join(cascadeID, clean))
 		if err != nil {
 			return "", err
@@ -79,7 +85,7 @@ func ResolveLocalFilePath(rawURI, cascadeID string) (string, error) {
 	}
 
 	// 5. If clean path starts with "~"
-	if strings.HasPrefix(clean, "~/") {
+	if strings.HasPrefix(clean, "~/") || strings.HasPrefix(clean, "~\\") {
 		clean = filepath.Join(home, clean[2:])
 	}
 
@@ -112,6 +118,10 @@ func ResolveLocalFilePath(rawURI, cascadeID string) (string, error) {
 	return cleanPath, nil
 }
 
+func isWindowsDriveLetter(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
+}
+
 func joinUnder(root, extra string) (string, error) {
 	root = filepath.Clean(root)
 	cleaned := filepath.Clean(extra)
@@ -132,8 +142,8 @@ var (
 )
 
 // AllowedWorkspaceRoots returns directory prefixes that may be served via the file APIs.
-// ~/.gemini/antigravity is always included. If ALLOWED_WORKSPACE_ROOTS is set (colon-separated),
-// those roots replace the default. Otherwise the paired Mac's home directory is allowed;
+// ~/.gemini/antigravity is always included. If ALLOWED_WORKSPACE_ROOTS is set,
+// those roots replace the default. Otherwise the paired computer's home directory is allowed;
 // IsSafeFilePath still rejects credential stores and secret filenames.
 func AllowedWorkspaceRoots() []string {
 	workspaceRootsOnce.Do(func() {
@@ -149,12 +159,12 @@ func AllowedWorkspaceRoots() []string {
 		}
 		if extra != "" {
 			workspaceRoots = always
-			for _, raw := range strings.Split(extra, ":") {
+			for _, raw := range filepath.SplitList(extra) {
 				raw = strings.TrimSpace(raw)
 				if raw == "" {
 					continue
 				}
-				if strings.HasPrefix(raw, "~/") {
+				if strings.HasPrefix(raw, "~/") || strings.HasPrefix(raw, "~\\") {
 					raw = filepath.Join(home, raw[2:])
 				}
 				workspaceRoots = append(workspaceRoots, filepath.Clean(raw)+sep)
@@ -162,6 +172,14 @@ func AllowedWorkspaceRoots() []string {
 			return
 		}
 		workspaceRoots = append(always, home+sep)
+		if runtime.GOOS == "windows" {
+			for _, d := range "CDEFGHIJKLMNOPQRSTUVWXYZ" {
+				root := string(d) + ":\\"
+				if fi, err := os.Stat(root); err == nil && fi.IsDir() {
+					workspaceRoots = append(workspaceRoots, root)
+				}
+			}
+		}
 	})
 	return workspaceRoots
 }
@@ -239,10 +257,6 @@ func IsSafeFilePath(path string) bool {
 		}
 	}
 	return false
-}
-
-func openRegularNoFollow(path string) (*os.File, error) {
-	return os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
 }
 
 // isPrivateKeyFileHeader probes the start of a regular file to detect PEM/OpenSSH private key banners.

@@ -1169,7 +1169,8 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 								if readMetadataRequestFeedback(planMetaPath) {
 									reqFeedback = true
 									if uri == "" {
-										uri = "file://" + filepath.Join(home, ".gemini/antigravity/brain", rawResp.Trajectory.CascadeID, "implementation_plan.md")
+										planAbs := filepath.Join(home, ".gemini", "antigravity", "brain", rawResp.Trajectory.CascadeID, "implementation_plan.md")
+										uri = normalizeURI("file:///" + filepath.ToSlash(planAbs))
 									}
 								}
 							}

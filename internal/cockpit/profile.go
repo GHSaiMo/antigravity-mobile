@@ -28,14 +28,22 @@ func validateSQLiteKey(key string) error {
 }
 
 func antigravityStateDBPaths() []string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil
+	var paths []string
+	if appData := os.Getenv("APPDATA"); appData != "" {
+		paths = append(paths,
+			filepath.Join(appData, "Antigravity", "User", "globalStorage", "state.vscdb"),
+			filepath.Join(appData, "Antigravity IDE", "User", "globalStorage", "state.vscdb"),
+		)
 	}
-	return []string{
-		filepath.Join(home, "Library", "Application Support", "Antigravity", "User", "globalStorage", "state.vscdb"),
-		filepath.Join(home, "Library", "Application Support", "Antigravity IDE", "User", "globalStorage", "state.vscdb"),
+	if home, err := os.UserHomeDir(); err == nil {
+		paths = append(paths,
+			filepath.Join(home, "Library", "Application Support", "Antigravity", "User", "globalStorage", "state.vscdb"),
+			filepath.Join(home, "Library", "Application Support", "Antigravity IDE", "User", "globalStorage", "state.vscdb"),
+			filepath.Join(home, "AppData", "Roaming", "Antigravity", "User", "globalStorage", "state.vscdb"),
+			filepath.Join(home, "AppData", "Roaming", "Antigravity IDE", "User", "globalStorage", "state.vscdb"),
+		)
 	}
+	return paths
 }
 
 func sqliteQuote(s string) string {
@@ -84,12 +92,26 @@ func execSQLite(dbPath, sql string) error {
 	if !strings.HasSuffix(cleanDB, ".vscdb") && !strings.HasSuffix(cleanDB, ".db") {
 		return fmt.Errorf("invalid sqlite database path: %q", dbPath)
 	}
-	cmd := exec.Command("sqlite3", cleanDB, sql)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+	if _, lookErr := exec.LookPath("sqlite3"); lookErr == nil {
+		cmd := exec.Command("sqlite3", cleanDB, sql)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+		}
+		return nil
 	}
-	return nil
+	for _, py := range []string{"python", "python3"} {
+		if _, lookErr := exec.LookPath(py); lookErr == nil {
+			pyScript := "import sqlite3, sys; conn = sqlite3.connect(sys.argv[1]); conn.executescript(sys.argv[2]); conn.commit()"
+			cmd := exec.Command(py, "-c", pyScript, cleanDB, sql)
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("neither sqlite3 nor python found to execute sqlite query")
 }
 
 func syncLegacyBindAccount(accountID string) {

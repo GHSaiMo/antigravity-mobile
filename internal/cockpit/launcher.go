@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"time"
 )
@@ -12,8 +13,28 @@ import (
 var execLaunchCockpit = defaultLaunchCockpit
 
 func defaultLaunchCockpit() error {
+	if runtime.GOOS == "windows" {
+		var candidatePaths []string
+		if localApp := os.Getenv("LOCALAPPDATA"); localApp != "" {
+			candidatePaths = append(candidatePaths, filepath.Join(localApp, "Cockpit Tools", "cockpit-tools.exe"))
+		}
+		if progFiles := os.Getenv("ProgramFiles"); progFiles != "" {
+			candidatePaths = append(candidatePaths, filepath.Join(progFiles, "Cockpit Tools", "cockpit-tools.exe"))
+		}
+		if home, err := os.UserHomeDir(); err == nil {
+			candidatePaths = append(candidatePaths, filepath.Join(home, "AppData", "Local", "Cockpit Tools", "cockpit-tools.exe"))
+		}
+		for _, path := range candidatePaths {
+			if _, err := os.Stat(path); err == nil {
+				cmd := exec.Command(path)
+				return cmd.Start()
+			}
+		}
+		return fmt.Errorf("Cockpit Tools executable not found in AppData or ProgramFiles")
+	}
+
 	if runtime.GOOS != "darwin" {
-		return fmt.Errorf("auto-launching Cockpit Tools is only supported on macOS (current: %s)", runtime.GOOS)
+		return fmt.Errorf("auto-launching Cockpit Tools is only supported on macOS and Windows (current: %s)", runtime.GOOS)
 	}
 
 	// Priority 1: Launch via app bundle name silently in background (-g)

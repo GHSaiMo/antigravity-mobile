@@ -19,6 +19,7 @@ func setupTestHomeWithCascade(t *testing.T, cascadeID, title string, viewTime ti
 	ClearNewestAnnotationCache()
 	tempHome := t.TempDir()
 	t.Setenv("HOME", tempHome)
+	t.Setenv("USERPROFILE", tempHome)
 
 	// Create brain directory
 	brainDir := filepath.Join(tempHome, ".gemini", "antigravity", "brain", cascadeID)
@@ -114,6 +115,7 @@ func TestUnifiedCursor_GhostSessionFiltering(t *testing.T) {
 	ClearNewestAnnotationCache()
 	tempHome := t.TempDir()
 	t.Setenv("HOME", tempHome)
+	t.Setenv("USERPROFILE", tempHome)
 
 	mockInsp := &stubDiscoverer{}
 	p := NewProxy(mockInsp)

@@ -28,7 +28,9 @@ func (sw *synchronizedWriter) Write(p []byte) (n int, err error) {
 
 // InitConsoleSync configures the standard logger to synchronize with terminal QR code output,
 // preventing concurrent background log messages from tearing or cutting into the QR code.
+// On Windows, it also switches console code page to UTF-8 and enables virtual terminal processing.
 func InitConsoleSync() {
+	initConsoleOS()
 	cur := log.Writer()
 	log.SetOutput(&synchronizedWriter{
 		mu: &consoleMu,
@@ -135,8 +137,12 @@ func BuildMultiHostPairingParams(primaryHost string, port int, code string, ssl 
 					lanHost = h
 				}
 			} else {
-				if relayHost == "" {
-					relayHost = h
+				// Only treat routable public IPv4 as relayHost, skip Fake-IP (198.18.x.x) and APIPA (169.254.x.x)
+				if !strings.HasPrefix(h, "198.18.") && !strings.HasPrefix(h, "198.19.") &&
+					!strings.HasPrefix(h, "169.254.") && !strings.HasPrefix(h, "127.") {
+					if relayHost == "" {
+						relayHost = h
+					}
 				}
 			}
 		} else {

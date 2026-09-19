@@ -1,6 +1,7 @@
 package notifier
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -36,7 +37,7 @@ func TestBarkClientSend(t *testing.T) {
 	}
 
 	client := NewBarkClient(cfg)
-	err := client.Send(t.Context(), BarkPayload{
+	err := client.Send(context.Background(), BarkPayload{
 		Title: "测试标题",
 		Body:  "测试正文",
 		URL:   "antigravity://cascade/cas_123",

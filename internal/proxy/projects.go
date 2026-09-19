@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -184,20 +185,39 @@ func (p *Proxy) GetProjects() ([]ProjectItem, error) {
 	return result, nil
 }
 
+func getAntigravityAppStoragePaths() []string {
+	var paths []string
+	if appData := os.Getenv("APPDATA"); appData != "" {
+		paths = append(paths,
+			filepath.Join(appData, "Antigravity", "app_storage.json"),
+			filepath.Join(appData, "Antigravity IDE", "app_storage.json"),
+		)
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		paths = append(paths,
+			filepath.Join(home, "Library", "Application Support", "Antigravity", "app_storage.json"),
+			filepath.Join(home, "Library", "Application Support", "Antigravity IDE", "app_storage.json"),
+			filepath.Join(home, "AppData", "Roaming", "Antigravity", "app_storage.json"),
+			filepath.Join(home, "AppData", "Roaming", "Antigravity IDE", "app_storage.json"),
+		)
+	}
+	return paths
+}
+
 // fetchOfficialProjects loads projectsOrder and calls upstream ReadProjects to get the exact 21 projects in order.
 func (p *Proxy) fetchOfficialProjects(port int, token string, sessionStats map[string]struct {
 	count      int
 	lastActive time.Time
 }) ([]ProjectItem, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil, err
+	var storageBytes []byte
+	for _, appStoragePath := range getAntigravityAppStoragePaths() {
+		if b, err := os.ReadFile(appStoragePath); err == nil && len(b) > 0 {
+			storageBytes = b
+			break
+		}
 	}
-
-	appStoragePath := filepath.Join(home, "Library", "Application Support", "Antigravity", "app_storage.json")
-	storageBytes, err := os.ReadFile(appStoragePath)
-	if err != nil {
-		return nil, err
+	if len(storageBytes) == 0 {
+		return nil, fmt.Errorf("app_storage.json not found")
 	}
 
 	var storageMap map[string]interface{}
@@ -326,6 +346,7 @@ func (p *Proxy) fetchOfficialProjects(port int, token string, sessionStats map[s
 	}
 
 	// Fallback to mac-workspace.code-workspace folders
+	home, _ := os.UserHomeDir()
 	wsFile := filepath.Join(home, "Projects", "mac-workspace.code-workspace")
 	if wsBytes, err := os.ReadFile(wsFile); err == nil {
 		var wsData struct {
@@ -369,24 +390,66 @@ func (p *Proxy) fetchOfficialProjects(port int, token string, sessionStats map[s
 	return nil, fmt.Errorf("could not fetch official projects")
 }
 
+func getAntigravityStateDBPaths() []string {
+	var paths []string
+	if appData := os.Getenv("APPDATA"); appData != "" {
+		paths = append(paths,
+			filepath.Join(appData, "Antigravity", "User", "globalStorage", "state.vscdb"),
+			filepath.Join(appData, "Antigravity IDE", "User", "globalStorage", "state.vscdb"),
+		)
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		paths = append(paths,
+			filepath.Join(home, "Library", "Application Support", "Antigravity", "User", "globalStorage", "state.vscdb"),
+			filepath.Join(home, "Library", "Application Support", "Antigravity IDE", "User", "globalStorage", "state.vscdb"),
+			filepath.Join(home, "AppData", "Roaming", "Antigravity", "User", "globalStorage", "state.vscdb"),
+			filepath.Join(home, "AppData", "Roaming", "Antigravity IDE", "User", "globalStorage", "state.vscdb"),
+		)
+	}
+	return paths
+}
+
 // fetchProjectsFromStateDB queries recentlyOpenedPathsList from Antigravity's state.vscdb.
 func fetchProjectsFromStateDB() []ProjectItem {
-	home, err := os.UserHomeDir()
-	if err != nil {
+	var dbPath string
+	for _, p := range getAntigravityStateDBPaths() {
+		if _, err := os.Stat(p); err == nil {
+			dbPath = p
+			break
+		}
+	}
+	if dbPath == "" {
 		return nil
 	}
 
-	dbPath := filepath.Join(home, "Library", "Application Support", "Antigravity", "User", "globalStorage", "state.vscdb")
-	if _, err := os.Stat(dbPath); err != nil {
-		return nil
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "sqlite3", dbPath, "SELECT value FROM ItemTable WHERE key = 'history.recentlyOpenedPathsList';")
-	out, err := cmd.Output()
-	if err != nil {
-		log.Printf("[Projects] Warning: failed to read state.vscdb: %v", err)
+
+	var out []byte
+	var err error
+
+	// 1. Try sqlite3 CLI if available
+	if _, lookErr := exec.LookPath("sqlite3"); lookErr == nil {
+		cmd := exec.CommandContext(ctx, "sqlite3", dbPath, "SELECT value FROM ItemTable WHERE key = 'history.recentlyOpenedPathsList';")
+		out, err = cmd.Output()
+	}
+
+	// 2. Fallback to Python's built-in sqlite3 module if sqlite3 CLI is absent (e.g. Windows)
+	if len(out) == 0 {
+		pyScript := "import sqlite3, sys; conn = sqlite3.connect(sys.argv[1]); cur = conn.cursor(); cur.execute('SELECT value FROM ItemTable WHERE key = ?', (sys.argv[2],)); row = cur.fetchone(); sys.stdout.write(row[0] if row and row[0] else '')"
+		for _, pyExe := range []string{"python", "python3"} {
+			if _, lookErr := exec.LookPath(pyExe); lookErr == nil {
+				cmd := exec.CommandContext(ctx, pyExe, "-c", pyScript, dbPath, "history.recentlyOpenedPathsList")
+				if pyOut, pyErr := cmd.Output(); pyErr == nil && len(pyOut) > 0 {
+					out = pyOut
+					err = nil
+					break
+				}
+			}
+		}
+	}
+
+	if err != nil || len(out) == 0 {
 		return nil
 	}
 
@@ -798,7 +861,31 @@ func normalizeURI(uri string) string {
 	if uri == "" {
 		return ""
 	}
-	if !strings.HasPrefix(uri, "file://") && strings.HasPrefix(uri, "/") {
+	// Decode %3A or %3a if present (e.g. file:///d%3A/...)
+	uri = strings.ReplaceAll(uri, "%3A", ":")
+	uri = strings.ReplaceAll(uri, "%3a", ":")
+
+	if strings.HasPrefix(uri, "file://") {
+		clean := strings.TrimPrefix(uri, "file://")
+		if runtime.GOOS == "windows" {
+			if len(clean) > 2 && clean[0] == '/' && isWindowsDriveLetter(clean[1]) && clean[2] == ':' {
+				clean = clean[1:]
+			}
+			if len(clean) >= 2 && isWindowsDriveLetter(clean[0]) && clean[1] == ':' {
+				clean = strings.ToLower(string(clean[0])) + clean[1:]
+				return "file:///" + filepath.ToSlash(strings.TrimSuffix(clean, "/"))
+			}
+		}
+		return strings.TrimSuffix("file://"+clean, "/")
+	}
+
+	// Direct Windows drive path like D:\Projects...
+	if runtime.GOOS == "windows" && len(uri) >= 2 && isWindowsDriveLetter(uri[0]) && uri[1] == ':' {
+		uri = strings.ToLower(string(uri[0])) + uri[1:]
+		return "file:///" + filepath.ToSlash(strings.TrimSuffix(uri, "\\/"))
+	}
+
+	if strings.HasPrefix(uri, "/") {
 		uri = "file://" + uri
 	}
 	return strings.TrimSuffix(uri, "/")
@@ -810,11 +897,20 @@ func uriToPath(rawURI string) string {
 	}
 	u, err := url.Parse(rawURI)
 	if err != nil {
-		return strings.TrimPrefix(rawURI, "file://")
+		path := strings.TrimPrefix(rawURI, "file://")
+		if runtime.GOOS == "windows" && len(path) > 2 && (path[0] == '/' || path[0] == '\\') && isWindowsDriveLetter(path[1]) && path[2] == ':' {
+			path = path[1:]
+			return filepath.FromSlash(path)
+		}
+		return path
 	}
 	path, err := url.PathUnescape(u.Path)
 	if err != nil {
-		return u.Path
+		path = u.Path
+	}
+	if runtime.GOOS == "windows" && len(path) > 2 && (path[0] == '/' || path[0] == '\\') && isWindowsDriveLetter(path[1]) && path[2] == ':' {
+		path = path[1:]
+		return filepath.FromSlash(path)
 	}
 	return path
 }
