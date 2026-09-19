@@ -317,8 +317,20 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         self.draftProject = draftProject
     }
     
+    public var effectiveLastModified: Date {
+        var newest = lastModified ?? .distantPast
+        if let touch = CacheManager.shared.getTouchDate(for: id), touch > newest {
+            newest = touch
+        }
+        if CacheManager.shared.hasDraft(for: id), let draftDate = CacheManager.shared.getDraftDate(for: id), draftDate > newest {
+            newest = draftDate
+        }
+        return newest
+    }
+    
     public var relativeTimeString: String {
-        guard let date = lastModified else { return "" }
+        let date = effectiveLastModified
+        guard date != .distantPast else { return "" }
         let diff = Date().timeIntervalSince(date)
         if diff < 60 { return "刚刚" }
         if diff < 3600 { return "\(Int(diff / 60))分钟前" }

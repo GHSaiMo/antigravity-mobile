@@ -10,10 +10,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.Undo
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -33,9 +39,12 @@ import androidx.compose.ui.platform.LocalContext
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import android.graphics.Bitmap
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MessageBubble(
     message: GatewayMessageItem,
@@ -43,7 +52,8 @@ fun MessageBubble(
     onPlanClick: ((uri: String, title: String) -> Unit)? = null,
     urlResolver: ((String) -> String)? = null,
     onImageClick: ((url: String?, bitmap: Bitmap?) -> Unit)? = null,
-    onImageGroupClick: ((items: List<ImageViewerItem>, initialIndex: Int) -> Unit)? = null
+    onImageGroupClick: ((items: List<ImageViewerItem>, initialIndex: Int) -> Unit)? = null,
+    onUndoClick: ((GatewayMessageItem) -> Unit)? = null
 ) {
     val colors = AntigravityTheme.colors
     val context = LocalContext.current
@@ -210,6 +220,8 @@ fun MessageBubble(
             }
 
             if (displayText.isNotBlank()) {
+                var showContextMenu by remember { mutableStateOf(false) }
+
                 // User Bubble: Apple Indigo, white text, 18.dp continuous corner radius
                 Box(
                     modifier = Modifier
@@ -222,6 +234,10 @@ fun MessageBubble(
                         )
                         .clip(RoundedCornerShape(18.dp))
                         .background(colors.userBubbleBg)
+                        .combinedClickable(
+                            onClick = {},
+                            onLongClick = { showContextMenu = true }
+                        )
                         .padding(horizontal = 14.dp, vertical = 10.dp)
                 ) {
                     Text(
@@ -230,6 +246,25 @@ fun MessageBubble(
                         fontSize = 15.5.sp,
                         lineHeight = 21.sp
                     )
+
+                    DropdownMenu(
+                        expanded = showContextMenu,
+                        onDismissRequest = { showContextMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("撤回") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Undo,
+                                    contentDescription = "撤回"
+                                )
+                            },
+                            onClick = {
+                                showContextMenu = false
+                                onUndoClick?.invoke(message)
+                            }
+                        )
+                    }
                 }
             }
         } else {

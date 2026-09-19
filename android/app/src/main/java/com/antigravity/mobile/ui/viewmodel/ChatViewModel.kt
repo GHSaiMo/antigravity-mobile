@@ -100,7 +100,13 @@ data class ChatUiState(
     val stepCount: Int = 0,
     val totalTools: Int = 0,
     val duration: String = "",
-    val cascadeConfigRaw: String? = null
+    val cascadeConfigRaw: String? = null,
+    val revertPreview: RevertPreviewResponse? = null,
+    val activeUndoMessage: GatewayMessageItem? = null,
+    val showConfirmUndoSheet: Boolean = false,
+    val isReverting: Boolean = false,
+    val isLoadingRevertPreview: Boolean = false,
+    val focusInputTrigger: Int = 0
 )
 
 class ChatViewModel(
@@ -2034,6 +2040,162 @@ class ChatViewModel(
         documentDownloadJob?.cancel()
         documentDownloadJob = null
         _uiState.value = _uiState.value.copy(isDownloadingDocument = false)
+    }
+
+    // MARK: - Revert / Undo Operations
+
+    fun refreshMessages() {
+        val cascadeId = _uiState.value.cascadeId
+        if (cascadeId.isBlank()) return
+        viewModelScope.launch {
+            apiClient.fetchMessages(cascadeId, limit = 15).onSuccess { payload ->
+                if (_uiState.value.cascadeId == cascadeId) {
+                    val incoming = payload.messages ?: emptyList()
+                    if (incoming.isEmpty()) {
+                        val emptyTitle = if (_uiState.value.workspaceName.isNotBlank() && _uiState.value.workspaceName != "Chat") {
+                            _uiState.value.workspaceName
+                        } else {
+                            "新对话"
+                        }
+                        _uiState.value = _uiState.value.copy(
+                            messages = emptyList(),
+                            stepCount = 0,
+                            totalTools = 0,
+                            duration = "0秒",
+                            isNewConversation = true,
+                            title = emptyTitle
+                        )
+                        cacheManager.updateConversationTitle(cascadeId, emptyTitle)
+                    } else {
+                        val sanitized = sanitizeMessageOrder(incoming)
+                        _uiState.value = _uiState.value.copy(
+                            messages = sanitized,
+                            stepCount = payload.totalSteps,
+                            totalTools = payload.totalTools,
+                            duration = payload.duration ?: _uiState.value.duration
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    fun requestUndo(message: GatewayMessageItem) {
+        val cascadeId = _uiState.value.cascadeId
+        if (cascadeId.isBlank()) return
+
+        var targetMsg = message
+        val initialStepIndex = targetMsg.stepIndex ?: targetMsg.id.removePrefix("step-").toIntOrNull()
+
+        _uiState.value = _uiState.value.copy(
+            activeUndoMessage = targetMsg,
+            showConfirmUndoSheet = true,
+            isLoadingRevertPreview = true,
+            revertPreview = null
+        )
+
+        viewModelScope.launch {
+            val validStepIndex = initialStepIndex ?: 0
+            val res = apiClient.fetchRevertPreview(cascadeId = cascadeId, stepIndex = validStepIndex)
+            res.onSuccess { preview ->
+                _uiState.value = _uiState.value.copy(
+                    revertPreview = preview,
+                    isLoadingRevertPreview = false
+                )
+            }.onFailure {
+                _uiState.value = _uiState.value.copy(
+                    isLoadingRevertPreview = false,
+                    revertPreview = RevertPreviewResponse(
+                        cascadeId = cascadeId,
+                        stepIndex = validStepIndex,
+                        targetStepIndex = (validStepIndex - 1).coerceAtLeast(-1),
+                        files = emptyList(),
+                        hasCodeChanges = false
+                    )
+                )
+            }
+        }
+    }
+
+    fun dismissConfirmUndo() {
+        _uiState.value = _uiState.value.copy(
+            showConfirmUndoSheet = false,
+            activeUndoMessage = null,
+            revertPreview = null,
+            isLoadingRevertPreview = false
+        )
+    }
+
+    fun confirmUndo() {
+        val cascadeId = _uiState.value.cascadeId
+        val message = _uiState.value.activeUndoMessage ?: return
+        val stepIndex = message.stepIndex ?: message.id.removePrefix("step-").toIntOrNull() ?: 0
+        val isFirstUserMessage = stepIndex <= 0 || message.id == _uiState.value.messages.firstOrNull { it.isUser }?.id
+        if (cascadeId.isBlank()) return
+
+        _uiState.value = _uiState.value.copy(isReverting = true)
+
+        viewModelScope.launch {
+            val res = apiClient.executeRevert(cascadeId = cascadeId, stepIndex = stepIndex, conversationOnly = false)
+            res.onSuccess {
+                // Put undone message text back into input
+                _inputText.value = message.effectiveText
+
+                // Restore image attachments if any
+                val images = message.effectiveImageDataList
+                if (images.isNotEmpty()) {
+                    val restoredAttachments = images.map { bytes ->
+                        val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                        AttachmentImage(
+                            id = UUID.randomUUID().toString(),
+                            uri = Uri.EMPTY,
+                            bitmap = bmp ?: Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888),
+                            byteArray = bytes,
+                            mimeType = "image/jpeg"
+                        )
+                    }
+                    _uiState.value = _uiState.value.copy(selectedImages = restoredAttachments)
+                }
+
+                _uiState.value = _uiState.value.copy(
+                    showConfirmUndoSheet = false,
+                    isReverting = false,
+                    activeUndoMessage = null,
+                    revertPreview = null,
+                    focusInputTrigger = _uiState.value.focusInputTrigger + 1
+                )
+
+                if (isFirstUserMessage) {
+                    val emptyTitle = if (_uiState.value.workspaceName.isNotBlank() && _uiState.value.workspaceName != "Chat") {
+                        _uiState.value.workspaceName
+                    } else {
+                        "新对话"
+                    }
+                    _uiState.value = _uiState.value.copy(
+                        messages = emptyList(),
+                        stepCount = 0,
+                        totalTools = 0,
+                        duration = "0秒",
+                        isNewConversation = true,
+                        title = emptyTitle
+                    )
+                    cacheManager.updateConversationTitle(cascadeId, emptyTitle)
+                } else {
+                    val filtered = _uiState.value.messages.filter { msg ->
+                        val idx = msg.stepIndex ?: msg.id.removePrefix("step-").toIntOrNull()
+                        idx == null || idx < stepIndex
+                    }
+                    _uiState.value = _uiState.value.copy(messages = filtered)
+                }
+
+                refreshMessages()
+            }.onFailure { err ->
+                _uiState.value = _uiState.value.copy(
+                    isReverting = false,
+                    errorMessage = "撤回失败: ${err.message}"
+                )
+            }
+        }
     }
 
     override fun onCleared() {

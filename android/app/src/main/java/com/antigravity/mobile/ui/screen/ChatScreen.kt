@@ -232,6 +232,16 @@ fun ChatScreen(
         }
     }
 
+    LaunchedEffect(uiState.focusInputTrigger) {
+        if (uiState.focusInputTrigger > 0) {
+            delay(150)
+            try {
+                focusRequester.requestFocus()
+                keyboardController?.show()
+            } catch (_: Exception) {}
+        }
+    }
+
     fun computeTargetPosition(): Int {
         val totalCount = listState.layoutInfo.totalItemsCount
         val shouldScrollToTurnStart = viewModel.shouldScrollToTurnStartOnEntry ||
@@ -537,6 +547,9 @@ fun ChatScreen(
                                         },
                                         onImageGroupClick = { items, index ->
                                             viewModel.openImageViewer(items = items, initialIndex = index)
+                                        },
+                                        onUndoClick = { target ->
+                                            viewModel.requestUndo(target)
                                         }
                                     )
                                 }
@@ -864,6 +877,18 @@ fun ChatScreen(
         )
     }
 
+    // Confirm Undo Bottom Sheet
+    if (uiState.showConfirmUndoSheet) {
+        ConfirmUndoBottomSheet(
+            message = uiState.activeUndoMessage,
+            preview = uiState.revertPreview,
+            isLoadingPreview = uiState.isLoadingRevertPreview,
+            isReverting = uiState.isReverting,
+            onConfirm = { viewModel.confirmUndo() },
+            onDismiss = { viewModel.dismissConfirmUndo() }
+        )
+    }
+
     // Downloading Document Progress Dialog
     if (uiState.isDownloadingDocument) {
         androidx.compose.ui.window.Dialog(onDismissRequest = { viewModel.cancelDocumentDownload() }) {
@@ -1017,7 +1042,7 @@ private fun ChatEmptyStateView(title: String) {
         Spacer(modifier = Modifier.height(6.dp))
 
         Text(
-            text = "已连接工作区，在下方输入指令开启对话",
+            text = if (title == "新对话") "新对话模式，在下方输入指令开启对话" else "已连接工作区，在下方输入指令开启对话",
             color = colors.textSecondary,
             fontSize = 13.sp,
             textAlign = TextAlign.Center

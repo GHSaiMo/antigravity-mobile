@@ -112,6 +112,7 @@ public struct PaginatedMessagesResponse: Codable, Sendable {
         public let toolNames: [String]?
         public let media: [String]?
         public let imageUrls: [String]?
+        public let stepIndex: Int?
     }
 }
 
@@ -235,7 +236,7 @@ public final class APIClient: Sendable {
             }
             return item
         }.sorted { a, b in
-            (a.lastModified ?? .distantPast) > (b.lastModified ?? .distantPast)
+            a.effectiveLastModified > b.effectiveLastModified
         }
     }
     
@@ -515,7 +516,8 @@ public final class APIClient: Sendable {
                         toolCount: item.toolCount ?? 0,
                         toolNames: item.toolNames ?? [],
                         imageDataList: imgDataList,
-                        imageUrls: resolvedImageUrls
+                        imageUrls: resolvedImageUrls,
+                        stepIndex: item.stepIndex
                     )
                 }
                 
@@ -604,7 +606,7 @@ public final class APIClient: Sendable {
             pendingTools.removeAll()
         }
         
-        for step in steps {
+        for (idx, step) in steps.enumerated() {
             let type = step.type ?? ""
             
             if type == "CORTEX_STEP_TYPE_USER_INPUT" {
@@ -635,7 +637,8 @@ public final class APIClient: Sendable {
                     messages.append(ChatMessage(
                         sender: .user,
                         content: text,
-                        imageDataList: images
+                        imageDataList: images,
+                        stepIndex: idx
                     ))
                 }
             } else if type == "CORTEX_STEP_TYPE_PLANNER_RESPONSE" {
@@ -1302,6 +1305,43 @@ public final class APIClient: Sendable {
         }
         
         return (cachedURL, resolvedFileName)
+    }
+    
+    // MARK: - Revert / Undo Operations
+    
+    public func fetchRevertPreview(cascadeId: String, stepIndex: Int, baseURL: URL) async throws -> RevertPreviewResponse {
+        let endpoint = baseURL.appendingPathComponent("gateway/cascade/revert/preview")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let reqBody = RevertPreviewRequest(cascadeId: cascadeId, stepIndex: stepIndex)
+        request.httpBody = try JSONEncoder().encode(reqBody)
+        request.timeoutInterval = 15.0
+        
+        let (data, response) = try await transport.send(request: request)
+        guard let httpResp = response as? HTTPURLResponse, (200...299).contains(httpResp.statusCode) else {
+            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+            let msg = String(data: data, encoding: .utf8) ?? "Failed to fetch revert preview"
+            throw APIError.serverError(statusCode: code, message: msg)
+        }
+        return try JSONDecoder().decode(RevertPreviewResponse.self, from: data)
+    }
+    
+    public func executeRevert(cascadeId: String, stepIndex: Int, conversationOnly: Bool = false, baseURL: URL) async throws {
+        let endpoint = baseURL.appendingPathComponent("gateway/cascade/revert/execute")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let reqBody = RevertExecuteRequest(cascadeId: cascadeId, stepIndex: stepIndex, conversationOnly: conversationOnly)
+        request.httpBody = try JSONEncoder().encode(reqBody)
+        request.timeoutInterval = 20.0
+        
+        let (data, response) = try await transport.send(request: request)
+        guard let httpResp = response as? HTTPURLResponse, (200...299).contains(httpResp.statusCode) else {
+            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+            let msg = String(data: data, encoding: .utf8) ?? "Failed to execute revert"
+            throw APIError.serverError(statusCode: code, message: msg)
+        }
     }
 }
 

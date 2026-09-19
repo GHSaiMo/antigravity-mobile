@@ -67,6 +67,7 @@ public final class ChatViewModel {
     public var cascadeId: String
     public let initialTitle: String
     public var currentTitle: String
+    public var workspaceName: String = "Chat"
     public var isNewConversation: Bool
     public var draftProject: ProjectItem?
     public var draftSession: LocalDraftSession?
@@ -92,8 +93,33 @@ public final class ChatViewModel {
         return ""
     }
     
+    public var emptyConversationTitle: String {
+        if isPureChat {
+            return "新对话"
+        }
+        if !workspaceName.isEmpty && workspaceName != "Chat" {
+            return workspaceName
+        }
+        if let draftProject, !draftProject.isPureChat {
+            return draftProject.name
+        }
+        if let draftSession, !draftSession.project.isPureChat {
+            return draftSession.project.name
+        }
+        return "新对话"
+    }
+    
     public var isPureChat: Bool {
-        draftProject?.isPureChat == true || draftSession?.project.isPureChat == true || currentTitle == "新对话"
+        if let draftProject {
+            return draftProject.isPureChat
+        }
+        if let draftSession {
+            return draftSession.project.isPureChat
+        }
+        if !workspaceName.isEmpty && workspaceName != "Chat" {
+            return false
+        }
+        return true
     }
     
     public func updateDraftImages(_ images: [Data]) {
@@ -142,6 +168,10 @@ public final class ChatViewModel {
         guard !key.isEmpty else { return }
         cacheManager.saveDraftImages(key: key, images: selectedImageData)
         cacheManager.saveDraft(key: key, text: inputText)
+        cacheManager.recordDraftDate(key: key)
+        if !cascadeId.isEmpty && (messages.isEmpty || isNewConversation) {
+            cacheManager.recordConversationTouch(cascadeId: cascadeId)
+        }
         if let draftSession, key == draftSession.id {
             var updated = draftSession
             updated.draftText = inputText
@@ -210,6 +240,14 @@ public final class ChatViewModel {
     public var quickLookTitle: String = ""
     public var htmlPreviewURL: URL? = nil
     public var htmlPreviewTitle: String = ""
+    
+    // Revert / Undo State
+    public var revertPreview: RevertPreviewResponse? = nil
+    public var activeUndoMessage: ChatMessage? = nil
+    public var showConfirmUndoSheet: Bool = false
+    public var isReverting: Bool = false
+    public var isLoadingRevertPreview: Bool = false
+    public var focusInputTrigger: Int = 0
     
     /// ID of the first message of the latest response turn (e.g., tool batch or agent response following the last user message)
     public var latestTurnStartMessageId: String? {
@@ -342,6 +380,7 @@ public final class ChatViewModel {
     public init(
         cascadeId: String,
         initialTitle: String,
+        workspaceName: String = "Chat",
         isNewConversation: Bool = false,
         apiClient: APIClient? = nil,
         settings: AppSettings? = nil,
@@ -352,6 +391,7 @@ public final class ChatViewModel {
         self.cascadeId = cascadeId
         self.initialTitle = initialTitle
         self.currentTitle = initialTitle
+        self.workspaceName = workspaceName
         self.isNewConversation = isNewConversation
         self.isUnreadOnEntry = isUnread
         self.initialConversationStatus = conversationStatus
@@ -385,6 +425,9 @@ public final class ChatViewModel {
         
         // Instant restore from local cache
         if let cached = resolvedCacheManager.loadSession(for: cascadeId) {
+            if let ws = cached.workspaceName, !ws.isEmpty, ws != "Chat" {
+                self.workspaceName = ws
+            }
             let healed = self.sanitizeMessageOrder(cached.messages)
             self.messages = healed
             self.duration = cached.duration
@@ -437,6 +480,7 @@ public final class ChatViewModel {
         let title = isPure ? "新对话" : draftProject.name
         self.initialTitle = title
         self.currentTitle = title
+        self.workspaceName = isPure ? "Chat" : draftProject.name
         self.isNewConversation = true
         self.draftProject = draftProject
         let resolvedCacheManager = cacheManager ?? .shared
@@ -466,6 +510,7 @@ public final class ChatViewModel {
         let title = isPure ? "新对话" : draftSession.project.name
         self.initialTitle = title
         self.currentTitle = title
+        self.workspaceName = isPure ? "Chat" : draftSession.project.name
         self.isNewConversation = true
         self.draftSession = draftSession
         self.draftProject = draftSession.project
@@ -490,10 +535,52 @@ public final class ChatViewModel {
     }
     
     @MainActor
+    private func saveEmptySessionToCache() {
+        let emptyTitle = self.emptyConversationTitle
+        self.cacheManager.recordConversationTouch(cascadeId: self.cascadeId)
+        self.cacheManager.updateConversationTitle(cascadeId: self.cascadeId, newTitle: emptyTitle)
+        self.cacheManager.upsertConversation(ConversationItem(
+            id: self.cascadeId,
+            title: emptyTitle,
+            status: .idle,
+            stepCount: 0,
+            workspaceName: self.workspaceName,
+            lastModified: Date()
+        ))
+        self.cacheManager.saveSession(CachedChatSession(
+            cascadeId: self.cascadeId,
+            status: "CASCADE_RUN_STATUS_IDLE",
+            duration: "0秒",
+            stepCount: 0,
+            totalTools: 0,
+            hasMore: false,
+            nextOffset: 0,
+            messages: [],
+            title: emptyTitle,
+            cascadeConfigRaw: self.cascadeConfigRaw,
+            canProceed: false,
+            proceedArtifactUri: nil,
+            pendingInteraction: nil,
+            queuedMessages: [],
+            runningTasks: [],
+            workspaceName: self.workspaceName
+        ))
+    }
+    
+    @MainActor
     public func loadMessages(isBackgroundPoll: Bool = false) async {
         guard !cascadeId.isEmpty else { return }
+        if (self.workspaceName.isEmpty || self.workspaceName == "Chat") && !cascadeId.isEmpty {
+            if let conv = cacheManager.loadConversations().first(where: { $0.id == cascadeId }),
+               !conv.workspaceName.isEmpty, conv.workspaceName != "Chat" {
+                self.workspaceName = conv.workspaceName
+            }
+        }
         // Fallback to cache if messages empty
         if messages.isEmpty, let cached = cacheManager.loadSession(for: cascadeId) {
+            if let ws = cached.workspaceName, !ws.isEmpty, ws != "Chat" {
+                self.workspaceName = ws
+            }
             let healed = self.sanitizeMessageOrder(cached.messages)
             self.messages = healed
             self.duration = cached.duration
@@ -547,36 +634,57 @@ public final class ChatViewModel {
                 }
             }
             
-            if let title = result.title?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines), !title.isEmpty, title != "未命名会话" {
-                if self.currentTitle != title {
-                    withAnimation(.easeInOut(duration: 0.25)) {
-                        self.currentTitle = title
+            if result.messages.isEmpty {
+                if self.pendingOptimisticMessageId == nil {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        self.messages = []
+                        self.knownServerMessageIds = []
+                        self.hasMore = false
+                        self.nextOffset = 0
+                        self.stepCount = 0
+                        self.totalTools = 0
+                        self.duration = "0秒"
+                        self.isNewConversation = true
+                        self.currentTitle = self.emptyConversationTitle
                     }
-                    self.cacheManager.updateConversationTitle(cascadeId: self.cascadeId, newTitle: title)
-                }
-            }
-            
-            if (isBackgroundPoll || self.pendingOptimisticMessageId != nil) && !self.messages.isEmpty {
-                self.mergeIncomingMessages(result.messages)
-                if self.messages.contains(where: { self.extractStepIndex(from: $0.id) == 0 }) {
-                    self.hasMore = false
-                    self.nextOffset = 0
-                }
-            } else if !self.messages.isEmpty && self.messages.count > result.messages.count {
-                // Preserves cached/expanded history rather than truncating all older messages
-                self.mergeIncomingMessages(result.messages)
-                if self.messages.contains(where: { self.extractStepIndex(from: $0.id) == 0 }) {
-                    self.hasMore = false
-                    self.nextOffset = 0
+                    self.saveEmptySessionToCache()
                 }
             } else {
-                let healed = self.sanitizeMessageOrder(result.messages)
-                self.messages = healed
-                let hasEarliest = healed.contains(where: { self.extractStepIndex(from: $0.id) == 0 })
-                self.hasMore = hasEarliest ? false : result.hasMore
-                self.nextOffset = hasEarliest ? 0 : result.nextOffset
-                if self.pendingOptimisticMessageId == nil {
-                    self.knownServerMessageIds = Set(healed.map(\.id))
+                if let title = result.title?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines), !title.isEmpty, title != "未命名会话" {
+                    if self.currentTitle != title {
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            self.currentTitle = title
+                        }
+                        self.cacheManager.updateConversationTitle(cascadeId: self.cascadeId, newTitle: title)
+                    }
+                }
+                
+                let clientMaxStep = self.messages.compactMap { self.extractStepIndex(from: $0.id) }.max() ?? -1
+                let serverMaxStep = result.messages.compactMap { self.extractStepIndex(from: $0.id) }.max() ?? -1
+                let isTruncatedOrReverted = serverMaxStep < clientMaxStep
+                
+                if (isBackgroundPoll || self.pendingOptimisticMessageId != nil) && !self.messages.isEmpty && !isTruncatedOrReverted {
+                    self.mergeIncomingMessages(result.messages)
+                    if self.messages.contains(where: { self.extractStepIndex(from: $0.id) == 0 }) {
+                        self.hasMore = false
+                        self.nextOffset = 0
+                    }
+                } else if !self.messages.isEmpty && self.messages.count > result.messages.count && !isTruncatedOrReverted {
+                    // Preserves cached/expanded history rather than truncating all older messages
+                    self.mergeIncomingMessages(result.messages)
+                    if self.messages.contains(where: { self.extractStepIndex(from: $0.id) == 0 }) {
+                        self.hasMore = false
+                        self.nextOffset = 0
+                    }
+                } else {
+                    let healed = self.sanitizeMessageOrder(result.messages)
+                    self.messages = healed
+                    let hasEarliest = healed.contains(where: { self.extractStepIndex(from: $0.id) == 0 })
+                    self.hasMore = hasEarliest ? false : result.hasMore
+                    self.nextOffset = hasEarliest ? 0 : result.nextOffset
+                    if self.pendingOptimisticMessageId == nil {
+                        self.knownServerMessageIds = Set(healed.map(\.id))
+                    }
                 }
             }
             
@@ -850,7 +958,23 @@ public final class ChatViewModel {
     /// Applies a full trajectory snapshot directly without destructive slicing or reverse appends.
     @MainActor
     private func applySnapshotMessages(_ incoming: [ChatMessage], hasMore: Bool = false, nextOffset: Int = 0) {
-        guard !incoming.isEmpty else { return }
+        guard !incoming.isEmpty else {
+            if self.pendingOptimisticMessageId == nil {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    self.messages = []
+                    self.knownServerMessageIds = []
+                    self.hasMore = false
+                    self.nextOffset = 0
+                    self.stepCount = 0
+                    self.totalTools = 0
+                    self.duration = "0秒"
+                    self.isNewConversation = true
+                    self.currentTitle = self.emptyConversationTitle
+                }
+                self.saveEmptySessionToCache()
+            }
+            return
+        }
         
         // 1. Check if server has incorporated the pending optimistic user message
         let currentOptId = self.pendingOptimisticMessageId
@@ -882,7 +1006,15 @@ public final class ChatViewModel {
     }
     
     private func mergeIncomingMessages(_ incoming: [ChatMessage]) {
-        guard !incoming.isEmpty else { return }
+        guard !incoming.isEmpty else {
+            if self.pendingOptimisticMessageId == nil {
+                self.messages = []
+                self.knownServerMessageIds = []
+                self.hasMore = false
+                self.nextOffset = 0
+            }
+            return
+        }
         
         // 1. Check if server has incorporated the pending optimistic user message
         let currentOptId = self.pendingOptimisticMessageId
@@ -1367,6 +1499,7 @@ public final class ChatViewModel {
                 self.draftSession = nil
                 self.draftProject = nil
                 self.isNewConversation = false
+                self.workspaceName = isPure ? "Chat" : project.name
                 
                 // Immediately register new conversation item in cache
                 let newConv = ConversationItem(
@@ -2169,7 +2302,7 @@ public final class ChatViewModel {
         
         if let title = payload.title?.trimmingCharacters(in: .whitespacesAndNewlines),
            !title.isEmpty, title != "未命名会话" {
-            if self.currentTitle != title {
+            if self.currentTitle != title && !(payload.messages?.isEmpty == true) {
                 withAnimation(.easeInOut(duration: 0.25)) {
                     self.currentTitle = title
                 }
@@ -2200,11 +2333,31 @@ public final class ChatViewModel {
                     toolCount: item.toolCount ?? 0,
                     toolNames: item.toolNames ?? [],
                     imageDataList: imgDataList,
-                    imageUrls: resolvedImageUrls
+                    imageUrls: resolvedImageUrls,
+                    stepIndex: item.stepIndex ?? (item.id.hasPrefix("step-") ? Int(item.id.dropFirst(5)) : nil)
                 )
             }
-            let hasExpandedHistory = self.messages.count > parsedMessages.count
-            if payload.isFullSnapshot == true && !hasExpandedHistory {
+            let clientMaxStep = self.messages.compactMap { self.extractStepIndex(from: $0.id) }.max() ?? -1
+            let serverMaxStep = parsedMessages.compactMap { self.extractStepIndex(from: $0.id) }.max() ?? -1
+            let isTruncatedOrReverted = serverMaxStep < clientMaxStep || parsedMessages.isEmpty
+            let hasExpandedHistory = self.messages.count > parsedMessages.count && !isTruncatedOrReverted
+            
+            if parsedMessages.isEmpty {
+                if self.pendingOptimisticMessageId == nil {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        self.messages = []
+                        self.knownServerMessageIds = []
+                        self.hasMore = false
+                        self.nextOffset = 0
+                        self.stepCount = 0
+                        self.totalTools = 0
+                        self.duration = "0秒"
+                        self.isNewConversation = true
+                        self.currentTitle = self.emptyConversationTitle
+                    }
+                    self.saveEmptySessionToCache()
+                }
+            } else if (payload.isFullSnapshot == true || isTruncatedOrReverted) && !hasExpandedHistory {
                 self.applySnapshotMessages(
                     parsedMessages,
                     hasMore: payload.hasMore ?? false,
@@ -2587,5 +2740,129 @@ public final class ChatViewModel {
     private func stopPollingFallback() {
         pollTask?.cancel()
         pollTask = nil
+    }
+    
+    // MARK: - Undo / Revert Operations
+    
+    public func requestUndo(for message: ChatMessage) {
+        guard let url = settings.serverURL, !cascadeId.isEmpty else { return }
+        
+        // Immediately present the confirm sheet so UI feedback is instant
+        self.activeUndoMessage = message
+        self.revertPreview = nil
+        self.isLoadingRevertPreview = true
+        self.showConfirmUndoSheet = true
+        
+        Task { @MainActor in
+            var targetMsg = message
+            var stepIndex = targetMsg.effectiveStepIndex ?? self.extractStepIndex(from: targetMsg.id)
+            
+            if stepIndex == nil {
+                await self.loadMessages()
+                if let matched = self.messages.first(where: { $0.id == message.id || ($0.isUser && $0.content == message.content) }) {
+                    targetMsg = matched
+                    stepIndex = matched.effectiveStepIndex ?? self.extractStepIndex(from: matched.id)
+                }
+            }
+            
+            guard let validStepIndex = stepIndex else {
+                self.isLoadingRevertPreview = false
+                self.revertPreview = RevertPreviewResponse(
+                    cascadeId: self.cascadeId,
+                    stepIndex: 0,
+                    targetStepIndex: 0,
+                    files: [],
+                    hasCodeChanges: false
+                )
+                return
+            }
+            
+            if targetMsg.stepIndex != validStepIndex {
+                targetMsg = ChatMessage(
+                    id: targetMsg.id,
+                    sender: targetMsg.sender,
+                    content: targetMsg.content,
+                    thinking: targetMsg.thinking,
+                    toolCount: targetMsg.toolCount,
+                    toolNames: targetMsg.toolNames,
+                    imageDataList: targetMsg.imageDataList,
+                    imageUrls: targetMsg.imageUrls,
+                    stepIndex: validStepIndex
+                )
+                self.activeUndoMessage = targetMsg
+            }
+            
+            do {
+                let preview = try await apiClient.fetchRevertPreview(cascadeId: self.cascadeId, stepIndex: validStepIndex, baseURL: url)
+                self.revertPreview = preview
+                self.isLoadingRevertPreview = false
+            } catch {
+                self.isLoadingRevertPreview = false
+                self.revertPreview = RevertPreviewResponse(
+                    cascadeId: self.cascadeId,
+                    stepIndex: validStepIndex,
+                    targetStepIndex: max(-1, validStepIndex - 1),
+                    files: [],
+                    hasCodeChanges: false
+                )
+            }
+        }
+    }
+    
+    public func confirmUndo() {
+        guard let message = activeUndoMessage, let url = settings.serverURL, !cascadeId.isEmpty else { return }
+        let stepIndex = message.effectiveStepIndex ?? extractStepIndex(from: message.id) ?? 0
+        let isFirstUserMessage = (stepIndex <= 0) || (message.id == self.messages.first(where: { $0.isUser })?.id)
+        isReverting = true
+        
+        Task { @MainActor in
+            do {
+                try await apiClient.executeRevert(cascadeId: self.cascadeId, stepIndex: stepIndex, conversationOnly: false, baseURL: url)
+                
+                self.inputText = message.content
+                if !message.imageDataList.isEmpty {
+                    self.selectedImageData = message.imageDataList
+                }
+                
+                self.showConfirmUndoSheet = false
+                self.isReverting = false
+                self.activeUndoMessage = nil
+                self.revertPreview = nil
+                
+                self.cacheManager.recordConversationTouch(cascadeId: self.cascadeId)
+                self.cacheManager.recordDraftDate(key: self.cascadeId)
+                self.saveCurrentDraft()
+                
+                if isFirstUserMessage {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        self.messages = []
+                        self.knownServerMessageIds = []
+                        self.hasMore = false
+                        self.nextOffset = 0
+                        self.stepCount = 0
+                        self.totalTools = 0
+                        self.duration = "0秒"
+                        self.isNewConversation = true
+                        self.currentTitle = self.emptyConversationTitle
+                    }
+                    self.saveEmptySessionToCache()
+                } else {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        self.messages.removeAll(where: { msg in
+                            if let idx = msg.effectiveStepIndex ?? self.extractStepIndex(from: msg.id) {
+                                return idx >= stepIndex
+                            }
+                            return false
+                        })
+                    }
+                }
+                
+                await self.loadMessages()
+                self.focusInputTrigger &+= 1
+            } catch {
+                self.isReverting = false
+                self.errorMessage = "撤回失败: \(error.localizedDescription)"
+            }
+        }
     }
 }

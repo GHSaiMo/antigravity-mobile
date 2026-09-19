@@ -16,6 +16,7 @@ public nonisolated struct CachedChatSession: Codable, Sendable {
     public let pendingInteraction: PendingInteraction?
     public let queuedMessages: [QueuedMessageItem]?
     public let runningTasks: [RunningTaskItem]?
+    public let workspaceName: String?
     public let savedAt: Date
     
     public init(
@@ -34,6 +35,7 @@ public nonisolated struct CachedChatSession: Codable, Sendable {
         pendingInteraction: PendingInteraction? = nil,
         queuedMessages: [QueuedMessageItem]? = nil,
         runningTasks: [RunningTaskItem]? = nil,
+        workspaceName: String? = nil,
         savedAt: Date = Date()
     ) {
         self.cascadeId = cascadeId
@@ -51,6 +53,7 @@ public nonisolated struct CachedChatSession: Codable, Sendable {
         self.pendingInteraction = pendingInteraction
         self.queuedMessages = queuedMessages
         self.runningTasks = runningTasks
+        self.workspaceName = workspaceName
         self.savedAt = savedAt
     }
 }
@@ -72,8 +75,84 @@ public final class CacheManager: @unchecked Sendable {
     private var memDrafts: [String: String] = [:]
     private var memDraftImages: [String: [Data]] = [:]
     private var memLocalDraftSessions: [String: LocalDraftSession]?
+    private var memTouchDates: [String: Date] = [:]
+    private var memDraftDates: [String: Date] = [:]
     private var memDeletedConversations: [String: Date] = [:]
     private let deletedTombstoneTTL: TimeInterval = 600.0 // 10 minutes
+
+    public func recordConversationTouch(cascadeId: String, at date: Date = Date()) {
+        guard !cascadeId.isEmpty else { return }
+        lock.lock()
+        memTouchDates[cascadeId] = date
+        UserDefaults.standard.set(date, forKey: "ag_touch_\(cascadeId)")
+        
+        var items = memConversations ?? []
+        if items.isEmpty {
+            let fileURL = cacheDir.appendingPathComponent("conversations.json")
+            if let data = try? Data(contentsOf: fileURL),
+               let loaded = try? JSONDecoder().decode([ConversationItem].self, from: data) {
+                items = loaded
+            }
+        }
+        
+        if let idx = items.firstIndex(where: { $0.id == cascadeId }) {
+            let old = items.remove(at: idx)
+            let updated = ConversationItem(
+                id: old.id,
+                title: old.title,
+                status: old.status,
+                stepCount: old.stepCount,
+                workspaceName: old.workspaceName,
+                lastModified: date,
+                isSubagent: old.isSubagent,
+                isUnread: false,
+                draftProject: old.draftProject
+            )
+            items.insert(updated, at: 0)
+            memConversations = items
+            if let data = try? JSONEncoder().encode(items) {
+                let fileURL = cacheDir.appendingPathComponent("conversations.json")
+                ioQueue.async {
+                    try? data.write(to: fileURL, options: .atomic)
+                }
+            }
+        }
+        lock.unlock()
+    }
+    
+    public func getTouchDate(for cascadeId: String) -> Date? {
+        lock.lock()
+        defer { lock.unlock() }
+        if let d = memTouchDates[cascadeId] {
+            return d
+        }
+        if let ts = UserDefaults.standard.object(forKey: "ag_touch_\(cascadeId)") as? Date {
+            memTouchDates[cascadeId] = ts
+            return ts
+        }
+        return nil
+    }
+    
+    public func recordDraftDate(key: String, date: Date = Date()) {
+        guard !key.isEmpty else { return }
+        lock.lock()
+        memDraftDates[key] = date
+        UserDefaults.standard.set(date, forKey: "ag_draft_date_\(key)")
+        lock.unlock()
+    }
+    
+    public func getDraftDate(for key: String) -> Date? {
+        lock.lock()
+        defer { lock.unlock() }
+        if let d = memDraftDates[key] {
+            return d
+        }
+        if let ts = UserDefaults.standard.object(forKey: "ag_draft_date_\(key)") as? Date {
+            memDraftDates[key] = ts
+            return ts
+        }
+        return nil
+    }
 
     public func recordDeletedConversation(cascadeId: String) {
         guard !cascadeId.isEmpty else { return }
@@ -325,10 +404,9 @@ public final class CacheManager: @unchecked Sendable {
         }
         
         if let idx = items.firstIndex(where: { $0.id == item.id }) {
-            items[idx] = item
-        } else {
-            items.insert(item, at: 0)
+            items.remove(at: idx)
         }
+        items.insert(item, at: 0)
         memConversations = items
         if let data = try? JSONEncoder().encode(items) {
             let fileURL = cacheDir.appendingPathComponent("conversations.json")
@@ -489,12 +567,15 @@ public final class CacheManager: @unchecked Sendable {
         let old = memDrafts[key]
         memDrafts[key] = text
         UserDefaults.standard.set(text, forKey: "ag_draft_\(key)")
+        let now = Date()
+        memDraftDates[key] = now
+        UserDefaults.standard.set(now, forKey: "ag_draft_date_\(key)")
         
         if key.hasPrefix("local_draft_") {
             ensureLocalDraftSessionsLoaded()
             if var session = memLocalDraftSessions?[key] {
                 session.draftText = text
-                session.updatedAt = Date()
+                session.updatedAt = now
                 memLocalDraftSessions?[key] = session
                 persistDraftSessionsToDisk()
             }
@@ -514,6 +595,8 @@ public final class CacheManager: @unchecked Sendable {
         let hadValue = (memDrafts[key] != nil) || (UserDefaults.standard.object(forKey: "ag_draft_\(key)") != nil)
         memDrafts.removeValue(forKey: key)
         UserDefaults.standard.removeObject(forKey: "ag_draft_\(key)")
+        memDraftDates.removeValue(forKey: key)
+        UserDefaults.standard.removeObject(forKey: "ag_draft_date_\(key)")
         if key.hasPrefix("local_draft_") {
             ensureLocalDraftSessionsLoaded()
             if !hasDraftImages(for: key) {
@@ -541,6 +624,8 @@ public final class CacheManager: @unchecked Sendable {
         let hadValue = (memDrafts[key] != nil) || (UserDefaults.standard.object(forKey: "ag_draft_\(key)") != nil) || hasDraftImages(for: key)
         memDrafts.removeValue(forKey: key)
         UserDefaults.standard.removeObject(forKey: "ag_draft_\(key)")
+        memDraftDates.removeValue(forKey: key)
+        UserDefaults.standard.removeObject(forKey: "ag_draft_date_\(key)")
         if key.hasPrefix("local_draft_") {
             ensureLocalDraftSessionsLoaded()
             memLocalDraftSessions?.removeValue(forKey: key)

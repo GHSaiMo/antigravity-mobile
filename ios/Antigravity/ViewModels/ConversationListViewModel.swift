@@ -36,7 +36,9 @@ public final class ConversationListViewModel {
         let drafts = self.cacheManager.loadLocalDraftConversations()
         let cached = self.cacheManager.loadConversations().filter { !$0.isSubagent }
         if !cached.isEmpty || !drafts.isEmpty {
-            self.conversations = drafts + cached
+            self.conversations = (drafts + cached).sorted { a, b in
+                a.effectiveLastModified > b.effectiveLastModified
+            }
             self.cacheManager.prewarmSessions(for: cached.prefix(15).map(\.id))
         }
         
@@ -77,7 +79,9 @@ public final class ConversationListViewModel {
         let drafts = cacheManager.loadLocalDraftConversations()
         let cached = cacheManager.loadConversations().filter { !$0.isSubagent }
         if !cached.isEmpty || !drafts.isEmpty {
-            self.conversations = drafts + cached
+            self.conversations = (drafts + cached).sorted { a, b in
+                a.effectiveLastModified > b.effectiveLastModified
+            }
         }
     }
     
@@ -172,9 +176,12 @@ public final class ConversationListViewModel {
                 return item
             }
             let drafts = cacheManager.loadLocalDraftConversations()
-            self.conversations = drafts + enriched
-            cacheManager.saveConversations(enriched)
-            cacheManager.prewarmSessions(for: enriched.prefix(15).map(\.id))
+            let all = (drafts + enriched).sorted { a, b in
+                a.effectiveLastModified > b.effectiveLastModified
+            }
+            self.conversations = all
+            cacheManager.saveConversations(all)
+            cacheManager.prewarmSessions(for: all.prefix(15).map(\.id))
             self.isLoading = false
         } catch {
             if conversations.isEmpty {

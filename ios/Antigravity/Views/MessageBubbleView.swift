@@ -50,13 +50,15 @@ public struct MessageBubbleView: View {
     @Environment(\.openURL) private var openURL
     public let message: ChatMessage
     public let isActiveToolBatch: Bool
+    public let onUndo: ((ChatMessage) -> Void)?
     @State private var isThinkingExpanded: Bool = false
     
     @State private var previewGallery: ImageGalleryData? = nil
     
-    public init(message: ChatMessage, isActiveToolBatch: Bool = false) {
+    public init(message: ChatMessage, isActiveToolBatch: Bool = false, onUndo: ((ChatMessage) -> Void)? = nil) {
         self.message = message
         self.isActiveToolBatch = isActiveToolBatch
+        self.onUndo = onUndo
     }
     
     public var body: some View {
@@ -125,6 +127,14 @@ public struct MessageBubbleView: View {
                     .padding(.vertical, 10)
                     .background(Color.indigo)
                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+        }
+        .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .contextMenu {
+            Button(role: .destructive) {
+                onUndo?(message)
+            } label: {
+                Label("撤回", systemImage: "arrow.uturn.backward")
             }
         }
     }

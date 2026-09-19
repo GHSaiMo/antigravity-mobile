@@ -139,3 +139,42 @@ data class StreamUpdatePayload(
     val activeModel: String? = null,
     val modelDisplayName: String? = null
 )
+
+@Serializable
+data class RevertDiffLine(
+    val text: String = "",
+    val type: String = "UNCHANGED" // "INSERT", "DELETE", "UNCHANGED"
+)
+
+@Serializable
+data class RevertPreviewFile(
+    val fileUri: String = "",
+    val fileName: String = "",
+    val actionType: String = "MODIFY", // "MODIFY", "CREATE", "DELETE"
+    val additions: Int = 0,
+    val deletions: Int = 0,
+    val diffLines: List<RevertDiffLine> = emptyList()
+)
+
+@Serializable
+data class RevertPreviewResponse(
+    val cascadeId: String = "",
+    val stepIndex: Int = 0,
+    val targetStepIndex: Int = 0,
+    val files: List<RevertPreviewFile> = emptyList(),
+    val hasCodeChanges: Boolean = false
+)
+
+@Serializable
+data class RevertPreviewRequest(
+    val cascadeId: String = "",
+    val stepIndex: Int = 0
+)
+
+@Serializable
+data class RevertExecuteRequest(
+    val cascadeId: String = "",
+    val stepIndex: Int = 0,
+    val conversationOnly: Boolean = false
+)
+

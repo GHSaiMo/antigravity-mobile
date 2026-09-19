@@ -287,6 +287,7 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
     public let toolNames: [String]
     public let imageDataList: [Data]
     public let imageUrls: [String]
+    public let stepIndex: Int?
     
     public enum MessageSender: Hashable, Sendable, Codable {
         case user
@@ -340,7 +341,8 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
         toolCount: Int = 0,
         toolNames: [String] = [],
         imageDataList: [Data] = [],
-        imageUrls: [String] = []
+        imageUrls: [String] = [],
+        stepIndex: Int? = nil
     ) {
         self.id = id
         self.sender = sender
@@ -350,6 +352,19 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
         self.toolNames = toolNames
         self.imageDataList = imageDataList
         self.imageUrls = imageUrls
+        if let stepIndex = stepIndex {
+            self.stepIndex = stepIndex
+        } else if id.hasPrefix("step-"), let val = Int(id.dropFirst(5)) {
+            self.stepIndex = val
+        } else {
+            self.stepIndex = nil
+        }
+    }
+    
+    public var effectiveStepIndex: Int? {
+        if let stepIndex = stepIndex { return stepIndex }
+        if id.hasPrefix("step-"), let val = Int(id.dropFirst(5)) { return val }
+        return nil
     }
     
     public var isUser: Bool {
@@ -370,5 +385,74 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
     public var isError: Bool {
         if case .error = sender { return true }
         return false
+    }
+}
+
+// MARK: - Revert / Undo Models
+
+public struct RevertDiffLine: Codable, Sendable, Hashable {
+    public let text: String
+    public let type: String // "INSERT", "DELETE", "UNCHANGED"
+    
+    public init(text: String, type: String) {
+        self.text = text
+        self.type = type
+    }
+}
+
+public struct RevertPreviewFile: Codable, Sendable, Identifiable, Hashable {
+    public var id: String { fileUri }
+    public let fileUri: String
+    public let fileName: String
+    public let actionType: String // "MODIFY", "CREATE", "DELETE"
+    public let additions: Int
+    public let deletions: Int
+    public let diffLines: [RevertDiffLine]
+    
+    public init(fileUri: String, fileName: String, actionType: String, additions: Int, deletions: Int, diffLines: [RevertDiffLine]) {
+        self.fileUri = fileUri
+        self.fileName = fileName
+        self.actionType = actionType
+        self.additions = additions
+        self.deletions = deletions
+        self.diffLines = diffLines
+    }
+}
+
+public struct RevertPreviewResponse: Codable, Sendable {
+    public let cascadeId: String
+    public let stepIndex: Int
+    public let targetStepIndex: Int
+    public let files: [RevertPreviewFile]
+    public let hasCodeChanges: Bool
+    
+    public init(cascadeId: String, stepIndex: Int, targetStepIndex: Int, files: [RevertPreviewFile], hasCodeChanges: Bool) {
+        self.cascadeId = cascadeId
+        self.stepIndex = stepIndex
+        self.targetStepIndex = targetStepIndex
+        self.files = files
+        self.hasCodeChanges = hasCodeChanges
+    }
+}
+
+public struct RevertPreviewRequest: Codable, Sendable {
+    public let cascadeId: String
+    public let stepIndex: Int
+    
+    public init(cascadeId: String, stepIndex: Int) {
+        self.cascadeId = cascadeId
+        self.stepIndex = stepIndex
+    }
+}
+
+public struct RevertExecuteRequest: Codable, Sendable {
+    public let cascadeId: String
+    public let stepIndex: Int
+    public let conversationOnly: Bool
+    
+    public init(cascadeId: String, stepIndex: Int, conversationOnly: Bool = false) {
+        self.cascadeId = cascadeId
+        self.stepIndex = stepIndex
+        self.conversationOnly = conversationOnly
     }
 }

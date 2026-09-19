@@ -313,6 +313,14 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		p.handleCascadeTaskStop(w, r)
 		return
 	}
+	if r.URL.Path == "/gateway/cascade/revert/preview" {
+		p.HandleCascadeRevertPreview(w, r)
+		return
+	}
+	if r.URL.Path == "/gateway/cascade/revert/execute" {
+		p.HandleCascadeRevertExecute(w, r)
+		return
+	}
 
 	// WebSocket upgrade route
 	if r.URL.Path == "/connect-websocket" {
@@ -1370,6 +1378,92 @@ func (p *Proxy) handleCascadeTaskStop(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"success":true}`))
+}
+
+// HandleCascadeRevertPreview handles POST /gateway/cascade/revert/preview.
+func (p *Proxy) HandleCascadeRevertPreview(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req RevertPreviewRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 65536)).Decode(&req); err != nil {
+		writeJSONError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	req.CascadeID = strings.TrimSpace(req.CascadeID)
+	if req.CascadeID == "" {
+		writeJSONError(w, "cascadeId is required", http.StatusBadRequest)
+		return
+	}
+
+	port, token := p.ActiveUpstream()
+	if port == 0 {
+		writeJSONError(w, "No active Antigravity upstream", http.StatusServiceUnavailable)
+		return
+	}
+
+	res, err := p.GetRevertPreview(req.CascadeID, req.StepIndex, req.TargetStepIndex, port, token)
+	if err != nil {
+		log.Printf("[Proxy] Revert preview failed for cascade %s (step %d): %v", shortCascadeID(req.CascadeID), req.StepIndex, err)
+		writeJSONError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	data, err := json.Marshal(res)
+	if err != nil {
+		writeJSONError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(data)
+}
+
+// HandleCascadeRevertExecute handles POST /gateway/cascade/revert/execute.
+func (p *Proxy) HandleCascadeRevertExecute(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req RevertExecuteRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 65536)).Decode(&req); err != nil {
+		writeJSONError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	req.CascadeID = strings.TrimSpace(req.CascadeID)
+	if req.CascadeID == "" {
+		writeJSONError(w, "cascadeId is required", http.StatusBadRequest)
+		return
+	}
+
+	port, token := p.ActiveUpstream()
+	if port == 0 {
+		writeJSONError(w, "No active Antigravity upstream", http.StatusServiceUnavailable)
+		return
+	}
+
+	targetIndex, err := p.ExecuteRevert(req.CascadeID, req.StepIndex, req.TargetStepIndex, req.ConversationOnly, port, token)
+	if err != nil {
+		log.Printf("[Proxy] Revert execute failed for cascade %s (step %d): %v", shortCascadeID(req.CascadeID), req.StepIndex, err)
+		writeJSONError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	ClearTrajectoryCache(req.CascadeID)
+
+	data, err := json.Marshal(map[string]interface{}{
+		"status":          "ok",
+		"cascadeId":       req.CascadeID,
+		"targetStepIndex": targetIndex,
+	})
+	if err != nil {
+		writeJSONError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(data)
 }
 
 func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.Request, port int, token string) {

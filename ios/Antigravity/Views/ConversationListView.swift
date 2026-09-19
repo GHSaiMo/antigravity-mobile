@@ -8,8 +8,8 @@ public struct ConversationListView: View {
     @State private var showQRScanner = false
     @State private var showManualInput = false
     @State private var showNewConversation = false
+    @State private var pendingCreatedConversation: ConversationItem? = nil
     @State private var showAccountQuota = false
-    @State private var selectedDraftSession: LocalDraftSession?
     @State private var navigationPath: [ConversationItem] = []
     
     @State private var conversationToDelete: ConversationItem?
@@ -82,7 +82,7 @@ public struct ConversationListView: View {
                         }
                         .background(NavigationBarTapHelper(onTap: handleEasterEggTap))
                         .navigationDestination(for: ConversationItem.self) { item in
-                            ChatView(conversation: item, isNewConversation: item.stepCount == 0)
+                            ChatView(conversation: item, isNewConversation: item.isDraft || item.stepCount == 0)
                                 .id(item.id)
                                 .onAppear {
                                     guard !item.isDraft else { return }
@@ -97,14 +97,6 @@ public struct ConversationListView: View {
                                         }
                                     }
                                 }
-                                .onDisappear {
-                                    draftsVersion += 1
-                                    viewModel.reloadFromCache()
-                                }
-                        }
-                        .navigationDestination(item: $selectedDraftSession) { session in
-                            ChatView(draftSession: session)
-                                .id(session.id)
                                 .onDisappear {
                                     draftsVersion += 1
                                     viewModel.reloadFromCache()
@@ -132,13 +124,16 @@ public struct ConversationListView: View {
             SettingsSheet()
                 .presentationDragIndicator(.visible)
         }
-        .sheet(isPresented: $showNewConversation) {
+        .sheet(isPresented: $showNewConversation, onDismiss: {
+            if let item = pendingCreatedConversation {
+                pendingCreatedConversation = nil
+                navigationPath.append(item)
+            }
+        }) {
             NewConversationSheet(onSelectProject: { project in
-                Task { @MainActor in
-                    try? await Task.sleep(nanoseconds: 200_000_000)
-                    let session = CacheManager.shared.createLocalDraftSession(project: project)
-                    selectedDraftSession = session
-                }
+                let session = CacheManager.shared.createLocalDraftSession(project: project)
+                pendingCreatedConversation = session.toConversationItem()
+                showNewConversation = false
             })
             .presentationDragIndicator(.visible)
         }
@@ -382,11 +377,7 @@ public struct ConversationListView: View {
                 conversationCard(for: item)
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        if item.isDraft, let draftSession = CacheManager.shared.getLocalDraftSession(id: item.id) {
-                            selectedDraftSession = draftSession
-                        } else {
-                            navigationPath.append(item)
-                        }
+                        navigationPath.append(item)
                     }
                     .onLongPressGesture(minimumDuration: 0.45) {
                         guard !item.isDraft else { return }
@@ -476,7 +467,6 @@ public struct ConversationListView: View {
         viewModel.errorMessage = nil
         viewModel.isLoading = false
         navigationPath = []
-        selectedDraftSession = nil
         showSettings = false
         CacheManager.shared.clearCache()
         DocumentCacheManager.shared.clearCache()
@@ -553,11 +543,9 @@ public struct ConversationListView: View {
         showEasterEgg = false
         
         // If already looking at this exact conversation, avoid duplicate pushing
-        if selectedDraftSession == nil && navigationPath.last?.id == cascadeId {
+        if navigationPath.last?.id == cascadeId {
             return
         }
-        
-        selectedDraftSession = nil
         
         let targetItem: ConversationItem
         if let existing = viewModel.conversations.first(where: { $0.id == cascadeId }) {
@@ -651,14 +639,26 @@ public struct ConversationListView: View {
                 
                 Spacer()
                 
-                if item.isDraft {
-                    Text("草稿 • \(item.relativeTimeString)")
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary)
+                if item.isDraft || (item.stepCount == 0 && hasDraft) {
+                    if !item.relativeTimeString.isEmpty {
+                        Text("草稿 • \(item.relativeTimeString)")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                    } else {
+                        Text("草稿")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                    }
                 } else {
-                    Text("\(item.stepCount) 步骤 • \(item.relativeTimeString)")
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary)
+                    if !item.relativeTimeString.isEmpty {
+                        Text("\(item.stepCount) 步骤 • \(item.relativeTimeString)")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                    } else {
+                        Text("\(item.stepCount) 步骤")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                    }
                 }
             }
         }

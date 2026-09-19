@@ -863,6 +863,60 @@ class ApiClient(private val prefs: PreferencesManager) {
         }
     }
 
+    /**
+     * Fetches revert preview for a cascade step.
+     */
+    suspend fun getRevertPreview(cascadeId: String, stepIndex: Int): Result<RevertPreviewResponse> = withContext(Dispatchers.IO) {
+        val baseUrl = prefs.gatewayBaseUrl?.trim()?.trimEnd('/')
+            ?: return@withContext Result.failure(IllegalStateException("网关地址未配置"))
+
+        try {
+            val endpoint = "$baseUrl/gateway/cascade/revert/preview"
+            val reqPayload = json.encodeToString(RevertPreviewRequest(cascadeId = cascadeId, stepIndex = stepIndex))
+            val request = buildAuthorizedRequest(endpoint)
+                .post(reqPayload.toRequestBody(jsonMediaType))
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    val errMsg = response.body?.string() ?: "HTTP ${response.code}"
+                    return@withContext Result.failure(RuntimeException("获取撤回预览失败: $errMsg"))
+                }
+                val respStr = response.body?.string() ?: ""
+                val preview = json.decodeFromString<RevertPreviewResponse>(respStr)
+                Result.success(preview)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Executes revert for a cascade step.
+     */
+    suspend fun executeRevert(cascadeId: String, stepIndex: Int, conversationOnly: Boolean = false): Result<Unit> = withContext(Dispatchers.IO) {
+        val baseUrl = prefs.gatewayBaseUrl?.trim()?.trimEnd('/')
+            ?: return@withContext Result.failure(IllegalStateException("网关地址未配置"))
+
+        try {
+            val endpoint = "$baseUrl/gateway/cascade/revert/execute"
+            val reqPayload = json.encodeToString(RevertExecuteRequest(cascadeId = cascadeId, stepIndex = stepIndex, conversationOnly = conversationOnly))
+            val request = buildAuthorizedRequest(endpoint)
+                .post(reqPayload.toRequestBody(jsonMediaType))
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    val errMsg = response.body?.string() ?: "HTTP ${response.code}"
+                    return@withContext Result.failure(RuntimeException("执行撤回失败: $errMsg"))
+                }
+                Result.success(Unit)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     private fun buildAuthorizedRequest(url: String): Request.Builder {
         val builder = Request.Builder()
             .url(url)

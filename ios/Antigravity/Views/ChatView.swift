@@ -63,6 +63,7 @@ public struct ChatView: View {
                 _viewModel = State(initialValue: ChatViewModel(
                     cascadeId: conversation.id,
                     initialTitle: conversation.title,
+                    workspaceName: conversation.workspaceName,
                     isNewConversation: isNewOrEmpty,
                     isUnread: conversation.isUnread,
                     conversationStatus: conversation.status
@@ -74,6 +75,7 @@ public struct ChatView: View {
             _viewModel = State(initialValue: ChatViewModel(
                 cascadeId: conversation.id,
                 initialTitle: conversation.title,
+                workspaceName: conversation.workspaceName,
                 isNewConversation: isNewOrEmpty,
                 isUnread: conversation.isUnread,
                 conversationStatus: conversation.status
@@ -263,29 +265,36 @@ public struct ChatView: View {
     
     @ViewBuilder
     private var contentArea: some View {
-        if viewModel.isLoading && viewModel.messages.isEmpty && !viewModel.isNewConversation {
-            loadingStateView
-        } else if let err = viewModel.errorMessage, viewModel.messages.isEmpty && !viewModel.isNewConversation {
-            errorStateView(err: err)
-        } else {
-            GeometryReader { geometry in
-                ScrollViewReader { proxy in
-                    messagesScrollView(proxy: proxy, viewportWidth: geometry.size.width, viewportHeight: geometry.size.height)
-                        .onAppear {
-                            currentViewportHeight = geometry.size.height
-                        }
-                        .onChange(of: geometry.size.height) { oldHeight, newHeight in
-                            currentViewportHeight = newHeight
-                            if newHeight != oldHeight {
-                                if !hasInitiallyAligned {
-                                    alignMessages(proxy: proxy, animated: false)
-                                } else if isNearBottom && !hasUserInteracted {
-                                    scrollToBottom(proxy: proxy, animated: true)
+        Group {
+            if viewModel.isLoading && viewModel.messages.isEmpty && !viewModel.isNewConversation {
+                loadingStateView
+            } else if let err = viewModel.errorMessage, viewModel.messages.isEmpty && !viewModel.isNewConversation {
+                errorStateView(err: err)
+            } else {
+                GeometryReader { geometry in
+                    ScrollViewReader { proxy in
+                        messagesScrollView(proxy: proxy, viewportWidth: geometry.size.width, viewportHeight: geometry.size.height)
+                            .onAppear {
+                                currentViewportHeight = geometry.size.height
+                            }
+                            .onChange(of: geometry.size.height) { oldHeight, newHeight in
+                                currentViewportHeight = newHeight
+                                if newHeight != oldHeight {
+                                    if !hasInitiallyAligned {
+                                        alignMessages(proxy: proxy, animated: false)
+                                    } else if isNearBottom && !hasUserInteracted {
+                                        scrollToBottom(proxy: proxy, animated: true)
+                                    }
                                 }
                             }
-                        }
+                    }
                 }
             }
+        }
+        .sheet(isPresented: $viewModel.showConfirmUndoSheet) {
+            ConfirmUndoSheet(viewModel: viewModel)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
         }
     }
     
@@ -437,6 +446,12 @@ public struct ChatView: View {
                 }
             }
         }
+        .onChange(of: viewModel.focusInputTrigger) {
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                isInputFocused = true
+            }
+        }
     }
     
     private var canScheduleAutoFocus: Bool {
@@ -500,8 +515,14 @@ public struct ChatView: View {
     private func messageRow(index: Int, message: ChatMessage) -> some View {
         let isLast = (index == viewModel.messages.count - 1)
         let isActive = isLast && (viewModel.isRunning || viewModel.isAwaitingResponse)
-        MessageBubbleView(message: message, isActiveToolBatch: isActive)
-            .id(message.id)
+        MessageBubbleView(
+            message: message,
+            isActiveToolBatch: isActive,
+            onUndo: { msg in
+                viewModel.requestUndo(for: msg)
+            }
+        )
+        .id(message.id)
     }
     
     @ViewBuilder
@@ -1418,32 +1439,67 @@ public struct MarkdownViewerSheet: View {
 
 // MARK: - Interactive Swipe-Back Support
 
+private final class SwipeBackHookView: UIView {
+    weak var coordinator: SwipeBackEnabler.Coordinator?
+    
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil {
+            configure()
+        }
+    }
+    
+    override func didMoveToSuperview() {
+        super.didMoveToSuperview()
+        if superview != nil {
+            configure()
+        }
+    }
+    
+    func configure() {
+        guard let nav = nearestNavigationController else { return }
+        coordinator?.navigationController = nav
+        nav.interactivePopGestureRecognizer?.isEnabled = true
+        nav.interactivePopGestureRecognizer?.delegate = coordinator
+        
+        if let topVC = nearestViewController {
+            topVC.navigationItem.hidesBackButton = true
+            topVC.navigationController?.navigationBar.topItem?.hidesBackButton = true
+        }
+        
+        DispatchQueue.main.async { [weak self, weak nav] in
+            guard let self, let nav else { return }
+            nav.interactivePopGestureRecognizer?.isEnabled = true
+            if let coordinator = self.coordinator {
+                nav.interactivePopGestureRecognizer?.delegate = coordinator
+            }
+            if let topVC = self.nearestViewController {
+                topVC.navigationItem.hidesBackButton = true
+                topVC.navigationController?.navigationBar.topItem?.hidesBackButton = true
+            }
+        }
+    }
+}
+
 private struct SwipeBackEnabler: UIViewRepresentable {
     func makeCoordinator() -> Coordinator {
         Coordinator()
     }
     
-    func makeUIView(context: Context) -> UIView {
-        let view = UIView()
+    func makeUIView(context: Context) -> SwipeBackHookView {
+        let view = SwipeBackHookView()
         view.isUserInteractionEnabled = false
         view.backgroundColor = .clear
+        view.coordinator = context.coordinator
         DispatchQueue.main.async {
-            setupGesture(view: view, coordinator: context.coordinator)
+            view.configure()
         }
         return view
     }
     
-    func updateUIView(_ uiView: UIView, context: Context) {
-        DispatchQueue.main.async {
-            setupGesture(view: uiView, coordinator: context.coordinator)
-        }
-    }
-    
-    private func setupGesture(view: UIView, coordinator: Coordinator) {
-        guard let nav = view.nearestNavigationController else { return }
-        coordinator.navigationController = nav
-        nav.interactivePopGestureRecognizer?.isEnabled = true
-        nav.interactivePopGestureRecognizer?.delegate = coordinator
+    func updateUIView(_ uiView: SwipeBackHookView, context: Context) {
+        uiView.coordinator = context.coordinator
+        uiView.configure()
     }
     
     class Coordinator: NSObject, UIGestureRecognizerDelegate {
@@ -1461,6 +1517,17 @@ private struct SwipeBackEnabler: UIViewRepresentable {
 }
 
 private extension UIView {
+    var nearestViewController: UIViewController? {
+        var responder: UIResponder? = self
+        while let next = responder?.next {
+            if let vc = next as? UIViewController {
+                return vc
+            }
+            responder = next
+        }
+        return nil
+    }
+    
     var nearestNavigationController: UINavigationController? {
         var responder: UIResponder? = self
         while let next = responder?.next {
