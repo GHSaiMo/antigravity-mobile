@@ -76,7 +76,8 @@ fun DocumentPreviewSheet(
     file: File,
     title: String,
     onDismiss: VoidHandler,
-    colors: AppColors = AntigravityTheme.colors
+    colors: AppColors = AntigravityTheme.colors,
+    modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -107,9 +108,9 @@ fun DocumentPreviewSheet(
                     .background(colors.textMuted.copy(alpha = 0.35f))
             )
         },
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .fillMaxHeight()
+            .fillMaxHeight(0.94f)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             // Top Navigation Bar (Apple Native Component Layout)
@@ -508,8 +509,8 @@ private fun PptxDocumentViewer(file: File, colors: AppColors) {
                 val zip = ZipFile(file)
                 val entries = zip.entries().asSequence().toList()
 
-                // Check for slide-rendered image exports (e.g. ppt/media/slide_1.png)
-                val slideImageRegex = Regex("""ppt/media/slide_?(\d+)\.(png|jpe?g|webp)""", RegexOption.IGNORE_CASE)
+                // Check for slide-rendered image exports (e.g. ppt/media/slide_1.png, Slide-1-image-1.png, page-1.png, etc.)
+                val slideImageRegex = Regex("""ppt/media/(?:slide|page)[-_]?(\d+)(?:[-_].*?)?\.(?:png|jpe?g|webp)""", RegexOption.IGNORE_CASE)
                 val slideImageEntries = mutableMapOf<Int, java.util.zip.ZipEntry>()
                 for (entry in entries) {
                     val match = slideImageRegex.find(entry.name)
@@ -521,25 +522,74 @@ private fun PptxDocumentViewer(file: File, colors: AppColors) {
                     }
                 }
 
+                // If slide images not identified by filename, check slide .rels for background/embedded images
+                val slideXmlRegex = Regex("""ppt/slides/slide(\d+)\.xml""", RegexOption.IGNORE_CASE)
+                val xmlEntries = entries.filter { slideXmlRegex.matches(it.name) }
+                    .sortedBy { slideXmlRegex.find(it.name)?.groupValues?.get(1)?.toIntOrNull() ?: 999 }
+
+                if (slideImageEntries.isEmpty() && xmlEntries.isNotEmpty()) {
+                    val relTargetRegex = Regex("""<Relationship[^>]+Id="([^"]+)"[^>]+Target="([^"]+)"""", RegexOption.IGNORE_CASE)
+                    val relEmbedRegex = Regex("""r:embed="([^"]+)"""")
+                    for (xmlEntry in xmlEntries) {
+                        val slideNum = slideXmlRegex.find(xmlEntry.name)?.groupValues?.get(1)?.toIntOrNull() ?: continue
+                        val relEntryName = "ppt/slides/_rels/slide$slideNum.xml.rels"
+                        val relEntry = zip.getEntry(relEntryName)
+                        if (relEntry != null) {
+                            val relXml = zip.getInputStream(relEntry).use { it.bufferedReader(Charsets.UTF_8).readText() }
+                            val relTargets = relTargetRegex.findAll(relXml).associate {
+                                it.groupValues[1] to it.groupValues[2]
+                            }
+                            val slideXml = zip.getInputStream(xmlEntry).use { it.bufferedReader(Charsets.UTF_8).readText() }
+                            val embeds = relEmbedRegex.findAll(slideXml).map { it.groupValues[1] }.toList()
+                            for (embedId in embeds) {
+                                val rawTarget = relTargets[embedId] ?: continue
+                                val normalizedTarget = if (rawTarget.startsWith("../")) {
+                                    "ppt/" + rawTarget.removePrefix("../")
+                                } else {
+                                    "ppt/slides/" + rawTarget
+                                }
+                                val imgEntry = zip.getEntry(normalizedTarget)
+                                if (imgEntry != null && (normalizedTarget.endsWith(".png", true) || normalizedTarget.endsWith(".jpg", true) || normalizedTarget.endsWith(".jpeg", true) || normalizedTarget.endsWith(".webp", true))) {
+                                    slideImageEntries[slideNum] = imgEntry
+                                    break
+                                }
+                            }
+                        }
+                    }
+                }
+
                 if (slideImageEntries.isNotEmpty()) {
-                    // Render pure image slides if present
+                    // Render pure image slides if present with memory-safe downsampling
                     val sortedKeys = slideImageEntries.keys.sorted()
                     for (num in sortedKeys) {
                         val entry = slideImageEntries[num]!!
                         val bytes = zip.getInputStream(entry).use { it.readBytes() }
-                        val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                        
+                        val boundsOptions = BitmapFactory.Options().apply {
+                            inJustDecodeBounds = true
+                        }
+                        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, boundsOptions)
+
+                        var sampleSize = 1
+                        val targetWidth = 1440
+                        while (boundsOptions.outWidth / (sampleSize * 2) >= targetWidth) {
+                            sampleSize *= 2
+                        }
+
+                        val decodeOptions = BitmapFactory.Options().apply {
+                            inSampleSize = sampleSize
+                            inPreferredConfig = Bitmap.Config.RGB_565
+                        }
+                        val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decodeOptions)
                         if (bmp != null) {
                             parsedSlides.add(PptxSlide(slideNumber = num, bitmap = bmp))
                         }
                     }
                 } else {
                     // Parse structured XML slides from ppt/slides/slide{N}.xml (numerical order)
-                    val slideXmlRegex = Regex("""ppt/slides/slide(\d+)\.xml""", RegexOption.IGNORE_CASE)
-                    val xmlEntries = entries.filter { slideXmlRegex.matches(it.name) }
-                        .sortedBy { slideXmlRegex.find(it.name)?.groupValues?.get(1)?.toIntOrNull() ?: 999 }
-
-                    val shapeRegex = Regex("""<p:sp\b.*?</p:sp>""", RegexOption.DOT_MATCHES_ALL)
-                    val textRegex = Regex("""<a:t\b[^>]*>(.*?)</a:t>""", RegexOption.DOT_MATCHES_ALL)
+                    // Matches DrawingML paragraphs <a:p> globally to cover shapes, tables, group shapes, and text frames
+                    val pRegex = Regex("""<a:p\b.*?</a:p>""", RegexOption.DOT_MATCHES_ALL)
+                    val tRegex = Regex("""<a:t\b[^>]*>(.*?)</a:t>""", RegexOption.DOT_MATCHES_ALL)
                     val darkHexRegex = Regex("""srgbClr val="(0B0F19|111827|1E293B|0A0F1D|000000|0F172A)""", RegexOption.IGNORE_CASE)
 
                     for (xmlEntry in xmlEntries) {
@@ -548,18 +598,18 @@ private fun PptxDocumentViewer(file: File, colors: AppColors) {
                         val xmlContent = zip.getInputStream(xmlEntry).use { it.bufferedReader(Charsets.UTF_8).readText() }
 
                         val isDark = darkHexRegex.containsMatchIn(xmlContent) || xmlContent.contains("0B0F19", ignoreCase = true)
-                        val shapes = shapeRegex.findAll(xmlContent).map { it.value }.toList()
+                        val paragraphs = pRegex.findAll(xmlContent).map { it.value }.toList()
                         val texts = mutableListOf<String>()
 
-                        for (shape in shapes) {
-                            val matchedTexts = textRegex.findAll(shape).map { m ->
-                                unescapeXml(m.groupValues[1].trim())
-                            }.filter { it.isNotBlank() }.toList()
+                        for (p in paragraphs) {
+                            val runs = tRegex.findAll(p).map { m ->
+                                unescapeXml(m.groupValues[1])
+                            }.filter { it.isNotEmpty() }.toList()
 
-                            if (matchedTexts.isNotEmpty()) {
-                                val joined = matchedTexts.joinToString(" ")
-                                if (joined.isNotBlank()) {
-                                    texts.add(joined)
+                            if (runs.isNotEmpty()) {
+                                val line = runs.joinToString("").trim()
+                                if (line.isNotBlank()) {
+                                    texts.add(line)
                                 }
                             }
                         }
@@ -758,6 +808,14 @@ private fun PptxDocumentViewer(file: File, colors: AppColors) {
                                         )
                                     }
                                 }
+                            } else if (slide.subtitle.isNullOrBlank()) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "（本页主要包含图表、表格或版式内容，可点击下方在第三方应用中完整查看）",
+                                    color = subColor,
+                                    fontSize = 11.5.sp,
+                                    lineHeight = 16.sp
+                                )
                             }
                         }
                     }

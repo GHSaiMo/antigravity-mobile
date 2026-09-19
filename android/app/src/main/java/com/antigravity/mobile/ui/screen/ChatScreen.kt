@@ -59,7 +59,6 @@ import java.net.URLDecoder
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.antigravity.mobile.data.service.ConnectionStatus
 import com.antigravity.mobile.ui.components.*
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 import com.antigravity.mobile.ui.viewmodel.ChatViewModel
@@ -438,35 +437,14 @@ fun ChatScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            text = uiState.title,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 16.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            color = colors.textPrimary,
-                            modifier = Modifier.weight(1f, fill = false)
-                        )
-
-                        // Connection indicator dot (hidden for local draft sessions until created on host)
-                        if (!uiState.cascadeId.startsWith("local_draft_") && !cascadeId.startsWith("local_draft_")) {
-                            val dotColor = when (uiState.connectionStatus) {
-                                ConnectionStatus.CONNECTED -> colors.accentGreen
-                                ConnectionStatus.CONNECTING -> colors.accentYellow
-                                else -> colors.accentRed
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .clip(CircleShape)
-                                    .background(dotColor)
-                            )
-                        }
-                    }
+                    Text(
+                        text = uiState.title,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 16.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = colors.textPrimary
+                    )
                 },
                 navigationIcon = {
                     IconButton(onClick = {

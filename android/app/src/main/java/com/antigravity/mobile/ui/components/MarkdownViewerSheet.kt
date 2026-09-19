@@ -91,7 +91,7 @@ fun MarkdownViewerSheet(
         },
         modifier = modifier
             .fillMaxWidth()
-            .fillMaxHeight()
+            .fillMaxHeight(0.94f)
     ) {
         Column(
             modifier = Modifier
