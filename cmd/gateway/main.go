@@ -129,27 +129,12 @@ func runGatewayServer(args []string) {
 		tlsKeyEnv = os.Getenv("TLS_KEY_FILE")
 	}
 	tlsKey := fs.String("tls-key", tlsKeyEnv, "HTTPS 服务 TLS 私钥文件路径 (.key)")
-	preferIPv6 := fs.Bool("ipv6", os.Getenv("MULTIGRAVITY_PREFER_IPV6") == "1", "优先使用公网 IPv6 地址作为配对二维码的主机（默认生成包含 LAN 与 IPv6 的复合二维码）")
 	_ = fs.Parse(args)
 
-	tunnelCfg := config.GetTunnelConfig()
-	tunnelOn := tunnelCfg.Enabled && tunnelCfg.ServerAddr != ""
-	if tokPath, generated, err := auth.EnsureAdminToken(tunnelOn); err != nil {
+	if tokPath, _, err := auth.EnsureAdminToken(false); err != nil {
 		log.Fatalf("❌ Failed to initialize MULTIGRAVITY_ADMIN_TOKEN: %v", err)
 	} else if tokPath != "" {
-		if generated {
-			log.Printf("🔐 Generated MULTIGRAVITY_ADMIN_TOKEN at %s (required because FRP is enabled). `mgy pair` reads this file.", tokPath)
-		} else {
-			log.Printf("🔐 Loaded MULTIGRAVITY_ADMIN_TOKEN from %s", tokPath)
-		}
-	}
-	includePublicIPv6 := config.AdvertisePublicIPv6(*enableSSL)
-	if tunnelOn && strings.TrimSpace(*host) == "" && !includePublicIPv6 {
-		*host = "127.0.0.1"
-		log.Printf("🔒 FRP tunnel enabled with empty MULTIGRAVITY_HOST — binding 127.0.0.1 (set MULTIGRAVITY_HOST or INCLUDE_PUBLIC_IPV6=1 to keep dual-stack / IPv6 pairing)")
-	}
-	if includePublicIPv6 && tunnelOn && strings.TrimSpace(*host) == "" {
-		log.Printf("📱 INCLUDE_PUBLIC_IPV6=1: keeping dual-stack listen so phones can pair over public IPv6 (FRP still dials 127.0.0.1)")
+		log.Printf("🔐 Loaded MULTIGRAVITY_ADMIN_TOKEN from %s", tokPath)
 	}
 	hasTLSFiles := *tlsCert != "" && *tlsKey != ""
 	if *enableSSL && !hasTLSFiles {
@@ -197,137 +182,25 @@ func runGatewayServer(args []string) {
 	}
 
 	netAddrs := auth.DetectNetworkAddresses()
-	if netAddrs.PublicIPv6 == "" && includePublicIPv6 {
-		if status, changed, err := netutil.EnsureMacOSIPv6Automatic(); status != nil {
-			if changed {
-				log.Printf("🌐 检测到 macOS 当前网络服务「%s」未开启 IPv6 (原配置: %s)。", status.ServiceName, status.CurrentMode)
-				log.Println("⚡ 已自动帮您切换为「配置 IPv6: 自动」！正在等待网络接口分配公网 IPv6 地址...")
-				time.Sleep(2 * time.Second)
-				netAddrs = auth.DetectNetworkAddresses()
-				if netAddrs.PublicIPv6 != "" {
-					log.Printf("🎉 成功获取公网 IPv6 地址: %s", netAddrs.PublicIPv6)
-				}
-			} else if !status.IsAutomatic && err != nil {
-				log.Printf("⚠️  检测到 macOS 网络服务「%s」未开启 IPv6 (当前配置: %s)。", status.ServiceName, status.CurrentMode)
-				log.Printf("💡 建议开启步骤: 前往「系统设置 -> 网络 -> %s -> 详细信息 -> TCP/IP」将「配置 IPv6」设为「自动」，或在终端执行: sudo networksetup -setv6automatic %q", status.ServiceName, status.ServiceName)
-			}
-		}
+	qrHost := netAddrs.LANIPv4
+	if qrHost == "" {
+		qrHost = "127.0.0.1"
 	}
-
-	publicIPv6 := ""
-	if includePublicIPv6 {
-		publicIPv6 = netAddrs.PublicIPv6
+	if *host != "" && *host != "0.0.0.0" && *host != "::" && *host != "[::]" {
+		qrHost = *host
 	}
-
-	qrHost := *ddnsHost
 	var extraHosts []string
-
-	// 如果检测到公网 IPv6 且未显式指定自定义监听 host，默认优先使用公网 IPv6 作为二维码主地址
-	if publicIPv6 != "" && (*host == "" || *host == "0.0.0.0" || *host == "::" || *host == "[::]") {
-		if qrHost == "" || *preferIPv6 {
-			qrHost = publicIPv6
-			if netAddrs.LANIPv4 != "" {
-				extraHosts = append(extraHosts, netAddrs.LANIPv4)
-			}
-			if *ddnsHost != "" && *ddnsHost != publicIPv6 {
-				extraHosts = append(extraHosts, *ddnsHost)
-			}
-		} else {
-			if publicIPv6 != qrHost {
-				extraHosts = append(extraHosts, publicIPv6)
-			}
-			if netAddrs.LANIPv4 != "" && netAddrs.LANIPv4 != qrHost {
-				extraHosts = append(extraHosts, netAddrs.LANIPv4)
-			}
-		}
-	} else if qrHost == "" {
-		if *host != "" && *host != "0.0.0.0" && *host != "::" && *host != "[::]" {
-			qrHost = *host
-		} else if publicIPv6 != "" {
-			qrHost = publicIPv6
-			if netAddrs.LANIPv4 != "" {
-				extraHosts = append(extraHosts, netAddrs.LANIPv4)
-			}
-		} else if netAddrs.LANIPv4 != "" {
-			qrHost = netAddrs.LANIPv4
-		} else {
-			qrHost = "127.0.0.1"
-		}
-	} else {
-		if netAddrs.LANIPv4 != "" && netAddrs.LANIPv4 != qrHost {
-			extraHosts = append(extraHosts, netAddrs.LANIPv4)
-		}
-		if publicIPv6 != "" && publicIPv6 != qrHost {
-			extraHosts = append(extraHosts, publicIPv6)
-		}
+	if netAddrs.LANIPv4 != "" && netAddrs.LANIPv4 != qrHost {
+		extraHosts = append(extraHosts, netAddrs.LANIPv4)
 	}
 
 	pairingMgr := auth.NewPairingManager()
 	authHandler := auth.NewAuthHandler(authStore, pairingMgr, qrHost, *port, *enableSSL)
-	authHandler.SetEndpoints(netAddrs.LANIPv4, publicIPv6, *ddnsHost)
-	if publicIPv6 != "" {
-		scheme := "http"
-		if *enableSSL {
-			scheme = "https"
-		}
-		log.Printf("📱 IPv6 pairing endpoint: %s://[%s]:%d  (phone cellular should reach this address)", scheme, publicIPv6, *port)
-	} else if includePublicIPv6 {
-		log.Printf("⚠️  INCLUDE_PUBLIC_IPV6 is set but no global unicast IPv6 was found on this Mac")
-	}
-
-	// 3.5. Initialize Embedded FRP Cloud Relay Tunnel
-	var tun *tunnel.Tunnel
-	if tunnelOn && strings.TrimSpace(tunnelCfg.Token) == "" {
-		log.Fatalf("FRP_TOKEN is required when the cloud relay tunnel is enabled")
-	}
-
-	if tunnelOn {
-		if warn := config.ValidateFRPTokenStrength(tunnelCfg.Token); warn != "" {
-			log.Println(warn)
-		}
-		proxyProtoVer := strings.TrimSpace(os.Getenv("FRP_PROXY_PROTOCOL_VERSION"))
-		if proxyProtoVer == "" {
-			proxyProtoVer = "v2"
-		}
-		tun = tunnel.New(tunnel.Config{
-			Enabled:              true,
-			ServerAddr:           tunnelCfg.ServerAddr,
-			ServerPort:           tunnelCfg.ServerPort,
-			Token:                tunnelCfg.Token,
-			LocalPort:            *port,
-			RemotePort:           tunnelCfg.RemotePort,
-			ProxyName:            fmt.Sprintf("antigravity-%d", tunnelCfg.RemotePort),
-			TLSEnable:            tunnelCfg.TLSEnable,
-			ProxyProtocolVersion: proxyProtoVer,
-		})
-		tun.Start(context.Background())
-		defer tun.Stop()
-
-		relayHost := tunnelCfg.ServerAddr
-		if d := strings.TrimSpace(*ddnsHost); d != "" {
-			relayHost = d
-		}
-		relayURL := tun.RemoteURLFor(relayHost, *enableSSL)
-		authHandler.SetRelayURL(relayURL)
-		if !*enableSSL {
-			extraHosts = append(extraHosts, tunnelCfg.ServerAddr)
-		}
-		log.Printf("☁️  Cloud Relay Tunnel ENABLED: %s (via %s:%d)", relayURL, tunnelCfg.ServerAddr, tunnelCfg.ServerPort)
-	} else {
-		log.Printf("ℹ️  Cloud Relay Tunnel disabled (set FRP_SERVER_ADDR in .env to enable)")
-	}
-
-	if *enableSSL {
-		// HTTPS cert matches DDNS_HOST only; drop LAN / IPv6 / raw IP from the QR.
-		extraHosts = nil
-		if d := strings.TrimSpace(*ddnsHost); d != "" && d != qrHost {
-			extraHosts = append(extraHosts, d)
-		}
-	}
+	authHandler.SetEndpoints(netAddrs.LANIPv4, "", "")
 
 	qrPort := *port
 
-	// 3.6. Initialize Automated Cloudflare Tunnel (Exclusive HTTPS Domain)
+	// 3.5. Initialize Automated Cloudflare Tunnel (Exclusive HTTPS Domain)
 	cfCfg := config.GetCloudflareConfig()
 	var cfTunnel *tunnel.CloudflareTunnel
 	if cfCfg.Enabled {
@@ -428,7 +301,7 @@ func runGatewayServer(args []string) {
 
 	listenLoopback := auth.IsListenAddrLoopback(*host)
 	authPolicy := auth.AuthPolicy{
-		TunnelEnabled:  tun != nil || cfTunnel != nil,
+		TunnelEnabled:  cfTunnel != nil,
 		ListenLoopback: listenLoopback,
 	}
 	authHandler.SetAuthPolicy(authPolicy)
@@ -528,9 +401,6 @@ func runGatewayServer(args []string) {
 
 	if cfTunnel != nil {
 		cfTunnel.Stop()
-	}
-	if tun != nil {
-		tun.Stop()
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

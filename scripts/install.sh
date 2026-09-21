@@ -72,39 +72,18 @@ if [ ! -f "${CONF_DIR}/.env" ]; then
 # 网关监听端口 (默认 58900)
 MULTIGRAVITY_PORT=58900
 
-# 网关监听主机/IP (默认留空双栈绑定所有网卡，设为 127.0.0.1 仅限本机)
-# MULTIGRAVITY_HOST=127.0.0.1
+# ☁️ Cloudflare Tunnel 专属公网穿透配置 (开箱即用)
+# CF_WORKER_URL=https://mgy-tunnel.multigravity.workers.dev
+# CF_INVITE_CODE=
+# CF_TUNNEL_TOKEN=
+# CF_TUNNEL_ENABLED=1
 
-# 公网 DDNS 域名或固定 IPv6 地址 (若需要外网直连)
-# DDNS_HOST=agy.example.com
-
-# 公网 IPv6 自动广播 (默认 1：检测到公网 IPv6 时自动打入复合配对二维码与链接；设为 0 关闭)
-INCLUDE_PUBLIC_IPV6=1
-
-# 是否默认优先使用纯 IPv6 作为二维码 (默认 0 生成双栈复合码；设为 1 纯 IPv6 码)
-# MULTIGRAVITY_PREFER_IPV6=0
-
-# HTTPS / SSL 加密访问 (启用需设为 1 并指定证书和私钥文件)
-# MULTIGRAVITY_SSL=0
-# MULTIGRAVITY_TLS_CERT=~/.multigravity/certs/fullchain.cer
-# MULTIGRAVITY_TLS_KEY=~/.multigravity/certs/private.key
-
-# iOS Bark 实时推送通知 (填入 Device Key 或 Bark 完整 URL)
+# 🔔 iOS Bark 实时推送通知 (填入 Device Key 或 Bark 完整 URL)
 # BARK_URL=
 # BARK_ICON=https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/web/icons/icon-192.png
 # BARK_GROUP=Antigravity
 # BARK_SOUND_ACTION=alarm
 # BARK_SOUND_COMPLETE=glass
-
-# FRP 内网穿透云中继配置 (在外网无公网 IP 时使用)
-# FRP_ENABLED=false
-# FRP_SERVER_ADDR=frp.example.com
-# FRP_SERVER_PORT=7000
-# FRP_TOKEN=your-strong-token
-# FRP_REMOTE_PORT=58900
-
-# 管理员特权密钥 (外网访问或开启 FRP 时用于鉴权，留空则首次运行自动生成)
-# MULTIGRAVITY_ADMIN_TOKEN=
 ENVEOF
     chmod 600 "${CONF_DIR}/.env" 2>/dev/null || true
     echo "📝 已生成全局默认配置: ${CONF_DIR}/.env"

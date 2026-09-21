@@ -336,6 +336,9 @@ func AdvertisePublicIPv6(sslEnabled bool) bool {
 	return true
 }
 
+// DefaultCloudflareWorkerURL is the default public dispatcher URL.
+const DefaultCloudflareWorkerURL = "https://mgy-tunnel.multigravity.workers.dev"
+
 // CloudflareConfig holds settings for the automated Cloudflare Tunnel dispatcher.
 type CloudflareConfig struct {
 	Enabled    bool
@@ -345,10 +348,14 @@ type CloudflareConfig struct {
 }
 
 // GetCloudflareConfig extracts Cloudflare Tunnel settings from environment variables.
+// Cloudflare Tunnel is ENABLED by default out of the box using DefaultCloudflareWorkerURL.
 func GetCloudflareConfig() CloudflareConfig {
 	workerURL := strings.TrimSpace(os.Getenv("CF_WORKER_URL"))
 	if workerURL == "" {
 		workerURL = strings.TrimSpace(os.Getenv("CLOUDFLARE_WORKER_URL"))
+	}
+	if workerURL == "" {
+		workerURL = DefaultCloudflareWorkerURL
 	}
 	inviteCode := strings.TrimSpace(os.Getenv("CF_INVITE_CODE"))
 	if inviteCode == "" {
@@ -359,7 +366,7 @@ func GetCloudflareConfig() CloudflareConfig {
 		token = strings.TrimSpace(os.Getenv("CLOUDFLARE_TUNNEL_TOKEN"))
 	}
 
-	enabled := workerURL != "" || token != ""
+	enabled := true
 	if v := os.Getenv("CF_TUNNEL_ENABLED"); v != "" {
 		vLower := strings.ToLower(v)
 		enabled = (vLower == "1" || vLower == "true" || vLower == "yes")

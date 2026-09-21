@@ -6,7 +6,6 @@ import (
 	"log"
 	"net/url"
 	"os"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -193,82 +192,30 @@ func FormatPairingQRCode(primaryHost string, port int, code string, ssl bool, ex
 		b.WriteString("\n")
 	}
 	b.WriteString("请使用 Multigravity 手机客户端扫描上方二维码 (5分钟内有效)\n\n")
-	fmt.Fprintf(&b, "🔗 复合配对 URI:          %s\n", uri)
+
+	scheme := "http://"
+	if ssl {
+		scheme = "https://"
+	}
+	if port != 80 && port != 443 {
+		fmt.Fprintf(&b, "☁️  Cloudflare 专属域名: %s%s:%d\n", scheme, primaryHost, port)
+	} else {
+		fmt.Fprintf(&b, "☁️  Cloudflare 专属域名: %s%s\n", scheme, primaryHost)
+	}
 
 	if params.LANHost != "" {
-		lanURI := GeneratePairingURI(params.LANHost, port, code, ssl)
+		lanURI := GeneratePairingURI(params.LANHost, 58900, code, false)
 		fmt.Fprintf(&b, "🏠 局域网 Wi-Fi 直连 URI: %s\n", lanURI)
 	}
-	if params.IPv6Host != "" {
-		ipv6URI := GeneratePairingURI(params.IPv6Host, port, code, ssl)
-		fmt.Fprintf(&b, "🌐 外网 IPv6 直连 URI:   %s\n", ipv6URI)
-		appendIPv6Instructions(&b, params.IPv6Host, port, ssl)
-	} else {
-		appendIPv6DisabledInstructions(&b)
-	}
-	if params.RelayHost != "" {
-		relayURI := GeneratePairingURI(params.RelayHost, port, code, ssl)
-		fmt.Fprintf(&b, "☁️ 云服务器中继 URI:     %s\n", relayURI)
-	}
-	if params.DDNSHost != "" {
-		ddnsURI := GeneratePairingURI(params.DDNSHost, port, code, ssl)
-		fmt.Fprintf(&b, "⚡ DDNS / 域名直连 URI:  %s\n", ddnsURI)
-	}
 
-	b.WriteString("\n💡 提示: 扫码会自动同步局域网、IPv6 与云服务器中继网址，局域网极速秒连，外网智能自适应。\n")
+	b.WriteString("\n💡 提示: 扫码后手机端将默认通过 Cloudflare 专属 HTTPS 域名直连，外出或异网秒级畅通；同一 Wi-Fi 下可随时切换为局域网备用连接。\n")
 	b.WriteString("==================================================\n\n")
 
 	return b.String()
 }
 
-func appendIPv6DisabledInstructions(b *strings.Builder) {
-	b.WriteString("\n--------------------------------------------------\n")
-	b.WriteString("💡 IPv6 外网直连提示:\n")
-	switch runtime.GOOS {
-	case "windows":
-		b.WriteString("   当前未检测到公网 IPv6 地址。若需在外网 5G/4G 随时随地直连 Windows 电脑:\n")
-		b.WriteString("   1. 检查 Windows「设置 -> 网络和 Internet」中当前网络连接属性，确保已勾选启用「Internet 协议版本 6 (TCP/IPv6)」；\n")
-		b.WriteString("   2. 确保家中光猫或主路由器已开启 IPv6 分配（SLAAC/DHCPv6）；\n")
-		b.WriteString("   3. 获取到 IPv6 后重新运行 mgy，将自动优先使用公网 IPv6 写入二维码！\n")
-	case "darwin":
-		b.WriteString("   当前未检测到公网 IPv6 地址。若需在外网 5G/4G 随时随地直连 Mac:\n")
-		b.WriteString("   1. 检查 Mac「系统设置 -> 网络 -> TCP/IP」中「配置 IPv6」是否已设为「自动」；\n")
-		b.WriteString("   2. 确保家中光猫或主路由器已开启 IPv6 分配（SLAAC/DHCPv6）；\n")
-		b.WriteString("   3. 获取到 IPv6 后重新运行 mgy，将自动优先使用公网 IPv6 写入二维码！\n")
-	default:
-		b.WriteString("   当前未检测到公网 IPv6 地址。若需在外网 5G/4G 随时随地直连当前设备:\n")
-		b.WriteString("   1. 检查系统网络接口配置，确保已启用 IPv6 自动获取；\n")
-		b.WriteString("   2. 确保家中光猫或主路由器已开启 IPv6 分配（SLAAC/DHCPv6）；\n")
-		b.WriteString("   3. 获取到 IPv6 后重新运行 mgy，将自动优先使用公网 IPv6 写入二维码！\n")
-	}
-}
-
-func appendIPv6Instructions(b *strings.Builder, ipv6Host string, port int, ssl bool) {
-	if ipv6Host == "" {
-		return
-	}
-	scheme := "http"
-	if ssl {
-		scheme = "https"
-	}
-	testURL := fmt.Sprintf("%s://[%s]:%d", scheme, ipv6Host, port)
-	b.WriteString("\n--------------------------------------------------\n")
-	b.WriteString("📱 移动端 5G/4G 外网直连验证指引:\n")
-	b.WriteString("   1. 手机断开家中 Wi-Fi（切换至 5G/4G 移动蜂窝网络）；\n")
-	fmt.Fprintf(b, "   2. 手机自带浏览器直接访问测试地址:\n      %s\n", testURL)
-	b.WriteString("   3. 验收标准与排错说明:\n")
-	b.WriteString("      • 正常打开网页: 家中光猫/主路由已放行 IPv6 入站流量，外网直连完全畅通！\n")
-	b.WriteString("      • 访问超时/无法连接: 通常因家用光猫或路由器开启了『IPv6 防火墙入站阻断』。\n")
-	if runtime.GOOS == "windows" {
-		b.WriteString("        解决办法: 1) 登录光猫/主路由管理后台，关闭 IPv6 防火墙或添加 58900 端口放行；\n")
-		b.WriteString("                 2) 检查 Windows Defender 防火墙是否允许 mgy.exe 入站连接。\n")
-	} else {
-		b.WriteString("        解决办法: 登录光猫/主路由管理后台，关闭 IPv6 防火墙或添加 58900 端口放行即可。\n")
-	}
-}
-
 // PrintPairingQRCode generates and renders an ANSI QR code to stdout encoding all candidate
-// network endpoints (e.g. public IPv6, LAN IPv4, Cloud Relay), and displays informative pairing instructions.
+// network endpoints (e.g. Cloudflare, LAN IPv4), and displays informative pairing instructions.
 // It executes atomically under console synchronization to prevent concurrent log statements from corrupting the QR code.
 func PrintPairingQRCode(primaryHost string, port int, code string, ssl bool, extraHosts ...string) {
 	output := FormatPairingQRCode(primaryHost, port, code, ssl, extraHosts...)
@@ -316,7 +263,6 @@ func PrintRawPairingQRCode(code string, uri string) {
 			b.WriteString("\n")
 		}
 		b.WriteString("请使用 Multigravity 手机客户端扫描上方二维码 (5分钟内有效)\n\n")
-		fmt.Fprintf(&b, "🔗 复合配对 URI:          %s\n", uri)
 
 		if u, err := url.Parse(uri); err == nil {
 			q := u.Query()
@@ -325,33 +271,23 @@ func PrintRawPairingQRCode(code string, uri string) {
 			pVal, _ := strconv.Atoi(pStr)
 			sVal := q.Get("ssl") == "1"
 			lan := q.Get("lan")
-			ipv6 := q.Get("ipv6")
-			relay := q.Get("relay")
-			ddns := q.Get("ddns")
+
+			scheme := "http://"
+			if sVal {
+				scheme = "https://"
+			}
+			if pVal != 80 && pVal != 443 {
+				fmt.Fprintf(&b, "☁️  Cloudflare 专属域名: %s%s:%d\n", scheme, h, pVal)
+			} else {
+				fmt.Fprintf(&b, "☁️  Cloudflare 专属域名: %s%s\n", scheme, h)
+			}
 
 			if lan != "" {
-				fmt.Fprintf(&b, "🏠 局域网 Wi-Fi 直连 URI: %s\n", GeneratePairingURI(lan, pVal, code, sVal))
-			} else if h != "" && !strings.Contains(h, ":") {
-				fmt.Fprintf(&b, "🏠 局域网 Wi-Fi 直连 URI: %s\n", GeneratePairingURI(h, pVal, code, sVal))
-			}
-			if ipv6 != "" {
-				fmt.Fprintf(&b, "🌐 外网 IPv6 直连 URI:   %s\n", GeneratePairingURI(ipv6, pVal, code, sVal))
-				appendIPv6Instructions(&b, ipv6, pVal, sVal)
-			} else if strings.Contains(h, ":") {
-				fmt.Fprintf(&b, "🌐 外网 IPv6 直连 URI:   %s\n", GeneratePairingURI(h, pVal, code, sVal))
-				appendIPv6Instructions(&b, h, pVal, sVal)
-			} else {
-				appendIPv6DisabledInstructions(&b)
-			}
-			if ddns != "" {
-				fmt.Fprintf(&b, "⚡ DDNS / 域名直连 URI:  %s\n", GeneratePairingURI(ddns, pVal, code, sVal))
-			}
-			if relay != "" {
-				fmt.Fprintf(&b, "☁️  云服务器中继 URI:     %s\n", GeneratePairingURI(relay, pVal, code, sVal))
+				fmt.Fprintf(&b, "🏠 局域网 Wi-Fi 直连 URI: %s\n", GeneratePairingURI(lan, 58900, code, false))
 			}
 		}
 
-		b.WriteString("\n💡 提示: 扫码会自动同步局域网、IPv6 与云服务器中继网址，局域网极速秒连，外网智能自适应。\n")
+		b.WriteString("\n💡 提示: 扫码后手机端将默认通过 Cloudflare 专属 HTTPS 域名直连，外出或异网秒级畅通；同一 Wi-Fi 下可随时切换为局域网备用连接。\n")
 		b.WriteString("==================================================\n\n")
 	}
 

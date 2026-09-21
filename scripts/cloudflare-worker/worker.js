@@ -50,11 +50,14 @@ export default {
 };
 
 async function handleTunnelRegister(request, env) {
-  // 1. 验证 Worker 环境变量完整性
-  const { CF_ACCOUNT_ID, CF_API_TOKEN, CF_ZONE_ID, BASE_DOMAIN } = env;
+  // 1. 验证 Worker 环境变量完整性（支持 CF_* 或 CLOUDFLARE_* 前缀）
+  const CF_ACCOUNT_ID = (env.CF_ACCOUNT_ID || env.CLOUDFLARE_ACCOUNT_ID || "").trim();
+  const CF_API_TOKEN = (env.CF_API_TOKEN || env.CLOUDFLARE_API_TOKEN || "").trim();
+  const CF_ZONE_ID = (env.CF_ZONE_ID || env.CLOUDFLARE_ZONE_ID || "").trim();
+  const BASE_DOMAIN = (env.BASE_DOMAIN || "").trim();
   if (!CF_ACCOUNT_ID || !CF_API_TOKEN || !CF_ZONE_ID || !BASE_DOMAIN) {
     return jsonResponse({
-      error: "Worker environment misconfigured. Please check CF_ACCOUNT_ID, CF_API_TOKEN, CF_ZONE_ID, BASE_DOMAIN.",
+      error: "Worker environment misconfigured. Please check CF_ACCOUNT_ID/CLOUDFLARE_ACCOUNT_ID, CF_API_TOKEN/CLOUDFLARE_API_TOKEN, CF_ZONE_ID/CLOUDFLARE_ZONE_ID, BASE_DOMAIN.",
     }, 500);
   }
 
