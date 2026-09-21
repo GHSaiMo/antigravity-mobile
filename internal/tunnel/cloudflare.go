@@ -85,7 +85,7 @@ func (t *CloudflareTunnel) Start(ctx context.Context, binPath string) error {
 		return fmt.Errorf("missing cloudflare tunnel token")
 	}
 
-	args := []string{"tunnel", "run", "--token", t.result.Token}
+	args := []string{"tunnel"}
 	if t.cfg != nil {
 		if t.cfg.EdgeIPVersion != "" {
 			args = append(args, "--edge-ip-version", t.cfg.EdgeIPVersion)
@@ -97,6 +97,7 @@ func (t *CloudflareTunnel) Start(ctx context.Context, binPath string) error {
 			args = append(args, "--protocol", t.cfg.Protocol)
 		}
 	}
+	args = append(args, "run", "--token", t.result.Token)
 
 	cmd := exec.CommandContext(ctx, binPath, args...)
 	// Do not attach stdin. Divert stderr to logger with prefix

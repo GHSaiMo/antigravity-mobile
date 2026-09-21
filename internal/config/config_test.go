@@ -174,3 +174,41 @@ func TestValidateFRPTokenStrength(t *testing.T) {
 	}
 }
 
+func TestGetCloudflareConfig(t *testing.T) {
+	// 1. Test defaults
+	t.Setenv("CF_EDGE_IP_VERSION", "")
+	t.Setenv("TUNNEL_EDGE_IP_VERSION", "")
+	t.Setenv("CF_PROTOCOL", "")
+	t.Setenv("TUNNEL_TRANSPORT_PROTOCOL", "")
+	t.Setenv("CF_REGION", "")
+	t.Setenv("TUNNEL_REGION", "")
+
+	cfg := GetCloudflareConfig()
+	if cfg.EdgeIPVersion != "4" {
+		t.Errorf("expected default EdgeIPVersion = 4, got %s", cfg.EdgeIPVersion)
+	}
+	if cfg.Protocol != "http2" {
+		t.Errorf("expected default Protocol = http2, got %s", cfg.Protocol)
+	}
+	if !cfg.Enabled {
+		t.Errorf("expected default Enabled = true")
+	}
+
+	// 2. Test overrides
+	t.Setenv("CF_EDGE_IP_VERSION", "6")
+	t.Setenv("CF_PROTOCOL", "quic")
+	t.Setenv("CF_REGION", "us")
+
+	cfgOverridden := GetCloudflareConfig()
+	if cfgOverridden.EdgeIPVersion != "6" {
+		t.Errorf("expected overridden EdgeIPVersion = 6, got %s", cfgOverridden.EdgeIPVersion)
+	}
+	if cfgOverridden.Protocol != "quic" {
+		t.Errorf("expected overridden Protocol = quic, got %s", cfgOverridden.Protocol)
+	}
+	if cfgOverridden.Region != "us" {
+		t.Errorf("expected overridden Region = us, got %s", cfgOverridden.Region)
+	}
+}
+
+

@@ -373,10 +373,18 @@ func GetCloudflareConfig() CloudflareConfig {
 	if edgeIPVersion == "" {
 		edgeIPVersion = strings.TrimSpace(os.Getenv("TUNNEL_EDGE_IP_VERSION"))
 	}
+	if edgeIPVersion == "" {
+		edgeIPVersion = "4" // 默认优先 IPv4，避免跨洋 IPv6 Anycast 绕路
+	}
+
 	protocol := strings.TrimSpace(os.Getenv("CF_PROTOCOL"))
 	if protocol == "" {
 		protocol = strings.TrimSpace(os.Getenv("TUNNEL_TRANSPORT_PROTOCOL"))
 	}
+	if protocol == "" {
+		protocol = "http2" // 默认走 TCP HTTP/2，避免国内运营商对 UDP/QUIC 丢包限速，且与代理兼容性极佳
+	}
+
 	region := strings.TrimSpace(os.Getenv("CF_REGION"))
 	if region == "" {
 		region = strings.TrimSpace(os.Getenv("TUNNEL_REGION"))
