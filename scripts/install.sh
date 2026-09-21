@@ -148,21 +148,26 @@ DOWNLOAD_SUCCESS=false
 echo "📥 正在获取 Multigravity (${OS_DESC} ${PKG_ARCH}) 最新发行版..."
 
 for d_url in "${DOWNLOAD_URLS[@]}"; do
-    CURL_PROXY_ARGS=""
+    CURL_EXTRA_ARGS=()
     if [[ "${d_url}" == https://github.com/* ]]; then
         if [ -n "${PROXY_PORT}" ]; then
             echo "🔗 尝试从 GitHub 官方源（走本机代理加速）下载: ${d_url}"
-            CURL_PROXY_ARGS="--proxy http://127.0.0.1:${PROXY_PORT}"
+            CURL_EXTRA_ARGS=(--proxy "http://127.0.0.1:${PROXY_PORT}")
         else
             echo "🔗 尝试从 GitHub 官方源下载: ${d_url}"
         fi
     else
         echo "🔗 尝试从加速镜像站直连下载: ${d_url}"
-        CURL_PROXY_ARGS="--noproxy *"
+        CURL_EXTRA_ARGS=(--noproxy "*")
     fi
 
-    # shellcheck disable=SC2086
-    if curl -fL ${CURL_PROXY_ARGS} --connect-timeout 8 --speed-limit 10240 --speed-time 8 -# -o "${PKG_FILE}" "${d_url}"; then
+    CURL_CMD=(curl -fL)
+    if [ ${#CURL_EXTRA_ARGS[@]} -gt 0 ]; then
+        CURL_CMD+=("${CURL_EXTRA_ARGS[@]}")
+    fi
+    CURL_CMD+=(--connect-timeout 8 --speed-limit 10240 --speed-time 8 -# -o "${PKG_FILE}" "${d_url}")
+
+    if "${CURL_CMD[@]}"; then
         if [ "${PKG_EXT}" = "zip" ]; then
             if command -v unzip >/dev/null 2>&1 && unzip -tq "${PKG_FILE}" >/dev/null 2>&1; then
                 DOWNLOAD_SUCCESS=true

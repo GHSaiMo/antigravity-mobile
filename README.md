@@ -34,9 +34,8 @@
 一键安装指令**支持全自动根据操作系统与架构自适应下载匹配的二进制包**（**免翻墙免代理，秒级全自动完成部署**）：
 
 #### 🍎 macOS / 🪟 Windows (Git Bash / MSYS) 用户：
-打开终端，直接执行：
+国内网络加速一键安装（默认推荐）：
 ```bash
-# 国内网络加速一键安装（默认推荐）
 curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.sh | bash
 ```
 
@@ -49,9 +48,8 @@ curl -fsSL https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scr
 </details>
 
 #### 🪟 Windows (PowerShell / Windows Terminal) 用户：
-打开 PowerShell，直接执行：
+国内网络加速一键安装（默认推荐）：
 ```powershell
-# 国内网络加速一键安装（默认推荐）
 irm https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.ps1 | iex
 ```
 
