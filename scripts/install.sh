@@ -73,7 +73,7 @@ if [ ! -f "${CONF_DIR}/.env" ]; then
 MULTIGRAVITY_PORT=58900
 
 # ☁️ Cloudflare Tunnel 专属公网穿透配置 (开箱即用)
-# CF_WORKER_URL=https://mgy-tunnel.multigravity.workers.dev
+# CF_WORKER_URL=https://dispatcher.jiuge.space
 # CF_INVITE_CODE=
 # CF_TUNNEL_TOKEN=
 # CF_TUNNEL_ENABLED=1

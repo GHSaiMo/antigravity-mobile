@@ -337,7 +337,7 @@ func AdvertisePublicIPv6(sslEnabled bool) bool {
 }
 
 // DefaultCloudflareWorkerURL is the default public dispatcher URL.
-const DefaultCloudflareWorkerURL = "https://mgy-tunnel.multigravity.workers.dev"
+const DefaultCloudflareWorkerURL = "https://dispatcher.jiuge.space"
 
 // CloudflareConfig holds settings for the automated Cloudflare Tunnel dispatcher.
 type CloudflareConfig struct {
