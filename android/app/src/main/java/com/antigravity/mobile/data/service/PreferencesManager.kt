@@ -126,7 +126,15 @@ class PreferencesManager(context: Context) {
         set(value) = prefs.edit().putString(KEY_RELAY_URL, value?.trimEnd('/')).apply()
 
     var customServerUrl: String?
-        get() = prefs.getString(KEY_CUSTOM_URL, null)
+        get() {
+            val saved = prefs.getString(KEY_CUSTOM_URL, null)
+            val lan = prefs.getString(KEY_LAN_URL, null)
+            if (saved != null && saved == lan) {
+                prefs.edit().remove(KEY_CUSTOM_URL).apply()
+                return null
+            }
+            return saved
+        }
         set(value) = prefs.edit().putString(KEY_CUSTOM_URL, value?.trimEnd('/')).apply()
 
     var cachedProjectsJson: String?

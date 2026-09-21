@@ -306,7 +306,7 @@ private fun MainSettingsContent(
             }
         }
 
-        // MARK: - 2. 网络 (局域网与自定义平铺，主域名后台兜底，1:1 对齐 iOS)
+        // MARK: - 2. 网络 (局域网与自定义平铺，主域名后台智能路由，1:1 对齐 iOS)
         SettingsSection(
             title = "网络"
         ) {
@@ -322,81 +322,43 @@ private fun MainSettingsContent(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "局域网",
-                            color = colors.textPrimary,
-                            fontSize = 15.sp
-                        )
-                        if (isLanActive) {
-                            Text(
-                                text = "生效中",
-                                color = colors.textSecondary,
-                                fontSize = 13.sp
-                            )
-                        }
-                    }
+                    Text(
+                        text = "局域网",
+                        color = colors.textPrimary,
+                        fontSize = 15.sp
+                    )
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        BasicTextField(
-                            value = lanAddress,
-                            onValueChange = { newVal ->
-                                lanAddress = newVal
-                                val clean = newVal.trim().trimEnd('/')
-                                prefs.lanServerUrl = if (clean.isBlank()) null else clean
-                                coroutineScope.launch {
-                                    connectionManager.probeEndpoints(prefs)
-                                }
-                            },
-                            textStyle = androidx.compose.ui.text.TextStyle(
-                                color = colors.textPrimary,
-                                fontSize = 13.sp,
-                                fontFamily = FontFamily.Monospace
-                            ),
-                            singleLine = true,
-                            modifier = Modifier.weight(1f),
-                            decorationBox = { innerTextField ->
-                                if (lanAddress.isBlank()) {
-                                    Text(
-                                        text = "如 http://192.168.1.50:58900",
-                                        color = colors.textMuted,
-                                        fontSize = 13.sp,
-                                        fontFamily = FontFamily.Monospace
-                                    )
-                                }
-                                innerTextField()
+                    BasicTextField(
+                        value = lanAddress,
+                        onValueChange = { newVal ->
+                            lanAddress = newVal
+                            val clean = newVal.trim().trimEnd('/')
+                            prefs.lanServerUrl = if (clean.isBlank()) null else clean
+                            coroutineScope.launch {
+                                connectionManager.probeEndpoints(prefs)
                             }
-                        )
-
-                        if (lanAddress.isNotBlank()) {
-                            IconButton(
-                                onClick = {
-                                    lanAddress = ""
-                                    prefs.lanServerUrl = null
-                                    coroutineScope.launch {
-                                        connectionManager.probeEndpoints(prefs)
-                                    }
-                                },
-                                modifier = Modifier.size(24.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Cancel,
-                                    contentDescription = "Clear",
-                                    tint = colors.textMuted,
-                                    modifier = Modifier.size(16.dp)
+                        },
+                        textStyle = androidx.compose.ui.text.TextStyle(
+                            color = colors.textPrimary,
+                            fontSize = 13.sp,
+                            fontFamily = FontFamily.Monospace
+                        ),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        decorationBox = { innerTextField ->
+                            if (lanAddress.isBlank()) {
+                                Text(
+                                    text = "如 http://192.168.1.50:58900",
+                                    color = colors.textMuted,
+                                    fontSize = 13.sp,
+                                    fontFamily = FontFamily.Monospace
                                 )
                             }
+                            innerTextField()
                         }
-                    }
+                    )
                 }
 
                 HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
@@ -406,81 +368,43 @@ private fun MainSettingsContent(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "自定义",
-                            color = colors.textPrimary,
-                            fontSize = 15.sp
-                        )
-                        if (isCustomActive) {
-                            Text(
-                                text = "生效中",
-                                color = colors.textSecondary,
-                                fontSize = 13.sp
-                            )
-                        }
-                    }
+                    Text(
+                        text = "自定义",
+                        color = colors.textPrimary,
+                        fontSize = 15.sp
+                    )
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        BasicTextField(
-                            value = customAddress,
-                            onValueChange = { newVal ->
-                                customAddress = newVal
-                                val clean = newVal.trim().trimEnd('/')
-                                prefs.customServerUrl = if (clean.isBlank()) null else clean
-                                coroutineScope.launch {
-                                    connectionManager.probeEndpoints(prefs)
-                                }
-                            },
-                            textStyle = androidx.compose.ui.text.TextStyle(
-                                color = colors.textPrimary,
-                                fontSize = 13.sp,
-                                fontFamily = FontFamily.Monospace
-                            ),
-                            singleLine = true,
-                            modifier = Modifier.weight(1f),
-                            decorationBox = { innerTextField ->
-                                if (customAddress.isBlank()) {
-                                    Text(
-                                        text = "如 http://100.x.x.x:58900",
-                                        color = colors.textMuted,
-                                        fontSize = 13.sp,
-                                        fontFamily = FontFamily.Monospace
-                                    )
-                                }
-                                innerTextField()
+                    BasicTextField(
+                        value = customAddress,
+                        onValueChange = { newVal ->
+                            customAddress = newVal
+                            val clean = newVal.trim().trimEnd('/')
+                            prefs.customServerUrl = if (clean.isBlank()) null else clean
+                            coroutineScope.launch {
+                                connectionManager.probeEndpoints(prefs)
                             }
-                        )
-
-                        if (customAddress.isNotBlank()) {
-                            IconButton(
-                                onClick = {
-                                    customAddress = ""
-                                    prefs.customServerUrl = null
-                                    coroutineScope.launch {
-                                        connectionManager.probeEndpoints(prefs)
-                                    }
-                                },
-                                modifier = Modifier.size(24.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Cancel,
-                                    contentDescription = "Clear",
-                                    tint = colors.textMuted,
-                                    modifier = Modifier.size(16.dp)
+                        },
+                        textStyle = androidx.compose.ui.text.TextStyle(
+                            color = colors.textPrimary,
+                            fontSize = 13.sp,
+                            fontFamily = FontFamily.Monospace
+                        ),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        decorationBox = { innerTextField ->
+                            if (customAddress.isBlank()) {
+                                Text(
+                                    text = "如 http://100.x.x.x:58900",
+                                    color = colors.textMuted,
+                                    fontSize = 13.sp,
+                                    fontFamily = FontFamily.Monospace
                                 )
                             }
+                            innerTextField()
                         }
-                    }
+                    )
                 }
             }
         }

@@ -55,93 +55,43 @@ public struct SettingsSheet: View {
                     }
                 }
                 
-                // MARK: - 2. 网络 (局域网与自定义平铺，主域名后台兜底)
+                // MARK: - 2. 网络 (局域网与自定义平铺，主域名后台智能路由)
                 Section(header: Text("网络")) {
                     // 局域网 (扫码配对默认填写)
                     VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            Text("局域网")
-                            Spacer()
-                            if isLanActive {
-                                Text("生效中")
-                                    .font(.system(size: 13))
-                                    .foregroundColor(.secondary)
-                            }
-                        }
+                        Text("局域网")
                         
-                        HStack {
-                            TextField("如 http://192.168.1.50:58900", text: $lanAddress)
-                                .font(.system(size: 13, design: .monospaced))
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled()
-                                .keyboardType(.URL)
-                                .onChange(of: lanAddress) { _, newValue in
-                                    let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                                    settings.lanServerURL = trimmed.isEmpty ? nil : trimmed
-                                    Task {
-                                        await connectionManager.probeEndpoints()
-                                    }
+                        TextField("如 http://192.168.1.50:58900", text: $lanAddress)
+                            .font(.system(size: 13, design: .monospaced))
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .keyboardType(.URL)
+                            .onChange(of: lanAddress) { _, newValue in
+                                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                                settings.lanServerURL = trimmed.isEmpty ? nil : trimmed
+                                Task {
+                                    await connectionManager.probeEndpoints()
                                 }
-                            
-                            if !lanAddress.isEmpty {
-                                Button {
-                                    lanAddress = ""
-                                    settings.lanServerURL = nil
-                                    Task {
-                                        await connectionManager.probeEndpoints()
-                                    }
-                                } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .foregroundColor(.secondary.opacity(0.6))
-                                        .font(.system(size: 14))
-                                }
-                                .buttonStyle(.borderless)
                             }
-                        }
                     }
                     .padding(.vertical, 2)
                     
                     // 自定义 (留给用户配置，如 Tailscale)
                     VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            Text("自定义")
-                            Spacer()
-                            if isCustomActive {
-                                Text("生效中")
-                                    .font(.system(size: 13))
-                                    .foregroundColor(.secondary)
-                            }
-                        }
+                        Text("自定义")
                         
-                        HStack {
-                            TextField("如 http://100.x.x.x:58900", text: $customAddress)
-                                .font(.system(size: 13, design: .monospaced))
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled()
-                                .keyboardType(.URL)
-                                .onChange(of: customAddress) { _, newValue in
-                                    let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                                    settings.customServerURL = trimmed.isEmpty ? nil : trimmed
-                                    Task {
-                                        await connectionManager.probeEndpoints()
-                                    }
+                        TextField("如 http://100.x.x.x:58900", text: $customAddress)
+                            .font(.system(size: 13, design: .monospaced))
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .keyboardType(.URL)
+                            .onChange(of: customAddress) { _, newValue in
+                                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                                settings.customServerURL = trimmed.isEmpty ? nil : trimmed
+                                Task {
+                                    await connectionManager.probeEndpoints()
                                 }
-                            
-                            if !customAddress.isEmpty {
-                                Button {
-                                    customAddress = ""
-                                    settings.customServerURL = nil
-                                    Task {
-                                        await connectionManager.probeEndpoints()
-                                    }
-                                } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .foregroundColor(.secondary.opacity(0.6))
-                                        .font(.system(size: 14))
-                                }
-                                .buttonStyle(.borderless)
                             }
-                        }
                     }
                     .padding(.vertical, 2)
                 }
@@ -246,24 +196,5 @@ public struct SettingsSheet: View {
         } message: {
             Text("本地缓存的会话消息、方案及离线文档将被清理，下次访问时将从网关重新拉取。")
         }
-    }
-    
-    // MARK: - 辅助计算属性
-    
-    private func isEndpointActive(_ urlString: String?) -> Bool {
-        guard let target = urlString, !target.isEmpty else { return false }
-        let active = settings.activeServerURL ?? settings.serverURL?.absoluteString
-        guard let active = active, !active.isEmpty else { return false }
-        let targetClean = target.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
-        let activeClean = active.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
-        return targetClean == activeClean
-    }
-    
-    private var isLanActive: Bool {
-        isEndpointActive(settings.lanServerURL)
-    }
-    
-    private var isCustomActive: Bool {
-        isEndpointActive(settings.customServerURL)
     }
 }

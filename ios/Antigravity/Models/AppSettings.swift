@@ -373,7 +373,12 @@ public final class AppSettings {
         self.lanServerURL = savedLan
         self.ipv6ServerURL = savedIPv6
         self.relayServerURL = savedRelay
-        self.customServerURL = savedCustom
+        if let savedCustom = savedCustom, savedCustom == savedLan {
+            self.customServerURL = nil
+            UserDefaults.standard.removeObject(forKey: customServerURLKey)
+        } else {
+            self.customServerURL = savedCustom
+        }
         self.activeServerURL = savedActive
         self.enableLiveActivities = savedLive
         
