@@ -193,14 +193,18 @@ func FormatPairingQRCode(primaryHost string, port int, code string, ssl bool, ex
 	}
 	b.WriteString("请使用 Multigravity 手机客户端扫描上方二维码 (5分钟内有效)\n\n")
 
-	scheme := "http://"
-	if ssl {
-		scheme = "https://"
-	}
-	if port != 80 && port != 443 {
-		fmt.Fprintf(&b, "☁️  Cloudflare 专属域名: %s%s:%d\n", scheme, primaryHost, port)
+	if ssl || (strings.Contains(primaryHost, ".") && strings.ContainsAny(primaryHost, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")) {
+		b.WriteString("☁️  Cloudflare 专属域名已生成\n")
 	} else {
-		fmt.Fprintf(&b, "☁️  Cloudflare 专属域名: %s%s\n", scheme, primaryHost)
+		scheme := "http://"
+		if ssl {
+			scheme = "https://"
+		}
+		if port != 80 && port != 443 {
+			fmt.Fprintf(&b, "🌐 访问地址: %s%s:%d\n", scheme, primaryHost, port)
+		} else {
+			fmt.Fprintf(&b, "🌐 访问地址: %s%s\n", scheme, primaryHost)
+		}
 	}
 
 	if params.LANHost != "" {
@@ -272,14 +276,18 @@ func PrintRawPairingQRCode(code string, uri string) {
 			sVal := q.Get("ssl") == "1"
 			lan := q.Get("lan")
 
-			scheme := "http://"
-			if sVal {
-				scheme = "https://"
-			}
-			if pVal != 80 && pVal != 443 {
-				fmt.Fprintf(&b, "☁️  Cloudflare 专属域名: %s%s:%d\n", scheme, h, pVal)
-			} else {
-				fmt.Fprintf(&b, "☁️  Cloudflare 专属域名: %s%s\n", scheme, h)
+			if sVal || (strings.Contains(h, ".") && strings.ContainsAny(h, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")) {
+				b.WriteString("☁️  Cloudflare 专属域名已生成\n")
+			} else if h != "" {
+				scheme := "http://"
+				if sVal {
+					scheme = "https://"
+				}
+				if pVal != 80 && pVal != 443 {
+					fmt.Fprintf(&b, "🌐 访问地址: %s%s:%d\n", scheme, h, pVal)
+				} else {
+					fmt.Fprintf(&b, "🌐 访问地址: %s%s\n", scheme, h)
+				}
 			}
 
 			if lan != "" {

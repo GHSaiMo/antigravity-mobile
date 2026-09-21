@@ -130,8 +130,11 @@ func TestFormatPairingQRCode(t *testing.T) {
 	if !strings.Contains(out, "Multigravity 客户端扫码一键配对") && !strings.Contains(out, "Antigravity Mobile 客户端扫码一键配对") {
 		t.Errorf("expected header banner in output")
 	}
-	if !strings.Contains(out, "Cloudflare 专属域名:") {
-		t.Errorf("expected Cloudflare domain in output")
+	if !strings.Contains(out, "Cloudflare 专属域名已生成") {
+		t.Errorf("expected Cloudflare prompt in output")
+	}
+	if strings.Contains(out, "mgy-test.jiuge.space") {
+		t.Errorf("domain should be hidden from output")
 	}
 	if !strings.Contains(out, "局域网 Wi-Fi 直连 URI:") {
 		t.Errorf("expected LAN URI in output")

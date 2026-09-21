@@ -2,6 +2,7 @@ package tunnel
 
 import (
 	"archive/tar"
+	"bufio"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -38,15 +39,21 @@ type CFTunnelResult struct {
 // CloudflareTunnel manages the local cloudflared daemon child process.
 type CloudflareTunnel struct {
 	result  *CFTunnelResult
+	cfg     *config.CloudflareConfig
 	cmd     *exec.Cmd
 	mu      sync.Mutex
 	running bool
 }
 
 // NewCloudflareTunnel creates a supervisor for a Cloudflare Tunnel.
-func NewCloudflareTunnel(res *CFTunnelResult) *CloudflareTunnel {
+func NewCloudflareTunnel(res *CFTunnelResult, cfCfg ...*config.CloudflareConfig) *CloudflareTunnel {
+	var cfg *config.CloudflareConfig
+	if len(cfCfg) > 0 {
+		cfg = cfCfg[0]
+	}
 	return &CloudflareTunnel{
 		result: res,
+		cfg:    cfg,
 	}
 }
 
@@ -78,20 +85,40 @@ func (t *CloudflareTunnel) Start(ctx context.Context, binPath string) error {
 		return fmt.Errorf("missing cloudflare tunnel token")
 	}
 
-	cmd := exec.CommandContext(ctx, binPath, "tunnel", "run", "--token", t.result.Token)
+	args := []string{"tunnel", "run", "--token", t.result.Token}
+	if t.cfg != nil {
+		if t.cfg.EdgeIPVersion != "" {
+			args = append(args, "--edge-ip-version", t.cfg.EdgeIPVersion)
+		}
+		if t.cfg.Region != "" {
+			args = append(args, "--region", t.cfg.Region)
+		}
+		if t.cfg.Protocol != "" {
+			args = append(args, "--protocol", t.cfg.Protocol)
+		}
+	}
+
+	cmd := exec.CommandContext(ctx, binPath, args...)
 	// Do not attach stdin. Divert stderr to logger with prefix
 	stderr, err := cmd.StderrPipe()
 	if err == nil {
 		go func() {
-			buf := make([]byte, 1024)
+			reader := bufio.NewReader(stderr)
+			var connectedOnce sync.Once
 			for {
-				n, rErr := stderr.Read(buf)
-				if n > 0 {
-					line := strings.TrimSpace(string(buf[:n]))
-					// Filter verbose cloudflared heartbeats, print errors / connections
-					if strings.Contains(line, "Registered tunnel connection") ||
-						strings.Contains(line, "Connection") && strings.Contains(line, "registered") {
-						log.Printf("☁️  [Cloudflare] %s", line)
+				line, rErr := reader.ReadString('\n')
+				trimmed := strings.TrimSpace(line)
+				if trimmed != "" {
+					// Condense multiple tunnel connections into one simple prompt
+					if strings.Contains(trimmed, "Registered tunnel connection") ||
+						(strings.Contains(trimmed, "Connection") && strings.Contains(trimmed, "registered")) {
+						connectedOnce.Do(func() {
+							log.Printf("☁️  已与 Cloudflare 专属域名建立连接")
+						})
+					} else if strings.Contains(trimmed, "ERR") || strings.Contains(trimmed, "error") {
+						if !strings.Contains(trimmed, "context canceled") {
+							log.Printf("⚠️  [Cloudflare] %s", trimmed)
+						}
 					}
 				}
 				if rErr != nil {
@@ -107,7 +134,6 @@ func (t *CloudflareTunnel) Start(ctx context.Context, binPath string) error {
 
 	t.cmd = cmd
 	t.running = true
-	log.Printf("☁️  [Cloudflare] Daemon started (PID %d) -> %s", cmd.Process.Pid, t.result.URL)
 
 	go func() {
 		_ = cmd.Wait()

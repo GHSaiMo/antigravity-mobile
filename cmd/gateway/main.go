@@ -226,14 +226,14 @@ func runGatewayServer(args []string) {
 			if err != nil {
 				log.Printf("⚠️  Cloudflare 隧道注册失败: %v", err)
 			} else if cfRes != nil {
-				cfTunnel = tunnel.NewCloudflareTunnel(cfRes)
+				cfTunnel = tunnel.NewCloudflareTunnel(cfRes, &cfCfg)
 				if err := cfTunnel.Start(cfCtx, binPath); err != nil {
 					log.Printf("⚠️  启动 cloudflared 失败: %v", err)
 				} else {
 					defer cfTunnel.Stop()
 					authHandler.SetCloudflareURL(cfRes.URL)
 					authHandler.SetPrimary(cfRes.Subdomain, 443, true)
-					log.Printf("☁️  Cloudflare 专属永久 HTTPS 域名就绪: %s", cfRes.URL)
+					log.Printf("☁️  Cloudflare 专属域名已生成")
 
 					// 将专属 HTTPS 域名设为二维码主地址，强制走 HTTPS 443！
 					qrHost = cfRes.Subdomain
@@ -363,20 +363,20 @@ func runGatewayServer(args []string) {
 		}
 	}()
 
-	scheme := "http"
-	if *enableSSL {
-		scheme = "https"
+	localScheme := "http"
+	if *tlsCert != "" && *tlsKey != "" {
+		localScheme = "https"
 	}
 	lanDisplay := netAddrs.LANIPv4
 	if lanDisplay == "" && qrHost != "127.0.0.1" && !strings.Contains(qrHost, ":") {
 		lanDisplay = qrHost
 	}
 	if lanDisplay != "" {
-		log.Printf("📱 Mobile Web UI ready at: %s://%s:%d (LAN) | %s://127.0.0.1:%d (Local)", scheme, lanDisplay, *port, scheme, *port)
+		log.Printf("📱 Mobile Web UI ready at: %s://%s:%d (LAN) | %s://127.0.0.1:%d (Local)", localScheme, lanDisplay, *port, localScheme, *port)
 	} else if qrHost != "127.0.0.1" {
-		log.Printf("📱 Mobile Web UI ready at: %s://%s:%d (WAN/IPv6) | %s://127.0.0.1:%d (Local)", scheme, qrHost, *port, scheme, *port)
+		log.Printf("📱 Mobile Web UI ready at: %s://%s:%d (WAN/IPv6) | %s://127.0.0.1:%d (Local)", localScheme, qrHost, *port, localScheme, *port)
 	} else {
-		log.Printf("📱 Mobile Web UI ready at: %s://127.0.0.1:%d", scheme, *port)
+		log.Printf("📱 Mobile Web UI ready at: %s://127.0.0.1:%d", localScheme, *port)
 	}
 
 	// Settle briefly so asynchronous startup logs (e.g. Cloudflare tunnel connect, baseline sync)

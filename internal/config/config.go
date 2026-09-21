@@ -341,10 +341,13 @@ const DefaultCloudflareWorkerURL = "https://dispatcher.jiuge.space"
 
 // CloudflareConfig holds settings for the automated Cloudflare Tunnel dispatcher.
 type CloudflareConfig struct {
-	Enabled    bool
-	WorkerURL  string
-	InviteCode string
-	Token      string // manual token override if desired
+	Enabled       bool
+	WorkerURL     string
+	InviteCode    string
+	Token         string // manual token override if desired
+	EdgeIPVersion string // "auto", "4", "6"
+	Protocol      string // "quic", "http2"
+	Region        string // optional region code
 }
 
 // GetCloudflareConfig extracts Cloudflare Tunnel settings from environment variables.
@@ -366,6 +369,19 @@ func GetCloudflareConfig() CloudflareConfig {
 		token = strings.TrimSpace(os.Getenv("CLOUDFLARE_TUNNEL_TOKEN"))
 	}
 
+	edgeIPVersion := strings.TrimSpace(os.Getenv("CF_EDGE_IP_VERSION"))
+	if edgeIPVersion == "" {
+		edgeIPVersion = strings.TrimSpace(os.Getenv("TUNNEL_EDGE_IP_VERSION"))
+	}
+	protocol := strings.TrimSpace(os.Getenv("CF_PROTOCOL"))
+	if protocol == "" {
+		protocol = strings.TrimSpace(os.Getenv("TUNNEL_TRANSPORT_PROTOCOL"))
+	}
+	region := strings.TrimSpace(os.Getenv("CF_REGION"))
+	if region == "" {
+		region = strings.TrimSpace(os.Getenv("TUNNEL_REGION"))
+	}
+
 	enabled := true
 	if v := os.Getenv("CF_TUNNEL_ENABLED"); v != "" {
 		vLower := strings.ToLower(v)
@@ -376,10 +392,13 @@ func GetCloudflareConfig() CloudflareConfig {
 	}
 
 	return CloudflareConfig{
-		Enabled:    enabled,
-		WorkerURL:  workerURL,
-		InviteCode: inviteCode,
-		Token:      token,
+		Enabled:       enabled,
+		WorkerURL:     workerURL,
+		InviteCode:    inviteCode,
+		Token:         token,
+		EdgeIPVersion: edgeIPVersion,
+		Protocol:      protocol,
+		Region:        region,
 	}
 }
 

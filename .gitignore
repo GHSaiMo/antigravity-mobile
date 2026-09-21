@@ -7,7 +7,7 @@
 bin/
 dist/
 build/
-gateway
+/gateway
 *.exe
 *.exe~
 *.dll
