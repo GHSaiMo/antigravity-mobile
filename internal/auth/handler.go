@@ -467,10 +467,7 @@ func (h *AuthHandler) HandleNewPairingSession(w http.ResponseWriter, r *http.Req
 		log.Printf("[AUDIT:AUTH_FAILURE] action=create_pairing_session ip=%s", CleanIP(r.RemoteAddr))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		msg := "unauthorized"
-		if h.policy.TunnelEnabled {
-			msg = "unauthorized: FRP tunnel is enabled, send Authorization: Bearer <MULTIGRAVITY_ADMIN_TOKEN> (see ~/.multigravity/admin_token)"
-		}
+		msg := "unauthorized: administrator token required (see ~/.multigravity/admin_token)"
 		json.NewEncoder(w).Encode(map[string]string{"error": msg})
 		return
 	}
@@ -540,8 +537,8 @@ func (h *AuthHandler) isAuthorizedAdmin(r *http.Request) bool {
 		return ConstantTimeTokenEquals(BearerToken(r), adminToken)
 	}
 
-	// Loopback fallback is incompatible with FRP/SSH tunnels: those dial 127.0.0.1,
-	// so every remote client appears local. Never trust RemoteAddr when a tunnel is on.
+	// Loopback fallback is incompatible with tunnels: remote clients dial localhost via the tunnel daemon.
+	// Never trust RemoteAddr when a tunnel is on without an explicit admin token.
 	if h.policy.TunnelEnabled {
 		return false
 	}

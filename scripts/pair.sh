@@ -89,10 +89,8 @@ if [ "${HTTP_CODE}" != "200" ]; then
     fi
     if [ "${HTTP_CODE}" = "401" ]; then
         echo
-        echo "   开了 FRP 之后，本机 127.0.0.1 不再自动算管理员。"
-        echo "   请把 ADMIN_TOKEN 写进 .env，或使用网关生成的:"
+        echo "   提示: 管理员鉴权失败，请确认令牌已配置在环境变量或:"
         echo "     ${ADMIN_TOKEN_FILE}"
-        echo "   然后重启网关，再执行 make pair。"
     fi
     exit 1
 fi

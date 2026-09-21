@@ -131,7 +131,7 @@ func runGatewayServer(args []string) {
 	tlsKey := fs.String("tls-key", tlsKeyEnv, "HTTPS 服务 TLS 私钥文件路径 (.key)")
 	_ = fs.Parse(args)
 
-	if tokPath, _, err := auth.EnsureAdminToken(false); err != nil {
+	if tokPath, _, err := auth.EnsureAdminToken(true); err != nil {
 		log.Fatalf("❌ Failed to initialize MULTIGRAVITY_ADMIN_TOKEN: %v", err)
 	} else if tokPath != "" {
 		log.Printf("🔐 Loaded MULTIGRAVITY_ADMIN_TOKEN from %s", tokPath)
@@ -378,7 +378,7 @@ func runGatewayServer(args []string) {
 		log.Printf("📱 Mobile Web UI ready at: %s://127.0.0.1:%d", scheme, *port)
 	}
 
-	// Settle briefly so asynchronous startup logs (e.g. FRP tunnel connect, baseline sync)
+	// Settle briefly so asynchronous startup logs (e.g. Cloudflare tunnel connect, baseline sync)
 	// are printed in the boot logs area before rendering the QR code.
 	time.Sleep(150 * time.Millisecond)
 
@@ -504,7 +504,7 @@ func runPairCmd(args []string) {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		fmt.Fprintf(os.Stderr, "❌ 网关拒绝签发配对码 (HTTP %d): %s\n", resp.StatusCode, strings.TrimSpace(string(body)))
 		if resp.StatusCode == http.StatusUnauthorized {
-			fmt.Fprintf(os.Stderr, "   提示: 若启用了 FRP 穿透，请把 ADMIN_TOKEN 配置在环境变量或 ~/.multigravity/admin_token。\n")
+			fmt.Fprintf(os.Stderr, "   提示: 请确认管理员令牌已配置在环境变量 MULTIGRAVITY_ADMIN_TOKEN 或 ~/.multigravity/admin_token。\n")
 		}
 		os.Exit(1)
 	}

@@ -57,15 +57,11 @@ INCLUDE_PUBLIC_IPV6=1
 # BARK_SOUND_ACTION=alarm
 # BARK_SOUND_COMPLETE=glass
 
-# FRP 内网穿透云中继配置 (在外网无公网 IP 时使用)
-# FRP_ENABLED=false
-# FRP_SERVER_ADDR=frp.example.com
-# FRP_SERVER_PORT=7000
-# FRP_TOKEN=your-strong-token
-# FRP_REMOTE_PORT=58900
-
-# 管理员特权密钥 (外网访问或开启 FRP 时用于鉴权，留空则首次运行自动生成)
-# MULTIGRAVITY_ADMIN_TOKEN=
+# ☁️ Cloudflare Tunnel 专属公网穿透配置 (开箱即用)
+# CF_WORKER_URL=https://dispatcher.jiuge.space
+# CF_INVITE_CODE=
+# CF_TUNNEL_TOKEN=
+# CF_TUNNEL_ENABLED=1
 "@
     [System.IO.File]::WriteAllText("$confDir\.env", $defaultEnv, [System.Text.Encoding]::UTF8)
     Write-Host "📝 已生成全局默认配置: $confDir\.env" -ForegroundColor Green

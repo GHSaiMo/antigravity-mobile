@@ -47,14 +47,11 @@ endif
 #
 # 2. 常用环境变量 (推荐在 ~/.multigravity/.env 或项目根目录 .env 中按需配置):
 #    BARK_URL             : iOS Bark 实时推送链接（填入后自动开启任务完成与审批推送通知）
-#    FRP_ENABLE           : 是否启用 FRP 内网穿透云中继通道 (1 开启, 0 关闭)
-#    FRP_SERVER_ADDR      : FRP 远程服务器 IP 或公网域名
-#    FRP_SERVER_PORT      : FRP 远程服务器通信端口 (默认 7000)
-#    FRP_TOKEN            : FRP 鉴权密钥 Token
-#    FRP_REMOTE_PORT      : FRP 映射的远程公网访问端口 (默认 58900)
-#    ADMIN_TOKEN          : 管理员特权密钥 (外网访问或开启 FRP 时用于鉴权与管理设备)
+#    CF_TUNNEL_ENABLED    : 是否启用 Cloudflare Tunnel 穿透通道 (默认 1 开启, 0 关闭)
+#    CF_WORKER_URL        : Cloudflare Worker 调度服务器地址 (默认 https://dispatcher.jiuge.space)
+#    CF_TUNNEL_TOKEN      : 自定义 Cloudflare Tunnel Token (若不使用动态调度)
+#    MULTIGRAVITY_ADMIN_TOKEN: 管理员特权密钥 (外网访问时用于鉴权与管理设备，留空则自动生成)
 #    AUTH_STORE_PATH      : 设备凭据持久化存储路径 (默认 ~/.multigravity/auth_store.json)
-#    INCLUDE_PUBLIC_IPV6  : 手机蜂窝网络下是否使用公网 IPv6 地址直连配对 (1 开启, 0 关闭)
 #
 # 常见运行方式示例:
 #    make run                           # 默认启动，监听 58900 端口，并默认打印一次配对二维码
