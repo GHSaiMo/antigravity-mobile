@@ -263,26 +263,37 @@ public final class AppSettings {
     }
     
     public var serverURL: URL? {
+        let isCellular = NetworkTransport.shared.isCellular
+        
         // 1. Dynamic endpoint selection: If ConnectionManager has established an activeServerURL,
-        // use it directly (it has already undergone connectivity probing).
+        // use it directly (if not an unreachable LAN address while on cellular).
         if let active = activeServerURL, let url = Self.normalize(raw: active) {
-            return url
+            let isLan = NetworkTransport.isLocalOrPrivateHost(url.host ?? "")
+            if !(isCellular && isLan) {
+                return url
+            }
         }
         
         // 2. Default fallback priority:
         // Priority 1: LAN (only if on Wi-Fi/non-cellular)
-        if !NetworkTransport.shared.isCellular, let lan = lanServerURL, let url = Self.normalize(raw: lan) {
+        if !isCellular, let lan = lanServerURL, let url = Self.normalize(raw: lan) {
             return url
         }
-        // Priority 2: Custom (if configured)
+        // Priority 2: Custom (if configured and not dead LAN on cellular)
         if let custom = customServerURL, let url = Self.normalize(raw: custom) {
-            return url
+            let isLan = NetworkTransport.isLocalOrPrivateHost(url.host ?? "")
+            if !(isCellular && isLan) {
+                return url
+            }
         }
         // Priority 3: Primary Cloudflare HTTPS Domain (final fallback)
         if let cloud = primaryCloudURL, let url = Self.normalize(raw: cloud) {
             return url
         }
-        return Self.normalize(raw: rawServerURL)
+        if !isCellular {
+            return Self.normalize(raw: rawServerURL)
+        }
+        return Self.normalize(raw: primaryCloudURL ?? rawServerURL)
     }
     
     public var gatewayURL: URL? {
@@ -304,7 +315,14 @@ public final class AppSettings {
         self.isPaired = (token != nil && !token!.isEmpty)
     }
     
-    public func updateEndpoints(lan: String? = nil, ipv6: String? = nil, relay: String? = nil, custom: String? = nil, active: String? = nil) {
+    public func updateEndpoints(
+        lan: String? = nil,
+        ipv6: String? = nil,
+        relay: String? = nil,
+        custom: String? = nil,
+        active: String? = nil,
+        primaryCloud: String? = nil
+    ) {
         let token = KeychainHelper.shared.read(key: .deviceToken)
         self.isPaired = (token != nil && !token!.isEmpty)
         if let lan = lan, !lan.isEmpty {
@@ -315,7 +333,12 @@ public final class AppSettings {
         }
         if let relay = relay, !relay.isEmpty {
             self.relayServerURL = relay
-            self.primaryCloudURL = relay
+            if self.primaryCloudURL == nil || self.primaryCloudURL!.isEmpty {
+                self.primaryCloudURL = relay
+            }
+        }
+        if let cloud = primaryCloud, !cloud.isEmpty {
+            self.primaryCloudURL = cloud
         }
         if let custom = custom, !custom.isEmpty {
             let cleanCustom = custom.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()

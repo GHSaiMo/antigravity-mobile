@@ -65,7 +65,7 @@ public final class ConnectionManager {
         guard !isProbing else { return AppSettings.shared.activeServerURL }
         
         let settings = AppSettings.shared
-        let isCellularNow = NetworkTransport.shared.isCellular
+        let isCellularNow = NetworkTransport.shared.isCellular || self.isCellular
         
         // 1. Filter endpoints to test based on network interface and configuration
         var endpointsToTest: [String] = []
@@ -77,7 +77,10 @@ public final class ConnectionManager {
         
         let custom = settings.customServerURL?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let custom = custom, !custom.isEmpty {
-            endpointsToTest.append(custom)
+            let isLan = NetworkTransport.isLocalOrPrivateHost(custom)
+            if !isCellularNow || !isLan {
+                endpointsToTest.append(custom)
+            }
         }
         
         let cloud = settings.primaryCloudURL?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -86,7 +89,10 @@ public final class ConnectionManager {
         }
         
         if endpointsToTest.isEmpty, !settings.rawServerURL.isEmpty {
-            endpointsToTest.append(settings.rawServerURL)
+            let isLan = NetworkTransport.isLocalOrPrivateHost(settings.rawServerURL)
+            if !isCellularNow || !isLan {
+                endpointsToTest.append(settings.rawServerURL)
+            }
         }
         
         guard !endpointsToTest.isEmpty else { return nil }

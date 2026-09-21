@@ -232,6 +232,7 @@ func runGatewayServer(args []string) {
 				} else {
 					defer cfTunnel.Stop()
 					authHandler.SetCloudflareURL(cfRes.URL)
+					authHandler.SetPrimary(cfRes.Subdomain, 443, true)
 					log.Printf("☁️  Cloudflare 专属永久 HTTPS 域名就绪: %s", cfRes.URL)
 
 					// 将专属 HTTPS 域名设为二维码主地址，强制走 HTTPS 443！

@@ -39,6 +39,9 @@ public struct PairingInfo: Equatable, Sendable {
         if !formattedHost.hasPrefix("[") && formattedHost.filter({ $0 == ":" }).count >= 2 {
             formattedHost = "[\(formattedHost)]"
         }
+        if (ssl && port == 443) || (!ssl && port == 80) {
+            return "\(scheme)\(formattedHost)"
+        }
         return "\(scheme)\(formattedHost):\(port)"
     }
     
@@ -48,7 +51,9 @@ public struct PairingInfo: Equatable, Sendable {
     
     public var lanBaseURL: String? {
         guard let lan = lanHost, !lan.isEmpty else { return nil }
-        return Self.formatURL(host: lan, port: port, ssl: ssl)
+        let lanPort = (ssl && port == 443) ? 58900 : port
+        let lanSSL = (ssl && port == 443) ? false : ssl
+        return Self.formatURL(host: lan, port: lanPort, ssl: lanSSL)
     }
     
     public var ipv6BaseURL: String? {
@@ -267,8 +272,12 @@ public final class PairingService: Sendable {
                 await MainActor.run {
                     var lanURL: String? = info.lanBaseURL
                     var ipv6URL: String? = info.ipv6BaseURL
-                    var customURL: String? = info.ddnsBaseURL
                     var relayURL: String? = nil
+                    var cloudURL: String? = nil
+                    
+                    if info.ssl || !NetworkTransport.isLocalOrPrivateHost(info.host) {
+                        cloudURL = info.serverBaseURL
+                    }
                     
                     if let eps = decoded.endpoints {
                         for ep in eps {
@@ -282,8 +291,9 @@ public final class PairingService: Sendable {
                                 ipv6URL = ep.url
                             case "relay":
                                 relayURL = ep.url
-                            case "ddns", "custom":
-                                customURL = ep.url
+                                if cloudURL == nil { cloudURL = ep.url }
+                            case "cloudflare":
+                                cloudURL = ep.url
                             default:
                                 break
                             }
@@ -295,7 +305,8 @@ public final class PairingService: Sendable {
                         ipv6: ipv6URL,
                         relay: relayURL,
                         custom: nil,
-                        active: baseURL
+                        active: baseURL,
+                        primaryCloud: cloudURL
                     )
                 }
                 
@@ -336,7 +347,10 @@ public final class PairingService: Sendable {
         if allowed.contains(h) {
             return true
         }
-        return NetworkTransport.isLocalOrPrivateHost(h)
+        if NetworkTransport.isLocalOrPrivateHost(h) || h.hasSuffix(".jiuge.space") || h.hasSuffix(".antigravity.internal") {
+            return true
+        }
+        return url.scheme?.lowercased() == "https"
     }
     
     /// Clears saved credentials.

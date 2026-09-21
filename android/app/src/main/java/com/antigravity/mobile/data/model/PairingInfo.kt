@@ -18,7 +18,12 @@ data class PairingInfo(
         get() = formatUrl(host, port, ssl)
 
     val lanBaseUrl: String?
-        get() = lanHost?.takeIf { it.isNotBlank() }?.let { formatUrl(it, port, ssl) }
+        get() {
+            val lan = lanHost?.takeIf { it.isNotBlank() } ?: return null
+            val lanPort = if (ssl && port == 443) 58900 else port
+            val lanSsl = if (ssl && port == 443) false else ssl
+            return formatUrl(lan, lanPort, lanSsl)
+        }
 
     val ipv6BaseUrl: String?
         get() = ipv6Host?.takeIf { it.isNotBlank() }?.let { formatUrl(it, port, ssl) }
@@ -46,6 +51,9 @@ data class PairingInfo(
             var formattedHost = host.trim()
             if (!formattedHost.startsWith("[") && formattedHost.count { it == ':' } >= 2) {
                 formattedHost = "[$formattedHost]"
+            }
+            if ((ssl && port == 443) || (!ssl && port == 80)) {
+                return "$scheme$formattedHost"
             }
             return "$scheme$formattedHost:$port"
         }

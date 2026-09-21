@@ -224,8 +224,43 @@ class PreferencesManager(context: Context) {
             gatewayBaseUrl?.takeIf { it.isNotBlank() }
         ).distinct()
 
+    fun getEffectiveGatewayUrl(isCellular: Boolean): String? {
+        val active = gatewayBaseUrl?.trim()?.trimEnd('/')
+        val lan = lanServerUrl?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() }
+        val custom = customServerUrl?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() }
+        val cloud = primaryCloudUrl?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() }
+
+        if (isCellular) {
+            // When on cellular, never use private LAN IP to avoid connection timeouts
+            if (!active.isNullOrBlank() && !ConnectionManager.isLanHost(ConnectionManager.extractHost(active))) {
+                return active
+            }
+            if (custom != null && !ConnectionManager.isLanHost(ConnectionManager.extractHost(custom))) {
+                return custom
+            }
+            if (cloud != null) {
+                return cloud
+            }
+            return active
+        } else {
+            if (!active.isNullOrBlank()) {
+                return active
+            }
+            if (lan != null) {
+                return lan
+            }
+            if (custom != null) {
+                return custom
+            }
+            if (cloud != null) {
+                return cloud
+            }
+        }
+        return active ?: cloud
+    }
+
     fun isPaired(): Boolean {
-        return !gatewayBaseUrl.isNullOrBlank() && !deviceToken.isNullOrBlank()
+        return (!gatewayBaseUrl.isNullOrBlank() || !primaryCloudUrl.isNullOrBlank()) && !deviceToken.isNullOrBlank()
     }
 
     fun getLastViewTime(cascadeId: String): Long {

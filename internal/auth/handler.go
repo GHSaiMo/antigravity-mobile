@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -73,6 +74,13 @@ func (h *AuthHandler) SetRelayURL(relayURL string) {
 	h.relayURL = strings.TrimSpace(relayURL)
 }
 
+// SetPrimary sets the primary network host, port, and SSL status.
+func (h *AuthHandler) SetPrimary(host string, port int, ssl bool) {
+	h.host = strings.TrimSpace(host)
+	h.port = port
+	h.ssl = ssl
+}
+
 // SetCloudflareURL sets the Cloudflare Tunnel HTTPS endpoint URL for pairing responses.
 func (h *AuthHandler) SetCloudflareURL(cfURL string) {
 	h.cfURL = strings.TrimSpace(cfURL)
@@ -118,20 +126,27 @@ func (h *AuthHandler) GetEndpoints() []EndpointInfo {
 		})
 	}
 
-	// LAN / public IPv6 literals are only advertised for cleartext HTTP.
-	// GATEWAY_SSL certs are issued for the domain (DDNS_HOST), not RFC1918 or raw IPv6.
-	if !h.ssl {
+	// 2. LAN IPv4 - Advertised when local gateway is running cleartext HTTP (i.e. not self-TLS, or Cloudflare termination)
+	if !h.ssl || h.cfURL != "" {
 		lan := h.lanHost
-		if lan == "" && !strings.Contains(h.host, ":") && h.host != "" && h.host != "127.0.0.1" && h.host != "localhost" {
+		if lan == "" && !strings.Contains(h.host, ":") && h.host != "" && h.host != "127.0.0.1" && h.host != "localhost" && !strings.Contains(h.host, ".") {
 			lan = h.host
 		}
 		if lan != "" {
+			lanPort := h.port
+			if h.ssl && h.port == 443 {
+				lanPort = 58900
+			}
 			endpoints = append(endpoints, EndpointInfo{
 				Type: "lan",
-				URL:  fmt.Sprintf("%s%s:%d", scheme, lan, h.port),
+				URL:  fmt.Sprintf("http://%s:%d", lan, lanPort),
 			})
 		}
+	}
 
+	// LAN / public IPv6 literals are only advertised for cleartext HTTP.
+	// GATEWAY_SSL certs are issued for the domain (DDNS_HOST), not RFC1918 or raw IPv6.
+	if !h.ssl {
 		ipv6 := h.ipv6Host
 		if ipv6 == "" && strings.Contains(h.host, ":") {
 			ipv6 = h.host
@@ -482,20 +497,42 @@ func (h *AuthHandler) HandleNewPairingSession(w http.ResponseWriter, r *http.Req
 
 	relayHost := h.relayHost()
 	lanHost, ipv6Host := h.lanHost, h.ipv6Host
-	if h.ssl {
+	primaryHost := h.host
+	port := h.port
+	ssl := h.ssl
+
+	if h.cfURL != "" {
+		if u, err := url.Parse(h.cfURL); err == nil && u.Hostname() != "" {
+			primaryHost = u.Hostname()
+			port = 443
+			ssl = true
+			if u.Port() != "" {
+				if p, err := strconv.Atoi(u.Port()); err == nil {
+					port = p
+				}
+			}
+			// Retain LAN host for dual-routing URI so mobile can pair over Wi-Fi or Cloudflare
+			if h.lanHost != "" {
+				lanHost = h.lanHost
+			}
+			if relayHost == primaryHost {
+				relayHost = ""
+			}
+		}
+	} else if h.ssl {
 		// Cert is issued for DDNS_HOST only; IP literals fail iOS ATS/trust.
 		lanHost, ipv6Host = "", ""
-	}
-	primaryHost := h.host
-	if (r.URL.Query().Get("prefer") == "ipv6" || primaryHost == "" || primaryHost == "127.0.0.1" || primaryHost == lanHost) && ipv6Host != "" {
-		primaryHost = ipv6Host
+	} else {
+		if (r.URL.Query().Get("prefer") == "ipv6" || primaryHost == "" || primaryHost == "127.0.0.1" || primaryHost == lanHost) && ipv6Host != "" {
+			primaryHost = ipv6Host
+		}
 	}
 
 	uri := GenerateMultiHostPairingURI(MultiHostPairingParams{
 		PrimaryHost: primaryHost,
-		Port:        h.port,
+		Port:        port,
 		Code:        session.Code,
-		SSL:         h.ssl,
+		SSL:         ssl,
 		LANHost:     lanHost,
 		IPv6Host:    ipv6Host,
 		DDNSHost:    h.ddnsHost,
@@ -511,21 +548,19 @@ func (h *AuthHandler) HandleNewPairingSession(w http.ResponseWriter, r *http.Req
 
 	// Also print QR code to gateway console/log
 	var extraHosts []string
-	if !h.ssl {
-		if h.lanHost != "" && h.lanHost != h.host {
-			extraHosts = append(extraHosts, h.lanHost)
-		}
-		if h.ipv6Host != "" && h.ipv6Host != h.host {
-			extraHosts = append(extraHosts, h.ipv6Host)
-		}
+	if lanHost != "" && lanHost != primaryHost {
+		extraHosts = append(extraHosts, lanHost)
 	}
-	if h.ddnsHost != "" && h.ddnsHost != h.host {
+	if ipv6Host != "" && ipv6Host != primaryHost {
+		extraHosts = append(extraHosts, ipv6Host)
+	}
+	if h.ddnsHost != "" && h.ddnsHost != primaryHost {
 		extraHosts = append(extraHosts, h.ddnsHost)
 	}
-	if relayHost != "" && relayHost != h.host {
+	if relayHost != "" && relayHost != primaryHost {
 		extraHosts = append(extraHosts, relayHost)
 	}
-	PrintPairingQRCode(h.host, h.port, session.Code, h.ssl, extraHosts...)
+	PrintPairingQRCode(primaryHost, port, session.Code, ssl, extraHosts...)
 }
 
 // isAuthorizedAdmin checks if the request carries a valid admin token,
