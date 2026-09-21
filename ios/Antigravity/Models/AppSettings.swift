@@ -318,7 +318,12 @@ public final class AppSettings {
             self.primaryCloudURL = relay
         }
         if let custom = custom, !custom.isEmpty {
-            self.customServerURL = custom
+            let cleanCustom = custom.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
+            let cleanLan = self.lanServerURL?.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
+            let cleanCloud = self.primaryCloudURL?.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
+            if cleanCustom != cleanLan && cleanCustom != cleanCloud {
+                self.customServerURL = custom
+            }
         }
         if let active = active, !active.isEmpty {
             self.activeServerURL = active
@@ -373,11 +378,22 @@ public final class AppSettings {
         self.lanServerURL = savedLan
         self.ipv6ServerURL = savedIPv6
         self.relayServerURL = savedRelay
-        if let savedCustom = savedCustom, savedCustom == savedLan {
-            self.customServerURL = nil
-            UserDefaults.standard.removeObject(forKey: customServerURLKey)
+        if let savedCustom = savedCustom {
+            let cleanCustom = savedCustom.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
+            let cleanLan = savedLan?.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
+            let cleanCloud = savedCloud?.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
+            let cleanURL = savedURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
+            
+            if cleanCustom == cleanLan ||
+               cleanCustom == cleanCloud ||
+               (!cleanURL.isEmpty && cleanCustom == cleanURL && !NetworkTransport.isLocalOrPrivateHost(savedURL)) {
+                self.customServerURL = nil
+                UserDefaults.standard.removeObject(forKey: customServerURLKey)
+            } else {
+                self.customServerURL = savedCustom
+            }
         } else {
-            self.customServerURL = savedCustom
+            self.customServerURL = nil
         }
         self.activeServerURL = savedActive
         self.enableLiveActivities = savedLive

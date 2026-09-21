@@ -47,6 +47,19 @@ class PreferencesManager(context: Context) {
             securePrefs?.edit()?.putString(KEY_DEVICE_ID, legacyId)?.apply()
             prefs.edit().remove(KEY_DEVICE_ID).apply()
         }
+
+        // Purge legacy customServerUrl if it was erroneously populated with LAN or cloud/gateway URLs
+        val legacyCustom = prefs.getString(KEY_CUSTOM_URL, null)?.trim()?.trimEnd('/')
+        if (!legacyCustom.isNullOrBlank()) {
+            val lan = prefs.getString(KEY_LAN_URL, null)?.trim()?.trimEnd('/')
+            val cloud = prefs.getString(KEY_PRIMARY_CLOUD_URL, null)?.trim()?.trimEnd('/')
+            val gateway = prefs.getString(KEY_GATEWAY_URL, null)?.trim()?.trimEnd('/')
+            if (legacyCustom.equals(lan, ignoreCase = true) ||
+                (!cloud.isNullOrBlank() && legacyCustom.equals(cloud, ignoreCase = true)) ||
+                (!gateway.isNullOrBlank() && legacyCustom.equals(gateway, ignoreCase = true) && !ConnectionManager.isLanHost(ConnectionManager.extractHost(gateway)))) {
+                prefs.edit().remove(KEY_CUSTOM_URL).apply()
+            }
+        }
     }
 
     private val _themeModeFlow = MutableStateFlow(themeMode)
@@ -127,15 +140,29 @@ class PreferencesManager(context: Context) {
 
     var customServerUrl: String?
         get() {
-            val saved = prefs.getString(KEY_CUSTOM_URL, null)
-            val lan = prefs.getString(KEY_LAN_URL, null)
-            if (saved != null && saved == lan) {
+            val saved = prefs.getString(KEY_CUSTOM_URL, null)?.trim()?.trimEnd('/')
+            if (saved.isNullOrBlank()) return null
+            val lan = prefs.getString(KEY_LAN_URL, null)?.trim()?.trimEnd('/')
+            val cloud = prefs.getString(KEY_PRIMARY_CLOUD_URL, null)?.trim()?.trimEnd('/')
+            val gateway = prefs.getString(KEY_GATEWAY_URL, null)?.trim()?.trimEnd('/')
+            if (saved.equals(lan, ignoreCase = true) ||
+                (!cloud.isNullOrBlank() && saved.equals(cloud, ignoreCase = true)) ||
+                (!gateway.isNullOrBlank() && saved.equals(gateway, ignoreCase = true) && !ConnectionManager.isLanHost(ConnectionManager.extractHost(gateway)))) {
                 prefs.edit().remove(KEY_CUSTOM_URL).apply()
                 return null
             }
             return saved
         }
-        set(value) = prefs.edit().putString(KEY_CUSTOM_URL, value?.trimEnd('/')).apply()
+        set(value) {
+            val clean = value?.trim()?.trimEnd('/')
+            val lan = prefs.getString(KEY_LAN_URL, null)?.trim()?.trimEnd('/')
+            val cloud = prefs.getString(KEY_PRIMARY_CLOUD_URL, null)?.trim()?.trimEnd('/')
+            if (clean.isNullOrBlank() || clean.equals(lan, ignoreCase = true) || clean.equals(cloud, ignoreCase = true)) {
+                prefs.edit().remove(KEY_CUSTOM_URL).apply()
+            } else {
+                prefs.edit().putString(KEY_CUSTOM_URL, clean).apply()
+            }
+        }
 
     var cachedProjectsJson: String?
         get() = prefs.getString(KEY_CACHED_PROJECTS, null)
@@ -154,7 +181,8 @@ class PreferencesManager(context: Context) {
         ipv6: String? = null,
         relay: String? = null,
         custom: String? = null,
-        active: String? = null
+        active: String? = null,
+        primaryCloud: String? = null
     ) {
         val editor = prefs.edit()
         if (!lan.isNullOrBlank()) {
@@ -167,8 +195,16 @@ class PreferencesManager(context: Context) {
             editor.putString(KEY_RELAY_URL, relay.trimEnd('/'))
             editor.putString(KEY_PRIMARY_CLOUD_URL, relay.trimEnd('/'))
         }
+        if (!primaryCloud.isNullOrBlank()) {
+            editor.putString(KEY_PRIMARY_CLOUD_URL, primaryCloud.trimEnd('/'))
+        }
         if (!custom.isNullOrBlank()) {
-            editor.putString(KEY_CUSTOM_URL, custom.trimEnd('/'))
+            val cleanCustom = custom.trimEnd('/')
+            val cleanLan = lan?.trimEnd('/') ?: prefs.getString(KEY_LAN_URL, null)?.trimEnd('/')
+            val cleanCloud = primaryCloud?.trimEnd('/') ?: prefs.getString(KEY_PRIMARY_CLOUD_URL, null)?.trimEnd('/')
+            if (!cleanCustom.equals(cleanLan, ignoreCase = true) && !cleanCustom.equals(cleanCloud, ignoreCase = true)) {
+                editor.putString(KEY_CUSTOM_URL, cleanCustom)
+            }
         }
         if (!active.isNullOrBlank()) {
             val clean = active.trimEnd('/')

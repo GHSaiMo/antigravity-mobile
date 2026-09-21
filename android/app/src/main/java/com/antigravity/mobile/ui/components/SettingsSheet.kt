@@ -215,10 +215,6 @@ private fun MainSettingsContent(
     var lanAddress by remember { mutableStateOf(prefs.lanServerUrl ?: "") }
     var customAddress by remember { mutableStateOf(prefs.customServerUrl ?: "") }
 
-    val activeUrl = prefs.gatewayBaseUrl?.trim()?.trimEnd('/')
-    val isLanActive = !activeUrl.isNullOrBlank() && activeUrl.equals(prefs.lanServerUrl?.trim()?.trimEnd('/'), ignoreCase = true)
-    val isCustomActive = !activeUrl.isNullOrBlank() && activeUrl.equals(prefs.customServerUrl?.trim()?.trimEnd('/'), ignoreCase = true)
-
     LaunchedEffect(Unit) {
         connectionManager.probeEndpoints(prefs)
     }

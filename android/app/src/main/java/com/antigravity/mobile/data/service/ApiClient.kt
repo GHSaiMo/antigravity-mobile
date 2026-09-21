@@ -70,8 +70,8 @@ class ApiClient(private val prefs: PreferencesManager) {
 
                     var lanUrl: String? = info.lanBaseUrl
                     var ipv6Url: String? = info.ipv6BaseUrl
-                    var customUrl: String? = info.ddnsBaseUrl
                     var relayUrl: String? = info.relayBaseUrl
+                    var cloudUrl: String? = null
 
                     if (pairResp.endpoints != null) {
                         for (ep in pairResp.endpoints) {
@@ -83,14 +83,14 @@ class ApiClient(private val prefs: PreferencesManager) {
                                 "lan" -> lanUrl = epUrl
                                 "ipv6" -> ipv6Url = epUrl
                                 "relay" -> relayUrl = epUrl
-                                "ddns", "custom" -> customUrl = epUrl
+                                "cloudflare" -> cloudUrl = epUrl
                                 "primary" -> {
                                     val h = ConnectionManager.extractHost(epUrl)
                                     when {
                                         ConnectionManager.isLanHost(h) && lanUrl.isNullOrBlank() -> lanUrl = epUrl
                                         ConnectionManager.isIpv6Host(h) && ipv6Url.isNullOrBlank() -> ipv6Url = epUrl
                                         ConnectionManager.isRelayHost(h) && relayUrl.isNullOrBlank() -> relayUrl = epUrl
-                                        customUrl.isNullOrBlank() -> customUrl = epUrl
+                                        else -> if (cloudUrl.isNullOrBlank()) cloudUrl = epUrl
                                     }
                                 }
                             }
@@ -111,20 +111,18 @@ class ApiClient(private val prefs: PreferencesManager) {
                             if (relayUrl.isNullOrBlank()) relayUrl = candClean
                         }
                         else -> {
-                            if (customUrl.isNullOrBlank()) customUrl = candClean
+                            // Public allocated domain (e.g. Cloudflare tunnel) strictly serves as background fallback, NEVER custom!
+                            if (cloudUrl.isNullOrBlank()) cloudUrl = candClean
                         }
-                    }
-
-                    if (lanUrl.isNullOrBlank() && ipv6Url.isNullOrBlank() && relayUrl.isNullOrBlank() && customUrl.isNullOrBlank()) {
-                        customUrl = candClean
                     }
 
                     prefs.updateEndpoints(
                         lan = lanUrl,
                         ipv6 = ipv6Url,
                         relay = relayUrl,
-                        custom = customUrl,
-                        active = candidate
+                        custom = null, // Strictly null: custom is left for manual user configuration only
+                        active = candidate,
+                        primaryCloud = cloudUrl
                     )
                     prefs.deviceToken = pairResp.deviceToken
                     prefs.deviceId = pairResp.deviceId

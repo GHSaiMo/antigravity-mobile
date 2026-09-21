@@ -294,7 +294,7 @@ public final class PairingService: Sendable {
                         lan: lanURL,
                         ipv6: ipv6URL,
                         relay: relayURL,
-                        custom: customURL,
+                        custom: nil,
                         active: baseURL
                     )
                 }
