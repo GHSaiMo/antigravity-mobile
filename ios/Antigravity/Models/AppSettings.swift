@@ -43,8 +43,12 @@ public final class AppSettings {
     
     public var primaryCloudURL: String? {
         didSet {
-            if let val = primaryCloudURL {
-                UserDefaults.standard.set(val, forKey: primaryCloudURLKey)
+            if let val = primaryCloudURL?.trimmingCharacters(in: .whitespacesAndNewlines), !val.isEmpty {
+                if !NetworkTransport.isLocalOrPrivateHost(val) {
+                    UserDefaults.standard.set(val, forKey: primaryCloudURLKey)
+                } else {
+                    UserDefaults.standard.removeObject(forKey: primaryCloudURLKey)
+                }
             } else {
                 UserDefaults.standard.removeObject(forKey: primaryCloudURLKey)
             }
@@ -268,58 +272,53 @@ public final class AppSettings {
     }
     
     public var serverURL: URL? {
-        let isCellular = NetworkTransport.shared.isCellular || ConnectionManager.shared.isCellular || !ConnectionManager.shared.isWifi || !NetworkTransport.shared.isWifi
+        let isCell = NetworkStatus.shared.isCellular || !NetworkStatus.shared.isWifi
         
-        if isCellular {
+        if isCell {
             // Cellular mode: Strictly avoid LAN addresses (192.168.x.x, 10.x.x.x, etc.) to prevent timeouts
-            
             // Priority 1: Dynamic activeServerURL (if established and not LAN)
             if let active = activeServerURL, let url = Self.normalize(raw: active) {
-                let isLan = NetworkTransport.isLocalOrPrivateHost(url.host ?? "")
-                if !isLan {
+                if !NetworkTransport.isLocalOrPrivateHost(url.host ?? "") {
                     return url
                 }
             }
             
             // Priority 2: Custom (if configured and not LAN)
             if let custom = customServerURL, let url = Self.normalize(raw: custom) {
-                let isLan = NetworkTransport.isLocalOrPrivateHost(url.host ?? "")
-                if !isLan {
+                if !NetworkTransport.isLocalOrPrivateHost(url.host ?? "") {
                     return url
                 }
             }
             
             // Priority 3: Primary Cloudflare HTTPS Domain (default fallback on cellular)
             if let cloud = primaryCloudURL, let url = Self.normalize(raw: cloud) {
-                return url
+                if !NetworkTransport.isLocalOrPrivateHost(url.absoluteString) {
+                    return url
+                }
             }
             
             // Priority 4: rawServerURL only if not LAN
             if let raw = Self.normalize(raw: rawServerURL) {
-                let isLan = NetworkTransport.isLocalOrPrivateHost(raw.host ?? "")
-                if !isLan {
+                if !NetworkTransport.isLocalOrPrivateHost(raw.host ?? "") {
                     return raw
                 }
             }
             
-            if let cloud = primaryCloudURL {
-                return Self.normalize(raw: cloud)
-            }
             return nil
         } else {
             // Wi-Fi mode:
-            // Priority 1: LAN (local direct connection for lowest latency)
+            // Priority 1: Dynamic activeServerURL (if elected and reachable)
+            if let active = activeServerURL, let url = Self.normalize(raw: active) {
+                return url
+            }
+            
+            // Priority 2: LAN (local direct connection for lowest latency)
             if let lan = lanServerURL, let url = Self.normalize(raw: lan) {
                 return url
             }
             
-            // Priority 2: Custom
+            // Priority 3: Custom
             if let custom = customServerURL, let url = Self.normalize(raw: custom) {
-                return url
-            }
-            
-            // Priority 3: Dynamic activeServerURL
-            if let active = activeServerURL, let url = Self.normalize(raw: active) {
                 return url
             }
             
@@ -373,7 +372,7 @@ public final class AppSettings {
                 self.primaryCloudURL = relay
             }
         }
-        if let cloud = primaryCloud, !cloud.isEmpty {
+        if let cloud = primaryCloud, !cloud.isEmpty, !NetworkTransport.isLocalOrPrivateHost(cloud) {
             self.primaryCloudURL = cloud
         }
         if let custom = custom, !custom.isEmpty {
@@ -387,7 +386,7 @@ public final class AppSettings {
         if let active = active, !active.isEmpty {
             self.activeServerURL = active
             self.rawServerURL = active
-            if active.hasPrefix("https://") || !NetworkTransport.isLocalOrPrivateHost(active) {
+            if !NetworkTransport.isLocalOrPrivateHost(active) {
                 self.primaryCloudURL = active
             }
         }
@@ -434,10 +433,21 @@ public final class AppSettings {
         
         self.rawServerURL = savedURL
         var effectiveCloud = savedCloud
+        if let s = effectiveCloud, NetworkTransport.isLocalOrPrivateHost(s) {
+            effectiveCloud = nil
+            UserDefaults.standard.removeObject(forKey: primaryCloudURLKey)
+        }
         if (effectiveCloud == nil || effectiveCloud!.isEmpty) {
-            if savedURL.hasPrefix("https://") || (!savedURL.isEmpty && !NetworkTransport.isLocalOrPrivateHost(savedURL)) {
+            if let savedActive = savedActive, !savedActive.isEmpty,
+               !NetworkTransport.isLocalOrPrivateHost(savedActive) {
+                effectiveCloud = savedActive
+            } else if !savedURL.isEmpty, !NetworkTransport.isLocalOrPrivateHost(savedURL) {
                 effectiveCloud = savedURL
-            } else if let savedRelay = savedRelay, !savedRelay.isEmpty {
+            } else if let savedCustom = savedCustom, !savedCustom.isEmpty,
+                      !NetworkTransport.isLocalOrPrivateHost(savedCustom) {
+                effectiveCloud = savedCustom
+            } else if let savedRelay = savedRelay, !savedRelay.isEmpty,
+                      !NetworkTransport.isLocalOrPrivateHost(savedRelay) {
                 effectiveCloud = savedRelay
             }
         }

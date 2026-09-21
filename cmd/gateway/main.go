@@ -693,6 +693,7 @@ func buildRouter(
 	rootMux.HandleFunc("/api/v1/auth/pair", authHandler.HandlePair)
 	rootMux.HandleFunc("/api/v1/auth/unpair", authHandler.HandleUnpair)
 	rootMux.HandleFunc("/api/v1/auth/session", authHandler.HandleNewPairingSession)
+	rootMux.HandleFunc("/api/v1/auth/endpoints", authHandler.HandleEndpoints)
 	rootMux.HandleFunc("POST /api/v1/auth/ws-ticket", authHandler.HandleWSTicket)
 	rootMux.HandleFunc("/api/v1/devices/", authHandler.HandleDevices)
 	rootMux.HandleFunc("/api/v1/devices", authHandler.HandleDevices)
@@ -839,8 +840,16 @@ func buildRouter(
 
 	rootMux.Handle("/", adaptiveWebHandler)
 
+	// Inject Cloudflare tunnel domain in response headers for client auto-discovery and healing
+	endpointHeadersMiddleware := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if cf := authHandler.CloudflareURL(); cf != "" {
+			w.Header().Set("X-Antigravity-Cloud-URL", cf)
+		}
+		rootMux.ServeHTTP(w, r)
+	})
+
 	// Wrap with security headers, body size ceiling (64MB), and authentication policy
-	return auth.SecurityHeadersMiddleware(auth.MaxBytesMiddleware(64*1024*1024, auth.AuthMiddlewareWithPolicy(authStore, rootMux, authPolicy)))
+	return auth.SecurityHeadersMiddleware(auth.MaxBytesMiddleware(64*1024*1024, auth.AuthMiddlewareWithPolicy(authStore, endpointHeadersMiddleware, authPolicy)))
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

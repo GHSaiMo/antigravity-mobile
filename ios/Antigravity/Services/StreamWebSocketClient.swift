@@ -148,18 +148,12 @@ public final class StreamWebSocketClient {
             let tlsOptions = NWProtocolTLS.Options()
             let hostStr = (wsURL.host ?? "").lowercased()
             let isLoopback = hostStr == "127.0.0.1" || hostStr == "::1" || hostStr == "localhost"
-            sec_protocol_options_set_verify_block(tlsOptions.securityProtocolOptions, { (metadata, trust, completion) in
-                if isLoopback {
-                    // Trust self-signed certificates only for local gateway connections
+            if isLoopback {
+                sec_protocol_options_set_verify_block(tlsOptions.securityProtocolOptions, { (metadata, trust, completion) in
+                    // Trust self-signed certificates only for local gateway loopback connections
                     completion(true)
-                } else {
-                    // Standard X.509 trust evaluation for all remote hosts
-                    let secTrust = sec_trust_copy_ref(trust).takeRetainedValue()
-                    SecTrustEvaluateAsyncWithError(secTrust, DispatchQueue.global()) { _, result, _ in
-                        completion(result)
-                    }
-                }
-            }, .global())
+                }, .global())
+            }
             parameters = NWParameters(tls: tlsOptions)
         } else {
             parameters = NWParameters.tcp
@@ -258,6 +252,7 @@ public final class StreamWebSocketClient {
         reconnectTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             guard let self, !self.isIntentionallyClosed else { return }
+            await ConnectionManager.shared.probeEndpoints()
             print("[StreamWS] Reconnecting to stream...")
             self.startConnection()
         }

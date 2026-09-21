@@ -86,6 +86,11 @@ func (h *AuthHandler) SetCloudflareURL(cfURL string) {
 	h.cfURL = strings.TrimSpace(cfURL)
 }
 
+// CloudflareURL returns the configured Cloudflare Tunnel HTTPS endpoint URL.
+func (h *AuthHandler) CloudflareURL() string {
+	return h.cfURL
+}
+
 // relayHost extracts the hostname from the configured cloud relay URL.
 func (h *AuthHandler) relayHost() string {
 	raw := strings.TrimSpace(h.relayURL)
@@ -124,10 +129,26 @@ func (h *AuthHandler) GetEndpoints() []EndpointInfo {
 			Type: "cloudflare",
 			URL:  h.cfURL,
 		})
+		lan := h.lanHost
+		if lan == "" && !strings.Contains(h.host, ":") && h.host != "" && h.host != "127.0.0.1" && h.host != "localhost" && !strings.Contains(h.host, ".") {
+			lan = h.host
+		}
+		if lan != "" {
+			lanPort := h.port
+			if h.ssl && h.port == 443 {
+				lanPort = 58900
+			}
+			endpoints = append(endpoints, EndpointInfo{
+				Type: "lan",
+				URL:  fmt.Sprintf("http://%s:%d", lan, lanPort),
+			})
+		}
+		// On the Cloudflare branch, IPv6 literals, DDNS, and legacy FRP relays are retired.
+		return endpoints
 	}
 
 	// 2. LAN IPv4 - Advertised when local gateway is running cleartext HTTP (i.e. not self-TLS, or Cloudflare termination)
-	if !h.ssl || h.cfURL != "" {
+	if !h.ssl {
 		lan := h.lanHost
 		if lan == "" && !strings.Contains(h.host, ":") && h.host != "" && h.host != "127.0.0.1" && h.host != "localhost" && !strings.Contains(h.host, ".") {
 			lan = h.host
@@ -201,6 +222,21 @@ func (h *AuthHandler) GetEndpoints() []EndpointInfo {
 	}
 
 	return endpoints
+}
+
+// HandleEndpoints handles GET /api/v1/auth/endpoints to return candidate connection endpoints.
+func (h *AuthHandler) HandleEndpoints(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if cf := h.CloudflareURL(); cf != "" {
+		w.Header().Set("X-Antigravity-Cloud-URL", cf)
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"endpoints": h.GetEndpoints(),
+	})
 }
 
 // HandlePair handles POST /api/v1/auth/pair.
@@ -501,6 +537,7 @@ func (h *AuthHandler) HandleNewPairingSession(w http.ResponseWriter, r *http.Req
 	port := h.port
 	ssl := h.ssl
 
+	var ddnsHost string
 	if h.cfURL != "" {
 		if u, err := url.Parse(h.cfURL); err == nil && u.Hostname() != "" {
 			primaryHost = u.Hostname()
@@ -515,14 +552,17 @@ func (h *AuthHandler) HandleNewPairingSession(w http.ResponseWriter, r *http.Req
 			if h.lanHost != "" {
 				lanHost = h.lanHost
 			}
-			if relayHost == primaryHost {
-				relayHost = ""
-			}
+			// In unified Cloudflare tunnel mode, IPv6 literals, FRP relays, and DDNS are retired.
+			ipv6Host = ""
+			relayHost = ""
+			ddnsHost = ""
 		}
 	} else if h.ssl {
 		// Cert is issued for DDNS_HOST only; IP literals fail iOS ATS/trust.
 		lanHost, ipv6Host = "", ""
+		ddnsHost = h.ddnsHost
 	} else {
+		ddnsHost = h.ddnsHost
 		if (r.URL.Query().Get("prefer") == "ipv6" || primaryHost == "" || primaryHost == "127.0.0.1" || primaryHost == lanHost) && ipv6Host != "" {
 			primaryHost = ipv6Host
 		}
@@ -535,7 +575,7 @@ func (h *AuthHandler) HandleNewPairingSession(w http.ResponseWriter, r *http.Req
 		SSL:         ssl,
 		LANHost:     lanHost,
 		IPv6Host:    ipv6Host,
-		DDNSHost:    h.ddnsHost,
+		DDNSHost:    ddnsHost,
 		RelayHost:   relayHost,
 	})
 
@@ -551,14 +591,16 @@ func (h *AuthHandler) HandleNewPairingSession(w http.ResponseWriter, r *http.Req
 	if lanHost != "" && lanHost != primaryHost {
 		extraHosts = append(extraHosts, lanHost)
 	}
-	if ipv6Host != "" && ipv6Host != primaryHost {
-		extraHosts = append(extraHosts, ipv6Host)
-	}
-	if h.ddnsHost != "" && h.ddnsHost != primaryHost {
-		extraHosts = append(extraHosts, h.ddnsHost)
-	}
-	if relayHost != "" && relayHost != primaryHost {
-		extraHosts = append(extraHosts, relayHost)
+	if h.cfURL == "" {
+		if ipv6Host != "" && ipv6Host != primaryHost {
+			extraHosts = append(extraHosts, ipv6Host)
+		}
+		if ddnsHost != "" && ddnsHost != primaryHost {
+			extraHosts = append(extraHosts, ddnsHost)
+		}
+		if relayHost != "" && relayHost != primaryHost {
+			extraHosts = append(extraHosts, relayHost)
+		}
 	}
 	PrintPairingQRCode(primaryHost, port, session.Code, ssl, extraHosts...)
 }

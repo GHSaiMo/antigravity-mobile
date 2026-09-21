@@ -22,18 +22,13 @@ public final class NetworkTransport: Sendable {
     public static let shared = NetworkTransport()
     
     private let fallbackSession: URLSession
-    private let trustDelegate: SystemTrustDelegate
-    private let pathMonitor = NWPathMonitor()
-    private let monitorQueue = DispatchQueue(label: "antigravity.network_transport_monitor", qos: .utility)
-    private let _isCellular = OSAllocatedUnfairLock(initialState: false)
-    private let _isWifi = OSAllocatedUnfairLock(initialState: false)
     
     public var isCellular: Bool {
-        _isCellular.withLock { $0 }
+        NetworkStatus.shared.isCellular
     }
     
     public var isWifi: Bool {
-        _isWifi.withLock { $0 }
+        NetworkStatus.shared.isWifi
     }
     
     public init() {
@@ -43,31 +38,7 @@ public final class NetworkTransport: Sendable {
         config.httpShouldSetCookies = false
         config.httpCookieAcceptPolicy = .never
         config.httpCookieStorage = nil
-        let delegate = SystemTrustDelegate()
-        self.trustDelegate = delegate
-        self.fallbackSession = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
-        
-        pathMonitor.pathUpdateHandler = { [weak self] path in
-            guard let self = self else { return }
-            let cellular = path.usesInterfaceType(.cellular) || path.isExpensive
-            let wifi = path.usesInterfaceType(.wifi)
-            let prevCellular = self._isCellular.withLock { $0 }
-            let prevWifi = self._isWifi.withLock { $0 }
-            self._isCellular.withLock { $0 = cellular }
-            self._isWifi.withLock { $0 = wifi }
-            
-            if prevCellular != cellular || prevWifi != wifi {
-                DispatchQueue.main.async {
-                    NotificationCenter.default.post(name: .networkRoutingPreferenceChanged, object: nil)
-                }
-            }
-        }
-        pathMonitor.start(queue: monitorQueue)
-        let initialPath = pathMonitor.currentPath
-        let cellular = initialPath.usesInterfaceType(.cellular) || initialPath.isExpensive
-        let wifi = initialPath.usesInterfaceType(.wifi)
-        _isCellular.withLock { $0 = cellular }
-        _isWifi.withLock { $0 = wifi }
+        self.fallbackSession = URLSession(configuration: config, delegate: nil, delegateQueue: nil)
     }
     
     /// Decorates HTTPURLResponse with X-Antigravity-Interface header to indicate actual interface used
@@ -75,6 +46,16 @@ public final class NetworkTransport: Sendable {
         guard let http = response as? HTTPURLResponse, let targetURL = url ?? http.url else {
             return response
         }
+        // Self-heal primary Cloud URL if advertised by gateway
+        if let cloudHeader = http.value(forHTTPHeaderField: "X-Antigravity-Cloud-URL")?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !cloudHeader.isEmpty {
+            Task { @MainActor in
+                if AppSettings.shared.primaryCloudURL != cloudHeader {
+                    AppSettings.shared.primaryCloudURL = cloudHeader
+                }
+            }
+        }
+        
         var fields: [String: String] = [:]
         for (k, v) in http.allHeaderFields {
             fields["\(k)"] = "\(v)"
@@ -90,9 +71,35 @@ public final class NetworkTransport: Sendable {
         ) ?? response
     }
     
-    /// Sends a request prioritizing the cellular interface (IPv6 direct) if requested and available,
+    nonisolated public static func extractHost(from raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return "" }
+        if let url = URL(string: trimmed.contains("://") ? trimmed : "http://\(trimmed)"),
+           let host = url.host {
+            return host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
+        }
+        var clean = trimmed
+        if let schemeRange = clean.range(of: "://") {
+            clean = String(clean[schemeRange.upperBound...])
+        }
+        if let slashIdx = clean.firstIndex(of: "/") {
+            clean = String(clean[..<slashIdx])
+        }
+        if clean.hasPrefix("["), let end = clean.firstIndex(of: "]") {
+            return String(clean[clean.index(after: clean.startIndex)..<end]).lowercased()
+        }
+        if let colonIdx = clean.lastIndex(of: ":") {
+            let port = clean[clean.index(after: colonIdx)...]
+            if !port.isEmpty && port.allSatisfy({ $0.isNumber }) {
+                clean = String(clean[..<colonIdx])
+            }
+        }
+        return clean.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
+    }
+    
     nonisolated public static func isLocalOrPrivateHost(_ host: String) -> Bool {
-        let clean = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
+        let clean = extractHost(from: host)
+        if clean.isEmpty { return false }
         if clean == "127.0.0.1" || clean == "localhost" || clean == "::1" || clean.hasSuffix(".local") {
             return true
         }
@@ -108,7 +115,7 @@ public final class NetworkTransport: Sendable {
             }
         }
         // Tailscale CGNAT range (100.64.0.0/10) or any Tailscale virtual node
-        if clean.hasPrefix("100.") {
+        if clean.hasPrefix("100.") || clean.hasSuffix(".ts.net") {
             return true
         }
         // IPv6 Link-Local (fe80::/10) and Unique Local Address ULA (fc00::/7, fd00::/8)
@@ -116,7 +123,7 @@ public final class NetworkTransport: Sendable {
             return true
         }
         return false
-     }
+    }
 
     /// Determines whether a request mutates server state and must never be silently retried on timeout/failure
     nonisolated public static func isNonIdempotentRequest(method: String, path: String) -> Bool {
@@ -394,26 +401,5 @@ public final class NetworkTransport: Sendable {
         let response = HTTPURLResponse(url: url, statusCode: code, httpVersion: "HTTP/1.1", headerFields: fields)
             ?? URLResponse(url: url, mimeType: nil, expectedContentLength: body.count, textEncodingName: nil)
         return (body, response)
-    }
-}
-
-/// Public HTTPS uses the system trust store. There is no InsecureSkipVerify path on URLSession.
-private final class SystemTrustDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
-    func urlSession(
-        _ session: URLSession,
-        didReceive challenge: URLAuthenticationChallenge,
-        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
-    ) {
-        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
-              let trust = challenge.protectionSpace.serverTrust else {
-            completionHandler(.performDefaultHandling, nil)
-            return
-        }
-        var cfError: CFError?
-        if SecTrustEvaluateWithError(trust, &cfError) {
-            completionHandler(.useCredential, URLCredential(trust: trust))
-        } else {
-            completionHandler(.cancelAuthenticationChallenge, nil)
-        }
     }
 }

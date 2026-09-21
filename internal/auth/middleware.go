@@ -103,7 +103,7 @@ func IsWhitelistedPath(path string) bool {
 	}
 
 	// Auth and device management endpoints (handled by AuthHandler with its own permission checks)
-	if path == "/api/v1/auth/pair" || path == "/api/v1/auth/unpair" || path == "/api/v1/auth/session" || path == "/api/v1/auth/ws-ticket" ||
+	if path == "/api/v1/auth/pair" || path == "/api/v1/auth/unpair" || path == "/api/v1/auth/session" || path == "/api/v1/auth/ws-ticket" || path == "/api/v1/auth/endpoints" ||
 		path == "/api/v1/devices" || path == "/api/v1/devices/" || strings.HasPrefix(path, "/api/v1/devices/") {
 		return true
 	}

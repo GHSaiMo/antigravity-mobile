@@ -184,6 +184,48 @@ public final class ConversationListViewModel {
             cacheManager.prewarmSessions(for: all.prefix(15).map(\.id))
             self.isLoading = false
         } catch {
+            // Auto-failover: if current endpoint failed, probe candidate endpoints and retry once with alternative
+            if let elected = await ConnectionManager.shared.probeEndpoints(),
+               let retryURL = URL(string: elected), retryURL != url {
+                do {
+                    let items = try await apiClient.fetchConversations(baseURL: retryURL)
+                    purgeExpiredTombstones()
+                    let cleaned = items.filter { item in
+                        !item.isSubagent &&
+                        !self.pendingDeleteCascadeIDs.contains(item.id) &&
+                        (self.recentlyDeletedIDs[item.id] == nil) &&
+                        !self.cacheManager.isDeletedConversation(cascadeId: item.id)
+                    }
+                    let existingMap = Dictionary(self.conversations.map { ($0.id, $0.title) }, uniquingKeysWith: { _, new in new })
+                    let enriched = cleaned.map { item -> ConversationItem in
+                        let currentT = item.title.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+                        if currentT.isEmpty || currentT == "未命名会话" {
+                            if let knownTitle = existingMap[item.id], !knownTitle.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty, knownTitle != "未命名会话" {
+                                return item.withTitle(knownTitle)
+                            }
+                            if let cached = self.cacheManager.loadSession(for: item.id) {
+                                if let st = cached.title?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines), !st.isEmpty, st != "未命名会话" {
+                                    return item.withTitle(st)
+                                }
+                            }
+                        }
+                        return item
+                    }
+                    let drafts = cacheManager.loadLocalDraftConversations()
+                    let all = (drafts + enriched).sorted { a, b in
+                        a.effectiveLastModified > b.effectiveLastModified
+                    }
+                    self.conversations = all
+                    cacheManager.saveConversations(all)
+                    cacheManager.prewarmSessions(for: all.prefix(15).map(\.id))
+                    self.isLoading = false
+                    self.errorMessage = nil
+                    await fetchQuotas()
+                    return
+                } catch {
+                    // Fallthrough to standard error handling
+                }
+            }
             if conversations.isEmpty {
                 self.errorMessage = error.localizedDescription
             }
