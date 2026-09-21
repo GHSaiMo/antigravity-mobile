@@ -19,6 +19,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.antigravity.mobile.data.service.ApiClient
 import com.antigravity.mobile.data.service.CacheManager
+import com.antigravity.mobile.data.service.ConnectionManager
 import com.antigravity.mobile.data.service.PreferencesManager
 import com.antigravity.mobile.data.service.StreamWebSocketClient
 import com.antigravity.mobile.ui.screen.ChatScreen
@@ -36,6 +37,7 @@ import java.net.URLEncoder
 class MainActivity : ComponentActivity() {
 
     private lateinit var prefs: PreferencesManager
+    private lateinit var connectionManager: ConnectionManager
     private lateinit var apiClient: ApiClient
     private lateinit var wsClient: StreamWebSocketClient
 
@@ -60,8 +62,10 @@ class MainActivity : ComponentActivity() {
 
         // Initialize Services
         prefs = PreferencesManager(applicationContext)
-        apiClient = ApiClient(prefs)
-        wsClient = StreamWebSocketClient(prefs)
+        connectionManager = ConnectionManager(applicationContext)
+        connectionManager.startMonitoring(prefs)
+        apiClient = ApiClient(prefs, connectionManager)
+        wsClient = StreamWebSocketClient(prefs, connectionManager)
         val cacheManager = CacheManager(applicationContext)
         val documentCacheManager = com.antigravity.mobile.data.service.DocumentCacheManager(applicationContext)
 
@@ -252,5 +256,10 @@ class MainActivity : ComponentActivity() {
         if (uri.scheme.equals("agy", ignoreCase = true) && uri.host.equals("pair", ignoreCase = true)) {
             pairingViewModel.pairWithUri(uri.toString())
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        connectionManager.stopMonitoring()
     }
 }

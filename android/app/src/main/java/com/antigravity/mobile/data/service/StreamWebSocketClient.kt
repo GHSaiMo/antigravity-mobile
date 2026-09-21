@@ -17,7 +17,10 @@ enum class ConnectionStatus {
     FAILED
 }
 
-class StreamWebSocketClient(private val prefs: PreferencesManager) {
+class StreamWebSocketClient(
+    private val prefs: PreferencesManager,
+    private val connectionManager: ConnectionManager? = null
+) {
     private val json = Json {
         ignoreUnknownKeys = true
         isLenient = true
@@ -69,7 +72,8 @@ class StreamWebSocketClient(private val prefs: PreferencesManager) {
     }
 
     private fun startConnection() {
-        val baseUrl = prefs.gatewayBaseUrl ?: run {
+        val isCell = connectionManager?.isCellular ?: false
+        val baseUrl = prefs.getEffectiveGatewayUrl(isCell) ?: prefs.gatewayBaseUrl ?: run {
             _connectionStatus.value = ConnectionStatus.FAILED
             return
         }
@@ -125,6 +129,7 @@ class StreamWebSocketClient(private val prefs: PreferencesManager) {
         reconnectJob = scope.launch {
             delay(delayMs)
             if (!isIntentionallyClosed && activeCascadeId != null) {
+                connectionManager?.probeEndpoints(prefs)
                 Log.d("StreamWS", "Attempting reconnection (attempt #$reconnectAttempt, delay=${delayMs}ms)...")
                 startConnection()
             }

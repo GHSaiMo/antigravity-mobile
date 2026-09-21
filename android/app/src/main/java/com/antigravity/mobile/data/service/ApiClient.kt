@@ -17,7 +17,16 @@ import java.net.URLEncoder
 import java.time.Instant
 import java.util.concurrent.TimeUnit
 
-class ApiClient(private val prefs: PreferencesManager) {
+class ApiClient(
+    private val prefs: PreferencesManager,
+    private val connectionManager: ConnectionManager? = null
+) {
+    val currentBaseUrl: String?
+        get() {
+            val isCell = connectionManager?.isCellular ?: false
+            return prefs.getEffectiveGatewayUrl(isCell) ?: prefs.gatewayBaseUrl
+        }
+
     val json = Json {
         ignoreUnknownKeys = true
         isLenient = true
@@ -72,6 +81,10 @@ class ApiClient(private val prefs: PreferencesManager) {
                     var ipv6Url: String? = info.ipv6BaseUrl
                     var relayUrl: String? = info.relayBaseUrl
                     var cloudUrl: String? = null
+
+                    if (info.ssl || !ConnectionManager.isLanHost(ConnectionManager.extractHost(info.host))) {
+                        cloudUrl = info.serverBaseUrl
+                    }
 
                     if (pairResp.endpoints != null) {
                         for (ep in pairResp.endpoints) {
@@ -142,7 +155,7 @@ class ApiClient(private val prefs: PreferencesManager) {
      * Fetch all conversations via ConnectRPC GetAllCascadeTrajectories
      */
     suspend fun fetchConversations(): Result<List<ConversationItem>> = withContext(Dispatchers.IO) {
-        val baseUrl = prefs.gatewayBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
         val url = "$baseUrl/api/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories"
 
         try {
@@ -180,7 +193,7 @@ class ApiClient(private val prefs: PreferencesManager) {
      * Fetch Cockpit Quota status
      */
     suspend fun fetchCockpitQuotas(): Result<CockpitQuotaResponse> = withContext(Dispatchers.IO) {
-        val baseUrl = prefs.gatewayBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
         val url = "$baseUrl/api/v1/cockpit/quotas"
 
         try {
@@ -202,7 +215,7 @@ class ApiClient(private val prefs: PreferencesManager) {
      * Refresh Cockpit Quota
      */
     suspend fun refreshCockpitQuotas(): Result<CockpitQuotaResponse> = withContext(Dispatchers.IO) {
-        val baseUrl = prefs.gatewayBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
         val url = "$baseUrl/api/v1/cockpit/refresh"
 
         try {
@@ -224,7 +237,7 @@ class ApiClient(private val prefs: PreferencesManager) {
      * Switch active Cockpit Account
      */
     suspend fun switchCockpitAccount(accountId: String): Result<Unit> = withContext(Dispatchers.IO) {
-        val baseUrl = prefs.gatewayBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
         val url = "$baseUrl/api/v1/cockpit/switch"
 
         val body = buildJsonObject {
@@ -249,7 +262,7 @@ class ApiClient(private val prefs: PreferencesManager) {
      * Fetch workspace projects from gateway
      */
     suspend fun fetchProjects(): Result<List<ProjectItem>> = withContext(Dispatchers.IO) {
-        val baseUrl = prefs.gatewayBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
         val url = "$baseUrl/gateway/projects"
 
         try {
@@ -280,7 +293,7 @@ class ApiClient(private val prefs: PreferencesManager) {
         model: String? = null,
         projectId: String? = null
     ): Result<String> = withContext(Dispatchers.IO) {
-        val baseUrl = prefs.gatewayBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
         val url = "$baseUrl/gateway/cascade/new"
 
         val payload = buildJsonObject {
@@ -318,7 +331,7 @@ class ApiClient(private val prefs: PreferencesManager) {
      * Delete a conversation
      */
     suspend fun deleteConversation(cascadeId: String): Result<Unit> = withContext(Dispatchers.IO) {
-        val baseUrl = prefs.gatewayBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
         val url = "$baseUrl/api/exa.language_server_pb.LanguageServerService/DeleteCascadeTrajectory"
 
         val payload = buildJsonObject {
@@ -346,7 +359,7 @@ class ApiClient(private val prefs: PreferencesManager) {
      * Rename conversation
      */
     suspend fun renameConversation(cascadeId: String, newTitle: String): Result<Unit> = withContext(Dispatchers.IO) {
-        val baseUrl = prefs.gatewayBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
         val url = "$baseUrl/api/exa.language_server_pb.LanguageServerService/SetCascadeTrajectoryMetadata"
 
         val payload = buildJsonObject {
@@ -381,7 +394,7 @@ class ApiClient(private val prefs: PreferencesManager) {
         limit: Int = 15,
         offset: Int? = null
     ): Result<StreamUpdatePayload> = withContext(Dispatchers.IO) {
-        val baseUrl = prefs.gatewayBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
         val urlBuilder = StringBuilder("$baseUrl/gateway/cascade/messages?cascadeId=$cascadeId&limit=$limit")
         offset?.let { urlBuilder.append("&offset=$it") }
 
@@ -414,7 +427,7 @@ class ApiClient(private val prefs: PreferencesManager) {
         deliveryStrategy: Int? = null,
         clientMessageId: String? = null
     ): Result<Unit> = withContext(Dispatchers.IO) {
-        val baseUrl = prefs.gatewayBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
         val url = "$baseUrl/api/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage"
 
         val payload = buildJsonObject {
@@ -481,7 +494,7 @@ class ApiClient(private val prefs: PreferencesManager) {
         cascadeId: String,
         messageId: String
     ): Result<Unit> = withContext(Dispatchers.IO) {
-        val baseUrl = prefs.gatewayBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
         val url = "$baseUrl/api/exa.language_server_pb.LanguageServerService/DeleteAgentMessage"
 
         val payload = buildJsonObject {
@@ -510,7 +523,7 @@ class ApiClient(private val prefs: PreferencesManager) {
      * Cancel ongoing invocation
      */
     suspend fun cancelInvocation(cascadeId: String): Result<Unit> = withContext(Dispatchers.IO) {
-        val baseUrl = prefs.gatewayBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
         val url = "$baseUrl/api/exa.language_server_pb.LanguageServerService/CancelCascadeInvocation"
 
         val payload = buildJsonObject {
@@ -538,7 +551,7 @@ class ApiClient(private val prefs: PreferencesManager) {
      * Stop background running command task
      */
     suspend fun stopTask(cascadeId: String, taskId: String, stepIndex: Int = 0): Result<Unit> = withContext(Dispatchers.IO) {
-        val baseUrl = prefs.gatewayBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
         val url = "$baseUrl/gateway/cascade/task/stop"
 
         val payload = buildJsonObject {
@@ -575,7 +588,7 @@ class ApiClient(private val prefs: PreferencesManager) {
         confirmed: Boolean? = null,
         customText: String? = null
     ): Result<Unit> = withContext(Dispatchers.IO) {
-        val baseUrl = prefs.gatewayBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
         val url = "$baseUrl/gateway/cascade/interaction"
 
         val reqObj = InteractionRespondRequest(
@@ -613,7 +626,7 @@ class ApiClient(private val prefs: PreferencesManager) {
         artifactUri: String,
         model: String? = null
     ): Result<Unit> = withContext(Dispatchers.IO) {
-        val baseUrl = prefs.gatewayBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
         val url = "$baseUrl/api/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage"
 
         val comment = buildJsonObject {
@@ -659,7 +672,7 @@ class ApiClient(private val prefs: PreferencesManager) {
      * Fetch document or artifact content with companion metadata
      */
     suspend fun fetchFileContent(uri: String, cascadeId: String? = null): Result<FileContentResponse> = withContext(Dispatchers.IO) {
-        val baseUrl = prefs.gatewayBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
         val unescapedUri = try { URLDecoder.decode(uri, "UTF-8") } catch (_: Exception) { uri }
         val encodedUri = URLEncoder.encode(unescapedUri, "UTF-8")
         val cidParam = cascadeId?.let { "&cascade_id=${URLEncoder.encode(it, "UTF-8")}" } ?: ""
@@ -686,7 +699,7 @@ class ApiClient(private val prefs: PreferencesManager) {
      */
     fun notifySessionFocus(cascadeId: String) {
         if (cascadeId.isBlank()) return
-        val baseUrl = prefs.gatewayBaseUrl ?: return
+        val baseUrl = currentBaseUrl ?: return
         val url = "$baseUrl/gateway/cascade/focus"
         val payload = buildJsonObject {
             put("cascadeId", cascadeId)
@@ -716,7 +729,7 @@ class ApiClient(private val prefs: PreferencesManager) {
         notifySessionFocus(cascadeId)
 
         // 2. Report upstream to LanguageServerService/UpdateConversationAnnotations
-        val baseUrl = prefs.gatewayBaseUrl ?: return@withContext
+        val baseUrl = currentBaseUrl ?: return@withContext
         val url = "$baseUrl/api/exa.language_server_pb.LanguageServerService/UpdateConversationAnnotations"
         val nowIso = Instant.ofEpochMilli(now).toString()
 
@@ -748,7 +761,7 @@ class ApiClient(private val prefs: PreferencesManager) {
         clean = clean.trim('`', '"', '\'', '(', ')', '[', ']', '<', '>')
 
         val token = prefs.deviceToken ?: ""
-        val baseUrl = prefs.gatewayBaseUrl?.trimEnd('/') ?: ""
+        val baseUrl = currentBaseUrl?.trimEnd('/') ?: ""
 
         if (clean.startsWith("http://") || clean.startsWith("https://")) {
             if (baseUrl.isNotBlank() && clean.contains("/api/v1/files/raw") && !clean.contains("auth_token=") && !clean.contains("token=") && token.isNotBlank()) {
@@ -838,7 +851,7 @@ class ApiClient(private val prefs: PreferencesManager) {
      * Unpairs this device from the gateway and cleans up server-side state.
      */
     suspend fun unpair(): Result<Unit> = withContext(Dispatchers.IO) {
-        val baseUrl = prefs.gatewayBaseUrl?.trim()?.trimEnd('/')
+        val baseUrl = currentBaseUrl?.trim()?.trimEnd('/')
         val token = prefs.deviceToken
         if (baseUrl.isNullOrBlank() || token.isNullOrBlank()) {
             return@withContext Result.success(Unit)
@@ -865,7 +878,7 @@ class ApiClient(private val prefs: PreferencesManager) {
      * Fetches revert preview for a cascade step.
      */
     suspend fun getRevertPreview(cascadeId: String, stepIndex: Int): Result<RevertPreviewResponse> = withContext(Dispatchers.IO) {
-        val baseUrl = prefs.gatewayBaseUrl?.trim()?.trimEnd('/')
+        val baseUrl = currentBaseUrl?.trim()?.trimEnd('/')
             ?: return@withContext Result.failure(IllegalStateException("网关地址未配置"))
 
         try {
@@ -893,7 +906,7 @@ class ApiClient(private val prefs: PreferencesManager) {
      * Executes revert for a cascade step.
      */
     suspend fun executeRevert(cascadeId: String, stepIndex: Int, conversationOnly: Boolean = false): Result<Unit> = withContext(Dispatchers.IO) {
-        val baseUrl = prefs.gatewayBaseUrl?.trim()?.trimEnd('/')
+        val baseUrl = currentBaseUrl?.trim()?.trimEnd('/')
             ?: return@withContext Result.failure(IllegalStateException("网关地址未配置"))
 
         try {

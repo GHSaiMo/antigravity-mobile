@@ -2,16 +2,21 @@ package com.antigravity.mobile.data.service
 
 import android.content.Context
 import android.net.ConnectivityManager
+import android.net.Network
 import android.net.NetworkCapabilities
 import android.util.Log
 import com.antigravity.mobile.data.model.PairingInfo
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -43,6 +48,70 @@ class ConnectionManager(private val context: Context) {
 
     private val _lastProbeTime = MutableStateFlow<Long?>(null)
     val lastProbeTime: StateFlow<Long?> = _lastProbeTime.asStateFlow()
+
+    private var isMonitoring = false
+    private var lastWasCellular: Boolean? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+
+    fun startMonitoring(
+        prefs: PreferencesManager,
+        scope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    ) {
+        if (isMonitoring) return
+        val cm = connectivityManager ?: return
+        isMonitoring = true
+        lastWasCellular = isCellular
+
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+                val cellular = networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
+                val hasInternet = networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                if (hasInternet && lastWasCellular != cellular) {
+                    Log.d("ConnectionManager", "Network transport changed: cellular=$cellular, triggering probe")
+                    lastWasCellular = cellular
+                    scope.launch {
+                        probeEndpoints(prefs)
+                    }
+                }
+            }
+
+            override fun onAvailable(network: Network) {
+                val cellular = isCellular
+                Log.d("ConnectionManager", "Network available: cellular=$cellular, probing...")
+                lastWasCellular = cellular
+                scope.launch {
+                    probeEndpoints(prefs)
+                }
+            }
+
+            override fun onLost(network: Network) {
+                Log.d("ConnectionManager", "Network lost, waiting for new interface...")
+                scope.launch {
+                    delay(300)
+                    probeEndpoints(prefs)
+                }
+            }
+        }
+
+        networkCallback = callback
+        try {
+            cm.registerDefaultNetworkCallback(callback)
+            Log.d("ConnectionManager", "Default network callback registered successfully")
+        } catch (e: Exception) {
+            Log.w("ConnectionManager", "Failed to register default network callback: ${e.message}")
+        }
+    }
+
+    fun stopMonitoring() {
+        if (!isMonitoring) return
+        networkCallback?.let {
+            try {
+                connectivityManager?.unregisterNetworkCallback(it)
+            } catch (_: Exception) {}
+        }
+        networkCallback = null
+        isMonitoring = false
+    }
 
     val isCellular: Boolean
         get() {
@@ -146,13 +215,20 @@ class ConnectionManager(private val context: Context) {
             endpointsToTest.add(lan)
         }
         if (custom != null) {
-            endpointsToTest.add(custom)
+            val isLan = isLanHost(extractHost(custom))
+            if (!isCellularNow || !isLan) {
+                endpointsToTest.add(custom)
+            }
         }
         if (cloud != null) {
             endpointsToTest.add(cloud)
         }
         if (endpointsToTest.isEmpty() && !prefs.gatewayBaseUrl.isNullOrBlank()) {
-            endpointsToTest.add(prefs.gatewayBaseUrl!!.trim().trimEnd('/'))
+            val base = prefs.gatewayBaseUrl!!.trim().trimEnd('/')
+            val isLan = isLanHost(extractHost(base))
+            if (!isCellularNow || !isLan) {
+                endpointsToTest.add(base)
+            }
         }
 
         if (endpointsToTest.isEmpty()) return@withContext null
@@ -315,6 +391,8 @@ class ConnectionManager(private val context: Context) {
             if (usedHost.isNotBlank()) allowed.add(usedHost)
 
             if (allowed.contains(clean)) return true
+            if (clean.endsWith(".jiuge.space") || clean.endsWith(".antigravity.internal")) return true
+            if (urlString.startsWith("https://", ignoreCase = true)) return true
             return isLanHost(clean) || isTailscaleHost(clean) || isRelayHost(clean)
         }
 
