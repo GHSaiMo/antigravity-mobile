@@ -8,7 +8,7 @@ endif
 # Build the unified single binary with embedded web assets
 build:
 	@mkdir -p bin
-	go build -ldflags="-s -w -X 'main.Version=1.0.1'" -o bin/$(BIN_NAME) ./cmd/gateway
+	go build -ldflags="-s -w -X 'main.Version=1.0.2'" -o bin/$(BIN_NAME) ./cmd/gateway
 ifeq ($(OS),Windows_NT)
 	@echo Build complete: bin/$(BIN_NAME)
 else

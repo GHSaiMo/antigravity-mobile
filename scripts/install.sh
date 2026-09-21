@@ -116,12 +116,12 @@ trap 'rm -rf "${TMP_DIR}"' EXIT
 PKG_FILE="${TMP_DIR}/multigravity.${PKG_EXT}"
 
 # 自动探测本机常用代理端口 (Clash / V2Ray / Surge 等)
-PROXY_FLAG=""
+PROXY_PORT=""
 if [ -z "${https_proxy:-}" ] && [ -z "${http_proxy:-}" ] && [ -z "${all_proxy:-}" ]; then
     for test_port in 7890 10808 1080 6152; do
         if nc -z -w 1 127.0.0.1 "${test_port}" 2>/dev/null; then
-            echo "⚡ 检测到本机代理环境 (127.0.0.1:${test_port})，已自动接入加速"
-            PROXY_FLAG="--proxy http://127.0.0.1:${test_port}"
+            echo "⚡ 检测到本机代理环境 (127.0.0.1:${test_port})，将优先从加速镜像站直连下载（官方源备用加速）"
+            PROXY_PORT="${test_port}"
             break
         fi
     done
@@ -130,16 +130,17 @@ fi
 ARCH_PKG="multigravity-${OS_TYPE}-${PKG_ARCH}.${PKG_EXT}"
 UNIV_PKG="multigravity-darwin-universal.tar.gz"
 
+# 优先镜像站直连加速下载，官方源排在最后作为兜底
 DOWNLOAD_URLS=(
-    "https://github.com/${REPO}/releases/latest/download/${ARCH_PKG}"
     "https://ghfast.top/https://github.com/${REPO}/releases/latest/download/${ARCH_PKG}"
     "https://ghproxy.net/https://github.com/${REPO}/releases/latest/download/${ARCH_PKG}"
+    "https://github.com/${REPO}/releases/latest/download/${ARCH_PKG}"
 )
 if [ "${OS_TYPE}" = "darwin" ]; then
     DOWNLOAD_URLS+=(
-        "https://github.com/${REPO}/releases/latest/download/${UNIV_PKG}"
         "https://ghfast.top/https://github.com/${REPO}/releases/latest/download/${UNIV_PKG}"
         "https://ghproxy.net/https://github.com/${REPO}/releases/latest/download/${UNIV_PKG}"
+        "https://github.com/${REPO}/releases/latest/download/${UNIV_PKG}"
     )
 fi
 
@@ -147,9 +148,21 @@ DOWNLOAD_SUCCESS=false
 echo "📥 正在获取 Multigravity (${OS_DESC} ${PKG_ARCH}) 最新发行版..."
 
 for d_url in "${DOWNLOAD_URLS[@]}"; do
-    echo "🔗 尝试下载: ${d_url}"
+    CURL_PROXY_ARGS=""
+    if [[ "${d_url}" == https://github.com/* ]]; then
+        if [ -n "${PROXY_PORT}" ]; then
+            echo "🔗 尝试从 GitHub 官方源（走本机代理加速）下载: ${d_url}"
+            CURL_PROXY_ARGS="--proxy http://127.0.0.1:${PROXY_PORT}"
+        else
+            echo "🔗 尝试从 GitHub 官方源下载: ${d_url}"
+        fi
+    else
+        echo "🔗 尝试从加速镜像站直连下载: ${d_url}"
+        CURL_PROXY_ARGS="--noproxy *"
+    fi
+
     # shellcheck disable=SC2086
-    if curl -fL ${PROXY_FLAG} --connect-timeout 6 --speed-limit 10240 --speed-time 8 -# -o "${PKG_FILE}" "${d_url}"; then
+    if curl -fL ${CURL_PROXY_ARGS} --connect-timeout 8 --speed-limit 10240 --speed-time 8 -# -o "${PKG_FILE}" "${d_url}"; then
         if [ "${PKG_EXT}" = "zip" ]; then
             if command -v unzip >/dev/null 2>&1 && unzip -tq "${PKG_FILE}" >/dev/null 2>&1; then
                 DOWNLOAD_SUCCESS=true
@@ -167,7 +180,7 @@ for d_url in "${DOWNLOAD_URLS[@]}"; do
         echo "⚠️  下载的文件损坏或非标准包，正在尝试下一个源..."
         rm -f "${PKG_FILE}"
     else
-        echo "⚠️  连接超时或速度较慢，正在自动切换加速镜像源..."
+        echo "⚠️  连接超时或速度较慢，正在自动切换备用下载源..."
     fi
 done
 
@@ -212,7 +225,7 @@ else
         cp -f "./bin/${BIN_NAME}" "${INSTALL_DIR}/${BIN_NAME}"
     elif command -v go >/dev/null 2>&1 && [ -f "go.mod" ]; then
         echo "🔨 检测到本地 Go 编译环境，正在就地编译..."
-        go build -ldflags="-s -w -X 'main.Version=1.0.1'" -o "${INSTALL_DIR}/${BIN_NAME}" ./cmd/gateway
+        go build -ldflags="-s -w -X 'main.Version=1.0.2'" -o "${INSTALL_DIR}/${BIN_NAME}" ./cmd/gateway
     else
         echo "❌ 无法下载 Release 预编译包且无可用本地环境。"
         echo "   您可以尝试开启代理或手动访问以下地址下载解压:"
@@ -272,7 +285,7 @@ if [[ ":${PATH}:" != *":${INSTALL_DIR}:"* ]]; then
 fi
 
 # 8. 验证安装
-INSTALLED_VER="$("${INSTALL_DIR}/${BIN_NAME}" version 2>/dev/null || echo "1.0.1")"
+INSTALLED_VER="$("${INSTALL_DIR}/${BIN_NAME}" version 2>/dev/null || echo "1.0.2")"
 
 echo ""
 echo "=================================================="

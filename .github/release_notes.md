@@ -1,12 +1,19 @@
-# 🚀 Multigravity v1.0.1
+# 🚀 Multigravity v1.0.2
 
-### 🐛 修复与优化 (Bug Fixes & Improvements)
+### ✨ 优化与修复 (Improvements & Fixes)
+
+- **一键安装脚本镜像站优先与代理直连策略优化**：
+  - 针对国内用户和代理环境（如 Clash / V2Ray / Surge 等 7890 端口），调整一键脚本默认优先通过高速镜像源（`ghfast.top` / `ghproxy.net`）直连下载，避免强行走海外代理导致的限速或网络中断。
+  - 仅在镜像站不可用时才自动回退至 GitHub 官方源并接入本机代理加速。
+  - 规范 shell 脚本换行符为 LF，防止在 macOS / Linux / Git Bash 下出现 CRLF 解析异常。
+
+- **IPv6 终端配置与排错指引多平台自适应**：
+  - 终端配对信息及 IPv6 状态提示自动感知操作系统（Windows / macOS / Linux）。
+  - Windows 系统下准确提示前往「设置 -> 网络和 Internet」开启「Internet 协议版本 6 (TCP/IPv6)」，并补充 Windows Defender 防火墙放行指引，不再显示 macOS 专属设置文案。
 
 - **Windows 项目区路径与最近项目展示修复**：
-  - **多源项目聚合检索**：重构项目扫描机制，全面聚合 Antigravity 官方工作区、`workspaceStorage`（活跃与最近打开的项目）、`state.vscdb` 以及 Cascade 对话历史记录，彻底解决部分项目（尤其是最近常用项目）未能展示在移动端的问题。
-  - **中文及特殊字符路径兼容**：支持包含中文（URL 编码解码）、空格及深层目录的项目路径，修复 Windows 盘符与 `file://` 规范化匹配异常。
-  - **远程工作区支持**：兼容识别 `vscode-remote://` (SSH/WSL) 项目，避免被误判为无效本地路径。
-  - **文件安全沙箱加固**：工作区安全白名单同步对齐 URL 解码路径，确保项目内文件查看与上下文传输安全稳定。
+  - 聚合 Antigravity 官方工作区、`workspaceStorage`（活跃与最近打开的项目）、`state.vscdb` 以及 Cascade 对话历史记录。
+  - 支持中文（URL 编码解码）、空格路径及 `vscode-remote://` 远程项目。
 
 ---
 
@@ -28,6 +35,6 @@
 ---
 
 ### 📱 客户端配套下载
-- **Android**：下载下方 Assets 列表中的 `Multigravity-v1.0.1.apk` 直接安装。
+- **Android**：下载下方 Assets 列表中的 `Multigravity-v1.0.2.apk` 直接安装。
 - **iOS**：TestFlight 或项目内工程自行签名构建。
 

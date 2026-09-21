@@ -74,10 +74,30 @@ INCLUDE_PUBLIC_IPV6=1
 # 5. 下载预编译 Release 包 (多镜像容灾)
 $repo = if ($env:MULTIGRAVITY_REPO) { $env:MULTIGRAVITY_REPO } else { "GHSaiMo/antigravity-mobile" }
 $zipName = "multigravity-windows-$pkgArch.zip"
+
+# 自动探测本机常用代理端口 (Clash / V2Ray / Surge 等)
+$proxyPort = $null
+if (-not $env:https_proxy -and -not $env:http_proxy -and -not $env:all_proxy) {
+    foreach ($p in @(7890, 10808, 1080, 6152)) {
+        try {
+            $tcp = New-Object System.Net.Sockets.TcpClient
+            $async = $tcp.BeginConnect("127.0.0.1", $p, $null, $null)
+            if ($async.AsyncWaitHandle.WaitOne(150, $false) -and $tcp.Connected) {
+                $proxyPort = $p
+                $tcp.Close()
+                Write-Host "⚡ 检测到本机代理环境 (127.0.0.1:$p)，将优先从加速镜像站直连下载（官方源备用加速）" -ForegroundColor Cyan
+                break
+            }
+            $tcp.Close()
+        } catch {}
+    }
+}
+
+# 优先镜像站直连加速下载，官方源排在最后作为兜底
 $urls = @(
-    "https://github.com/$repo/releases/latest/download/$zipName",
     "https://ghfast.top/https://github.com/$repo/releases/latest/download/$zipName",
-    "https://ghproxy.net/https://github.com/$repo/releases/latest/download/$zipName"
+    "https://ghproxy.net/https://github.com/$repo/releases/latest/download/$zipName",
+    "https://github.com/$repo/releases/latest/download/$zipName"
 )
 
 $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) ("mgy-" + [System.Guid]::NewGuid().ToString().Substring(0, 8))
@@ -88,13 +108,32 @@ $downloadSuccess = $false
 Write-Host "📥 正在获取 Multigravity ($pkgArch) 最新发行版..." -ForegroundColor Cyan
 
 foreach ($url in $urls) {
-    Write-Host "🔗 尝试下载: $url" -ForegroundColor Gray
+    $isOfficial = ($url -like "https://github.com/*")
+    if ($isOfficial) {
+        if ($proxyPort) {
+            Write-Host "🔗 尝试从 GitHub 官方源（走本机代理加速）下载: $url" -ForegroundColor Gray
+        } else {
+            Write-Host "🔗 尝试从 GitHub 官方源下载: $url" -ForegroundColor Gray
+        }
+    } else {
+        Write-Host "🔗 尝试从加速镜像站直连下载: $url" -ForegroundColor Gray
+    }
+
     try {
         if (Get-Command curl.exe -ErrorAction SilentlyContinue) {
-            curl.exe -fL --connect-timeout 8 --speed-limit 10240 --speed-time 10 -# -o $zipFile $url
+            $curlArgs = @("-fL", "--connect-timeout", "8", "--speed-limit", "10240", "--speed-time", "10", "-#", "-o", $zipFile, $url)
+            if ($isOfficial -and $proxyPort) {
+                $curlArgs = @("--proxy", "http://127.0.0.1:$proxyPort") + $curlArgs
+            } elseif (-not $isOfficial) {
+                $curlArgs = @("--noproxy", "*") + $curlArgs
+            }
+            & curl.exe @curlArgs
         } else {
             [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
             $wc = New-Object System.Net.WebClient
+            if ($isOfficial -and $proxyPort) {
+                $wc.Proxy = New-Object System.Net.WebProxy("http://127.0.0.1:$proxyPort")
+            }
             $wc.DownloadFile($url, $zipFile)
         }
         if ((Test-Path $zipFile) -and ((Get-Item $zipFile).Length -gt 100000)) {
@@ -157,7 +196,7 @@ if ($downloadSuccess) {
     if ($repoRoot -and (Test-Path "$repoRoot\..\cmd\gateway")) {
         Set-Location (Join-Path $repoRoot "..")
     }
-    & $goCmd build -ldflags="-s -w -X 'main.Version=1.0.1'" -o "$installDir\mgy.exe" ./cmd/gateway
+    & $goCmd build -ldflags="-s -w -X 'main.Version=1.0.2'" -o "$installDir\mgy.exe" ./cmd/gateway
 }
 
 # 6. 安装到 WindowsApps (Windows 默认已在 PATH 中的用户级目录，免重启即生效)
@@ -181,7 +220,7 @@ $env:PATH = "$installDir;$windowsApps;$env:PATH"
 
 # 8. 验证与打印完成信息
 $installedVer = & "$installDir\mgy.exe" version 2>$null
-if (!$installedVer) { $installedVer = "Multigravity (mgy) 1.0.1" }
+if (!$installedVer) { $installedVer = "Multigravity (mgy) 1.0.2" }
 
 Write-Host ""
 Write-Host "==================================================" -ForegroundColor Cyan
