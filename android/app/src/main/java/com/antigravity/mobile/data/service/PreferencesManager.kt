@@ -243,14 +243,16 @@ class PreferencesManager(context: Context) {
             }
             return active
         } else {
-            if (!active.isNullOrBlank()) {
-                return active
-            }
+            // When on Wi-Fi:
+            // Priority: LAN -> Custom -> Active -> Cloud
             if (lan != null) {
                 return lan
             }
             if (custom != null) {
                 return custom
+            }
+            if (!active.isNullOrBlank()) {
+                return active
             }
             if (cloud != null) {
                 return cloud

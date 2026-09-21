@@ -45,6 +45,22 @@ class StreamWebSocketClient(
     private var reconnectJob: Job? = null
     private var reconnectAttempt = 0
 
+    init {
+        connectionManager?.addOnRouteChangedListener { newUrl ->
+            if (activeCascadeId != null && !isIntentionallyClosed) {
+                Log.d("StreamWS", "Route changed to $newUrl, reconnecting stream...")
+                disconnect(intentional = false)
+                startConnection()
+            }
+        }
+    }
+
+    fun reconnect(force: Boolean = true) {
+        val cid = activeCascadeId ?: return
+        disconnect(intentional = false)
+        startConnection()
+    }
+
     fun connect(cascadeId: String) {
         if (_connectionStatus.value == ConnectionStatus.CONNECTED && activeCascadeId == cascadeId) {
             return
@@ -72,8 +88,8 @@ class StreamWebSocketClient(
     }
 
     private fun startConnection() {
-        val isCell = connectionManager?.isCellular ?: false
-        val baseUrl = prefs.getEffectiveGatewayUrl(isCell) ?: prefs.gatewayBaseUrl ?: run {
+        val avoidLan = (connectionManager?.isCellular ?: false) || !(connectionManager?.isWifi ?: true)
+        val baseUrl = prefs.getEffectiveGatewayUrl(avoidLan) ?: prefs.gatewayBaseUrl ?: run {
             _connectionStatus.value = ConnectionStatus.FAILED
             return
         }

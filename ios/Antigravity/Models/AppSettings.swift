@@ -98,6 +98,11 @@ public final class AppSettings {
             } else {
                 UserDefaults.standard.removeObject(forKey: activeServerURLKey)
             }
+            if activeServerURL != oldValue {
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(name: .networkRoutingPreferenceChanged, object: nil)
+                }
+            }
         }
     }
     
@@ -263,9 +268,22 @@ public final class AppSettings {
     }
     
     public var serverURL: URL? {
-        let isCellular = NetworkTransport.shared.isCellular
+        let isCellular = NetworkTransport.shared.isCellular || ConnectionManager.shared.isCellular || !NetworkTransport.shared.isWifi
         
-        // 1. Dynamic endpoint selection: If ConnectionManager has established an activeServerURL,
+        // Priority 1: LAN (only if on Wi-Fi/non-cellular)
+        if !isCellular, let lan = lanServerURL, let url = Self.normalize(raw: lan) {
+            return url
+        }
+        
+        // Priority 2: Custom (if configured and not dead LAN on cellular)
+        if let custom = customServerURL, let url = Self.normalize(raw: custom) {
+            let isLan = NetworkTransport.isLocalOrPrivateHost(url.host ?? "")
+            if !(isCellular && isLan) {
+                return url
+            }
+        }
+        
+        // Dynamic endpoint selection: If ConnectionManager has established an activeServerURL,
         // use it directly (if not an unreachable LAN address while on cellular).
         if let active = activeServerURL, let url = Self.normalize(raw: active) {
             let isLan = NetworkTransport.isLocalOrPrivateHost(url.host ?? "")
@@ -274,18 +292,6 @@ public final class AppSettings {
             }
         }
         
-        // 2. Default fallback priority:
-        // Priority 1: LAN (only if on Wi-Fi/non-cellular)
-        if !isCellular, let lan = lanServerURL, let url = Self.normalize(raw: lan) {
-            return url
-        }
-        // Priority 2: Custom (if configured and not dead LAN on cellular)
-        if let custom = customServerURL, let url = Self.normalize(raw: custom) {
-            let isLan = NetworkTransport.isLocalOrPrivateHost(url.host ?? "")
-            if !(isCellular && isLan) {
-                return url
-            }
-        }
         // Priority 3: Primary Cloudflare HTTPS Domain (final fallback)
         if let cloud = primaryCloudURL, let url = Self.normalize(raw: cloud) {
             return url
@@ -397,7 +403,15 @@ public final class AppSettings {
         let savedLive = UserDefaults.standard.object(forKey: enableLiveActivityKey) as? Bool ?? true
         
         self.rawServerURL = savedURL
-        self.primaryCloudURL = savedCloud
+        var effectiveCloud = savedCloud
+        if (effectiveCloud == nil || effectiveCloud!.isEmpty) {
+            if savedURL.hasPrefix("https://") || (!savedURL.isEmpty && !NetworkTransport.isLocalOrPrivateHost(savedURL)) {
+                effectiveCloud = savedURL
+            } else if let savedRelay = savedRelay, !savedRelay.isEmpty {
+                effectiveCloud = savedRelay
+            }
+        }
+        self.primaryCloudURL = effectiveCloud
         self.lanServerURL = savedLan
         self.ipv6ServerURL = savedIPv6
         self.relayServerURL = savedRelay

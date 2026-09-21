@@ -52,6 +52,15 @@ class ConnectionManager(private val context: Context) {
     private var isMonitoring = false
     private var lastWasCellular: Boolean? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private val routeChangeListeners = java.util.concurrent.CopyOnWriteArrayList<(String) -> Unit>()
+
+    fun addOnRouteChangedListener(listener: (String) -> Unit) {
+        routeChangeListeners.add(listener)
+    }
+
+    fun removeOnRouteChangedListener(listener: (String) -> Unit) {
+        routeChangeListeners.remove(listener)
+    }
 
     fun startMonitoring(
         prefs: PreferencesManager,
@@ -200,7 +209,7 @@ class ConnectionManager(private val context: Context) {
     suspend fun probeEndpoints(prefs: PreferencesManager): String? = withContext(Dispatchers.IO) {
         if (_isProbing.value) return@withContext prefs.gatewayBaseUrl
 
-        val isCellularNow = isCellular
+        val isCellularNow = isCellular || !isWifi
 
         // 智能路由候选集：
         // 1. 局域网：若为蜂窝网络状态，直接跳过！
@@ -271,7 +280,11 @@ class ConnectionManager(private val context: Context) {
             }
 
             if (selected != null) {
+                val oldBase = prefs.gatewayBaseUrl
                 prefs.gatewayBaseUrl = selected
+                if (!oldBase.equals(selected, ignoreCase = true)) {
+                    routeChangeListeners.forEach { it.invoke(selected) }
+                }
                 return@withContext selected
             }
             return@withContext prefs.gatewayBaseUrl

@@ -51,8 +51,16 @@ public final class NetworkTransport: Sendable {
             guard let self = self else { return }
             let cellular = path.usesInterfaceType(.cellular) || path.isExpensive
             let wifi = path.usesInterfaceType(.wifi)
+            let prevCellular = self._isCellular.withLock { $0 }
+            let prevWifi = self._isWifi.withLock { $0 }
             self._isCellular.withLock { $0 = cellular }
             self._isWifi.withLock { $0 = wifi }
+            
+            if prevCellular != cellular || prevWifi != wifi {
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(name: .networkRoutingPreferenceChanged, object: nil)
+                }
+            }
         }
         pathMonitor.start(queue: monitorQueue)
         let initialPath = pathMonitor.currentPath

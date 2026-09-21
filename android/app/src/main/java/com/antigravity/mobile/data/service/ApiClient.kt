@@ -23,8 +23,8 @@ class ApiClient(
 ) {
     val currentBaseUrl: String?
         get() {
-            val isCell = connectionManager?.isCellular ?: false
-            return prefs.getEffectiveGatewayUrl(isCell) ?: prefs.gatewayBaseUrl
+            val avoidLan = (connectionManager?.isCellular ?: false) || !(connectionManager?.isWifi ?: true)
+            return prefs.getEffectiveGatewayUrl(avoidLan) ?: prefs.gatewayBaseUrl
         }
 
     val json = Json {

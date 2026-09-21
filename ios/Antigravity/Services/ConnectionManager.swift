@@ -65,7 +65,7 @@ public final class ConnectionManager {
         guard !isProbing else { return AppSettings.shared.activeServerURL }
         
         let settings = AppSettings.shared
-        let isCellularNow = NetworkTransport.shared.isCellular || self.isCellular
+        let isCellularNow = NetworkTransport.shared.isCellular || self.isCellular || !NetworkTransport.shared.isWifi
         
         // 1. Filter endpoints to test based on network interface and configuration
         var endpointsToTest: [String] = []
