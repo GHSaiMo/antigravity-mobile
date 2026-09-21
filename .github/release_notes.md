@@ -1,36 +1,42 @@
-# 🚀 Multigravity v1.0.0 正式版发布
+# 🚀 Multigravity v1.0.1
 
-**Multigravity (`mgy`)** 是专为 AI 智能体打造的全栈移动伴侣与统一本地网关。让您无论身处何地，均可在手机端轻松监控智能体后台思考流、实时下发指令与做出关键决策。
+### ✨ 优化与修复 (Improvements & Fixes)
+
+- **一键安装脚本镜像站优先与代理直连策略优化**：
+  - 针对国内用户和代理环境（如 Clash / V2Ray / Surge 等 7890 端口），调整一键脚本默认优先通过高速镜像源（`ghfast.top` / `ghproxy.net`）直连下载，避免强行走海外代理导致的限速或网络中断。
+  - 仅在镜像站不可用时才自动回退至 GitHub 官方源并接入本机代理加速。
+  - 修复镜像直连参数中 `--noproxy "*"` 因变量未加引号触发的 Shell 通配符目录展开（Globbing）漏洞。
+  - 优化文档代码块格式，避免在 macOS 原生 zsh 下粘贴执行时误触发 `command not found: #`。
+  - 规范 shell 脚本换行符为 LF，防止在 macOS / Linux / Git Bash 下出现 CRLF 解析异常。
+
+- **IPv6 终端配置与排错指引多平台自适应**：
+  - 终端配对信息及 IPv6 状态提示自动感知操作系统（Windows / macOS / Linux）。
+  - Windows 系统下准确提示前往「设置 -> 网络和 Internet」开启「Internet 协议版本 6 (TCP/IPv6)」，并补充 Windows Defender 防火墙放行指引，不再显示 macOS 专属设置文案。
+
+- **Windows 项目区路径与最近项目展示修复**：
+  - 聚合 Antigravity 官方工作区、`workspaceStorage`（活跃与最近打开的项目）、`state.vscdb` 以及 Cascade 对话历史记录。
+  - 支持中文（URL 编码解码）、空格路径及 `vscode-remote://` 远程项目。
 
 ---
 
-### ✨ 核心特性与亮点
+### 📦 服务端快速更新 / 安装 (`mgy`)
 
-#### 📱 移动端对齐与原生体验
-- **Android 客户端正式发布**：首发提供预构建且带有自签名的 `Multigravity-v1.0.0.apk`，手机下载后直接点击即可安装使用，零编译门槛。
-- **多端体验一致**：对齐原生交互设计、后台运行任务卡片、实时消息队列、富文本/Markdown 渲染以及安全设备解绑机制。
-- **iOS 实时活动支持**：深度适配 iOS Live Activities 与灵动岛，重要进度在锁屏与灵动岛常驻呈现。
+已安装用户在终端再次执行一键命令即可自动升级至最新版，**已有配对授权和配置会自动保留**：
 
-#### 🌐 智能网络感知与无感直连
-- **避开虚拟网卡**：深度优化局域网 IP 探测算法，自动屏蔽 TUN、TAP、Clash、Fake-IP、Docker、虚拟机等各类虚拟网卡干扰，精准优先绑定 Wi-Fi / Ethernet 真实物理网卡。
-- **macOS IPv6 智能自适应**：自动探测当前物理网卡的 IPv6 配置状态，并在终端直观呈现 5G/4G 蜂窝网络直连测试与排错指引。
-- **三合一复合配对**：配对二维码自动集成局域网内网 IP、公网 IPv6 与云端穿透中继地址，局域网秒连，出差外网自适应无缝切换。
-
-#### 💻 服务端极简极速安装 (`mgy`)
-服务端命令行工具已统一命名为 **`mgy`**，体积仅 ~7MB，解压即用：
+- **Windows (PowerShell)**：
+  ```powershell
+  irm https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.ps1 | iex
+  ```
+  *(备用直连：`irm https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.ps1 | iex`)*
 
 - **macOS (Apple Silicon & Intel)**：
   ```bash
   curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.sh | bash
   ```
 
-- **Windows (PowerShell)**：
-  ```powershell
-  irm https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.ps1 | iex
-  ```
+---
 
-#### 🛠️ 常用 CLI 指令
-- `mgy`：前台启动本地网关并打印终端配对二维码
-- `mgy pair`：向正在运行的网关即时申请并打印 5 分钟有效的新配对码
-- `mgy list`：查看所有已配对授权的移动设备（支持离线/在线状态显示）
-- `mgy clear all`：一键清除并撤销所有移动端设备授权
+### 📱 客户端配套下载
+- **Android**：下载下方 Assets 列表中的 `Multigravity-v1.0.1.apk` 直接安装。
+- **iOS**：TestFlight 或项目内工程自行签名构建。
+

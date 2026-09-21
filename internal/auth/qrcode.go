@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -223,10 +224,23 @@ func FormatPairingQRCode(primaryHost string, port int, code string, ssl bool, ex
 func appendIPv6DisabledInstructions(b *strings.Builder) {
 	b.WriteString("\n--------------------------------------------------\n")
 	b.WriteString("💡 IPv6 外网直连提示:\n")
-	b.WriteString("   当前未检测到公网 IPv6 地址。若需在外网 5G/4G 随时随地直连 Mac:\n")
-	b.WriteString("   1. 检查 Mac「系统设置 -> 网络 -> TCP/IP」中「配置 IPv6」是否已设为「自动」；\n")
-	b.WriteString("   2. 确保家中光猫或主路由器已开启 IPv6 分配（SLAAC/DHCPv6）；\n")
-	b.WriteString("   3. 获取到 IPv6 后重新运行 mgy，将自动优先使用公网 IPv6 写入二维码！\n")
+	switch runtime.GOOS {
+	case "windows":
+		b.WriteString("   当前未检测到公网 IPv6 地址。若需在外网 5G/4G 随时随地直连 Windows 电脑:\n")
+		b.WriteString("   1. 检查 Windows「设置 -> 网络和 Internet」中当前网络连接属性，确保已勾选启用「Internet 协议版本 6 (TCP/IPv6)」；\n")
+		b.WriteString("   2. 确保家中光猫或主路由器已开启 IPv6 分配（SLAAC/DHCPv6）；\n")
+		b.WriteString("   3. 获取到 IPv6 后重新运行 mgy，将自动优先使用公网 IPv6 写入二维码！\n")
+	case "darwin":
+		b.WriteString("   当前未检测到公网 IPv6 地址。若需在外网 5G/4G 随时随地直连 Mac:\n")
+		b.WriteString("   1. 检查 Mac「系统设置 -> 网络 -> TCP/IP」中「配置 IPv6」是否已设为「自动」；\n")
+		b.WriteString("   2. 确保家中光猫或主路由器已开启 IPv6 分配（SLAAC/DHCPv6）；\n")
+		b.WriteString("   3. 获取到 IPv6 后重新运行 mgy，将自动优先使用公网 IPv6 写入二维码！\n")
+	default:
+		b.WriteString("   当前未检测到公网 IPv6 地址。若需在外网 5G/4G 随时随地直连当前设备:\n")
+		b.WriteString("   1. 检查系统网络接口配置，确保已启用 IPv6 自动获取；\n")
+		b.WriteString("   2. 确保家中光猫或主路由器已开启 IPv6 分配（SLAAC/DHCPv6）；\n")
+		b.WriteString("   3. 获取到 IPv6 后重新运行 mgy，将自动优先使用公网 IPv6 写入二维码！\n")
+	}
 }
 
 func appendIPv6Instructions(b *strings.Builder, ipv6Host string, port int, ssl bool) {
@@ -245,7 +259,12 @@ func appendIPv6Instructions(b *strings.Builder, ipv6Host string, port int, ssl b
 	b.WriteString("   3. 验收标准与排错说明:\n")
 	b.WriteString("      • 正常打开网页: 家中光猫/主路由已放行 IPv6 入站流量，外网直连完全畅通！\n")
 	b.WriteString("      • 访问超时/无法连接: 通常因家用光猫或路由器开启了『IPv6 防火墙入站阻断』。\n")
-	b.WriteString("        解决办法: 登录光猫/主路由管理后台，关闭 IPv6 防火墙或添加 58900 端口放行即可。\n")
+	if runtime.GOOS == "windows" {
+		b.WriteString("        解决办法: 1) 登录光猫/主路由管理后台，关闭 IPv6 防火墙或添加 58900 端口放行；\n")
+		b.WriteString("                 2) 检查 Windows Defender 防火墙是否允许 mgy.exe 入站连接。\n")
+	} else {
+		b.WriteString("        解决办法: 登录光猫/主路由管理后台，关闭 IPv6 防火墙或添加 58900 端口放行即可。\n")
+	}
 }
 
 // PrintPairingQRCode generates and renders an ANSI QR code to stdout encoding all candidate

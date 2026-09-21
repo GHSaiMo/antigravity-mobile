@@ -1,0 +1,2 @@
+# Force shell scripts to always have LF line endings so they execute properly on Unix/macOS
+*.sh text eol=lf
