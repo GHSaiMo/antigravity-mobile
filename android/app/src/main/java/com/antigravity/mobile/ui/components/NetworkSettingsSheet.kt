@@ -144,32 +144,17 @@ fun NetworkSettingsContent(
     val coroutineScope = rememberCoroutineScope()
 
     var activeUrl by remember { mutableStateOf(prefs.gatewayBaseUrl ?: "") }
-    var lanUrl by remember { mutableStateOf(prefs.lanServerUrl ?: "") }
-    var ipv6Url by remember { mutableStateOf(prefs.ipv6ServerUrl ?: "") }
-    var relayUrl by remember { mutableStateOf(prefs.relayServerUrl ?: "") }
-    var customUrl by remember { mutableStateOf(prefs.customServerUrl ?: "") }
+    var cloudUrl by remember { mutableStateOf(prefs.primaryCloudUrl ?: "") }
+    var customUrl by remember { mutableStateOf(prefs.customServerUrl ?: prefs.lanServerUrl ?: "") }
 
     LaunchedEffect(activeUrl) {
-        if (lanUrl.isBlank() && ipv6Url.isBlank() && relayUrl.isBlank() && customUrl.isBlank() && activeUrl.isNotBlank()) {
-            val host = ConnectionManager.extractHost(activeUrl)
-            when {
-                ConnectionManager.isLanHost(host) -> {
-                    lanUrl = activeUrl
-                    prefs.lanServerUrl = activeUrl
-                }
-                ConnectionManager.isIpv6Host(host) -> {
-                    ipv6Url = activeUrl
-                    prefs.ipv6ServerUrl = activeUrl
-                }
-                ConnectionManager.isRelayHost(host) -> {
-                    relayUrl = activeUrl
-                    prefs.relayServerUrl = activeUrl
-                }
-                else -> {
-                    customUrl = activeUrl
-                    prefs.customServerUrl = activeUrl
-                }
-            }
+        if (cloudUrl.isBlank() && activeUrl.isNotBlank() && !ConnectionManager.isLanHost(ConnectionManager.extractHost(activeUrl))) {
+            cloudUrl = activeUrl
+            prefs.primaryCloudUrl = activeUrl
+        }
+        if (customUrl.isBlank() && prefs.lanServerUrl?.isNotBlank() == true) {
+            customUrl = prefs.lanServerUrl ?: ""
+            prefs.customServerUrl = customUrl
         }
     }
 
@@ -191,7 +176,7 @@ fun NetworkSettingsContent(
             .navigationBarsPadding(),
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
-        // MARK: - 1. 当前活动链路 (1:1 iOS 对齐)
+        // MARK: - 1. 当前活动链路
         SettingsGroupSection(
             title = "当前活动链路",
             footer = null
@@ -212,7 +197,7 @@ fun NetworkSettingsContent(
                 ) {
                     Text(text = "当前通道", color = colors.textPrimary, fontSize = 15.sp)
                     Text(
-                        text = if (activeUrl.isNotBlank()) connectionManager.describeEndpoint(activeUrl) else "未配置或未选定通道",
+                        text = if (activeUrl.isNotBlank()) connectionManager.describeEndpoint(activeUrl) else "未连接",
                         color = colors.textSecondary,
                         fontSize = 13.sp
                     )
@@ -301,10 +286,149 @@ fun NetworkSettingsContent(
             }
         }
 
-        // MARK: - 2. 智能并发探活与自动测速 (1:1 iOS 对齐)
+        // MARK: - 2. 主连接 · 专属公网域名 (Cloudflare HTTPS)
         SettingsGroupSection(
-            title = "智能选路与测速",
-            footer = "并发探测所有已配置通道并自动优选延迟最低的链路。"
+            title = "主连接 · 专属公网域名",
+            footer = "默认统一使用专属分配的 HTTPS 域名。无论在外使用蜂窝网络还是 Wi-Fi，无需 VPN 即可安全直连电脑。"
+        ) {
+            val isCloudActive = ConnectionManager.isSameEndpoint(activeUrl, cloudUrl)
+            val cloudStatus = endpointStatuses[cloudUrl] ?: endpointStatuses[cloudUrl.trim().trimEnd('/')]
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(colors.surface)
+                    .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(text = "Cloudflare 专属域名", color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        if (isCloudActive) {
+                            Text(
+                                text = "默认首选 (生效中)",
+                                color = colors.accentGreen,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        } else if (cloudUrl.isNotBlank()) {
+                            Text(
+                                text = "设为主连接",
+                                color = colors.accentIndigo,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .clickable {
+                                        activeUrl = cloudUrl
+                                        prefs.gatewayBaseUrl = cloudUrl
+                                        HapticUtils.lightTap(context)
+                                        Toast.makeText(context, "已切换为主公网域名", Toast.LENGTH_SHORT).show()
+                                    }
+                                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                            )
+                        }
+                        if (cloudStatus != null) {
+                            if (cloudStatus.isReachable) {
+                                Text(
+                                    text = "${cloudStatus.latencyMs}ms",
+                                    color = getLatencyColor(cloudStatus.latencyMs, colors),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            } else {
+                                Text(text = "不可达", color = colors.accentRed, fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = if (cloudUrl.isNotBlank()) cloudUrl else "未配置专属公网域名 (扫码配对自动下发)",
+                        color = if (cloudUrl.isNotBlank()) colors.textSecondary else colors.textMuted,
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (cloudUrl.isNotBlank()) {
+                        IconButton(
+                            onClick = {
+                                val clip = ClipData.newPlainText("Cloudflare URL", cloudUrl)
+                                (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(clip)
+                                HapticUtils.lightTap(context)
+                                Toast.makeText(context, "公网域名已复制", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ContentCopy,
+                                contentDescription = "Copy",
+                                tint = colors.accentIndigo,
+                                modifier = Modifier.size(15.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // MARK: - 3. 备用连接 · 自定义与局域网
+        SettingsGroupSection(
+            title = "备用连接 · 自定义与局域网",
+            footer = "扫码配对默认已填入电脑局域网 Wi-Fi 地址。在同一 Wi-Fi 下可手动切换为此通道，享受 0 延迟响应。"
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(colors.surface)
+                    .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                EndpointItemRow(
+                    title = "局域网 Wi-Fi / 自定义地址",
+                    placeholder = "如 http://192.168.1.50:58900",
+                    value = customUrl,
+                    isActive = ConnectionManager.isSameEndpoint(activeUrl, customUrl),
+                    probeStatus = endpointStatuses[customUrl] ?: endpointStatuses[customUrl.trim().trimEnd('/')],
+                    onValueChange = {
+                        customUrl = it
+                        prefs.customServerUrl = it.ifBlank { null }
+                        if (activeUrl.isBlank() && it.isNotBlank()) {
+                            activeUrl = it
+                            prefs.gatewayBaseUrl = it
+                        }
+                    },
+                    onSelectActive = {
+                        activeUrl = customUrl
+                        prefs.gatewayBaseUrl = customUrl
+                        HapticUtils.lightTap(context)
+                        Toast.makeText(context, "已切换为自定义/局域网连接", Toast.LENGTH_SHORT).show()
+                    }
+                )
+            }
+        }
+
+        // MARK: - 4. 链路探活与智能测速
+        SettingsGroupSection(
+            title = "通道测速与链路检查",
+            footer = "并发探测专属公网域名与备用地址的健康状态并回显最新往返延迟。"
         ) {
             Column(
                 modifier = Modifier
@@ -320,11 +444,11 @@ fun NetworkSettingsContent(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(text = "一键并发探活与测速", color = colors.textPrimary, fontSize = 15.sp)
+                    Text(text = "一键并发测速与探活", color = colors.textPrimary, fontSize = 15.sp)
                     Button(
                         onClick = {
                             isTesting = true
-                            testResultText = "正在并发探测候选通道..."
+                            testResultText = "正在探测各通道延迟..."
                             testSuccess = null
                             HapticUtils.lightTap(context)
 
@@ -332,10 +456,8 @@ fun NetworkSettingsContent(
                                 val winner = connectionManager.probeEndpoints(prefs)
                                 if (winner != null) {
                                     activeUrl = winner
-                                    lanUrl = prefs.lanServerUrl ?: ""
-                                    ipv6Url = prefs.ipv6ServerUrl ?: ""
-                                    relayUrl = prefs.relayServerUrl ?: ""
-                                    customUrl = prefs.customServerUrl ?: ""
+                                    cloudUrl = prefs.primaryCloudUrl ?: ""
+                                    customUrl = prefs.customServerUrl ?: prefs.lanServerUrl ?: ""
                                     val statusRes = connectionManager.testGatewayStatus(winner)
                                     statusRes.onSuccess { msg ->
                                         testResultText = msg
@@ -347,7 +469,7 @@ fun NetworkSettingsContent(
                                         HapticUtils.heavyClick(context)
                                     }
                                 } else {
-                                    testResultText = "未找到可用端点，请检查配置"
+                                    testResultText = "未找到可用端点，请检查网络"
                                     testSuccess = false
                                     HapticUtils.heavyClick(context)
                                 }
@@ -409,154 +531,6 @@ fun NetworkSettingsContent(
                             )
                         }
                     }
-                }
-            }
-        }
-
-        // MARK: - 3. 多通道候选端点配置 (1:1 iOS 对齐)
-        SettingsGroupSection(
-            title = "路由端点配置",
-            footer = "扫码配对后会自动填入所有可用通道，也可手动指定各端点地址。"
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(colors.surface)
-                    .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
-                    .padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                EndpointItemRow(
-                    title = "局域网 Wi-Fi (LAN IPv4)",
-                    placeholder = "未设置 (如 http://192.168.1.50:58900)",
-                    value = lanUrl,
-                    isActive = ConnectionManager.isSameEndpoint(activeUrl, lanUrl),
-                    probeStatus = endpointStatuses[lanUrl] ?: endpointStatuses[lanUrl.trim().trimEnd('/')],
-                    onValueChange = {
-                        lanUrl = it
-                        prefs.lanServerUrl = it.ifBlank { null }
-                        if (activeUrl.isBlank() && it.isNotBlank()) {
-                            activeUrl = it
-                            prefs.gatewayBaseUrl = it
-                        }
-                    },
-                    onSelectActive = {
-                        activeUrl = lanUrl
-                        prefs.gatewayBaseUrl = lanUrl
-                        HapticUtils.lightTap(context)
-                        Toast.makeText(context, "已切换为局域网直连", Toast.LENGTH_SHORT).show()
-                    }
-                )
-                HorizontalDivider(color = colors.separator.copy(alpha = 0.3f), thickness = 0.5.dp)
-                EndpointItemRow(
-                    title = "外网直连 (Public IPv6)",
-                    placeholder = "未设置 (如 http://[2001:db8::1]:58900)",
-                    value = ipv6Url,
-                    isActive = ConnectionManager.isSameEndpoint(activeUrl, ipv6Url),
-                    probeStatus = endpointStatuses[ipv6Url] ?: endpointStatuses[ipv6Url.trim().trimEnd('/')],
-                    onValueChange = {
-                        ipv6Url = it
-                        prefs.ipv6ServerUrl = it.ifBlank { null }
-                        if (activeUrl.isBlank() && it.isNotBlank()) {
-                            activeUrl = it
-                            prefs.gatewayBaseUrl = it
-                        }
-                    },
-                    onSelectActive = {
-                        activeUrl = ipv6Url
-                        prefs.gatewayBaseUrl = ipv6Url
-                        HapticUtils.lightTap(context)
-                        Toast.makeText(context, "已切换为外网 IPv6 直连", Toast.LENGTH_SHORT).show()
-                    }
-                )
-                HorizontalDivider(color = colors.separator.copy(alpha = 0.3f), thickness = 0.5.dp)
-                EndpointItemRow(
-                    title = "云服务器中继 (Cloud Relay IPv4)",
-                    placeholder = "未设置 (如 http://relay.example.com:58900)",
-                    value = relayUrl,
-                    isActive = ConnectionManager.isSameEndpoint(activeUrl, relayUrl),
-                    probeStatus = endpointStatuses[relayUrl] ?: endpointStatuses[relayUrl.trim().trimEnd('/')],
-                    onValueChange = {
-                        relayUrl = it
-                        prefs.relayServerUrl = it.ifBlank { null }
-                        if (activeUrl.isBlank() && it.isNotBlank()) {
-                            activeUrl = it
-                            prefs.gatewayBaseUrl = it
-                        }
-                    },
-                    onSelectActive = {
-                        activeUrl = relayUrl
-                        prefs.gatewayBaseUrl = relayUrl
-                        HapticUtils.lightTap(context)
-                        Toast.makeText(context, "已切换为云服务器中继", Toast.LENGTH_SHORT).show()
-                    }
-                )
-                HorizontalDivider(color = colors.separator.copy(alpha = 0.3f), thickness = 0.5.dp)
-                EndpointItemRow(
-                    title = "自定义域名 / DDNS / Tailscale",
-                    placeholder = "未设置 (如 https://mac.yourdomain.com)",
-                    value = customUrl,
-                    isActive = ConnectionManager.isSameEndpoint(activeUrl, customUrl),
-                    probeStatus = endpointStatuses[customUrl] ?: endpointStatuses[customUrl.trim().trimEnd('/')],
-                    onValueChange = {
-                        customUrl = it
-                        prefs.customServerUrl = it.ifBlank { null }
-                        if (activeUrl.isBlank() && it.isNotBlank()) {
-                            activeUrl = it
-                            prefs.gatewayBaseUrl = it
-                        }
-                    },
-                    onSelectActive = {
-                        activeUrl = customUrl
-                        prefs.gatewayBaseUrl = customUrl
-                        HapticUtils.lightTap(context)
-                        Toast.makeText(context, "已切换为自定义域名 / Tailscale", Toast.LENGTH_SHORT).show()
-                    }
-                )
-            }
-        }
-
-        // MARK: - 4. 路由策略指南 (1:1 iOS 对齐)
-        SettingsGroupSection(
-            title = "智能多通道路由策略",
-            footer = "手机在同一 Wi-Fi 时优先局域网直连；外出移动网络时优先 IPv6 端到端直连；网络受限时自动通过云服务器中继兜底。"
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(colors.surface)
-                    .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(text = "1. 局域网优先", color = colors.textPrimary, fontSize = 14.sp)
-                    Text(text = "LAN First (~1ms)", color = colors.textSecondary, fontSize = 13.sp)
-                }
-                HorizontalDivider(color = colors.separator.copy(alpha = 0.3f), thickness = 0.5.dp)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(text = "2. 蜂窝网络直连", color = colors.textPrimary, fontSize = 14.sp)
-                    Text(text = "Cellular IPv6", color = colors.textSecondary, fontSize = 13.sp)
-                }
-                HorizontalDivider(color = colors.separator.copy(alpha = 0.3f), thickness = 0.5.dp)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(text = "3. 云服务器中继", color = colors.textPrimary, fontSize = 14.sp)
-                    Text(text = "Cloud Relay", color = colors.textSecondary, fontSize = 13.sp)
                 }
             }
         }

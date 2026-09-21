@@ -72,10 +72,89 @@ public struct NetworkSettingsView: View {
                 }
             }
             
-            // MARK: - 2. 智能并发探活与自动测速
+            // MARK: - 2. 主连接 · 专属公网域名 (Cloudflare HTTPS)
             Section(
-                header: Text("智能选路与测速"),
-                footer: Text("并发探测所有已配置通道并自动优选延迟最低的链路。")
+                header: Text("主连接 · 专属公网域名"),
+                footer: Text("默认统一使用专属分配的 HTTPS 域名。无论在外使用蜂窝网络还是 Wi-Fi，无需 VPN 即可安全直连电脑。")
+            ) {
+                let cloudURL = settings.primaryCloudURL ?? ""
+                let isCloudActive = (settings.activeServerURL == cloudURL && !cloudURL.isEmpty)
+                let cloudStatus = connectionManager.endpointStatuses[cloudURL]
+                
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("Cloudflare 专属域名")
+                            .font(.system(size: 14, weight: .medium))
+                        
+                        Spacer()
+                        
+                        if isCloudActive {
+                            Text("默认首选 (生效中)")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(.green)
+                        } else if !cloudURL.isEmpty {
+                            Button("设为主连接") {
+                                settings.activeServerURL = cloudURL
+                                settings.rawServerURL = cloudURL
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            }
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.blue)
+                        }
+                        
+                        if let status = cloudStatus, status.isReachable {
+                            Text("\(Int(status.latencyMs))ms")
+                                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                .foregroundColor(latencyColor(status.latencyMs))
+                        }
+                    }
+                    
+                    HStack {
+                        Text(cloudURL.isEmpty ? "未配置专属公网域名 (扫码配对自动下发)" : cloudURL)
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundColor(cloudURL.isEmpty ? .secondary : .primary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        
+                        Spacer()
+                        
+                        if !cloudURL.isEmpty {
+                            Button(action: {
+                                UIPasteboard.general.string = cloudURL
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                showCopiedAlert = true
+                            }) {
+                                Image(systemName: "doc.on.doc")
+                                    .font(.system(size: 13))
+                                    .foregroundColor(.blue)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            
+            // MARK: - 3. 备用连接 · 自定义与局域网
+            Section(
+                header: Text("备用连接 · 自定义与局域网"),
+                footer: Text("扫码配对默认已填入电脑局域网 Wi-Fi 地址。在同一 Wi-Fi 下可手动切换为此通道，享受 0 延迟响应。")
+            ) {
+                endpointInputRow(
+                    title: "局域网 Wi-Fi / 自定义地址",
+                    placeholder: "如 http://192.168.1.50:58900",
+                    text: Binding(
+                        get: { settings.customServerURL ?? settings.lanServerURL ?? "" },
+                        set: { settings.customServerURL = $0.isEmpty ? nil : $0 }
+                    ),
+                    urlString: settings.customServerURL ?? settings.lanServerURL
+                )
+            }
+            
+            // MARK: - 4. 链路探活与智能测速
+            Section(
+                header: Text("通道测速与链路检查"),
+                footer: Text("并发探测专属公网域名与备用地址的健康状态并回显最新往返延迟。")
             ) {
                 Button(action: {
                     Task {
@@ -100,84 +179,6 @@ public struct NetworkSettingsView: View {
                     Text(status)
                         .font(.system(size: 12))
                         .foregroundColor((testSuccess ?? false) ? .secondary : .red)
-                }
-            }
-            
-            // MARK: - 3. 多通道候选端点配置
-            Section(
-                header: Text("路由端点配置"),
-                footer: Text("扫码配对后会自动填入所有可用通道，也可手动指定各端点地址。")
-            ) {
-                // 局域网 Wi-Fi
-                endpointInputRow(
-                    title: "局域网 Wi-Fi (LAN IPv4)",
-                    placeholder: "未设置 (如 http://192.168.1.50:58900)",
-                    text: Binding(
-                        get: { settings.lanServerURL ?? "" },
-                        set: { settings.lanServerURL = $0.isEmpty ? nil : $0 }
-                    ),
-                    urlString: settings.lanServerURL
-                )
-                
-                // 外网直连 IPv6
-                endpointInputRow(
-                    title: "外网直连 (Public IPv6)",
-                    placeholder: "未设置 (如 http://[2001:db8::1]:58900)",
-                    text: Binding(
-                        get: { settings.ipv6ServerURL ?? "" },
-                        set: { settings.ipv6ServerURL = $0.isEmpty ? nil : $0 }
-                    ),
-                    urlString: settings.ipv6ServerURL
-                )
-                
-                // 云服务器中继
-                endpointInputRow(
-                    title: "云服务器中继 (Cloud Relay IPv4)",
-                    placeholder: "未设置 (如 http://relay.example.com:58900)",
-                    text: Binding(
-                        get: { settings.relayServerURL ?? "" },
-                        set: { settings.relayServerURL = $0.isEmpty ? nil : $0 }
-                    ),
-                    urlString: settings.relayServerURL
-                )
-                
-                // 自定义域名 / DDNS / Tailscale
-                endpointInputRow(
-                    title: "自定义域名 / DDNS / Tailscale",
-                    placeholder: "未设置 (如 https://mac.yourdomain.com)",
-                    text: Binding(
-                        get: { settings.customServerURL ?? "" },
-                        set: { settings.customServerURL = $0.isEmpty ? nil : $0 }
-                    ),
-                    urlString: settings.customServerURL
-                )
-            }
-            
-            // MARK: - 4. 路由策略指南
-            Section(
-                header: Text("智能多通道路由策略"),
-                footer: Text("手机在同一 Wi-Fi 时优先局域网直连；外出移动网络时优先 IPv6 端到端直连；网络受限时自动通过云服务器中继兜底。")
-            ) {
-                HStack {
-                    Text("1. 局域网优先")
-                    Spacer()
-                    Text("LAN First (~1ms)")
-                        .font(.system(size: 13))
-                        .foregroundColor(.secondary)
-                }
-                HStack {
-                    Text("2. 蜂窝网络直连")
-                    Spacer()
-                    Text("Cellular IPv6")
-                        .font(.system(size: 13))
-                        .foregroundColor(.secondary)
-                }
-                HStack {
-                    Text("3. 云服务器中继")
-                    Spacer()
-                    Text("Cloud Relay")
-                        .font(.system(size: 13))
-                        .foregroundColor(.secondary)
                 }
             }
         }

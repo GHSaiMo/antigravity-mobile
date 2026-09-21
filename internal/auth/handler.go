@@ -44,6 +44,7 @@ type AuthHandler struct {
 	ipv6Host   string
 	ddnsHost   string
 	relayURL   string
+	cfURL      string
 	policy     AuthPolicy
 	limiter    *RateLimiter
 }
@@ -72,9 +73,17 @@ func (h *AuthHandler) SetRelayURL(relayURL string) {
 	h.relayURL = strings.TrimSpace(relayURL)
 }
 
+// SetCloudflareURL sets the Cloudflare Tunnel HTTPS endpoint URL for pairing responses.
+func (h *AuthHandler) SetCloudflareURL(cfURL string) {
+	h.cfURL = strings.TrimSpace(cfURL)
+}
+
 // relayHost extracts the hostname from the configured cloud relay URL.
 func (h *AuthHandler) relayHost() string {
 	raw := strings.TrimSpace(h.relayURL)
+	if raw == "" {
+		raw = strings.TrimSpace(h.cfURL)
+	}
 	if raw == "" {
 		return ""
 	}
@@ -99,6 +108,14 @@ func (h *AuthHandler) GetEndpoints() []EndpointInfo {
 	scheme := "http://"
 	if h.ssl {
 		scheme = "https://"
+	}
+
+	// 1. Cloudflare Tunnel (Assigned HTTPS domain) - Top Priority
+	if h.cfURL != "" {
+		endpoints = append(endpoints, EndpointInfo{
+			Type: "cloudflare",
+			URL:  h.cfURL,
+		})
 	}
 
 	// LAN / public IPv6 literals are only advertised for cleartext HTTP.

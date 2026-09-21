@@ -101,6 +101,18 @@ class PreferencesManager(context: Context) {
         get() = prefs.getBoolean(KEY_LIVE_NOTIFICATIONS, true)
         set(value) = prefs.edit().putBoolean(KEY_LIVE_NOTIFICATIONS, value).apply()
 
+    var primaryCloudUrl: String?
+        get() {
+            val saved = prefs.getString(KEY_PRIMARY_CLOUD_URL, null)
+            if (!saved.isNullOrBlank()) return saved
+            val active = gatewayBaseUrl
+            if (!active.isNullOrBlank() && !ConnectionManager.isLanHost(ConnectionManager.extractHost(active))) {
+                return active
+            }
+            return null
+        }
+        set(value) = prefs.edit().putString(KEY_PRIMARY_CLOUD_URL, value?.trimEnd('/')).apply()
+
     var lanServerUrl: String?
         get() = prefs.getString(KEY_LAN_URL, null)
         set(value) = prefs.edit().putString(KEY_LAN_URL, value?.trimEnd('/')).apply()
@@ -114,7 +126,7 @@ class PreferencesManager(context: Context) {
         set(value) = prefs.edit().putString(KEY_RELAY_URL, value?.trimEnd('/')).apply()
 
     var customServerUrl: String?
-        get() = prefs.getString(KEY_CUSTOM_URL, null)
+        get() = prefs.getString(KEY_CUSTOM_URL, null) ?: lanServerUrl
         set(value) = prefs.edit().putString(KEY_CUSTOM_URL, value?.trimEnd('/')).apply()
 
     var cachedProjectsJson: String?
@@ -139,27 +151,33 @@ class PreferencesManager(context: Context) {
         val editor = prefs.edit()
         if (!lan.isNullOrBlank()) {
             editor.putString(KEY_LAN_URL, lan.trimEnd('/'))
+            if (prefs.getString(KEY_CUSTOM_URL, null).isNullOrBlank()) {
+                editor.putString(KEY_CUSTOM_URL, lan.trimEnd('/'))
+            }
         }
         if (!ipv6.isNullOrBlank()) {
             editor.putString(KEY_IPV6_URL, ipv6.trimEnd('/'))
         }
         if (!relay.isNullOrBlank()) {
             editor.putString(KEY_RELAY_URL, relay.trimEnd('/'))
+            editor.putString(KEY_PRIMARY_CLOUD_URL, relay.trimEnd('/'))
         }
         if (!custom.isNullOrBlank()) {
             editor.putString(KEY_CUSTOM_URL, custom.trimEnd('/'))
         }
         if (!active.isNullOrBlank()) {
-            editor.putString(KEY_GATEWAY_URL, active.trimEnd('/'))
+            val clean = active.trimEnd('/')
+            editor.putString(KEY_GATEWAY_URL, clean)
+            if (!ConnectionManager.isLanHost(ConnectionManager.extractHost(clean))) {
+                editor.putString(KEY_PRIMARY_CLOUD_URL, clean)
+            }
         }
         editor.apply()
     }
 
     val candidateEndpoints: List<String>
         get() = listOfNotNull(
-            lanServerUrl?.takeIf { it.isNotBlank() },
-            ipv6ServerUrl?.takeIf { it.isNotBlank() },
-            relayServerUrl?.takeIf { it.isNotBlank() },
+            primaryCloudUrl?.takeIf { it.isNotBlank() },
             customServerUrl?.takeIf { it.isNotBlank() },
             gatewayBaseUrl?.takeIf { it.isNotBlank() }
         ).distinct()
@@ -358,6 +376,7 @@ class PreferencesManager(context: Context) {
 
     companion object {
         private const val KEY_GATEWAY_URL = "gateway_base_url"
+        private const val KEY_PRIMARY_CLOUD_URL = "primary_cloud_url"
         private const val KEY_DEVICE_TOKEN = "device_token"
         private const val KEY_DEVICE_ID = "device_id"
         private const val KEY_THEME_MODE = "theme_mode"

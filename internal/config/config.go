@@ -335,3 +335,44 @@ func AdvertisePublicIPv6(sslEnabled bool) bool {
 	}
 	return true
 }
+
+// CloudflareConfig holds settings for the automated Cloudflare Tunnel dispatcher.
+type CloudflareConfig struct {
+	Enabled    bool
+	WorkerURL  string
+	InviteCode string
+	Token      string // manual token override if desired
+}
+
+// GetCloudflareConfig extracts Cloudflare Tunnel settings from environment variables.
+func GetCloudflareConfig() CloudflareConfig {
+	workerURL := strings.TrimSpace(os.Getenv("CF_WORKER_URL"))
+	if workerURL == "" {
+		workerURL = strings.TrimSpace(os.Getenv("CLOUDFLARE_WORKER_URL"))
+	}
+	inviteCode := strings.TrimSpace(os.Getenv("CF_INVITE_CODE"))
+	if inviteCode == "" {
+		inviteCode = strings.TrimSpace(os.Getenv("CLOUDFLARE_INVITE_CODE"))
+	}
+	token := strings.TrimSpace(os.Getenv("CF_TUNNEL_TOKEN"))
+	if token == "" {
+		token = strings.TrimSpace(os.Getenv("CLOUDFLARE_TUNNEL_TOKEN"))
+	}
+
+	enabled := workerURL != "" || token != ""
+	if v := os.Getenv("CF_TUNNEL_ENABLED"); v != "" {
+		vLower := strings.ToLower(v)
+		enabled = (vLower == "1" || vLower == "true" || vLower == "yes")
+	} else if v := os.Getenv("CLOUDFLARE_TUNNEL_ENABLED"); v != "" {
+		vLower := strings.ToLower(v)
+		enabled = (vLower == "1" || vLower == "true" || vLower == "yes")
+	}
+
+	return CloudflareConfig{
+		Enabled:    enabled,
+		WorkerURL:  workerURL,
+		InviteCode: inviteCode,
+		Token:      token,
+	}
+}
+

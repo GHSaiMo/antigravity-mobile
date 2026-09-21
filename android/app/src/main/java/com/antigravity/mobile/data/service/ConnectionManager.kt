@@ -70,16 +70,13 @@ class ConnectionManager(private val context: Context) {
         val host = extractHost(urlString)
 
         val isLan = isLanHost(host)
-        val isIPv6 = isIpv6Host(host)
         val isTailscale = isTailscaleHost(host)
-        val isRelay = isRelayHost(host)
 
         return when {
-            isLan -> "Wi-Fi 局域网"
-            isIPv6 -> if (cellular) "蜂窝网络 IPv6 直连" else "Wi-Fi IPv6 直连"
-            isRelay -> if (cellular) "蜂窝网络 (云中继)" else "Wi-Fi (云中继)"
+            isLan -> "Wi-Fi 局域网直连"
             isTailscale -> if (cellular) "蜂窝网络 (Tailscale)" else "Wi-Fi (Tailscale)"
-            else -> if (cellular) "蜂窝网络 (公网)" else "Wi-Fi (公网)"
+            urlString.startsWith("https://") -> if (cellular) "蜂窝网络 (专属公网 HTTPS)" else "Wi-Fi (专属公网 HTTPS)"
+            else -> if (cellular) "蜂窝网络 (公网直连)" else "Wi-Fi (公网直连)"
         }
     }
 
@@ -135,9 +132,7 @@ class ConnectionManager(private val context: Context) {
         if (_isProbing.value) return@withContext prefs.gatewayBaseUrl
 
         val candidates = listOfNotNull(
-            prefs.lanServerUrl?.takeIf { it.isNotBlank() },
-            prefs.ipv6ServerUrl?.takeIf { it.isNotBlank() },
-            prefs.relayServerUrl?.takeIf { it.isNotBlank() },
+            prefs.primaryCloudUrl?.takeIf { it.isNotBlank() },
             prefs.customServerUrl?.takeIf { it.isNotBlank() },
             prefs.gatewayBaseUrl?.takeIf { it.isNotBlank() }
         ).distinct()
@@ -157,24 +152,12 @@ class ConnectionManager(private val context: Context) {
             _lastProbeTime.value = System.currentTimeMillis()
 
             val reachable = results.filter { it.isReachable }
-            val cellular = isCellular
-
-            val lanEp = reachable.firstOrNull { ep ->
-                val h = extractHost(ep.urlString)
-                isLanHost(h)
-            }
-
-            val winner = when {
-                !cellular && lanEp != null -> lanEp
-                cellular -> {
-                    val v6Ep = reachable.firstOrNull { ep ->
-                        val h = extractHost(ep.urlString)
-                        isIpv6Host(h)
-                    }
-                    v6Ep ?: reachable.minByOrNull { it.latencyMs }
-                }
-                else -> reachable.minByOrNull { it.latencyMs }
-            }
+            
+            // 优先使用专属公网域名；若不可达，再使用自定义/局域网备用地址
+            val primaryCloud = prefs.primaryCloudUrl
+            val winner = reachable.firstOrNull { it.urlString == primaryCloud }
+                ?: reachable.firstOrNull { it.urlString == prefs.customServerUrl }
+                ?: reachable.minByOrNull { it.latencyMs }
 
             if (winner != null) {
                 prefs.gatewayBaseUrl = winner.urlString

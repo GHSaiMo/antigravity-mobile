@@ -100,25 +100,12 @@ public final class ConnectionManager {
         //    - Otherwise pick the reachable endpoint with lowest latency (e.g. Cloud Relay ~40ms).
         let reachable = results.filter { $0.isReachable }
         
-        var selected: EndpointHealthStatus? = nil
-        let lanEp = reachable.first(where: { ep in
-            let clean = ep.urlString.lowercased()
-            return clean.contains("192.168.") || clean.contains("10.") || clean.contains("172.")
-        })
-        
-        if !isCellular, let lan = lanEp {
-            // If on Wi-Fi and home LAN is reachable, ALWAYS select LAN (fastest ~1ms)
-            selected = lan
-        } else if let v6Ep = reachable.first(where: { ep in
-            let clean = ep.urlString.lowercased()
-            return clean.contains("[") || clean.contains("::")
-        }) {
-            // Out of home: prefer IPv6 direct if reachable (~20ms)
-            selected = v6Ep
-        } else {
-            // Otherwise pick best reachable endpoint (Cloud Relay or DDNS)
-            selected = reachable.min(by: { $0.latencyMs < $1.latencyMs })
-        }
+        // Election policy:
+        // Priority 1: Primary Cloudflare HTTPS Domain (default unified routing)
+        // Priority 2: Custom / LAN endpoint fallback
+        let cloudEp = reachable.first(where: { $0.urlString == settings.primaryCloudURL })
+        let customEp = reachable.first(where: { $0.urlString == settings.customServerURL || $0.urlString == settings.lanServerURL })
+        let selected = cloudEp ?? customEp ?? reachable.min(by: { $0.latencyMs < $1.latencyMs })
         
         if let best = selected {
             settings.activeServerURL = best.urlString

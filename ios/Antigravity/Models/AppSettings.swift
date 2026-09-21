@@ -22,6 +22,7 @@ public final class AppSettings {
     public static let shared = AppSettings()
     
     private let serverURLKey = "antigravity.server_url"
+    private let primaryCloudURLKey = "antigravity.primary_cloud_url"
     private let lanServerURLKey = "antigravity.lan_server_url"
     private let ipv6ServerURLKey = "antigravity.ipv6_server_url"
     private let relayServerURLKey = "antigravity.relay_server_url"
@@ -36,6 +37,16 @@ public final class AppSettings {
             UserDefaults.standard.set(rawServerURL, forKey: serverURLKey)
             if activeServerURL != rawServerURL {
                 activeServerURL = rawServerURL
+            }
+        }
+    }
+    
+    public var primaryCloudURL: String? {
+        didSet {
+            if let val = primaryCloudURL {
+                UserDefaults.standard.set(val, forKey: primaryCloudURLKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: primaryCloudURLKey)
             }
         }
     }
@@ -139,17 +150,13 @@ public final class AppSettings {
     
     public var candidateEndpoints: [ServerEndpointItem] {
         var items: [ServerEndpointItem] = []
-        if let lan = lanServerURL, !lan.isEmpty {
-            items.append(ServerEndpointItem(type: "lan", urlString: lan))
+        if let cloud = primaryCloudURL, !cloud.isEmpty {
+            items.append(ServerEndpointItem(type: "cloudflare", urlString: cloud))
         }
-        if let v6 = ipv6ServerURL, !v6.isEmpty {
-            items.append(ServerEndpointItem(type: "ipv6", urlString: v6))
-        }
-        if let relay = relayServerURL, !relay.isEmpty {
-            items.append(ServerEndpointItem(type: "relay", urlString: relay))
-        }
-        if let custom = customServerURL, !custom.isEmpty && custom != relayServerURL {
+        if let custom = customServerURL, !custom.isEmpty {
             items.append(ServerEndpointItem(type: "custom", urlString: custom))
+        } else if let lan = lanServerURL, !lan.isEmpty {
+            items.append(ServerEndpointItem(type: "lan", urlString: lan))
         }
         if items.isEmpty && !rawServerURL.isEmpty {
             items.append(ServerEndpointItem(type: "primary", urlString: rawServerURL))
@@ -164,21 +171,17 @@ public final class AppSettings {
         }
         let clean = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
         
-        let isIPv6 = clean.contains(":") && !clean.hasPrefix("fe80") && !clean.hasPrefix("fc") && !clean.hasPrefix("fd")
         let isLAN = NetworkTransport.isLocalOrPrivateHost(clean)
         let isTailscale = clean.hasPrefix("100.") || clean.contains("ts.net")
-        let isRelay = (AppSettings.shared.relayServerURL?.contains(clean) == true) || clean.contains("relay")
         
         if isLAN {
-            return "Wi-Fi 局域网"
-        } else if isIPv6 {
-            return isCellular ? "蜂窝网络 IPv6 直连" : "Wi-Fi IPv6 直连"
-        } else if isRelay {
-            return isCellular ? "蜂窝网络 (云中继)" : "Wi-Fi (云中继)"
+            return "Wi-Fi 局域网直连"
         } else if isTailscale {
             return isCellular ? "蜂窝网络 (Tailscale)" : "Wi-Fi (Tailscale)"
+        } else if url.scheme == "https" {
+            return isCellular ? "蜂窝网络 (专属公网 HTTPS)" : "Wi-Fi (专属公网 HTTPS)"
         } else {
-            return isCellular ? "蜂窝网络 (公网)" : "Wi-Fi (公网)"
+            return isCellular ? "蜂窝网络 (公网直连)" : "Wi-Fi (公网直连)"
         }
     }
     
@@ -262,25 +265,14 @@ public final class AppSettings {
         }
         
         // 2. Default fallback priority:
-        // When not on cellular, check LAN first
-        if !NetworkTransport.shared.isCellular {
-            if let lan = lanServerURL, let url = Self.normalize(raw: lan) {
-                return url
-            }
-        }
-        // Then public IPv6 direct
-        if let v6 = ipv6ServerURL, let url = Self.normalize(raw: v6) {
+        // Priority 1: Primary Cloudflare HTTPS Domain
+        if let cloud = primaryCloudURL, let url = Self.normalize(raw: cloud) {
             return url
         }
-        // Then Cloud Relay
-        if let relay = relayServerURL, let url = Self.normalize(raw: relay) {
-            return url
-        }
-        // Then Custom DDNS
+        // Priority 2: Custom / LAN fallback address
         if let custom = customServerURL, let url = Self.normalize(raw: custom) {
             return url
         }
-        // LAN fallback if not already tried
         if let lan = lanServerURL, let url = Self.normalize(raw: lan) {
             return url
         }
@@ -311,12 +303,16 @@ public final class AppSettings {
         self.isPaired = (token != nil && !token!.isEmpty)
         if let lan = lan, !lan.isEmpty {
             self.lanServerURL = lan
+            if self.customServerURL == nil || self.customServerURL?.isEmpty == true {
+                self.customServerURL = lan
+            }
         }
         if let ipv6 = ipv6, !ipv6.isEmpty {
             self.ipv6ServerURL = ipv6
         }
         if let relay = relay, !relay.isEmpty {
             self.relayServerURL = relay
+            self.primaryCloudURL = relay
         }
         if let custom = custom, !custom.isEmpty {
             self.customServerURL = custom
@@ -324,6 +320,9 @@ public final class AppSettings {
         if let active = active, !active.isEmpty {
             self.activeServerURL = active
             self.rawServerURL = active
+            if active.hasPrefix("https://") || !NetworkTransport.isLocalOrPrivateHost(active) {
+                self.primaryCloudURL = active
+            }
         }
     }
     
@@ -331,12 +330,14 @@ public final class AppSettings {
         KeychainHelper.shared.clearAll()
         self.isPaired = false
         self.rawServerURL = ""
+        self.primaryCloudURL = nil
         self.lanServerURL = nil
         self.ipv6ServerURL = nil
         self.relayServerURL = nil
         self.customServerURL = nil
         self.activeServerURL = nil
         UserDefaults.standard.removeObject(forKey: serverURLKey)
+        UserDefaults.standard.removeObject(forKey: primaryCloudURLKey)
         UserDefaults.standard.removeObject(forKey: lanServerURLKey)
         UserDefaults.standard.removeObject(forKey: ipv6ServerURLKey)
         UserDefaults.standard.removeObject(forKey: relayServerURLKey)
@@ -356,6 +357,7 @@ public final class AppSettings {
         self.isPaired = (token != nil && !token!.isEmpty)
         
         let savedURL = UserDefaults.standard.string(forKey: serverURLKey) ?? "http://127.0.0.1:58900"
+        let savedCloud = UserDefaults.standard.string(forKey: primaryCloudURLKey)
         let savedLan = UserDefaults.standard.string(forKey: lanServerURLKey)
         let savedIPv6 = UserDefaults.standard.string(forKey: ipv6ServerURLKey)
         let savedRelay = UserDefaults.standard.string(forKey: relayServerURLKey)
@@ -364,6 +366,7 @@ public final class AppSettings {
         let savedLive = UserDefaults.standard.object(forKey: enableLiveActivityKey) as? Bool ?? true
         
         self.rawServerURL = savedURL
+        self.primaryCloudURL = savedCloud
         self.lanServerURL = savedLan
         self.ipv6ServerURL = savedIPv6
         self.relayServerURL = savedRelay

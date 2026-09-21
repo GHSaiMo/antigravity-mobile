@@ -325,6 +325,56 @@ func runGatewayServer(args []string) {
 		}
 	}
 
+	qrPort := *port
+
+	// 3.6. Initialize Automated Cloudflare Tunnel (Exclusive HTTPS Domain)
+	cfCfg := config.GetCloudflareConfig()
+	var cfTunnel *tunnel.CloudflareTunnel
+	if cfCfg.Enabled {
+		cfCtx, cancelCF := context.WithCancel(context.Background())
+		defer cancelCF()
+
+		binPath, err := tunnel.EnsureCloudflaredBinary(cfCtx)
+		if err != nil {
+			log.Printf("⚠️  Cloudflare 穿透引擎准备失败: %v", err)
+		} else {
+			var cfRes *tunnel.CFTunnelResult
+			if cfCfg.Token != "" {
+				cfRes = &tunnel.CFTunnelResult{
+					Success:   true,
+					Token:     cfCfg.Token,
+					Subdomain: "custom.mgy",
+					URL:       "https://custom.mgy",
+				}
+			} else {
+				cfRes, err = tunnel.RegisterOrFetchTunnel(cfCtx, cfCfg.WorkerURL, cfCfg.InviteCode)
+			}
+
+			if err != nil {
+				log.Printf("⚠️  Cloudflare 隧道注册失败: %v", err)
+			} else if cfRes != nil {
+				cfTunnel = tunnel.NewCloudflareTunnel(cfRes)
+				if err := cfTunnel.Start(cfCtx, binPath); err != nil {
+					log.Printf("⚠️  启动 cloudflared 失败: %v", err)
+				} else {
+					defer cfTunnel.Stop()
+					authHandler.SetCloudflareURL(cfRes.URL)
+					log.Printf("☁️  Cloudflare 专属永久 HTTPS 域名就绪: %s", cfRes.URL)
+
+					// 将专属 HTTPS 域名设为二维码主地址，强制走 HTTPS 443！
+					qrHost = cfRes.Subdomain
+					qrPort = 443
+					*enableSSL = true
+					extraHosts = nil
+					if netAddrs.LANIPv4 != "" {
+						extraHosts = append(extraHosts, netAddrs.LANIPv4)
+					}
+				}
+			}
+		}
+	}
+
+
 
 	// 4. Initialize Push Notification & Background Watcher
 	notifCfg := config.GetNotificationConfig()
@@ -378,7 +428,7 @@ func runGatewayServer(args []string) {
 
 	listenLoopback := auth.IsListenAddrLoopback(*host)
 	authPolicy := auth.AuthPolicy{
-		TunnelEnabled:  tun != nil,
+		TunnelEnabled:  tun != nil || cfTunnel != nil,
 		ListenLoopback: listenLoopback,
 	}
 	authHandler.SetAuthPolicy(authPolicy)
@@ -465,7 +515,7 @@ func runGatewayServer(args []string) {
 			if authStore.HasDevices() {
 				log.Printf("ℹ️  检测到已有 %d 台已配对设备，打印一次新配对二维码供新客户端接入（可通过 -qr=false 关闭）", len(authStore.ListDevices()))
 			}
-			auth.PrintPairingQRCode(qrHost, *port, initialSession.Code, *enableSSL, extraHosts...)
+			auth.PrintPairingQRCode(qrHost, qrPort, initialSession.Code, *enableSSL, extraHosts...)
 		} else {
 			log.Printf("⚠️  无法生成初始配对二维码: %v", err)
 		}
@@ -476,6 +526,9 @@ func runGatewayServer(args []string) {
 	<-stopCh
 	log.Println("Shutting down gateway...")
 
+	if cfTunnel != nil {
+		cfTunnel.Stop()
+	}
 	if tun != nil {
 		tun.Stop()
 	}
