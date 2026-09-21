@@ -27,7 +27,7 @@
 
 ---
 
-## ⚡ 极速开始 (v1.0.2 正式版)
+## ⚡ 极速开始 (v1.0.1 正式版)
 
 ### 1. 🍎 macOS / 🪟 Windows 服务端一键安装 (推荐)
 
@@ -70,8 +70,8 @@ irm https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/in
 > - 🔒 **平滑部署**：macOS 免 sudo 部署至 `~/.local/bin/mgy`；Windows 自动注册至用户 PATH 及 WindowsApps 目录，开箱即用免重启终端。
 
 ### 2. 📱 Android 手机客户端安装
-前往 [GitHub Releases v1.0.2](https://github.com/GHSaiMo/antigravity-mobile/releases/latest)，下载：
-- **`Multigravity-v1.0.2.apk`**
+前往 [GitHub Releases v1.0.1](https://github.com/GHSaiMo/antigravity-mobile/releases/latest)，下载：
+- **`Multigravity-v1.0.1.apk`**
 - *安装包已配置标准签名，任何安卓手机下载后均可直接点击安装，零编译门槛。*
 
 ### 3. 🔑 启动服务与扫码配对

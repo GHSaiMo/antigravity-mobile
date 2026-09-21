@@ -1,4 +1,4 @@
-# 🚀 Multigravity v1.0.2
+# 🚀 Multigravity v1.0.1
 
 ### ✨ 优化与修复 (Improvements & Fixes)
 
@@ -35,6 +35,6 @@
 ---
 
 ### 📱 客户端配套下载
-- **Android**：下载下方 Assets 列表中的 `Multigravity-v1.0.2.apk` 直接安装。
+- **Android**：下载下方 Assets 列表中的 `Multigravity-v1.0.1.apk` 直接安装。
 - **iOS**：TestFlight 或项目内工程自行签名构建。
 

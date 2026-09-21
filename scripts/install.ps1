@@ -196,7 +196,7 @@ if ($downloadSuccess) {
     if ($repoRoot -and (Test-Path "$repoRoot\..\cmd\gateway")) {
         Set-Location (Join-Path $repoRoot "..")
     }
-    & $goCmd build -ldflags="-s -w -X 'main.Version=1.0.2'" -o "$installDir\mgy.exe" ./cmd/gateway
+    & $goCmd build -ldflags="-s -w -X 'main.Version=1.0.1'" -o "$installDir\mgy.exe" ./cmd/gateway
 }
 
 # 6. 安装到 WindowsApps (Windows 默认已在 PATH 中的用户级目录，免重启即生效)
@@ -220,7 +220,7 @@ $env:PATH = "$installDir;$windowsApps;$env:PATH"
 
 # 8. 验证与打印完成信息
 $installedVer = & "$installDir\mgy.exe" version 2>$null
-if (!$installedVer) { $installedVer = "Multigravity (mgy) 1.0.2" }
+if (!$installedVer) { $installedVer = "Multigravity (mgy) 1.0.1" }
 
 Write-Host ""
 Write-Host "==================================================" -ForegroundColor Cyan
