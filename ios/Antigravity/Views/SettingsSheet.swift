@@ -6,6 +6,8 @@ public struct SettingsSheet: View {
     @State private var connectionManager = ConnectionManager.shared
     @State private var showClearCacheAlert: Bool = false
     @State private var showUnpairAlert: Bool = false
+    @State private var showCopiedAlert: Bool = false
+    @State private var customAddress: String = ""
     
     public init() {}
     
@@ -53,19 +55,94 @@ public struct SettingsSheet: View {
                     }
                 }
                 
-                // MARK: - 2. 网络与多通道路由 (二级菜单入口)
+                // MARK: - 2. 网络连接 (平铺原生陈列)
                 Section(
                     header: Text("网络"),
-                    footer: Text("配置局域网、外网 IPv6 及云端中继等路由通道。")
+                    footer: Text("局域网或 Tailscale 在线时优先直连，否则使用主域名。")
                 ) {
-                    NavigationLink(destination: NetworkSettingsView()) {
+                    // 主域名 (专属分配公网地址)
+                    VStack(alignment: .leading, spacing: 6) {
                         HStack {
-                            Text("网络设置")
+                            Text("主域名")
                             Spacer()
-                            Text(currentNetworkSummary)
-                                .foregroundColor(.secondary)
+                            if isCloudActive {
+                                Text("生效中")
+                                    .font(.system(size: 13))
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        
+                        HStack {
+                            Text(primaryCloudDisplay)
+                                .font(.system(size: 13, design: .monospaced))
+                                .foregroundColor(settings.primaryCloudURL != nil ? .primary : .secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            
+                            Spacer()
+                            
+                            if let cloud = settings.primaryCloudURL, !cloud.isEmpty {
+                                Button {
+                                    UIPasteboard.general.string = cloud
+                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                    withAnimation {
+                                        showCopiedAlert = true
+                                    }
+                                } label: {
+                                    Image(systemName: "doc.on.doc")
+                                        .font(.system(size: 13))
+                                        .foregroundColor(.secondary)
+                                }
+                                .buttonStyle(.borderless)
+                            }
                         }
                     }
+                    .padding(.vertical, 2)
+                    
+                    // 局域网 / 自定义 (Tailscale / 本地 Wi-Fi IP)
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("局域网 / 自定义")
+                            Spacer()
+                            if isLanActive {
+                                Text("生效中")
+                                    .font(.system(size: 13))
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        
+                        HStack {
+                            TextField("如 http://192.168.1.50:58900", text: $customAddress)
+                                .font(.system(size: 13, design: .monospaced))
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                .keyboardType(.URL)
+                                .onChange(of: customAddress) { _, newValue in
+                                    let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                                    settings.customServerURL = trimmed.isEmpty ? nil : trimmed
+                                    Task {
+                                        await connectionManager.probeEndpoints()
+                                    }
+                                }
+                            
+                            if !customAddress.isEmpty {
+                                Button {
+                                    customAddress = ""
+                                    settings.customServerURL = nil
+                                    settings.lanServerURL = nil
+                                    Task {
+                                        await connectionManager.probeEndpoints()
+                                    }
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundColor(.secondary.opacity(0.6))
+                                        .font(.system(size: 14))
+                                }
+                                .buttonStyle(.borderless)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 2)
                 }
                 
                 // MARK: - 3. 权限与自动化
@@ -125,6 +202,30 @@ public struct SettingsSheet: View {
             .presentationDragIndicator(.visible)
         }
         .presentationDragIndicator(.visible)
+        .onAppear {
+            customAddress = settings.customServerURL ?? settings.lanServerURL ?? ""
+        }
+        .task {
+            await connectionManager.probeEndpoints()
+        }
+        .overlay(alignment: .bottom) {
+            if showCopiedAlert {
+                Text("地址已复制到剪贴板")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(Color.black.opacity(0.75))
+                    .clipShape(Capsule())
+                    .padding(.bottom, 20)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .onAppear {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                            withAnimation { showCopiedAlert = false }
+                        }
+                    }
+            }
+        }
         .alert("确定解除设备配对？", isPresented: $showUnpairAlert) {
             Button("取消", role: .cancel) {}
             Button("解除配对", role: .destructive) {
@@ -165,24 +266,27 @@ public struct SettingsSheet: View {
     
     // MARK: - 辅助计算属性
     
-    private var currentNetworkSummary: String {
-        if let active = settings.activeServerURL, let url = URL(string: active) {
-            let isCellular = NetworkTransport.shared.isCellular
-            let desc = AppSettings.describeEndpoint(url: url, isCellular: isCellular)
-            if let latency = activeLatency {
-                return "\(desc) (\(Int(latency))ms)"
-            }
-            return desc
+    private var primaryCloudDisplay: String {
+        if let cloud = settings.primaryCloudURL, !cloud.isEmpty {
+            return cloud
         }
-        let count = settings.candidateEndpoints.count
-        if count > 0 {
-            return "已配置 \(count) 个通道"
-        }
-        return "未设置"
+        return "未分配 (扫码配对自动获取)"
     }
     
-    private var activeLatency: Double? {
-        guard let active = settings.activeServerURL else { return nil }
-        return connectionManager.endpointStatuses[active]?.latencyMs
+    private func isEndpointActive(_ urlString: String?) -> Bool {
+        guard let target = urlString, !target.isEmpty else { return false }
+        let active = settings.activeServerURL ?? settings.serverURL?.absoluteString
+        guard let active = active, !active.isEmpty else { return false }
+        let targetClean = target.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
+        let activeClean = active.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
+        return targetClean == activeClean
+    }
+    
+    private var isCloudActive: Bool {
+        isEndpointActive(settings.primaryCloudURL)
+    }
+    
+    private var isLanActive: Bool {
+        isEndpointActive(settings.customServerURL ?? settings.lanServerURL)
     }
 }

@@ -101,16 +101,32 @@ public final class ConnectionManager {
         let reachable = results.filter { $0.isReachable }
         
         // Election policy:
-        // Priority 1: Primary Cloudflare HTTPS Domain (default unified routing)
-        // Priority 2: Custom / LAN endpoint fallback
-        let cloudEp = reachable.first(where: { $0.urlString == settings.primaryCloudURL })
-        let customEp = reachable.first(where: { $0.urlString == settings.customServerURL || $0.urlString == settings.lanServerURL })
-        let selected = cloudEp ?? customEp ?? reachable.min(by: { $0.latencyMs < $1.latencyMs })
+        // Prioritize LAN / Tailscale / Custom endpoint when it is online & reachable;
+        // Otherwise, always route via the assigned public Cloudflare domain.
+        let customNormalized = settings.customServerURL.flatMap { AppSettings.normalize(raw: $0)?.absoluteString }
+        let lanNormalized = settings.lanServerURL.flatMap { AppSettings.normalize(raw: $0)?.absoluteString }
+        let cloudNormalized = settings.primaryCloudURL.flatMap { AppSettings.normalize(raw: $0)?.absoluteString }
+        
+        let customEp = reachable.first(where: { ep in
+            let norm = AppSettings.normalize(raw: ep.urlString)?.absoluteString
+            return norm == customNormalized || norm == lanNormalized || ep.urlString == settings.customServerURL || ep.urlString == settings.lanServerURL
+        })
+        let cloudEp = reachable.first(where: { ep in
+            let norm = AppSettings.normalize(raw: ep.urlString)?.absoluteString
+            return norm == cloudNormalized || ep.urlString == settings.primaryCloudURL
+        })
+        
+        let selected = customEp ?? cloudEp ?? reachable.min(by: { $0.latencyMs < $1.latencyMs })
         
         if let best = selected {
             settings.activeServerURL = best.urlString
             settings.rawServerURL = best.urlString
             return best.urlString
+        } else if let cloud = settings.primaryCloudURL, !cloud.isEmpty {
+            let normalizedCloud = AppSettings.normalize(raw: cloud)?.absoluteString ?? cloud
+            settings.activeServerURL = normalizedCloud
+            settings.rawServerURL = normalizedCloud
+            return normalizedCloud
         }
         
         return settings.activeServerURL
@@ -118,14 +134,27 @@ public final class ConnectionManager {
     
     /// Tests a single endpoint's reachability and latency.
     public static func testSingleEndpoint(urlString: String) async -> EndpointHealthStatus {
-        guard let baseURL = AppSettings.normalize(raw: urlString),
-              let probeURL = URL(string: "\(baseURL.absoluteString)/healthz") else {
+        guard let baseURL = AppSettings.normalize(raw: urlString) else {
             return EndpointHealthStatus(
                 id: urlString,
                 urlString: urlString,
                 isReachable: false,
                 latencyMs: 0,
                 errorMessage: "无效地址"
+            )
+        }
+        
+        var cleanBase = baseURL.absoluteString
+        if cleanBase.hasSuffix("/") {
+            cleanBase.removeLast()
+        }
+        guard let probeURL = URL(string: "\(cleanBase)/healthz") else {
+            return EndpointHealthStatus(
+                id: urlString,
+                urlString: urlString,
+                isReachable: false,
+                latencyMs: 0,
+                errorMessage: "无效探测地址"
             )
         }
         

@@ -463,7 +463,7 @@ public struct ChatView: View {
     @ViewBuilder
     private func messagesList(proxy: ScrollViewProxy) -> some View {
         VStack(spacing: 8) {
-            if viewModel.hasMore && !viewModel.messages.contains(where: { $0.id == "step-0" }) {
+            if viewModel.hasMore && !viewModel.messages.contains(where: { $0.id == "step-0" || $0.effectiveStepIndex == 0 }) {
                 loadOlderMessagesButton(proxy: proxy)
             }
             

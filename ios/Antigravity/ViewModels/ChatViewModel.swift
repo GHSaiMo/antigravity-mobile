@@ -433,7 +433,7 @@ public final class ChatViewModel {
             self.duration = cached.duration
             self.stepCount = cached.stepCount
             self.totalTools = cached.totalTools
-            let hasEarliest = healed.contains(where: { self.extractStepIndex(from: $0.id) == 0 })
+            let hasEarliest = healed.contains(where: { self.extractStepIndex(from: $0) == 0 })
             self.hasMore = hasEarliest ? false : cached.hasMore
             self.nextOffset = hasEarliest ? 0 : cached.nextOffset
             self.isRunning = (cached.status == "CASCADE_RUN_STATUS_RUNNING")
@@ -586,7 +586,7 @@ public final class ChatViewModel {
             self.duration = cached.duration
             self.stepCount = cached.stepCount
             self.totalTools = cached.totalTools
-            let hasEarliest = healed.contains(where: { self.extractStepIndex(from: $0.id) == 0 })
+            let hasEarliest = healed.contains(where: { self.extractStepIndex(from: $0) == 0 })
             self.hasMore = hasEarliest ? false : cached.hasMore
             self.nextOffset = hasEarliest ? 0 : cached.nextOffset
             self.isRunning = (cached.status == "CASCADE_RUN_STATUS_RUNNING")
@@ -659,27 +659,27 @@ public final class ChatViewModel {
                     }
                 }
                 
-                let clientMaxStep = self.messages.compactMap { self.extractStepIndex(from: $0.id) }.max() ?? -1
-                let serverMaxStep = result.messages.compactMap { self.extractStepIndex(from: $0.id) }.max() ?? -1
+                let clientMaxStep = self.messages.compactMap { self.extractStepIndex(from: $0) }.max() ?? -1
+                let serverMaxStep = result.messages.compactMap { self.extractStepIndex(from: $0) }.max() ?? -1
                 let isTruncatedOrReverted = serverMaxStep < clientMaxStep
                 
                 if (isBackgroundPoll || self.pendingOptimisticMessageId != nil) && !self.messages.isEmpty && !isTruncatedOrReverted {
                     self.mergeIncomingMessages(result.messages)
-                    if self.messages.contains(where: { self.extractStepIndex(from: $0.id) == 0 }) {
+                    if self.messages.contains(where: { self.extractStepIndex(from: $0) == 0 }) {
                         self.hasMore = false
                         self.nextOffset = 0
                     }
                 } else if !self.messages.isEmpty && self.messages.count > result.messages.count && !isTruncatedOrReverted {
                     // Preserves cached/expanded history rather than truncating all older messages
                     self.mergeIncomingMessages(result.messages)
-                    if self.messages.contains(where: { self.extractStepIndex(from: $0.id) == 0 }) {
+                    if self.messages.contains(where: { self.extractStepIndex(from: $0) == 0 }) {
                         self.hasMore = false
                         self.nextOffset = 0
                     }
                 } else {
                     let healed = self.sanitizeMessageOrder(result.messages)
                     self.messages = healed
-                    let hasEarliest = healed.contains(where: { self.extractStepIndex(from: $0.id) == 0 })
+                    let hasEarliest = healed.contains(where: { self.extractStepIndex(from: $0) == 0 })
                     self.hasMore = hasEarliest ? false : result.hasMore
                     self.nextOffset = hasEarliest ? 0 : result.nextOffset
                     if self.pendingOptimisticMessageId == nil {
@@ -850,7 +850,7 @@ public final class ChatViewModel {
     @MainActor
     public func loadOlderMessages() async {
         guard hasMore, !isLoadingOlder, let url = settings.serverURL else { return }
-        if messages.contains(where: { extractStepIndex(from: $0.id) == 0 }) {
+        if messages.contains(where: { extractStepIndex(from: $0) == 0 }) {
             self.hasMore = false
             self.nextOffset = 0
             return
@@ -877,7 +877,7 @@ public final class ChatViewModel {
             let combined = uniqueOlder + self.messages
             self.messages = sanitizeMessageOrder(combined)
             
-            let hasEarliest = self.messages.contains(where: { self.extractStepIndex(from: $0.id) == 0 })
+            let hasEarliest = self.messages.contains(where: { self.extractStepIndex(from: $0) == 0 })
             if !result.hasMore || uniqueOlder.isEmpty || result.nextOffset <= 0 || hasEarliest {
                 self.hasMore = false
                 self.nextOffset = 0
@@ -914,6 +914,11 @@ public final class ChatViewModel {
     
     // MARK: - Message Sequencing and Self-Healing
     
+    /// Extracts a numeric step index from a message (priority: effectiveStepIndex, then ID string prefix).
+    private func extractStepIndex(from message: ChatMessage) -> Int? {
+        message.effectiveStepIndex ?? extractStepIndex(from: message.id)
+    }
+    
     /// Extracts a numeric step index from a message ID (e.g. "step-12" -> 12).
     private func extractStepIndex(from id: String) -> Int? {
         if id.hasPrefix("step-"), let val = Int(id.dropFirst(5)) {
@@ -931,7 +936,7 @@ public final class ChatViewModel {
         var prevStep = -1
         
         for (i, msg) in list.enumerated() {
-            if let step = extractStepIndex(from: msg.id) {
+            if let step = extractStepIndex(from: msg) {
                 if prevStep != -1 && step < prevStep && (prevStep - step) >= 2 {
                     // Sudden backwards jump in step index detected!
                     dropIndex = i
@@ -997,7 +1002,7 @@ public final class ChatViewModel {
         }
         
         self.messages = fullList
-        let hasEarliest = fullList.contains(where: { self.extractStepIndex(from: $0.id) == 0 })
+        let hasEarliest = fullList.contains(where: { self.extractStepIndex(from: $0) == 0 })
         self.hasMore = hasEarliest ? false : hasMore
         self.nextOffset = hasEarliest ? 0 : nextOffset
         if self.pendingOptimisticMessageId == nil {
@@ -1047,12 +1052,27 @@ public final class ChatViewModel {
         if base.isEmpty {
             base = incoming
         } else {
-            // Find overlap between incoming and base
+            // Find overlap between incoming and base using multi-dimensional matching:
+            // 1. Exact ID match
+            // 2. Non-nil effectiveStepIndex match with identical sender
+            // 3. User message identical content match
             var firstBaseMatchIdx: Int? = nil
             var incomingMatchIdxForFirstBaseMatch: Int? = nil
             
             for (baseIdx, baseMsg) in base.enumerated() {
-                if let incIdx = incoming.firstIndex(where: { $0.id == baseMsg.id }) {
+                if let incIdx = incoming.firstIndex(where: { inc in
+                    if inc.id == baseMsg.id { return true }
+                    if let bs = self.extractStepIndex(from: baseMsg),
+                       let is_ = self.extractStepIndex(from: inc),
+                       bs == is_ && baseMsg.sender == inc.sender {
+                        return true
+                    }
+                    if baseMsg.isUser && inc.isUser &&
+                       !baseMsg.content.isEmpty && baseMsg.content == inc.content {
+                        return true
+                    }
+                    return false
+                }) {
                     firstBaseMatchIdx = baseIdx
                     incomingMatchIdxForFirstBaseMatch = incIdx
                     break
@@ -1065,16 +1085,29 @@ public final class ChatViewModel {
                 let incomingTail = Array(incoming[iIdx...])
                 base = prefix + incomingPrefix + incomingTail
             } else {
-                // No overlapping ID found. Determine ordering based on step indexes
-                let baseStep = base.compactMap { extractStepIndex(from: $0.id) }.first
-                let incomingStep = incoming.compactMap { extractStepIndex(from: $0.id) }.first
+                let baseHasStart = base.contains(where: { self.extractStepIndex(from: $0) == 0 })
+                let incomingHasStart = incoming.contains(where: { self.extractStepIndex(from: $0) == 0 })
                 
-                if let bStep = baseStep, let iStep = incomingStep, iStep < bStep {
-                    // incoming contains earlier steps than base
-                    base = incoming + base
+                if baseHasStart && incomingHasStart {
+                    // Both base and incoming represent the conversation from the beginning (step 0).
+                    // Never concatenate them end-to-end, which would duplicate the entire conversation.
+                    // Prefer incoming as the authoritative server snapshot.
+                    base = incoming
                 } else {
-                    // incoming contains later steps than base
-                    base = base + incoming
+                    // Determine ordering based on step indexes
+                    let baseStep = base.compactMap { self.extractStepIndex(from: $0) }.first
+                    let incomingStep = incoming.compactMap { self.extractStepIndex(from: $0) }.first
+                    
+                    if let bStep = baseStep, let iStep = incomingStep, iStep < bStep {
+                        // incoming contains earlier steps than base
+                        base = incoming + base
+                    } else if baseStep != nil || incomingStep != nil {
+                        // incoming contains later steps than base
+                        base = base + incoming
+                    } else {
+                        // Neither base nor incoming have step indices; default to incoming snapshot
+                        base = incoming
+                    }
                 }
             }
         }
@@ -1086,6 +1119,21 @@ public final class ChatViewModel {
         
         // 4. Sanitize ordering in case of anomalies
         base = sanitizeMessageOrder(base)
+        
+        // 5. Final safety deduplication: ensure no duplicate IDs or identical (stepIndex, sender) pairs exist
+        var seenIds = Set<String>()
+        var seenSteps = Set<Int>()
+        base = base.filter { msg in
+            if !seenIds.insert(msg.id).inserted {
+                return false
+            }
+            if let step = self.extractStepIndex(from: msg), step >= 0 {
+                if msg.isUser || msg.isAgent {
+                    return seenSteps.insert(step).inserted
+                }
+            }
+            return true
+        }
         
         self.messages = base
         if self.pendingOptimisticMessageId == nil {
@@ -2337,8 +2385,8 @@ public final class ChatViewModel {
                     stepIndex: item.stepIndex ?? (item.id.hasPrefix("step-") ? Int(item.id.dropFirst(5)) : nil)
                 )
             }
-            let clientMaxStep = self.messages.compactMap { self.extractStepIndex(from: $0.id) }.max() ?? -1
-            let serverMaxStep = parsedMessages.compactMap { self.extractStepIndex(from: $0.id) }.max() ?? -1
+            let clientMaxStep = self.messages.compactMap { self.extractStepIndex(from: $0) }.max() ?? -1
+            let serverMaxStep = parsedMessages.compactMap { self.extractStepIndex(from: $0) }.max() ?? -1
             let isTruncatedOrReverted = serverMaxStep < clientMaxStep || parsedMessages.isEmpty
             let hasExpandedHistory = self.messages.count > parsedMessages.count && !isTruncatedOrReverted
             
@@ -2365,7 +2413,7 @@ public final class ChatViewModel {
                 )
             } else {
                 self.mergeIncomingMessages(parsedMessages)
-                if self.messages.contains(where: { self.extractStepIndex(from: $0.id) == 0 }) {
+                if self.messages.contains(where: { self.extractStepIndex(from: $0) == 0 }) {
                     self.hasMore = false
                     self.nextOffset = 0
                 } else if let hm = payload.hasMore, !self.isLoadingOlder && !hasExpandedHistory {

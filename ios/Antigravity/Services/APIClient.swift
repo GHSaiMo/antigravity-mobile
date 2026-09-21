@@ -486,7 +486,7 @@ public final class APIClient: Sendable {
         guard let url = comps?.url else { throw APIError.invalidURL }
         
         var request = URLRequest(url: url)
-        request.timeoutInterval = 10
+        request.timeoutInterval = 15
         
         do {
             let (data, response) = try await transport.send(request: request)
@@ -597,7 +597,9 @@ public final class APIClient: Sendable {
             let count = pendingTools.count
             totalToolsCount += count
             let allTools = pendingTools
+            let toolId = "tools-\(messages.count)"
             messages.append(ChatMessage(
+                id: toolId,
                 sender: .toolBatch(count: count, tools: allTools),
                 content: "已执行 \(count) 次工具调用",
                 toolCount: count,
@@ -635,6 +637,7 @@ public final class APIClient: Sendable {
                 
                 if (!trimmed.isEmpty && !isSystemApproval) || !images.isEmpty {
                     messages.append(ChatMessage(
+                        id: "step-\(idx)",
                         sender: .user,
                         content: text,
                         imageDataList: images,
@@ -652,10 +655,12 @@ public final class APIClient: Sendable {
                     let resolved = extracted.map { resolveMediaURL($0, baseURL: baseURL) }
                     
                     messages.append(ChatMessage(
+                        id: "step-\(idx)",
                         sender: .agent,
                         content: response.isEmpty ? "（已完成思考，准备下发指令）" : response,
                         thinking: thinking?.isEmpty == false ? thinking : nil,
-                        imageUrls: resolved
+                        imageUrls: resolved,
+                        stepIndex: idx
                     ))
                 }
             } else if type == "CORTEX_STEP_TYPE_ERROR_MESSAGE" {
@@ -691,8 +696,10 @@ public final class APIClient: Sendable {
                     ?? "执行遇到错误"
                 let trimmed = errText.trimmingCharacters(in: .whitespacesAndNewlines)
                 messages.append(ChatMessage(
+                    id: "step-\(idx)",
                     sender: .error,
-                    content: trimmed
+                    content: trimmed,
+                    stepIndex: idx
                 ))
             } else if type.hasPrefix("CORTEX_STEP_TYPE_") && type != "CORTEX_STEP_TYPE_SYSTEM_MESSAGE" {
                 let toolName: String = {

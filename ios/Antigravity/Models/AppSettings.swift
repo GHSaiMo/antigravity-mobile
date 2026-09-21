@@ -150,16 +150,20 @@ public final class AppSettings {
     
     public var candidateEndpoints: [ServerEndpointItem] {
         var items: [ServerEndpointItem] = []
-        if let cloud = primaryCloudURL, !cloud.isEmpty {
-            items.append(ServerEndpointItem(type: "cloudflare", urlString: cloud))
-        }
         if let custom = customServerURL, !custom.isEmpty {
-            items.append(ServerEndpointItem(type: "custom", urlString: custom))
+            let normalized = Self.normalize(raw: custom)?.absoluteString ?? custom
+            items.append(ServerEndpointItem(type: "custom", urlString: normalized))
         } else if let lan = lanServerURL, !lan.isEmpty {
-            items.append(ServerEndpointItem(type: "lan", urlString: lan))
+            let normalized = Self.normalize(raw: lan)?.absoluteString ?? lan
+            items.append(ServerEndpointItem(type: "lan", urlString: normalized))
+        }
+        if let cloud = primaryCloudURL, !cloud.isEmpty {
+            let normalized = Self.normalize(raw: cloud)?.absoluteString ?? cloud
+            items.append(ServerEndpointItem(type: "cloudflare", urlString: normalized))
         }
         if items.isEmpty && !rawServerURL.isEmpty {
-            items.append(ServerEndpointItem(type: "primary", urlString: rawServerURL))
+            let normalized = Self.normalize(raw: rawServerURL)?.absoluteString ?? rawServerURL
+            items.append(ServerEndpointItem(type: "primary", urlString: normalized))
         }
         return items
     }
