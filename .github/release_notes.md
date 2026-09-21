@@ -1,21 +1,22 @@
-# 🚀 Multigravity v1.0.1
+# 🚀 Multigravity v1.0.2
 
-### ✨ 优化与修复 (Improvements & Fixes)
+### ✨ 核心更新与优化 (Highlights & Improvements)
 
-- **一键安装脚本镜像站优先与代理直连策略优化**：
-  - 针对国内用户和代理环境（如 Clash / V2Ray / Surge 等 7890 端口），调整一键脚本默认优先通过高速镜像源（`ghfast.top` / `ghproxy.net`）直连下载，避免强行走海外代理导致的限速或网络中断。
-  - 仅在镜像站不可用时才自动回退至 GitHub 官方源并接入本机代理加速。
-  - 修复镜像直连参数中 `--noproxy "*"` 因变量未加引号触发的 Shell 通配符目录展开（Globbing）漏洞。
-  - 优化文档代码块格式，避免在 macOS 原生 zsh 下粘贴执行时误触发 `command not found: #`。
-  - 规范 shell 脚本换行符为 LF，防止在 macOS / Linux / Git Bash 下出现 CRLF 解析异常。
+- **统一 Cloudflare 公网通道与双通道极简架构**：
+  - 彻底废弃 IPv6、DDNS 及 FRP Relay 等复杂配置与外部依赖，全面采用 Cloudflare 穿透隧道作为核心公网直连通道；
+  - 扫码配对及服务端 API 端点统一对齐纯双通道模式（局域网 IPv4 + Cloudflare 安全公网域名），开箱即用；
+  - 优化移动端设置界面，移除多余调试域名展示，恢复极简视觉体验。
 
-- **IPv6 终端配置与排错指引多平台自适应**：
-  - 终端配对信息及 IPv6 状态提示自动感知操作系统（Windows / macOS / Linux）。
-  - Windows 系统下准确提示前往「设置 -> 网络和 Internet」开启「Internet 协议版本 6 (TCP/IPv6)」，并补充 Windows Defender 防火墙放行指引，不再显示 macOS 专属设置文案。
+- **移动端智能选路与无感容灾切换 (iOS / Android)**：
+  - **Wi-Fi / 蜂窝网络自适应无缝切换**：局域网内优先低延迟直连；断开 Wi-Fi 或切换至蜂窝网络时，底层秒级静默切换至 Cloudflare 公网隧道，无需手动重新配对；
+  - **修复 iOS 局域网配对断网后无法连接公网的缺陷**：
+    - 修复 URL 协议头解析缺陷与 `primaryCloudURL` 被局域网内网 IP 反向污染的问题；
+    - 引入服务端 `X-Antigravity-Cloud-URL` 响应头与 `/api/v1/auth/endpoints` 动态自愈机制，彻底杜绝端点丢失；
+    - 增强 WebSocket 实时流与会话断线自动重测与重连机制。
 
-- **Windows 项目区路径与最近项目展示修复**：
-  - 聚合 Antigravity 官方工作区、`workspaceStorage`（活跃与最近打开的项目）、`state.vscdb` 以及 Cascade 对话历史记录。
-  - 支持中文（URL 编码解码）、空格路径及 `vscode-remote://` 远程项目。
+- **Android 沉浸式体验优化与工程升级**：
+  - 修复 Android 端所有底部抽屉（Bottom Sheet）在系统手势导航栏底部的空白缝隙，带来更沉浸的全面屏交互；
+  - 升级 Android Gradle Plugin (AGP) 至 9.4.1，优化构建稳定性与执行性能。
 
 ---
 
@@ -37,6 +38,5 @@
 ---
 
 ### 📱 客户端配套下载
-- **Android**：下载下方 Assets 列表中的 `Multigravity-v1.0.1.apk` 直接安装。
-- **iOS**：TestFlight 或项目内工程自行签名构建。
-
+- **Android**：下载下方 Assets 列表中的 `Multigravity-v1.0.2.apk` 直接安装。
+- **iOS**：TestFlight 或项目工程本地签名构建。
