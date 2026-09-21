@@ -6,7 +6,7 @@ public struct SettingsSheet: View {
     @State private var connectionManager = ConnectionManager.shared
     @State private var showClearCacheAlert: Bool = false
     @State private var showUnpairAlert: Bool = false
-    @State private var showCopiedAlert: Bool = false
+    @State private var lanAddress: String = ""
     @State private var customAddress: String = ""
     
     public init() {}
@@ -55,54 +55,12 @@ public struct SettingsSheet: View {
                     }
                 }
                 
-                // MARK: - 2. 网络连接 (平铺原生陈列)
-                Section(
-                    header: Text("网络"),
-                    footer: Text("局域网或 Tailscale 在线时优先直连，否则使用主域名。")
-                ) {
-                    // 主域名 (专属分配公网地址)
+                // MARK: - 2. 网络 (局域网与自定义平铺，主域名后台兜底)
+                Section(header: Text("网络")) {
+                    // 局域网 (扫码配对默认填写)
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
-                            Text("主域名")
-                            Spacer()
-                            if isCloudActive {
-                                Text("生效中")
-                                    .font(.system(size: 13))
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                        
-                        HStack {
-                            Text(primaryCloudDisplay)
-                                .font(.system(size: 13, design: .monospaced))
-                                .foregroundColor(settings.primaryCloudURL != nil ? .primary : .secondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                            
-                            Spacer()
-                            
-                            if let cloud = settings.primaryCloudURL, !cloud.isEmpty {
-                                Button {
-                                    UIPasteboard.general.string = cloud
-                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                                    withAnimation {
-                                        showCopiedAlert = true
-                                    }
-                                } label: {
-                                    Image(systemName: "doc.on.doc")
-                                        .font(.system(size: 13))
-                                        .foregroundColor(.secondary)
-                                }
-                                .buttonStyle(.borderless)
-                            }
-                        }
-                    }
-                    .padding(.vertical, 2)
-                    
-                    // 局域网 / 自定义 (Tailscale / 本地 Wi-Fi IP)
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            Text("局域网 / 自定义")
+                            Text("局域网")
                             Spacer()
                             if isLanActive {
                                 Text("生效中")
@@ -112,7 +70,51 @@ public struct SettingsSheet: View {
                         }
                         
                         HStack {
-                            TextField("如 http://192.168.1.50:58900", text: $customAddress)
+                            TextField("如 http://192.168.1.50:58900", text: $lanAddress)
+                                .font(.system(size: 13, design: .monospaced))
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                .keyboardType(.URL)
+                                .onChange(of: lanAddress) { _, newValue in
+                                    let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                                    settings.lanServerURL = trimmed.isEmpty ? nil : trimmed
+                                    Task {
+                                        await connectionManager.probeEndpoints()
+                                    }
+                                }
+                            
+                            if !lanAddress.isEmpty {
+                                Button {
+                                    lanAddress = ""
+                                    settings.lanServerURL = nil
+                                    Task {
+                                        await connectionManager.probeEndpoints()
+                                    }
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundColor(.secondary.opacity(0.6))
+                                        .font(.system(size: 14))
+                                }
+                                .buttonStyle(.borderless)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 2)
+                    
+                    // 自定义 (留给用户配置，如 Tailscale)
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("自定义")
+                            Spacer()
+                            if isCustomActive {
+                                Text("生效中")
+                                    .font(.system(size: 13))
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        
+                        HStack {
+                            TextField("如 http://100.x.x.x:58900", text: $customAddress)
                                 .font(.system(size: 13, design: .monospaced))
                                 .textInputAutocapitalization(.never)
                                 .autocorrectionDisabled()
@@ -129,7 +131,6 @@ public struct SettingsSheet: View {
                                 Button {
                                     customAddress = ""
                                     settings.customServerURL = nil
-                                    settings.lanServerURL = nil
                                     Task {
                                         await connectionManager.probeEndpoints()
                                     }
@@ -203,28 +204,11 @@ public struct SettingsSheet: View {
         }
         .presentationDragIndicator(.visible)
         .onAppear {
-            customAddress = settings.customServerURL ?? settings.lanServerURL ?? ""
+            lanAddress = settings.lanServerURL ?? ""
+            customAddress = settings.customServerURL ?? ""
         }
         .task {
             await connectionManager.probeEndpoints()
-        }
-        .overlay(alignment: .bottom) {
-            if showCopiedAlert {
-                Text("地址已复制到剪贴板")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(Color.black.opacity(0.75))
-                    .clipShape(Capsule())
-                    .padding(.bottom, 20)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .onAppear {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                            withAnimation { showCopiedAlert = false }
-                        }
-                    }
-            }
         }
         .alert("确定解除设备配对？", isPresented: $showUnpairAlert) {
             Button("取消", role: .cancel) {}
@@ -266,13 +250,6 @@ public struct SettingsSheet: View {
     
     // MARK: - 辅助计算属性
     
-    private var primaryCloudDisplay: String {
-        if let cloud = settings.primaryCloudURL, !cloud.isEmpty {
-            return cloud
-        }
-        return "未分配 (扫码配对自动获取)"
-    }
-    
     private func isEndpointActive(_ urlString: String?) -> Bool {
         guard let target = urlString, !target.isEmpty else { return false }
         let active = settings.activeServerURL ?? settings.serverURL?.absoluteString
@@ -282,11 +259,11 @@ public struct SettingsSheet: View {
         return targetClean == activeClean
     }
     
-    private var isCloudActive: Bool {
-        isEndpointActive(settings.primaryCloudURL)
+    private var isLanActive: Bool {
+        isEndpointActive(settings.lanServerURL)
     }
     
-    private var isLanActive: Bool {
-        isEndpointActive(settings.customServerURL ?? settings.lanServerURL)
+    private var isCustomActive: Bool {
+        isEndpointActive(settings.customServerURL)
     }
 }

@@ -58,14 +58,38 @@ public final class ConnectionManager {
         pathMonitor.start(queue: monitorQueue)
     }
     
-    /// Concurrently probes all candidate endpoints and switches activeServerURL to the optimal one.
+    /// Concurrently probes candidate endpoints and switches activeServerURL to the optimal one.
+    /// Routing Order: LAN (skip if cellular) -> Custom (skip if not configured) -> Primary Cloud Domain (final fallback).
     @discardableResult
     public func probeEndpoints() async -> String? {
         guard !isProbing else { return AppSettings.shared.activeServerURL }
         
         let settings = AppSettings.shared
-        let candidates = settings.candidateEndpoints
-        guard !candidates.isEmpty else { return nil }
+        let isCellularNow = NetworkTransport.shared.isCellular
+        
+        // 1. Filter endpoints to test based on network interface and configuration
+        var endpointsToTest: [String] = []
+        
+        let lan = settings.lanServerURL?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !isCellularNow, let lan = lan, !lan.isEmpty {
+            endpointsToTest.append(lan)
+        }
+        
+        let custom = settings.customServerURL?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let custom = custom, !custom.isEmpty {
+            endpointsToTest.append(custom)
+        }
+        
+        let cloud = settings.primaryCloudURL?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let cloud = cloud, !cloud.isEmpty {
+            endpointsToTest.append(cloud)
+        }
+        
+        if endpointsToTest.isEmpty, !settings.rawServerURL.isEmpty {
+            endpointsToTest.append(settings.rawServerURL)
+        }
+        
+        guard !endpointsToTest.isEmpty else { return nil }
         
         isProbing = true
         defer {
@@ -74,11 +98,10 @@ public final class ConnectionManager {
         }
         
         var results: [EndpointHealthStatus] = []
-        
         await withTaskGroup(of: EndpointHealthStatus.self) { group in
-            for ep in candidates {
+            for ep in endpointsToTest {
                 group.addTask {
-                    await Self.testSingleEndpoint(urlString: ep.urlString)
+                    await Self.testSingleEndpoint(urlString: ep)
                 }
             }
             
@@ -92,41 +115,53 @@ public final class ConnectionManager {
             endpointStatuses[res.urlString] = res
         }
         
-        // Election policy:
-        // 1. LAN IPv4 First: If on Wi-Fi and LAN is reachable (e.g. 192.168.x.x), ALWAYS prefer LAN.
-        //    LAN offers ~1ms latency, 0 data consumption, and avoids public internet routing.
-        // 2. Remote / Out-of-Home:
-        //    - If IPv6 is reachable (cellular 5G or Wi-Fi with IPv6), prefer IPv6 direct (~20ms).
-        //    - Otherwise pick the reachable endpoint with lowest latency (e.g. Cloud Relay ~40ms).
         let reachable = results.filter { $0.isReachable }
         
-        // Election policy:
-        // Prioritize LAN / Tailscale / Custom endpoint when it is online & reachable;
-        // Otherwise, always route via the assigned public Cloudflare domain.
-        let customNormalized = settings.customServerURL.flatMap { AppSettings.normalize(raw: $0)?.absoluteString }
-        let lanNormalized = settings.lanServerURL.flatMap { AppSettings.normalize(raw: $0)?.absoluteString }
-        let cloudNormalized = settings.primaryCloudURL.flatMap { AppSettings.normalize(raw: $0)?.absoluteString }
+        // Smart Routing Selection:
+        // 1. LAN: if NOT cellular and reachable -> select LAN
+        // 2. Custom: if configured and reachable -> select Custom
+        // 3. Primary Cloud: final fallback -> select Cloud
+        var selected: String? = nil
         
-        let customEp = reachable.first(where: { ep in
-            let norm = AppSettings.normalize(raw: ep.urlString)?.absoluteString
-            return norm == customNormalized || norm == lanNormalized || ep.urlString == settings.customServerURL || ep.urlString == settings.lanServerURL
-        })
-        let cloudEp = reachable.first(where: { ep in
-            let norm = AppSettings.normalize(raw: ep.urlString)?.absoluteString
-            return norm == cloudNormalized || ep.urlString == settings.primaryCloudURL
-        })
+        // 1. 局域网（非蜂窝网络且在线）
+        if !isCellularNow, let lan = lan, !lan.isEmpty {
+            let lanNorm = AppSettings.normalize(raw: lan)?.absoluteString
+            if let ep = reachable.first(where: {
+                let epNorm = AppSettings.normalize(raw: $0.urlString)?.absoluteString
+                return epNorm == lanNorm || $0.urlString == lan
+            }) {
+                selected = ep.urlString
+            }
+        }
         
-        let selected = customEp ?? cloudEp ?? reachable.min(by: { $0.latencyMs < $1.latencyMs })
+        // 2. 自定义（已配置且在线）
+        if selected == nil, let custom = custom, !custom.isEmpty {
+            let customNorm = AppSettings.normalize(raw: custom)?.absoluteString
+            if let ep = reachable.first(where: {
+                let epNorm = AppSettings.normalize(raw: $0.urlString)?.absoluteString
+                return epNorm == customNorm || $0.urlString == custom
+            }) {
+                selected = ep.urlString
+            }
+        }
+        
+        // 3. 主域名（最终兜底）
+        if selected == nil, let cloud = cloud, !cloud.isEmpty {
+            let cloudNorm = AppSettings.normalize(raw: cloud)?.absoluteString
+            if let ep = reachable.first(where: {
+                let epNorm = AppSettings.normalize(raw: $0.urlString)?.absoluteString
+                return epNorm == cloudNorm || $0.urlString == cloud
+            }) {
+                selected = ep.urlString
+            } else {
+                selected = cloudNorm ?? cloud
+            }
+        }
         
         if let best = selected {
-            settings.activeServerURL = best.urlString
-            settings.rawServerURL = best.urlString
-            return best.urlString
-        } else if let cloud = settings.primaryCloudURL, !cloud.isEmpty {
-            let normalizedCloud = AppSettings.normalize(raw: cloud)?.absoluteString ?? cloud
-            settings.activeServerURL = normalizedCloud
-            settings.rawServerURL = normalizedCloud
-            return normalizedCloud
+            settings.activeServerURL = best
+            settings.rawServerURL = best
+            return best
         }
         
         return settings.activeServerURL

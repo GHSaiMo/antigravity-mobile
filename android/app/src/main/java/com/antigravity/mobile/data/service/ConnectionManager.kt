@@ -131,18 +131,36 @@ class ConnectionManager(private val context: Context) {
     suspend fun probeEndpoints(prefs: PreferencesManager): String? = withContext(Dispatchers.IO) {
         if (_isProbing.value) return@withContext prefs.gatewayBaseUrl
 
-        val candidates = listOfNotNull(
-            prefs.primaryCloudUrl?.takeIf { it.isNotBlank() },
-            prefs.customServerUrl?.takeIf { it.isNotBlank() },
-            prefs.gatewayBaseUrl?.takeIf { it.isNotBlank() }
-        ).distinct()
+        val isCellularNow = isCellular
 
-        if (candidates.isEmpty()) return@withContext null
+        // 智能路由候选集：
+        // 1. 局域网：若为蜂窝网络状态，直接跳过！
+        // 2. 自定义：若未配置，直接跳过！
+        // 3. 主域名：最终兜底
+        val endpointsToTest = mutableListOf<String>()
+        val lan = prefs.lanServerUrl?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() }
+        val custom = prefs.customServerUrl?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() }
+        val cloud = prefs.primaryCloudUrl?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() }
+
+        if (!isCellularNow && lan != null) {
+            endpointsToTest.add(lan)
+        }
+        if (custom != null) {
+            endpointsToTest.add(custom)
+        }
+        if (cloud != null) {
+            endpointsToTest.add(cloud)
+        }
+        if (endpointsToTest.isEmpty() && !prefs.gatewayBaseUrl.isNullOrBlank()) {
+            endpointsToTest.add(prefs.gatewayBaseUrl!!.trim().trimEnd('/'))
+        }
+
+        if (endpointsToTest.isEmpty()) return@withContext null
 
         _isProbing.value = true
         try {
             val results = coroutineScope {
-                candidates.map { url ->
+                endpointsToTest.distinct().map { url ->
                     async { testSingleEndpoint(url) }
                 }.awaitAll()
             }
@@ -152,16 +170,33 @@ class ConnectionManager(private val context: Context) {
             _lastProbeTime.value = System.currentTimeMillis()
 
             val reachable = results.filter { it.isReachable }
-            
-            // 优先使用专属公网域名；若不可达，再使用自定义/局域网备用地址
-            val primaryCloud = prefs.primaryCloudUrl
-            val winner = reachable.firstOrNull { it.urlString == primaryCloud }
-                ?: reachable.firstOrNull { it.urlString == prefs.customServerUrl }
-                ?: reachable.minByOrNull { it.latencyMs }
 
-            if (winner != null) {
-                prefs.gatewayBaseUrl = winner.urlString
-                return@withContext winner.urlString
+            // 智能路由选举：
+            // 顺序：局域网 -> 自定义 -> 主域名兜底
+            var selected: String? = null
+
+            // 1. 局域网（非蜂窝网络且在线）
+            if (!isCellularNow && lan != null) {
+                if (reachable.any { it.urlString.trimEnd('/') == lan }) {
+                    selected = lan
+                }
+            }
+
+            // 2. 自定义（已配置且在线）
+            if (selected == null && custom != null) {
+                if (reachable.any { it.urlString.trimEnd('/') == custom }) {
+                    selected = custom
+                }
+            }
+
+            // 3. 主域名（最终兜底）
+            if (selected == null && cloud != null) {
+                selected = reachable.firstOrNull { it.urlString.trimEnd('/') == cloud }?.urlString ?: cloud
+            }
+
+            if (selected != null) {
+                prefs.gatewayBaseUrl = selected
+                return@withContext selected
             }
             return@withContext prefs.gatewayBaseUrl
         } finally {

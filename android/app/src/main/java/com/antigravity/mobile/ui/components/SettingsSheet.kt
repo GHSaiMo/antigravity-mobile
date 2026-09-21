@@ -1,7 +1,5 @@
 package com.antigravity.mobile.ui.components
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -12,10 +10,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -28,19 +25,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.antigravity.mobile.data.service.ConnectionManager
 import com.antigravity.mobile.data.service.PreferencesManager
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 import com.antigravity.mobile.ui.util.rememberHaptic
-
-private enum class SettingsScreenView {
-    MAIN, NETWORK
-}
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -51,7 +42,6 @@ fun SettingsSheet(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var currentView by remember { mutableStateOf(SettingsScreenView.MAIN) }
     var showUnpairAlert by remember { mutableStateOf(false) }
     var showClearCacheAlert by remember { mutableStateOf(false) }
     val colors = AntigravityTheme.colors
@@ -71,11 +61,7 @@ fun SettingsSheet(
             .fillMaxHeight(0.94f)
     ) {
         BackHandler {
-            if (currentView == SettingsScreenView.NETWORK) {
-                currentView = SettingsScreenView.MAIN
-            } else {
-                onDismiss()
-            }
+            onDismiss()
         }
 
         Column(
@@ -98,38 +84,20 @@ fun SettingsSheet(
                 )
             }
 
-            // Header title row: centered title, optional back button on the left when in subview, no "完成" button
+            // Header title row: centered title, no "完成" button
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 12.dp),
                 contentAlignment = Alignment.Center
             ) {
-                if (currentView == SettingsScreenView.NETWORK) {
-                    IconButton(
-                        onClick = { currentView = SettingsScreenView.MAIN },
-                        modifier = Modifier
-                            .align(Alignment.CenterStart)
-                            .padding(start = 8.dp)
-                            .size(36.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = colors.accentIndigo
-                        )
-                    }
-                }
-
                 Text(
-                    text = if (currentView == SettingsScreenView.MAIN) "设置" else "网络设置",
+                    text = "设置",
                     fontWeight = FontWeight.Bold,
                     fontSize = 18.sp,
                     color = colors.textPrimary,
                     textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .align(Alignment.Center)
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
 
@@ -140,21 +108,14 @@ fun SettingsSheet(
                     .fillMaxWidth()
                     .weight(1f)
             ) {
-                if (currentView == SettingsScreenView.MAIN) {
-                    MainSettingsContent(
-                        prefs = prefs,
-                        currentThemeMode = currentThemeMode,
-                        onNavigateToNetwork = { currentView = SettingsScreenView.NETWORK },
-                        onThemeModeChange = onThemeModeChange,
-                        onPromptUnpair = { showUnpairAlert = true },
-                        onPromptClearCache = { showClearCacheAlert = true }
-                    )
-                } else {
-                    NetworkSettingsContent(
-                        prefs = prefs,
-                        connectionManager = connectionManager
-                    )
-                }
+                MainSettingsContent(
+                    prefs = prefs,
+                    connectionManager = connectionManager,
+                    currentThemeMode = currentThemeMode,
+                    onThemeModeChange = onThemeModeChange,
+                    onPromptUnpair = { showUnpairAlert = true },
+                    onPromptClearCache = { showClearCacheAlert = true }
+                )
             }
         }
     }
@@ -238,17 +199,29 @@ fun SettingsSheet(
 @Composable
 private fun MainSettingsContent(
     prefs: PreferencesManager,
+    connectionManager: ConnectionManager,
     currentThemeMode: String,
-    onNavigateToNetwork: () -> Unit,
     onThemeModeChange: (String) -> Unit,
     onPromptUnpair: () -> Unit,
     onPromptClearCache: () -> Unit
 ) {
     val colors = AntigravityTheme.colors
+    val coroutineScope = rememberCoroutineScope()
     var autoApprove by remember { mutableStateOf(prefs.autoApprovePermissions) }
     var enableLiveNotifications by remember { mutableStateOf(prefs.enableLiveNotifications) }
     val isPaired = prefs.isPaired()
     val deviceId = prefs.deviceId ?: "未知"
+
+    var lanAddress by remember { mutableStateOf(prefs.lanServerUrl ?: "") }
+    var customAddress by remember { mutableStateOf(prefs.customServerUrl ?: "") }
+
+    val activeUrl = prefs.gatewayBaseUrl?.trim()?.trimEnd('/')
+    val isLanActive = !activeUrl.isNullOrBlank() && activeUrl.equals(prefs.lanServerUrl?.trim()?.trimEnd('/'), ignoreCase = true)
+    val isCustomActive = !activeUrl.isNullOrBlank() && activeUrl.equals(prefs.customServerUrl?.trim()?.trimEnd('/'), ignoreCase = true)
+
+    LaunchedEffect(Unit) {
+        connectionManager.probeEndpoints(prefs)
+    }
 
     Column(
         modifier = Modifier
@@ -333,49 +306,181 @@ private fun MainSettingsContent(
             }
         }
 
-        // MARK: - 2. 网络 (二级菜单入口，1:1 iOS 对齐)
+        // MARK: - 2. 网络 (局域网与自定义平铺，主域名后台兜底，1:1 对齐 iOS)
         SettingsSection(
-            title = "网络",
-            footer = "配置局域网、外网 IPv6 及云端中继等路由通道。"
+            title = "网络"
         ) {
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
                     .background(colors.surface)
                     .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
-                    .clickable { onNavigateToNetwork() }
-                    .padding(horizontal = 16.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "网络设置",
-                    color = colors.textPrimary,
-                    fontSize = 15.sp
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                Row(
-                    modifier = Modifier.weight(1f),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically
+                // 第一行：局域网 (扫码配对默认填写)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text(
-                        text = formatDisplayUrl(prefs.gatewayBaseUrl),
-                        color = colors.textSecondary,
-                        fontSize = 13.sp,
-                        fontFamily = FontFamily.Monospace,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        textAlign = TextAlign.End,
-                        modifier = Modifier.weight(1f, fill = false)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
-                        contentDescription = "Forward",
-                        tint = colors.textMuted,
-                        modifier = Modifier.size(13.dp)
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "局域网",
+                            color = colors.textPrimary,
+                            fontSize = 15.sp
+                        )
+                        if (isLanActive) {
+                            Text(
+                                text = "生效中",
+                                color = colors.textSecondary,
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        BasicTextField(
+                            value = lanAddress,
+                            onValueChange = { newVal ->
+                                lanAddress = newVal
+                                val clean = newVal.trim().trimEnd('/')
+                                prefs.lanServerUrl = if (clean.isBlank()) null else clean
+                                coroutineScope.launch {
+                                    connectionManager.probeEndpoints(prefs)
+                                }
+                            },
+                            textStyle = androidx.compose.ui.text.TextStyle(
+                                color = colors.textPrimary,
+                                fontSize = 13.sp,
+                                fontFamily = FontFamily.Monospace
+                            ),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                            decorationBox = { innerTextField ->
+                                if (lanAddress.isBlank()) {
+                                    Text(
+                                        text = "如 http://192.168.1.50:58900",
+                                        color = colors.textMuted,
+                                        fontSize = 13.sp,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        )
+
+                        if (lanAddress.isNotBlank()) {
+                            IconButton(
+                                onClick = {
+                                    lanAddress = ""
+                                    prefs.lanServerUrl = null
+                                    coroutineScope.launch {
+                                        connectionManager.probeEndpoints(prefs)
+                                    }
+                                },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Cancel,
+                                    contentDescription = "Clear",
+                                    tint = colors.textMuted,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
+
+                // 第二行：自定义 (留给用户自己配置，如 Tailscale)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "自定义",
+                            color = colors.textPrimary,
+                            fontSize = 15.sp
+                        )
+                        if (isCustomActive) {
+                            Text(
+                                text = "生效中",
+                                color = colors.textSecondary,
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        BasicTextField(
+                            value = customAddress,
+                            onValueChange = { newVal ->
+                                customAddress = newVal
+                                val clean = newVal.trim().trimEnd('/')
+                                prefs.customServerUrl = if (clean.isBlank()) null else clean
+                                coroutineScope.launch {
+                                    connectionManager.probeEndpoints(prefs)
+                                }
+                            },
+                            textStyle = androidx.compose.ui.text.TextStyle(
+                                color = colors.textPrimary,
+                                fontSize = 13.sp,
+                                fontFamily = FontFamily.Monospace
+                            ),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                            decorationBox = { innerTextField ->
+                                if (customAddress.isBlank()) {
+                                    Text(
+                                        text = "如 http://100.x.x.x:58900",
+                                        color = colors.textMuted,
+                                        fontSize = 13.sp,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        )
+
+                        if (customAddress.isNotBlank()) {
+                            IconButton(
+                                onClick = {
+                                    customAddress = ""
+                                    prefs.customServerUrl = null
+                                    coroutineScope.launch {
+                                        connectionManager.probeEndpoints(prefs)
+                                    }
+                                },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Cancel,
+                                    contentDescription = "Clear",
+                                    tint = colors.textMuted,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -403,17 +508,17 @@ private fun MainSettingsContent(
                         prefs.autoApprovePermissions = it
                     },
                     colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color.White,
+                        checkedThumbColor = colors.surface,
                         checkedTrackColor = colors.accentIndigo
                     )
                 )
             }
         }
 
-        // MARK: - 4. 实时活动与通知 (1:1 iOS 对齐)
+        // MARK: - 4. 实时通知 (1:1 iOS 对齐)
         SettingsSection(
-            title = "实时活动",
-            footer = "在锁屏和通知栏上显示任务进展及后台命令。"
+            title = "实时通知",
+            footer = "在通知栏中展示任务进展及后台命令。"
         ) {
             Row(
                 modifier = Modifier
@@ -425,7 +530,7 @@ private fun MainSettingsContent(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text(text = "通知与实时活动", color = colors.textPrimary, fontSize = 15.sp)
+                Text(text = "实时通知", color = colors.textPrimary, fontSize = 15.sp)
                 Switch(
                     checked = enableLiveNotifications,
                     onCheckedChange = {
@@ -433,14 +538,14 @@ private fun MainSettingsContent(
                         prefs.enableLiveNotifications = it
                     },
                     colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color.White,
+                        checkedThumbColor = colors.surface,
                         checkedTrackColor = colors.accentIndigo
                     )
                 )
             }
         }
 
-        // MARK: - 5. 本地存储 (1:1 iOS 对齐)
+        // MARK: - 5. 存储
         SettingsSection(
             title = "存储",
             footer = "清除本地缓存的会话与文档数据，下次访问时将从网关重新拉取。"
@@ -537,8 +642,6 @@ private fun MainSettingsContent(
     }
 }
 
-
-
 @Composable
 private fun SettingsSection(
     title: String,
@@ -607,27 +710,3 @@ private fun ThemeOptionSegment(
         }
     }
 }
-
-private fun formatDisplayUrl(url: String?): String {
-    if (url.isNullOrBlank()) return "未设置"
-    val trimmed = url.trim()
-    val openBracket = trimmed.indexOf('[')
-    val closeBracket = trimmed.indexOf(']')
-    if (openBracket != -1 && closeBracket != -1 && closeBracket > openBracket) {
-        val scheme = trimmed.substring(0, openBracket)
-        val v6Host = trimmed.substring(openBracket + 1, closeBracket)
-        val portAndPath = trimmed.substring(closeBracket + 1)
-
-        val groups = v6Host.split(":")
-        val shortenedHost = if (groups.size >= 4) {
-            "${groups.take(2).joinToString(":")}:...:${groups.takeLast(2).joinToString(":")}"
-        } else if (v6Host.length > 16) {
-            "${v6Host.take(8)}...${v6Host.takeLast(6)}"
-        } else {
-            v6Host
-        }
-        return "$scheme[$shortenedHost]$portAndPath"
-    }
-    return trimmed
-}
-

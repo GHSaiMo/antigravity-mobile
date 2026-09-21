@@ -126,7 +126,7 @@ class PreferencesManager(context: Context) {
         set(value) = prefs.edit().putString(KEY_RELAY_URL, value?.trimEnd('/')).apply()
 
     var customServerUrl: String?
-        get() = prefs.getString(KEY_CUSTOM_URL, null) ?: lanServerUrl
+        get() = prefs.getString(KEY_CUSTOM_URL, null)
         set(value) = prefs.edit().putString(KEY_CUSTOM_URL, value?.trimEnd('/')).apply()
 
     var cachedProjectsJson: String?
@@ -151,9 +151,6 @@ class PreferencesManager(context: Context) {
         val editor = prefs.edit()
         if (!lan.isNullOrBlank()) {
             editor.putString(KEY_LAN_URL, lan.trimEnd('/'))
-            if (prefs.getString(KEY_CUSTOM_URL, null).isNullOrBlank()) {
-                editor.putString(KEY_CUSTOM_URL, lan.trimEnd('/'))
-            }
         }
         if (!ipv6.isNullOrBlank()) {
             editor.putString(KEY_IPV6_URL, ipv6.trimEnd('/'))
@@ -177,8 +174,9 @@ class PreferencesManager(context: Context) {
 
     val candidateEndpoints: List<String>
         get() = listOfNotNull(
-            primaryCloudUrl?.takeIf { it.isNotBlank() },
+            lanServerUrl?.takeIf { it.isNotBlank() },
             customServerUrl?.takeIf { it.isNotBlank() },
+            primaryCloudUrl?.takeIf { it.isNotBlank() },
             gatewayBaseUrl?.takeIf { it.isNotBlank() }
         ).distinct()
 

@@ -150,12 +150,13 @@ public final class AppSettings {
     
     public var candidateEndpoints: [ServerEndpointItem] {
         var items: [ServerEndpointItem] = []
+        if let lan = lanServerURL, !lan.isEmpty {
+            let normalized = Self.normalize(raw: lan)?.absoluteString ?? lan
+            items.append(ServerEndpointItem(type: "lan", urlString: normalized))
+        }
         if let custom = customServerURL, !custom.isEmpty {
             let normalized = Self.normalize(raw: custom)?.absoluteString ?? custom
             items.append(ServerEndpointItem(type: "custom", urlString: normalized))
-        } else if let lan = lanServerURL, !lan.isEmpty {
-            let normalized = Self.normalize(raw: lan)?.absoluteString ?? lan
-            items.append(ServerEndpointItem(type: "lan", urlString: normalized))
         }
         if let cloud = primaryCloudURL, !cloud.isEmpty {
             let normalized = Self.normalize(raw: cloud)?.absoluteString ?? cloud
@@ -263,21 +264,22 @@ public final class AppSettings {
     
     public var serverURL: URL? {
         // 1. Dynamic endpoint selection: If ConnectionManager has established an activeServerURL,
-        // use it directly (it has already undergone connectivity and latency probing).
+        // use it directly (it has already undergone connectivity probing).
         if let active = activeServerURL, let url = Self.normalize(raw: active) {
             return url
         }
         
         // 2. Default fallback priority:
-        // Priority 1: Primary Cloudflare HTTPS Domain
-        if let cloud = primaryCloudURL, let url = Self.normalize(raw: cloud) {
+        // Priority 1: LAN (only if on Wi-Fi/non-cellular)
+        if !NetworkTransport.shared.isCellular, let lan = lanServerURL, let url = Self.normalize(raw: lan) {
             return url
         }
-        // Priority 2: Custom / LAN fallback address
+        // Priority 2: Custom (if configured)
         if let custom = customServerURL, let url = Self.normalize(raw: custom) {
             return url
         }
-        if let lan = lanServerURL, let url = Self.normalize(raw: lan) {
+        // Priority 3: Primary Cloudflare HTTPS Domain (final fallback)
+        if let cloud = primaryCloudURL, let url = Self.normalize(raw: cloud) {
             return url
         }
         return Self.normalize(raw: rawServerURL)
@@ -307,9 +309,6 @@ public final class AppSettings {
         self.isPaired = (token != nil && !token!.isEmpty)
         if let lan = lan, !lan.isEmpty {
             self.lanServerURL = lan
-            if self.customServerURL == nil || self.customServerURL?.isEmpty == true {
-                self.customServerURL = lan
-            }
         }
         if let ipv6 = ipv6, !ipv6.isEmpty {
             self.ipv6ServerURL = ipv6
