@@ -64,6 +64,11 @@ func ResolveLocalFilePath(rawURI, cascadeID string) (string, error) {
 			}
 		}
 	}
+	if strings.Contains(clean, "%") {
+		if unescaped, err := url.PathUnescape(clean); err == nil {
+			clean = unescaped
+		}
+	}
 
 	// 3. Brain path detection: if it points to .gemini/antigravity/brain or /brain/
 	slashClean := filepath.ToSlash(clean)

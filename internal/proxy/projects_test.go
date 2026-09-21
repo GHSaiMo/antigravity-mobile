@@ -50,6 +50,31 @@ func TestURIHelpers(t *testing.T) {
 	if norm != "file:///Users/hal9000/Projects/foo" {
 		t.Errorf("expected normalized URI, got: %s", norm)
 	}
+
+	// Test Chinese URI decoding
+	chineseURI := "file:///d%3A/OneDrive/%E9%A1%B9%E7%9B%AE/Antigravity"
+	normChinese := normalizeURI(chineseURI)
+	if normChinese != "file:///d:/OneDrive/项目/Antigravity" {
+		t.Errorf("expected normalized Chinese URI, got: %s", normChinese)
+	}
+
+	// Test 2-slash Windows file URI
+	twoSlash := "file://d:/Projects/test-app"
+	normTwoSlash := normalizeURI(twoSlash)
+	if normTwoSlash != "file:///d:/Projects/test-app" {
+		t.Errorf("expected normalized 3-slash URI, got: %s", normTwoSlash)
+	}
+
+	// Test remote workspace URI
+	remoteURI := "vscode-remote://ssh-remote%2B7b22686f73744e616d65223a224e4153227d/home/jiuzai/projects"
+	normRemote := normalizeURI(remoteURI)
+	if normRemote != remoteURI {
+		t.Errorf("expected remote URI preserved, got: %s", normRemote)
+	}
+	remotePath := uriToPath(remoteURI)
+	if remotePath != "/home/jiuzai/projects" {
+		t.Errorf("expected remote path extracted, got: %s", remotePath)
+	}
 }
 
 func TestResolveModelEnum(t *testing.T) {
@@ -490,5 +515,43 @@ func TestLiveOfficialProjects(t *testing.T) {
 		}
 	}
 }
+
+func TestFetchProjectsFromWorkspaceStorage(t *testing.T) {
+	tmpDir := t.TempDir()
+	wsDir := filepath.Join(tmpDir, "Antigravity", "User", "workspaceStorage", "test-hash-123")
+	if err := os.MkdirAll(wsDir, 0755); err != nil {
+		t.Fatalf("failed to create temp workspaceStorage: %v", err)
+	}
+
+	testProjectDir := filepath.Join(tmpDir, "MyTestProject")
+	if err := os.MkdirAll(testProjectDir, 0755); err != nil {
+		t.Fatalf("failed to create test project dir: %v", err)
+	}
+
+	wsJSON := fmt.Sprintf(`{"folder": "file://%s"}`, filepath.ToSlash(testProjectDir))
+	if err := os.WriteFile(filepath.Join(wsDir, "workspace.json"), []byte(wsJSON), 0644); err != nil {
+		t.Fatalf("failed to write workspace.json: %v", err)
+	}
+
+	origAppData := os.Getenv("APPDATA")
+	os.Setenv("APPDATA", tmpDir)
+	defer os.Setenv("APPDATA", origAppData)
+
+	items := fetchProjectsFromWorkspaceStorage()
+	found := false
+	for _, item := range items {
+		if item.Name == "MyTestProject" {
+			found = true
+			if item.LastActive == nil {
+				t.Errorf("expected LastActive to be set from file ModTime")
+			}
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected MyTestProject to be discovered from workspaceStorage, got %d items", len(items))
+	}
+}
+
 
 

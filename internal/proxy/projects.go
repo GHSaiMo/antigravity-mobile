@@ -43,7 +43,7 @@ type vscdbHistory struct {
 }
 
 // GetProjects discovers all projects from local IDE database and trajectory history.
-// Prioritizes official Projects order from app_storage.json and ReadProjects RPC.
+// Merges official projects, workspaceStorage folders, state.vscdb history, and active trajectories.
 func (p *Proxy) GetProjects() ([]ProjectItem, error) {
 	p.mu.RLock()
 	port := p.activePort
@@ -106,36 +106,78 @@ func (p *Proxy) GetProjects() ([]ProjectItem, error) {
 		}
 	}
 
-	// 2. Try fetching official ordered Projects from app_storage.json + ReadProjects RPC
-	if officialProjects, err := p.fetchOfficialProjects(port, token, sessionStats); err == nil && len(officialProjects) > 0 {
-		return officialProjects, nil
-	}
-
-	// 3. Fallback: discover from workspace file or state.vscdb
-	dbProjects := fetchProjectsFromStateDB()
 	projectMap := make(map[string]*ProjectItem)
 
-	for _, prj := range dbProjects {
+	mergeProject := func(prj ProjectItem) {
 		norm := normalizeURI(prj.URI)
+		if norm == "" {
+			return
+		}
+		if existing, exists := projectMap[norm]; exists {
+			if existing.ID == "" && prj.ID != "" {
+				existing.ID = prj.ID
+			}
+			if prj.ID != "" && prj.Name != "" {
+				existing.Name = prj.Name
+			}
+			if prj.IsWorkspace {
+				existing.IsWorkspace = true
+			}
+			if prj.Path != "" && (existing.Path == "" || !filepath.IsAbs(existing.Path)) {
+				existing.Path = prj.Path
+			}
+			if prj.LastActive != nil && (existing.LastActive == nil || prj.LastActive.After(*existing.LastActive)) {
+				existing.LastActive = prj.LastActive
+			}
+			if prj.SessionCount > existing.SessionCount {
+				existing.SessionCount = prj.SessionCount
+			}
+			return
+		}
+
+		itemCopy := prj
+		itemCopy.URI = norm
+		if itemCopy.Path == "" {
+			itemCopy.Path = uriToPath(norm)
+		}
 		if stat, ok := sessionStats[norm]; ok {
-			prj.SessionCount = stat.count
-			if !stat.lastActive.IsZero() {
+			itemCopy.SessionCount = stat.count
+			if !stat.lastActive.IsZero() && (itemCopy.LastActive == nil || stat.lastActive.After(*itemCopy.LastActive)) {
 				t := stat.lastActive
-				prj.LastActive = &t
+				itemCopy.LastActive = &t
 			}
 		}
-		itemCopy := prj
 		projectMap[norm] = &itemCopy
 	}
 
+	// 2. Load official ordered Projects from app_storage.json + ReadProjects RPC
+	if officialProjects, err := p.fetchOfficialProjects(port, token, sessionStats); err == nil {
+		for _, prj := range officialProjects {
+			mergeProject(prj)
+		}
+	}
+
+	// 3. Load workspace projects from workspaceStorage (plain JSON, works on all OSes without SQLite/Python)
+	for _, prj := range fetchProjectsFromWorkspaceStorage() {
+		mergeProject(prj)
+	}
+
+	// 4. Load from state.vscdb (history.recentlyOpenedPathsList)
+	for _, prj := range fetchProjectsFromStateDB() {
+		mergeProject(prj)
+	}
+
+	// 5. Load any remaining active workspace URIs from trajectories
 	for norm, stat := range sessionStats {
 		if _, exists := projectMap[norm]; !exists {
 			parsedPath := uriToPath(norm)
 			if parsedPath == "" {
 				continue
 			}
-			if _, err := os.Stat(parsedPath); err != nil {
-				continue
+			if !isRemoteURI(norm) {
+				if _, err := os.Stat(parsedPath); err != nil {
+					continue
+				}
 			}
 
 			isWs := strings.HasSuffix(parsedPath, ".code-workspace")
@@ -150,14 +192,14 @@ func (p *Proxy) GetProjects() ([]ProjectItem, error) {
 				lastActive = &t
 			}
 
-			projectMap[norm] = &ProjectItem{
+			mergeProject(ProjectItem{
 				Name:         name,
 				URI:          norm,
 				Path:         parsedPath,
 				IsWorkspace:  isWs,
 				SessionCount: stat.count,
 				LastActive:   lastActive,
-			}
+			})
 		}
 	}
 
@@ -390,6 +432,124 @@ func (p *Proxy) fetchOfficialProjects(port int, token string, sessionStats map[s
 	return nil, fmt.Errorf("could not fetch official projects")
 }
 
+func getAntigravityWorkspaceStoragePaths() []string {
+	var paths []string
+	if appData := os.Getenv("APPDATA"); appData != "" {
+		paths = append(paths,
+			filepath.Join(appData, "Antigravity", "User", "workspaceStorage"),
+			filepath.Join(appData, "Antigravity IDE", "User", "workspaceStorage"),
+		)
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		paths = append(paths,
+			filepath.Join(home, "Library", "Application Support", "Antigravity", "User", "workspaceStorage"),
+			filepath.Join(home, "Library", "Application Support", "Antigravity IDE", "User", "workspaceStorage"),
+			filepath.Join(home, "AppData", "Roaming", "Antigravity", "User", "workspaceStorage"),
+			filepath.Join(home, "AppData", "Roaming", "Antigravity IDE", "User", "workspaceStorage"),
+			filepath.Join(home, ".config", "Antigravity", "User", "workspaceStorage"),
+			filepath.Join(home, ".config", "Antigravity IDE", "User", "workspaceStorage"),
+		)
+	}
+	return paths
+}
+
+// fetchProjectsFromWorkspaceStorage reads all workspace.json files from User/workspaceStorage.
+// This is pure JSON on disk without requiring SQLite or Python.
+func fetchProjectsFromWorkspaceStorage() []ProjectItem {
+	var items []ProjectItem
+	seenRoots := make(map[string]bool)
+	seenURIs := make(map[string]bool)
+
+	for _, wsRoot := range getAntigravityWorkspaceStoragePaths() {
+		cleanRoot := filepath.Clean(wsRoot)
+		if seenRoots[cleanRoot] {
+			continue
+		}
+		seenRoots[cleanRoot] = true
+
+		entries, err := os.ReadDir(cleanRoot)
+		if err != nil {
+			continue
+		}
+
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+
+			wsFile := filepath.Join(cleanRoot, entry.Name(), "workspace.json")
+			fi, err := os.Stat(wsFile)
+			if err != nil {
+				continue
+			}
+
+			data, err := os.ReadFile(wsFile)
+			if err != nil || len(data) == 0 {
+				continue
+			}
+
+			var wsObj struct {
+				Folder    string `json:"folder"`
+				Workspace string `json:"workspace"`
+			}
+			if err := json.Unmarshal(data, &wsObj); err != nil {
+				continue
+			}
+
+			rawURI := strings.TrimSpace(wsObj.Folder)
+			isWorkspace := false
+			if rawURI == "" && wsObj.Workspace != "" {
+				rawURI = strings.TrimSpace(wsObj.Workspace)
+				isWorkspace = true
+			}
+			if rawURI == "" {
+				continue
+			}
+
+			norm := normalizeURI(rawURI)
+			if norm == "" || seenURIs[norm] {
+				continue
+			}
+
+			parsedPath := uriToPath(norm)
+			if parsedPath == "" {
+				continue
+			}
+
+			if !isRemoteURI(norm) {
+				if fiPath, err := os.Stat(parsedPath); err != nil {
+					continue
+				} else if !isWorkspace && !fiPath.IsDir() {
+					continue
+				}
+			}
+
+			name := filepath.Base(parsedPath)
+			if isWorkspace {
+				name = strings.TrimSuffix(name, ".code-workspace")
+			}
+			if name == "" || name == "/" || name == "\\" || name == "." {
+				name = filepath.Base(parsedPath)
+			}
+			if isRemoteURI(norm) {
+				name += " (Remote)"
+			}
+
+			modTime := fi.ModTime()
+			seenURIs[norm] = true
+			items = append(items, ProjectItem{
+				Name:        name,
+				URI:         norm,
+				Path:        parsedPath,
+				IsWorkspace: isWorkspace,
+				LastActive:  &modTime,
+			})
+		}
+	}
+
+	return items
+}
+
 func getAntigravityStateDBPaths() []string {
 	var paths []string
 	if appData := os.Getenv("APPDATA"); appData != "" {
@@ -436,7 +596,15 @@ func fetchProjectsFromStateDB() []ProjectItem {
 
 	// 2. Fallback to Python's built-in sqlite3 module if sqlite3 CLI is absent (e.g. Windows)
 	if len(out) == 0 {
-		pyScript := "import sqlite3, sys; conn = sqlite3.connect(sys.argv[1]); cur = conn.cursor(); cur.execute('SELECT value FROM ItemTable WHERE key = ?', (sys.argv[2],)); row = cur.fetchone(); sys.stdout.write(row[0] if row and row[0] else '')"
+		pyScript := "import sqlite3, sys\n" +
+			"try:\n" +
+			"    conn = sqlite3.connect('file:' + sys.argv[1] + '?mode=ro', uri=True)\n" +
+			"except Exception:\n" +
+			"    conn = sqlite3.connect(sys.argv[1])\n" +
+			"cur = conn.cursor()\n" +
+			"cur.execute('SELECT value FROM ItemTable WHERE key = ?', (sys.argv[2],))\n" +
+			"row = cur.fetchone()\n" +
+			"sys.stdout.write(row[0] if row and row[0] else '')\n"
 		for _, pyExe := range []string{"python", "python3"} {
 			if _, lookErr := exec.LookPath(pyExe); lookErr == nil {
 				cmd := exec.CommandContext(ctx, pyExe, "-c", pyScript, dbPath, "history.recentlyOpenedPathsList")
@@ -479,20 +647,25 @@ func fetchProjectsFromStateDB() []ProjectItem {
 			continue
 		}
 
-		if fi, err := os.Stat(path); err != nil {
-			continue
-		} else if !isWorkspace && !fi.IsDir() {
-			continue
+		if !isRemoteURI(rawURI) {
+			if fi, err := os.Stat(path); err != nil {
+				continue
+			} else if !isWorkspace && !fi.IsDir() {
+				continue
+			}
 		}
 
 		name := filepath.Base(path)
 		if isWorkspace {
 			name = strings.TrimSuffix(name, ".code-workspace")
 		}
+		if isRemoteURI(rawURI) {
+			name += " (Remote)"
+		}
 
 		items = append(items, ProjectItem{
 			Name:        name,
-			URI:         rawURI,
+			URI:         normalizeURI(rawURI),
 			Path:        path,
 			IsWorkspace: isWorkspace,
 		})
@@ -856,24 +1029,45 @@ func (p *Proxy) HandleCreateCascade(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func isRemoteURI(uri string) bool {
+	return strings.HasPrefix(uri, "vscode-remote://") || strings.HasPrefix(uri, "ssh://")
+}
+
 func normalizeURI(uri string) string {
 	uri = strings.TrimSpace(uri)
 	if uri == "" {
 		return ""
 	}
-	// Decode %3A or %3a if present (e.g. file:///d%3A/...)
-	uri = strings.ReplaceAll(uri, "%3A", ":")
-	uri = strings.ReplaceAll(uri, "%3a", ":")
+
+	if isRemoteURI(uri) {
+		return strings.TrimSuffix(uri, "/")
+	}
+
+	// Fix 2-slash file://d:/... -> file:///d:/...
+	if strings.HasPrefix(uri, "file://") && !strings.HasPrefix(uri, "file:///") {
+		rest := strings.TrimPrefix(uri, "file://")
+		if len(rest) >= 2 && isWindowsDriveLetter(rest[0]) && rest[1] == ':' {
+			uri = "file:///" + rest
+		}
+	}
+
+	// Unescape %3A or any percent-encoded characters (like %20 or %E9...)
+	if strings.Contains(uri, "%") {
+		if unescaped, err := url.PathUnescape(uri); err == nil {
+			uri = unescaped
+		}
+	}
 
 	if strings.HasPrefix(uri, "file://") {
 		clean := strings.TrimPrefix(uri, "file://")
+		clean = filepath.ToSlash(clean)
 		if runtime.GOOS == "windows" {
 			if len(clean) > 2 && clean[0] == '/' && isWindowsDriveLetter(clean[1]) && clean[2] == ':' {
 				clean = clean[1:]
 			}
 			if len(clean) >= 2 && isWindowsDriveLetter(clean[0]) && clean[1] == ':' {
 				clean = strings.ToLower(string(clean[0])) + clean[1:]
-				return "file:///" + filepath.ToSlash(strings.TrimSuffix(clean, "/"))
+				return "file:///" + strings.TrimSuffix(clean, "/")
 			}
 		}
 		return strings.TrimSuffix("file://"+clean, "/")
@@ -892,27 +1086,68 @@ func normalizeURI(uri string) string {
 }
 
 func uriToPath(rawURI string) string {
-	if !strings.HasPrefix(rawURI, "file://") {
+	rawURI = strings.TrimSpace(rawURI)
+	if rawURI == "" {
+		return ""
+	}
+
+	if isRemoteURI(rawURI) {
+		u, err := url.Parse(rawURI)
+		if err == nil && u.Path != "" {
+			if unescaped, uErr := url.PathUnescape(u.Path); uErr == nil {
+				return unescaped
+			}
+			return u.Path
+		}
 		return rawURI
 	}
-	u, err := url.Parse(rawURI)
-	if err != nil {
-		path := strings.TrimPrefix(rawURI, "file://")
-		if runtime.GOOS == "windows" && len(path) > 2 && (path[0] == '/' || path[0] == '\\') && isWindowsDriveLetter(path[1]) && path[2] == ':' {
-			path = path[1:]
-			return filepath.FromSlash(path)
+
+	// Fix 2-slash file://d:/... -> file:///d:/...
+	if strings.HasPrefix(rawURI, "file://") && !strings.HasPrefix(rawURI, "file:///") {
+		rest := strings.TrimPrefix(rawURI, "file://")
+		if len(rest) >= 2 && isWindowsDriveLetter(rest[0]) && rest[1] == ':' {
+			rawURI = "file:///" + rest
 		}
-		return path
 	}
-	path, err := url.PathUnescape(u.Path)
+
+	if !strings.HasPrefix(rawURI, "file://") {
+		if strings.Contains(rawURI, "%") {
+			if unescaped, err := url.PathUnescape(rawURI); err == nil {
+				rawURI = unescaped
+			}
+		}
+		return filepath.Clean(rawURI)
+	}
+
+	u, err := url.Parse(rawURI)
+	var path string
 	if err != nil {
-		path = u.Path
+		path = strings.TrimPrefix(rawURI, "file://")
+	} else {
+		p, uErr := url.PathUnescape(u.Path)
+		if uErr == nil {
+			path = p
+		} else {
+			path = u.Path
+		}
 	}
-	if runtime.GOOS == "windows" && len(path) > 2 && (path[0] == '/' || path[0] == '\\') && isWindowsDriveLetter(path[1]) && path[2] == ':' {
-		path = path[1:]
+
+	if strings.Contains(path, "%") {
+		if unescaped, err := url.PathUnescape(path); err == nil {
+			path = unescaped
+		}
+	}
+
+	if runtime.GOOS == "windows" {
+		if len(path) > 2 && (path[0] == '/' || path[0] == '\\') && isWindowsDriveLetter(path[1]) && path[2] == ':' {
+			path = path[1:]
+		}
+		if len(path) >= 2 && isWindowsDriveLetter(path[0]) && path[1] == ':' {
+			path = strings.ToLower(string(path[0])) + path[1:]
+		}
 		return filepath.FromSlash(path)
 	}
-	return path
+	return filepath.Clean(path)
 }
 
 // modelEnumMap maps friendly model IDs or aliases to upstream Protobuf enum names.
