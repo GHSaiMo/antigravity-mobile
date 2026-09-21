@@ -51,17 +51,33 @@ public final class StreamWebSocketClient {
     private var activeCascadeId: String?
     private var isIntentionallyClosed: Bool = false
     
-    public init() {}
+    public init() {
+        NotificationCenter.default.addObserver(
+            forName: .networkRoutingPreferenceChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self = self else { return }
+                if self.activeCascadeId != nil && !self.isIntentionallyClosed {
+                    print("[StreamWS] Network route changed, reconnecting stream...")
+                    self.disconnect(intentional: false)
+                    self.startConnection()
+                }
+            }
+        }
+    }
     
     public func connect(baseURL: URL, cascadeId: String, force: Bool = false) {
+        let effectiveURL = AppSettings.shared.serverURL ?? baseURL
         // If already connected or currently connecting to the same session and URL, do not abort/reconnect unless forced
-        if !force && (status == .connected || status == .connecting) && activeCascadeId == cascadeId && activeURL == baseURL {
+        if !force && (status == .connected || status == .connecting) && activeCascadeId == cascadeId && activeURL == effectiveURL {
             return
         }
         
         disconnect(intentional: true)
         
-        self.activeURL = baseURL
+        self.activeURL = effectiveURL
         self.activeCascadeId = cascadeId
         self.isIntentionallyClosed = false
         
@@ -69,12 +85,22 @@ public final class StreamWebSocketClient {
     }
     
     public func reconnect(force: Bool = true) {
-        guard let baseURL = activeURL, let cascadeId = activeCascadeId else { return }
+        guard let cascadeId = activeCascadeId else { return }
+        let effectiveURL = AppSettings.shared.serverURL ?? activeURL
+        guard let baseURL = effectiveURL else { return }
         connect(baseURL: baseURL, cascadeId: cascadeId, force: force)
     }
     
     private func startConnection() {
-        guard let baseURL = activeURL, let cascadeId = activeCascadeId, !isIntentionallyClosed else { return }
+        guard let cascadeId = activeCascadeId, !isIntentionallyClosed else { return }
+        
+        // Dynamically re-evaluate effective URL from AppSettings to guarantee failover to Cloudflare on cellular
+        let effectiveURL = AppSettings.shared.serverURL ?? activeURL
+        guard let baseURL = effectiveURL else {
+            updateStatus(.failed)
+            return
+        }
+        self.activeURL = effectiveURL
         
         guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: true) else {
             updateStatus(.failed)

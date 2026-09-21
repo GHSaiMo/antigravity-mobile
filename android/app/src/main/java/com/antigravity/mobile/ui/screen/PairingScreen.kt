@@ -119,7 +119,8 @@ fun PairingScreen(
                 sheetState = sheetState,
                 containerColor = colors.surface,
                 dragHandle = null,
-                shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+                shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+                windowInsets = WindowInsets(0, 0, 0, 0)
             ) {
                 Column(
                     modifier = Modifier

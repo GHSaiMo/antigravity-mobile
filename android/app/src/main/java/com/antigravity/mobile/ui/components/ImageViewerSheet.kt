@@ -298,7 +298,8 @@ fun ImageViewerSheet(
                                 .background(Color.White.copy(alpha = 0.35f))
                         )
                     },
-                    shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+                    shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+                    windowInsets = WindowInsets(0, 0, 0, 0)
                 ) {
                     Column(
                         modifier = Modifier

@@ -48,11 +48,13 @@ fun ConfirmUndoBottomSheet(
         containerColor = colors.surface,
         contentColor = colors.textPrimary,
         dragHandle = { BottomSheetDefaults.DragHandle() },
+        windowInsets = WindowInsets(0, 0, 0, 0),
         modifier = modifier
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .navigationBarsPadding()
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 28.dp)
         ) {

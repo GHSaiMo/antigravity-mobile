@@ -53,6 +53,7 @@ fun NewConversationSheet(
         containerColor = colors.surface,
         dragHandle = null,
         shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        windowInsets = WindowInsets(0, 0, 0, 0),
         modifier = modifier
             .fillMaxWidth()
             .fillMaxHeight(0.94f)
@@ -61,6 +62,7 @@ fun NewConversationSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .fillMaxHeight()
+                .navigationBarsPadding()
                 .padding(bottom = 16.dp)
         ) {
             // Floating grab handle hinting pull-down dismissal (matching iOS Capsule 38x5)

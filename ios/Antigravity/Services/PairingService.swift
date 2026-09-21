@@ -294,9 +294,26 @@ public final class PairingService: Sendable {
                                 if cloudURL == nil { cloudURL = ep.url }
                             case "cloudflare":
                                 cloudURL = ep.url
+                            case "primary":
+                                let h = URL(string: ep.url)?.host ?? ""
+                                if NetworkTransport.isLocalOrPrivateHost(h) {
+                                    if lanURL == nil { lanURL = ep.url }
+                                } else {
+                                    if cloudURL == nil { cloudURL = ep.url }
+                                }
                             default:
                                 break
                             }
+                        }
+                    }
+                    
+                    // Fallback classify successful candidate if slots are unassigned
+                    let candClean = baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                    if let candHost = URL(string: candClean)?.host {
+                        if NetworkTransport.isLocalOrPrivateHost(candHost) {
+                            if lanURL == nil { lanURL = candClean }
+                        } else {
+                            if cloudURL == nil { cloudURL = candClean }
                         }
                     }
                     

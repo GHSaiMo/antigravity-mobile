@@ -268,38 +268,68 @@ public final class AppSettings {
     }
     
     public var serverURL: URL? {
-        let isCellular = NetworkTransport.shared.isCellular || ConnectionManager.shared.isCellular || !NetworkTransport.shared.isWifi
+        let isCellular = NetworkTransport.shared.isCellular || ConnectionManager.shared.isCellular || !ConnectionManager.shared.isWifi || !NetworkTransport.shared.isWifi
         
-        // Priority 1: LAN (only if on Wi-Fi/non-cellular)
-        if !isCellular, let lan = lanServerURL, let url = Self.normalize(raw: lan) {
-            return url
-        }
-        
-        // Priority 2: Custom (if configured and not dead LAN on cellular)
-        if let custom = customServerURL, let url = Self.normalize(raw: custom) {
-            let isLan = NetworkTransport.isLocalOrPrivateHost(url.host ?? "")
-            if !(isCellular && isLan) {
+        if isCellular {
+            // Cellular mode: Strictly avoid LAN addresses (192.168.x.x, 10.x.x.x, etc.) to prevent timeouts
+            
+            // Priority 1: Dynamic activeServerURL (if established and not LAN)
+            if let active = activeServerURL, let url = Self.normalize(raw: active) {
+                let isLan = NetworkTransport.isLocalOrPrivateHost(url.host ?? "")
+                if !isLan {
+                    return url
+                }
+            }
+            
+            // Priority 2: Custom (if configured and not LAN)
+            if let custom = customServerURL, let url = Self.normalize(raw: custom) {
+                let isLan = NetworkTransport.isLocalOrPrivateHost(url.host ?? "")
+                if !isLan {
+                    return url
+                }
+            }
+            
+            // Priority 3: Primary Cloudflare HTTPS Domain (default fallback on cellular)
+            if let cloud = primaryCloudURL, let url = Self.normalize(raw: cloud) {
                 return url
             }
-        }
-        
-        // Dynamic endpoint selection: If ConnectionManager has established an activeServerURL,
-        // use it directly (if not an unreachable LAN address while on cellular).
-        if let active = activeServerURL, let url = Self.normalize(raw: active) {
-            let isLan = NetworkTransport.isLocalOrPrivateHost(url.host ?? "")
-            if !(isCellular && isLan) {
+            
+            // Priority 4: rawServerURL only if not LAN
+            if let raw = Self.normalize(raw: rawServerURL) {
+                let isLan = NetworkTransport.isLocalOrPrivateHost(raw.host ?? "")
+                if !isLan {
+                    return raw
+                }
+            }
+            
+            if let cloud = primaryCloudURL {
+                return Self.normalize(raw: cloud)
+            }
+            return nil
+        } else {
+            // Wi-Fi mode:
+            // Priority 1: LAN (local direct connection for lowest latency)
+            if let lan = lanServerURL, let url = Self.normalize(raw: lan) {
                 return url
             }
-        }
-        
-        // Priority 3: Primary Cloudflare HTTPS Domain (final fallback)
-        if let cloud = primaryCloudURL, let url = Self.normalize(raw: cloud) {
-            return url
-        }
-        if !isCellular {
+            
+            // Priority 2: Custom
+            if let custom = customServerURL, let url = Self.normalize(raw: custom) {
+                return url
+            }
+            
+            // Priority 3: Dynamic activeServerURL
+            if let active = activeServerURL, let url = Self.normalize(raw: active) {
+                return url
+            }
+            
+            // Priority 4: Primary Cloudflare HTTPS Domain
+            if let cloud = primaryCloudURL, let url = Self.normalize(raw: cloud) {
+                return url
+            }
+            
             return Self.normalize(raw: rawServerURL)
         }
-        return Self.normalize(raw: primaryCloudURL ?? rawServerURL)
     }
     
     public var gatewayURL: URL? {

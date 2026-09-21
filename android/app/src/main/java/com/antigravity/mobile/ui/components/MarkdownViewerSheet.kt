@@ -89,6 +89,7 @@ fun MarkdownViewerSheet(
                     .background(colors.textMuted.copy(alpha = 0.35f))
             )
         },
+        windowInsets = WindowInsets(0, 0, 0, 0),
         modifier = modifier
             .fillMaxWidth()
             .fillMaxHeight(0.94f)
@@ -96,6 +97,7 @@ fun MarkdownViewerSheet(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .navigationBarsPadding()
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 24.dp)
         ) {

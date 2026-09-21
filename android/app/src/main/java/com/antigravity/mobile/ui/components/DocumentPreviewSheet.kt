@@ -108,11 +108,16 @@ fun DocumentPreviewSheet(
                     .background(colors.textMuted.copy(alpha = 0.35f))
             )
         },
+        windowInsets = WindowInsets(0, 0, 0, 0),
         modifier = modifier
             .fillMaxWidth()
             .fillMaxHeight(0.94f)
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .navigationBarsPadding()
+        ) {
             // Top Navigation Bar (Apple Native Component Layout)
             Row(
                 modifier = Modifier

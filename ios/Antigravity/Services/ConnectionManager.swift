@@ -19,10 +19,12 @@ public final class ConnectionManager {
     public var lastProbeDate: Date? = nil
     public var endpointStatuses: [String: EndpointHealthStatus] = [:]
     public var isCellular: Bool = false
+    public var isWifi: Bool = true
     public var isConnectedToNetwork: Bool = true
     
     private let pathMonitor = NWPathMonitor()
     private let monitorQueue = DispatchQueue(label: "antigravity.connection_monitor", qos: .utility)
+    private var networkLostTask: Task<Void, Never>?
     
     private init() {
         startMonitoring()
@@ -44,13 +46,37 @@ public final class ConnectionManager {
             Task { @MainActor [weak self] in
                 guard let self = self else { return }
                 let wasCellular = self.isCellular
-                self.isConnectedToNetwork = (path.status == .satisfied)
-                self.isCellular = path.isExpensive || path.usesInterfaceType(.cellular)
+                let wasWifi = self.isWifi
+                let wasConnected = self.isConnectedToNetwork
                 
-                // If network interface changed, automatically trigger background endpoint probe
-                if wasCellular != self.isCellular && self.isConnectedToNetwork {
-                    Task {
+                let isSatisfied = (path.status == .satisfied)
+                let currentCellular = path.isExpensive || path.usesInterfaceType(.cellular)
+                let currentWifi = path.usesInterfaceType(.wifi)
+                
+                self.isConnectedToNetwork = isSatisfied
+                self.isCellular = currentCellular
+                self.isWifi = currentWifi
+                
+                if !isSatisfied {
+                    // Network lost or interface switching in progress (e.g. Wi-Fi dropped, cellular acquiring)
+                    // Schedule a 300ms delayed probe like Android's onLost callback
+                    self.networkLostTask?.cancel()
+                    self.networkLostTask = Task { [weak self] in
+                        try? await Task.sleep(nanoseconds: 300_000_000)
+                        guard let self, !Task.isCancelled else { return }
                         await self.probeEndpoints()
+                    }
+                } else {
+                    // Network is satisfied/connected
+                    self.networkLostTask?.cancel()
+                    self.networkLostTask = nil
+                    
+                    // Trigger probe if interface changed or network reconnected
+                    if !wasConnected || wasCellular != currentCellular || wasWifi != currentWifi {
+                        NotificationCenter.default.post(name: .networkRoutingPreferenceChanged, object: nil)
+                        Task {
+                            await self.probeEndpoints()
+                        }
                     }
                 }
             }
@@ -65,7 +91,7 @@ public final class ConnectionManager {
         guard !isProbing else { return AppSettings.shared.activeServerURL }
         
         let settings = AppSettings.shared
-        let isCellularNow = NetworkTransport.shared.isCellular || self.isCellular || !NetworkTransport.shared.isWifi
+        let isCellularNow = NetworkTransport.shared.isCellular || self.isCellular || !self.isWifi || !NetworkTransport.shared.isWifi
         
         // 1. Filter endpoints to test based on network interface and configuration
         var endpointsToTest: [String] = []
@@ -165,8 +191,12 @@ public final class ConnectionManager {
         }
         
         if let best = selected {
+            let oldActive = settings.activeServerURL
             settings.activeServerURL = best
             settings.rawServerURL = best
+            if oldActive != best {
+                NotificationCenter.default.post(name: .networkRoutingPreferenceChanged, object: nil)
+            }
             return best
         }
         
