@@ -1099,6 +1099,18 @@ func uriToPath(rawURI string) string {
 			}
 			return u.Path
 		}
+		for _, prefix := range []string{"vscode-remote://", "ssh://"} {
+			if strings.HasPrefix(rawURI, prefix) {
+				rest := strings.TrimPrefix(rawURI, prefix)
+				if idx := strings.Index(rest, "/"); idx != -1 {
+					pathPart := rest[idx:]
+					if unescaped, uErr := url.PathUnescape(pathPart); uErr == nil {
+						return unescaped
+					}
+					return pathPart
+				}
+			}
+		}
 		return rawURI
 	}
 
