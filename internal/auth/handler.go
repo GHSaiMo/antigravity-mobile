@@ -620,8 +620,10 @@ func (h *AuthHandler) isAuthorizedAdmin(r *http.Request) bool {
 		return false
 	}
 
-	// Only trust RemoteAddr if NOT behind a reverse proxy.
-	if r.Header.Get("X-Forwarded-For") == "" && r.Header.Get("X-Real-IP") == "" {
+	// SEC-AUDIT L-2: Only trust RemoteAddr if NOT behind ANY reverse proxy or PROXY protocol.
+	// Check all known proxy indicators: X-Forwarded-For, X-Real-IP, and CF-Connecting-IP
+	// (Cloudflare Tunnel / PROXY Protocol can rewrite RemoteAddr to the real client IP).
+	if r.Header.Get("X-Forwarded-For") == "" && r.Header.Get("X-Real-IP") == "" && r.Header.Get("CF-Connecting-IP") == "" {
 		if IsLoopbackAddr(r.RemoteAddr) {
 			return true
 		}

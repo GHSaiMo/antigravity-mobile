@@ -64,7 +64,7 @@ func ExtractToken(r *http.Request) string {
 			token = strings.TrimSpace(r.URL.Query().Get("token"))
 		}
 		if token != "" {
-			log.Printf("[DEPRECATED] client %s passed token in query param for %s; migrate to Authorization header, cookie or /api/v1/auth/ws-ticket", ExtractClientIP(r), r.URL.Path)
+			log.Printf("[DEPRECATED] [SEC-AUDIT L-1] client %s passed token in query param for %s — WILL BE REMOVED in v2.0. Query tokens leak via server logs, Referer headers, and browser history. Migrate to Authorization header, HttpOnly cookie, or /api/v1/auth/ws-ticket", ExtractClientIP(r), r.URL.Path)
 			return token
 		}
 	}

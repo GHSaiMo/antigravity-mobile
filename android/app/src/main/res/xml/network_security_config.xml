@@ -1,19 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Antigravity Mobile Android Network Security Configuration (H-1) -->
+<!-- Antigravity Mobile Android Network Security Configuration (H-1)
+     SEC-AUDIT 2026-09-22 M-1: Default deny cleartext; whitelist only LAN/loopback for gateway HTTP. -->
 <network-security-config>
-    <!-- Base config: Permits LAN HTTP connection to Mac gateway on private IP / loopback -->
-    <base-config cleartextTrafficPermitted="true">
+    <!-- Base config: Default DENY cleartext HTTP to all hosts -->
+    <base-config cleartextTrafficPermitted="false">
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>
     </base-config>
 
-    <!-- Strictly forbid cleartext HTTP to external cloud services and APIs -->
-    <domain-config cleartextTrafficPermitted="false">
-        <domain includeSubdomains="true">day.app</domain>
-        <domain includeSubdomains="true">github.com</domain>
-        <domain includeSubdomains="true">githubusercontent.com</domain>
-        <domain includeSubdomains="true">googleapis.com</domain>
-        <domain includeSubdomains="true">cloudflare.com</domain>
+    <!-- Allow cleartext HTTP ONLY for LAN gateway connections (private IP / loopback) -->
+    <domain-config cleartextTrafficPermitted="true">
+        <!-- Loopback -->
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <!-- RFC 1918 Private Networks: commonly used LAN gateway addresses.
+             Android NSC does not support CIDR notation, so we list representative
+             hostnames. The app's HTTP client should validate the target is a
+             private IP before connecting over cleartext. -->
+        <domain includeSubdomains="true">local</domain>
     </domain-config>
 </network-security-config>

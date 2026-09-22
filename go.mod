@@ -1,6 +1,6 @@
 module antigravity-mobile
 
-go 1.22.0
+go 1.26.0
 
 require (
 	github.com/gorilla/websocket v1.5.3
@@ -8,31 +8,31 @@ require (
 )
 
 require (
-	github.com/Azure/go-ntlmssp v0.0.0-20221128193559-754e69321358 // indirect
+	github.com/kr/text v0.2.0 // indirect
+	github.com/songgao/water v0.0.0-20200317203138-2b4b6d7c09d8 // indirect
+	github.com/vishvananda/netlink v1.3.0 // indirect
+	github.com/vishvananda/netns v0.0.4 // indirect
+	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
+	golang.zx2c4.com/wireguard v0.0.0-20231211153847-12269c276173 // indirect
+)
+
+require (
+	github.com/Azure/go-ntlmssp v0.1.1 // indirect
 	github.com/armon/go-socks5 v0.0.0-20160902184237-e75332964ef5 // indirect
-	github.com/coreos/go-oidc/v3 v3.10.0 // indirect
-	github.com/fatedier/frp v0.61.1
-	github.com/fatedier/golib v0.5.0 // indirect
-	github.com/go-jose/go-jose/v4 v4.0.1 // indirect
-	github.com/go-task/slim-sprig/v3 v3.0.0 // indirect
-	github.com/golang/protobuf v1.5.4 // indirect
+	github.com/coreos/go-oidc/v3 v3.18.0 // indirect
+	github.com/fatedier/frp v0.70.1
+	github.com/fatedier/golib v0.8.1 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
-	github.com/google/pprof v0.0.0-20241206021119-61a79c692802 // indirect
 	github.com/gorilla/mux v1.8.1 // indirect
 	github.com/hashicorp/yamux v0.1.1 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.6 // indirect
 	github.com/klauspost/reedsolomon v1.12.0 // indirect
-	github.com/onsi/ginkgo/v2 v2.22.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.0 // indirect
-	github.com/pion/dtls/v2 v2.2.7 // indirect
-	github.com/pion/logging v0.2.2 // indirect
-	github.com/pion/stun/v2 v2.0.0 // indirect
-	github.com/pion/transport/v2 v2.2.1 // indirect
-	github.com/pion/transport/v3 v3.0.1 // indirect
-	github.com/pires/go-proxyproto v0.7.0 // indirect
+	github.com/pires/go-proxyproto v0.7.0
 	github.com/pkg/errors v0.9.1 // indirect
-	github.com/quic-go/quic-go v0.48.2 // indirect
+	github.com/quic-go/quic-go v0.60.0 // indirect
 	github.com/samber/lo v1.47.0 // indirect
 	github.com/spf13/cobra v1.8.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
@@ -40,19 +40,13 @@ require (
 	github.com/templexxx/xorsimd v0.4.3 // indirect
 	github.com/tjfoc/gmsm v1.4.1 // indirect
 	github.com/xtaci/kcp-go/v5 v5.6.13 // indirect
-	go.uber.org/mock v0.5.0 // indirect
-	golang.org/x/crypto v0.30.0 // indirect
-	golang.org/x/exp v0.0.0-20241204233417-43b7b7cde48d // indirect
-	golang.org/x/mod v0.22.0 // indirect
-	golang.org/x/net v0.32.0 // indirect
-	golang.org/x/oauth2 v0.16.0 // indirect
-	golang.org/x/sync v0.10.0 // indirect
-	golang.org/x/sys v0.28.0 // indirect
-	golang.org/x/text v0.21.0 // indirect
-	golang.org/x/time v0.5.0 // indirect
-	golang.org/x/tools v0.28.0 // indirect
-	google.golang.org/appengine v1.6.8 // indirect
-	google.golang.org/protobuf v1.34.1 // indirect
+	golang.org/x/crypto v0.57.0 // indirect
+	golang.org/x/net v0.59.0 // indirect
+	golang.org/x/oauth2 v0.36.0 // indirect
+	golang.org/x/sync v0.23.0 // indirect
+	golang.org/x/sys v0.48.0 // indirect
+	golang.org/x/text v0.42.0 // indirect
+	golang.org/x/time v0.10.0 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	k8s.io/apimachinery v0.28.8 // indirect

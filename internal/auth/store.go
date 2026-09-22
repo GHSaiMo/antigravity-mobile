@@ -25,7 +25,7 @@ type PairedDevice struct {
 	DeviceID   string    `json:"device_id"`
 	DeviceName string    `json:"device_name"`
 	Platform   string    `json:"platform"` // ios / pwa / macos / other
-	TokenHash  string    `json:"token_hash"`
+	TokenHash  string    `json:"token_hash,omitempty"` // SEC-AUDIT L-4: omitempty hides empty hash from API listings
 	CreatedAt  time.Time `json:"created_at"`
 	LastSeenAt time.Time `json:"last_seen_at"`
 	LastSeenIP string    `json:"last_seen_ip"`

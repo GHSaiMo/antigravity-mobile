@@ -12,6 +12,7 @@ import (
 
 	"github.com/fatedier/frp/client"
 	"github.com/fatedier/frp/pkg/config"
+	"github.com/fatedier/frp/pkg/config/source"
 )
 
 // Config defines the parameters for the embedded FRP tunnel client.
@@ -150,10 +151,16 @@ func (t *Tunnel) runSession(ctx context.Context) error {
 		return fmt.Errorf("load client config: %w", err)
 	}
 
+	// SEC-AUDIT M-3: FRP v0.70+ API migration — use ConfigSource + Aggregator
+	cfgSource := source.NewConfigSource()
+	if err := cfgSource.ReplaceAll(proxyCfgs, visitorCfgs); err != nil {
+		return fmt.Errorf("configure frp proxies: %w", err)
+	}
+	agg := source.NewAggregator(cfgSource)
+
 	svr, err := client.NewService(client.ServiceOptions{
-		Common:      common,
-		ProxyCfgs:   proxyCfgs,
-		VisitorCfgs: visitorCfgs,
+		Common:                 common,
+		ConfigSourceAggregator: agg,
 	})
 	if err != nil {
 		return fmt.Errorf("initialize frp service: %w", err)

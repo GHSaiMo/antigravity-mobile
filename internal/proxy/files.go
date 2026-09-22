@@ -471,6 +471,8 @@ func (p *Proxy) HandleFileRaw(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/webp")
 	case ".svg":
 		w.Header().Set("Content-Type", "image/svg+xml")
+		// SEC-AUDIT L-5: Restrictive CSP for SVG to prevent script execution in older browsers
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
 	case ".bmp":
 		w.Header().Set("Content-Type", "image/bmp")
 	case ".ico":

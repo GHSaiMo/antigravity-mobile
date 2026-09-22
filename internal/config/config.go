@@ -3,6 +3,7 @@ package config
 import (
 	"bufio"
 	"fmt"
+	"math"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -316,10 +317,40 @@ func ValidateFRPTokenStrength(token string) string {
 		return fmt.Sprintf("⚠️  [SECURITY WARNING] FRP_TOKEN %q appears to be composed of predictable dictionary words. Recommended: openssl rand -hex 32", tok)
 	}
 
+	// SEC-AUDIT L-3: Shannon entropy detection — catch low-entropy tokens that bypass
+	// the dictionary check (e.g. "aaaaabbbbbccccc", "abc123abc123").
+	if len(tok) < 32 {
+		entropy := shannonEntropy(tok)
+		if entropy < 3.0 {
+			return fmt.Sprintf("⚠️  [SECURITY WARNING] FRP_TOKEN entropy is very low (%.1f bits/char). For internet-facing relay security, generate a high-entropy token: openssl rand -hex 32", entropy)
+		}
+	}
+
 	if len(tok) < 24 {
 		return fmt.Sprintf("⚠️  [SECURITY WARNING] FRP_TOKEN length (%d) is shorter than 24 characters. For internet-facing relay security, generate at least 32 random hex characters: openssl rand -hex 32", len(tok))
 	}
 	return ""
+}
+
+// shannonEntropy calculates the Shannon entropy in bits per character of a string.
+// SEC-AUDIT L-3: Used to detect low-entropy FRP tokens that pass dictionary checks.
+func shannonEntropy(s string) float64 {
+	if len(s) == 0 {
+		return 0
+	}
+	freq := make(map[rune]int)
+	for _, r := range s {
+		freq[r]++
+	}
+	length := float64(len([]rune(s)))
+	var entropy float64
+	for _, count := range freq {
+		p := float64(count) / length
+		if p > 0 {
+			entropy -= p * math.Log2(p)
+		}
+	}
+	return entropy
 }
 
 // AdvertisePublicIPv6 reports whether pairing QR / endpoints should include the

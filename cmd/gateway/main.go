@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -22,6 +21,7 @@ import (
 	"antigravity-mobile/internal/cockpit"
 	"antigravity-mobile/internal/config"
 	"antigravity-mobile/internal/inspector"
+	"antigravity-mobile/internal/localtls"
 	"antigravity-mobile/internal/netutil"
 	"antigravity-mobile/internal/notifier"
 	"antigravity-mobile/internal/proxy"
@@ -465,10 +465,8 @@ func runPairCmd(args []string) {
 	}
 
 	client := &http.Client{
-		Timeout: 3 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		},
+		Timeout:   3 * time.Second,
+		Transport: localtls.NewLoopbackTransport(), // SEC-AUDIT M-2: gate InsecureSkipVerify to loopback only
 	}
 
 	var resp *http.Response
@@ -548,10 +546,8 @@ func runListCmd(args []string) {
 	mode := "离线模式 (直接读取本地凭据)"
 
 	client := &http.Client{
-		Timeout: 2 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		},
+		Timeout:   2 * time.Second,
+		Transport: localtls.NewLoopbackTransport(), // SEC-AUDIT M-2: gate InsecureSkipVerify to loopback only
 	}
 	req, _ := http.NewRequest(http.MethodGet, urlStr, nil)
 	if adminToken != "" {
@@ -636,10 +632,8 @@ func runClearCmd(args []string) {
 		scheme = "https"
 	}
 	client := &http.Client{
-		Timeout: 3 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		},
+		Timeout:   3 * time.Second,
+		Transport: localtls.NewLoopbackTransport(), // SEC-AUDIT M-2: gate InsecureSkipVerify to loopback only
 	}
 
 	urlStr := fmt.Sprintf("%s://127.0.0.1:%d/api/v1/devices/%s", scheme, targetPort, target)
