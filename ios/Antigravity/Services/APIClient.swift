@@ -1267,7 +1267,8 @@ public final class APIClient: Sendable {
         }
         
         let delegate = FileDownloadProgressDelegate(onProgress: onProgress)
-        let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+        let config = URLSessionConfiguration.background(withIdentifier: "com.antigravity.mobile.download.\(UUID().uuidString)")
+        let session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
         
         let (tempDownloadedURL, httpResp) = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<(URL, HTTPURLResponse), Error>) in
             delegate.continuation = continuation

@@ -783,7 +783,8 @@
       });
     }
     // 周期扫描兜底（处理某些 React 异步重渲染）
-    setInterval(runLocalization, 800);
+    // PERF: 5s 间隔足以兜底，MutationObserver 已覆盖绝大多数变更
+    setInterval(runLocalization, 5000);
   }
 
   if (document.readyState === "loading") {

@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -150,9 +151,10 @@ func CheckWebSocketOrigin(r *http.Request) bool {
 }
 
 var upgrader = websocket.Upgrader{
-	ReadBufferSize:  32768,
-	WriteBufferSize: 32768,
-	CheckOrigin:     CheckWebSocketOrigin,
+	ReadBufferSize:    32768,
+	WriteBufferSize:   32768,
+	CheckOrigin:       CheckWebSocketOrigin,
+	EnableCompression: true, // PERF: permessage-deflate — reduces text/JSON WS bandwidth by 60-80%
 }
 
 // sanitizeWebSocketHeaders normalizes HTTP headers required for WebSocket upgrade.
@@ -251,6 +253,7 @@ func (p *Proxy) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		TLSClientConfig:   localtls.ClientConfig(),
 		NetDialTLSContext: localtls.DialTLSContext,
 		HandshakeTimeout:  5 * time.Second,
+		EnableCompression: true, // PERF: permessage-deflate for upstream tunnel traffic
 	}
 
 	reqHeader := make(http.Header)
@@ -305,35 +308,49 @@ func (p *Proxy) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	// Pump: Client -> Upstream
+	// Pump: Client -> Upstream (streaming — avoids loading full messages into memory)
 	go func() {
 		defer wg.Done()
 		defer upstreamConn.Close()
 		for {
-			msgType, data, err := clientConn.ReadMessage()
+			msgType, r, err := clientConn.NextReader()
 			if err != nil {
 				break
 			}
 			clientConn.SetReadDeadline(time.Now().Add(wsTimeout))
 			upstreamConn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-			if err := upstreamConn.WriteMessage(msgType, data); err != nil {
+			w, err := upstreamConn.NextWriter(msgType)
+			if err != nil {
+				break
+			}
+			buf := GetLargeBuffer()
+			_, copyErr := io.CopyBuffer(w, r, buf.Bytes()[:cap(buf.Bytes())])
+			PutLargeBuffer(buf)
+			if closeErr := w.Close(); closeErr != nil || copyErr != nil {
 				break
 			}
 		}
 	}()
 
-	// Pump: Upstream -> Client
+	// Pump: Upstream -> Client (streaming — avoids loading full messages into memory)
 	go func() {
 		defer wg.Done()
 		defer clientConn.Close()
 		for {
-			msgType, data, err := upstreamConn.ReadMessage()
+			msgType, r, err := upstreamConn.NextReader()
 			if err != nil {
 				break
 			}
 			upstreamConn.SetReadDeadline(time.Now().Add(wsTimeout))
 			clientConn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-			if err := clientConn.WriteMessage(msgType, data); err != nil {
+			w, err := clientConn.NextWriter(msgType)
+			if err != nil {
+				break
+			}
+			buf := GetLargeBuffer()
+			_, copyErr := io.CopyBuffer(w, r, buf.Bytes()[:cap(buf.Bytes())])
+			PutLargeBuffer(buf)
+			if closeErr := w.Close(); closeErr != nil || copyErr != nil {
 				break
 			}
 		}

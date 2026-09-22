@@ -64,7 +64,7 @@ class MainActivity : ComponentActivity() {
         prefs = PreferencesManager(applicationContext)
         connectionManager = ConnectionManager(applicationContext)
         connectionManager.startMonitoring(prefs)
-        apiClient = ApiClient(prefs, connectionManager)
+        apiClient = ApiClient(applicationContext, prefs, connectionManager)
         wsClient = StreamWebSocketClient(prefs, connectionManager)
         val cacheManager = CacheManager(applicationContext)
         val documentCacheManager = com.antigravity.mobile.data.service.DocumentCacheManager(applicationContext)

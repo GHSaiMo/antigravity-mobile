@@ -107,3 +107,19 @@ func readBodyToPool(r io.Reader, limit int64) ([]byte, func(), error) {
 	return buf.Bytes(), cleanup, nil
 }
 
+// pooledGzipReadCloser wraps a pooled gzip.Reader and the original body,
+// returning the gzip reader to the pool on Close().
+type pooledGzipReadCloser struct {
+	gz   *gzip.Reader
+	body io.ReadCloser
+}
+
+func (p *pooledGzipReadCloser) Read(b []byte) (int, error) {
+	return p.gz.Read(b)
+}
+
+func (p *pooledGzipReadCloser) Close() error {
+	PutGzipReader(p.gz)
+	return p.body.Close()
+}
+

@@ -76,25 +76,32 @@
     alignDesktopBrand();
   }
 
-  // 启动观察与周期监听
+  // 启动观察与周期监听（PERF: rAF 防抖，避免 Chat 页面频繁 DOM 变更导致布局抖动）
+  let brandTimer = null;
+  const debouncedAlignBrand = () => {
+    if (brandTimer) return;
+    brandTimer = requestAnimationFrame(() => {
+      brandTimer = null;
+      alignDesktopBrand();
+    });
+  };
+
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () => {
       runAll();
       if (document.body) {
-        new MutationObserver(alignDesktopBrand).observe(document.body, {
+        new MutationObserver(debouncedAlignBrand).observe(document.body, {
           childList: true,
           subtree: true,
-          characterData: true
         });
       }
     });
   } else {
     runAll();
     if (document.body) {
-      new MutationObserver(alignDesktopBrand).observe(document.body, {
+      new MutationObserver(debouncedAlignBrand).observe(document.body, {
         childList: true,
         subtree: true,
-        characterData: true
       });
     }
   }

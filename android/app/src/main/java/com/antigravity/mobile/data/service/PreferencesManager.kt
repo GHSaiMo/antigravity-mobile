@@ -348,7 +348,7 @@ class PreferencesManager(context: Context) {
         }
     }
 
-    private val draftJson = Json { ignoreUnknownKeys = true }
+    private val draftJson = JsonConfig.instance
 
     fun getLocalDraftSessions(): List<LocalDraftSession> {
         val jsonStr = cachedDraftSessionsJson ?: return emptyList()

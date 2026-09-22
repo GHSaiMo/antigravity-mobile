@@ -21,10 +21,7 @@ class StreamWebSocketClient(
     private val prefs: PreferencesManager,
     private val connectionManager: ConnectionManager? = null
 ) {
-    private val json = Json {
-        ignoreUnknownKeys = true
-        isLenient = true
-    }
+    private val json = JsonConfig.instance
 
     private val client = OkHttpClient.Builder()
         .pingInterval(15, TimeUnit.SECONDS)

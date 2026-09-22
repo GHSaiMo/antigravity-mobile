@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"bytes"
-	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -246,11 +245,12 @@ func (p *Proxy) updateUpstream(info inspector.InstanceInfo) {
 	// The Antigravity language_server (HTTP/2) may compress regardless of Accept-Encoding.
 	rp.ModifyResponse = func(resp *http.Response) error {
 		if resp.Header.Get("Content-Encoding") == "gzip" {
-			gzReader, err := gzip.NewReader(resp.Body)
+			// PERF: use pooled gzip reader to avoid ~32KB allocation per response
+			gzReader, err := GetGzipReader(resp.Body)
 			if err != nil {
 				return err
 			}
-			resp.Body = gzReader
+			resp.Body = &pooledGzipReadCloser{gz: gzReader, body: resp.Body}
 			resp.Header.Del("Content-Encoding")
 			resp.Header.Del("Content-Length") // length is now unknown
 			resp.ContentLength = -1
@@ -703,10 +703,29 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Protect against OOM for extremely large requests by limiting to 50MB
-	bodyBytes, cleanup, err := readBodyToPool(r.Body, maxBodySize)
-	if err != nil {
-		http.Error(w, "Failed to read request body", http.StatusBadRequest)
-		return
+	// PERF: for large known payloads (>256KB), allocate directly instead of using the pool
+	// to avoid growing the pooled buffer past its retention threshold.
+	var bodyBytes []byte
+	var cleanup func()
+	var err error
+	if r.ContentLength > 256*1024 {
+		data, readErr := io.ReadAll(io.LimitReader(r.Body, maxBodySize+1))
+		if readErr != nil {
+			http.Error(w, "Failed to read request body", http.StatusBadRequest)
+			return
+		}
+		if int64(len(data)) > maxBodySize {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		bodyBytes = data
+		cleanup = func() {} // no pool to return to
+	} else {
+		bodyBytes, cleanup, err = readBodyToPool(r.Body, maxBodySize)
+		if err != nil {
+			http.Error(w, "Failed to read request body", http.StatusBadRequest)
+			return
+		}
 	}
 	defer cleanup()
 
@@ -716,12 +735,15 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 		cascadeID, _ = rawMap["cascadeId"].(string)
 
 		// Short-window idempotency check: prevent duplicate triggers within 15 seconds
-		var textContent strings.Builder
+		// PERF: use streaming hasher to avoid full string copy for sha256
+		contentHasher := sha256.New()
+		var contentLen int
 		if items, ok := rawMap["items"].([]interface{}); ok {
 			for _, it := range items {
 				if itemMap, ok := it.(map[string]interface{}); ok {
 					if t, ok := itemMap["text"].(string); ok {
-						textContent.WriteString(t)
+						contentHasher.Write([]byte(t))
+						contentLen += len(t)
 					}
 				}
 			}
@@ -730,14 +752,16 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 		if items, ok := rawMap["items"].([]interface{}); !ok || len(items) == 0 {
 			if txt, ok := rawMap["text"].(string); ok && strings.TrimSpace(txt) != "" {
 				rawMap["items"] = []interface{}{map[string]interface{}{"text": txt}}
-				textContent.WriteString(txt)
+				contentHasher.Write([]byte(txt))
+				contentLen += len(txt)
 			}
 		}
 		if comments, ok := rawMap["artifactComments"].([]interface{}); ok {
 			for _, ac := range comments {
 				if acMap, ok := ac.(map[string]interface{}); ok {
 					if uri, ok := acMap["artifactUri"].(string); ok {
-						textContent.WriteString(uri)
+						contentHasher.Write([]byte(uri))
+						contentLen += len(uri)
 					}
 				}
 			}
@@ -751,17 +775,19 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 							prefix = prefix[:1024]
 						}
 						h := sha256.Sum256([]byte(fmt.Sprintf("%d:%s", len(b64), prefix)))
-						textContent.WriteString(fmt.Sprintf(":img:%x", h[:8]))
+						imgTag := fmt.Sprintf(":img:%x", h[:8])
+						contentHasher.Write([]byte(imgTag))
+						contentLen += len(imgTag)
 					}
 				}
 			}
 		}
 
-		if clientMsgID == "" && cascadeID != "" && textContent.Len() > 0 {
+		if clientMsgID == "" && cascadeID != "" && contentLen > 0 {
 			strategyKey := fmt.Sprintf("%v", rawMap["deliveryStrategy"])
-			dedupKey := fmt.Sprintf("%s:%s:%x", cascadeID, strategyKey, sha256.Sum256([]byte(textContent.String())))
+			dedupKey := fmt.Sprintf("%s:%s:%x", cascadeID, strategyKey, contentHasher.Sum(nil))
 			if p.checkAndRecordMessageDedup(dedupKey, 15*time.Second) {
-				log.Printf("[Proxy] Deduplicated repeat SendUserCascadeMessage for cascade %s (textLen=%d, hashDedup)", shortCascadeID(cascadeID), textContent.Len())
+				log.Printf("[Proxy] Deduplicated repeat SendUserCascadeMessage for cascade %s (textLen=%d, hashDedup)", shortCascadeID(cascadeID), contentLen)
 				w.Header().Set("Content-Type", "application/json")
 				w.Header().Set("Content-Length", "2")
 				w.WriteHeader(http.StatusOK)

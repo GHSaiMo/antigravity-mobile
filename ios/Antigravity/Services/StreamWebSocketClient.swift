@@ -50,6 +50,7 @@ public final class StreamWebSocketClient {
     private var activeURL: URL?
     private var activeCascadeId: String?
     private var isIntentionallyClosed: Bool = false
+    private var reconnectAttempt: Int = 0
     
     public init() {
         NotificationCenter.default.addObserver(
@@ -188,6 +189,7 @@ public final class StreamWebSocketClient {
         case .ready:
             connectionWatchdogTask?.cancel()
             connectionWatchdogTask = nil
+            reconnectAttempt = 0
             updateStatus(.connected)
             receiveNextMessage()
         case .waiting(let error):
@@ -250,10 +252,14 @@ public final class StreamWebSocketClient {
         
         reconnectTask?.cancel()
         reconnectTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
             guard let self, !self.isIntentionallyClosed else { return }
+            self.reconnectAttempt += 1
+            let delay = min(2.5 * pow(2.0, Double(min(self.reconnectAttempt, 5))), 60.0)
+            let delayNano = UInt64(delay * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: delayNano)
+            guard !self.isIntentionallyClosed else { return }
             await ConnectionManager.shared.probeEndpoints()
-            print("[StreamWS] Reconnecting to stream...")
+            print("[StreamWS] Reconnecting to stream... (attempt \(self.reconnectAttempt))")
             self.startConnection()
         }
     }
@@ -270,6 +276,7 @@ public final class StreamWebSocketClient {
     
     public func disconnect(intentional: Bool = true) {
         self.isIntentionallyClosed = intentional
+        self.reconnectAttempt = 0
         connectionWatchdogTask?.cancel()
         connectionWatchdogTask = nil
         reconnectTask?.cancel()

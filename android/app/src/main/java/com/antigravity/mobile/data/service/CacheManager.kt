@@ -22,12 +22,7 @@ class CacheManager(context: Context) {
     private val appContext = context.applicationContext
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    private val json = Json {
-        ignoreUnknownKeys = true
-        isLenient = true
-        encodeDefaults = true
-        coerceInputValues = true
-    }
+    private val json = JsonConfig.instance
 
     private val cacheDir = File(appContext.filesDir, "AntigravityCache").apply { mkdirs() }
     private val sessionsDir = File(cacheDir, "sessions").apply { mkdirs() }

@@ -1,5 +1,6 @@
 package com.antigravity.mobile.data.service
 
+import android.content.Context
 import android.os.Build
 import android.util.Base64
 import android.util.Log
@@ -8,16 +9,19 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.*
+import okhttp3.Cache
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.File
 import java.net.URLDecoder
 import java.net.URLEncoder
 import java.time.Instant
 import java.util.concurrent.TimeUnit
 
 class ApiClient(
+    private val context: Context,
     private val prefs: PreferencesManager,
     private val connectionManager: ConnectionManager? = null
 ) {
@@ -27,14 +31,10 @@ class ApiClient(
             return prefs.getEffectiveGatewayUrl(avoidLan) ?: prefs.gatewayBaseUrl
         }
 
-    val json = Json {
-        ignoreUnknownKeys = true
-        isLenient = true
-        encodeDefaults = true
-        coerceInputValues = true
-    }
+    val json = JsonConfig.instance
 
     private val client = OkHttpClient.Builder()
+        .cache(Cache(File(context.cacheDir, "http_cache"), 10L * 1024L * 1024L))
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
