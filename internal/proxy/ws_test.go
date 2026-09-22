@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -153,5 +154,59 @@ func TestCheckWebSocketOrigin_BrowserProtection(t *testing.T) {
 	if CheckWebSocketOrigin(reqBrowserUntrustedOrigin) {
 		t.Errorf("expected rejection for untrusted Origin")
 	}
+}
+
+func TestWebSocketPermessageDeflateNegotiation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sanitizeWebSocketHeaders(r)
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upgrade error: %v", err)
+			return
+		}
+		defer conn.Close()
+
+		msgType, data, err := conn.ReadMessage()
+		if err != nil {
+			t.Errorf("read error: %v", err)
+			return
+		}
+		_ = conn.WriteMessage(msgType, data)
+	}))
+	defer server.Close()
+
+	wsURL := "ws" + server.URL[len("http"):]
+	header := make(http.Header)
+	header.Set("Origin", "http://127.0.0.1")
+
+	dialer := websocket.Dialer{
+		EnableCompression: true,
+	}
+	client, resp, err := dialer.Dial(wsURL, header)
+	if err != nil {
+		t.Fatalf("failed to dial: %v", err)
+	}
+	defer client.Close()
+
+	// Verify Sec-WebSocket-Extensions header in handshake response
+	extensions := resp.Header.Get("Sec-WebSocket-Extensions")
+	if extensions == "" || !strings.Contains(extensions, "permessage-deflate") {
+		t.Errorf("expected Sec-WebSocket-Extensions to contain permessage-deflate, got: %q", extensions)
+	}
+
+	testPayload := []byte("Large test message payload for compression verification with repeating pattern: AAAAAAAAAABBBBBBBBBBCCCCCCCCCC")
+	if err := client.WriteMessage(websocket.TextMessage, testPayload); err != nil {
+		t.Fatalf("failed to send: %v", err)
+	}
+
+	client.SetReadDeadline(time.Now().Add(2 * time.Second))
+	msgType, data, err := client.ReadMessage()
+	if err != nil {
+		t.Fatalf("failed to read: %v", err)
+	}
+	if string(data) != string(testPayload) {
+		t.Errorf("payload mismatch")
+	}
+	_ = msgType
 }
 
