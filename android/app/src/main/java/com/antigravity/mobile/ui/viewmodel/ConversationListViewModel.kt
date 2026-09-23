@@ -345,7 +345,7 @@ class ConversationListViewModel(
     fun loadProjects() {
         if (!prefs.isPaired()) {
             if (_projects.value.isEmpty()) {
-                _projectsError.value = "请先配对 Mac 终端"
+                _projectsError.value = "请先配对电脑终端"
             }
             return
         }

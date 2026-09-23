@@ -142,6 +142,10 @@ class ApiClient(
                     )
                     prefs.deviceToken = pairResp.deviceToken
                     prefs.deviceId = pairResp.deviceId
+                    val plat = pairResp.platform ?: pairResp.os ?: info.platform ?: info.os
+                    if (!plat.isNullOrBlank()) {
+                        prefs.gatewayPlatform = plat
+                    }
 
                     return@withContext Result.success(pairResp)
                 }
@@ -279,6 +283,21 @@ class ApiClient(
                 val bodyStr = response.body?.string() ?: "[]"
                 val list = json.decodeFromString<List<ProjectItem>>(bodyStr)
                 Log.d("ApiClient", "fetchProjects successfully retrieved ${list.size} projects")
+                if (prefs.gatewayPlatform == null) {
+                    for (item in list) {
+                        val p = item.path.ifBlank { item.uri }
+                        if (p.contains(":\\\\") || p.contains(":/") || p.contains(":\\") || (p.length >= 2 && p[1] == ':')) {
+                            prefs.gatewayPlatform = "windows"
+                            break
+                        } else if (p.startsWith("/Users/")) {
+                            prefs.gatewayPlatform = "darwin"
+                            break
+                        } else if (p.startsWith("/home/")) {
+                            prefs.gatewayPlatform = "linux"
+                            break
+                        }
+                    }
+                }
                 Result.success(list)
             }
         } catch (e: Exception) {

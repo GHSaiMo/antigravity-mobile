@@ -11,6 +11,8 @@ public struct PairingInfo: Equatable, Sendable {
     public let ipv6Host: String?
     public let ddnsHost: String?
     public let relayHost: String?
+    public let os: String?
+    public let platform: String?
     
     public init(
         host: String,
@@ -20,7 +22,9 @@ public struct PairingInfo: Equatable, Sendable {
         lanHost: String? = nil,
         ipv6Host: String? = nil,
         ddnsHost: String? = nil,
-        relayHost: String? = nil
+        relayHost: String? = nil,
+        os: String? = nil,
+        platform: String? = nil
     ) {
         self.host = host
         self.port = port
@@ -30,6 +34,21 @@ public struct PairingInfo: Equatable, Sendable {
         self.ipv6Host = ipv6Host
         self.ddnsHost = ddnsHost
         self.relayHost = Self.normalizeHost(relayHost)
+        self.os = os
+        self.platform = platform
+    }
+    
+    public var gatewayDisplayName: String {
+        switch (platform ?? os)?.lowercased() {
+        case "windows", "win":
+            return "Windows 网关"
+        case "darwin", "macos", "mac":
+            return "Mac 网关"
+        case "linux":
+            return "Linux 网关"
+        default:
+            return "电脑网关"
+        }
     }
     
     public static func formatURL(host: String, port: Int, ssl: Bool) -> String {
@@ -145,6 +164,8 @@ public final class PairingService: Sendable {
         var ipv6Host: String?
         var ddnsHost: String?
         var relayHost: String?
+        var os: String?
+        var platform: String?
         
         for item in queryItems {
             switch item.name.lowercased() {
@@ -166,6 +187,10 @@ public final class PairingService: Sendable {
                 ddnsHost = item.value
             case "relay":
                 relayHost = item.value
+            case "os":
+                os = item.value
+            case "platform":
+                platform = item.value
             default:
                 break
             }
@@ -189,7 +214,9 @@ public final class PairingService: Sendable {
             lanHost: lanHost,
             ipv6Host: ipv6Host,
             ddnsHost: ddnsHost,
-            relayHost: relayHost
+            relayHost: relayHost,
+            os: os,
+            platform: platform
         ))
     }
     
@@ -232,6 +259,8 @@ public final class PairingService: Sendable {
             let device_id: String
             let device_token: String
             let endpoints: [EndpointResp]?
+            let os: String?
+            let platform: String?
         }
         
         var lastError: Error?
@@ -270,6 +299,9 @@ public final class PairingService: Sendable {
                 
                 // Update AppSettings endpoints on MainActor
                 await MainActor.run {
+                    if let plat = decoded.platform ?? decoded.os ?? info.platform ?? info.os {
+                        AppSettings.shared.gatewayPlatform = plat
+                    }
                     var lanURL: String? = info.lanBaseURL
                     var ipv6URL: String? = info.ipv6BaseURL
                     var relayURL: String? = nil

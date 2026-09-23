@@ -303,7 +303,7 @@ fun PairingScreen(
                             modifier = Modifier.size(36.dp)
                         )
                         Text(
-                            text = "正在与 Mac 网关配对...",
+                            text = "正在与电脑网关配对...",
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Medium,
                             color = Color.White,

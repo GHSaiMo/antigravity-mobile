@@ -12,7 +12,9 @@ data class PairingInfo(
     val lanHost: String? = null,
     val ipv6Host: String? = null,
     val ddnsHost: String? = null,
-    val relayHost: String? = null
+    val relayHost: String? = null,
+    val os: String? = null,
+    val platform: String? = null
 ) {
     val serverBaseUrl: String
         get() = formatUrl(host, port, ssl)
@@ -80,6 +82,8 @@ data class PairingInfo(
             val ipv6 = params["ipv6"]
             val ddns = params["ddns"]
             val relay = params["relay"]
+            val os = params["os"]
+            val platform = params["platform"]
 
             return PairingInfo(
                 host = host,
@@ -89,10 +93,20 @@ data class PairingInfo(
                 lanHost = lan,
                 ipv6Host = ipv6,
                 ddnsHost = ddns,
-                relayHost = relay
+                relayHost = relay,
+                os = os,
+                platform = platform
             )
         }
     }
+
+    val gatewayDisplayName: String
+        get() = when ((platform ?: os)?.lowercase()) {
+            "windows", "win" -> "Windows 网关"
+            "darwin", "macos", "mac" -> "Mac 网关"
+            "linux" -> "Linux 网关"
+            else -> "网关"
+        }
 }
 
 @Serializable
@@ -112,5 +126,7 @@ data class EndpointInfo(
 data class PairResponse(
     @SerialName("device_id") val deviceId: String,
     @SerialName("device_token") val deviceToken: String,
-    val endpoints: List<EndpointInfo>? = null
+    val endpoints: List<EndpointInfo>? = null,
+    val os: String? = null,
+    val platform: String? = null
 )

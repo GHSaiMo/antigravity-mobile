@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -27,6 +28,8 @@ import (
 // GatewayStatus represents the public status of the gateway.
 type GatewayStatus struct {
 	Status                string                  `json:"status"`
+	OS                    string                  `json:"os,omitempty"`
+	Platform              string                  `json:"platform,omitempty"`
 	Upstream              *inspector.InstanceInfo `json:"upstream,omitempty"`
 	ActiveStreamCascadeID string                  `json:"active_stream_cascade_id,omitempty"`
 	ActiveStreamTitle     string                  `json:"active_stream_title,omitempty"`
@@ -444,6 +447,8 @@ func (p *Proxy) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 	data, err := json.Marshal(GatewayStatus{
 		Status:                status,
+		OS:                    runtime.GOOS,
+		Platform:              runtime.GOOS,
 		Upstream:              publicInstanceInfo(cur),
 		ActiveStreamCascadeID: activeID,
 		ActiveStreamTitle:     activeTitle,

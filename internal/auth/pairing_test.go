@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -83,6 +84,12 @@ func TestGeneratePairingURI(t *testing.T) {
 	}
 	if !strings.Contains(uri, "code=abc123code") {
 		t.Errorf("expected code in uri, got %s", uri)
+	}
+	if !strings.Contains(uri, "os="+runtime.GOOS) {
+		t.Errorf("expected os=%s in uri, got %s", runtime.GOOS, uri)
+	}
+	if !strings.Contains(uri, "platform="+runtime.GOOS) {
+		t.Errorf("expected platform=%s in uri, got %s", runtime.GOOS, uri)
 	}
 }
 

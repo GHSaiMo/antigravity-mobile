@@ -272,7 +272,7 @@ class MainActivity : ComponentActivity() {
     private fun launchScanner() {
         val options = ScanOptions().apply {
             setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-            setPrompt("将镜头对准 Mac 终端的配对二维码")
+            setPrompt("将镜头对准电脑终端的配对二维码")
             setCameraId(0)
             setBeepEnabled(true)
             setBarcodeImageEnabled(false)

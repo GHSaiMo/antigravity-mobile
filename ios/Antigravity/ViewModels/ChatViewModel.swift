@@ -71,6 +71,7 @@ public final class ChatViewModel {
     public var isNewConversation: Bool
     public var draftProject: ProjectItem?
     public var draftSession: LocalDraftSession?
+    public var originDraftId: String? = nil
     private var isInitializing: Bool = true
     
     public var messages: [ChatMessage] = []
@@ -89,6 +90,8 @@ public final class ChatViewModel {
             return draftSession.id
         } else if let draftProject {
             return "draft_project_\(draftProject.id)"
+        } else if let originDraftId {
+            return originDraftId
         }
         return ""
     }
@@ -404,6 +407,16 @@ public final class ChatViewModel {
         self.cacheManager = resolvedCacheManager
         self.streamClient = StreamWebSocketClient()
         
+        if cascadeId.hasPrefix("local_draft_") || cascadeId.hasPrefix("draft_") {
+            self.originDraftId = cascadeId
+            if let session = resolvedCacheManager.getLocalDraftSession(id: cascadeId) {
+                self.draftSession = session
+                self.draftProject = session.project
+            }
+            self.cascadeId = ""
+            self.isNewConversation = true
+        }
+        
         var initialModel = resolvedSettings.activeModel
         if let cached = resolvedCacheManager.loadSession(for: cascadeId),
            let cfg = cached.cascadeConfigRaw {
@@ -483,6 +496,7 @@ public final class ChatViewModel {
         self.workspaceName = isPure ? "Chat" : draftProject.name
         self.isNewConversation = true
         self.draftProject = draftProject
+        self.originDraftId = "draft_project_\(draftProject.id)"
         let resolvedCacheManager = cacheManager ?? .shared
         let resolvedSettings = settings ?? .shared
         self.apiClient = apiClient ?? .shared
@@ -514,6 +528,7 @@ public final class ChatViewModel {
         self.isNewConversation = true
         self.draftSession = draftSession
         self.draftProject = draftSession.project
+        self.originDraftId = draftSession.id
         let resolvedCacheManager = cacheManager ?? .shared
         let resolvedSettings = settings ?? .shared
         self.apiClient = apiClient ?? .shared
@@ -1521,7 +1536,7 @@ public final class ChatViewModel {
         }
         
         do {
-            if cascadeId.isEmpty, let project = draftProject ?? draftSession?.project {
+            if cascadeId.isEmpty, let project = draftProject ?? draftSession?.project ?? (originDraftId != nil ? ProjectItem.pureChat : nil) {
                 let isPure = project.isPureChat
                 let pid = isPure ? "outside-of-project" : (project.rawId ?? (project.id != project.uri ? project.id : nil))
                 let wsUri = isPure ? "" : project.uri
@@ -1534,15 +1549,26 @@ public final class ChatViewModel {
                     clientMessageId: clientMessageId,
                     baseURL: url
                 )
-                if let dSession = draftSession {
-                    self.cacheManager.deleteLocalDraftSession(id: dSession.id)
-                    self.cacheManager.clearDraft(key: dSession.id)
-                    self.cacheManager.clearDraftImages(key: dSession.id)
+                
+                var draftKeysToPurge = Set<String>()
+                if let orig = self.originDraftId, !orig.isEmpty {
+                    draftKeysToPurge.insert(orig)
                 }
-                self.cacheManager.clearDraft(key: "draft_project_\(project.id)")
-                self.cacheManager.clearDraftImages(key: "draft_project_\(project.id)")
+                if let dSession = draftSession {
+                    draftKeysToPurge.insert(dSession.id)
+                }
+                draftKeysToPurge.insert("draft_project_\(project.id)")
+                
+                for key in draftKeysToPurge {
+                    self.cacheManager.deleteLocalDraftSession(id: key)
+                    self.cacheManager.clearDraft(key: key)
+                    self.cacheManager.clearDraftImages(key: key)
+                    NotificationCenter.default.post(name: .conversationDraftDeleted, object: key)
+                }
+                
                 self.cacheManager.clearDraft(key: newCascadeId)
                 self.cacheManager.clearDraftImages(key: newCascadeId)
+                self.originDraftId = nil
                 self.cascadeId = newCascadeId
                 self.draftSession = nil
                 self.draftProject = nil

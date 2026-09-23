@@ -60,6 +60,8 @@ public nonisolated struct CachedChatSession: Codable, Sendable {
 
 public extension Notification.Name {
     static let conversationDraftChanged = Notification.Name("com.antigravity.mobile.draftChanged")
+    static let conversationDraftDeleted = Notification.Name("com.antigravity.mobile.draftDeleted")
+    static let conversationUpserted = Notification.Name("com.antigravity.mobile.conversationUpserted")
 }
 
 public final class CacheManager: @unchecked Sendable {
@@ -255,7 +257,7 @@ public final class CacheManager: @unchecked Sendable {
     }
     
     public func saveConversations(_ items: [ConversationItem]) {
-        let clean = items.filter { !$0.isSubagent && !isDeletedConversation(cascadeId: $0.id) }
+        let clean = items.filter { !$0.isSubagent && !$0.isDraft && !isDeletedConversation(cascadeId: $0.id) }
         lock.lock()
         let existingMap = Dictionary((memConversations ?? []).map { ($0.id, $0.title) }, uniquingKeysWith: { _, new in new })
         let protected = clean.map { item -> ConversationItem in
@@ -281,7 +283,7 @@ public final class CacheManager: @unchecked Sendable {
     public func loadConversations() -> [ConversationItem] {
         lock.lock()
         if let mem = memConversations {
-            let filtered = mem.filter { !$0.isSubagent && !isDeletedConversation(cascadeId: $0.id) }.map { healConversationTitleIfNeeded($0) }
+            let filtered = mem.filter { !$0.isSubagent && !$0.isDraft && !isDeletedConversation(cascadeId: $0.id) }.map { healConversationTitleIfNeeded($0) }
             memConversations = filtered
             lock.unlock()
             return filtered
@@ -295,7 +297,7 @@ public final class CacheManager: @unchecked Sendable {
         }
         
         var hasChanges = false
-        let filtered = items.filter { !$0.isSubagent && !isDeletedConversation(cascadeId: $0.id) }.map { item -> ConversationItem in
+        let filtered = items.filter { !$0.isSubagent && !$0.isDraft && !isDeletedConversation(cascadeId: $0.id) }.map { item -> ConversationItem in
             let healed = healConversationTitleIfNeeded(item)
             if healed.title != item.title {
                 hasChanges = true
@@ -310,7 +312,7 @@ public final class CacheManager: @unchecked Sendable {
         memConversations = filtered
         lock.unlock()
         
-        // If legacy subagents were pruned or titles were healed, rewrite clean data to disk asynchronously
+        // If legacy subagents/drafts were pruned or titles were healed, rewrite clean data to disk asynchronously
         if hasChanges {
             if let cleanData = try? JSONEncoder().encode(filtered) {
                 ioQueue.async {
@@ -388,18 +390,16 @@ public final class CacheManager: @unchecked Sendable {
     }
     
     public func upsertConversation(_ item: ConversationItem) {
-        if item.isSubagent {
+        if item.isSubagent || item.isDraft {
             return
         }
         lock.lock()
-        defer { lock.unlock() }
-        
         var items = memConversations ?? []
         if items.isEmpty {
             let fileURL = cacheDir.appendingPathComponent("conversations.json")
             if let data = try? Data(contentsOf: fileURL),
                let loaded = try? JSONDecoder().decode([ConversationItem].self, from: data) {
-                items = loaded
+                items = loaded.filter { !$0.isDraft && !$0.isSubagent }
             }
         }
         
@@ -408,11 +408,17 @@ public final class CacheManager: @unchecked Sendable {
         }
         items.insert(item, at: 0)
         memConversations = items
+        lock.unlock()
+        
         if let data = try? JSONEncoder().encode(items) {
             let fileURL = cacheDir.appendingPathComponent("conversations.json")
             ioQueue.async {
                 try? data.write(to: fileURL, options: .atomic)
             }
+        }
+        
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .conversationUpserted, object: item)
         }
     }
     
@@ -896,7 +902,31 @@ public final class CacheManager: @unchecked Sendable {
         ensureLocalDraftSessionsLoaded()
         memLocalDraftSessions?.removeValue(forKey: id)
         persistDraftSessionsToDisk()
+        
+        var hadConv = false
+        if var convs = memConversations {
+            let countBefore = convs.count
+            convs.removeAll(where: { $0.id == id })
+            if convs.count != countBefore {
+                hadConv = true
+                memConversations = convs
+            }
+        }
         lock.unlock()
+        
+        if hadConv, let convs = memConversations, let data = try? JSONEncoder().encode(convs) {
+            let fileURL = cacheDir.appendingPathComponent("conversations.json")
+            ioQueue.async {
+                try? data.write(to: fileURL, options: .atomic)
+            }
+        }
+        
+        clearDraft(key: id)
         clearDraftImages(key: id)
+        
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .conversationDraftDeleted, object: id)
+            NotificationCenter.default.post(name: .conversationDraftChanged, object: id)
+        }
     }
 }

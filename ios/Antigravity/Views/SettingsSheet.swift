@@ -17,7 +17,7 @@ public struct SettingsSheet: View {
                 // MARK: - 1. 设备配对与鉴权
                 Section(
                     header: Text("设备配对"),
-                    footer: Text("管理当前设备与 Mac 网关的配对状态。")
+                    footer: Text("管理当前设备与 \(settings.gatewayPlatformDisplayName)的配对状态。")
                 ) {
                     HStack {
                         Text("配对状态")

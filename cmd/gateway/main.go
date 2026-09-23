@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -743,7 +744,11 @@ func buildRouter(
 
 	// Health and readiness probes
 	rootMux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		writeJSON(w, http.StatusOK, map[string]string{
+			"status":   "ok",
+			"os":       runtime.GOOS,
+			"platform": runtime.GOOS,
+		})
 	})
 	rootMux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
 		cur := insp.Current()
@@ -756,6 +761,8 @@ func buildRouter(
 		}
 		writeJSON(w, httpCode, map[string]any{
 			"status":         status,
+			"os":             runtime.GOOS,
+			"platform":       runtime.GOOS,
 			"uptime_seconds": int(time.Since(startTime).Seconds()),
 		})
 	})

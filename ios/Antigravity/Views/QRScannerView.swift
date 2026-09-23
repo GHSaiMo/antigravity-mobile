@@ -117,7 +117,7 @@ public struct QRScannerView: View {
                     .frame(width: 250, height: 250)
             }
             
-            Text("对准 Mac 终端中的配对二维码")
+            Text("对准电脑终端中的配对二维码")
                 .font(.system(size: 14, weight: .medium))
                 .foregroundColor(.white)
                 .padding(.top, 24)

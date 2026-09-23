@@ -47,7 +47,7 @@
 	<key>NSCameraUsageDescription</key>
 	<string>Multigravity 需要使用相机扫描配对二维码以及拍照发送图片</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Multigravity 需要访问局域网以直连 Mac 网关并同步会话</string>
+	<string>Multigravity 需要访问局域网以直连电脑网关并同步会话</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Multigravity 需要保存长截图与图表到系统相册，以便在微信等应用中发送与收藏</string>
 	<key>NSPhotoLibraryUsageDescription</key>

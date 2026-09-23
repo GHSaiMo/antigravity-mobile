@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -32,6 +33,8 @@ type PairResponse struct {
 	DeviceID    string         `json:"device_id"`
 	DeviceToken string         `json:"device_token"`
 	Endpoints   []EndpointInfo `json:"endpoints,omitempty"`
+	OS          string         `json:"os,omitempty"`
+	Platform    string         `json:"platform,omitempty"`
 }
 
 // AuthHandler handles authentication and device management routes.
@@ -236,6 +239,8 @@ func (h *AuthHandler) HandleEndpoints(w http.ResponseWriter, r *http.Request) {
 	}
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"endpoints": h.GetEndpoints(),
+		"os":        runtime.GOOS,
+		"platform":  runtime.GOOS,
 	})
 }
 
@@ -336,6 +341,8 @@ func (h *AuthHandler) HandlePair(w http.ResponseWriter, r *http.Request) {
 		DeviceID:    deviceID,
 		DeviceToken: deviceToken,
 		Endpoints:   h.GetEndpoints(),
+		OS:          runtime.GOOS,
+		Platform:    runtime.GOOS,
 	})
 }
 

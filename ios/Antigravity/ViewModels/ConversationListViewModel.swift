@@ -32,14 +32,16 @@ public final class ConversationListViewModel {
         self.settings = settings ?? .shared
         self.cacheManager = cacheManager ?? .shared
         
-        // Immediate local cache restore (filtering out subagents and loading drafts)
+        // Immediate local cache restore (filtering out subagents, drafts from cached, and deduplicating)
         let drafts = self.cacheManager.loadLocalDraftConversations()
-        let cached = self.cacheManager.loadConversations().filter { !$0.isSubagent }
-        if !cached.isEmpty || !drafts.isEmpty {
-            self.conversations = (drafts + cached).sorted { a, b in
+        let cached = self.cacheManager.loadConversations().filter { !$0.isSubagent && !$0.isDraft }
+        let draftIds = Set(drafts.map(\.id))
+        let nonDraftCached = cached.filter { !draftIds.contains($0.id) }
+        if !nonDraftCached.isEmpty || !drafts.isEmpty {
+            self.conversations = (drafts + nonDraftCached).sorted { a, b in
                 a.effectiveLastModified > b.effectiveLastModified
             }
-            self.cacheManager.prewarmSessions(for: cached.prefix(15).map(\.id))
+            self.cacheManager.prewarmSessions(for: nonDraftCached.prefix(15).map(\.id))
         }
         
         NotificationCenter.default.addObserver(
@@ -50,6 +52,38 @@ public final class ConversationListViewModel {
             guard let self = self else { return }
             Task { @MainActor in
                 await self.fetchConversations()
+            }
+        }
+        
+        NotificationCenter.default.addObserver(
+            forName: .conversationDraftChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self = self else { return }
+            self.reloadFromCache()
+        }
+        
+        NotificationCenter.default.addObserver(
+            forName: .conversationDraftDeleted,
+            object: nil,
+            queue: .main
+        ) { [weak self] notif in
+            guard let self = self else { return }
+            if let draftId = notif.object as? String {
+                self.conversations.removeAll(where: { $0.id == draftId })
+            }
+            self.reloadFromCache()
+        }
+        
+        NotificationCenter.default.addObserver(
+            forName: .conversationUpserted,
+            object: nil,
+            queue: .main
+        ) { [weak self] notif in
+            guard let self = self else { return }
+            if let item = notif.object as? ConversationItem {
+                self.upsertConversation(item)
             }
         }
     }
@@ -77,9 +111,11 @@ public final class ConversationListViewModel {
     
     public func reloadFromCache() {
         let drafts = cacheManager.loadLocalDraftConversations()
-        let cached = cacheManager.loadConversations().filter { !$0.isSubagent }
-        if !cached.isEmpty || !drafts.isEmpty {
-            self.conversations = (drafts + cached).sorted { a, b in
+        let cached = cacheManager.loadConversations().filter { !$0.isSubagent && !$0.isDraft }
+        let draftIds = Set(drafts.map(\.id))
+        let nonDraftCached = cached.filter { !draftIds.contains($0.id) }
+        if !nonDraftCached.isEmpty || !drafts.isEmpty {
+            self.conversations = (drafts + nonDraftCached).sorted { a, b in
                 a.effectiveLastModified > b.effectiveLastModified
             }
         }
@@ -119,10 +155,12 @@ public final class ConversationListViewModel {
     public func fetchConversations(isBackgroundPoll: Bool = false) async {
         if conversations.isEmpty {
             let drafts = cacheManager.loadLocalDraftConversations()
-            let cached = cacheManager.loadConversations().filter { !$0.isSubagent }
-            if !cached.isEmpty || !drafts.isEmpty {
-                self.conversations = drafts + cached
-                self.cacheManager.prewarmSessions(for: cached.prefix(15).map(\.id))
+            let cached = cacheManager.loadConversations().filter { !$0.isSubagent && !$0.isDraft }
+            let draftIds = Set(drafts.map(\.id))
+            let nonDraftCached = cached.filter { !draftIds.contains($0.id) }
+            if !nonDraftCached.isEmpty || !drafts.isEmpty {
+                self.conversations = drafts + nonDraftCached
+                self.cacheManager.prewarmSessions(for: nonDraftCached.prefix(15).map(\.id))
             }
         }
         
@@ -149,6 +187,7 @@ public final class ConversationListViewModel {
             purgeExpiredTombstones()
             let cleaned = items.filter { item in
                 !item.isSubagent &&
+                !item.isDraft &&
                 !self.pendingDeleteCascadeIDs.contains(item.id) &&
                 (self.recentlyDeletedIDs[item.id] == nil) &&
                 !self.cacheManager.isDeletedConversation(cascadeId: item.id)
@@ -176,11 +215,13 @@ public final class ConversationListViewModel {
                 return item
             }
             let drafts = cacheManager.loadLocalDraftConversations()
-            let all = (drafts + enriched).sorted { a, b in
+            let draftIds = Set(drafts.map(\.id))
+            let nonDraftEnriched = enriched.filter { !draftIds.contains($0.id) && !$0.isDraft }
+            let all = (drafts + nonDraftEnriched).sorted { a, b in
                 a.effectiveLastModified > b.effectiveLastModified
             }
             self.conversations = all
-            cacheManager.saveConversations(all)
+            cacheManager.saveConversations(nonDraftEnriched)
             cacheManager.prewarmSessions(for: all.prefix(15).map(\.id))
             self.isLoading = false
         } catch {
@@ -192,6 +233,7 @@ public final class ConversationListViewModel {
                     purgeExpiredTombstones()
                     let cleaned = items.filter { item in
                         !item.isSubagent &&
+                        !item.isDraft &&
                         !self.pendingDeleteCascadeIDs.contains(item.id) &&
                         (self.recentlyDeletedIDs[item.id] == nil) &&
                         !self.cacheManager.isDeletedConversation(cascadeId: item.id)
@@ -212,11 +254,13 @@ public final class ConversationListViewModel {
                         return item
                     }
                     let drafts = cacheManager.loadLocalDraftConversations()
-                    let all = (drafts + enriched).sorted { a, b in
+                    let draftIds = Set(drafts.map(\.id))
+                    let nonDraftEnriched = enriched.filter { !draftIds.contains($0.id) && !$0.isDraft }
+                    let all = (drafts + nonDraftEnriched).sorted { a, b in
                         a.effectiveLastModified > b.effectiveLastModified
                     }
                     self.conversations = all
-                    cacheManager.saveConversations(all)
+                    cacheManager.saveConversations(nonDraftEnriched)
                     cacheManager.prewarmSessions(for: all.prefix(15).map(\.id))
                     self.isLoading = false
                     self.errorMessage = nil
@@ -295,11 +339,22 @@ public final class ConversationListViewModel {
     }
     
     @MainActor
+    public func upsertConversation(_ item: ConversationItem) {
+        guard !item.isSubagent && !item.isDraft && !pendingDeleteCascadeIDs.contains(item.id) && recentlyDeletedIDs[item.id] == nil else { return }
+        if let idx = conversations.firstIndex(where: { $0.id == item.id }) {
+            conversations[idx] = item
+        } else {
+            conversations.insert(item, at: 0)
+        }
+    }
+    
+    @MainActor
     public func deleteConversation(item: ConversationItem) async {
         if item.isDraft {
             cacheManager.deleteLocalDraftSession(id: item.id)
             cacheManager.clearDraft(key: item.id)
             self.conversations.removeAll(where: { $0.id == item.id })
+            NotificationCenter.default.post(name: .conversationDraftDeleted, object: item.id)
             return
         }
         

@@ -41,15 +41,18 @@ ARCH="$(uname -m)"
 case "${ARCH}" in
     arm64|aarch64)
         if [ "${OS_TYPE}" = "darwin" ]; then
-            ARCH_DESC="Apple Silicon (M系列)"
+            ARCH_DESC="Apple Silicon"
             PKG_ARCH="arm64"
-        else
-            ARCH_DESC="Windows x86_64 (amd64 仿真)"
+        elif [ "${OS_TYPE}" = "windows" ]; then
+            ARCH_DESC="Windows ARM64 (amd64 仿真)"
             PKG_ARCH="amd64"
+        else
+            ARCH_DESC="Linux"
+            PKG_ARCH="arm64"
         fi
         ;;
     x86_64|amd64)
-        ARCH_DESC="${OS_DESC} x86_64 (amd64)"
+        ARCH_DESC="${OS_DESC} x86_64"
         PKG_ARCH="amd64"
         ;;
     *)
@@ -57,7 +60,11 @@ case "${ARCH}" in
         exit 1
         ;;
 esac
-echo "🖥️  检测到系统架构: ${ARCH_DESC} (${PKG_ARCH})"
+if [[ "${ARCH_DESC}" == *"("* ]]; then
+    echo "🖥️  检测到系统架构: ${ARCH_DESC}"
+else
+    echo "🖥️  检测到系统架构: ${ARCH_DESC} (${PKG_ARCH})"
+fi
 
 # 3. 准备安装与配置目录
 mkdir -p "${INSTALL_DIR}"
@@ -268,7 +275,151 @@ if [[ ":${PATH}:" != *":${INSTALL_DIR}:"* ]]; then
     fi
 fi
 
-# 8. 验证安装
+# 8. 预先检测并安装 Cloudflare 穿透引擎 (用于远程外网安全直连)
+CF_BIN_DIR="${CONF_DIR}/bin"
+mkdir -p "${CF_BIN_DIR}"
+CF_TARGET="${CF_BIN_DIR}/cloudflared"
+if [ "${OS_TYPE}" = "windows" ]; then
+    CF_TARGET="${CF_BIN_DIR}/cloudflared.exe"
+fi
+
+CF_EXISTING=""
+if command -v cloudflared >/dev/null 2>&1; then
+    CF_EXISTING="$(command -v cloudflared)"
+elif [ -f "${CF_TARGET}" ]; then
+    CF_SIZE="$(wc -c < "${CF_TARGET}" 2>/dev/null || stat -f%z "${CF_TARGET}" 2>/dev/null || stat -c%s "${CF_TARGET}" 2>/dev/null || echo 0)"
+    if [ "${CF_SIZE}" -gt 10000000 ]; then
+        CF_EXISTING="${CF_TARGET}"
+    fi
+fi
+
+if [ -n "${CF_EXISTING}" ]; then
+    echo "✅ 检测到 Cloudflare 穿透引擎已就绪: ${CF_EXISTING}"
+    if [ ! -f "${INSTALL_DIR}/cloudflared" ] && [ -f "${CF_TARGET}" ]; then
+        cp -f "${CF_TARGET}" "${INSTALL_DIR}/cloudflared" 2>/dev/null || true
+        chmod +x "${INSTALL_DIR}/cloudflared" 2>/dev/null || true
+    fi
+else
+    CF_PKG=""
+    case "${OS_TYPE}" in
+        darwin)
+            if [ "${PKG_ARCH}" = "arm64" ]; then
+                CF_PKG="cloudflared-darwin-arm64.tgz"
+            else
+                CF_PKG="cloudflared-darwin-amd64.tgz"
+            fi
+            ;;
+        windows)
+            CF_PKG="cloudflared-windows-amd64.exe"
+            ;;
+        linux)
+            if [ "${PKG_ARCH}" = "arm64" ]; then
+                CF_PKG="cloudflared-linux-arm64"
+            else
+                CF_PKG="cloudflared-linux-amd64"
+            fi
+            ;;
+    esac
+
+    if [ -n "${CF_PKG}" ]; then
+        CF_URLS=(
+            "https://ghfast.top/https://github.com/cloudflare/cloudflared/releases/latest/download/${CF_PKG}"
+            "https://ghproxy.net/https://github.com/cloudflare/cloudflared/releases/latest/download/${CF_PKG}"
+            "https://github.com/cloudflare/cloudflared/releases/latest/download/${CF_PKG}"
+        )
+
+        CF_DONE=false
+        KEEP_TRYING=true
+
+        while [ "${KEEP_TRYING}" = "true" ] && [ "${CF_DONE}" = "false" ]; do
+            echo ""
+            echo "⏬ 正在预先获取 Cloudflare 穿透引擎 (${CF_PKG}, 约 65MB)..."
+
+            # 重新探测本地代理端口
+            CURR_PROXY_PORT="${PROXY_PORT:-}"
+            if [ -z "${https_proxy:-}" ] && [ -z "${http_proxy:-}" ] && [ -z "${all_proxy:-}" ]; then
+                for test_port in 7890 10808 1080 6152; do
+                    if nc -z -w 1 127.0.0.1 "${test_port}" 2>/dev/null; then
+                        CURR_PROXY_PORT="${test_port}"
+                        break
+                    fi
+                done
+            fi
+
+            for cf_url in "${CF_URLS[@]}"; do
+                TMP_CF="${CF_TARGET}.tmp"
+                rm -f "${TMP_CF}" 2>/dev/null || true
+
+                CURL_EXTRA=()
+                if [[ "${cf_url}" == https://github.com/* ]]; then
+                    if [ -n "${CURR_PROXY_PORT}" ]; then
+                        echo "🔗 尝试从 Cloudflare 官方源（走本机代理 127.0.0.1:${CURR_PROXY_PORT}）下载..."
+                        CURL_EXTRA=(--proxy "http://127.0.0.1:${CURR_PROXY_PORT}")
+                    else
+                        echo "🔗 尝试从 Cloudflare 官方源下载: ${cf_url}"
+                    fi
+                else
+                    echo "🔗 尝试从加速镜像站直连下载: ${cf_url}"
+                    CURL_EXTRA=(--noproxy "*")
+                fi
+
+                CURL_CMD=(curl -fL)
+                if [ ${#CURL_EXTRA[@]} -gt 0 ]; then
+                    CURL_CMD+=("${CURL_EXTRA[@]}")
+                fi
+                # 超时放宽至 300 秒 (5分钟)，连接超时 15 秒，显示进度条
+                CURL_CMD+=(--connect-timeout 15 --max-time 300 -# -o "${TMP_CF}" "${cf_url}")
+
+                if "${CURL_CMD[@]}"; then
+                    if [[ "${CF_PKG}" == *.tgz ]] || [[ "${CF_PKG}" == *.tar.gz ]]; then
+                        tar -xzf "${TMP_CF}" -C "${CF_BIN_DIR}" cloudflared 2>/dev/null || tar -xzf "${TMP_CF}" -C "${CF_BIN_DIR}" 2>/dev/null || true
+                        rm -f "${TMP_CF}" 2>/dev/null || true
+                    else
+                        mv -f "${TMP_CF}" "${CF_TARGET}"
+                    fi
+
+                    if [ -f "${CF_TARGET}" ]; then
+                        chmod +x "${CF_TARGET}" 2>/dev/null || true
+                        cp -f "${CF_TARGET}" "${INSTALL_DIR}/cloudflared" 2>/dev/null || true
+                        chmod +x "${INSTALL_DIR}/cloudflared" 2>/dev/null || true
+                        CF_DONE=true
+                        echo "✅ Cloudflare 穿透引擎安装成功: ${CF_TARGET}"
+                        break
+                    fi
+                else
+                    echo "⚠️  当前源下载异常或超时，尝试下一个备用源..."
+                    rm -f "${TMP_CF}" 2>/dev/null || true
+                fi
+            done
+
+            if [ "${CF_DONE}" = "false" ]; then
+                echo ""
+                echo "⚠️  Cloudflare 穿透引擎下载失败（所有镜像与官方源均连接超时或受阻）。"
+                echo "💡 提示: cloudflared 体积约 65MB，国内部分网络访问可能受限。可切换代理节点或开启代理客户端后重试。"
+
+                if [ -t 0 ]; then
+                    echo ""
+                    read -r -p "❓ 是否尝试切换代理节点/网络后重试下载？(Y: 切换后重试 / N: 跳过稍后) " USER_CHOICE
+                    case "${USER_CHOICE}" in
+                        [Nn]*)
+                            KEEP_TRYING=false
+                            echo "⚠️  已跳过 Cloudflare 引擎预装。后续运行 mgy 时若开启穿透，引擎仍会自动尝试拉取；亦可手动放置 cloudflared 至 ${CF_TARGET}"
+                            ;;
+                        *)
+                            echo "🔄 正在准备重试下载，请确保网络或代理已切换就绪..."
+                            sleep 1
+                            ;;
+                    esac
+                else
+                    KEEP_TRYING=false
+                    echo "⚠️  非交互式终端，已跳过预下载。后续运行 mgy 时仍会自动尝试拉取。"
+                fi
+            fi
+        done
+    fi
+fi
+
+# 9. 验证安装
 INSTALLED_VER="$("${INSTALL_DIR}/${BIN_NAME}" version 2>/dev/null || echo "1.0.2")"
 
 echo ""

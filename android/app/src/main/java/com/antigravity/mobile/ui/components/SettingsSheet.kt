@@ -238,6 +238,13 @@ private fun MainSettingsContent(
 
     var lanAddress by remember { mutableStateOf(prefs.lanServerUrl ?: "") }
     var customAddress by remember { mutableStateOf(prefs.customServerUrl ?: "") }
+    val currentPlatform by prefs.gatewayPlatformFlow.collectAsState()
+    val gatewayDesc = when (currentPlatform?.lowercase()) {
+        "windows", "win" -> "Windows 网关"
+        "darwin", "macos", "mac" -> "Mac 网关"
+        "linux" -> "Linux 网关"
+        else -> "电脑网关"
+    }
 
     LaunchedEffect(Unit) {
         connectionManager.probeEndpoints(prefs)
@@ -254,7 +261,7 @@ private fun MainSettingsContent(
         // MARK: - 1. 设备配对与鉴权 (1:1 iOS 对齐)
         SettingsSection(
             title = "设备配对",
-            footer = "管理当前设备与 Mac 网关的配对状态。"
+            footer = "管理当前设备与 ${gatewayDesc}的配对状态。"
         ) {
             Column(
                 modifier = Modifier

@@ -15,7 +15,7 @@ Write-Host "==================================================" -ForegroundColor
 # 2. 架构检测 (Windows 优先使用 amd64 预编译包，ARM64 系统通过内置仿真无缝运行)
 $arch = $env:PROCESSOR_ARCHITECTURE
 $pkgArch = "amd64"
-$archDesc = "Windows x86_64 (amd64)"
+$archDesc = "Windows x86_64"
 Write-Host "🖥️  检测到系统架构: $archDesc ($pkgArch)" -ForegroundColor Cyan
 
 # 3. 准备安装与配置目录
@@ -200,7 +200,129 @@ try {
 # 刷新当前会话的 PATH
 $env:PATH = "$installDir;$windowsApps;$env:PATH"
 
-# 8. 验证与打印完成信息
+# 8. 预先检测并安装 Cloudflare 穿透引擎 (用于远程外网安全直连)
+$cfBinDir = "$confDir\bin"
+if (!(Test-Path $cfBinDir)) { New-Item -ItemType Directory -Path $cfBinDir -Force | Out-Null }
+$cfTarget = "$cfBinDir\cloudflared.exe"
+
+$cfExisting = $null
+if (Get-Command cloudflared.exe -ErrorAction SilentlyContinue) {
+    $cfExisting = (Get-Command cloudflared.exe).Source
+} elseif ((Test-Path $cfTarget) -and ((Get-Item $cfTarget).Length -gt 10000000)) {
+    $cfExisting = $cfTarget
+}
+
+if ($cfExisting) {
+    Write-Host "✅ 检测到 Cloudflare 穿透引擎已就绪: $cfExisting" -ForegroundColor Green
+    if (!(Test-Path "$installDir\cloudflared.exe") -and (Test-Path $cfTarget)) {
+        try { Copy-Item -Path $cfTarget -Destination "$installDir\cloudflared.exe" -Force } catch {}
+    }
+} else {
+    $cfUrls = @(
+        "https://ghfast.top/https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe",
+        "https://ghproxy.net/https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe",
+        "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
+    )
+
+    $cfDone = $false
+    $keepTrying = $true
+
+    while ($keepTrying -and -not $cfDone) {
+        Write-Host ""
+        Write-Host "⏬ 正在预先获取 Cloudflare 穿透引擎 (cloudflared.exe, 约 65MB)..." -ForegroundColor Cyan
+
+        # 动态重新探测本机代理端口（支持用户切换节点后重试）
+        $cfProxyPort = $proxyPort
+        if (-not $env:https_proxy -and -not $env:http_proxy -and -not $env:all_proxy) {
+            foreach ($p in @(7890, 10808, 1080, 6152)) {
+                try {
+                    $tcp = New-Object System.Net.Sockets.TcpClient
+                    $async = $tcp.BeginConnect("127.0.0.1", $p, $null, $null)
+                    if ($async.AsyncWaitHandle.WaitOne(150, $false) -and $tcp.Connected) {
+                        $cfProxyPort = $p
+                        $tcp.Close()
+                        break
+                    }
+                    $tcp.Close()
+                } catch {}
+            }
+        }
+
+        foreach ($url in $cfUrls) {
+            $isOfficial = ($url -like "https://github.com/*")
+            if ($isOfficial) {
+                if ($cfProxyPort) {
+                    Write-Host "🔗 尝试从 Cloudflare 官方源（走本机代理 127.0.0.1:$cfProxyPort）下载..." -ForegroundColor Gray
+                } else {
+                    Write-Host "🔗 尝试从 Cloudflare 官方源下载: $url" -ForegroundColor Gray
+                }
+            } else {
+                Write-Host "🔗 尝试从加速镜像站直连下载: $url" -ForegroundColor Gray
+            }
+
+            $tmpFile = "$cfTarget.tmp"
+            if (Test-Path $tmpFile) { Remove-Item $tmpFile -Force }
+
+            try {
+                if (Get-Command curl.exe -ErrorAction SilentlyContinue) {
+                    # 超时放宽至 300 秒 (5分钟)，连接超时 15 秒，显示进度条
+                    $curlArgs = @("-fL", "--connect-timeout", "15", "--max-time", "300", "-#", "-o", $tmpFile, $url)
+                    if ($isOfficial -and $cfProxyPort) {
+                        $curlArgs = @("--proxy", "http://127.0.0.1:$cfProxyPort") + $curlArgs
+                    } elseif (-not $isOfficial) {
+                        $curlArgs = @("--noproxy", "*") + $curlArgs
+                    }
+                    & curl.exe @curlArgs
+                } else {
+                    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+                    $wc = New-Object System.Net.WebClient
+                    if ($isOfficial -and $cfProxyPort) {
+                        $wc.Proxy = New-Object System.Net.WebProxy("http://127.0.0.1:$cfProxyPort")
+                    }
+                    $wc.DownloadFile($url, $tmpFile)
+                }
+
+                if ((Test-Path $tmpFile) -and ((Get-Item $tmpFile).Length -gt 10000000)) {
+                    Move-Item -Path $tmpFile -Destination $cfTarget -Force
+                    try { Copy-Item -Path $cfTarget -Destination "$installDir\cloudflared.exe" -Force } catch {}
+                    $cfDone = $true
+                    Write-Host "✅ Cloudflare 穿透引擎安装成功: $cfTarget" -ForegroundColor Green
+                    break
+                } else {
+                    if (Test-Path $tmpFile) { Remove-Item $tmpFile -Force }
+                }
+            } catch {
+                Write-Host "⚠️  当前源下载异常或超时，尝试下一个备用源..." -ForegroundColor Yellow
+                if (Test-Path $tmpFile) { Remove-Item $tmpFile -Force }
+            }
+        }
+
+        if (-not $cfDone) {
+            Write-Host ""
+            Write-Host "⚠️  Cloudflare 穿透引擎下载失败（所有镜像与官方源均连接超时或受阻）。" -ForegroundColor Yellow
+            Write-Host "💡 提示: cloudflared 体积约 65MB，国内部分网络访问可能受限。可切换代理节点或开启代理客户端后重试。" -ForegroundColor Gray
+            
+            # 检测是否支持交互式输入
+            $isInteractive = [Environment]::UserInteractive -and -not [Console]::IsInputRedirected
+            if ($isInteractive) {
+                Write-Host ""
+                $userChoice = Read-Host "❓ 是否尝试切换代理节点/网络后重试下载？(Y: 切换后重试 / N: 跳过稍后)"
+                if ($userChoice -and $userChoice -match "^[Nn]$") {
+                    $keepTrying = $false
+                    Write-Host "⚠️  已跳过 Cloudflare 引擎预装。后续运行 mgy 时若开启穿透，引擎仍会自动尝试拉取；亦可手动放置 cloudflared.exe 至 $cfTarget" -ForegroundColor Yellow
+                } else {
+                    Write-Host "🔄 正在准备重试下载，请确保网络或代理已切换就绪..." -ForegroundColor Cyan
+                    Start-Sleep -Seconds 1
+                }
+            } else {
+                $keepTrying = $false
+                Write-Host "⚠️  非交互式终端，已跳过预下载。后续运行 mgy 时仍会自动尝试拉取。" -ForegroundColor Yellow
+            }
+        }
+    }
+}
+
+# 9. 验证与打印完成信息
 $installedVer = & "$installDir\mgy.exe" version 2>$null
 if (!$installedVer) { $installedVer = "Multigravity (mgy) 1.0.2" }
 

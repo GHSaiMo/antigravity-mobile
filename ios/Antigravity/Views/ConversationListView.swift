@@ -228,6 +228,13 @@ public struct ConversationListView: View {
         .onReceive(NotificationCenter.default.publisher(for: .conversationDraftChanged)) { _ in
             draftsVersion += 1
         }
+        .onReceive(NotificationCenter.default.publisher(for: .conversationDraftDeleted)) { notif in
+            draftsVersion += 1
+            if let draftId = notif.object as? String {
+                viewModel.conversations.removeAll(where: { $0.id == draftId })
+            }
+            viewModel.reloadFromCache()
+        }
         .onOpenURL { url in
             handleDeepLink(url)
         }
@@ -474,10 +481,11 @@ public struct ConversationListView: View {
     
     private var pendingPairingConfirmText: String {
         guard let info = pendingPairing else {
-            return "请确认这是你自己的 Mac 网关，不要配对来历不明的链接。"
+            return "请确认这是你自己的电脑网关，不要配对来历不明的链接。"
         }
         let scheme = info.ssl ? "HTTPS" : "HTTP"
-        return "目标 \(info.host):\(info.port)（\(scheme)）。请确认这是你自己的 Mac 网关，不要配对来历不明的链接。"
+        let gatewayName = info.gatewayDisplayName
+        return "目标 \(info.host):\(info.port)（\(scheme)）。请确认这是你自己的 \(gatewayName)，不要配对来历不明的链接。"
     }
     
     @MainActor

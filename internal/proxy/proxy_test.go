@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -50,6 +51,16 @@ func TestHandleStatusStripsCSRFToken(t *testing.T) {
 	}
 	if strings.Contains(body, `"csrf_token":"`) && strings.Contains(body, secret) {
 		t.Fatalf("csrf_token field still populated: %s", body)
+	}
+	var status GatewayStatus
+	if err := json.Unmarshal(rec.Body.Bytes(), &status); err != nil {
+		t.Fatalf("failed to decode status: %v", err)
+	}
+	if status.OS != runtime.GOOS {
+		t.Errorf("expected OS %s, got %s", runtime.GOOS, status.OS)
+	}
+	if status.Platform != runtime.GOOS {
+		t.Errorf("expected Platform %s, got %s", runtime.GOOS, status.Platform)
 	}
 }
 

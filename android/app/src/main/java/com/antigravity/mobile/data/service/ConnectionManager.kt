@@ -28,7 +28,8 @@ data class EndpointHealthStatus(
     val urlString: String,
     val isReachable: Boolean,
     val latencyMs: Long,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val platform: String? = null
 )
 
 /**
@@ -223,11 +224,19 @@ class ConnectionManager(private val context: Context) {
             httpClient.newCall(req).execute().use { resp ->
                 val took = System.currentTimeMillis() - start
                 if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: ""
+                    var platform: String? = null
+                    try {
+                        val json = JSONObject(body)
+                        platform = json.optString("platform").takeIf { it.isNotBlank() }
+                            ?: json.optString("os").takeIf { it.isNotBlank() }
+                    } catch (_: Exception) {}
                     EndpointHealthStatus(
                         urlString = urlString,
                         isReachable = true,
                         latencyMs = took,
-                        errorMessage = null
+                        errorMessage = null,
+                        platform = platform
                     )
                 } else {
                     EndpointHealthStatus(
@@ -299,6 +308,11 @@ class ConnectionManager(private val context: Context) {
 
             val reachable = results.filter { it.isReachable }
 
+            // Extract and update gateway platform from reachable endpoints
+            reachable.firstOrNull { !it.platform.isNullOrBlank() }?.platform?.let { plat ->
+                prefs.gatewayPlatform = plat
+            }
+
             // 智能路由选举：
             // 顺序：局域网 -> 自定义 -> 主域名兜底
             var selected: String? = null
@@ -347,6 +361,7 @@ class ConnectionManager(private val context: Context) {
         }
 
         val start = System.currentTimeMillis()
+        val prefs = PreferencesManager(context)
         try {
             val req = Request.Builder().url(statusUrl).build()
             httpClient.newCall(req).execute().use { resp ->
@@ -359,6 +374,11 @@ class ConnectionManager(private val context: Context) {
                         val upstream = json.optJSONObject("upstream")
                         val pid = upstream?.optInt("pid", 0) ?: 0
                         if (pid > 0) pidInfo = " PID $pid ·"
+                        val platform = json.optString("platform").takeIf { it.isNotBlank() }
+                            ?: json.optString("os").takeIf { it.isNotBlank() }
+                        if (!platform.isNullOrBlank()) {
+                            prefs.gatewayPlatform = platform
+                        }
                     } catch (_: Exception) {}
 
                     val ifaceDesc = describeEndpoint(clean)
@@ -370,6 +390,15 @@ class ConnectionManager(private val context: Context) {
                     httpClient.newCall(healthReq).execute().use { hResp ->
                         val took2 = System.currentTimeMillis() - start
                         if (hResp.isSuccessful) {
+                            val hBody = hResp.body?.string() ?: ""
+                            try {
+                                val hJson = JSONObject(hBody)
+                                val platform = hJson.optString("platform").takeIf { it.isNotBlank() }
+                                    ?: hJson.optString("os").takeIf { it.isNotBlank() }
+                                if (!platform.isNullOrBlank()) {
+                                    prefs.gatewayPlatform = platform
+                                }
+                            } catch (_: Exception) {}
                             val ifaceDesc = describeEndpoint(clean)
                             Result.success("网关在线 (${took2}ms · $ifaceDesc)")
                         } else {

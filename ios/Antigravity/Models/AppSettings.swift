@@ -31,6 +31,37 @@ public final class AppSettings {
     private let enableLiveActivityKey = "antigravity.enable_live_activity"
     private let activeModelKey = "antigravity.active_model"
     private let autoApprovePermissionsKey = "antigravity.auto_approve_permissions"
+    private let gatewayPlatformKey = "antigravity.gateway_platform"
+    
+    public var gatewayPlatform: String? {
+        didSet {
+            if let val = gatewayPlatform?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+                let normalized: String
+                switch val {
+                case "darwin", "macos", "mac": normalized = "darwin"
+                case "windows", "win": normalized = "windows"
+                case "linux": normalized = "linux"
+                default: normalized = val
+                }
+                UserDefaults.standard.set(normalized, forKey: gatewayPlatformKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: gatewayPlatformKey)
+            }
+        }
+    }
+
+    public var gatewayPlatformDisplayName: String {
+        switch gatewayPlatform?.lowercased() {
+        case "windows", "win":
+            return "Windows 网关"
+        case "darwin", "macos", "mac":
+            return "Mac 网关"
+        case "linux":
+            return "Linux 网关"
+        default:
+            return "电脑网关"
+        }
+    }
     
     public var rawServerURL: String {
         didSet {
@@ -409,6 +440,8 @@ public final class AppSettings {
         UserDefaults.standard.removeObject(forKey: relayServerURLKey)
         UserDefaults.standard.removeObject(forKey: customServerURLKey)
         UserDefaults.standard.removeObject(forKey: activeServerURLKey)
+        UserDefaults.standard.removeObject(forKey: gatewayPlatformKey)
+        self.gatewayPlatform = nil
     }
     
     public init() {
@@ -480,5 +513,6 @@ public final class AppSettings {
         
         let savedAutoApprove = UserDefaults.standard.bool(forKey: autoApprovePermissionsKey)
         self.autoApprovePermissions = savedAutoApprove
+        self.gatewayPlatform = UserDefaults.standard.string(forKey: gatewayPlatformKey)
     }
 }

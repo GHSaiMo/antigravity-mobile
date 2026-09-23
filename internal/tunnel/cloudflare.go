@@ -14,6 +14,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -178,7 +179,7 @@ func EnsureCloudflaredBinary(ctx context.Context) (string, error) {
 
 	// 3. Needs download
 	_ = os.MkdirAll(binDir, 0755)
-	log.Printf("⏬ 正在初始化 Cloudflare 穿透引擎 (初次拉取约需 2~3 秒)...")
+	log.Printf("⏬ 正在拉取 Cloudflare 穿透引擎二进制文件 (~65MB)...")
 
 	downloadURLs := getCloudflaredDownloadURLs()
 	if len(downloadURLs) == 0 {
@@ -209,6 +210,12 @@ func getCloudflaredDownloadURLs() []string {
 		}
 	case "windows":
 		baseNames = []string{"cloudflared-windows-amd64.exe"}
+	case "linux":
+		if runtime.GOARCH == "arm64" {
+			baseNames = []string{"cloudflared-linux-arm64"}
+		} else {
+			baseNames = []string{"cloudflared-linux-amd64"}
+		}
 	default:
 		return nil
 	}
@@ -216,12 +223,76 @@ func getCloudflaredDownloadURLs() []string {
 	var urls []string
 	for _, fn := range baseNames {
 		ghURL := fmt.Sprintf("https://github.com/cloudflare/cloudflared/releases/latest/download/%s", fn)
-		// 优先使用国内加速源
+		// 1. 优先使用国内知名加速镜像源
 		urls = append(urls, "https://ghfast.top/"+ghURL)
-		// 官方直链兜底
+		urls = append(urls, "https://ghproxy.net/"+ghURL)
+		// 2. 官方直链兜底
 		urls = append(urls, ghURL)
 	}
 	return urls
+}
+
+// detectLocalProxy checks environment variables and local proxy ports (Clash/V2Ray/Surge/Sing-box).
+func detectLocalProxy() *url.URL {
+	for _, envKey := range []string{"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"} {
+		if val := strings.TrimSpace(os.Getenv(envKey)); val != "" {
+			if !strings.Contains(val, "://") {
+				val = "http://" + val
+			}
+			if u, err := url.Parse(val); err == nil {
+				return u
+			}
+		}
+	}
+
+	// 自动探测本地常用代理端口
+	commonPorts := []int{7890, 10808, 1080, 6152}
+	for _, p := range commonPorts {
+		addr := fmt.Sprintf("127.0.0.1:%d", p)
+		conn, err := net.DialTimeout("tcp", addr, 150*time.Millisecond)
+		if err == nil {
+			_ = conn.Close()
+			return &url.URL{
+				Scheme: "http",
+				Host:   addr,
+			}
+		}
+	}
+	return nil
+}
+
+func createDownloadHTTPClient(downloadURL string) *http.Client {
+	isOfficialGitHub := strings.HasPrefix(downloadURL, "https://github.com/")
+
+	transport := &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   15 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		TLSHandshakeTimeout:   15 * time.Second,
+		ResponseHeaderTimeout: 20 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		IdleConnTimeout:       90 * time.Second,
+	}
+
+	if isOfficialGitHub {
+		// 官方源：尝试使用环境变量或本地探测到的代理
+		if proxyURL := detectLocalProxy(); proxyURL != nil {
+			log.Printf("⚡ 官方 GitHub 源将使用代理加速连接: %s", proxyURL.String())
+			transport.Proxy = http.ProxyURL(proxyURL)
+		} else {
+			transport.Proxy = http.ProxyFromEnvironment
+		}
+	} else {
+		// 加速镜像站：强制直连，不走代理（避免代理节点干扰或限流）
+		transport.Proxy = nil
+	}
+
+	// 总体超时放宽至 5 分钟，支持大文件在慢速网络下平稳下载
+	return &http.Client{
+		Transport: transport,
+		Timeout:   5 * time.Minute,
+	}
 }
 
 func downloadAndInstallBinary(ctx context.Context, downloadURL, destPath string) error {
@@ -231,7 +302,7 @@ func downloadAndInstallBinary(ctx context.Context, downloadURL, destPath string)
 	}
 	req.Header.Set("User-Agent", "Multigravity-AutoInstaller/1.0")
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := createDownloadHTTPClient(downloadURL)
 	resp, err := client.Do(req)
 	if err != nil {
 		return err

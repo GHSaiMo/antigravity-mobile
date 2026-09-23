@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -52,6 +53,12 @@ func TestHealthzEndpoint(t *testing.T) {
 	if resp["status"] != "ok" {
 		t.Errorf("expected status 'ok', got %q", resp["status"])
 	}
+	if resp["os"] != runtime.GOOS {
+		t.Errorf("expected os %q, got %q", runtime.GOOS, resp["os"])
+	}
+	if resp["platform"] != runtime.GOOS {
+		t.Errorf("expected platform %q, got %q", runtime.GOOS, resp["platform"])
+	}
 }
 
 func TestReadyzEndpoint(t *testing.T) {
@@ -73,6 +80,12 @@ func TestReadyzEndpoint(t *testing.T) {
 
 	if _, ok := resp["status"]; !ok {
 		t.Errorf("missing 'status' in readyz response: %+v", resp)
+	}
+	if resp["os"] != runtime.GOOS {
+		t.Errorf("expected os %q, got %v", runtime.GOOS, resp["os"])
+	}
+	if resp["platform"] != runtime.GOOS {
+		t.Errorf("expected platform %q, got %v", runtime.GOOS, resp["platform"])
 	}
 }
 

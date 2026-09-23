@@ -14,7 +14,7 @@ window.fetch = async function (url, options = {}) {
     localStorage.removeItem("agy_device_id");
     localStorage.removeItem("agy_device_token");
     if (typeof updateAuthUI === "function") updateAuthUI();
-    if (typeof openPairingSheet === "function") openPairingSheet("设备凭据已失效或被 Mac 网关吊销，请重新配对");
+    if (typeof openPairingSheet === "function") openPairingSheet("设备凭据已失效或被网关吊销，请重新配对");
   }
 
   return response;

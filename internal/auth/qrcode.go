@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -74,6 +75,8 @@ func GenerateMultiHostPairingURI(p MultiHostPairingParams) string {
 	params.Set("port", fmt.Sprintf("%d", p.Port))
 	params.Set("code", p.Code)
 	params.Set("ssl", sslVal)
+	params.Set("os", runtime.GOOS)
+	params.Set("platform", runtime.GOOS)
 
 	if lan := strings.TrimSpace(p.LANHost); lan != "" && (lan != cleanHost || strings.Contains(cleanHost, ":")) {
 		params.Set("lan", lan)
@@ -92,7 +95,7 @@ func GenerateMultiHostPairingURI(p MultiHostPairingParams) string {
 }
 
 // GeneratePairingURI formats the pairing URI according to the agy:// schema specification.
-// Format: agy://pair?host=<MAC_HOST>&port=<PORT>&code=<PAIRING_CODE>&ssl=1
+// Format: agy://pair?host=<HOST>&port=<PORT>&code=<PAIRING_CODE>&ssl=1&os=<OS>
 func GeneratePairingURI(host string, port int, code string, ssl bool) string {
 	return GenerateMultiHostPairingURI(MultiHostPairingParams{
 		PrimaryHost: host,

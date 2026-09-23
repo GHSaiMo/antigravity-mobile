@@ -44,6 +44,8 @@ public struct FileContentResponse: Codable, Sendable {
 
 public struct GatewayStatusResponse: Codable, Sendable {
     public let status: String
+    public let os: String?
+    public let platform: String?
     public let upstream: UpstreamInfo?
     public var usedInterface: String?
     public var connectionDescription: String?
@@ -51,6 +53,8 @@ public struct GatewayStatusResponse: Codable, Sendable {
     
     enum CodingKeys: String, CodingKey {
         case status
+        case os
+        case platform
         case upstream
         case usedInterface
         case connectionDescription
@@ -988,6 +992,9 @@ public final class APIClient: Sendable {
             }
             
             var decoded = try JSONDecoder().decode(GatewayStatusResponse.self, from: data)
+            if let plat = decoded.platform ?? decoded.os {
+                AppSettings.shared.gatewayPlatform = plat
+            }
             let ifaceHeader = (httpResp.allHeaderFields["X-Antigravity-Interface"] as? String) ??
                               (httpResp.allHeaderFields["x-antigravity-interface"] as? String)
             let isCellular: Bool
@@ -1040,7 +1047,23 @@ public final class APIClient: Sendable {
             throw DecodingError.dataCorruptedError(in: container, debugDescription: "Invalid date: \(dateStr)")
         }
         
-        return try decoder.decode([ProjectItem].self, from: data)
+        let projects = try decoder.decode([ProjectItem].self, from: data)
+        if AppSettings.shared.gatewayPlatform == nil {
+            for item in projects {
+                let p = item.path.isEmpty ? item.uri : item.path
+                if p.contains(":\\") || p.contains(":/") || (p.count >= 2 && p.dropFirst().first == ":") {
+                    AppSettings.shared.gatewayPlatform = "windows"
+                    break
+                } else if p.hasPrefix("/Users/") {
+                    AppSettings.shared.gatewayPlatform = "darwin"
+                    break
+                } else if p.hasPrefix("/home/") {
+                    AppSettings.shared.gatewayPlatform = "linux"
+                    break
+                }
+            }
+        }
+        return projects
     }
     
     // Create a new cascade and optionally send initial prompt

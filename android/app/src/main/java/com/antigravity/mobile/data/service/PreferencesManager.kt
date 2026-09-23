@@ -60,10 +60,55 @@ class PreferencesManager(context: Context) {
                 prefs.edit().remove(KEY_CUSTOM_URL).apply()
             }
         }
+        _gatewayPlatformFlow.value = gatewayPlatform
     }
 
     private val _themeModeFlow = MutableStateFlow(themeMode)
     val themeModeFlow: StateFlow<String> = _themeModeFlow.asStateFlow()
+
+    private val _gatewayPlatformFlow = MutableStateFlow<String?>(null)
+    val gatewayPlatformFlow: StateFlow<String?> = _gatewayPlatformFlow.asStateFlow()
+
+    var gatewayPlatform: String?
+        get() {
+            val saved = prefs.getString(KEY_GATEWAY_PLATFORM, null)
+            if (!saved.isNullOrBlank()) return saved
+            // Heuristic fallback: check cached projects or conversations for Windows/Mac path clues
+            val projects = cachedProjectsJson
+            if (!projects.isNullOrBlank()) {
+                if (projects.contains(":\\\\") || projects.contains(":/") || projects.contains(":\\")) {
+                    return "windows"
+                } else if (projects.contains("/Users/")) {
+                    return "darwin"
+                } else if (projects.contains("/home/")) {
+                    return "linux"
+                }
+            }
+            return null
+        }
+        set(value) {
+            val clean = value?.trim()?.lowercase()
+            if (clean.isNullOrBlank()) {
+                prefs.edit().remove(KEY_GATEWAY_PLATFORM).apply()
+            } else {
+                val normalized = when (clean) {
+                    "darwin", "macos", "mac" -> "darwin"
+                    "windows", "win" -> "windows"
+                    "linux" -> "linux"
+                    else -> clean
+                }
+                prefs.edit().putString(KEY_GATEWAY_PLATFORM, normalized).apply()
+            }
+            _gatewayPlatformFlow.value = gatewayPlatform
+        }
+
+    val gatewayPlatformDisplayName: String
+        get() = when (gatewayPlatform?.lowercase()) {
+            "windows", "win" -> "Windows 网关"
+            "darwin", "macos", "mac" -> "Mac 网关"
+            "linux" -> "Linux 网关"
+            else -> "电脑网关"
+        }
 
     var gatewayBaseUrl: String?
         get() = prefs.getString(KEY_GATEWAY_URL, null)
@@ -469,9 +514,11 @@ class PreferencesManager(context: Context) {
         securePrefs?.edit()?.clear()?.apply()
         prefs.edit().clear().apply()
         _themeModeFlow.value = "system"
+        _gatewayPlatformFlow.value = null
     }
 
     companion object {
+        private const val KEY_GATEWAY_PLATFORM = "gateway_platform"
         private const val KEY_GATEWAY_URL = "gateway_base_url"
         private const val KEY_PRIMARY_CLOUD_URL = "primary_cloud_url"
         private const val KEY_DEVICE_TOKEN = "device_token"
