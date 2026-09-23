@@ -638,7 +638,7 @@ private fun MainSettingsContent(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(text = "版本", color = colors.textPrimary, fontSize = 15.sp)
-                    Text(text = "1.0.2", color = colors.textSecondary, fontSize = 14.sp)
+                    Text(text = "1.0.3", color = colors.textSecondary, fontSize = 14.sp)
                 }
             }
         }
