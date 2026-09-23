@@ -926,6 +926,8 @@ class ApiClient(
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
     /**
      * Registers the device push token (FCM / remote push) with the gateway.
      */

@@ -326,12 +326,12 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        val existing = conversationListViewModel.conversations.value.firstOrNull { it.id == cascadeId }
+        val existing = conversationListViewModel.getConversation(cascadeId)
         val title = existing?.title ?: "会话"
         val isNew = false
         val isUnread = false
         val status = existing?.status ?: com.antigravity.mobile.data.model.ConversationStatus.RUNNING
-        val lastModified = existing?.lastModifiedEpochMs ?: System.currentTimeMillis()
+        val lastModified = existing?.lastModifiedTime
         val wsName = conversationListViewModel.getWorkspaceName(cascadeId)
         val draftProject = conversationListViewModel.getDraftProject(cascadeId)
 

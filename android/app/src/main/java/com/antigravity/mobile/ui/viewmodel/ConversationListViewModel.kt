@@ -482,6 +482,10 @@ class ConversationListViewModel(
         _uiState.value = ConversationListUiState.Success(filtered)
     }
 
+    fun getConversation(cascadeId: String): ConversationItem? {
+        return rawConversations.find { it.id == cascadeId }
+    }
+
     fun getWorkspaceName(cascadeId: String): String? {
         return rawConversations.find { it.id == cascadeId }?.workspaceName
             ?: prefs.getLocalDraftSession(cascadeId)?.let { if (it.project.isPureChat) "Chat" else it.project.name }

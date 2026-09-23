@@ -54,7 +54,7 @@ class AntigravityMessagingService : FirebaseMessagingService() {
 
         val intent = Intent(applicationContext, MainActivity::class.java).apply {
             action = Intent.ACTION_VIEW
-            data = Uri.parse(deeplink)
+            setData(Uri.parse(deeplink))
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
 

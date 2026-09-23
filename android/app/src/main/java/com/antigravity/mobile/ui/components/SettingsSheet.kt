@@ -222,6 +222,14 @@ private fun MainSettingsContent(
     onPromptClearCache: () -> Unit
 ) {
     val colors = AntigravityTheme.colors
+    val localContext = LocalContext.current
+    val isNotificationPermissionGranted = remember {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(localContext, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        } else {
+            NotificationManagerCompat.from(localContext).areNotificationsEnabled()
+        }
+    }
     val coroutineScope = rememberCoroutineScope()
     var autoApprove by remember { mutableStateOf(prefs.autoApprovePermissions) }
     var enableLiveNotifications by remember { mutableStateOf(prefs.enableLiveNotifications) }
@@ -499,14 +507,14 @@ private fun MainSettingsContent(
                             .clickable {
                                 val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                                     Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
-                                        putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                                        putExtra(Settings.EXTRA_APP_PACKAGE, localContext.packageName)
                                     }
                                 } else {
                                     Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                        data = Uri.fromParts("package", context.packageName, null)
+                                        setData(Uri.fromParts("package", localContext.packageName, null))
                                     }
                                 }
-                                context.startActivity(intent)
+                                localContext.startActivity(intent)
                             }
                             .padding(horizontal = 16.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -527,7 +535,7 @@ private fun MainSettingsContent(
                         Icon(
                             imageVector = Icons.Default.ChevronRight,
                             contentDescription = null,
-                            tint = colors.textTertiary,
+                            tint = colors.textMuted,
                             modifier = Modifier.size(16.dp)
                         )
                     }
