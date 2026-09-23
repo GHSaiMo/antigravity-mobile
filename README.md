@@ -121,9 +121,9 @@ mgy help           # 查看完整命令与启动参数帮助
 | | **移动端 PWA / Web** (Vanilla JS) | 零构建打包、嵌入 Go 二进制 (`embed.FS`)、全面对齐 iOS 原生设计系统与 NavigationStack 导航、列表滚动/侧滑手势消抖（防误触进入）、居中对称标题与 38px 悬浮垃圾桶删除、自适应安全区与键盘防遮挡、Markdown 浮窗与方案 Proceed 推进、排队消息与后台任务同步、添加到主屏幕 |
 | **🎯 跨端游标与焦点层** | **随人而动游标引擎 (Follow-Me Cursor Engine)** | 毫秒级多端焦点仲裁：活跃长连接流 (Active Stream) > 移动端黏性焦点 (Mobile Sticky 30m) > 桌面端 IDE 活跃焦点 (Desktop Focus) > 磁盘最后活跃会话兜底；提供 0ms 会话焦点上报与预热；防自反保护机制 (Anti-Reflection 1.5s 抑制期) 彻底消除已读回环误判；幽灵会话三重防御过滤 |
 | **🦞 物理外设网桥层** | **YoooClaw 物理硬件网桥 (`integrations/yoooclaw/`)** | 随身外设按键录音 ➔ ASR ➔ Gateway-First 代理直连注入活跃 Cascade 会话；双层协同分流（第一层 Hermes 业务守卫放行，第二层统一游标精准定位目标会话）；四色交织 RGB 流光动效与 OLED 屏幕状态回显 |
-| **⚡ 远程连接与鉴权层** | **智能路由与一键并发测速 (Smart Multi-Channel Routing)** | 移动端动态管理 Wi-Fi 局域网 (LAN IPv4)、外网直连 (Public IPv6) 与云端中继 (FRP / DDNS)；提供一键并发探活，秒级测速回显并自动优选延迟最低链路，支持客户端手动动态切换端点 |
-| | **HTTPS 域名中继与端到端 TLS 1.3** | 支持公网域名直连或通过 FRP 隧道穿透配合 Let's Encrypt 证书 (`scripts/issue-agy-tls.sh`)，实现无公网 IPv4 下的域名安全中继；配对二维码优先携带安全 HTTPS 链接 (`ssl=1`)，Mac/PC 本地终止解密，VPS 仅透明转发 TCP 密文，手机端无缝绕过 iOS ATS 拦截并启用 HSTS |
-| | **IPv6 双栈直连 (Dual-Stack Direct)** | 网关默认监听 IPv4/IPv6 全网卡，公网 IPv6 / DDNS 直连免中继，极低延迟，客户端蜂窝网络 (Cellular) 智能优先路由 |
+| **⚡ 远程连接与鉴权层** | **智能路由与一键并发测速 (Smart Multi-Channel Routing)** | 移动端动态管理 Wi-Fi 局域网 (LAN IPv4) 与 Cloudflare 专属 HTTPS 隧道；提供一键并发探活，秒级测速回显并自动优选延迟最低链路，支持客户端手动动态切换端点 |
+| | **Cloudflare Tunnel 专属公网穿透 (零配置 HTTPS)** | 内置全自动 Cloudflare 穿透，启动即自动获取专属 HTTPS 域名，公网端到端 TLS 加密；配对二维码默认携带安全 HTTPS 链接 (`ssl=1`)，手机端无缝通过 iOS ATS 拦截 |
+| | **局域网 Wi-Fi 直连 (LAN Direct)** | 同一 Wi-Fi 下直连本地内网 IP，极低延迟，外出或异网自动走 Cloudflare 隧道 |
 | | **二维码扫码配对 (QR Pairing)** | 终端或 `mgy pair` 自动生成一次性 `agy://pair` 配对二维码，扫码秒级签发独占 Device Token，存入系统安全存储 (Keychain / EncryptedSharedPreferences)，与 IP 完全解耦；支持高级手动大小写不敏感配对 |
 | | **Tailscale / 私有 Mesh VPN (备选)** | 点对点加密 WireGuard 网络，无公网 IP 时安全组网互联 |
 | **🖥️ 本地网关层** | **自愈实例探测器 (Inspector)** | **原生支持 macOS 与 Windows**：深度逆向自动嗅探各平台 `language_server` 进程、实时捕获动态端口与鉴权令牌、进程重启零感知毫秒级自愈；离线状态具备指数退避 (5s→10s→20s→40s) 防 CPU 空转 |
@@ -237,44 +237,29 @@ Multigravity 采用**全局目录优先，无缝兼容老项目**的配置架构
 
 | 环境变量 | 默认值 | 说明 |
 | :--- | :--- | :--- |
-| `MULTIGRAVITY_PORT` (或 `GATEWAY_PORT`) | `58900` | 网关 HTTP/WebSocket 服务监听端口 |
-| `MULTIGRAVITY_HOST` (或 `GATEWAY_HOST`) | `""` (双栈全网卡) | 监听地址，设为 `127.0.0.1` 则仅限本机回环访问 |
-| `DDNS_HOST` | 留空 | 公网 DDNS 域名或固定 IPv6 地址（用于生成外网扫码配对链接） |
-| `GATEWAY_SSL` | `0` | 是否启用 HTTPS 模式（设为 `1` 开启，需配合 TLS 证书） |
-| `TLS_CERT_FILE` | 留空 | HTTPS 证书文件路径 (`.cer` / `.crt` / `.pem`) |
-| `TLS_KEY_FILE` | 留空 | HTTPS 私钥文件路径 (`.key`) |
+| `MULTIGRAVITY_PORT` | `58900` | 网关 HTTP/WebSocket 服务监听端口 |
+| `MULTIGRAVITY_HOST` | `""` (双栈全网卡) | 监听地址，设为 `127.0.0.1` 则仅限本机回环访问 |
+| `DDNS_HOST` | 留空 | 自定义公网域名（可选） |
+| `CF_TUNNEL_ENABLED` | `1` | 是否启用 Cloudflare 自动公网穿透通道 (`1` 开启, `0` 关闭) |
+| `CF_WORKER_URL` | `https://mgy-tunnel.multigravity.workers.dev` | Cloudflare Worker 隧道调度服务器地址 |
+| `CF_TUNNEL_TOKEN` | 留空 | 自定义固定 Cloudflare Tunnel Token（可选） |
 | `BARK_URL` | 留空 | iOS Bark 推送链接（如 `https://api.day.app/YOUR_DEVICE_KEY`） |
-| `FRP_ENABLE` | `0` | 是否启用内置 FRP 内网穿透云中继通道 (`1` 开启) |
-| `FRP_SERVER_ADDR` | 留空 | FRP 远程服务器 IP 或公网域名 |
-| `FRP_SERVER_PORT` | `7000` | FRP 远程服务器通信端口 |
-| `FRP_TOKEN` | 留空 | FRP 鉴权密钥 Token |
-| `FRP_REMOTE_PORT` | `58900` | FRP 映射的公网远程端口 |
-| `ADMIN_TOKEN` | 自动生成 | 管理员特权密钥（外网访问或开启 FRP 时用于保护配对接口） |
+| `ADMIN_TOKEN` | 自动生成 | 管理员特权密钥（保护管理与配对接口） |
 
 ---
 
 ## 🌐 远程网络访问方案推荐
 
-网关默认绑定 IPv4 与 IPv6 全网卡（`:58900`），支持多种连接方案：
+网关开箱即用，支持多通道智能自适应：
 
-### 方案 A：IPv6 / DDNS 公网直连（超低延迟，最推荐）
-1. 绝大多数家庭宽带与手机移动网络均原生支持 IPv6；
-2. 配合 DDNS（将域名绑定到 Mac 的 IPv6），在 `~/.multigravity/.env` 中配置 `DDNS_HOST=your-domain.com`；
-3. 执行 `mgy pair` 生成的二维码自动携带公网域名，手机在 5G 蜂窝网络下秒级直连。
+### 方案 A：Cloudflare Tunnel 专属域名穿透（开箱即用，最推荐）
+1. 网关启动时自动建立 Cloudflare Tunnel，并分配专属永久 HTTPS 域名；
+2. 终端或 `mgy pair` 生成的二维码默认包含此 HTTPS 专属域名；
+3. 外出或使用 5G 移动蜂窝网络时，手机端无需任何公网 IP 或端口映射即可秒连，原生通过 iOS ATS 安全验证。
 
-### 方案 B：HTTPS 域名中继与 TLS 1.3（安全防封，免公网 IPv4）
-1. 若无公网 IP，可通过轻量云服务器搭建 FRP + Let's Encrypt 证书；
-2. 执行项目自带脚本自动化签发证书：
-   ```bash
-   export CF_Token="your_cloudflare_dns_api_token"
-   ./scripts/issue-agy-tls.sh
-   ```
-3. 在 `~/.multigravity/.env` 中开启 `GATEWAY_SSL=1`、填入 `DDNS_HOST` 与证书路径；
-4. 流量在 Mac 本地解密，云端 VPS 仅作为透明 TCP 转发，完美绕过 iOS ATS 拦截。
-
-### 方案 C：本地局域网 / Tailscale
-- **同一 Wi-Fi**：直接扫描终端配对二维码，走局域网内网 IP（`192.168.x.x:58900`）秒连；
-- **Tailscale**：手机与 Mac 加入同一 WireGuard/Tailscale Mesh 网络，使用 Tailscale IP 直连。
+### 方案 B：局域网 Wi-Fi 直连 / Tailscale（本地极速）
+- **同一 Wi-Fi**：手机与电脑在同一局域网下，扫码后自动探测并添加局域网内网 IP（`http://192.168.x.x:58900`），端到端极速直连；
+- **Tailscale**：手机与电脑加入同一 WireGuard/Tailscale Mesh 网络，可通过 Tailscale IP 直连。
 
 ---
 

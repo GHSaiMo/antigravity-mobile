@@ -166,7 +166,7 @@ func (h *AuthHandler) GetEndpoints() []EndpointInfo {
 	}
 
 	// LAN / public IPv6 literals are only advertised for cleartext HTTP.
-	// GATEWAY_SSL certs are issued for the domain (DDNS_HOST), not RFC1918 or raw IPv6.
+	// TLS certificates are issued for domains, not RFC1918 or raw IPv6.
 	if !h.ssl {
 		ipv6 := h.ipv6Host
 		if ipv6 == "" && strings.Contains(h.host, ":") {

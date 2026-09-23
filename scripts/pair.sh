@@ -40,31 +40,8 @@ if [ -n "${ADMIN_TOKEN:-}" ]; then
     AUTH_ARGS=(-H "Authorization: Bearer ${ADMIN_TOKEN}")
 fi
 
-SSL_VAL="${GATEWAY_SSL:-$(read_env_val "MULTIGRAVITY_SSL")}"
-if [ -z "${SSL_VAL}" ]; then
-    SSL_VAL="$(read_env_val "GATEWAY_SSL")"
-fi
-ssl_on=false
-case "${SSL_VAL}" in
-    1|true|TRUE|yes|YES) ssl_on=true ;;
-esac
-
-DDNS_VAL="${DDNS_HOST:-$(read_env_val "DDNS_HOST")}"
-TLS_CERT_VAL="${TLS_CERT_FILE:-$(read_env_val "MULTIGRAVITY_TLS_CERT")}"
-TLS_KEY_VAL="${TLS_KEY_FILE:-$(read_env_val "MULTIGRAVITY_TLS_KEY")}"
-
+PAIR_URL="http://127.0.0.1:${PORT}/api/v1/auth/session"
 CURL_OPTS=()
-if $ssl_on || { [ -n "${TLS_CERT_VAL:-}" ] && [ -n "${TLS_KEY_VAL:-}" ]; }; then
-    if [ -n "${DDNS_VAL:-}" ]; then
-        CURL_OPTS=(--resolve "${DDNS_VAL}:${PORT}:127.0.0.1")
-        PAIR_URL="https://${DDNS_VAL}:${PORT}/api/v1/auth/session"
-    else
-        CURL_OPTS=(-k)
-        PAIR_URL="https://127.0.0.1:${PORT}/api/v1/auth/session"
-    fi
-else
-    PAIR_URL="http://127.0.0.1:${PORT}/api/v1/auth/session"
-fi
 
 TMP_BODY="$(mktemp)"
 trap 'rm -f "${TMP_BODY}"' EXIT

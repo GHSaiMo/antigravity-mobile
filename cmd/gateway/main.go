@@ -89,11 +89,6 @@ func defaultPort() int {
 	return defaultPort
 }
 
-func isSSLEnabled() bool {
-	v := strings.ToLower(strings.TrimSpace(os.Getenv("MULTIGRAVITY_SSL")))
-	return v == "1" || v == "true" || v == "yes"
-}
-
 func runGatewayServer(args []string) {
 	// ==============================================================================
 	// 启动项配置参数定义与中文说明
@@ -118,33 +113,12 @@ func runGatewayServer(args []string) {
 	printQR := fs.Bool("qr", defaultQR, "启动时是否在终端默认打印一次配对二维码（默认 true）")
 	pollSec := fs.Int("poll", 5, "探测本地 Antigravity 实例与健康检查的轮询间隔秒数（默认 5 秒）")
 	ddnsHost := fs.String("ddns", os.Getenv("DDNS_HOST"), "公网 DDNS 域名或固定 IPv6 地址，用于生成扫码配对链接及外部直连")
-	enableSSL := fs.Bool("ssl", isSSLEnabled(), "是否开启 SSL/HTTPS 模式（默认 false，开启需配合 -tls-cert 与 -tls-key）")
-	tlsCertEnv := os.Getenv("MULTIGRAVITY_TLS_CERT")
-	if tlsCertEnv == "" {
-		tlsCertEnv = os.Getenv("TLS_CERT_FILE")
-	}
-	tlsCert := fs.String("tls-cert", tlsCertEnv, "HTTPS 服务 TLS 证书文件路径 (.cer/.crt/.pem)")
-	tlsKeyEnv := os.Getenv("MULTIGRAVITY_TLS_KEY")
-	if tlsKeyEnv == "" {
-		tlsKeyEnv = os.Getenv("TLS_KEY_FILE")
-	}
-	tlsKey := fs.String("tls-key", tlsKeyEnv, "HTTPS 服务 TLS 私钥文件路径 (.key)")
 	_ = fs.Parse(args)
 
 	if tokPath, _, err := auth.EnsureAdminToken(true); err != nil {
 		log.Fatalf("❌ Failed to initialize MULTIGRAVITY_ADMIN_TOKEN: %v", err)
 	} else if tokPath != "" {
 		log.Printf("🔐 Loaded MULTIGRAVITY_ADMIN_TOKEN from %s", tokPath)
-	}
-	hasTLSFiles := *tlsCert != "" && *tlsKey != ""
-	if *enableSSL && !hasTLSFiles {
-		log.Fatalf("MULTIGRAVITY_SSL=1 requires MULTIGRAVITY_TLS_CERT and MULTIGRAVITY_TLS_KEY")
-	}
-	if *enableSSL && strings.TrimSpace(*ddnsHost) == "" {
-		log.Printf("⚠️  MULTIGRAVITY_SSL=1 without DDNS_HOST: pairing will advertise https:// to an IP and iOS certificate checks will fail. Set DDNS_HOST=agy.example.com")
-	}
-	if !auth.IsListenAddrLoopback(*host) && !hasTLSFiles {
-		log.Printf("⚠️  Gateway listening on a non-loopback address without TLS. LAN HTTP is supported; do not advertise this port on the public Internet. Set MULTIGRAVITY_TLS_CERT/MULTIGRAVITY_TLS_KEY or MULTIGRAVITY_SSL=1 for public access.")
 	}
 
 	listenDesc := *host
@@ -160,9 +134,6 @@ func runGatewayServer(args []string) {
 	log.Printf("   • 配对二维码 (-qr)     : %v", *printQR)
 	if *ddnsHost != "" {
 		log.Printf("   • 公网 DDNS (-ddns)    : %s", *ddnsHost)
-	}
-	if *enableSSL {
-		log.Printf("   • SSL/TLS 模式 (-ssl)  : 已启用 (证书: %s)", *tlsCert)
 	}
 	log.Printf("==================================================")
 
@@ -195,7 +166,7 @@ func runGatewayServer(args []string) {
 	}
 
 	pairingMgr := auth.NewPairingManager()
-	authHandler := auth.NewAuthHandler(authStore, pairingMgr, qrHost, *port, *enableSSL)
+	authHandler := auth.NewAuthHandler(authStore, pairingMgr, qrHost, *port, false)
 	authHandler.SetEndpoints(netAddrs.LANIPv4, "", "")
 
 	qrPort := *port
@@ -238,7 +209,6 @@ func runGatewayServer(args []string) {
 					// 将专属 HTTPS 域名设为二维码主地址，强制走 HTTPS 443！
 					qrHost = cfRes.Subdomain
 					qrPort = 443
-					*enableSSL = true
 					extraHosts = nil
 					if netAddrs.LANIPv4 != "" {
 						extraHosts = append(extraHosts, netAddrs.LANIPv4)
@@ -358,22 +328,12 @@ func runGatewayServer(args []string) {
 	signal.Notify(stopCh, os.Interrupt, syscall.SIGTERM)
 
 	go func() {
-		var err error
-		if *enableSSL && *tlsCert != "" && *tlsKey != "" {
-			log.Printf("🔒 TLS enabled with cert=%s key=%s", *tlsCert, *tlsKey)
-			err = server.ServeTLS(listener, *tlsCert, *tlsKey)
-		} else {
-			err = server.Serve(listener)
-		}
-		if err != nil && err != http.ErrServerClosed {
+		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Server error: %v", err)
 		}
 	}()
 
 	localScheme := "http"
-	if *tlsCert != "" && *tlsKey != "" {
-		localScheme = "https"
-	}
 	lanDisplay := netAddrs.LANIPv4
 	if lanDisplay == "" && qrHost != "127.0.0.1" && !strings.Contains(qrHost, ":") {
 		lanDisplay = qrHost
@@ -396,7 +356,7 @@ func runGatewayServer(args []string) {
 			if authStore.HasDevices() {
 				log.Printf("ℹ️  检测到已有 %d 台已配对设备，打印一次新配对二维码供新客户端接入（可通过 -qr=false 关闭）", len(authStore.ListDevices()))
 			}
-			auth.PrintPairingQRCode(qrHost, qrPort, initialSession.Code, *enableSSL, extraHosts...)
+			auth.PrintPairingQRCode(qrHost, qrPort, initialSession.Code, cfTunnel != nil, extraHosts...)
 		} else {
 			log.Printf("⚠️  无法生成初始配对二维码: %v", err)
 		}
@@ -430,8 +390,8 @@ func runHelpCmd() {
   mgy [子命令] [参数]
 
 常用子命令:
-  run (默认)        启动网关服务 (双栈监听 + 自动识别局域网与公网 IPv6 复合配对)
-  pair              向正在运行的网关申请并打印新配对二维码与链接 (支持 -ipv6)
+  run (默认)        启动网关服务 (局域网直连 + Cloudflare 专属 HTTPS 隧道)
+  pair              向正在运行的网关申请并打印新配对二维码与链接
   list              查看所有已配对授权的移动设备 (支持在线与离线查看)
   clear [all|id]    清除已配对的设备授权 (支持: mgy clear all 或 mgy clear <device-id>)
   version           查看当前版本信息
@@ -440,11 +400,9 @@ func runHelpCmd() {
 网关运行参数 (用于 mgy 或 mgy run):
   -port <端口号>    HTTP/WebSocket 监听端口 (默认: 58900, 环境变量: MULTIGRAVITY_PORT)
   -host <主机/IP>   监听地址 (默认: "" 双栈全网卡监听; 设为 127.0.0.1 仅限本机)
-  -ipv6             优先使用公网 IPv6 作为配对二维码主地址 (默认包含 IPv6 复合码)
   -qr=<true|false>  启动时是否打印配对二维码 (默认: true)
   -poll <秒数>      Antigravity 实例轮询间隔 (默认: 5秒)
-  -ddns <域名/IP>   公网 DDNS 域名或固定 IPv6 地址
-  -ssl              启用 HTTPS 模式 (需配置 -tls-cert 与 -tls-key)
+  -ddns <域名/IP>   公网 DDNS 域名或固定 IP 地址
 `, Version)
 }
 
@@ -465,42 +423,26 @@ func runPairCmd(args []string) {
 		}
 	}
 
-	sslOn := isSSLEnabled()
-	schemes := []string{"http", "https"}
-	if sslOn {
-		schemes = []string{"https", "http"}
-	}
-
 	client := &http.Client{
 		Timeout:   3 * time.Second,
 		Transport: localtls.NewLoopbackTransport(), // SEC-AUDIT M-2: gate InsecureSkipVerify to loopback only
 	}
 
-	var resp *http.Response
-	var lastErr error
-
-	for _, s := range schemes {
-		u := fmt.Sprintf("%s://127.0.0.1:%d/api/v1/auth/session", s, targetPort)
-		if *ipv6Flag {
-			u += "?prefer=ipv6"
-		}
-		req, err := http.NewRequest(http.MethodPost, u, nil)
-		if err != nil {
-			continue
-		}
-		if adminToken != "" {
-			req.Header.Set("Authorization", "Bearer "+adminToken)
-		}
-		r, err := client.Do(req)
-		if err == nil {
-			resp = r
-			break
-		}
-		lastErr = err
+	u := fmt.Sprintf("http://127.0.0.1:%d/api/v1/auth/session", targetPort)
+	if *ipv6Flag {
+		u += "?prefer=ipv6"
 	}
-
-	if resp == nil {
-		fmt.Fprintf(os.Stderr, "❌ 无法连接到网关 (端口 %d): %v\n", targetPort, lastErr)
+	req, err := http.NewRequest(http.MethodPost, u, nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "❌ 创建请求失败: %v\n", err)
+		os.Exit(1)
+	}
+	if adminToken != "" {
+		req.Header.Set("Authorization", "Bearer "+adminToken)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "❌ 无法连接到网关 (端口 %d): %v\n", targetPort, err)
 		fmt.Fprintf(os.Stderr, "   请确认网关是否已在运行 (启动命令: mgy 或 mgy run)\n")
 		os.Exit(1)
 	}
@@ -543,11 +485,7 @@ func runListCmd(args []string) {
 		}
 	}
 
-	scheme := "http"
-	if isSSLEnabled() {
-		scheme = "https"
-	}
-	urlStr := fmt.Sprintf("%s://127.0.0.1:%d/api/v1/devices", scheme, targetPort)
+	urlStr := fmt.Sprintf("http://127.0.0.1:%d/api/v1/devices", targetPort)
 
 	var devices []auth.PairedDevice
 	mode := "离线模式 (直接读取本地凭据)"
@@ -634,16 +572,12 @@ func runClearCmd(args []string) {
 		}
 	}
 
-	scheme := "http"
-	if isSSLEnabled() {
-		scheme = "https"
-	}
 	client := &http.Client{
 		Timeout:   3 * time.Second,
 		Transport: localtls.NewLoopbackTransport(), // SEC-AUDIT M-2: gate InsecureSkipVerify to loopback only
 	}
 
-	urlStr := fmt.Sprintf("%s://127.0.0.1:%d/api/v1/devices/%s", scheme, targetPort, target)
+	urlStr := fmt.Sprintf("http://127.0.0.1:%d/api/v1/devices/%s", targetPort, target)
 	req, _ := http.NewRequest(http.MethodDelete, urlStr, nil)
 	if adminToken != "" {
 		req.Header.Set("Authorization", "Bearer "+adminToken)

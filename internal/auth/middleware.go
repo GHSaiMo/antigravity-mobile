@@ -273,9 +273,7 @@ func SecurityHeadersMiddleware(next http.Handler) http.Handler {
 			h.Set(defaultSecurityHeaders[i].key, defaultSecurityHeaders[i].val)
 		}
 		isSSL := r.TLS != nil ||
-			strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") ||
-			os.Getenv("MULTIGRAVITY_SSL") == "1" ||
-			strings.EqualFold(os.Getenv("MULTIGRAVITY_SSL"), "true")
+			strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 		if isSSL {
 			h.Set("Strict-Transport-Security", defaultHSTSValue)
 		}

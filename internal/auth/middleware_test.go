@@ -2,6 +2,7 @@ package auth
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -432,22 +433,30 @@ func TestSecurityHeadersMiddlewareHSTS_SSL(t *testing.T) {
 	})
 	handler := SecurityHeadersMiddleware(next)
 
-	// 1. Without SSL env -> No HSTS
-	t.Setenv("MULTIGRAVITY_SSL", "0")
+	// 1. Plain HTTP -> No HSTS
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 	if rr.Header().Get("Strict-Transport-Security") != "" {
-		t.Errorf("expected no HSTS on plain HTTP without SSL env")
+		t.Errorf("expected no HSTS on plain HTTP")
 	}
 
-	// 2. With MULTIGRAVITY_SSL=1 -> HSTS present
-	t.Setenv("MULTIGRAVITY_SSL", "1")
+	// 2. With X-Forwarded-Proto: https -> HSTS present
 	req2 := httptest.NewRequest(http.MethodGet, "/", nil)
+	req2.Header.Set("X-Forwarded-Proto", "https")
 	rr2 := httptest.NewRecorder()
 	handler.ServeHTTP(rr2, req2)
 	if rr2.Header().Get("Strict-Transport-Security") == "" {
-		t.Errorf("expected HSTS header when MULTIGRAVITY_SSL=1")
+		t.Errorf("expected HSTS header when X-Forwarded-Proto is https")
+	}
+
+	// 3. With TLS connection -> HSTS present
+	req3 := httptest.NewRequest(http.MethodGet, "/", nil)
+	req3.TLS = &tls.ConnectionState{}
+	rr3 := httptest.NewRecorder()
+	handler.ServeHTTP(rr3, req3)
+	if rr3.Header().Get("Strict-Transport-Security") == "" {
+		t.Errorf("expected HSTS header when TLS is active")
 	}
 }
 

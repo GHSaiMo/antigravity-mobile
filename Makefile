@@ -39,16 +39,12 @@ endif
 #                            若设为 127.0.0.1 则仅限本机访问 (支持环境变量: MULTIGRAVITY_HOST / GATEWAY_HOST)
 #    -qr=<true|false>     : 启动时是否在控制台默认打印一次客户端配对二维码，默认 true (可通过 -qr=false 关闭)
 #    -poll <秒数>          : 探测本地 Antigravity 实例与健康检查的轮询间隔秒数，默认 5 秒
-#    -ddns <域名/IP>       : 公网 DDNS 域名或固定 IPv6 地址，用于生成扫码配对 URI 及外部直连 (支持环境变量: DDNS_HOST)
-#    -ssl                 : 是否在配对链接与服务中启用 HTTPS/SSL 协议，默认 false
-#                            开启需配合 -tls-cert 与 -tls-key 使用 (支持环境变量: GATEWAY_SSL=1)
-#    -tls-cert <文件路径>  : HTTPS TLS 证书文件路径 (.cer/.crt/.pem，支持环境变量: TLS_CERT_FILE)
-#    -tls-key <文件路径>   : HTTPS TLS 私钥文件路径 (.key，支持环境变量: TLS_KEY_FILE)
+#    -ddns <域名/IP>       : 公网 DDNS 域名或固定 IP 地址 (支持环境变量: DDNS_HOST)
 #
 # 2. 常用环境变量 (推荐在 ~/.multigravity/.env 或项目根目录 .env 中按需配置):
 #    BARK_URL             : iOS Bark 实时推送链接（填入后自动开启任务完成与审批推送通知）
 #    CF_TUNNEL_ENABLED    : 是否启用 Cloudflare Tunnel 穿透通道 (默认 1 开启, 0 关闭)
-#    CF_WORKER_URL        : Cloudflare Worker 调度服务器地址 (默认 https://dispatcher.jiuge.space)
+#    CF_WORKER_URL        : Cloudflare Worker 调度服务器地址 (默认 https://mgy-tunnel.multigravity.workers.dev)
 #    CF_TUNNEL_TOKEN      : 自定义 Cloudflare Tunnel Token (若不使用动态调度)
 #    MULTIGRAVITY_ADMIN_TOKEN: 管理员特权密钥 (外网访问时用于鉴权与管理设备，留空则自动生成)
 #    AUTH_STORE_PATH      : 设备凭据持久化存储路径 (默认 ~/.multigravity/auth_store.json)
