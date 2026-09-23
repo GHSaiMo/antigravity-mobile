@@ -39,30 +39,24 @@ public struct AgentActivityWidget: Widget {
     
     @ViewBuilder
     private func compactLeadingView(context: ActivityViewContext<AgentActivityAttributes>) -> some View {
-        ZStack {
-            Circle()
-                .fill(Color.white)
-                .frame(width: 25, height: 25)
-            
-            if context.state.hasPendingAction {
-                Image(systemName: "exclamationmark.circle.fill")
-                    .font(.system(size: 19))
-                    .foregroundColor(.orange)
-            } else if context.state.runningTaskCount > 0 {
-                Image(systemName: "terminal.fill")
-                    .font(.system(size: 14))
-                    .foregroundColor(Color(red: 0.0, green: 0.65, blue: 0.9))
-            } else if context.state.status == "COMPLETED" {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 19))
-                    .foregroundColor(.green)
-            } else {
-                Image("AppLogoTransparent")
-                    .renderingMode(.original)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 20, height: 13)
-            }
+        if context.state.hasPendingAction {
+            Image(systemName: "exclamationmark.circle.fill")
+                .font(.system(size: 18))
+                .foregroundColor(.orange)
+        } else if context.state.runningTaskCount > 0 {
+            Image(systemName: "terminal.fill")
+                .font(.system(size: 14))
+                .foregroundColor(Color(red: 0.0, green: 0.65, blue: 0.9))
+        } else if context.state.status == "COMPLETED" {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 18))
+                .foregroundColor(.green)
+        } else {
+            Image("AppLogoTransparent")
+                .renderingMode(.original)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 22, height: 14)
         }
     }
     
@@ -99,26 +93,24 @@ public struct AgentActivityWidget: Widget {
     @ViewBuilder
     private func expandedLeadingView(context: ActivityViewContext<AgentActivityAttributes>) -> some View {
         HStack(spacing: 8) {
-            ZStack {
-                Circle()
-                    .fill(Color.white)
-                    .frame(width: 26, height: 26)
-                
-                if context.state.hasPendingAction {
-                    Image(systemName: "exclamationmark.circle.fill")
-                        .font(.system(size: 19))
-                        .foregroundColor(.orange)
-                } else if context.state.runningTaskCount > 0 {
-                    Image(systemName: "terminal.fill")
-                        .font(.system(size: 15))
-                        .foregroundColor(Color(red: 0.0, green: 0.65, blue: 0.9))
-                } else {
-                    Image("AppLogoTransparent")
-                        .renderingMode(.original)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 21, height: 13.5)
-                }
+            if context.state.hasPendingAction {
+                Image(systemName: "exclamationmark.circle.fill")
+                    .font(.system(size: 19))
+                    .foregroundColor(.orange)
+            } else if context.state.runningTaskCount > 0 {
+                Image(systemName: "terminal.fill")
+                    .font(.system(size: 15))
+                    .foregroundColor(Color(red: 0.0, green: 0.65, blue: 0.9))
+            } else if context.state.status == "COMPLETED" {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 19))
+                    .foregroundColor(.green)
+            } else {
+                Image("AppLogoTransparent")
+                    .renderingMode(.original)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 24, height: 15)
             }
             
             Text(resolvedTitle(context: context))

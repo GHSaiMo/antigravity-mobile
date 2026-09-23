@@ -9,6 +9,23 @@ public struct EndpointHealthStatus: Identifiable, Sendable {
     public let isReachable: Bool
     public let latencyMs: Double
     public let errorMessage: String?
+    public let platform: String?
+    
+    public init(
+        id: String,
+        urlString: String,
+        isReachable: Bool,
+        latencyMs: Double,
+        errorMessage: String? = nil,
+        platform: String? = nil
+    ) {
+        self.id = id
+        self.urlString = urlString
+        self.isReachable = isReachable
+        self.latencyMs = latencyMs
+        self.errorMessage = errorMessage
+        self.platform = platform
+    }
 }
 
 /// Thread-safe global network state container accessible from any queue/Sendable context
@@ -188,6 +205,11 @@ public final class ConnectionManager {
         
         let reachable = results.filter { $0.isReachable }
         
+        // Update gateway platform from reachable endpoints
+        if let plat = reachable.first(where: { $0.platform != nil && !$0.platform!.isEmpty })?.platform {
+            settings.gatewayPlatform = plat
+        }
+        
         // Self-heal: If primaryCloudURL is missing, discover it from /api/v1/auth/endpoints on reachable gateway
         if settings.primaryCloudURL == nil {
             for ep in reachable {
@@ -286,7 +308,7 @@ public final class ConnectionManager {
         
         let start = CFAbsoluteTimeGetCurrent()
         do {
-            let (_, response) = try await NetworkTransport.shared.send(request: request)
+            let (data, response) = try await NetworkTransport.shared.send(request: request)
             let elapsedMs = (CFAbsoluteTimeGetCurrent() - start) * 1000.0
             
             guard let httpResponse = response as? HTTPURLResponse else {
@@ -301,12 +323,17 @@ public final class ConnectionManager {
             
             // /healthz returns 200 when the gateway process is up.
             if httpResponse.statusCode == 200 {
+                var platform: String? = nil
+                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    platform = (json["platform"] as? String) ?? (json["os"] as? String)
+                }
                 return EndpointHealthStatus(
                     id: urlString,
                     urlString: urlString,
                     isReachable: true,
                     latencyMs: elapsedMs,
-                    errorMessage: nil
+                    errorMessage: nil,
+                    platform: platform
                 )
             } else {
                 return EndpointHealthStatus(
