@@ -15,6 +15,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
+import java.io.IOException
 import java.net.URLDecoder
 import java.net.URLEncoder
 import java.time.Instant
@@ -28,13 +29,15 @@ class ApiClient(
     val currentBaseUrl: String?
         get() {
             val avoidLan = (connectionManager?.isCellular ?: false) || !(connectionManager?.isWifi ?: true)
-            return prefs.getEffectiveGatewayUrl(avoidLan) ?: prefs.gatewayBaseUrl
+            return prefs.getEffectiveGatewayUrl(avoidLan, connectionManager) ?: prefs.gatewayBaseUrl
         }
 
     val json = JsonConfig.instance
 
     private val client = OkHttpClient.Builder()
         .cache(Cache(File(context.cacheDir, "http_cache"), 10L * 1024L * 1024L))
+        .addInterceptor(RouteFailoverInterceptor(prefs, connectionManager))
+        .addInterceptor(LanCleartextSecurityInterceptor())
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
@@ -969,5 +972,67 @@ class ApiClient(
             builder.header("x-device-token", token)
         }
         return builder
+    }
+}
+
+/**
+ * OkHttp Interceptor that automatically fails over from an unreachable LAN gateway
+ * to the primary cloud domain (Cloudflare HTTPS tunnel) when on external/foreign Wi-Fi.
+ */
+class RouteFailoverInterceptor(
+    private val prefs: PreferencesManager,
+    private val connectionManager: ConnectionManager?
+) : okhttp3.Interceptor {
+    override fun intercept(chain: okhttp3.Interceptor.Chain): okhttp3.Response {
+        val request = chain.request()
+        val originalUrl = request.url
+        val originalHost = originalUrl.host
+
+        // If communicating with LAN host, shorten connect timeout to 1800ms so off-network failover is snappy
+        val isLan = ConnectionManager.isLanHost(originalHost)
+        val initialChain = if (isLan) {
+            chain.withConnectTimeout(1800, TimeUnit.MILLISECONDS)
+        } else {
+            chain
+        }
+
+        try {
+            return initialChain.proceed(request)
+        } catch (e: IOException) {
+            val cloud = prefs.primaryCloudUrl?.trim()?.trimEnd('/')
+            if (!cloud.isNullOrBlank()) {
+                val cloudHost = ConnectionManager.extractHost(cloud)
+                if (!originalHost.equals(cloudHost, ignoreCase = true)) {
+                    Log.w("ApiClient", "Request to $originalHost failed (${e.message}). Failing over to cloud domain: $cloud")
+                    try {
+                        val cloudUri = java.net.URI(if (!cloud.contains("://")) "https://$cloud" else cloud)
+                        val newScheme = cloudUri.scheme ?: "https"
+                        val newHost = cloudUri.host ?: cloudHost
+                        val newPort = if (cloudUri.port != -1) cloudUri.port else (if (newScheme.equals("https", ignoreCase = true)) 443 else 80)
+
+                        val fallbackUrl = originalUrl.newBuilder()
+                            .scheme(newScheme)
+                            .host(newHost)
+                            .port(newPort)
+                            .build()
+
+                        val fallbackRequest = request.newBuilder()
+                            .url(fallbackUrl)
+                            .build()
+
+                        val fallbackResponse = chain.withConnectTimeout(10, TimeUnit.SECONDS).proceed(fallbackRequest)
+                        if (fallbackResponse.isSuccessful || fallbackResponse.code < 500) {
+                            Log.i("ApiClient", "Failover to $cloud succeeded! Updating active gateway to $cloud")
+                            prefs.gatewayBaseUrl = cloud
+                            connectionManager?.notifyRouteChanged(cloud)
+                        }
+                        return fallbackResponse
+                    } catch (fallbackEx: Exception) {
+                        Log.w("ApiClient", "Failover to $cloud also failed: ${fallbackEx.message}")
+                    }
+                }
+            }
+            throw e
+        }
     }
 }

@@ -26,6 +26,7 @@ class StreamWebSocketClient(
     private val client = OkHttpClient.Builder()
         .pingInterval(15, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.MILLISECONDS) // infinite for websockets
+        .addInterceptor(LanCleartextSecurityInterceptor())
         .build()
 
     private var webSocket: WebSocket? = null
@@ -86,7 +87,7 @@ class StreamWebSocketClient(
 
     private fun startConnection() {
         val avoidLan = (connectionManager?.isCellular ?: false) || !(connectionManager?.isWifi ?: true)
-        val baseUrl = prefs.getEffectiveGatewayUrl(avoidLan) ?: prefs.gatewayBaseUrl ?: run {
+        val baseUrl = prefs.getEffectiveGatewayUrl(avoidLan, connectionManager) ?: prefs.gatewayBaseUrl ?: run {
             _connectionStatus.value = ConnectionStatus.FAILED
             return
         }
@@ -136,7 +137,12 @@ class StreamWebSocketClient(
         if (reconnectJob?.isActive == true) return
 
         val attempt = reconnectAttempt
-        val delayMs = (2500L * (1 shl attempt.coerceAtMost(5))).coerceAtMost(60_000L)
+        val isLan = ConnectionManager.isLanHost(ConnectionManager.extractHost(prefs.gatewayBaseUrl ?: ""))
+        val delayMs = if (isLan && !prefs.primaryCloudUrl.isNullOrBlank() && attempt == 0) {
+            500L
+        } else {
+            (2500L * (1 shl attempt.coerceAtMost(5))).coerceAtMost(60_000L)
+        }
         reconnectAttempt++
 
         reconnectJob = scope.launch {

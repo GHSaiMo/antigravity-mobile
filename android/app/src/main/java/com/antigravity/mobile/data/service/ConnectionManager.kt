@@ -31,6 +31,25 @@ data class EndpointHealthStatus(
     val errorMessage: String? = null
 )
 
+/**
+ * Strict cleartext enforcement interceptor compliant with Security Audit M-1.
+ * Ensures cleartext HTTP traffic is strictly limited to RFC 1918 private LAN IP
+ * addresses and loopback. Public domain HTTP traffic is rejected immediately.
+ */
+class LanCleartextSecurityInterceptor : okhttp3.Interceptor {
+    override fun intercept(chain: okhttp3.Interceptor.Chain): okhttp3.Response {
+        val request = chain.request()
+        val url = request.url
+        if (!url.isHttps) {
+            val host = url.host
+            if (!ConnectionManager.isLanHost(host)) {
+                throw java.io.IOException("Cleartext HTTP traffic to public host '$host' is rejected by security policy.")
+            }
+        }
+        return chain.proceed(request)
+    }
+}
+
 class ConnectionManager(private val context: Context) {
     private val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
 
@@ -38,6 +57,7 @@ class ConnectionManager(private val context: Context) {
         .connectTimeout(2500, TimeUnit.MILLISECONDS)
         .readTimeout(2500, TimeUnit.MILLISECONDS)
         .writeTimeout(2500, TimeUnit.MILLISECONDS)
+        .addInterceptor(LanCleartextSecurityInterceptor())
         .build()
 
     private val _endpointStatuses = MutableStateFlow<Map<String, EndpointHealthStatus>>(emptyMap())
@@ -62,6 +82,20 @@ class ConnectionManager(private val context: Context) {
         routeChangeListeners.remove(listener)
     }
 
+    fun isEndpointHealthy(urlString: String?): Boolean? {
+        if (urlString.isNullOrBlank()) return null
+        val clean = urlString.trim().trimEnd('/')
+        val status = _endpointStatuses.value[clean] ?: _endpointStatuses.value.entries.firstOrNull {
+            it.key.trimEnd('/') == clean
+        }?.value
+        return status?.isReachable
+    }
+
+    fun notifyRouteChanged(newUrl: String) {
+        val clean = newUrl.trim().trimEnd('/')
+        routeChangeListeners.forEach { it.invoke(clean) }
+    }
+
     fun startMonitoring(
         prefs: PreferencesManager,
         scope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -75,8 +109,11 @@ class ConnectionManager(private val context: Context) {
             override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
                 val cellular = networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
                 val hasInternet = networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                if (hasInternet && lastWasCellular != cellular) {
-                    Log.d("ConnectionManager", "Network transport changed: cellular=$cellular, triggering probe")
+                val now = System.currentTimeMillis()
+                val transportChanged = lastWasCellular != cellular
+                val probeStale = (now - (_lastProbeTime.value ?: 0L)) > 6000L
+                if (hasInternet && (transportChanged || probeStale)) {
+                    Log.d("ConnectionManager", "Network capabilities update: cellular=$cellular, transportChanged=$transportChanged, probing...")
                     lastWasCellular = cellular
                     scope.launch {
                         probeEndpoints(prefs)
@@ -108,6 +145,12 @@ class ConnectionManager(private val context: Context) {
             Log.d("ConnectionManager", "Default network callback registered successfully")
         } catch (e: Exception) {
             Log.w("ConnectionManager", "Failed to register default network callback: ${e.message}")
+        }
+
+        if (isConnectedToNetwork) {
+            scope.launch {
+                probeEndpoints(prefs)
+            }
         }
     }
 

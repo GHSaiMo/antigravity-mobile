@@ -228,7 +228,7 @@ class PreferencesManager(context: Context) {
             gatewayBaseUrl?.takeIf { it.isNotBlank() }
         ).distinct()
 
-    fun getEffectiveGatewayUrl(isCellular: Boolean): String? {
+    fun getEffectiveGatewayUrl(isCellular: Boolean, connectionManager: ConnectionManager? = null): String? {
         val active = gatewayBaseUrl?.trim()?.trimEnd('/')
         val lan = lanServerUrl?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() }
         val custom = customServerUrl?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() }
@@ -245,24 +245,38 @@ class PreferencesManager(context: Context) {
             if (cloud != null) {
                 return cloud
             }
-            return active
+            return if (!active.isNullOrBlank() && !ConnectionManager.isLanHost(ConnectionManager.extractHost(active))) active else cloud
         } else {
             // When on Wi-Fi:
-            // Priority: LAN -> Custom -> Active -> Cloud
-            if (lan != null) {
+            // Priority 1: Dynamic active/elected gateway (from ConnectionManager)
+            if (!active.isNullOrBlank()) {
+                val isLan = ConnectionManager.isLanHost(ConnectionManager.extractHost(active))
+                val isKnownUnhealthy = connectionManager?.isEndpointHealthy(active) == false
+                if (!isLan || !isKnownUnhealthy) {
+                    return active
+                }
+            }
+            // Priority 2: LAN (local direct connection for lowest latency, if not known unreachable)
+            if (lan != null && connectionManager?.isEndpointHealthy(lan) != false) {
                 return lan
             }
-            if (custom != null) {
+            // Priority 3: Custom
+            if (custom != null && connectionManager?.isEndpointHealthy(custom) != false) {
                 return custom
             }
-            if (!active.isNullOrBlank()) {
-                return active
-            }
+            // Priority 4: Primary Cloud domain (Cloudflare HTTPS - ultimate fallback for external Wi-Fi)
             if (cloud != null) {
                 return cloud
             }
+            // Priority 5: Fallback to custom/lan/active
+            if (custom != null) {
+                return custom
+            }
+            if (lan != null) {
+                return lan
+            }
         }
-        return active ?: cloud
+        return active ?: cloud ?: lan
     }
 
     fun isPaired(): Boolean {
