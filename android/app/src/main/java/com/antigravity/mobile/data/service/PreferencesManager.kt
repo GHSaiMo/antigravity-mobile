@@ -35,6 +35,12 @@ class PreferencesManager(context: Context) {
     private val prefs: SharedPreferences =
         context.getSharedPreferences("agy_standard_prefs", Context.MODE_PRIVATE)
 
+    private val _themeModeFlow = MutableStateFlow(themeMode)
+    val themeModeFlow: StateFlow<String> = _themeModeFlow.asStateFlow()
+
+    private val _gatewayPlatformFlow = MutableStateFlow(gatewayPlatform)
+    val gatewayPlatformFlow: StateFlow<String?> = _gatewayPlatformFlow.asStateFlow()
+
     init {
         // H-2: If legacy plaintext preferences held credentials, migrate to securePrefs and purge from plaintext
         val legacyToken = prefs.getString(KEY_DEVICE_TOKEN, null)
@@ -62,12 +68,6 @@ class PreferencesManager(context: Context) {
         }
         _gatewayPlatformFlow.value = gatewayPlatform
     }
-
-    private val _themeModeFlow = MutableStateFlow(themeMode)
-    val themeModeFlow: StateFlow<String> = _themeModeFlow.asStateFlow()
-
-    private val _gatewayPlatformFlow = MutableStateFlow<String?>(null)
-    val gatewayPlatformFlow: StateFlow<String?> = _gatewayPlatformFlow.asStateFlow()
 
     var gatewayPlatform: String?
         get() {
