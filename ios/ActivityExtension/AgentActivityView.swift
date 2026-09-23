@@ -46,22 +46,22 @@ public struct AgentActivityWidget: Widget {
             
             if context.state.hasPendingAction {
                 Image(systemName: "exclamationmark.circle.fill")
-                    .font(.system(size: 17))
+                    .font(.system(size: 19))
                     .foregroundColor(.orange)
             } else if context.state.runningTaskCount > 0 {
                 Image(systemName: "terminal.fill")
-                    .font(.system(size: 13))
+                    .font(.system(size: 14))
                     .foregroundColor(Color(red: 0.0, green: 0.65, blue: 0.9))
             } else if context.state.status == "COMPLETED" {
                 Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 17))
+                    .font(.system(size: 19))
                     .foregroundColor(.green)
             } else {
                 Image("AppLogoTransparent")
                     .renderingMode(.original)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-                    .frame(width: 17, height: 17)
+                    .frame(width: 20, height: 13)
             }
         }
     }
@@ -106,18 +106,18 @@ public struct AgentActivityWidget: Widget {
                 
                 if context.state.hasPendingAction {
                     Image(systemName: "exclamationmark.circle.fill")
-                        .font(.system(size: 18))
+                        .font(.system(size: 19))
                         .foregroundColor(.orange)
                 } else if context.state.runningTaskCount > 0 {
                     Image(systemName: "terminal.fill")
-                        .font(.system(size: 14))
+                        .font(.system(size: 15))
                         .foregroundColor(Color(red: 0.0, green: 0.65, blue: 0.9))
                 } else {
                     Image("AppLogoTransparent")
                         .renderingMode(.original)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
-                        .frame(width: 18, height: 18)
+                        .frame(width: 21, height: 13.5)
                 }
             }
             
@@ -337,22 +337,22 @@ struct AgentLockScreenView: View {
             
             if context.state.hasPendingAction {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 24))
+                    .font(.system(size: 26))
                     .foregroundColor(.orange)
             } else if context.state.runningTaskCount > 0 {
                 Image(systemName: "terminal.fill")
-                    .font(.system(size: 22))
+                    .font(.system(size: 24))
                     .foregroundColor(Color(red: 0.0, green: 0.65, blue: 0.9))
             } else if context.state.status == "COMPLETED" {
                 Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 24))
+                    .font(.system(size: 26))
                     .foregroundColor(.green)
             } else {
                 Image("AppLogoTransparent")
                     .renderingMode(.original)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-                    .frame(width: 28, height: 28)
+                    .frame(width: 36, height: 23)
             }
         }
         .frame(width: 44, height: 44)
