@@ -45,7 +45,7 @@ jobs:
             gradle wrapper
           fi
           chmod +x gradlew
-          ./gradlew assembleRelease -x lint -x lintVitalRelease --no-daemon
+          ./gradlew assembleRelease --no-daemon
 
       - name: Prepare APK Asset
         run: |
