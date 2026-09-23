@@ -1,8 +1,16 @@
 package com.antigravity.mobile.ui.components
 
+import android.Manifest
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -49,6 +57,13 @@ fun SettingsSheet(
     val connectionManager = remember { ConnectionManager(context) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val currentThemeMode by prefs.themeModeFlow.collectAsState()
+    val isNotificationPermissionGranted = remember {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        } else {
+            NotificationManagerCompat.from(context).areNotificationsEnabled()
+        }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -439,30 +454,84 @@ private fun MainSettingsContent(
         // MARK: - 4. 实时通知 (1:1 iOS 对齐)
         SettingsSection(
             title = "实时通知",
-            footer = "在通知栏中展示任务进展及后台命令。"
+            footer = "在通知栏中展示任务实时进展，并在需要用户审批或任务完成时发出高优先级提示音与振动提醒。"
         ) {
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
                     .background(colors.surface)
                     .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text(text = "实时通知", color = colors.textPrimary, fontSize = 15.sp)
-                Switch(
-                    checked = enableLiveNotifications,
-                    onCheckedChange = {
-                        enableLiveNotifications = it
-                        prefs.enableLiveNotifications = it
-                    },
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = colors.surface,
-                        checkedTrackColor = colors.accentIndigo
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(text = "实时通知与审批提醒", color = colors.textPrimary, fontSize = 15.sp)
+                        Text(
+                            text = if (enableLiveNotifications) "已开启（含任务常驻与高优弹窗）" else "已关闭",
+                            color = colors.textSecondary,
+                            fontSize = 12.sp
+                        )
+                    }
+                    Switch(
+                        checked = enableLiveNotifications,
+                        onCheckedChange = {
+                            enableLiveNotifications = it
+                            prefs.enableLiveNotifications = it
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = colors.surface,
+                            checkedTrackColor = colors.accentIndigo
+                        )
                     )
-                )
+                }
+
+                if (!isNotificationPermissionGranted) {
+                    HorizontalDivider(color = colors.border.copy(alpha = 0.5f))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                    Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                                        putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                                    }
+                                } else {
+                                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                        data = Uri.fromParts("package", context.packageName, null)
+                                    }
+                                }
+                                context.startActivity(intent)
+                            }
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = "权限警告",
+                            tint = Color(0xFFF59E0B),
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = "系统通知权限未开启，点击前往系统设置授予权限",
+                            color = Color(0xFFF59E0B),
+                            fontSize = 13.sp,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Icon(
+                            imageVector = Icons.Default.ChevronRight,
+                            contentDescription = null,
+                            tint = colors.textTertiary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
             }
         }
 

@@ -926,6 +926,34 @@ class ApiClient(
         } catch (e: Exception) {
             Result.failure(e)
         }
+    /**
+     * Registers the device push token (FCM / remote push) with the gateway.
+     */
+    suspend fun registerPushToken(token: String, platform: String = "android"): Result<Unit> = withContext(Dispatchers.IO) {
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val url = "$baseUrl/api/v1/device/push-token"
+        val payload = buildJsonObject {
+            put("platform", platform)
+            put("token", token)
+            put("fcm_token", token)
+            prefs.deviceId?.let { put("device_id", it) }
+        }
+
+        try {
+            val req = buildAuthorizedRequest(url)
+                .post(payload.toString().toRequestBody(jsonMediaType))
+                .build()
+
+            client.newCall(req).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(RuntimeException("注册推送 Token 失败 (${response.code})"))
+                }
+                Result.success(Unit)
+            }
+        } catch (e: Exception) {
+            Log.w("ApiClient", "registerPushToken error: ${e.message}")
+            Result.failure(e)
+        }
     }
 
     private fun buildAuthorizedRequest(url: String): Request.Builder {

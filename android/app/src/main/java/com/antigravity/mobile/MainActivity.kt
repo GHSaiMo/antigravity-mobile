@@ -1,17 +1,25 @@
 package com.antigravity.mobile
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.core.content.ContextCompat
+import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -46,6 +54,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var chatViewModel: ChatViewModel
 
     private lateinit var qrScanLauncher: ActivityResultLauncher<ScanOptions>
+    private lateinit var notificationPermissionLauncher: ActivityResultLauncher<String>
+    private var activeNavController: NavHostController? = null
+    private var pendingCascadeId: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -92,6 +103,16 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        // Register Notification Permission Launcher
+        notificationPermissionLauncher = registerForActivityResult(
+            ActivityResultContracts.RequestPermission()
+        ) { isGranted ->
+            if (!isGranted) {
+                Log.d("MainActivity", "POST_NOTIFICATIONS permission not granted by user")
+            }
+        }
+        checkNotificationPermission()
+
         // Handle DeepLink if opened from URL
         handleDeepLink(intent)
 
@@ -99,6 +120,15 @@ class MainActivity : ComponentActivity() {
             val themeMode by prefs.themeModeFlow.collectAsState()
             AntigravityTheme(themeMode = themeMode) {
                 val navController = rememberNavController()
+                activeNavController = navController
+
+                LaunchedEffect(navController) {
+                    pendingCascadeId?.let { cid ->
+                        pendingCascadeId = null
+                        navigateToCascade(cid)
+                    }
+                }
+
                 val startDestination = if (prefs.isPaired()) "conversations" else "pair"
 
                 NavHost(
@@ -251,10 +281,77 @@ class MainActivity : ComponentActivity() {
         qrScanLauncher.launch(options)
     }
 
+    fun checkNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
+
     private fun handleDeepLink(intent: Intent) {
         val uri = intent.data ?: return
-        if (uri.scheme.equals("agy", ignoreCase = true) && uri.host.equals("pair", ignoreCase = true)) {
+        val scheme = uri.scheme?.lowercase() ?: return
+        val host = uri.host?.lowercase() ?: return
+
+        if ((scheme == "agy" || scheme == "multigravity" || scheme == "antigravity") && host == "pair") {
             pairingViewModel.pairWithUri(uri.toString())
+            return
+        }
+
+        if (scheme == "antigravity" || scheme == "multigravity" || scheme == "agy") {
+            val cascadeId = when (host) {
+                "cascade", "session" -> {
+                    uri.pathSegments.firstOrNull() ?: uri.path?.trim('/')
+                }
+                else -> {
+                    if (uri.pathSegments.isNotEmpty()) {
+                        uri.pathSegments.firstOrNull()
+                    } else {
+                        host
+                    }
+                }
+            }?.trim('/')
+
+            if (!cascadeId.isNullOrBlank()) {
+                navigateToCascade(cascadeId)
+            }
+        }
+    }
+
+    private fun navigateToCascade(cascadeId: String) {
+        val navController = activeNavController
+        if (navController == null || !prefs.isPaired()) {
+            pendingCascadeId = cascadeId
+            return
+        }
+
+        val existing = conversationListViewModel.conversations.value.firstOrNull { it.id == cascadeId }
+        val title = existing?.title ?: "会话"
+        val isNew = false
+        val isUnread = false
+        val status = existing?.status ?: com.antigravity.mobile.data.model.ConversationStatus.RUNNING
+        val lastModified = existing?.lastModifiedEpochMs ?: System.currentTimeMillis()
+        val wsName = conversationListViewModel.getWorkspaceName(cascadeId)
+        val draftProject = conversationListViewModel.getDraftProject(cascadeId)
+
+        conversationListViewModel.notifySessionFocus(cascadeId)
+        chatViewModel.prepareSession(
+            cascadeId = cascadeId,
+            initialTitle = title,
+            isNewConversation = isNew,
+            workspaceName = wsName,
+            isUnread = isUnread,
+            conversationStatus = status,
+            draftProject = draftProject,
+            lastModifiedTime = lastModified
+        )
+        conversationListViewModel.markConversationAsRead(cascadeId)
+        val encodedTitle = URLEncoder.encode(title, "UTF-8")
+        try {
+            navController.navigate("chat/$cascadeId/$encodedTitle?isNew=$isNew&isUnread=$isUnread&status=${status.name}")
+        } catch (e: Exception) {
+            Log.w("MainActivity", "Failed to navigate to cascade $cascadeId: ${e.message}")
         }
     }
 

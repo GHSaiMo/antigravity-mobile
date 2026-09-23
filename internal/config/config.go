@@ -14,7 +14,7 @@ import (
 // DefaultAntigravityIcon is the public URL for the Antigravity icon in this repository.
 const DefaultAntigravityIcon = "https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/web/icons/icon-192.png"
 
-// NotificationConfig holds settings for push notifications (Bark / Webhook).
+// NotificationConfig holds settings for push notifications (Bark / FCM / Webhook).
 type NotificationConfig struct {
 	Enabled       bool
 	BarkEndpoint  string // Normalized POST/GET endpoint, e.g. "https://api.day.app/YOUR_DEVICE_KEY"
@@ -23,6 +23,12 @@ type NotificationConfig struct {
 	Group         string
 	SoundAction   string
 	SoundComplete string
+
+	// FCM (Android Push) fields
+	FCMEnabled     bool
+	FCMServerKey   string // Legacy FCM Server Key
+	FCMDeviceToken string // Android device registration token
+	FCMEndpoint    string // Custom FCM endpoint (defaults to https://fcm.googleapis.com/fcm/send)
 }
 
 // GetDataDir returns the active configuration and data directory (~/.multigravity or MULTIGRAVITY_DATA_DIR).
@@ -184,9 +190,25 @@ func GetNotificationConfig() NotificationConfig {
 
 	endpoint := NormalizeBarkEndpoint(barkRaw)
 
-	// Enabled if explicitly set or if a valid Bark endpoint is present
-	enabled := endpoint != ""
-	if v := os.Getenv("BARK_ENABLE"); v != "" {
+	fcmServerKey := strings.TrimSpace(os.Getenv("FCM_SERVER_KEY"))
+	fcmDeviceToken := strings.TrimSpace(os.Getenv("FCM_DEVICE_TOKEN"))
+	fcmEndpoint := strings.TrimSpace(os.Getenv("FCM_ENDPOINT"))
+	if fcmEndpoint == "" {
+		fcmEndpoint = "https://fcm.googleapis.com/fcm/send"
+	}
+
+	fcmEnabled := fcmServerKey != "" && fcmDeviceToken != ""
+	if v := os.Getenv("FCM_ENABLE"); v != "" {
+		vLower := strings.ToLower(v)
+		fcmEnabled = (vLower == "1" || vLower == "true" || vLower == "yes")
+	}
+
+	// Enabled if explicitly set or if a valid Bark or FCM endpoint is present
+	enabled := endpoint != "" || fcmEnabled
+	if v := os.Getenv("NOTIFICATION_ENABLE"); v != "" {
+		vLower := strings.ToLower(v)
+		enabled = (vLower == "1" || vLower == "true" || vLower == "yes")
+	} else if v := os.Getenv("BARK_ENABLE"); v != "" {
 		vLower := strings.ToLower(v)
 		enabled = (vLower == "1" || vLower == "true" || vLower == "yes")
 	}
@@ -215,14 +237,30 @@ func GetNotificationConfig() NotificationConfig {
 	}
 
 	return NotificationConfig{
-		Enabled:       enabled,
-		BarkEndpoint:  endpoint,
-		BarkRawURL:    barkRaw,
-		IconURL:       icon,
-		Group:         group,
-		SoundAction:   soundAction,
-		SoundComplete: soundComplete,
+		Enabled:        enabled,
+		BarkEndpoint:   endpoint,
+		BarkRawURL:     barkRaw,
+		IconURL:        icon,
+		Group:          group,
+		SoundAction:    soundAction,
+		SoundComplete:  soundComplete,
+		FCMEnabled:     fcmEnabled,
+		FCMServerKey:   fcmServerKey,
+		FCMDeviceToken: fcmDeviceToken,
+		FCMEndpoint:    fcmEndpoint,
 	}
+}
+
+// RedactFCMKey masks sensitive FCM server keys or tokens for logs.
+func RedactFCMKey(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if len(raw) <= 8 {
+		return "***"
+	}
+	return raw[:4] + "..." + raw[len(raw)-4:]
 }
 
 // TunnelConfig holds settings for embedded FRP cloud relay tunnel.

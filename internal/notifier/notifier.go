@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"antigravity-mobile/internal/config"
@@ -16,39 +17,128 @@ type NotificationSender interface {
 	Send(ctx context.Context, payload BarkPayload) error
 }
 
-// Notifier dispatches alerts to push notification channels (Bark, Webhook, etc.)
+// Notifier dispatches alerts to push notification channels (Bark, FCM, Webhook, etc.)
 type Notifier struct {
-	cfg    config.NotificationConfig
-	sender NotificationSender
-	dedup  *DedupCache
+	mu      sync.RWMutex
+	cfg     config.NotificationConfig
+	senders []NotificationSender
+	dedup   *DedupCache
 }
 
-// NewNotifier creates an initialized Notifier instance using the default Bark client.
+// NewNotifier creates an initialized Notifier instance with Bark and/or FCM clients.
 func NewNotifier(cfg config.NotificationConfig) *Notifier {
-	return &Notifier{
-		cfg:    cfg,
-		sender: NewBarkClient(cfg),
-		dedup:  NewDedupCache(),
+	n := &Notifier{
+		cfg:   cfg,
+		dedup: NewDedupCache(),
 	}
+	if cfg.BarkEndpoint != "" {
+		n.senders = append(n.senders, NewBarkClient(cfg))
+	}
+	if cfg.FCMEnabled || (cfg.FCMServerKey != "" && cfg.FCMDeviceToken != "") {
+		n.senders = append(n.senders, NewFCMClient(cfg))
+	}
+	return n
 }
 
 // NewNotifierWithSender creates an initialized Notifier instance with a custom sender.
 func NewNotifierWithSender(cfg config.NotificationConfig, sender NotificationSender) *Notifier {
 	return &Notifier{
-		cfg:    cfg,
-		sender: sender,
-		dedup:  NewDedupCache(),
+		cfg:     cfg,
+		senders: []NotificationSender{sender},
+		dedup:   NewDedupCache(),
 	}
 }
 
 // SetSender updates the notification sender (e.g. for testing or alternative channels).
 func (n *Notifier) SetSender(sender NotificationSender) {
-	n.sender = sender
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.senders = []NotificationSender{sender}
 }
 
-// IsEnabled reports whether notifications are actively configured.
+// AddSender appends an additional notification sender to the dispatch chain.
+func (n *Notifier) AddSender(sender NotificationSender) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.senders = append(n.senders, sender)
+}
+
+// Senders returns a snapshot of all active notification senders.
+func (n *Notifier) Senders() []NotificationSender {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	cp := make([]NotificationSender, len(n.senders))
+	copy(cp, n.senders)
+	return cp
+}
+
+// UpdateFCMDeviceToken updates or registers an FCM client with the given Android registration token.
+func (n *Notifier) UpdateFCMDeviceToken(token string) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return
+	}
+	for _, s := range n.senders {
+		if fcm, ok := s.(*FCMClient); ok {
+			fcm.SetDeviceToken(token)
+			return
+		}
+	}
+	// No FCM client currently registered, create and register one dynamically
+	fcmCfg := n.cfg
+	fcmCfg.FCMDeviceToken = token
+	fcmCfg.FCMEnabled = true
+	n.senders = append(n.senders, NewFCMClient(fcmCfg))
+}
+
+// IsEnabled reports whether notifications are actively configured and ready to send.
 func (n *Notifier) IsEnabled() bool {
-	return n != nil && n.cfg.Enabled && n.sender != nil && n.cfg.BarkEndpoint != ""
+	if n == nil || !n.cfg.Enabled {
+		return false
+	}
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	return len(n.senders) > 0
+}
+
+// sendToAll dispatches payload to all active notification senders in parallel.
+func (n *Notifier) sendToAll(ctx context.Context, payload BarkPayload) error {
+	n.mu.RLock()
+	senders := make([]NotificationSender, len(n.senders))
+	copy(senders, n.senders)
+	n.mu.RUnlock()
+
+	if len(senders) == 0 {
+		return fmt.Errorf("no notification senders configured")
+	}
+
+	var wg sync.WaitGroup
+	errCh := make(chan error, len(senders))
+
+	for _, s := range senders {
+		wg.Add(1)
+		go func(sender NotificationSender) {
+			defer wg.Done()
+			if err := sender.Send(ctx, payload); err != nil {
+				errCh <- err
+			}
+		}(s)
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	var errs []error
+	for err := range errCh {
+		errs = append(errs, err)
+	}
+
+	if len(errs) > 0 && len(errs) == len(senders) {
+		return fmt.Errorf("all notification senders failed: %w", errs[0])
+	}
+	return nil
 }
 
 // Dedup returns the deduplication cache.
@@ -112,7 +202,7 @@ func (n *Notifier) NotifyAction(cascadeID, title string, pi *proxy.PendingIntera
 		Category: "antigravity_action",
 	}
 
-	if err := n.sender.Send(context.Background(), payload); err != nil {
+	if err := n.sendToAll(context.Background(), payload); err != nil {
 		n.dedup.Remove(dedupKey)
 		return err
 	}
@@ -148,7 +238,7 @@ func (n *Notifier) NotifyProceed(cascadeID, title string, totalSteps int) error 
 		Category: "antigravity_proceed",
 	}
 
-	if err := n.sender.Send(context.Background(), payload); err != nil {
+	if err := n.sendToAll(context.Background(), payload); err != nil {
 		n.dedup.Remove(dedupKey)
 		return err
 	}
@@ -184,7 +274,7 @@ func (n *Notifier) NotifyCompleted(cascadeID, title string, totalSteps int) erro
 		Category: "antigravity_complete",
 	}
 
-	if err := n.sender.Send(context.Background(), payload); err != nil {
+	if err := n.sendToAll(context.Background(), payload); err != nil {
 		n.dedup.Remove(dedupKey)
 		return err
 	}
@@ -220,7 +310,7 @@ func (n *Notifier) NotifyFailed(cascadeID, title string, totalSteps int) error {
 		Category: "antigravity_error",
 	}
 
-	if err := n.sender.Send(context.Background(), payload); err != nil {
+	if err := n.sendToAll(context.Background(), payload); err != nil {
 		n.dedup.Remove(dedupKey)
 		return err
 	}
@@ -255,7 +345,7 @@ func (n *Notifier) NotifyCockpitAlert(title, message string) error {
 		Category: "cockpit_alert",
 	}
 
-	if err := n.sender.Send(context.Background(), payload); err != nil {
+	if err := n.sendToAll(context.Background(), payload); err != nil {
 		n.dedup.Remove(dedupKey)
 		return err
 	}

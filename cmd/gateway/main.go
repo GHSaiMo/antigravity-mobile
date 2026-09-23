@@ -280,12 +280,19 @@ func runGatewayServer(args []string) {
 		watcher := notifier.NewWatcher(p, notif)
 		watcher.Start(watcherCtx)
 
-		log.Printf("🔔 Bark notifications ENABLED")
-		log.Printf("   🎯 Target: %s", config.RedactBarkEndpoint(notifCfg.BarkEndpoint))
-		log.Printf("   🎨 Icon:   %s", notifCfg.IconURL)
-		log.Printf("   📁 Group:  %s", notifCfg.Group)
+		if notifCfg.BarkEndpoint != "" {
+			log.Printf("🔔 iOS Bark notifications ENABLED")
+			log.Printf("   🎯 Target: %s", config.RedactBarkEndpoint(notifCfg.BarkEndpoint))
+			log.Printf("   🎨 Icon:   %s", notifCfg.IconURL)
+			log.Printf("   📁 Group:  %s", notifCfg.Group)
+		}
+		if notifCfg.FCMEnabled {
+			log.Printf("🤖 Android FCM notifications ENABLED")
+			log.Printf("   🎯 Target: %s", config.RedactFCMKey(notifCfg.FCMDeviceToken))
+			log.Printf("   🔑 Key:    %s", config.RedactFCMKey(notifCfg.FCMServerKey))
+		}
 	} else {
-		log.Printf("ℹ️  Bark notifications disabled (set BARK_URL in .env to enable)")
+		log.Printf("ℹ️  Push notifications disabled (set BARK_URL or FCM_SERVER_KEY in .env to enable)")
 	}
 
 	// 5. Web frontend handler
@@ -691,6 +698,49 @@ func buildRouter(
 	rootMux.HandleFunc("POST /api/v1/auth/ws-ticket", authHandler.HandleWSTicket)
 	rootMux.HandleFunc("/api/v1/devices/", authHandler.HandleDevices)
 	rootMux.HandleFunc("/api/v1/devices", authHandler.HandleDevices)
+
+	// Mobile push token registration endpoint (for Android FCM and other clients)
+	rootMux.HandleFunc("POST /api/v1/device/push-token", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Platform    string `json:"platform"`
+			Token       string `json:"token"`
+			FCMToken    string `json:"fcm_token"`
+			DeviceToken string `json:"device_token"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+			return
+		}
+		pushToken := strings.TrimSpace(req.Token)
+		if pushToken == "" {
+			pushToken = strings.TrimSpace(req.FCMToken)
+		}
+		if pushToken == "" {
+			pushToken = strings.TrimSpace(req.DeviceToken)
+		}
+		if pushToken == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "token is required"})
+			return
+		}
+
+		if sink, ok := p.NotificationSink().(*notifier.Notifier); ok && sink != nil {
+			sink.UpdateFCMDeviceToken(pushToken)
+		} else {
+			cfg := config.GetNotificationConfig()
+			cfg.FCMDeviceToken = pushToken
+			cfg.FCMEnabled = true
+			cfg.Enabled = true
+			newNotif := notifier.NewNotifier(cfg)
+			p.SetNotificationSink(newNotif)
+		}
+
+		log.Printf("[PushToken] 📱 Registered %s push token: %s", req.Platform, config.RedactFCMKey(pushToken))
+		writeJSON(w, http.StatusOK, map[string]string{
+			"status":   "ok",
+			"platform": req.Platform,
+			"message":  "push token registered successfully",
+		})
+	})
 
 	// Cockpit endpoints
 	rootMux.HandleFunc("GET /api/v1/cockpit/quotas", func(w http.ResponseWriter, r *http.Request) {

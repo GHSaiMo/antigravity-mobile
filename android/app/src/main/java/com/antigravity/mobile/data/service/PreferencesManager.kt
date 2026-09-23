@@ -114,6 +114,10 @@ class PreferencesManager(context: Context) {
         get() = prefs.getBoolean(KEY_LIVE_NOTIFICATIONS, true)
         set(value) = prefs.edit().putBoolean(KEY_LIVE_NOTIFICATIONS, value).apply()
 
+    var fcmPushToken: String?
+        get() = prefs.getString(KEY_FCM_PUSH_TOKEN, null)
+        set(value) = prefs.edit().putString(KEY_FCM_PUSH_TOKEN, value?.trim()).apply()
+
     var primaryCloudUrl: String?
         get() {
             val saved = prefs.getString(KEY_PRIMARY_CLOUD_URL, null)
@@ -461,6 +465,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_AUTO_APPROVE = "auto_approve_permissions"
         private const val KEY_LIVE_NOTIFICATIONS = "live_notifications"
+        private const val KEY_FCM_PUSH_TOKEN = "fcm_push_token"
         private const val KEY_LAN_URL = "lan_server_url"
         private const val KEY_IPV6_URL = "ipv6_server_url"
         private const val KEY_RELAY_URL = "relay_server_url"

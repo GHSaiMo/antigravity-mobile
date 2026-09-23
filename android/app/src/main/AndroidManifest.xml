@@ -56,7 +56,29 @@
                     android:host="session"
                     android:scheme="antigravity" />
             </intent-filter>
+
+            <!-- DeepLink for antigravity://cascade/{id} & multigravity://cascade/{id} -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:host="cascade"
+                    android:scheme="multigravity" />
+                <data
+                    android:host="cascade"
+                    android:scheme="antigravity" />
+            </intent-filter>
         </activity>
+
+        <!-- Firebase Cloud Messaging Push Service -->
+        <service
+            android:name=".data.service.AntigravityMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
 
         <!-- ZXing Scanner portrait orientation -->
         <activity
