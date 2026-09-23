@@ -65,6 +65,39 @@ func TestLaunchCockpitAppMock(t *testing.T) {
 	}
 }
 
+func TestSanitizeBundleID(t *testing.T) {
+	cases := []struct {
+		input    string
+		expected string
+	}{
+		{"com.jlcodes.cockpit-tools", "com.jlcodes.cockpit-tools"},
+		{"com.apple.Terminal", "com.apple.Terminal"},
+		{"com.evil.app\"; rm -rf /; \"", "com.evil.apprm-rf"},
+		{"", ""},
+	}
+	for _, tc := range cases {
+		got := sanitizeBundleID(tc.input)
+		if got != tc.expected {
+			t.Errorf("sanitizeBundleID(%q) = %q; want %q", tc.input, got, tc.expected)
+		}
+	}
+}
+
+func TestDefaultLaunchCockpitWhenAlreadyRunning(t *testing.T) {
+	origChecker := cockpitProcessChecker
+	defer func() { cockpitProcessChecker = origChecker }()
+
+	cockpitProcessChecker = func() bool {
+		return true
+	}
+
+	// Should return nil without calling OS open/exec
+	err := defaultLaunchCockpit()
+	if err != nil {
+		t.Fatalf("expected nil error when already running, got: %v", err)
+	}
+}
+
 func TestResetAutoRefreshCooldown(t *testing.T) {
 	schedulerMutex.Lock()
 	backoffUntil = time.Now().Add(1 * time.Hour)
