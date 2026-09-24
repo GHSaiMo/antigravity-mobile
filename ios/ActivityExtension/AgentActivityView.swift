@@ -542,5 +542,5 @@ private func resolvedTitle(context: ActivityViewContext<AgentActivityAttributes>
     if !attrTitle.isEmpty {
         return attrTitle
     }
-    return "Antigravity Agent"
+    return "Multigravity Agent"
 }

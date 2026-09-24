@@ -1201,7 +1201,7 @@ final class SingleImagePreviewController: UIViewController, UIScrollViewDelegate
     private func showPermissionAlert() {
         let alert = UIAlertController(
             title: "需要相册权限",
-            message: "请在系统“设置”中允许 Antigravity 访问相册以保存图片。",
+            message: "请在系统“设置”中允许 Multigravity 访问相册以保存图片。",
             preferredStyle: .alert
         )
         alert.addAction(UIAlertAction(title: "前往设置", style: .default) { _ in

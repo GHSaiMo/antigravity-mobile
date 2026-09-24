@@ -36,14 +36,14 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		3756FE142F42C01000EDA5E9 /* Antigravity.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Antigravity.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		3756FE142F42C01000EDA5E9 /* Multigravity.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Multigravity.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000022F42C01000EDA5E9 /* ActivityExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ActivityExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		3756FE162F42C01000EDA5E9 /* Antigravity */ = {
+		3756FE162F42C01000EDA5E9 /* Multigravity */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = Antigravity;
+			path = Multigravity;
 			sourceTree = "<group>";
 		};
 		A10000062F42C01000EDA5E9 /* ActivityExtension */ = {
@@ -75,7 +75,7 @@
 		3756FE0B2F42C00F00EDA5E9 = {
 			isa = PBXGroup;
 			children = (
-				3756FE162F42C01000EDA5E9 /* Antigravity */,
+				3756FE162F42C01000EDA5E9 /* Multigravity */,
 				A10000062F42C01000EDA5E9 /* ActivityExtension */,
 				3756FE152F42C01000EDA5E9 /* Products */,
 			);
@@ -84,7 +84,7 @@
 		3756FE152F42C01000EDA5E9 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				3756FE142F42C01000EDA5E9 /* Antigravity.app */,
+				3756FE142F42C01000EDA5E9 /* Multigravity.app */,
 				A10000022F42C01000EDA5E9 /* ActivityExtension.appex */,
 			);
 			name = Products;
@@ -93,9 +93,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		3756FE132F42C01000EDA5E9 /* Antigravity */ = {
+		3756FE132F42C01000EDA5E9 /* Multigravity */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 3756FE1F2F42C01000EDA5E9 /* Build configuration list for PBXNativeTarget "Antigravity" */;
+			buildConfigurationList = 3756FE1F2F42C01000EDA5E9 /* Build configuration list for PBXNativeTarget "Multigravity" */;
 			buildPhases = (
 				3756FE102F42C01000EDA5E9 /* Sources */,
 				3756FE112F42C01000EDA5E9 /* Frameworks */,
@@ -108,14 +108,14 @@
 				A10000082F42C01000EDA5E9 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				3756FE162F42C01000EDA5E9 /* Antigravity */,
+				3756FE162F42C01000EDA5E9 /* Multigravity */,
 			);
-			name = Antigravity;
+			name = Multigravity;
 			packageProductDependencies = (
 				3756FEAB2F42C01000EDA5E9 /* ZLPhotoBrowser */,
 			);
-			productName = Antigravity;
-			productReference = 3756FE142F42C01000EDA5E9 /* Antigravity.app */;
+			productName = Multigravity;
+			productReference = 3756FE142F42C01000EDA5E9 /* Multigravity.app */;
 			productType = "com.apple.product-type.application";
 		};
 		A10000042F42C01000EDA5E9 /* ActivityExtension */ = {
@@ -158,7 +158,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 3756FE0F2F42C00F00EDA5E9 /* Build configuration list for PBXProject "Antigravity" */;
+			buildConfigurationList = 3756FE0F2F42C00F00EDA5E9 /* Build configuration list for PBXProject "Multigravity" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -175,7 +175,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				3756FE132F42C01000EDA5E9 /* Antigravity */,
+				3756FE132F42C01000EDA5E9 /* Multigravity */,
 				A10000042F42C01000EDA5E9 /* ActivityExtension */,
 			);
 		};
@@ -469,7 +469,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		3756FE0F2F42C00F00EDA5E9 /* Build configuration list for PBXProject "Antigravity" */ = {
+		3756FE0F2F42C00F00EDA5E9 /* Build configuration list for PBXProject "Multigravity" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				3756FE1D2F42C01000EDA5E9 /* Debug */,
@@ -478,7 +478,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		3756FE1F2F42C01000EDA5E9 /* Build configuration list for PBXNativeTarget "Antigravity" */ = {
+		3756FE1F2F42C01000EDA5E9 /* Build configuration list for PBXNativeTarget "Multigravity" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				3756FE202F42C01000EDA5E9 /* Debug */,

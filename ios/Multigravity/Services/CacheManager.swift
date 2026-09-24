@@ -346,9 +346,7 @@ public final class CacheManager: @unchecked Sendable {
     }
     
     public func loadConversationsAsync() async -> [ConversationItem] {
-        return await Task.detached(priority: .userInitiated) { [weak self] in
-            return self?.loadConversations() ?? []
-        }.value
+        return loadConversations()
     }
     
     public func updateConversationTitle(cascadeId: String, newTitle: String) {
@@ -536,16 +534,10 @@ public final class CacheManager: @unchecked Sendable {
     }
     
     public func loadSessionAsync(for cascadeId: String) async -> CachedChatSession? {
-        lock.lock()
-        if let mem = memSessions[cascadeId] {
-            lock.unlock()
+        if let mem = lock.withLock({ memSessions[cascadeId] }) {
             return mem
         }
-        lock.unlock()
-
-        return await Task.detached(priority: .userInitiated) { [weak self] in
-            return self?.loadSession(for: cascadeId)
-        }.value
+        return loadSession(for: cascadeId)
     }
     
     public func prewarmSessions(for cascadeIds: [String]) {

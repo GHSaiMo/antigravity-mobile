@@ -60,8 +60,9 @@ public final class ConversationListViewModel {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            guard let self = self else { return }
-            self.reloadFromCache()
+            MainActor.assumeIsolated {
+                self?.reloadFromCache()
+            }
         }
         
         NotificationCenter.default.addObserver(
@@ -69,11 +70,13 @@ public final class ConversationListViewModel {
             object: nil,
             queue: .main
         ) { [weak self] notif in
-            guard let self = self else { return }
-            if let draftId = notif.object as? String {
-                self.conversations.removeAll(where: { $0.id == draftId })
+            MainActor.assumeIsolated {
+                guard let self = self else { return }
+                if let draftId = notif.object as? String {
+                    self.conversations.removeAll(where: { $0.id == draftId })
+                }
+                self.reloadFromCache()
             }
-            self.reloadFromCache()
         }
         
         NotificationCenter.default.addObserver(
@@ -81,9 +84,11 @@ public final class ConversationListViewModel {
             object: nil,
             queue: .main
         ) { [weak self] notif in
-            guard let self = self else { return }
-            if let item = notif.object as? ConversationItem {
-                self.upsertConversation(item)
+            MainActor.assumeIsolated {
+                guard let self = self else { return }
+                if let item = notif.object as? ConversationItem {
+                    self.upsertConversation(item)
+                }
             }
         }
     }

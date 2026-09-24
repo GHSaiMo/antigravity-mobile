@@ -29,7 +29,7 @@ public struct EndpointHealthStatus: Identifiable, Sendable {
 }
 
 /// Thread-safe global network state container accessible from any queue/Sendable context
-public final class NetworkStatus: Sendable {
+public final nonisolated class NetworkStatus: Sendable {
     public static let shared = NetworkStatus()
     private let _isCellular = OSAllocatedUnfairLock(initialState: false)
     private let _isWifi = OSAllocatedUnfairLock(initialState: true)

@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct AntigravityApp: App {
+struct MultigravityApp: App {
     var body: some Scene {
         WindowGroup {
             ConversationListView()
