@@ -24,17 +24,24 @@ if command -v taskkill >/dev/null 2>&1; then
     taskkill //F //IM mgy.exe >/dev/null 2>&1 || true
 fi
 
-# 2. 移除二进制执行文件
+# 2. 移除二进制执行文件与全局软链接
 TARGETS=(
     "${INSTALL_DIR}/mgy"
     "${INSTALL_DIR}/mgy.exe"
+    "/opt/homebrew/bin/mgy"
+    "/usr/local/bin/mgy"
     "${LOCALAPPDATA:-}/Microsoft/WindowsApps/mgy.exe"
 )
 
 for target in "${TARGETS[@]}"; do
-    if [ -n "${target}" ] && [ -f "${target}" ]; then
-        rm -f "${target}"
-        echo "✅ 已移除二进制: ${target}"
+    if [ -n "${target}" ] && ([ -L "${target}" ] || [ -f "${target}" ]); then
+        if [ -w "${target}" ] || [ -w "$(dirname "${target}")" ]; then
+            rm -f "${target}" 2>/dev/null || true
+            echo "✅ 已移除文件/软链接: ${target}"
+        elif sudo -n true 2>/dev/null; then
+            sudo rm -f "${target}" 2>/dev/null || true
+            echo "✅ 已通过 sudo 移除系统快捷方式: ${target}"
+        fi
     fi
 done
 

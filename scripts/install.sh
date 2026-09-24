@@ -227,14 +227,56 @@ fi
 
 chmod +x "${INSTALL_DIR}/${BIN_NAME}" 2>/dev/null || true
 
-# 6. Windows / macOS 平台特性处理
+# 6. Windows / macOS / Linux 平台特性与全局软链接处理
+GLOBAL_LINKED=false
+
 if [ "${OS_TYPE}" = "darwin" ]; then
     xattr -d com.apple.quarantine "${INSTALL_DIR}/${BIN_NAME}" 2>/dev/null || true
     codesign -s - -f "${INSTALL_DIR}/${BIN_NAME}" 2>/dev/null || true
+
+    # 尝试将可执行文件软链接至已在默认 PATH 中的全局目录 (当前终端即可直接运行，免 source)
+    CANDIDATE_DIRS=("/opt/homebrew/bin" "/usr/local/bin")
+    for c_dir in "${CANDIDATE_DIRS[@]}"; do
+        if [ -d "${c_dir}" ] && [ -w "${c_dir}" ]; then
+            ln -sf "${INSTALL_DIR}/${BIN_NAME}" "${c_dir}/${BIN_NAME}" 2>/dev/null && {
+                echo "🔗 已自动创建全局快捷方式: ${c_dir}/${BIN_NAME} (当前终端即刻可用)"
+                GLOBAL_LINKED=true
+                break
+            }
+        fi
+    done
+
+    # 若常规目录不可写，尝试从当前有效 PATH 中匹配用户可写的系统 bin 目录
+    if [ "${GLOBAL_LINKED}" = "false" ]; then
+        IFS=':' read -ra CURRENT_PATHS <<< "${PATH:-}"
+        for p_dir in "${CURRENT_PATHS[@]}"; do
+            if [ -n "${p_dir}" ] && [ -d "${p_dir}" ] && [ -w "${p_dir}" ] && [ "${p_dir}" != "${INSTALL_DIR}" ]; then
+                if [[ "${p_dir}" == *"/bin"* ]] && [[ "${p_dir}" != *"/tmp"* ]] && [[ "${p_dir}" != *".gemini"* ]]; then
+                    ln -sf "${INSTALL_DIR}/${BIN_NAME}" "${p_dir}/${BIN_NAME}" 2>/dev/null && {
+                        echo "🔗 已自动链接至现有 PATH 目录: ${p_dir}/${BIN_NAME} (当前终端即刻可用)"
+                        GLOBAL_LINKED=true
+                        break
+                    }
+                fi
+            fi
+        done
+    fi
+
+    # 若仍未成功且存在 /usr/local/bin，尝试免密 sudo 创建软链接
+    if [ "${GLOBAL_LINKED}" = "false" ] && [ -d "/usr/local/bin" ]; then
+        if sudo -n true 2>/dev/null; then
+            sudo ln -sf "${INSTALL_DIR}/${BIN_NAME}" "/usr/local/bin/${BIN_NAME}" 2>/dev/null && {
+                echo "🔗 已通过免密授权创建全局快捷方式: /usr/local/bin/${BIN_NAME} (当前终端即刻可用)"
+                GLOBAL_LINKED=true
+            }
+        fi
+    fi
+
 elif [ "${OS_TYPE}" = "windows" ]; then
     # 拷贝一份至 WindowsApps (Windows 默认系统级用户 PATH，开箱即用免重启)
     if [ -n "${LOCALAPPDATA:-}" ] && [ -d "${LOCALAPPDATA}/Microsoft/WindowsApps" ]; then
         cp -f "${INSTALL_DIR}/${BIN_NAME}" "${LOCALAPPDATA}/Microsoft/WindowsApps/${BIN_NAME}" 2>/dev/null || true
+        GLOBAL_LINKED=true
     fi
     # 将 ~/.local/bin 追加到 Windows User PATH
     if command -v powershell.exe >/dev/null 2>&1; then
@@ -250,29 +292,36 @@ elif [ "${OS_TYPE}" = "windows" ]; then
     fi
 fi
 
-# 7. 检查 Shell PATH 环境变量 (针对 macOS / Linux / Git Bash)
+# 7. 检查并持久化配置 Shell PATH 环境变量 (针对 macOS / Linux)
 SHELL_NAME="$(basename "${SHELL:-bash}")"
-RC_FILE="${HOME}/.bashrc"
+RC_FILES=()
 if [ "${OS_TYPE}" = "darwin" ]; then
-    RC_FILE="${HOME}/.zshrc"
+    RC_FILES+=("${HOME}/.zshrc" "${HOME}/.zprofile")
     if [ "${SHELL_NAME}" = "bash" ]; then
-        RC_FILE="${HOME}/.bash_profile"
+        RC_FILES+=("${HOME}/.bash_profile" "${HOME}/.bashrc")
     fi
 elif [ -f "${HOME}/.zshrc" ] && [ "${SHELL_NAME}" = "zsh" ]; then
-    RC_FILE="${HOME}/.zshrc"
+    RC_FILES+=("${HOME}/.zshrc")
+else
+    RC_FILES+=("${HOME}/.bashrc" "${HOME}/.profile")
 fi
 
 PATH_CONFIGURED=true
 if [[ ":${PATH}:" != *":${INSTALL_DIR}:"* ]]; then
-    PATH_CONFIGURED=false
-    if [ -f "${RC_FILE}" ]; then
-        if ! grep -q '\.local/bin' "${RC_FILE}" 2>/dev/null; then
-            echo '' >> "${RC_FILE}"
-            echo '# Multigravity CLI PATH' >> "${RC_FILE}"
-            echo 'export PATH="$HOME/.local/bin:$PATH"' >> "${RC_FILE}"
-            echo "🔧 已自动将 ~/.local/bin 追加到 ${RC_FILE}"
-        fi
+    if [ "${GLOBAL_LINKED}" = "false" ]; then
+        PATH_CONFIGURED=false
     fi
+    for rc_file in "${RC_FILES[@]}"; do
+        if [ -f "${rc_file}" ] || [ "${rc_file}" = "${HOME}/.zshrc" ]; then
+            touch "${rc_file}" 2>/dev/null || true
+            if ! grep -q '\.local/bin' "${rc_file}" 2>/dev/null; then
+                echo '' >> "${rc_file}"
+                echo '# Multigravity CLI PATH' >> "${rc_file}"
+                echo 'export PATH="$HOME/.local/bin:$PATH"' >> "${rc_file}"
+                echo "🔧 已自动将 ~/.local/bin 追加到 ${rc_file}"
+            fi
+        fi
+    done
 fi
 
 # 8. 预先检测并安装 Cloudflare 穿透引擎 (用于远程外网安全直连)
@@ -437,8 +486,10 @@ echo "   • 查看已连接设备:   mgy list"
 echo "   • 清空已配对设备:   mgy clear all"
 echo "   • 查看命令帮助:     mgy help"
 echo ""
-if [ "${PATH_CONFIGURED}" = "false" ] && [ "${OS_TYPE}" != "windows" ]; then
-    echo "💡 提示: 请先在新打开的终端运行，或执行生效环境: source ${RC_FILE}"
+if [ "${GLOBAL_LINKED}" = "true" ]; then
+    echo "💡 提示: 已配置全局快捷方式，您可以在当前终端及新终端直接运行: mgy"
+elif [ "${PATH_CONFIGURED}" = "false" ] && [ "${OS_TYPE}" != "windows" ]; then
+    echo "💡 提示: 请先在新打开的终端运行，或执行生效环境: source ~/.zshrc"
 fi
 echo "📱 手机端使用:"
 echo "   请在 GitHub Releases 下载安装 Multigravity-*.apk，"
