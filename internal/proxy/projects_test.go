@@ -35,7 +35,7 @@ func TestProjectsEndpoint(t *testing.T) {
 
 	t.Logf("Successfully fetched %d projects", len(projects))
 	for idx, prj := range projects {
-		t.Logf("[%d] %s -> %s (sessions: %d, ws: %v)", idx, prj.Name, prj.Path, prj.SessionCount, prj.IsWorkspace)
+		t.Logf("[%d] ID=%s Name=%s -> %s (sessions: %d, ws: %v)", idx, prj.ID, prj.Name, prj.Path, prj.SessionCount, prj.IsWorkspace)
 		if idx >= 5 {
 			break
 		}
@@ -555,6 +555,137 @@ func TestFetchProjectsFromWorkspaceStorage(t *testing.T) {
 		t.Errorf("expected MyTestProject to be discovered from workspaceStorage, got %d items", len(items))
 	}
 }
+
+func TestFetchProjectsFromGeminiConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgDir := filepath.Join(tmpDir, "config", "projects")
+	if err := os.MkdirAll(cfgDir, 0755); err != nil {
+		t.Fatalf("failed to create temp config/projects: %v", err)
+	}
+
+	testProjectDir := filepath.Join(tmpDir, "DemoApp")
+	if err := os.MkdirAll(testProjectDir, 0755); err != nil {
+		t.Fatalf("failed to create test project dir: %v", err)
+	}
+
+	projJSON := fmt.Sprintf(`{
+		"id": "project-uuid-1234-5678",
+		"name": "DemoApp",
+		"projectResources": {
+			"resources": [
+				{
+					"gitFolder": {
+						"folderUri": "file://%s",
+						"defaultBranch": "main"
+					}
+				}
+			]
+		},
+		"isWorkspaceOnly": false
+	}`, filepath.ToSlash(testProjectDir))
+
+	if err := os.WriteFile(filepath.Join(cfgDir, "project-uuid-1234-5678.json"), []byte(projJSON), 0644); err != nil {
+		t.Fatalf("failed to write project config json: %v", err)
+	}
+
+	origAppDataDir := os.Getenv("ANTIGRAVITY_APP_DATA_DIR")
+	os.Setenv("ANTIGRAVITY_APP_DATA_DIR", filepath.Join(tmpDir, "antigravity"))
+	defer os.Setenv("ANTIGRAVITY_APP_DATA_DIR", origAppDataDir)
+
+	items := fetchProjectsFromGeminiConfig()
+	found := false
+	for _, item := range items {
+		if item.ID == "project-uuid-1234-5678" {
+			found = true
+			if item.Name != "DemoApp" {
+				t.Errorf("expected DemoApp, got %s", item.Name)
+			}
+			if item.Path != testProjectDir {
+				t.Errorf("expected %s, got %s", testProjectDir, item.Path)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected project-uuid-1234-5678 to be discovered, got %d items", len(items))
+	}
+}
+
+func TestHandleCreateCascade_AutoResolveProjectID(t *testing.T) {
+	var lastReceivedPayload map[string]interface{}
+	mockUpstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/StartCascade") {
+			json.NewDecoder(r.Body).Decode(&lastReceivedPayload)
+			w.Write([]byte(`{"cascadeId": "test-cascade-pid"}`))
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/UpdateConversationAnnotations") {
+			w.Write([]byte(`{}`))
+			return
+		}
+		w.Write([]byte(`{}`))
+	}))
+	defer mockUpstream.Close()
+
+	tmpDir := t.TempDir()
+	cfgDir := filepath.Join(tmpDir, "config", "projects")
+	_ = os.MkdirAll(cfgDir, 0755)
+	testProjectDir := filepath.Join(tmpDir, "TargetProject")
+	_ = os.MkdirAll(testProjectDir, 0755)
+
+	projJSON := fmt.Sprintf(`{
+		"id": "target-pid-9999",
+		"name": "TargetProject",
+		"projectResources": {
+			"resources": [
+				{
+					"gitFolder": {
+						"folderUri": "file://%s"
+					}
+				}
+			]
+		}
+	}`, filepath.ToSlash(testProjectDir))
+	_ = os.WriteFile(filepath.Join(cfgDir, "target-pid-9999.json"), []byte(projJSON), 0644)
+
+	origAppDataDir := os.Getenv("ANTIGRAVITY_APP_DATA_DIR")
+	os.Setenv("ANTIGRAVITY_APP_DATA_DIR", filepath.Join(tmpDir, "antigravity"))
+	defer os.Setenv("ANTIGRAVITY_APP_DATA_DIR", origAppDataDir)
+
+	port := mockUpstream.Listener.Addr().(*net.TCPAddr).Port
+	insp := inspector.NewInspector(5 * time.Second)
+	p := NewProxy(insp)
+	p.activePort = port
+	p.activeToken = "test-token"
+
+	// Request from iOS without explicit projectId, only workspaceUri
+	body, _ := json.Marshal(CreateCascadeRequest{
+		WorkspaceURI: "file://" + filepath.ToSlash(testProjectDir),
+		Prompt:       "hello from ios",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/gateway/cascade/new", strings.NewReader(string(body)))
+	w := httptest.NewRecorder()
+
+	p.HandleCreateCascade(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Verify that upstream StartCascade received projectEnvConfig with target-pid-9999
+	envCfg, ok := lastReceivedPayload["projectEnvConfig"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected projectEnvConfig in startPayload, got: %+v", lastReceivedPayload)
+	}
+	if envCfg["projectId"] != "target-pid-9999" {
+		t.Errorf("expected projectId 'target-pid-9999', got: %v", envCfg["projectId"])
+	}
+	if lastReceivedPayload["source"] != "CORTEX_TRAJECTORY_SOURCE_CASCADE_CLIENT" {
+		t.Errorf("expected CORTEX_TRAJECTORY_SOURCE_CASCADE_CLIENT, got: %v", lastReceivedPayload["source"])
+	}
+}
+
 
 
 

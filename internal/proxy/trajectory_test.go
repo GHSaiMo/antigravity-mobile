@@ -1032,6 +1032,59 @@ func TestCascadeDedup_LazyExpiry(t *testing.T) {
 	}
 }
 
+func TestParseTrajectoryDetails_UserInputMediaURI(t *testing.T) {
+	p := &Proxy{}
+	resp := &upstreamTrajectoryResp{
+		Trajectory: struct {
+			TrajectoryID  string           `json:"trajectoryId"`
+			CascadeID     string           `json:"cascadeId"`
+			WorkspaceUris []string         `json:"workspaceUris"`
+			Steps         []TrajectoryStep `json:"steps"`
+			Annotations   *struct {
+				Title            string `json:"title"`
+				LastUserViewTime string `json:"lastUserViewTime"`
+			} `json:"annotations"`
+			Summary           string `json:"summary"`
+			ExecutorMetadatas []struct {
+				CascadeConfig json.RawMessage `json:"cascadeConfig"`
+			} `json:"executorMetadatas"`
+		}{
+			CascadeID: "test-cascade-media",
+			Steps: []TrajectoryStep{
+				{
+					Type: "CORTEX_STEP_TYPE_USER_INPUT",
+					UserInput: &TrajectoryUserInput{
+						UserResponse: "这是附带图片的测试消息",
+						Media: []TrajectoryMediaItem{
+							{
+								MimeType:  "image/png",
+								Thumbnail: "thumb-base64-data",
+								URI:       "/Users/test/.gemini/antigravity/brain/test-cascade-media/.user_uploaded/original.png",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	details := p.ParseTrajectoryDetails(resp)
+	if len(details.AllMessages) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(details.AllMessages))
+	}
+	msg := details.AllMessages[0]
+	if msg.Type != "user" {
+		t.Fatalf("expected user message, got %s", msg.Type)
+	}
+	if len(msg.Media) != 1 || msg.Media[0] != "thumb-base64-data" {
+		t.Fatalf("expected thumbnail in Media, got %v", msg.Media)
+	}
+	if len(msg.ImageURLs) != 1 || msg.ImageURLs[0] != "/Users/test/.gemini/antigravity/brain/test-cascade-media/.user_uploaded/original.png" {
+		t.Fatalf("expected original URI in ImageURLs, got %v", msg.ImageURLs)
+	}
+}
+
+
 
 
 

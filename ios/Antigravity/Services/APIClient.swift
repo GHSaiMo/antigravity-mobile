@@ -622,8 +622,12 @@ public final class APIClient: Sendable {
                 let isSystemApproval = trimmed.hasPrefix("Comments on artifact URI:") || trimmed.contains("The user has approved this document")
                 
                 var images: [Data] = []
+                var imageUrls: [String] = []
                 if let mediaList = step.userInput?.media {
                     for media in mediaList {
+                        if let u = media.uri, !u.isEmpty {
+                            imageUrls.append(resolveMediaURL(u, baseURL: baseURL))
+                        }
                         if let thumb = media.thumbnail, !thumb.isEmpty, let data = Data(base64Encoded: thumb) {
                             images.append(data)
                         } else if let inline = media.inlineData, !inline.isEmpty, let data = Data(base64Encoded: inline) {
@@ -639,12 +643,20 @@ public final class APIClient: Sendable {
                     }
                 }
                 
-                if (!trimmed.isEmpty && !isSystemApproval) || !images.isEmpty {
+                for u in extractImageURLs(from: text) {
+                    let resolved = resolveMediaURL(u, baseURL: baseURL)
+                    if !imageUrls.contains(resolved) {
+                        imageUrls.append(resolved)
+                    }
+                }
+                
+                if (!trimmed.isEmpty && !isSystemApproval) || !images.isEmpty || !imageUrls.isEmpty {
                     messages.append(ChatMessage(
                         id: "step-\(idx)",
                         sender: .user,
                         content: text,
                         imageDataList: images,
+                        imageUrls: imageUrls,
                         stepIndex: idx
                     ))
                 }

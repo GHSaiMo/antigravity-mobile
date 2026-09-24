@@ -956,6 +956,7 @@ public struct ChatView: View {
         .fullScreenCover(item: $previewDraftGallery) { gallery in
             ImageViewerSheet(gallery: gallery)
                 .presentationBackground(.clear)
+                .ignoresSafeArea()
         }
     }
     
@@ -1484,6 +1485,7 @@ public struct MarkdownViewerSheet: View {
         .fullScreenCover(item: $previewImage) { item in
             ImageViewerSheet(item: item)
                 .presentationBackground(.clear)
+                .ignoresSafeArea()
         }
     }
 }

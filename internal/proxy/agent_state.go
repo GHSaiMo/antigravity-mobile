@@ -542,7 +542,7 @@ func extractQueuedMessageMedia(pam upstreamAgentMessage) ([]string, []string) {
 		} else if m.InlineData != "" {
 			addMedia(m.InlineData)
 		}
-		if m.URI != "" && (strings.HasPrefix(m.URI, "http://") || strings.HasPrefix(m.URI, "https://")) {
+		if m.URI != "" {
 			addImageURL(m.URI)
 		}
 	}
@@ -676,7 +676,7 @@ func findMediaInGenericMap(m map[string]interface{}, mediaList *[]string, imageU
 					seenMedia[inline] = true
 					*mediaList = append(*mediaList, inline)
 				}
-				if uri, ok := itemMap["uri"].(string); ok && (strings.HasPrefix(uri, "http://") || strings.HasPrefix(uri, "https://")) && !seenURL[uri] {
+				if uri, ok := itemMap["uri"].(string); ok && uri != "" && !seenURL[uri] {
 					seenURL[uri] = true
 					*imageURLs = append(*imageURLs, uri)
 				}

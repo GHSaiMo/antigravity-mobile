@@ -698,49 +698,14 @@ func TestFilterQueuedMessagesAgainstTrajectory(t *testing.T) {
 	steps := []TrajectoryStep{
 		{
 			Type: "CORTEX_STEP_TYPE_USER_INPUT",
-			UserInput: &struct {
-				UserResponse string `json:"userResponse"`
-				Items        []struct {
-					Text string `json:"text"`
-				} `json:"items"`
-				Images []struct {
-					Base64Data string `json:"base64Data"`
-					MimeType   string `json:"mimeType"`
-				} `json:"images"`
-				Media []struct {
-					MimeType    string `json:"mimeType"`
-					Description string `json:"description"`
-					Thumbnail   string `json:"thumbnail"`
-					InlineData  string `json:"inlineData"`
-				} `json:"media"`
-			}{
+			UserInput: &TrajectoryUserInput{
 				UserResponse: "md 能都渲染这些图？有没有通用的开源的渲染方案，先找找看\n",
 			},
 		},
 		{
 			Type: "CORTEX_STEP_TYPE_USER_INPUT",
-			UserInput: &struct {
-				UserResponse string `json:"userResponse"`
-				Items        []struct {
-					Text string `json:"text"`
-				} `json:"items"`
-				Images []struct {
-					Base64Data string `json:"base64Data"`
-					MimeType   string `json:"mimeType"`
-				} `json:"images"`
-				Media []struct {
-					MimeType    string `json:"mimeType"`
-					Description string `json:"description"`
-					Thumbnail   string `json:"thumbnail"`
-					InlineData  string `json:"inlineData"`
-				} `json:"media"`
-			}{
-				Media: []struct {
-					MimeType    string `json:"mimeType"`
-					Description string `json:"description"`
-					Thumbnail   string `json:"thumbnail"`
-					InlineData  string `json:"inlineData"`
-				}{
+			UserInput: &TrajectoryUserInput{
+				Media: []TrajectoryMediaItem{
 					{Thumbnail: "img-base64-only"},
 				},
 			},
@@ -828,22 +793,7 @@ func TestFilterQueuedMessagesAgainstTrajectory_ShortCommandPreserved(t *testing.
 	steps := []TrajectoryStep{
 		{
 			Type: "CORTEX_STEP_TYPE_USER_INPUT",
-			UserInput: &struct {
-				UserResponse string `json:"userResponse"`
-				Items        []struct {
-					Text string `json:"text"`
-				} `json:"items"`
-				Images []struct {
-					Base64Data string `json:"base64Data"`
-					MimeType   string `json:"mimeType"`
-				} `json:"images"`
-				Media []struct {
-					MimeType    string `json:"mimeType"`
-					Description string `json:"description"`
-					Thumbnail   string `json:"thumbnail"`
-					InlineData  string `json:"inlineData"`
-				} `json:"media"`
-			}{
+			UserInput: &TrajectoryUserInput{
 				UserResponse: "请你继续深入排查当前项目还有没有值得优化的地方，请列举",
 			},
 		},

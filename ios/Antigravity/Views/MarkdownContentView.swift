@@ -128,6 +128,7 @@ public struct MarkdownContentView: View {
         .fullScreenCover(item: $internalPreviewImage) { item in
             ImageViewerSheet(item: item)
                 .presentationBackground(.clear)
+                .ignoresSafeArea()
         }
     }
     

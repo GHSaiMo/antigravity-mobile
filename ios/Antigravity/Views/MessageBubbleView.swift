@@ -89,31 +89,31 @@ public struct MessageBubbleView: View {
         .fullScreenCover(item: $previewGallery) { gallery in
             ImageViewerSheet(gallery: gallery)
                 .presentationBackground(.clear)
+                .ignoresSafeArea()
         }
     }
     
     private var userAttachmentItems: [IdentifiableImage] {
-        var result: [IdentifiableImage] = []
-        for data in message.imageDataList {
-            if let uiImg = UIImage(data: data) {
-                result.append(IdentifiableImage(image: uiImg))
+        if !message.imageUrls.isEmpty {
+            return message.imageUrls.enumerated().compactMap { idx, urlString in
+                guard let url = URL(string: urlString) else { return nil }
+                let thumbImg = idx < message.imageDataList.count ? UIImage(data: message.imageDataList[idx]) : nil
+                return IdentifiableImage(image: thumbImg, url: url)
             }
         }
-        for urlString in message.imageUrls {
-            if let url = URL(string: urlString) {
-                result.append(IdentifiableImage(url: url))
-            }
+        return message.imageDataList.compactMap { data in
+            guard let uiImg = UIImage(data: data) else { return nil }
+            return IdentifiableImage(image: uiImg)
         }
-        return result
     }
     
     private var userBubble: some View {
         VStack(alignment: .trailing, spacing: 6) {
             if userAttachmentItems.count == 1, let singleItem = userAttachmentItems.first {
-                if let uiImg = singleItem.image {
+                if let url = singleItem.url {
+                    userAsyncImageBubble(for: url, placeholder: singleItem.image, gallery: userAttachmentItems, index: 0)
+                } else if let uiImg = singleItem.image {
                     userImageBubble(for: uiImg, gallery: userAttachmentItems, index: 0)
-                } else if let url = singleItem.url {
-                    userAsyncImageBubble(for: url, gallery: userAttachmentItems, index: 0)
                 }
             } else if userAttachmentItems.count > 1 {
                 userMultiImageRow
@@ -178,18 +178,20 @@ public struct MessageBubbleView: View {
     
     private func thumbnailView(for item: IdentifiableImage) -> some View {
         Group {
-            if let uiImg = item.image {
-                Image(uiImage: uiImg)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: 72, height: 72)
-                    .clipped()
-            } else if let url = item.url {
+            if let url = item.url {
                 AsyncImage(url: url) { phase in
                     switch phase {
                     case .empty:
-                        ProgressView()
-                            .frame(width: 72, height: 72)
+                        if let uiImg = item.image {
+                            Image(uiImage: uiImg)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 72, height: 72)
+                                .clipped()
+                        } else {
+                            ProgressView()
+                                .frame(width: 72, height: 72)
+                        }
                     case .success(let image):
                         image
                             .resizable()
@@ -197,14 +199,28 @@ public struct MessageBubbleView: View {
                             .frame(width: 72, height: 72)
                             .clipped()
                     case .failure:
-                        Image(systemName: "photo")
-                            .font(.system(size: 24))
-                            .foregroundColor(.secondary)
-                            .frame(width: 72, height: 72)
+                        if let uiImg = item.image {
+                            Image(uiImage: uiImg)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 72, height: 72)
+                                .clipped()
+                        } else {
+                            Image(systemName: "photo")
+                                .font(.system(size: 24))
+                                .foregroundColor(.secondary)
+                                .frame(width: 72, height: 72)
+                        }
                     @unknown default:
                         EmptyView()
                     }
                 }
+            } else if let uiImg = item.image {
+                Image(uiImage: uiImg)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 72, height: 72)
+                    .clipped()
             }
         }
         .background(Color(uiColor: .secondarySystemBackground))
@@ -256,18 +272,30 @@ public struct MessageBubbleView: View {
         .buttonStyle(.plain)
     }
     
-    private func userAsyncImageBubble(for url: URL, gallery: [IdentifiableImage] = [], index: Int = 0) -> some View {
+    private func userAsyncImageBubble(for url: URL, placeholder: UIImage? = nil, gallery: [IdentifiableImage] = [], index: Int = 0) -> some View {
         AsyncImage(url: url) { phase in
             switch phase {
             case .empty:
-                ProgressView()
-                    .frame(width: 140, height: 140)
-                    .background(Color(uiColor: .secondarySystemBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                if let placeholder = placeholder {
+                    Image(uiImage: placeholder)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: 240, maxHeight: 220, alignment: .trailing)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(Color.primary.opacity(0.12), lineWidth: 0.8)
+                        )
+                } else {
+                    ProgressView()
+                        .frame(width: 140, height: 140)
+                        .background(Color(uiColor: .secondarySystemBackground))
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
             case .success(let image):
                 Button(action: {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    let effectiveItems = gallery.isEmpty ? [IdentifiableImage(url: url)] : gallery
+                    let effectiveItems = gallery.isEmpty ? [IdentifiableImage(image: placeholder, url: url)] : gallery
                     previewGallery = ImageGalleryData(items: effectiveItems, initialIndex: index)
                 }) {
                     image
@@ -283,16 +311,36 @@ public struct MessageBubbleView: View {
                 }
                 .buttonStyle(.plain)
             case .failure:
-                HStack(spacing: 6) {
-                    Image(systemName: "photo")
-                    Text("图片加载失败")
+                if let placeholder = placeholder {
+                    Button(action: {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        let effectiveItems = gallery.isEmpty ? [IdentifiableImage(image: placeholder, url: url)] : gallery
+                        previewGallery = ImageGalleryData(items: effectiveItems, initialIndex: index)
+                    }) {
+                        Image(uiImage: placeholder)
+                            .resizable()
+                            .scaledToFit()
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .stroke(Color.primary.opacity(0.12), lineWidth: 0.8)
+                            )
+                            .shadow(color: Color.black.opacity(0.06), radius: 3, x: 0, y: 1.5)
+                            .frame(maxWidth: 240, maxHeight: 220, alignment: .trailing)
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    HStack(spacing: 6) {
+                        Image(systemName: "photo")
+                        Text("图片加载失败")
+                    }
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Color(uiColor: .secondarySystemBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
-                .font(.footnote)
-                .foregroundColor(.secondary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Color(uiColor: .secondarySystemBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             @unknown default:
                 EmptyView()
             }
@@ -638,6 +686,12 @@ public struct IdentifiableImage: Identifiable, Hashable {
         self.url = url
     }
     
+    public init(id: UUID = UUID(), image: UIImage?, url: URL?) {
+        self.id = id
+        self.image = image
+        self.url = url
+    }
+    
     public func hash(into hasher: inout Hasher) {
         hasher.combine(id)
     }
@@ -741,6 +795,7 @@ public final class FullScreenGalleryViewController: UIViewController, UIPageView
         self.onDismiss = onDismiss
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .overFullScreen
+        overrideUserInterfaceStyle = .dark
     }
     
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -754,6 +809,7 @@ public final class FullScreenGalleryViewController: UIViewController, UIPageView
     
     override public func viewDidLoad() {
         super.viewDidLoad()
+        overrideUserInterfaceStyle = .dark
         view.backgroundColor = .clear
         
         // Dimming backdrop
@@ -787,6 +843,12 @@ public final class FullScreenGalleryViewController: UIViewController, UIPageView
         let pan = UIPanGestureRecognizer(target: self, action: #selector(handleDismissPan(_:)))
         pan.delegate = self
         view.addGestureRecognizer(pan)
+    }
+    
+    override public func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        backgroundView.frame = view.bounds
+        pageViewController?.view.frame = view.bounds
     }
     
     private func makePageVC(for index: Int) -> SingleImagePreviewController? {
@@ -909,6 +971,7 @@ final class SingleImagePreviewController: UIViewController, UIScrollViewDelegate
     
     override func viewDidLoad() {
         super.viewDidLoad()
+        overrideUserInterfaceStyle = .dark
         view.backgroundColor = .clear
         
         scrollView.frame = view.bounds
@@ -958,28 +1021,32 @@ final class SingleImagePreviewController: UIViewController, UIScrollViewDelegate
         if let img = item.image {
             imageView.image = img
             updateImageFrame()
-        } else if let url = item.url {
-            if url.isFileURL, let data = try? Data(contentsOf: url), let img = UIImage(data: data) {
-                imageView.image = img
-                updateImageFrame()
+        }
+        
+        guard let url = item.url else { return }
+        
+        if url.isFileURL, let data = try? Data(contentsOf: url), let img = UIImage(data: data) {
+            imageView.image = img
+            updateImageFrame()
+            return
+        }
+        
+        if item.image == nil {
+            spinner.startAnimating()
+        }
+        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+            guard let self = self, let data = data, let img = UIImage(data: data) else {
+                DispatchQueue.main.async {
+                    self?.spinner.stopAnimating()
+                }
                 return
             }
-            
-            spinner.startAnimating()
-            URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-                guard let self = self, let data = data, let img = UIImage(data: data) else {
-                    DispatchQueue.main.async {
-                        self?.spinner.stopAnimating()
-                    }
-                    return
-                }
-                DispatchQueue.main.async {
-                    self.spinner.stopAnimating()
-                    self.imageView.image = img
-                    self.updateImageFrame()
-                }
-            }.resume()
-        }
+            DispatchQueue.main.async {
+                self.spinner.stopAnimating()
+                self.imageView.image = img
+                self.updateImageFrame()
+            }
+        }.resume()
     }
     
     func updateImageFrame() {

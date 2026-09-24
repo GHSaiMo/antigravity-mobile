@@ -421,6 +421,26 @@ func readMetadataRequestFeedback(filePath string) bool {
 	return result
 }
 
+type TrajectoryMediaItem struct {
+	MimeType    string `json:"mimeType"`
+	Description string `json:"description"`
+	Thumbnail   string `json:"thumbnail"`
+	InlineData  string `json:"inlineData"`
+	URI         string `json:"uri"`
+}
+
+type TrajectoryUserInput struct {
+	UserResponse string `json:"userResponse"`
+	Items        []struct {
+		Text string `json:"text"`
+	} `json:"items"`
+	Images []struct {
+		Base64Data string `json:"base64Data"`
+		MimeType   string `json:"mimeType"`
+	} `json:"images"`
+	Media []TrajectoryMediaItem `json:"media"`
+}
+
 type TrajectoryStep struct {
 
 	Type     string `json:"type"`
@@ -449,22 +469,7 @@ type TrajectoryStep struct {
 		Cwd                 string `json:"cwd"`
 		WaitMsBeforeAsync   string `json:"waitMsBeforeAsync"`
 	} `json:"runCommand,omitempty"`
-	UserInput *struct {
-		UserResponse string `json:"userResponse"`
-		Items        []struct {
-			Text string `json:"text"`
-		} `json:"items"`
-		Images []struct {
-			Base64Data string `json:"base64Data"`
-			MimeType   string `json:"mimeType"`
-		} `json:"images"`
-		Media []struct {
-			MimeType    string `json:"mimeType"`
-			Description string `json:"description"`
-			Thumbnail   string `json:"thumbnail"`
-			InlineData  string `json:"inlineData"`
-		} `json:"media"`
-	} `json:"userInput"`
+	UserInput *TrajectoryUserInput `json:"userInput"`
 	PlannerResponse *struct {
 		Response string `json:"response"`
 		Thinking string `json:"thinking"`
@@ -905,29 +910,56 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 			}
 
 			var mediaList []string
+			var userImageURLs []string
+			seenMedia := make(map[string]bool)
+			seenURL := make(map[string]bool)
+
+			addMedia := func(m string) {
+				m = strings.TrimSpace(m)
+				if m != "" && !seenMedia[m] {
+					seenMedia[m] = true
+					mediaList = append(mediaList, m)
+				}
+			}
+			addImageURL := func(u string) {
+				u = strings.TrimSpace(u)
+				if u != "" && !seenURL[u] {
+					seenURL[u] = true
+					userImageURLs = append(userImageURLs, u)
+				}
+			}
+
 			if s.UserInput != nil {
 				if len(s.UserInput.Media) > 0 {
 					for _, m := range s.UserInput.Media {
+						if m.URI != "" {
+							addImageURL(m.URI)
+						}
 						if m.Thumbnail != "" {
-							mediaList = append(mediaList, m.Thumbnail)
+							addMedia(m.Thumbnail)
 						} else if m.InlineData != "" {
-							mediaList = append(mediaList, m.InlineData)
+							addMedia(m.InlineData)
 						}
 					}
 				}
 				if len(s.UserInput.Images) > 0 {
 					for _, img := range s.UserInput.Images {
 						if img.Base64Data != "" {
-							mediaList = append(mediaList, img.Base64Data)
+							addMedia(img.Base64Data)
 						}
 					}
 				}
 			}
 
+			// Also extract any image URLs or MEDIA: tags from user input text
+			for _, u := range extractImageURLsFromText(text) {
+				addImageURL(u)
+			}
+
 			trimmed := strings.TrimSpace(text)
 			isSystemApproval := strings.HasPrefix(trimmed, "Comments on artifact URI:") || strings.Contains(trimmed, "The user has approved this document")
 
-			if (trimmed != "" && !isSystemApproval) || len(mediaList) > 0 {
+			if (trimmed != "" && !isSystemApproval) || len(mediaList) > 0 || len(userImageURLs) > 0 {
 				stepIdx := idx
 				allMessages = append(allMessages, CascadeMessageItem{
 					ID:        fmt.Sprintf("step-%d", idx),
@@ -937,6 +969,7 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 					Content:   text,
 					StepIndex: &stepIdx,
 					Media:     mediaList,
+					ImageURLs: userImageURLs,
 				})
 			}
 		} else if stepType == "CORTEX_STEP_TYPE_PLANNER_RESPONSE" {

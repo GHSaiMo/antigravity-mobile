@@ -150,24 +150,29 @@ func (p *Proxy) GetProjects() ([]ProjectItem, error) {
 		projectMap[norm] = &itemCopy
 	}
 
-	// 2. Load official ordered Projects from app_storage.json + ReadProjects RPC
+	// 2. Load Antigravity 2.0 projects directly from ~/.gemini/config/projects/
+	for _, prj := range fetchProjectsFromGeminiConfig() {
+		mergeProject(prj)
+	}
+
+	// 3. Load official ordered Projects from app_storage.json + ReadProjects RPC
 	if officialProjects, err := p.fetchOfficialProjects(port, token, sessionStats); err == nil {
 		for _, prj := range officialProjects {
 			mergeProject(prj)
 		}
 	}
 
-	// 3. Load workspace projects from workspaceStorage (plain JSON, works on all OSes without SQLite/Python)
+	// 4. Load workspace projects from workspaceStorage (plain JSON, works on all OSes without SQLite/Python)
 	for _, prj := range fetchProjectsFromWorkspaceStorage() {
 		mergeProject(prj)
 	}
 
-	// 4. Load from state.vscdb (history.recentlyOpenedPathsList)
+	// 5. Load from state.vscdb (history.recentlyOpenedPathsList)
 	for _, prj := range fetchProjectsFromStateDB() {
 		mergeProject(prj)
 	}
 
-	// 5. Load any remaining active workspace URIs from trajectories
+	// 6. Load any remaining active workspace URIs from trajectories
 	for norm, stat := range sessionStats {
 		if _, exists := projectMap[norm]; !exists {
 			parsedPath := uriToPath(norm)
@@ -246,6 +251,145 @@ func getAntigravityAppStoragePaths() []string {
 	return paths
 }
 
+// getGeminiConfigProjectsDirs returns directories where Antigravity 2.0 / Gemini project configs reside.
+func getGeminiConfigProjectsDirs() []string {
+	var dirs []string
+	if envAppDir := os.Getenv("ANTIGRAVITY_APP_DATA_DIR"); envAppDir != "" {
+		parent := filepath.Dir(envAppDir)
+		dirs = append(dirs, filepath.Join(parent, "config", "projects"))
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		dirs = append(dirs,
+			filepath.Join(home, ".gemini", "config", "projects"),
+		)
+	}
+	if appData := os.Getenv("APPDATA"); appData != "" {
+		dirs = append(dirs,
+			filepath.Join(appData, "Gemini", "config", "projects"),
+			filepath.Join(appData, ".gemini", "config", "projects"),
+			filepath.Join(appData, "Antigravity", "config", "projects"),
+		)
+	}
+	return dirs
+}
+
+type geminiProjectConfigFile struct {
+	ID               string `json:"id"`
+	Name             string `json:"name"`
+	IsWorkspaceOnly  bool   `json:"isWorkspaceOnly"`
+	ProjectResources *struct {
+		Resources []struct {
+			FolderURI string `json:"folderUri"`
+			GitFolder *struct {
+				FolderURI string `json:"folderUri"`
+			} `json:"gitFolder"`
+		} `json:"resources"`
+	} `json:"projectResources"`
+}
+
+// fetchProjectsFromGeminiConfig reads Antigravity 2.0 project JSON configs from ~/.gemini/config/projects/.
+func fetchProjectsFromGeminiConfig() []ProjectItem {
+	var items []ProjectItem
+	seenIDs := make(map[string]bool)
+	seenURIs := make(map[string]bool)
+
+	for _, dir := range getGeminiConfigProjectsDirs() {
+		cleanDir := filepath.Clean(dir)
+		entries, err := os.ReadDir(cleanDir)
+		if err != nil {
+			continue
+		}
+
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), ".json") {
+				continue
+			}
+			if strings.EqualFold(entry.Name(), "outside-of-project.json") {
+				continue
+			}
+
+			filePath := filepath.Join(cleanDir, entry.Name())
+			fi, err := os.Stat(filePath)
+			if err != nil {
+				continue
+			}
+
+			data, err := os.ReadFile(filePath)
+			if err != nil || len(data) == 0 {
+				continue
+			}
+
+			var prj geminiProjectConfigFile
+			if err := json.Unmarshal(data, &prj); err != nil || prj.ID == "" || prj.ID == "outside-of-project" {
+				continue
+			}
+
+			if seenIDs[prj.ID] {
+				continue
+			}
+
+			uri := ""
+			if prj.ProjectResources != nil {
+				for _, r := range prj.ProjectResources.Resources {
+					if r.FolderURI != "" {
+						uri = r.FolderURI
+						break
+					}
+					if r.GitFolder != nil && r.GitFolder.FolderURI != "" {
+						uri = r.GitFolder.FolderURI
+						break
+					}
+				}
+			}
+
+			if uri == "" {
+				continue
+			}
+
+			norm := normalizeURI(uri)
+			if norm == "" || seenURIs[norm] {
+				continue
+			}
+
+			parsedPath := uriToPath(norm)
+			if parsedPath == "" {
+				continue
+			}
+
+			if !isRemoteURI(norm) {
+				if fiPath, err := os.Stat(parsedPath); err != nil {
+					continue
+				} else if !prj.IsWorkspaceOnly && !fiPath.IsDir() {
+					continue
+				}
+			}
+
+			name := prj.Name
+			if name == "" {
+				name = filepath.Base(parsedPath)
+			}
+			if isRemoteURI(norm) && !strings.Contains(name, "(Remote)") {
+				name += " (Remote)"
+			}
+
+			modTime := fi.ModTime()
+			seenIDs[prj.ID] = true
+			seenURIs[norm] = true
+
+			items = append(items, ProjectItem{
+				ID:          prj.ID,
+				Name:        name,
+				URI:         norm,
+				Path:        parsedPath,
+				IsWorkspace: prj.IsWorkspaceOnly,
+				LastActive:  &modTime,
+			})
+		}
+	}
+
+	return items
+}
+
 // fetchOfficialProjects loads projectsOrder and calls upstream ReadProjects to get the exact 21 projects in order.
 func (p *Proxy) fetchOfficialProjects(port int, token string, sessionStats map[string]struct {
 	count      int
@@ -258,23 +402,50 @@ func (p *Proxy) fetchOfficialProjects(port int, token string, sessionStats map[s
 			break
 		}
 	}
-	if len(storageBytes) == 0 {
-		return nil, fmt.Errorf("app_storage.json not found")
-	}
 
 	var storageMap map[string]interface{}
-	if err := json.Unmarshal(storageBytes, &storageMap); err != nil {
-		return nil, err
-	}
-
-	rawOrder, ok := storageMap["projectsOrder"].(string)
-	if !ok || rawOrder == "" {
-		return nil, fmt.Errorf("projectsOrder not found in app_storage.json")
+	if len(storageBytes) > 0 {
+		_ = json.Unmarshal(storageBytes, &storageMap)
 	}
 
 	var order []string
-	if err := json.Unmarshal([]byte(rawOrder), &order); err != nil || len(order) == 0 {
-		return nil, fmt.Errorf("invalid projectsOrder json")
+	if storageMap != nil {
+		if rawOrder, ok := storageMap["projectsOrder"].(string); ok && rawOrder != "" {
+			_ = json.Unmarshal([]byte(rawOrder), &order)
+		}
+	}
+
+	seenOrder := make(map[string]bool)
+	for _, id := range order {
+		seenOrder[id] = true
+	}
+
+	// Also discover project IDs from other app_storage.json keys (e.g. lastCreatedProjectId, new-convo-last-selected-project)
+	if storageMap != nil {
+		for k, v := range storageMap {
+			strVal, ok := v.(string)
+			if !ok || strVal == "" || strVal == "outside-of-project" {
+				continue
+			}
+			if strings.Contains(strings.ToLower(k), "project") && len(strVal) == 36 && strings.Count(strVal, "-") == 4 {
+				if !seenOrder[strVal] {
+					seenOrder[strVal] = true
+					order = append(order, strVal)
+				}
+			}
+		}
+	}
+
+	// Also collect IDs from Gemini config files
+	for _, cfgPrj := range fetchProjectsFromGeminiConfig() {
+		if cfgPrj.ID != "" && cfgPrj.ID != "outside-of-project" && !seenOrder[cfgPrj.ID] {
+			seenOrder[cfgPrj.ID] = true
+			order = append(order, cfgPrj.ID)
+		}
+	}
+
+	if len(order) == 0 {
+		return nil, fmt.Errorf("no project IDs found")
 	}
 
 	// If upstream connected, call ReadProjects RPC
@@ -853,10 +1024,21 @@ func (p *Proxy) HandleCreateCascade(w http.ResponseWriter, r *http.Request) {
 	// Determine projectId: prefer explicitly provided projectId, otherwise match against known projects
 	projectID := strings.TrimSpace(req.ProjectID)
 	if projectID == "" && wsURI != "" {
+		targetNorm := normalizeURI(wsURI)
+		targetPath := uriToPath(targetNorm)
 		if projects, err := p.GetProjects(); err == nil {
-			targetNorm := normalizeURI(wsURI)
-			targetPath := uriToPath(targetNorm)
 			for _, prj := range projects {
+				if prj.ID == "" {
+					continue
+				}
+				if normalizeURI(prj.URI) == targetNorm || uriToPath(prj.URI) == targetPath || filepath.Clean(prj.Path) == filepath.Clean(targetPath) {
+					projectID = prj.ID
+					break
+				}
+			}
+		}
+		if projectID == "" {
+			for _, prj := range fetchProjectsFromGeminiConfig() {
 				if prj.ID == "" {
 					continue
 				}

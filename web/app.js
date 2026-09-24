@@ -1738,8 +1738,10 @@ function groupSteps(steps) {
 
       if ((userText && !isArtifactApproval && !isSystemApprovalText) || hasMedia || hasImages) {
         const mediaList = [];
+        const imageUrls = [];
         if (hasMedia) {
           for (const m of s.userInput.media) {
+            if (m.uri) imageUrls.push(m.uri);
             if (m.thumbnail) mediaList.push(m.thumbnail);
             else if (m.inlineData) mediaList.push(m.inlineData);
           }
@@ -1755,6 +1757,7 @@ function groupSteps(steps) {
           index: i,
           text: userText,
           media: mediaList,
+          imageUrls: imageUrls,
           step: s
         });
       }
@@ -1932,7 +1935,14 @@ function generateItemHtml(item, isRunning, isLastItem) {
   }
   if (item.type === "user") {
     let imagesHtml = "";
-    if (item.media && item.media.length > 0) {
+    if (item.imageUrls && item.imageUrls.length > 0) {
+      imagesHtml = `<div class="user-message-images">` +
+        item.imageUrls.map((u, idx) => {
+          const rawUrl = resolveMediaRawUrl(u);
+          const thumb = (item.media && item.media[idx]) ? (item.media[idx].startsWith("data:") ? item.media[idx] : `data:image/jpeg;base64,${item.media[idx]}`) : "";
+          return buildImageThumbnailCard(rawUrl, thumb, "上传图片");
+        }).join("") + `</div>`;
+    } else if (item.media && item.media.length > 0) {
       imagesHtml = `<div class="user-message-images">` +
         item.media.map(m => {
           const src = m.startsWith("data:") ? m : `data:image/jpeg;base64,${m}`;

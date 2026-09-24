@@ -1,6 +1,9 @@
 import SwiftUI
 import WidgetKit
 import ActivityKit
+#if canImport(UIKit)
+import UIKit
+#endif
 
 public struct AgentActivityWidget: Widget {
     public init() {}
@@ -115,6 +118,7 @@ public struct AgentActivityWidget: Widget {
             
             Text(resolvedTitle(context: context))
                 .font(.system(size: 15, weight: .bold))
+                .foregroundColor(.white)
                 .lineLimit(1)
         }
         .padding(.leading, 4)
@@ -224,20 +228,51 @@ public struct AgentActivityWidget: Widget {
     }
 }
 
-// MARK: - Lock Screen Live Activity View (JD-Style Layout)
+// MARK: - Lock Screen Live Activity View (JD-Style Layout & Adaptive Contrast)
 
 struct AgentLockScreenView: View {
     let context: ActivityViewContext<AgentActivityAttributes>
     @Environment(\.colorScheme) var colorScheme
     
     private var isDark: Bool {
-        colorScheme == .dark
+        #if canImport(UIKit)
+        if UITraitCollection.current.userInterfaceStyle == .dark {
+            return true
+        } else if UITraitCollection.current.userInterfaceStyle == .light {
+            return false
+        }
+        #endif
+        return colorScheme == .dark
     }
     
+    // MARK: - Semantic Colors (Adaptive for Light and Dark)
+    
+    // Primary title text: High contrast dark charcoal in light mode, crisp white in dark mode
+    private var titleColor: Color {
+        isDark
+            ? Color(red: 0.98, green: 0.98, blue: 0.99)
+            : Color(red: 0.08, green: 0.09, blue: 0.12)
+    }
+    
+    // Main action text (e.g. "已思考并执行 53 项操作"): Deep readable slate in light mode
+    private var actionTextColor: Color {
+        isDark
+            ? Color(red: 0.90, green: 0.91, blue: 0.93)
+            : Color(red: 0.22, green: 0.24, blue: 0.28)
+    }
+    
+    // Accent / Brand color (sparkles, step counter): Deep vibrant tech blue in light mode
     private var accentColor: Color {
         isDark
-            ? Color(red: 0.55, green: 0.68, blue: 1.0)
-            : Color(red: 0.28, green: 0.38, blue: 0.95)
+            ? Color(red: 0.52, green: 0.68, blue: 1.0)
+            : Color(red: 0.14, green: 0.35, blue: 0.88)
+    }
+    
+    // Secondary metadata text (elapsed time, separators, sub-labels)
+    private var secondaryTextColor: Color {
+        isDark
+            ? Color(red: 0.62, green: 0.65, blue: 0.70)
+            : Color(red: 0.42, green: 0.45, blue: 0.50)
     }
     
     var body: some View {
@@ -251,7 +286,7 @@ struct AgentLockScreenView: View {
                 HStack(alignment: .center, spacing: 8) {
                     Text(resolvedTitle(context: context))
                         .font(.system(size: 16, weight: .bold))
-                        .foregroundColor(.primary)
+                        .foregroundColor(titleColor)
                         .lineLimit(1)
                     
                     Spacer(minLength: 6)
@@ -270,7 +305,7 @@ struct AgentLockScreenView: View {
                         
                         Text(context.state.latestAction)
                             .font(.system(size: 13.5, weight: .medium))
-                            .foregroundColor(isDark ? Color(white: 0.9) : Color(white: 0.25))
+                            .foregroundColor(actionTextColor)
                             .lineLimit(1)
                     }
                     .padding(.vertical, 1)
@@ -284,19 +319,19 @@ struct AgentLockScreenView: View {
                     
                     Text("·")
                         .font(.system(size: 11.5))
-                        .foregroundColor(.secondary)
+                        .foregroundColor(secondaryTextColor)
                     
                     Text(context.state.lastUpdated, style: .relative)
                         .font(.system(size: 11.5))
-                        .foregroundColor(.secondary)
+                        .foregroundColor(secondaryTextColor)
                     
                     if context.state.runningTaskCount > 0 {
                         Text("·")
                             .font(.system(size: 11.5))
-                            .foregroundColor(.secondary)
+                            .foregroundColor(secondaryTextColor)
                         Text("\(context.state.runningTaskCount) 个任务")
                             .font(.system(size: 11.5, weight: .medium))
-                            .foregroundColor(.secondary)
+                            .foregroundColor(secondaryTextColor)
                     }
                     
                     Spacer()
@@ -305,8 +340,14 @@ struct AgentLockScreenView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .activityBackgroundTint(Color("LiveActivityBackground"))
-        .activitySystemActionForegroundColor(Color("LiveActivitySystemAction"))
+        .activityBackgroundTint(
+            isDark
+                ? Color(red: 0.110, green: 0.110, blue: 0.118)
+                : Color.white
+        )
+        .activitySystemActionForegroundColor(
+            isDark ? Color.white : Color(red: 0.10, green: 0.10, blue: 0.12)
+        )
     }
     
     // MARK: - Avatar Badge
@@ -317,12 +358,12 @@ struct AgentLockScreenView: View {
                 .fill(
                     isDark
                         ? Color.white.opacity(0.12)
-                        : Color(red: 0.95, green: 0.96, blue: 0.98)
+                        : Color(red: 0.93, green: 0.94, blue: 0.97)
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .stroke(
-                            isDark ? Color.white.opacity(0.15) : Color.black.opacity(0.06),
+                            isDark ? Color.white.opacity(0.15) : Color.black.opacity(0.08),
                             lineWidth: 0.8
                         )
                 )
@@ -334,11 +375,15 @@ struct AgentLockScreenView: View {
             } else if context.state.runningTaskCount > 0 {
                 Image(systemName: "terminal.fill")
                     .font(.system(size: 24))
-                    .foregroundColor(Color(red: 0.0, green: 0.65, blue: 0.9))
+                    .foregroundColor(
+                        isDark ? Color(red: 0.20, green: 0.78, blue: 1.0) : Color(red: 0.0, green: 0.44, blue: 0.75)
+                    )
             } else if context.state.status == "COMPLETED" {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 26))
-                    .foregroundColor(.green)
+                    .foregroundColor(
+                        isDark ? Color(red: 0.45, green: 0.90, blue: 0.55) : Color(red: 0.08, green: 0.55, blue: 0.25)
+                    )
             } else {
                 Image("AppLogoTransparent")
                     .renderingMode(.original)
@@ -356,18 +401,26 @@ struct AgentLockScreenView: View {
         if context.state.hasPendingAction {
             Text("待审批")
                 .font(.system(size: 11.5, weight: .bold))
-                .foregroundColor(.orange)
+                .foregroundColor(
+                    isDark ? Color(red: 1.0, green: 0.70, blue: 0.40) : Color(red: 0.78, green: 0.28, blue: 0.0)
+                )
                 .padding(.horizontal, 7)
                 .padding(.vertical, 3)
-                .background(Color.orange.opacity(isDark ? 0.22 : 0.12))
+                .background(
+                    isDark ? Color.orange.opacity(0.22) : Color(red: 1.0, green: 0.93, blue: 0.86)
+                )
                 .cornerRadius(5)
         } else if context.state.runningTaskCount > 0 {
             Text("\(context.state.runningTaskCount) 任务运行中")
                 .font(.system(size: 11, weight: .bold))
-                .foregroundColor(Color(red: 0.0, green: 0.65, blue: 0.9))
+                .foregroundColor(
+                    isDark ? Color(red: 0.20, green: 0.78, blue: 1.0) : Color(red: 0.0, green: 0.44, blue: 0.75)
+                )
                 .padding(.horizontal, 7)
                 .padding(.vertical, 3)
-                .background(Color.cyan.opacity(isDark ? 0.22 : 0.12))
+                .background(
+                    isDark ? Color.cyan.opacity(0.22) : Color(red: 0.88, green: 0.95, blue: 1.0)
+                )
                 .cornerRadius(5)
         } else {
             let isRunning = context.state.status == "RUNNING"
@@ -375,13 +428,15 @@ struct AgentLockScreenView: View {
                 .font(.system(size: 11.5, weight: .bold))
                 .foregroundColor(
                     isRunning
-                        ? (isDark ? Color(red: 0.6, green: 0.72, blue: 1.0) : Color(red: 0.28, green: 0.38, blue: 0.95))
-                        : .green
+                        ? (isDark ? Color(red: 0.62, green: 0.74, blue: 1.0) : Color(red: 0.16, green: 0.30, blue: 0.82))
+                        : (isDark ? Color(red: 0.45, green: 0.90, blue: 0.55) : Color(red: 0.08, green: 0.55, blue: 0.25))
                 )
                 .padding(.horizontal, 7)
                 .padding(.vertical, 3)
                 .background(
-                    (isRunning ? Color.indigo : Color.green).opacity(isDark ? 0.22 : 0.12)
+                    isRunning
+                        ? (isDark ? Color.indigo.opacity(0.22) : Color(red: 0.91, green: 0.93, blue: 1.0))
+                        : (isDark ? Color.green.opacity(0.22) : Color(red: 0.89, green: 0.96, blue: 0.91))
                 )
                 .cornerRadius(5)
         }
@@ -399,18 +454,22 @@ struct AgentLockScreenView: View {
                 HStack(spacing: 6) {
                     Image(systemName: task.isWaiting ? "hourglass" : "terminal.fill")
                         .font(.system(size: 10))
-                        .foregroundColor(task.isWaiting ? .orange : Color(red: 0.0, green: 0.65, blue: 0.9))
+                        .foregroundColor(
+                            task.isWaiting
+                                ? (isDark ? Color.orange : Color(red: 0.85, green: 0.35, blue: 0.0))
+                                : (isDark ? Color(red: 0.20, green: 0.78, blue: 1.0) : Color(red: 0.0, green: 0.44, blue: 0.75))
+                        )
                     
                     if let cmd = task.command, !cmd.isEmpty {
                         Text(cmd)
                             .font(.system(size: 11.5, weight: .medium, design: .monospaced))
                             .lineLimit(1)
-                            .foregroundColor(.primary)
+                            .foregroundColor(titleColor)
                     } else {
                         Text(task.title)
                             .font(.system(size: 11.5, weight: .medium))
                             .lineLimit(1)
-                            .foregroundColor(.primary)
+                            .foregroundColor(titleColor)
                     }
                     
                     Spacer(minLength: 4)
@@ -418,25 +477,40 @@ struct AgentLockScreenView: View {
                     if task.isWaiting {
                         Text("等待中")
                             .font(.system(size: 9.5, weight: .bold))
-                            .foregroundColor(.orange)
+                            .foregroundColor(
+                                isDark ? Color(red: 1.0, green: 0.70, blue: 0.40) : Color(red: 0.78, green: 0.28, blue: 0.0)
+                            )
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1.5)
-                            .background(Color.orange.opacity(isDark ? 0.2 : 0.12))
+                            .background(
+                                isDark ? Color.orange.opacity(0.2) : Color(red: 1.0, green: 0.93, blue: 0.86)
+                            )
                             .cornerRadius(3)
                     } else {
                         Text("运行中")
                             .font(.system(size: 9.5, weight: .bold, design: .monospaced))
-                            .foregroundColor(Color(red: 0.0, green: 0.65, blue: 0.9))
+                            .foregroundColor(
+                                isDark ? Color(red: 0.20, green: 0.78, blue: 1.0) : Color(red: 0.0, green: 0.44, blue: 0.75)
+                            )
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1.5)
-                            .background(Color.cyan.opacity(isDark ? 0.2 : 0.12))
+                            .background(
+                                isDark ? Color.cyan.opacity(0.2) : Color(red: 0.88, green: 0.95, blue: 1.0)
+                            )
                             .cornerRadius(3)
                     }
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4.5)
                 .background(
-                    isDark ? Color.white.opacity(0.08) : Color.black.opacity(0.04)
+                    isDark ? Color.white.opacity(0.08) : Color(red: 0.94, green: 0.95, blue: 0.97)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .stroke(
+                            isDark ? Color.white.opacity(0.08) : Color.black.opacity(0.06),
+                            lineWidth: 0.6
+                        )
                 )
                 .cornerRadius(6)
             }
@@ -446,10 +520,10 @@ struct AgentLockScreenView: View {
                 HStack(spacing: 4) {
                     Image(systemName: "ellipsis.circle")
                         .font(.system(size: 10))
-                        .foregroundColor(.secondary)
+                        .foregroundColor(secondaryTextColor)
                     Text("另有 \(remainingCount) 个任务在队列中...")
                         .font(.system(size: 10.5))
-                        .foregroundColor(.secondary)
+                        .foregroundColor(secondaryTextColor)
                 }
                 .padding(.leading, 4)
             }
