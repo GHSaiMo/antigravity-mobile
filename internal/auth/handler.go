@@ -233,15 +233,56 @@ func (h *AuthHandler) HandleEndpoints(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
 		return
 	}
+
+	// SEC-AUDIT M-5: Rate limit endpoints polling to prevent network scanning
+	clientIP := ExtractClientIP(r)
+	rateKey := RateLimitKeyIP(clientIP)
+	if h.limiter != nil && !h.limiter.Allow("endpoints:"+rateKey, 60, time.Minute) {
+		w.Header().Set("Retry-After", "60")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		json.NewEncoder(w).Encode(map[string]string{"error": "too many requests"})
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	if cf := h.CloudflareURL(); cf != "" {
 		w.Header().Set("X-Antigravity-Cloud-URL", cf)
 	}
+
+	allEndpoints := h.GetEndpoints()
+	// SEC-AUDIT M-5: If the request comes from an external public IP (via proxy/tunnel)
+	// and caller is not authenticated, redact private LAN endpoints to avoid leaking internal topology.
+	isExternal := r.Header.Get("CF-Connecting-IP") != "" || r.Header.Get("X-Forwarded-For") != ""
+	if isExternal && h.cfURL != "" && !h.isAuthenticated(r) {
+		var safeEndpoints []EndpointInfo
+		for _, ep := range allEndpoints {
+			if ep.Type != "lan" {
+				safeEndpoints = append(safeEndpoints, ep)
+			}
+		}
+		if len(safeEndpoints) > 0 {
+			allEndpoints = safeEndpoints
+		}
+	}
+
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"endpoints": h.GetEndpoints(),
+		"endpoints": allEndpoints,
 		"os":        runtime.GOOS,
 		"platform":  runtime.GOOS,
 	})
+}
+
+func (h *AuthHandler) isAuthenticated(r *http.Request) bool {
+	if h.isAuthorizedAdmin(r) {
+		return true
+	}
+	token := ExtractToken(r)
+	if token == "" {
+		return false
+	}
+	device, ok := h.store.ValidateToken(token)
+	return ok && device != nil
 }
 
 // HandlePair handles POST /api/v1/auth/pair.

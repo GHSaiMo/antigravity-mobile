@@ -272,17 +272,19 @@ func loadOAuthFromVscdb() (*parsedOAuth, error) {
 		if _, err := os.Stat(dbPath); err != nil {
 			continue
 		}
+		const oauthQuerySQL = "SELECT value FROM ItemTable WHERE key = 'antigravityUnifiedStateSync.oauthToken';"
+		cleanDB := filepath.Clean(dbPath)
 		var out []byte
 		var err error
 		if _, lookErr := exec.LookPath("sqlite3"); lookErr == nil {
-			cmd := exec.Command("sqlite3", "-batch", "-noheader", dbPath, "SELECT value FROM ItemTable WHERE key = "+sqliteQuote("antigravityUnifiedStateSync.oauthToken")+";")
+			cmd := exec.Command("sqlite3", "-batch", "-noheader", cleanDB, oauthQuerySQL)
 			out, err = cmd.CombinedOutput()
 		}
 		if len(out) == 0 {
 			pyScript := "import sqlite3, sys; conn = sqlite3.connect(sys.argv[1]); cur = conn.cursor(); cur.execute('SELECT value FROM ItemTable WHERE key = ?', (sys.argv[2],)); row = cur.fetchone(); sys.stdout.write(row[0] if row and row[0] else '')"
 			for _, pyExe := range []string{"python", "python3"} {
 				if _, lookErr := exec.LookPath(pyExe); lookErr == nil {
-					cmd := exec.Command(pyExe, "-c", pyScript, dbPath, "antigravityUnifiedStateSync.oauthToken")
+					cmd := exec.Command(pyExe, "-c", pyScript, cleanDB, "antigravityUnifiedStateSync.oauthToken")
 					if pyOut, pyErr := cmd.Output(); pyErr == nil && len(pyOut) > 0 {
 						out = pyOut
 						err = nil

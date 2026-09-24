@@ -98,9 +98,12 @@ func (t *CloudflareTunnel) Start(ctx context.Context, binPath string) error {
 			args = append(args, "--protocol", t.cfg.Protocol)
 		}
 	}
-	args = append(args, "run", "--token", t.result.Token)
+	args = append(args, "run")
 
 	cmd := exec.CommandContext(ctx, binPath, args...)
+	// SEC-AUDIT H-3: Pass TUNNEL_TOKEN via environment variable instead of CLI argument
+	// to prevent leaking the token in process listings (e.g. ps aux / tasklist).
+	cmd.Env = append(os.Environ(), "TUNNEL_TOKEN="+t.result.Token)
 	// Do not attach stdin. Divert stderr to logger with prefix
 	stderr, err := cmd.StderrPipe()
 	if err == nil {

@@ -42,6 +42,16 @@ func TestNormalizeBarkEndpoint(t *testing.T) {
 			input:    "",
 			expected: "",
 		},
+		{
+			name:     "Placeholder key from env.example",
+			input:    "https://api.day.app/YOUR_DEVICE_KEY/",
+			expected: "",
+		},
+		{
+			name:     "Bare placeholder key",
+			input:    "YOUR_DEVICE_KEY",
+			expected: "",
+		},
 	}
 
 	for _, tt := range tests {
@@ -88,37 +98,6 @@ BARK_SOUND_ACTION=alarm
 	}
 }
 
-func TestGetTunnelConfig(t *testing.T) {
-	os.Setenv("FRP_SERVER_ADDR", "198.51.100.1")
-	os.Setenv("FRP_SERVER_PORT", "7000")
-	os.Setenv("FRP_TOKEN", "TestToken123")
-	os.Setenv("FRP_REMOTE_PORT", "58900")
-	os.Setenv("FRP_ENABLED", "true")
-	defer func() {
-		os.Unsetenv("FRP_SERVER_ADDR")
-		os.Unsetenv("FRP_SERVER_PORT")
-		os.Unsetenv("FRP_TOKEN")
-		os.Unsetenv("FRP_REMOTE_PORT")
-		os.Unsetenv("FRP_ENABLED")
-	}()
-
-	cfg := GetTunnelConfig()
-	if !cfg.Enabled {
-		t.Errorf("expected Enabled true, got false")
-	}
-	if cfg.ServerAddr != "198.51.100.1" {
-		t.Errorf("expected 198.51.100.1, got %s", cfg.ServerAddr)
-	}
-	if cfg.ServerPort != 7000 {
-		t.Errorf("expected 7000, got %d", cfg.ServerPort)
-	}
-	if cfg.Token != "TestToken123" {
-		t.Errorf("expected TestToken123, got %s", cfg.Token)
-	}
-	if cfg.RemotePort != 58900 {
-		t.Errorf("expected 58900, got %d", cfg.RemotePort)
-	}
-}
 
 func TestAdvertisePublicIPv6(t *testing.T) {
 	t.Setenv("INCLUDE_PUBLIC_IPV6", "")
@@ -152,27 +131,7 @@ func TestRedactBarkEndpoint(t *testing.T) {
 	}
 }
 
-func TestValidateFRPTokenStrength(t *testing.T) {
-	if ValidateFRPTokenStrength("") == "" {
-		t.Errorf("expected warning for empty token")
-	}
-	if ValidateFRPTokenStrength("admin") == "" {
-		t.Errorf("expected warning for well-known weak token")
-	}
-	if ValidateFRPTokenStrength("your_frp_auth_token") == "" {
-		t.Errorf("expected warning for placeholder token")
-	}
-	if ValidateFRPTokenStrength("short-token") == "" {
-		t.Errorf("expected warning for short token (< 24 chars)")
-	}
-	if ValidateFRPTokenStrength("AgySecure2026Token") == "" {
-		t.Errorf("expected warning for AgySecure2026Token (predictable words pattern)")
-	}
-	strongToken := "a1b2c3d4e5f60718293a4b5c6d7e8f90"
-	if ValidateFRPTokenStrength(strongToken) != "" {
-		t.Errorf("expected no warning for strong 32-hex token, got: %s", ValidateFRPTokenStrength(strongToken))
-	}
-}
+
 
 func TestGetCloudflareConfig(t *testing.T) {
 	// 1. Test defaults

@@ -164,7 +164,7 @@ func AuthMiddleware(store *AuthStore, next http.Handler) http.Handler {
 // AuthMiddlewareWithPolicy is AuthMiddleware with explicit loopback/tunnel policy.
 func AuthMiddlewareWithPolicy(store *AuthStore, next http.Handler, policy AuthPolicy) http.Handler {
 	// AUTH_DISABLED only bypasses auth for genuine loopback listeners with no tunnel.
-	// RemoteAddr==127.0.0.1 is not sufficient: FRP/SSH -L make internet clients look local.
+	// RemoteAddr==127.0.0.1 is not sufficient: Tunnel/SSH -L makes internet clients look local.
 	authDisabled := AuthDisabledRequested()
 	effectiveDisabled := authDisabled && !policy.TunnelEnabled && policy.ListenLoopback
 	if authDisabled && !effectiveDisabled {

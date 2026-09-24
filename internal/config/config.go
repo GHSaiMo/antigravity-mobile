@@ -3,11 +3,9 @@ package config
 import (
 	"bufio"
 	"fmt"
-	"math"
 	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 )
 
@@ -121,6 +119,12 @@ func parseEnvFile(filename string) {
 	}
 }
 
+// IsPlaceholderBarkKey reports whether raw contains unconfigured example placeholders like YOUR_DEVICE_KEY.
+func IsPlaceholderBarkKey(raw string) bool {
+	upper := strings.ToUpper(strings.TrimSpace(raw))
+	return strings.Contains(upper, "YOUR_DEVICE_KEY") || strings.Contains(upper, "YOUR_KEY")
+}
+
 // NormalizeBarkEndpoint extracts the clean Bark API base device URL from various input formats.
 // Supported inputs:
 //   - "myDeviceKey123" -> "https://api.day.app/myDeviceKey123"
@@ -129,7 +133,7 @@ func parseEnvFile(filename string) {
 //   - "https://my-bark.com/mykey" -> "https://my-bark.com/mykey"
 func NormalizeBarkEndpoint(raw string) string {
 	raw = strings.TrimSpace(raw)
-	if raw == "" {
+	if raw == "" || IsPlaceholderBarkKey(raw) {
 		return ""
 	}
 
@@ -263,133 +267,6 @@ func RedactFCMKey(raw string) string {
 	return raw[:4] + "..." + raw[len(raw)-4:]
 }
 
-// TunnelConfig holds settings for embedded FRP cloud relay tunnel.
-type TunnelConfig struct {
-	Enabled    bool
-	ServerAddr string
-	ServerPort int
-	Token      string
-	RemotePort int
-	TLSEnable  bool
-}
-
-// GetTunnelConfig parses environment variables for the embedded FRP tunnel.
-func GetTunnelConfig() TunnelConfig {
-	serverAddr := strings.TrimSpace(os.Getenv("FRP_SERVER_ADDR"))
-	if serverAddr == "" {
-		serverAddr = strings.TrimSpace(os.Getenv("FRP_HOST"))
-	}
-
-	serverPort := 7000
-	if pStr := os.Getenv("FRP_SERVER_PORT"); pStr != "" {
-		if p, err := strconv.Atoi(pStr); err == nil && p > 0 {
-			serverPort = p
-		}
-	}
-
-	token := strings.TrimSpace(os.Getenv("FRP_TOKEN"))
-
-	remotePort := 58900
-	if pStr := os.Getenv("FRP_REMOTE_PORT"); pStr != "" {
-		if p, err := strconv.Atoi(pStr); err == nil && p > 0 {
-			remotePort = p
-		}
-	} else if pStr := os.Getenv("MULTIGRAVITY_PORT"); pStr != "" {
-		if p, err := strconv.Atoi(pStr); err == nil && p > 0 {
-			remotePort = p
-		}
-	}
-
-	enabled := serverAddr != ""
-	if v := os.Getenv("FRP_ENABLED"); v != "" {
-		vLower := strings.ToLower(v)
-		enabled = (vLower == "1" || vLower == "true" || vLower == "yes")
-	}
-
-	tlsEnable := true
-	if v := os.Getenv("FRP_TLS_ENABLE"); v != "" {
-		vLower := strings.ToLower(v)
-		tlsEnable = (vLower == "1" || vLower == "true" || vLower == "yes")
-	} else if v := os.Getenv("FRP_TLS"); v != "" {
-		vLower := strings.ToLower(v)
-		tlsEnable = (vLower == "1" || vLower == "true" || vLower == "yes")
-	}
-
-	return TunnelConfig{
-		Enabled:    enabled,
-		ServerAddr: serverAddr,
-		ServerPort: serverPort,
-		Token:      token,
-		RemotePort: remotePort,
-		TLSEnable:  tlsEnable,
-	}
-}
-
-// ValidateFRPTokenStrength checks if the configured FRP_TOKEN is weak or low-entropy (C-2).
-// It returns an advisory warning message if the token is sub-optimal.
-func ValidateFRPTokenStrength(token string) string {
-	tok := strings.TrimSpace(token)
-	if tok == "" {
-		return "⚠️  FRP_TOKEN is empty! Cloud relay requires a valid token to authenticate."
-	}
-	weakTokens := []string{
-		"admin", "123456", "12345678", "password", "frp", "frp123", "frptoken",
-		"your_frp_auth_token", "your_token", "default", "secret", "agysecure2026token",
-	}
-	tokLower := strings.ToLower(tok)
-	for _, w := range weakTokens {
-		if tokLower == w {
-			return fmt.Sprintf("⚠️  [SECURITY WARNING] FRP_TOKEN %q is a well-known weak/example token! Generate a secure random token using: openssl rand -hex 32", tok)
-		}
-	}
-
-	// Detect dictionary combinations or predictable word patterns
-	predictableWords := []string{"agy", "token", "secure", "pass", "admin", "server", "2026", "2025"}
-	hitCount := 0
-	for _, pw := range predictableWords {
-		if strings.Contains(tokLower, pw) {
-			hitCount++
-		}
-	}
-	if hitCount >= 2 && len(tok) < 32 {
-		return fmt.Sprintf("⚠️  [SECURITY WARNING] FRP_TOKEN %q appears to be composed of predictable dictionary words. Recommended: openssl rand -hex 32", tok)
-	}
-
-	// SEC-AUDIT L-3: Shannon entropy detection — catch low-entropy tokens that bypass
-	// the dictionary check (e.g. "aaaaabbbbbccccc", "abc123abc123").
-	if len(tok) < 32 {
-		entropy := shannonEntropy(tok)
-		if entropy < 3.0 {
-			return fmt.Sprintf("⚠️  [SECURITY WARNING] FRP_TOKEN entropy is very low (%.1f bits/char). For internet-facing relay security, generate a high-entropy token: openssl rand -hex 32", entropy)
-		}
-	}
-
-	if len(tok) < 24 {
-		return fmt.Sprintf("⚠️  [SECURITY WARNING] FRP_TOKEN length (%d) is shorter than 24 characters. For internet-facing relay security, generate at least 32 random hex characters: openssl rand -hex 32", len(tok))
-	}
-	return ""
-}
-
-// shannonEntropy calculates the Shannon entropy in bits per character of a string.
-// SEC-AUDIT L-3: Used to detect low-entropy FRP tokens that pass dictionary checks.
-func shannonEntropy(s string) float64 {
-	if len(s) == 0 {
-		return 0
-	}
-	freq := make(map[rune]int)
-	for _, r := range s {
-		freq[r]++
-	}
-	length := float64(len([]rune(s)))
-	var entropy float64
-	for _, count := range freq {
-		p := float64(count) / length
-		if p > 0 {
-			entropy -= p * math.Log2(p)
-		}
-	}
-	return entropy
-}
 
 // AdvertisePublicIPv6 reports whether pairing QR / endpoints should include the
 // machine's global unicast IPv6. Defaults to true whenever a global IPv6 is detected,

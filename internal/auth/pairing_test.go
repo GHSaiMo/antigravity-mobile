@@ -490,3 +490,40 @@ func TestAuthHandler_HandleUnpair(t *testing.T) {
 	}
 }
 
+func TestAuthHandler_HandleEndpoints_Security(t *testing.T) {
+	store, _ := NewAuthStore(t.TempDir() + "/auth.json")
+	pm := NewPairingManager()
+	h := NewAuthHandler(store, pm, "192.168.1.100", 58900, false)
+	h.SetEndpoints("192.168.1.100", "", "")
+	h.SetCloudflareURL("https://custom.mgy")
+
+	// 1. External unauthenticated request: private LAN IP should be redacted
+	reqExt := httptest.NewRequest(http.MethodGet, "/api/v1/auth/endpoints", nil)
+	reqExt.Header.Set("CF-Connecting-IP", "203.0.113.195")
+	rrExt := httptest.NewRecorder()
+	h.HandleEndpoints(rrExt, reqExt)
+
+	if rrExt.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rrExt.Code)
+	}
+	var respExt struct {
+		Endpoints []EndpointInfo `json:"endpoints"`
+	}
+	_ = json.Unmarshal(rrExt.Body.Bytes(), &respExt)
+	for _, ep := range respExt.Endpoints {
+		if ep.Type == "lan" {
+			t.Errorf("expected lan endpoints to be redacted for unauthenticated external requests, got: %+v", ep)
+		}
+	}
+
+	// 2. Rate limiting check
+	for i := 0; i < 70; i++ {
+		rr := httptest.NewRecorder()
+		h.HandleEndpoints(rr, reqExt)
+		if i >= 60 && rr.Code != http.StatusTooManyRequests {
+			t.Errorf("expected 429 Too Many Requests after 60 requests, got %d on attempt %d", rr.Code, i+1)
+			break
+		}
+	}
+}
+

@@ -81,13 +81,15 @@ end tell`
 			_ = exec.Command("osascript", "-e", script).Run()
 
 			// 2. If the user had an active application and Cockpit stole focus, restore it
-			if prevBundleID != "" && prevBundleID != "com.jlcodes.cockpit-tools" {
+			cleanID := sanitizeBundleID(prevBundleID)
+			// SEC-AUDIT H-1: Strict whitelist validation before interpolating into AppleScript
+			if cleanID != "" && cleanID != "com.jlcodes.cockpit-tools" && !strings.ContainsAny(cleanID, "\"'\\\r\n") {
 				restoreScript := fmt.Sprintf(`tell application "System Events"
 	set frontApp to bundle identifier of first application process whose frontmost is true
 	if frontApp is "com.jlcodes.cockpit-tools" then
 		tell application id "%s" to activate
 	end if
-end tell`, prevBundleID)
+end tell`, cleanID)
 				_ = exec.Command("osascript", "-e", restoreScript).Run()
 			}
 		}

@@ -69,7 +69,7 @@ func IsAllowedOrigin(origin string, requestHost string) bool {
 	} else if gh := strings.TrimSpace(os.Getenv("GATEWAY_HOST")); gh != "" {
 		trustedHosts = append(trustedHosts, strings.ToLower(gh))
 	}
-	// S5: FRP_SERVER_ADDR intentionally excluded — it is a tunnel server address, not a
+	// S5: Tunnel relay server addresses intentionally excluded — they are relay endpoints, not a
 	// browser origin. Including it would allow CSWSH from any page on that domain.
 	// Add it to ALLOWED_ORIGINS if truly needed.
 

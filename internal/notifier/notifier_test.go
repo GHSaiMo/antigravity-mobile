@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -187,9 +189,9 @@ func TestNotifierDedupRollbackOnFailure(t *testing.T) {
 }
 
 func TestNotifierOnTrajectoryUpdate_IgnoresTerminalStates(t *testing.T) {
-	var requestCount int
+	var requestCount atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestCount++
+		requestCount.Add(1)
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"code":200,"message":"success"}`))
 	}))
@@ -241,15 +243,15 @@ func TestNotifierOnTrajectoryUpdate_IgnoresTerminalStates(t *testing.T) {
 	}
 	n.OnTrajectoryUpdate(idleWithPIDetails)
 
-	if requestCount != 0 {
-		t.Errorf("expected 0 requests for terminal/idle snapshots in OnTrajectoryUpdate, got %d", requestCount)
+	if requestCount.Load() != 0 {
+		t.Errorf("expected 0 requests for terminal/idle snapshots in OnTrajectoryUpdate, got %d", requestCount.Load())
 	}
 }
 
 func TestNotifierOnTrajectoryUpdate_RunningInteraction(t *testing.T) {
-	var requestCount int
+	var requestCount atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestCount++
+		requestCount.Add(1)
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"code":200,"message":"success"}`))
 	}))
@@ -277,14 +279,14 @@ func TestNotifierOnTrajectoryUpdate_RunningInteraction(t *testing.T) {
 	// Await async notification dispatch
 	deadline := time.Now().Add(1 * time.Second)
 	for time.Now().Before(deadline) {
-		if requestCount == 1 {
+		if requestCount.Load() == 1 {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	if requestCount != 1 {
-		t.Errorf("expected 1 request for running pending interaction, got %d", requestCount)
+	if requestCount.Load() != 1 {
+		t.Errorf("expected 1 request for running pending interaction, got %d", requestCount.Load())
 	}
 }
 
@@ -342,11 +344,14 @@ func TestNotifier_NotifyCockpitAlert(t *testing.T) {
 }
 
 func TestNotifier_NotifyAction_Branches(t *testing.T) {
+	var mu sync.Mutex
 	var payloads []BarkPayload
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var p BarkPayload
 		json.NewDecoder(r.Body).Decode(&p)
+		mu.Lock()
 		payloads = append(payloads, p)
+		mu.Unlock()
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"code":200,"message":"success"}`))
 	}))
@@ -379,8 +384,11 @@ func TestNotifier_NotifyAction_Branches(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(payloads) != 2 {
-		t.Fatalf("expected 2 notification payloads, got %d", len(payloads))
+	mu.Lock()
+	count := len(payloads)
+	mu.Unlock()
+	if count != 2 {
+		t.Fatalf("expected 2 notification payloads, got %d", count)
 	}
 }
 
