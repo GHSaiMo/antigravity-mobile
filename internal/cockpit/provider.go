@@ -1,6 +1,7 @@
 package cockpit
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -10,10 +11,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
+
 
 // QuotaMetric represents an individual quota dimension (percentage + reset time).
 type QuotaMetric struct {
@@ -53,6 +56,9 @@ type accountsIndex struct {
 }
 
 type cockpitConfig struct {
+	WsEnabled          bool   `json:"ws_enabled"`
+	WsPort             int    `json:"ws_port"`
+	ReportEnabled      bool   `json:"report_enabled"`
 	ReportPort         int    `json:"report_port"`
 	ReportToken        string `json:"report_token"`
 	AutoRefreshMinutes int    `json:"auto_refresh_minutes"`
@@ -75,8 +81,130 @@ func getCockpitConfig() (*cockpitConfig, error) {
 	if err := json.Unmarshal(cfgBytes, &cfg); err != nil {
 		return nil, err
 	}
+
+	// Environment variable overrides take precedence
+	if envToken := strings.TrimSpace(os.Getenv("COCKPIT_REPORT_TOKEN")); envToken != "" {
+		cfg.ReportToken = envToken
+	}
+	if envPort := strings.TrimSpace(os.Getenv("COCKPIT_REPORT_PORT")); envPort != "" {
+		if p, convErr := strconv.Atoi(envPort); convErr == nil && p > 0 {
+			cfg.ReportPort = p
+		}
+	}
 	return &cfg, nil
 }
+
+// SaveCockpitReportSettings updates report_enabled, report_port, and report_token in ~/.antigravity_cockpit/config.json
+// preserving all existing fields.
+func SaveCockpitReportSettings(enabled bool, port int, token string) error {
+	dataDir, err := GetCockpitDataDir()
+	if err != nil {
+		return fmt.Errorf("failed to get cockpit data dir: %w", err)
+	}
+	configFile := filepath.Join(dataDir, "config.json")
+	var rawMap map[string]any
+
+	if cfgBytes, err := os.ReadFile(configFile); err == nil {
+		if err := json.Unmarshal(cfgBytes, &rawMap); err != nil {
+			rawMap = make(map[string]any)
+		}
+	} else {
+		rawMap = make(map[string]any)
+	}
+
+	rawMap["report_enabled"] = enabled
+	if port > 0 {
+		rawMap["report_port"] = port
+	}
+	if token != "" {
+		rawMap["report_token"] = token
+	}
+
+	updatedBytes, err := json.MarshalIndent(rawMap, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	// Backup existing config if present
+	if _, err := os.Stat(configFile); err == nil {
+		_ = os.WriteFile(configFile+".bak", updatedBytes, 0644)
+	}
+
+	tmpFile := configFile + ".tmp"
+	if err := os.WriteFile(tmpFile, updatedBytes, 0644); err != nil {
+		return fmt.Errorf("failed to write tmp config: %w", err)
+	}
+	if err := os.Rename(tmpFile, configFile); err != nil {
+		return fmt.Errorf("failed to rename config file: %w", err)
+	}
+
+	InvalidatePortCache()
+	return nil
+}
+
+// GenerateSecureToken creates a 32-character cryptographically secure token.
+func GenerateSecureToken() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+// CockpitConfigStatus summarizes the current readiness of Cockpit Tools HTTP service.
+type CockpitConfigStatus struct {
+	Configured    bool
+	ReportEnabled bool
+	ReportPort    int
+	ReportToken   string
+	IsDefault     bool
+	Reason        string
+}
+
+// CheckCockpitConfigStatus inspects whether Cockpit Tools HTTP report service is properly configured.
+func CheckCockpitConfigStatus() CockpitConfigStatus {
+	cfg, err := getCockpitConfig()
+	if err != nil {
+		return CockpitConfigStatus{
+			Configured: false,
+			Reason:     "未找到 Cockpit 配置文件 (~/.antigravity_cockpit/config.json)",
+		}
+	}
+	token := strings.TrimSpace(cfg.ReportToken)
+	isDefault := token == "change-this-token"
+	port := cfg.ReportPort
+	if port <= 0 {
+		port = 18081
+	}
+
+	if !cfg.ReportEnabled {
+		return CockpitConfigStatus{
+			Configured:    false,
+			ReportEnabled: false,
+			ReportPort:    port,
+			ReportToken:   token,
+			IsDefault:     isDefault,
+			Reason:        "HTTP 报表服务未开启 (report_enabled: false)",
+		}
+	}
+	if token == "" || isDefault {
+		return CockpitConfigStatus{
+			Configured:    false,
+			ReportEnabled: true,
+			ReportPort:    port,
+			ReportToken:   token,
+			IsDefault:     isDefault,
+			Reason:        "访问 Token 尚未配置 (处于默认占位符 'change-this-token')",
+		}
+	}
+
+	return CockpitConfigStatus{
+		Configured:    true,
+		ReportEnabled: true,
+		ReportPort:    port,
+		ReportToken:   token,
+		IsDefault:     false,
+	}
+}
+
 
 // GetAutoRefreshInterval reads the configured auto_refresh_minutes from ~/.antigravity_cockpit/config.json.
 // If not configured or invalid, returns defaultInterval.
@@ -462,7 +590,15 @@ func QueryReport(port int, token string) error {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusUnauthorized {
+			return fmt.Errorf("HTTP 401 Unauthorized (token 错误或无效)")
+		}
+		return fmt.Errorf("HTTP %d %s", resp.StatusCode, resp.Status)
+	}
+
 	buf := make([]byte, 1024)
+
 	n, _ := io.ReadFull(resp.Body, buf)
 	headerStr := string(buf[:n])
 	_, _ = io.Copy(io.Discard, resp.Body)

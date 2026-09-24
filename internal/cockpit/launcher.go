@@ -168,3 +168,48 @@ func IsCockpitListening(port int, timeout time.Duration) bool {
 	_ = conn.Close()
 	return true
 }
+
+// QuitCockpitApp gracefully terminates any running Cockpit Tools process.
+func QuitCockpitApp() error {
+	if !cockpitProcessChecker() {
+		return nil
+	}
+
+	if runtime.GOOS == "windows" {
+		_ = exec.Command("taskkill", "/IM", "cockpit-tools.exe").Run()
+	} else if runtime.GOOS == "darwin" {
+		_ = exec.Command("osascript", "-e", `tell application "Cockpit Tools" to quit`).Run()
+	} else {
+		_ = exec.Command("pkill", "-f", "cockpit-tools").Run()
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if !cockpitProcessChecker() {
+			return nil
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	// Force kill if graceful termination timed out
+	if runtime.GOOS == "windows" {
+		_ = exec.Command("taskkill", "/F", "/IM", "cockpit-tools.exe", "/T").Run()
+	} else if runtime.GOOS == "darwin" {
+		_ = exec.Command("pkill", "-9", "-f", "Cockpit Tools").Run()
+		_ = exec.Command("pkill", "-9", "-f", "cockpit-tools").Run()
+	} else {
+		_ = exec.Command("pkill", "-9", "-f", "cockpit-tools").Run()
+	}
+	time.Sleep(300 * time.Millisecond)
+	return nil
+}
+
+// RestartCockpitApp restarts the Cockpit Tools application.
+func RestartCockpitApp() error {
+	if err := QuitCockpitApp(); err != nil {
+		return fmt.Errorf("failed to quit Cockpit Tools: %w", err)
+	}
+	time.Sleep(500 * time.Millisecond)
+	return LaunchCockpitApp()
+}
+

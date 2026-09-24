@@ -46,6 +46,9 @@ func main() {
 		case "pair":
 			runPairCmd(args[1:])
 			return
+		case "cockpit":
+			cockpit.RunCockpitCmd(args[1:])
+			return
 		case "list":
 			runListCmd(args[1:])
 			return
@@ -136,7 +139,16 @@ func runGatewayServer(args []string) {
 	if *ddnsHost != "" {
 		log.Printf("   • 公网 DDNS (-ddns)    : %s", *ddnsHost)
 	}
+	cpStatus := cockpit.CheckCockpitConfigStatus()
+	if !cpStatus.Configured {
+		log.Printf("   • Cockpit 报表服务     : ⚠️  未就绪 (%s)", cpStatus.Reason)
+	} else {
+		log.Printf("   • Cockpit 报表服务     : ✅ 正常 (端口: %d, 已配置专属 Token)", cpStatus.ReportPort)
+	}
 	log.Printf("==================================================")
+	if !cpStatus.Configured {
+		log.Printf("💡 提示: 运行 `mgy cockpit` 可一键交互式配置 Cockpit HTTP 报表服务与安全 Token。")
+	}
 
 	// 1. Initialize Inspector
 	insp := inspector.NewInspector(time.Duration(*pollSec) * time.Second)
@@ -393,6 +405,7 @@ func runHelpCmd() {
 常用子命令:
   run (默认)        启动网关服务 (局域网直连 + Cloudflare 专属 HTTPS 隧道)
   pair              向正在运行的网关申请并打印新配对二维码与链接
+  cockpit           交互式配置 Cockpit 报表服务与安全 Token (支持 status/token/restart)
   list              查看所有已配对授权的移动设备 (支持在线与离线查看)
   clear [all|id]    清除已配对的设备授权 (支持: mgy clear all 或 mgy clear <device-id>)
   version           查看当前版本信息

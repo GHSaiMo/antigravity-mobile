@@ -74,11 +74,17 @@ func StartQuotaAutoRefresher(ctx context.Context, defaultInterval time.Duration,
 			}
 
 			cfg, err := getCockpitConfig()
-			if err != nil || cfg.ReportToken == "" {
-				log.Printf("[Cockpit] Cockpit report endpoint not configured (tokenEmpty=%v)",
-					cfg == nil || cfg.ReportToken == "")
+			if err != nil || cfg.ReportToken == "" || cfg.ReportToken == "change-this-token" || !cfg.ReportEnabled {
+				isDefault := cfg != nil && cfg.ReportToken == "change-this-token"
+				isEnabled := cfg != nil && cfg.ReportEnabled
+				log.Printf("[Cockpit] ℹ️ Cockpit HTTP report service not configured or disabled (enabled=%v, defaultToken=%v). Run 'mgy cockpit' to configure.",
+					isEnabled, isDefault)
+				schedulerMutex.Lock()
+				backoffUntil = time.Now().Add(targetInterval)
+				schedulerMutex.Unlock()
 				return
 			}
+
 
 			activePort, portErr := ResolveActiveReportPort(cfg.ReportToken, cfg.ReportPort)
 			if portErr != nil && cfg.ReportPort > 0 {
