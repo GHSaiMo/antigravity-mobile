@@ -74,18 +74,23 @@ func StartQuotaAutoRefresher(ctx context.Context, defaultInterval time.Duration,
 			}
 
 			cfg, err := getCockpitConfig()
-			if err != nil || cfg.ReportPort <= 0 || cfg.ReportToken == "" {
-				log.Printf("[Cockpit] Cockpit report endpoint not configured (portValid=%v, tokenEmpty=%v)",
-					cfg != nil && cfg.ReportPort > 0, cfg == nil || cfg.ReportToken == "")
+			if err != nil || cfg.ReportToken == "" {
+				log.Printf("[Cockpit] Cockpit report endpoint not configured (tokenEmpty=%v)",
+					cfg == nil || cfg.ReportToken == "")
 				return
+			}
+
+			activePort, portErr := ResolveActiveReportPort(cfg.ReportToken, cfg.ReportPort)
+			if portErr != nil && cfg.ReportPort > 0 {
+				activePort = cfg.ReportPort
 			}
 
 			// First check reachability and execute report query
 			var queryErr error
-			if !IsCockpitListening(cfg.ReportPort, 2*time.Second) {
-				queryErr = fmt.Errorf("port %d not listening (connection refused)", cfg.ReportPort)
+			if activePort <= 0 || !IsCockpitListening(activePort, 2*time.Second) {
+				queryErr = fmt.Errorf("port %d not listening (connection refused)", activePort)
 			} else {
-				queryErr = QueryReport(cfg.ReportPort, cfg.ReportToken)
+				queryErr = QueryReport(activePort, cfg.ReportToken)
 			}
 
 			if queryErr == nil {
@@ -123,11 +128,17 @@ func StartQuotaAutoRefresher(ctx context.Context, defaultInterval time.Duration,
 				case <-time.After(appStartupWait):
 				}
 
-				log.Printf("[Cockpit] Probing Cockpit Tools port %d after Round %d launch...", cfg.ReportPort, round)
-				if !IsCockpitListening(cfg.ReportPort, 3*time.Second) {
-					queryErr = fmt.Errorf("port %d not listening", cfg.ReportPort)
+				// Re-resolve active report port after app launch in case port changed
+				activePort, _ = ResolveActiveReportPort(cfg.ReportToken, cfg.ReportPort)
+				if activePort <= 0 {
+					activePort = cfg.ReportPort
+				}
+
+				log.Printf("[Cockpit] Probing Cockpit Tools port %d after Round %d launch...", activePort, round)
+				if !IsCockpitListening(activePort, 3*time.Second) {
+					queryErr = fmt.Errorf("port %d not listening", activePort)
 				} else {
-					queryErr = QueryReport(cfg.ReportPort, cfg.ReportToken)
+					queryErr = QueryReport(activePort, cfg.ReportToken)
 				}
 
 				if queryErr == nil {
@@ -145,7 +156,7 @@ func StartQuotaAutoRefresher(ctx context.Context, defaultInterval time.Duration,
 			if alertCallback != nil {
 				alertCallback(
 					"⚠️ 座舱助手未能启动",
-					fmt.Sprintf("Cockpit Tools 自动拉起 2 轮后仍无法连接 (127.0.0.1:%d)，账号配额自动刷新已暂停。", cfg.ReportPort),
+					fmt.Sprintf("Cockpit Tools 自动拉起 2 轮后仍无法连接 (127.0.0.1:%d)，账号配额自动刷新已暂停。", activePort),
 				)
 			}
 

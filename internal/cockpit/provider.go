@@ -421,7 +421,14 @@ func TriggerRefresh(force ...bool) error {
 		return err
 	}
 
-	if cfg.ReportPort > 0 && cfg.ReportToken != "" {
+	reportPort := cfg.ReportPort
+	if cfg.ReportToken != "" {
+		if resolved, rErr := ResolveActiveReportPort(cfg.ReportToken, cfg.ReportPort); rErr == nil && resolved > 0 {
+			reportPort = resolved
+		}
+	}
+
+	if reportPort > 0 && cfg.ReportToken != "" {
 		go func(port int, token string) {
 			defer func() {
 				refreshMutex.Lock()
@@ -434,7 +441,7 @@ func TriggerRefresh(force ...bool) error {
 			} else {
 				InvalidateQuotaCache()
 			}
-		}(cfg.ReportPort, cfg.ReportToken)
+		}(reportPort, cfg.ReportToken)
 		return nil
 	}
 

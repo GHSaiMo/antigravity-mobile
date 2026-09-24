@@ -69,8 +69,8 @@ type cockpitAccountToken struct {
 	ExpiresAt    int64  `json:"expires_at"`
 }
 
-// GetCockpitServerInfo retrieves server info including the dynamic ws_port.
-func GetCockpitServerInfo() (*CockpitServerInfo, error) {
+// ReadRawCockpitServerInfo reads server.json directly without performing port probing or recursion.
+func ReadRawCockpitServerInfo() (*CockpitServerInfo, error) {
 	dataDir, err := GetCockpitDataDir()
 	if err != nil {
 		return nil, err
@@ -88,6 +88,41 @@ func GetCockpitServerInfo() (*CockpitServerInfo, error) {
 		return nil, fmt.Errorf("invalid ws_port in server.json: %d", info.WsPort)
 	}
 	return &info, nil
+}
+
+// GetCockpitServerInfo retrieves server info including the dynamic ws_port.
+// If server.json is missing or its port is not responding, it attempts auto-detection.
+func GetCockpitServerInfo() (*CockpitServerInfo, error) {
+	rawInfo, err := ReadRawCockpitServerInfo()
+	if err == nil && rawInfo != nil && rawInfo.WsPort > 0 {
+		if IsCockpitListening(rawInfo.WsPort, 300*time.Millisecond) {
+			return rawInfo, nil
+		}
+		// Port in server.json not listening: attempt auto-resolve
+		if activePort, authToken, rErr := ResolveActiveWsPort(); rErr == nil && activePort > 0 {
+			log.Printf("[Cockpit] Port %d in server.json not responding, auto-switched to active ws_port: %d", rawInfo.WsPort, activePort)
+			rawInfo.WsPort = activePort
+			if authToken != "" {
+				rawInfo.AuthToken = authToken
+			}
+			return rawInfo, nil
+		}
+		return rawInfo, nil
+	}
+
+	// server.json missing or invalid: attempt auto-resolve
+	if activePort, authToken, rErr := ResolveActiveWsPort(); rErr == nil && activePort > 0 {
+		log.Printf("[Cockpit] server.json missing/invalid, auto-detected active ws_port: %d", activePort)
+		return &CockpitServerInfo{
+			WsPort:    activePort,
+			AuthToken: authToken,
+		}, nil
+	}
+
+	if err != nil {
+		return nil, err
+	}
+	return nil, fmt.Errorf("invalid ws_port in server.json")
 }
 
 func generateRequestID() string {
