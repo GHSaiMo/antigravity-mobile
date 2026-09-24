@@ -99,6 +99,20 @@ mgy help           # 查看完整命令与启动参数帮助
 > 📖 **进阶维护指南**：
 > 完整安装机制、多场景本地自测（架构匹配 / 纯净首次安装 / IPv6 自动修复 / 5G 直连排错）与一键卸载方案，详见 ➔ [**安装、本地自测与卸载运维指南 (docs/installation_and_testing_guide.md)**](docs/installation_and_testing_guide.md)。
 
+<details>
+<summary><b>🗑️ 服务端彻底卸载与清理 (包含 Cloudflare 与全部配置)</b></summary>
+
+- **🍎 macOS / 🐧 Linux / 🪟 Git Bash**：
+  ```bash
+  curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/uninstall.sh | bash
+  ```
+- **🪟 Windows (PowerShell)**：
+  ```powershell
+  irm https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/uninstall.ps1 | iex
+  ```
+*(本地执行可直接运行 `./scripts/uninstall.sh`，支持 `--keep-config` 仅保留配置或 `--keep-cf` 保留 Cloudflare 引擎)*
+</details>
+
 ---
 
 ## 💡 为什么需要 Multigravity？
