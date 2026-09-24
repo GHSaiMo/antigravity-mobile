@@ -41,15 +41,14 @@
 
 已安装用户在终端再次执行一键命令即可自动升级至最新版，**已有配对授权和配置会自动保留**：
 
-- **Windows (PowerShell)**：
-  ```powershell
-  irm https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.ps1 | iex
-  ```
-  *(备用直连：`irm https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.ps1 | iex`)*
-
 - **macOS (Apple Silicon & Intel)**：
   ```bash
   curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.sh | bash
+  ```
+
+- **Windows (PowerShell)**：
+  ```powershell
+  irm https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.ps1 | iex
   ```
 
 ---
