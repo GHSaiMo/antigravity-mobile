@@ -109,18 +109,11 @@ func (t *CloudflareTunnel) Start(ctx context.Context, binPath string) error {
 	if err == nil {
 		go func() {
 			reader := bufio.NewReader(stderr)
-			var connectedOnce sync.Once
 			for {
 				line, rErr := reader.ReadString('\n')
 				trimmed := strings.TrimSpace(line)
 				if trimmed != "" {
-					// Condense multiple tunnel connections into one simple prompt
-					if strings.Contains(trimmed, "Registered tunnel connection") ||
-						(strings.Contains(trimmed, "Connection") && strings.Contains(trimmed, "registered")) {
-						connectedOnce.Do(func() {
-							log.Printf("☁️  已与 Cloudflare 专属域名建立连接")
-						})
-					} else if strings.Contains(trimmed, "ERR") || strings.Contains(trimmed, "error") {
+					if strings.Contains(trimmed, "ERR") || strings.Contains(trimmed, "error") {
 						if !strings.Contains(trimmed, "context canceled") {
 							log.Printf("⚠️  [Cloudflare] %s", trimmed)
 						}

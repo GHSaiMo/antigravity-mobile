@@ -108,52 +108,32 @@ func runGatewayServer(args []string) {
 	// 2. port: 网关服务 HTTP/WebSocket 监听端口，默认 58900 (可通过 MULTIGRAVITY_PORT 环境变量覆盖)
 	defaultPort := defaultPort()
 
-	// 3. qr: 是否在启动时在终端默认打印一次扫码配对二维码，默认 true (可通过 MULTIGRAVITY_QR 环境变量或 -qr=false 控制)
-	defaultQR := true
-	if envQR := os.Getenv("MULTIGRAVITY_QR"); envQR != "" {
-		if envQR == "0" || strings.ToLower(envQR) == "false" || strings.ToLower(envQR) == "no" {
-			defaultQR = false
-		}
-	}
-
-	// 命令行 Flags 定义与中文说明
 	fs := flag.NewFlagSet("mgy", flag.ExitOnError)
 	host := fs.String("host", defaultHost, "网关监听的主机/IP 地址（默认 \"\" 双栈绑定所有 IPv4/IPv6 网卡，设为 127.0.0.1 仅限本机访问）")
 	port := fs.Int("port", defaultPort, "网关 HTTP/WebSocket 监听端口（默认 58900）")
-	printQR := fs.Bool("qr", defaultQR, "启动时是否在终端默认打印一次配对二维码（默认 true）")
+	printQR := fs.Bool("qr", false, "启动时是否输出配对二维码（默认: 未配对时自动输出，已配对时默认隐藏）")
 	pollSec := fs.Int("poll", 5, "探测本地 Antigravity 实例与健康检查的轮询间隔秒数（默认 5 秒）")
 	ddnsHost := fs.String("ddns", os.Getenv("DDNS_HOST"), "公网 DDNS 域名或固定 IPv6 地址，用于生成扫码配对链接及外部直连")
 	_ = fs.Parse(args)
 
-	if tokPath, _, err := auth.EnsureAdminToken(true); err != nil {
-		log.Fatalf("❌ Failed to initialize MULTIGRAVITY_ADMIN_TOKEN: %v", err)
-	} else if tokPath != "" {
-		log.Printf("🔐 Loaded MULTIGRAVITY_ADMIN_TOKEN from %s", tokPath)
+	qrExplicitlySet := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "qr" {
+			qrExplicitlySet = true
+		}
+	})
+	if envQR := os.Getenv("MULTIGRAVITY_QR"); envQR != "" && !qrExplicitlySet {
+		if envQR == "1" || strings.ToLower(envQR) == "true" || strings.ToLower(envQR) == "yes" {
+			*printQR = true
+			qrExplicitlySet = true
+		} else if envQR == "0" || strings.ToLower(envQR) == "false" || strings.ToLower(envQR) == "no" {
+			*printQR = false
+			qrExplicitlySet = true
+		}
 	}
 
-	listenDesc := *host
-	if listenDesc == "" {
-		listenDesc = "0.0.0.0 / [::] (双栈绑定所有网络接口)"
-	}
-	log.Printf("==================================================")
-	log.Printf("🚀 Antigravity Mobile Gateway 启动中...")
-	log.Printf("📋 启动项配置:")
-	log.Printf("   • 监听地址 (-host)     : %s", listenDesc)
-	log.Printf("   • 监听端口 (-port)     : %d", *port)
-	log.Printf("   • 实例轮询 (-poll)     : %d 秒", *pollSec)
-	log.Printf("   • 配对二维码 (-qr)     : %v", *printQR)
-	if *ddnsHost != "" {
-		log.Printf("   • 公网 DDNS (-ddns)    : %s", *ddnsHost)
-	}
-	cpStatus := cockpit.CheckCockpitConfigStatus()
-	if !cpStatus.Configured {
-		log.Printf("   • Cockpit 报表服务     : ⚠️  未就绪 (%s)", cpStatus.Reason)
-	} else {
-		log.Printf("   • Cockpit 报表服务     : ✅ 正常 (端口: %d, 已配置专属 Token)", cpStatus.ReportPort)
-	}
-	log.Printf("==================================================")
-	if !cpStatus.Configured {
-		log.Printf("💡 提示: 运行 `mgy cockpit` 可一键交互式配置 Cockpit HTTP 报表服务与安全 Token。")
+	if _, _, err := auth.EnsureAdminToken(true); err != nil {
+		log.Fatalf("❌ Failed to initialize MULTIGRAVITY_ADMIN_TOKEN: %v", err)
 	}
 
 	// 1. Initialize Inspector
@@ -193,6 +173,7 @@ func runGatewayServer(args []string) {
 	// 3.5. Initialize Automated Cloudflare Tunnel (Exclusive HTTPS Domain)
 	cfCfg := config.GetCloudflareConfig()
 	var cfTunnel *tunnel.CloudflareTunnel
+	var cfDomain string
 	if cfCfg.Enabled {
 		cfCtx, cancelCF := context.WithCancel(context.Background())
 		defer cancelCF()
@@ -223,7 +204,7 @@ func runGatewayServer(args []string) {
 					defer cfTunnel.Stop()
 					authHandler.SetCloudflareURL(cfRes.URL)
 					authHandler.SetPrimary(cfRes.Subdomain, 443, true)
-					log.Printf("☁️  Cloudflare 专属域名已生成")
+					cfDomain = cfRes.URL
 
 					// 将专属 HTTPS 域名设为二维码主地址，强制走 HTTPS 443！
 					qrHost = cfRes.Subdomain
@@ -262,6 +243,7 @@ func runGatewayServer(args []string) {
 	}()
 
 	var notif *notifier.Notifier
+	var pushSummary string
 	if notifCfg.Enabled {
 		notif = notifier.NewNotifier(notifCfg)
 		p.SetNotificationSink(notif)
@@ -269,19 +251,19 @@ func runGatewayServer(args []string) {
 		watcher := notifier.NewWatcher(p, notif)
 		watcher.Start(watcherCtx)
 
+		var pushes []string
 		if notifCfg.BarkEndpoint != "" {
-			log.Printf("🔔 iOS Bark notifications ENABLED")
-			log.Printf("   🎯 Target: %s", config.RedactBarkEndpoint(notifCfg.BarkEndpoint))
-			log.Printf("   🎨 Icon:   %s", notifCfg.IconURL)
-			log.Printf("   📁 Group:  %s", notifCfg.Group)
+			pushes = append(pushes, "Bark (iOS)")
 		}
 		if notifCfg.FCMEnabled {
-			log.Printf("🤖 Android FCM notifications ENABLED")
-			log.Printf("   🎯 Target: %s", config.RedactFCMKey(notifCfg.FCMDeviceToken))
-			log.Printf("   🔑 Key:    %s", config.RedactFCMKey(notifCfg.FCMServerKey))
+			pushes = append(pushes, "FCM (Android)")
 		}
-	} else {
-		log.Printf("ℹ️  Push notifications disabled (set BARK_URL or FCM_SERVER_KEY in .env to enable)")
+		if len(pushes) > 0 {
+			pushSummary = strings.Join(pushes, " + ") + " 已启用"
+		}
+	}
+	if pushSummary == "" {
+		pushSummary = "未配置 (支持 Bark / FCM)"
 	}
 
 	// 5. Web frontend handler
@@ -323,13 +305,6 @@ func runGatewayServer(args []string) {
 		IdleTimeout:  120 * time.Second,
 	}
 
-	// Print initial status
-	if cur := insp.Current(); cur != nil && cur.IsHealthy {
-		log.Printf("✅ Upstream connected: 127.0.0.1:%d (PID %d)", cur.Port, cur.PID)
-	} else {
-		log.Printf("⚠️  Upstream Antigravity instance not detected yet, waiting...")
-	}
-
 	// Synchronously bind the network listener so we verify port availability immediately
 	rawListener, err := net.Listen("tcp", server.Addr)
 	if err != nil {
@@ -352,39 +327,73 @@ func runGatewayServer(args []string) {
 		}
 	}()
 
-	localScheme := "http"
+	// Brief pause to allow initial upstream detection
+	time.Sleep(100 * time.Millisecond)
+
+	upstreamDesc := "等待 Antigravity 启动..."
+	if cur := insp.Current(); cur != nil && cur.IsHealthy {
+		upstreamDesc = fmt.Sprintf("已连接 (PID %d, 端口 %d)", cur.PID, cur.Port)
+	}
+
+	tunnelDesc := "未启用"
+	if cfDomain != "" {
+		tunnelDesc = cfDomain + " (Cloudflare 专属域名)"
+	} else if *ddnsHost != "" {
+		tunnelDesc = *ddnsHost + " (DDNS)"
+	}
+
 	lanDisplay := netAddrs.LANIPv4
 	if lanDisplay == "" && qrHost != "127.0.0.1" && !strings.Contains(qrHost, ":") {
 		lanDisplay = qrHost
 	}
+	lanURL := "-"
 	if lanDisplay != "" {
-		log.Printf("📱 Mobile Web UI ready at: %s://%s:%d (LAN) | %s://127.0.0.1:%d (Local)", localScheme, lanDisplay, *port, localScheme, *port)
-	} else if qrHost != "127.0.0.1" {
-		log.Printf("📱 Mobile Web UI ready at: %s://%s:%d (WAN/IPv6) | %s://127.0.0.1:%d (Local)", localScheme, qrHost, *port, localScheme, *port)
-	} else {
-		log.Printf("📱 Mobile Web UI ready at: %s://127.0.0.1:%d", localScheme, *port)
+		lanURL = fmt.Sprintf("http://%s:%d", lanDisplay, *port)
 	}
 
-	// Settle briefly so asynchronous startup logs (e.g. Cloudflare tunnel connect, baseline sync)
-	// are printed in the boot logs area before rendering the QR code.
-	time.Sleep(150 * time.Millisecond)
+	deviceCount := len(authStore.ListDevices())
+	deviceDesc := "0 台"
+	if deviceCount > 0 {
+		deviceDesc = fmt.Sprintf("%d 台已配对", deviceCount)
+	}
 
-	// 默认打印配对二维码（网关已确认启动就绪，输出配对二维码供新客户端接入）
-	if *printQR {
+	// 打印清爽紧凑的启动看板
+	fmt.Println()
+	fmt.Printf("  Multigravity (mgy) v%s\n", Version)
+	fmt.Println("  --------------------------------------------------")
+	fmt.Printf("  ➜  本地访问:   http://127.0.0.1:%d\n", *port)
+	if lanURL != "-" {
+		fmt.Printf("  ➜  局域网络:   %s\n", lanURL)
+	}
+	if tunnelDesc != "未启用" {
+		fmt.Printf("  ➜  云端穿透:   %s\n", tunnelDesc)
+	}
+	fmt.Printf("  ➜  目标实例:   %s\n", upstreamDesc)
+	fmt.Printf("  ➜  远程推送:   %s\n", pushSummary)
+	fmt.Printf("  ➜  已配设备:   %s\n", deviceDesc)
+	fmt.Println("  --------------------------------------------------")
+
+	shouldPrintQR := false
+	if qrExplicitlySet {
+		shouldPrintQR = *printQR
+	} else {
+		// 未显式指定 -qr 时：未配对设备自动打印二维码；已有配对设备则保持界面清爽
+		shouldPrintQR = deviceCount == 0
+	}
+
+	if shouldPrintQR {
 		if initialSession, err := pairingMgr.GenerateSession(5 * time.Minute); err == nil {
-			if authStore.HasDevices() {
-				log.Printf("ℹ️  检测到已有 %d 台已配对设备，打印一次新配对二维码供新客户端接入（可通过 -qr=false 关闭）", len(authStore.ListDevices()))
-			}
 			auth.PrintPairingQRCode(qrHost, qrPort, initialSession.Code, cfTunnel != nil, extraHosts...)
 		} else {
 			log.Printf("⚠️  无法生成初始配对二维码: %v", err)
 		}
-	} else {
-		log.Printf("ℹ️  已跳过启动配对二维码打印（已指定 -qr=false；如需配对可执行 `make pair`）")
+	} else if deviceCount > 0 {
+		fmt.Println("  💡 提示: 执行 `mgy pair` 可随时申请新设备配对二维码。")
+		fmt.Println()
 	}
 
 	<-stopCh
-	log.Println("Shutting down gateway...")
+	log.Println("🛑 网关正在安全停止...")
 
 	if cfTunnel != nil {
 		cfTunnel.Stop()
@@ -395,7 +404,7 @@ func runGatewayServer(args []string) {
 	if err := server.Shutdown(ctx); err != nil {
 		log.Printf("Server shutdown error: %v", err)
 	}
-	log.Println("Gateway stopped gracefully.")
+	log.Println("✅ 网关已完全退出。")
 }
 
 func runVersionCmd() {

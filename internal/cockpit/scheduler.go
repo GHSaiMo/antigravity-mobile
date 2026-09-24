@@ -37,9 +37,6 @@ func StartQuotaAutoRefresher(ctx context.Context, defaultInterval time.Duration,
 	}
 
 	go func() {
-		configuredInterval := GetAutoRefreshInterval(defaultInterval)
-		log.Printf("[Cockpit] Auto refresher started (target interval: %v, heartbeat: 15s)", configuredInterval)
-
 		checkAndRefresh := func() {
 			schedulerMutex.Lock()
 			if isSelfHealing {
@@ -66,19 +63,8 @@ func StartQuotaAutoRefresher(ctx context.Context, defaultInterval time.Duration,
 				return
 			}
 
-			if lastUpdated.IsZero() {
-				log.Printf("[Cockpit] Quota data missing or uninitialized, triggering refresh check...")
-			} else {
-				log.Printf("[Cockpit] Quota data is %v old (target: %v), triggering auto refresh check...",
-					now.Sub(lastUpdated).Round(time.Second), targetInterval)
-			}
-
 			cfg, err := getCockpitConfig()
 			if err != nil || cfg.ReportToken == "" || cfg.ReportToken == "change-this-token" || !cfg.ReportEnabled {
-				isDefault := cfg != nil && cfg.ReportToken == "change-this-token"
-				isEnabled := cfg != nil && cfg.ReportEnabled
-				log.Printf("[Cockpit] ℹ️ Cockpit HTTP report service not configured or disabled (enabled=%v, defaultToken=%v). Run 'mgy cockpit' to configure.",
-					isEnabled, isDefault)
 				schedulerMutex.Lock()
 				backoffUntil = time.Now().Add(targetInterval)
 				schedulerMutex.Unlock()

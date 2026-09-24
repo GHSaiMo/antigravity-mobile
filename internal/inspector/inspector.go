@@ -208,7 +208,7 @@ func (i *Inspector) markUnhealthy() {
 	defer i.mu.Unlock()
 	if i.current != nil && i.current.IsHealthy {
 		i.current.IsHealthy = false
-		log.Println("[Inspector] Antigravity instance became unhealthy or stopped")
+		log.Println("[Inspector] ⚠️  Antigravity 实例已断开")
 	}
 }
 
@@ -222,12 +222,9 @@ func (i *Inspector) update(newInfo *InstanceInfo) {
 		i.current.Port != newInfo.Port ||
 		i.current.CSRFToken != newInfo.CSRFToken ||
 		!i.current.IsHealthy {
-		csrfPreview := newInfo.CSRFToken
-		if len(csrfPreview) > 8 {
-			csrfPreview = csrfPreview[:8] + "..."
+		if i.current != nil {
+			log.Printf("[Inspector] ✅ 已连接 Antigravity 实例 (PID %d, 端口 %d)", newInfo.PID, newInfo.Port)
 		}
-		log.Printf("[Inspector] Discovered active Antigravity instance: PID=%d Port=%d CSRF=%s",
-			newInfo.PID, newInfo.Port, csrfPreview)
 		notify = true
 		listeners = append([]func(InstanceInfo){}, i.listeners...)
 	}

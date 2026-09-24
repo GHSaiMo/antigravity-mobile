@@ -32,6 +32,7 @@ func (sw *synchronizedWriter) Write(p []byte) (n int, err error) {
 // On Windows, it also switches console code page to UTF-8 and enables virtual terminal processing.
 func InitConsoleSync() {
 	initConsoleOS()
+	log.SetFlags(log.Ltime)
 	cur := log.Writer()
 	log.SetOutput(&synchronizedWriter{
 		mu: &consoleMu,
@@ -186,37 +187,33 @@ func FormatPairingQRCode(primaryHost string, port int, code string, ssl bool, ex
 		return b.String()
 	}
 
-	b.WriteString("\n==================================================\n")
-	b.WriteString("📱 Multigravity 客户端扫码一键配对\n")
-	b.WriteString("==================================================\n")
+	b.WriteString("\n  📱 Multigravity 客户端扫码一键配对 (5分钟内有效)\n")
 	qrStr := qr.ToSmallString(false)
 	b.WriteString(qrStr)
 	if !strings.HasSuffix(qrStr, "\n") {
 		b.WriteString("\n")
 	}
-	b.WriteString("请使用 Multigravity 手机客户端扫描上方二维码 (5分钟内有效)\n\n")
+	b.WriteString("  请使用 Multigravity 手机客户端扫描上方二维码\n")
 
 	if ssl || (strings.Contains(primaryHost, ".") && strings.ContainsAny(primaryHost, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")) {
-		b.WriteString("☁️  Cloudflare 专属域名已生成\n")
+		b.WriteString("  ☁️  Cloudflare 专属域名已生成\n")
 	} else {
 		scheme := "http://"
 		if ssl {
 			scheme = "https://"
 		}
 		if port != 80 && port != 443 {
-			fmt.Fprintf(&b, "🌐 访问地址: %s%s:%d\n", scheme, primaryHost, port)
+			fmt.Fprintf(&b, "  🌐 访问地址: %s%s:%d\n", scheme, primaryHost, port)
 		} else {
-			fmt.Fprintf(&b, "🌐 访问地址: %s%s\n", scheme, primaryHost)
+			fmt.Fprintf(&b, "  🌐 访问地址: %s%s\n", scheme, primaryHost)
 		}
 	}
 
 	if params.LANHost != "" {
 		lanURI := GeneratePairingURI(params.LANHost, 58900, code, false)
-		fmt.Fprintf(&b, "🏠 局域网 Wi-Fi 直连 URI: %s\n", lanURI)
+		fmt.Fprintf(&b, "  🏠 局域网 Wi-Fi 直连 URI: %s\n", lanURI)
 	}
-
-	b.WriteString("\n💡 提示: 扫码后手机端将默认通过 Cloudflare 专属 HTTPS 域名直连，外出或异网秒级畅通；同一 Wi-Fi 下可随时切换为局域网备用连接。\n")
-	b.WriteString("==================================================\n\n")
+	b.WriteString("\n")
 
 	return b.String()
 }
@@ -258,18 +255,16 @@ func PrintRawPairingQRCode(code string, uri string) {
 	if err != nil {
 		fmt.Fprintf(&b, "\n⚠️  无法生成配对二维码: %v\n🔗 配对链接: %s\n\n", err, uri)
 	} else {
-		b.WriteString("\n==================================================\n")
-		b.WriteString("📱 Multigravity 客户端扫码一键配对\n")
-		b.WriteString("==================================================\n")
+		b.WriteString("\n  📱 Multigravity 客户端扫码一键配对 (5分钟内有效)\n")
 		if code != "" {
-			fmt.Fprintf(&b, "🔑 配对码 (5分钟有效):\n   %s\n\n", code)
+			fmt.Fprintf(&b, "  🔑 配对码: %s\n", code)
 		}
 		qrStr := qr.ToSmallString(false)
 		b.WriteString(qrStr)
 		if !strings.HasSuffix(qrStr, "\n") {
 			b.WriteString("\n")
 		}
-		b.WriteString("请使用 Multigravity 手机客户端扫描上方二维码 (5分钟内有效)\n\n")
+		b.WriteString("  请使用 Multigravity 手机客户端扫描上方二维码\n")
 
 		if u, err := url.Parse(uri); err == nil {
 			q := u.Query()
@@ -280,26 +275,24 @@ func PrintRawPairingQRCode(code string, uri string) {
 			lan := q.Get("lan")
 
 			if sVal || (strings.Contains(h, ".") && strings.ContainsAny(h, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")) {
-				b.WriteString("☁️  Cloudflare 专属域名已生成\n")
+				b.WriteString("  ☁️  Cloudflare 专属域名已生成\n")
 			} else if h != "" {
 				scheme := "http://"
 				if sVal {
 					scheme = "https://"
 				}
 				if pVal != 80 && pVal != 443 {
-					fmt.Fprintf(&b, "🌐 访问地址: %s%s:%d\n", scheme, h, pVal)
+					fmt.Fprintf(&b, "  🌐 访问地址: %s%s:%d\n", scheme, h, pVal)
 				} else {
-					fmt.Fprintf(&b, "🌐 访问地址: %s%s\n", scheme, h)
+					fmt.Fprintf(&b, "  🌐 访问地址: %s%s\n", scheme, h)
 				}
 			}
 
 			if lan != "" {
-				fmt.Fprintf(&b, "🏠 局域网 Wi-Fi 直连 URI: %s\n", GeneratePairingURI(lan, 58900, code, false))
+				fmt.Fprintf(&b, "  🏠 局域网 Wi-Fi 直连 URI: %s\n", GeneratePairingURI(lan, 58900, code, false))
 			}
 		}
-
-		b.WriteString("\n💡 提示: 扫码后手机端将默认通过 Cloudflare 专属 HTTPS 域名直连，外出或异网秒级畅通；同一 Wi-Fi 下可随时切换为局域网备用连接。\n")
-		b.WriteString("==================================================\n\n")
+		b.WriteString("\n")
 	}
 
 	consoleMu.Lock()

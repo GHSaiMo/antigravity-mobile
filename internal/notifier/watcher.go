@@ -44,7 +44,6 @@ func (w *Watcher) Start(ctx context.Context) {
 	if !w.notifier.IsEnabled() {
 		return
 	}
-	log.Printf("[Watcher] 👁️ Background Antigravity session watcher started")
 	go w.run(ctx)
 }
 
@@ -109,7 +108,6 @@ func (w *Watcher) scanOnce() int {
 		}
 		w.hasInitialSync = true
 		w.mu.Unlock()
-		log.Printf("[Watcher] ✅ Initial baseline sync complete: %d sessions tracked", len(summaries))
 		return 0
 	}
 	w.mu.Unlock()
@@ -175,9 +173,8 @@ func (w *Watcher) scanOnce() int {
 				} else if (details.Status == "CASCADE_RUN_STATUS_FAILED" || details.Status == "CASCADE_RUN_STATUS_ERROR" || details.HasError) && details.TotalSteps > 0 {
 					_ = w.notifier.NotifyFailed(id, details.Title, details.TotalSteps)
 				} else if (details.Status == "CASCADE_RUN_STATUS_COMPLETED" || details.Status == "CASCADE_RUN_STATUS_IDLE") && details.TotalSteps > 0 {
-					inProgress, reason := IsCascadeInProgress(details, hasSubagent)
+					inProgress, _ := IsCascadeInProgress(details, hasSubagent)
 					if inProgress {
-						log.Printf("[Watcher] ⏳ Session %s entered IDLE but still in progress (%s); suppressing completion notification", id, reason)
 						prev.waitingForBackground = true
 						runningCount++
 					} else {
@@ -193,7 +190,7 @@ func (w *Watcher) scanOnce() int {
 				inProgress, _ := IsCascadeInProgress(details, hasSubagent)
 				if !inProgress {
 					prev.waitingForBackground = false
-					log.Printf("[Watcher] ✅ Session %s background work completed! Triggering completion notification", id)
+					log.Printf("[Watcher] ✅ 会话 %s 后台任务已完成", shortID(id))
 					if details.PendingInteraction != nil {
 						_ = w.notifier.NotifyAction(id, details.Title, details.PendingInteraction)
 					} else if details.CanProceed {
@@ -282,5 +279,13 @@ func (w *Watcher) TrackedSessionsCount() int {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 	return len(w.knownSessions)
+}
+
+func shortID(id string) string {
+	id = strings.TrimSpace(id)
+	if len(id) <= 12 {
+		return id
+	}
+	return id[:8] + "..."
 }
 

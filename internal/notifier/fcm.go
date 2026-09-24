@@ -177,8 +177,7 @@ func (f *FCMClient) Send(ctx context.Context, payload BarkPayload) error {
 			continue
 		}
 
-		log.Printf("[FCM] 🚀 Notification sent successfully: %q - %q (priority=%s, token=%s)",
-			payload.Title, payload.Body, priority, config.RedactFCMKey(deviceToken))
+		log.Printf("[FCM] 🚀 推送成功: %s", payload.Title)
 		return nil
 	}
 

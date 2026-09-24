@@ -1134,7 +1134,7 @@ func (p *Proxy) HandleCreateCascade(w http.ResponseWriter, r *http.Request) {
 	if clientMsgID != "" {
 		p.setCascadeDedup(clientMsgID, cascadeID)
 	}
-	log.Printf("[Proxy] Created new cascade: %s (projectId: %s) for workspace: %s", cascadeID, projectID, wsURI)
+	log.Printf("[Proxy] ✨ 新建会话: %s", shortCascadeID(cascadeID))
 
 	// Update lastUserViewTime annotation upstream so desktop client recognizes it immediately
 	annPayload := map[string]interface{}{
@@ -1197,9 +1197,11 @@ func (p *Proxy) HandleCreateCascade(w http.ResponseWriter, r *http.Request) {
 			if msgResp, err := p.mediumClient.Do(msgReq); err == nil {
 				msgResp.Body.Close()
 				ClearTrajectoryCache(cascadeID)
-				log.Printf("[Proxy] Dispatched initial prompt to cascade %s", cascadeID)
+				if verboseRPC {
+					log.Printf("[Proxy] Dispatched initial prompt to cascade %s", shortCascadeID(cascadeID))
+				}
 			} else {
-				log.Printf("[Proxy] Warning: failed to dispatch initial prompt: %v", err)
+				log.Printf("⚠️  [Proxy] Warning: failed to dispatch initial prompt: %v", err)
 			}
 		}
 	}

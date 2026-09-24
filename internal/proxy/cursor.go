@@ -495,7 +495,9 @@ func (p *Proxy) startDesktopFocusWatcherWithInterval(ctx context.Context, interv
 				p.desktopCascadeID = cid
 				p.desktopTitle = title
 				p.desktopFocusedAt = vTime
-				log.Printf("[Cursor] Desktop focus migrated to %s (%s) at %v", cid, title, vTime)
+				if verboseRPC {
+					log.Printf("[Cursor] Desktop focus migrated to %s (%s) at %v", cid, title, vTime)
+				}
 			}
 			p.cursorMu.Unlock()
 		}

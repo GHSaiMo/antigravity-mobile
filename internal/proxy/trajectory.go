@@ -618,7 +618,9 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	log.Printf("[Proxy] CascadeMessages: cascadeId=%s limit=%d offset=%d", cascadeID, limit, offset)
+	if verboseRPC {
+		log.Printf("[Proxy] CascadeMessages: cascadeId=%s limit=%d offset=%d", cascadeID, limit, offset)
+	}
 
 	p.mu.RLock()
 	port := p.activePort
@@ -1948,7 +1950,9 @@ func (p *Proxy) SyncHistoricalTrajectories(port int, token string) error {
 		return nil
 	}
 
-	log.Printf("[Proxy] Syncing %d historical trajectories into upstream language_server...", len(candidates))
+	if verboseRPC {
+		log.Printf("[Proxy] Syncing %d historical trajectories into upstream language_server...", len(candidates))
+	}
 
 	concurrency := 8
 	if concurrency > len(candidates) {
@@ -1972,7 +1976,7 @@ func (p *Proxy) SyncHistoricalTrajectories(port int, token string) error {
 				err := p.LoadTrajectory(cid, port, token)
 				if err == nil {
 					successCh <- cid
-				} else {
+				} else if verboseRPC {
 					log.Printf("[Proxy] Failed to load historical trajectory %s: %v", cid, err)
 				}
 			}
@@ -1988,7 +1992,9 @@ func (p *Proxy) SyncHistoricalTrajectories(port int, token string) error {
 	}
 	defaultTrajCache.loadedCascadesMu.Unlock()
 
-	log.Printf("[Proxy] Finished syncing historical trajectories")
+	if verboseRPC {
+		log.Printf("[Proxy] Finished syncing historical trajectories")
+	}
 	return nil
 }
 

@@ -102,8 +102,7 @@ func (b *BarkClient) Send(ctx context.Context, payload BarkPayload) error {
 			continue
 		}
 
-		log.Printf("[Bark] 🚀 Notification sent successfully: %q - %q (level=%s, sound=%s)",
-			payload.Title, payload.Body, payload.Level, payload.Sound)
+		log.Printf("[Bark] 🚀 推送成功: %s", payload.Title)
 		return nil
 	}
 

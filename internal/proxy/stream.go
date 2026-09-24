@@ -154,8 +154,10 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 	}
 	defer clientConn.Close()
 
-	log.Printf("[Stream] WS client connected: cascadeId=%s remote=%s client=%s format=%s", cascadeID, r.RemoteAddr, clientType, format)
-	defer log.Printf("[Stream] WS client disconnected: cascadeId=%s remote=%s", cascadeID, r.RemoteAddr)
+	if verboseRPC {
+		log.Printf("[Stream] WS client connected: cascadeId=%s remote=%s client=%s format=%s", cascadeID, r.RemoteAddr, clientType, format)
+		defer log.Printf("[Stream] WS client disconnected: cascadeId=%s remote=%s", cascadeID, r.RemoteAddr)
+	}
 
 	cur := p.insp.Current()
 	var curPort int

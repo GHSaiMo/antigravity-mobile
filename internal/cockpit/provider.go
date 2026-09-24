@@ -581,7 +581,6 @@ func TriggerRefresh(force ...bool) error {
 
 // QueryReport sends an HTTP GET request to the local Cockpit Tools report endpoint to trigger fresh quota collection.
 func QueryReport(port int, token string) error {
-	reqStart := time.Now()
 	url := fmt.Sprintf("http://127.0.0.1:%d/report?token=%s&format=yaml", port, token)
 	client := &http.Client{Timeout: 60 * time.Second}
 	resp, err := client.Get(url)
@@ -597,27 +596,7 @@ func QueryReport(port int, token string) error {
 		return fmt.Errorf("HTTP %d %s", resp.StatusCode, resp.Status)
 	}
 
-	buf := make([]byte, 1024)
-
-	n, _ := io.ReadFull(resp.Body, buf)
-	headerStr := string(buf[:n])
 	_, _ = io.Copy(io.Discard, resp.Body)
-
-	elapsed := time.Since(reqStart)
-	nextTrigger := ""
-	for _, line := range strings.Split(headerStr, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "next_auth_refresh_trigger_time:") {
-			nextTrigger = strings.Trim(strings.TrimPrefix(line, "next_auth_refresh_trigger_time:"), ` "'`)
-			break
-		}
-	}
-
-	if elapsed > 2*time.Second {
-		log.Printf("[Cockpit] Refresh executed successfully in %v (next due in %s)", elapsed.Round(time.Millisecond), nextTrigger)
-	} else {
-		log.Printf("[Cockpit] Report queried in %v (not stale yet, next due in %s)", elapsed.Round(time.Millisecond), nextTrigger)
-	}
 	return nil
 }
 

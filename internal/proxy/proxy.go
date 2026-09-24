@@ -91,7 +91,7 @@ type cascadeDedupEntry struct {
 // Cascade IDs are UUID-like strings: alphanumeric, hyphens, and underscores only.
 var (
 	cascadeIDRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$`)
-	verboseRPC  = os.Getenv("MULTIGRAVITY_LOG_RPC") != "" || os.Getenv("MULTIGRAVITY_VERBOSE_RPC") != "" || os.Getenv("GATEWAY_VERBOSE_RPC") != "" || os.Getenv("GATEWAY_LOG_RPC") != ""
+	verboseRPC  = os.Getenv("MULTIGRAVITY_VERBOSE") != "" || os.Getenv("MULTIGRAVITY_LOG_RPC") != "" || os.Getenv("MULTIGRAVITY_VERBOSE_RPC") != "" || os.Getenv("GATEWAY_VERBOSE_RPC") != "" || os.Getenv("GATEWAY_LOG_RPC") != ""
 )
 
 // shortCascadeID truncates a cascade ID for log redaction/sanitization.
@@ -264,7 +264,9 @@ func (p *Proxy) updateUpstream(info inspector.InstanceInfo) {
 	p.activeProxy = rp
 	p.activePort = port
 	p.activeToken = token
-	log.Printf("[Proxy] Updated upstream proxy to 127.0.0.1:%d", port)
+	if verboseRPC {
+		log.Printf("[Proxy] Updated upstream proxy to 127.0.0.1:%d", port)
+	}
 
 	// Reset historical sync state and asynchronously sync historical trajectories
 	ResetHistoricalSyncState()
@@ -479,7 +481,9 @@ func (p *Proxy) handleCascadeTouch(w http.ResponseWriter, r *http.Request) {
 		ClearTrajectoryCache(cascadeID)
 		ClearPendingMessagesCache(cascadeID)
 		p.notifyStreamTouch(cascadeID)
-		log.Printf("[Proxy] Cascade cache invalidated and stream notified via touch API: %s", shortCascadeID(cascadeID))
+		if verboseRPC {
+			log.Printf("[Proxy] Cascade cache invalidated and stream notified via touch API: %s", shortCascadeID(cascadeID))
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -532,11 +536,7 @@ func (p *Proxy) handleRpcProxy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	reqPath := strings.TrimPrefix(r.URL.Path, "/api")
-	if verboseRPC || (r.Method != http.MethodGet && (strings.HasSuffix(reqPath, "/SendUserCascadeMessage") ||
-		strings.HasSuffix(reqPath, "/StartCascade") ||
-		strings.HasSuffix(reqPath, "/DeleteCascadeTrajectory") ||
-		strings.HasSuffix(reqPath, "/DeleteAgentMessage") ||
-		strings.HasSuffix(reqPath, "/UpdateConversationAnnotations"))) {
+	if verboseRPC {
 		log.Printf("[Proxy] RPC: %s %s", r.Method, reqPath)
 	}
 	if strings.HasSuffix(reqPath, "/SendUserCascadeMessage") && r.Method == http.MethodPost {
@@ -862,7 +862,9 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 						if updatedBytes, err := json.Marshal(cfgObj); err == nil {
 							configToUse = updatedBytes
 						}
-						log.Printf("[Proxy] SendUserCascadeMessage: applied model %s (%s) to cascade %s", targetModel, modelEnum, shortCascadeID(cascadeID))
+						if verboseRPC {
+							log.Printf("[Proxy] SendUserCascadeMessage: applied model %s (%s) to cascade %s", targetModel, modelEnum, shortCascadeID(cascadeID))
+						}
 					}
 					rawMap["cascadeConfig"] = cfgObj
 				}
@@ -877,7 +879,9 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 					SetLastKnownCascadeConfig(updatedBytes)
 					SetCascadeModel(cascadeID, canonicalName, updatedBytes)
 				}
-				log.Printf("[Proxy] SendUserCascadeMessage: synthesized cascadeConfig with model %s (%s) for cascade %s", targetModel, modelEnum, shortCascadeID(cascadeID))
+				if verboseRPC {
+					log.Printf("[Proxy] SendUserCascadeMessage: synthesized cascadeConfig with model %s (%s) for cascade %s", targetModel, modelEnum, shortCascadeID(cascadeID))
+				}
 			}
 
 			delete(rawMap, "cascadeConfigRaw")
@@ -893,7 +897,11 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
-	log.Printf("[Proxy] SendUserCascadeMessage: cascadeId=%s payloadLen=%d", shortCascadeID(cascadeID), len(bodyBytes))
+	if verboseRPC {
+		log.Printf("[Proxy] SendUserCascadeMessage: cascadeId=%s payloadLen=%d", shortCascadeID(cascadeID), len(bodyBytes))
+	} else {
+		log.Printf("[Proxy] 💬 发送消息 -> 会话 %s", shortCascadeID(cascadeID))
+	}
 
 	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 	r.GetBody = func() (io.ReadCloser, error) {
@@ -925,11 +933,13 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 		w.Header().Set("Content-Length", strconv.Itoa(len(respBody)))
 		w.WriteHeader(rw.statusCode)
 		w.Write(respBody)
-		log.Printf("[Proxy] SendUserCascadeMessage upstream success: status=%d bodyLen=%d", rw.statusCode, len(respBody))
+		if verboseRPC {
+			log.Printf("[Proxy] SendUserCascadeMessage upstream success: status=%d bodyLen=%d", rw.statusCode, len(respBody))
+		}
 	} else {
 		w.WriteHeader(rw.statusCode)
 		w.Write(respBody)
-		log.Printf("[Proxy] SendUserCascadeMessage upstream error: status=%d body=%s", rw.statusCode, string(respBody))
+		log.Printf("⚠️  [Proxy] SendUserCascadeMessage upstream error: status=%d body=%s", rw.statusCode, string(respBody))
 	}
 }
 
@@ -969,7 +979,9 @@ func (p *Proxy) handleJetboxWriteState(w http.ResponseWriter, r *http.Request, r
 					ClearTrajectoryCache(cascadeID)
 				}
 			}
-			log.Printf("[Proxy] JetboxWriteState: cached active model %s (%s) cascadeId=%s", canonicalName, modelEnum, shortCascadeID(cascadeID))
+			if verboseRPC {
+				log.Printf("[Proxy] JetboxWriteState: cached active model %s (%s) cascadeId=%s", canonicalName, modelEnum, shortCascadeID(cascadeID))
+			}
 		}
 	}
 
@@ -1076,7 +1088,7 @@ func (p *Proxy) handleDeleteCascadeTrajectory(w http.ResponseWriter, r *http.Req
 				brainDir := filepath.Join(home, ".gemini", "antigravity", "brain", reqData.CascadeID)
 				_ = os.RemoveAll(brainDir)
 			}
-			log.Printf("[Proxy] Deleted cascade trajectory: %s (cache, tombstone & files cleared)", shortCascadeID(reqData.CascadeID))
+			log.Printf("[Proxy] 🗑️ 删除会话: %s", shortCascadeID(reqData.CascadeID))
 		}
 	} else if rec.statusCode >= 400 {
 		// Upstream explicitly rejected deletion; release the tombstone so the cascade reappears.
