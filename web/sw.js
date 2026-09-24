@@ -49,13 +49,17 @@ self.addEventListener("fetch", (event) => {
     caches.open(CACHE_NAME).then(async (cache) => {
       const cachedResponse = await cache.match(event.request);
       const networkFetch = fetch(event.request)
-        .then((networkResponse) => {
+        .then(async (networkResponse) => {
           if (networkResponse && networkResponse.ok) {
-            cache.put(event.request, networkResponse.clone());
+            // Await ensures the SW stays alive until cache write completes
+            await cache.put(event.request, networkResponse.clone());
           }
           return networkResponse;
         })
-        .catch(() => cachedResponse);
+        .catch(() => cachedResponse || null);
+
+      // Keep the Service Worker alive until cache update finishes
+      event.waitUntil(networkFetch.catch(() => {}));
 
       // Return cached response immediately if available, while updating cache in background
       return cachedResponse || networkFetch;

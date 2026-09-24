@@ -65,6 +65,8 @@ import com.antigravity.mobile.ui.viewmodel.ChatViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import coil.compose.SubcomposeAsyncImage
+import coil.request.ImageRequest
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -550,7 +552,7 @@ fun ChatScreen(
 
                                 items(
                                     uiState.messages,
-                                    key = { it.id.ifBlank { "${it.timestamp}_${it.content.hashCode()}" } }
+                                    key = { if (it.id.isNotBlank()) it.id else "${it.timestamp}_${it.role}_${it.stepIndex ?: 0}" }
                                 ) { msg ->
                                     MessageBubble(
                                         message = msg,
@@ -709,16 +711,32 @@ fun ChatScreen(
                                     Box(
                                         modifier = Modifier.padding(top = 4.dp, end = 6.dp)
                                     ) {
-                                        Image(
-                                            bitmap = img.bitmap.asImageBitmap(),
-                                            contentDescription = "Attachment preview",
-                                            contentScale = ContentScale.Crop,
-                                            modifier = Modifier
-                                                .size(52.dp)
-                                                .clip(RoundedCornerShape(10.dp))
-                                                .border(1.dp, colors.border, RoundedCornerShape(10.dp))
-                                                .clickable { viewModel.openAttachmentImageViewer(img) }
-                                        )
+                                        if (img.bitmap != null) {
+                                            Image(
+                                                bitmap = img.bitmap.asImageBitmap(),
+                                                contentDescription = "Attachment preview",
+                                                contentScale = ContentScale.Crop,
+                                                modifier = Modifier
+                                                    .size(52.dp)
+                                                    .clip(RoundedCornerShape(10.dp))
+                                                    .border(1.dp, colors.border, RoundedCornerShape(10.dp))
+                                                    .clickable { viewModel.openAttachmentImageViewer(img) }
+                                            )
+                                        } else {
+                                            SubcomposeAsyncImage(
+                                                model = ImageRequest.Builder(context)
+                                                    .data(img.byteArray)
+                                                    .crossfade(true)
+                                                    .build(),
+                                                contentDescription = "Attachment preview",
+                                                contentScale = ContentScale.Crop,
+                                                modifier = Modifier
+                                                    .size(52.dp)
+                                                    .clip(RoundedCornerShape(10.dp))
+                                                    .border(1.dp, colors.border, RoundedCornerShape(10.dp))
+                                                    .clickable { viewModel.openAttachmentImageViewer(img) }
+                                            )
+                                        }
 
                                         Box(
                                             modifier = Modifier

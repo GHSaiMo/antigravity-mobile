@@ -293,7 +293,16 @@ func (p *Proxy) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	// Active server-side heartbeat ping to keep connections alive through reverse proxies
 	stopHeartbeat := make(chan struct{})
-	defer close(stopHeartbeat)
+	var closeOnce sync.Once
+	closeBoth := func() {
+		closeOnce.Do(func() {
+			close(stopHeartbeat)
+			_ = clientConn.Close()
+			_ = upstreamConn.Close()
+		})
+	}
+	defer closeBoth()
+
 	go func() {
 		ticker := time.NewTicker(20 * time.Second)
 		defer ticker.Stop()
@@ -311,7 +320,7 @@ func (p *Proxy) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Pump: Client -> Upstream (streaming — avoids loading full messages into memory)
 	go func() {
 		defer wg.Done()
-		defer upstreamConn.Close()
+		defer closeBoth()
 		for {
 			msgType, r, err := clientConn.NextReader()
 			if err != nil {
@@ -335,7 +344,7 @@ func (p *Proxy) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Pump: Upstream -> Client (streaming — avoids loading full messages into memory)
 	go func() {
 		defer wg.Done()
-		defer clientConn.Close()
+		defer closeBoth()
 		for {
 			msgType, r, err := upstreamConn.NextReader()
 			if err != nil {

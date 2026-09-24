@@ -427,7 +427,7 @@ function renderRoute() {
       activeDraftSession = { isPure: true, name: "新对话", path: "", uri: "", rawId: "outside-of-project" };
     }
     activeCascadeId = null;
-    closeActiveWs();
+    closeActiveWs(true);
     updatePendingInteraction(null, false);
 
     convView.classList.add("pushed-left");
@@ -466,7 +466,7 @@ function renderRoute() {
   } else {
     activeCascadeId = null;
     activeDraftSession = null;
-    closeActiveWs();
+    closeActiveWs(true);
     updatePendingInteraction(null, false);
     if (chatInput) {
       chatInput.value = "";
@@ -1164,6 +1164,8 @@ function initVisualViewportHandling() {
 
 let activeWs = null;
 let wsReconnectTimer = null;
+let wsReconnectAttempts = 0;
+let draftDebounceTimer = null;
 let userIsNearBottom = true;
 let isUserTouching = false;
 let hasInitiallyAligned = false;
@@ -1453,7 +1455,8 @@ function initScrollListener() {
   }, { passive: true });
 }
 
-function closeActiveWs() {
+function closeActiveWs(resetBackoff = false) {
+  if (resetBackoff) wsReconnectAttempts = 0;
   if (wsReconnectTimer) {
     clearTimeout(wsReconnectTimer);
     wsReconnectTimer = null;
@@ -1540,7 +1543,8 @@ async function connectStreamWs(cascadeId) {
     activeWs = ws;
 
     ws.onopen = () => {
-      // WS successfully established: stop HTTP polling fallback
+      // WS successfully established: stop HTTP polling fallback & reset backoff
+      wsReconnectAttempts = 0;
       if (pollTimer) {
         clearInterval(pollTimer);
         pollTimer = null;
@@ -1610,11 +1614,13 @@ async function connectStreamWs(cascadeId) {
     ws.onclose = () => {
       if (activeCascadeId === cascadeId) {
         fallbackToHttpPolling(cascadeId);
+        const delay = Math.min(1000 * Math.pow(1.5, wsReconnectAttempts), 15000);
+        wsReconnectAttempts++;
         wsReconnectTimer = setTimeout(() => {
           if (activeCascadeId === cascadeId) {
             connectStreamWs(cascadeId);
           }
-        }, 2500);
+        }, delay);
       }
     };
   } catch (e) {
@@ -2672,6 +2678,7 @@ async function sendMessage() {
     renderImagePreviews();
 
     inputEl.value = "";
+    clearTimeout(draftDebounceTimer);
     inputEl.style.height = "auto";
 
     const streamEl = document.getElementById("messages-stream");
@@ -2746,6 +2753,7 @@ async function sendMessage() {
 
   inputEl.value = "";
   inputEl.style.height = "auto";
+  clearTimeout(draftDebounceTimer);
   DraftManager.clear(activeCascadeId);
   currentCanProceed = false;
   updateProceedButton(false);
@@ -5188,7 +5196,12 @@ window.addEventListener("DOMContentLoaded", () => {
       chatInput.style.height = "auto";
       chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + "px";
       if (activeCascadeId) {
-        DraftManager.set(activeCascadeId, chatInput.value);
+        clearTimeout(draftDebounceTimer);
+        const textToSave = chatInput.value;
+        const targetId = activeCascadeId;
+        draftDebounceTimer = setTimeout(() => {
+          DraftManager.set(targetId, textToSave);
+        }, 300);
       }
       const isRunning = currentTrajectories[activeCascadeId]?.status === "CASCADE_RUN_STATUS_RUNNING";
       updateChatControls(isRunning, null, false);

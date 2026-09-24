@@ -7,19 +7,45 @@ import android.util.Log
 import com.antigravity.mobile.data.model.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.*
 import okhttp3.Cache
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 import java.io.File
 import java.io.IOException
 import java.net.URLDecoder
 import java.net.URLEncoder
 import java.time.Instant
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+
+private suspend fun Call.await(): Response = suspendCancellableCoroutine { continuation ->
+    continuation.invokeOnCancellation {
+        try {
+            cancel()
+        } catch (_: Throwable) {}
+    }
+    enqueue(object : Callback {
+        override fun onResponse(call: Call, response: Response) {
+            if (continuation.isCancelled) {
+                response.close()
+            } else {
+                continuation.resume(response)
+            }
+        }
+        override fun onFailure(call: Call, e: IOException) {
+            continuation.resumeWithException(e)
+        }
+    })
+}
 
 class ApiClient(
     private val context: Context,
@@ -71,7 +97,7 @@ class ApiClient(
                     .post(bodyStr.toRequestBody(jsonMediaType))
                     .build()
 
-                client.newCall(request).execute().use { response ->
+                client.newCall(request).await().use { response ->
                     if (!response.isSuccessful) {
                         val errMsg = response.body?.string() ?: "HTTP ${response.code}"
                         lastException = RuntimeException("配对响应失败: $errMsg")
@@ -170,7 +196,7 @@ class ApiClient(
                 .post("{}".toRequestBody(jsonMediaType))
                 .build()
 
-            client.newCall(req).execute().use { response ->
+            client.newCall(req).await().use { response ->
                 if (!response.isSuccessful) {
                     return@withContext Result.failure(RuntimeException("获取会话列表失败 (${response.code})"))
                 }
@@ -205,7 +231,7 @@ class ApiClient(
 
         try {
             val req = buildAuthorizedRequest(url).get().build()
-            client.newCall(req).execute().use { response ->
+            client.newCall(req).await().use { response ->
                 if (!response.isSuccessful) {
                     return@withContext Result.failure(RuntimeException("获取配额失败 (${response.code})"))
                 }
@@ -227,7 +253,7 @@ class ApiClient(
 
         try {
             val req = buildAuthorizedRequest(url).post("{}".toRequestBody(jsonMediaType)).build()
-            client.newCall(req).execute().use { response ->
+            client.newCall(req).await().use { response ->
                 if (!response.isSuccessful) {
                     return@withContext Result.failure(RuntimeException("刷新配额失败 (${response.code})"))
                 }
@@ -253,7 +279,7 @@ class ApiClient(
 
         try {
             val req = buildAuthorizedRequest(url).post(body).build()
-            client.newCall(req).execute().use { response ->
+            client.newCall(req).await().use { response ->
                 if (response.isSuccessful) {
                     Result.success(Unit)
                 } else {
@@ -274,7 +300,7 @@ class ApiClient(
 
         try {
             val req = buildAuthorizedRequest(url).get().build()
-            client.newCall(req).execute().use { response ->
+            client.newCall(req).await().use { response ->
                 if (!response.isSuccessful) {
                     val errMsg = response.body?.string()?.take(200) ?: ""
                     Log.e("ApiClient", "fetchProjects failed (${response.code}): $errMsg")
@@ -330,7 +356,7 @@ class ApiClient(
                 .post(payload.toString().toRequestBody(jsonMediaType))
                 .build()
 
-            client.newCall(req).execute().use { response ->
+            client.newCall(req).await().use { response ->
                 if (!response.isSuccessful) {
                     return@withContext Result.failure(RuntimeException("创建会话失败: HTTP ${response.code}"))
                 }
@@ -365,7 +391,7 @@ class ApiClient(
                 .post(payload.toString().toRequestBody(jsonMediaType))
                 .build()
 
-            client.newCall(req).execute().use { response ->
+            client.newCall(req).await().use { response ->
                 if (response.isSuccessful) {
                     Result.success(Unit)
                 } else {
@@ -396,7 +422,7 @@ class ApiClient(
                 .post(payload.toString().toRequestBody(jsonMediaType))
                 .build()
 
-            client.newCall(req).execute().use { response ->
+            client.newCall(req).await().use { response ->
                 if (response.isSuccessful) {
                     Result.success(Unit)
                 } else {
@@ -425,7 +451,7 @@ class ApiClient(
                 .get()
                 .build()
 
-            client.newCall(req).execute().use { response ->
+            client.newCall(req).await().use { response ->
                 if (!response.isSuccessful) {
                     return@withContext Result.failure(RuntimeException("获取消息失败: HTTP ${response.code}"))
                 }
@@ -497,7 +523,7 @@ class ApiClient(
 
             val req = reqBuilder.build()
 
-            client.newCall(req).execute().use { response ->
+            client.newCall(req).await().use { response ->
                 if (response.isSuccessful) {
                     Result.success(Unit)
                 } else {
@@ -529,7 +555,7 @@ class ApiClient(
                 .post(payload.toString().toRequestBody(jsonMediaType))
                 .build()
 
-            client.newCall(req).execute().use { response ->
+            client.newCall(req).await().use { response ->
                 if (response.isSuccessful) {
                     Result.success(Unit)
                 } else {
@@ -557,7 +583,7 @@ class ApiClient(
                 .post(payload.toString().toRequestBody(jsonMediaType))
                 .build()
 
-            client.newCall(req).execute().use { response ->
+            client.newCall(req).await().use { response ->
                 if (response.isSuccessful) {
                     Result.success(Unit)
                 } else {
@@ -587,7 +613,7 @@ class ApiClient(
                 .post(payload.toString().toRequestBody(jsonMediaType))
                 .build()
 
-            client.newCall(req).execute().use { response ->
+            client.newCall(req).await().use { response ->
                 if (response.isSuccessful) {
                     Result.success(Unit)
                 } else {
@@ -628,7 +654,7 @@ class ApiClient(
                 .post(bodyStr.toRequestBody(jsonMediaType))
                 .build()
 
-            client.newCall(req).execute().use { response ->
+            client.newCall(req).await().use { response ->
                 if (response.isSuccessful) {
                     Result.success(Unit)
                 } else {
@@ -678,7 +704,7 @@ class ApiClient(
             }
             val req = reqBuilder.build()
 
-            client.newCall(req).execute().use { response ->
+            client.newCall(req).await().use { response ->
                 if (response.isSuccessful) {
                     Result.success(Unit)
                 } else {
@@ -702,7 +728,7 @@ class ApiClient(
 
         try {
             val req = buildAuthorizedRequest(url).get().build()
-            client.newCall(req).execute().use { response ->
+            client.newCall(req).await().use { response ->
                 if (!response.isSuccessful) {
                     return@withContext Result.failure(RuntimeException("获取文件失败: HTTP ${response.code}"))
                 }
@@ -768,7 +794,7 @@ class ApiClient(
             val req = buildAuthorizedRequest(url)
                 .post(payload.toString().toRequestBody(jsonMediaType))
                 .build()
-            client.newCall(req).execute().close()
+            client.newCall(req).await().close()
         } catch (_: Exception) {}
     }
 
@@ -835,7 +861,7 @@ class ApiClient(
                 }
                 .build()
 
-            client.newCall(request).execute().use { response ->
+            client.newCall(request).await().use { response ->
                 if (!response.isSuccessful) {
                     return@withContext Result.failure(RuntimeException("下载文件失败: HTTP ${response.code}"))
                 }
@@ -886,7 +912,7 @@ class ApiClient(
                 .post(body)
                 .build()
 
-            client.newCall(request).execute().use { response ->
+            client.newCall(request).await().use { response ->
                 Log.d("ApiClient", "Unpair response code: ${response.code}")
             }
             Result.success(Unit)
@@ -910,7 +936,7 @@ class ApiClient(
                 .post(reqPayload.toRequestBody(jsonMediaType))
                 .build()
 
-            client.newCall(request).execute().use { response ->
+            client.newCall(request).await().use { response ->
                 if (!response.isSuccessful) {
                     val errMsg = response.body?.string() ?: "HTTP ${response.code}"
                     return@withContext Result.failure(RuntimeException("获取撤回预览失败: $errMsg"))
@@ -938,7 +964,7 @@ class ApiClient(
                 .post(reqPayload.toRequestBody(jsonMediaType))
                 .build()
 
-            client.newCall(request).execute().use { response ->
+            client.newCall(request).await().use { response ->
                 if (!response.isSuccessful) {
                     val errMsg = response.body?.string() ?: "HTTP ${response.code}"
                     return@withContext Result.failure(RuntimeException("执行撤回失败: $errMsg"))
@@ -968,7 +994,7 @@ class ApiClient(
                 .post(payload.toString().toRequestBody(jsonMediaType))
                 .build()
 
-            client.newCall(req).execute().use { response ->
+            client.newCall(req).await().use { response ->
                 if (!response.isSuccessful) {
                     return@withContext Result.failure(RuntimeException("注册推送 Token 失败 (${response.code})"))
                 }

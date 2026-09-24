@@ -148,40 +148,44 @@ async function handleTunnelRegister(request, env) {
     }
     const tunnelId = createData.result.id;
 
-    // 7. 配置 Ingress 规则：严格锁定本地目标为 localhost:58900
-    const configRes = await fetch(
-      `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnelId}/configurations`,
-      {
-        method: "PUT",
-        headers: cfHeaders,
-        body: JSON.stringify({
-          config: {
-            ingress: [
-              {
-                hostname: subdomain,
-                service: `http://localhost:${targetPort}`,
-              },
-              {
-                service: "http_status:404",
-              },
-            ],
-          },
-        }),
-      }
-    );
-    const configData = await configRes.json();
+    // 7 & 8. 并行配置 Ingress 规则与查询 DNS 记录
+    const dnsTarget = `${tunnelId}.cfargotunnel.com`;
+    const [configRes, dnsSearchRes] = await Promise.all([
+      fetch(
+        `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnelId}/configurations`,
+        {
+          method: "PUT",
+          headers: cfHeaders,
+          body: JSON.stringify({
+            config: {
+              ingress: [
+                {
+                  hostname: subdomain,
+                  service: `http://localhost:${targetPort}`,
+                },
+                {
+                  service: "http_status:404",
+                },
+              ],
+            },
+          }),
+        }
+      ),
+      fetch(
+        `https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records?name=${encodeURIComponent(subdomain)}&type=CNAME`,
+        { headers: cfHeaders }
+      ),
+    ]);
+
+    const [configData, dnsSearchData] = await Promise.all([
+      configRes.json(),
+      dnsSearchRes.json(),
+    ]);
+
     if (!configData.success) {
       console.warn("Failed to set tunnel ingress config:", configData.errors);
     }
 
-    // 8. 自动配置 DNS CNAME 记录 -> 指向 <tunnel_id>.cfargotunnel.com
-    const dnsTarget = `${tunnelId}.cfargotunnel.com`;
-    // 先检查是否已有旧的同名 DNS 记录
-    const dnsSearchRes = await fetch(
-      `https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records?name=${encodeURIComponent(subdomain)}&type=CNAME`,
-      { headers: cfHeaders }
-    );
-    const dnsSearchData = await dnsSearchRes.json();
     if (dnsSearchData.success && dnsSearchData.result && dnsSearchData.result.length > 0) {
       // 更新已有记录
       const recordId = dnsSearchData.result[0].id;

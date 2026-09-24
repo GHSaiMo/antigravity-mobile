@@ -150,15 +150,21 @@ func (t *CloudflareTunnel) Start(ctx context.Context, binPath string) error {
 	return nil
 }
 
-// Stop terminates the running cloudflared process.
+// Stop terminates the running cloudflared process gracefully with fallback to Kill.
 func (t *CloudflareTunnel) Stop() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if !t.running || t.cmd == nil || t.cmd.Process == nil {
 		return
 	}
-	_ = t.cmd.Process.Kill()
+	proc := t.cmd.Process
+	_ = proc.Signal(os.Interrupt)
 	t.running = false
+
+	go func() {
+		time.Sleep(2500 * time.Millisecond)
+		_ = proc.Kill()
+	}()
 }
 
 // FindCloudflaredBinary checks whether cloudflared exists in PATH or ~/.multigravity/bin.

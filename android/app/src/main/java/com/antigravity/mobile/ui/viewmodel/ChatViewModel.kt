@@ -38,7 +38,7 @@ import kotlin.math.roundToInt
 data class AttachmentImage(
     val id: String = UUID.randomUUID().toString(),
     val uri: Uri,
-    val bitmap: Bitmap,
+    val bitmap: Bitmap? = null,
     val byteArray: ByteArray,
     val mimeType: String = "image/jpeg"
 ) {
@@ -466,10 +466,10 @@ class ChatViewModel(
         return try {
             val cleaned = if (raw.contains(",")) raw.substringAfter(",") else raw
             val bytes = Base64.decode(cleaned, Base64.DEFAULT)
-            val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+            if (bytes.isEmpty()) return null
             AttachmentImage(
                 uri = Uri.EMPTY,
-                bitmap = bitmap,
+                bitmap = null,
                 byteArray = bytes
             )
         } catch (_: Exception) {
@@ -613,17 +613,12 @@ class ChatViewModel(
 
         val draftImages = prefs?.loadDraftImages(cascadeId).orEmpty()
         val attachments = if (draftImages.isNotEmpty()) {
-            draftImages.mapNotNull { bytes ->
-                try {
-                    val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                    if (bitmap != null) {
-                        AttachmentImage(
-                            uri = Uri.EMPTY,
-                            bitmap = bitmap,
-                            byteArray = bytes
-                        )
-                    } else null
-                } catch (_: Exception) { null }
+            draftImages.map { bytes ->
+                AttachmentImage(
+                    uri = Uri.EMPTY,
+                    bitmap = null,
+                    byteArray = bytes
+                )
             }
         } else emptyList()
 
@@ -726,17 +721,12 @@ class ChatViewModel(
 
             val draftImages = prefs?.loadDraftImages(cascadeId).orEmpty()
             val attachments = if (draftImages.isNotEmpty()) {
-                draftImages.mapNotNull { bytes ->
-                    try {
-                        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                        if (bitmap != null) {
-                            AttachmentImage(
-                                uri = Uri.EMPTY,
-                                bitmap = bitmap,
-                                byteArray = bytes
-                            )
-                        } else null
-                    } catch (_: Exception) { null }
+                draftImages.map { bytes ->
+                    AttachmentImage(
+                        uri = Uri.EMPTY,
+                        bitmap = null,
+                        byteArray = bytes
+                    )
                 }
             } else emptyList()
 
@@ -815,17 +805,12 @@ class ChatViewModel(
             }
             val draftImages = p.loadDraftImages(cascadeId)
             if (draftImages.isNotEmpty() && _uiState.value.selectedImages.isEmpty()) {
-                val attachments = draftImages.mapNotNull { bytes ->
-                    try {
-                        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                        if (bitmap != null) {
-                            AttachmentImage(
-                                uri = Uri.EMPTY,
-                                bitmap = bitmap,
-                                byteArray = bytes
-                            )
-                        } else null
-                    } catch (_: Exception) { null }
+                val attachments = draftImages.map { bytes ->
+                    AttachmentImage(
+                        uri = Uri.EMPTY,
+                        bitmap = null,
+                        byteArray = bytes
+                    )
                 }
                 if (attachments.isNotEmpty()) {
                     _uiState.value = _uiState.value.copy(selectedImages = attachments)
@@ -1149,7 +1134,7 @@ class ChatViewModel(
         }
     }
 
-    private fun compressAndResizeImage(bytes: ByteArray, maxDim: Int = 2048): Pair<Bitmap, ByteArray>? {
+    private fun compressAndResizeImage(bytes: ByteArray, maxDim: Int = 2048): ByteArray? {
         return try {
             val boundsOptions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size, boundsOptions)
@@ -1184,8 +1169,11 @@ class ChatViewModel(
             val outputStream = ByteArrayOutputStream()
             finalBitmap.compress(Bitmap.CompressFormat.JPEG, 85, outputStream)
             val compressedBytes = outputStream.toByteArray()
-
-            Pair(finalBitmap, compressedBytes)
+            if (finalBitmap != decodedBitmap) {
+                finalBitmap.recycle()
+            }
+            decodedBitmap.recycle()
+            compressedBytes
         } catch (_: Exception) {
             null
         }
@@ -1202,23 +1190,20 @@ class ChatViewModel(
                         newAttachments.add(
                             AttachmentImage(
                                 uri = uri,
-                                bitmap = processed.first,
-                                byteArray = processed.second,
+                                bitmap = null,
+                                byteArray = processed,
                                 mimeType = "image/jpeg"
                             )
                         )
                     } else {
-                        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                        if (bitmap != null) {
-                            newAttachments.add(
-                                AttachmentImage(
-                                    uri = uri,
-                                    bitmap = bitmap,
-                                    byteArray = bytes,
-                                    mimeType = context.contentResolver.getType(uri) ?: "image/jpeg"
-                                )
+                        newAttachments.add(
+                            AttachmentImage(
+                                uri = uri,
+                                bitmap = null,
+                                byteArray = bytes,
+                                mimeType = context.contentResolver.getType(uri) ?: "image/jpeg"
                             )
-                        }
+                        )
                     }
                 } catch (e: Exception) {
                     // Ignore unreadable image
@@ -1930,9 +1915,9 @@ class ChatViewModel(
         val selected = _uiState.value.selectedImages
         val index = selected.indexOf(attachment).coerceAtLeast(0)
         val items = if (selected.isNotEmpty()) {
-            selected.map { ImageViewerItem(bitmap = it.bitmap) }
+            selected.map { ImageViewerItem(bitmap = it.bitmap, bytes = it.byteArray) }
         } else {
-            listOf(ImageViewerItem(bitmap = attachment.bitmap))
+            listOf(ImageViewerItem(bitmap = attachment.bitmap, bytes = attachment.byteArray))
         }
         openImageViewer(items = items, initialIndex = index)
 
@@ -2145,11 +2130,10 @@ class ChatViewModel(
                 val images = message.effectiveImageDataList
                 if (images.isNotEmpty()) {
                     val restoredAttachments = images.map { bytes ->
-                        val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                         AttachmentImage(
                             id = UUID.randomUUID().toString(),
                             uri = Uri.EMPTY,
-                            bitmap = bmp ?: Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888),
+                            bitmap = null,
                             byteArray = bytes,
                             mimeType = "image/jpeg"
                         )

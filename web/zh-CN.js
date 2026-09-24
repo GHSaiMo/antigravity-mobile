@@ -745,13 +745,19 @@
   }
 
   // 监听动态 DOM 变动
+  let pendingMutations = [];
   let timer = null;
   const observer = new MutationObserver((mutations) => {
+    for (let i = 0; i < mutations.length; i++) {
+      pendingMutations.push(mutations[i]);
+    }
     if (timer) return;
     timer = requestAnimationFrame(() => {
       timer = null;
-      for (let i = 0; i < mutations.length; i++) {
-        const m = mutations[i];
+      const batch = pendingMutations;
+      pendingMutations = [];
+      for (let i = 0; i < batch.length; i++) {
+        const m = batch[i];
         if (m.type === "childList") {
           for (let j = 0; j < m.addedNodes.length; j++) {
             translateNode(m.addedNodes[j]);
@@ -782,9 +788,14 @@
         });
       });
     }
-    // 周期扫描兜底（处理某些 React 异步重渲染）
-    // PERF: 5s 间隔足以兜底，MutationObserver 已覆盖绝大多数变更
-    setInterval(runLocalization, 5000);
+    // 周期空闲扫描兜底（处理某些 React 异步重渲染）
+    setInterval(() => {
+      if (typeof requestIdleCallback === "function") {
+        requestIdleCallback(runLocalization, { timeout: 2000 });
+      } else {
+        runLocalization();
+      }
+    }, 15000);
   }
 
   if (document.readyState === "loading") {

@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(UIKit)
+import UIKit
+#endif
 
 public nonisolated struct CachedChatSession: Codable, Sendable {
     public let cascadeId: String
@@ -234,6 +237,24 @@ public final class CacheManager: @unchecked Sendable {
         let dir = base.appendingPathComponent("AntigravityCache", isDirectory: true)
         self.cacheDir = dir
         try? fm.createDirectory(at: dir.appendingPathComponent("sessions", isDirectory: true), withIntermediateDirectories: true)
+        
+        #if canImport(UIKit)
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didReceiveMemoryWarningNotification,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            self?.handleMemoryWarning()
+        }
+        #endif
+    }
+    
+    public func handleMemoryWarning() {
+        lock.lock()
+        memSessions.removeAll()
+        memDraftImages.removeAll()
+        memConversations = nil
+        lock.unlock()
     }
     
     // MARK: - Conversations List Cache
@@ -322,6 +343,12 @@ public final class CacheManager: @unchecked Sendable {
         }
         
         return filtered
+    }
+    
+    public func loadConversationsAsync() async -> [ConversationItem] {
+        return await Task.detached(priority: .userInitiated) { [weak self] in
+            return self?.loadConversations() ?? []
+        }.value
     }
     
     public func updateConversationTitle(cascadeId: String, newTitle: String) {
@@ -462,6 +489,9 @@ public final class CacheManager: @unchecked Sendable {
     
     public func saveSession(_ session: CachedChatSession) {
         lock.lock()
+        if memSessions.count >= 15 {
+            memSessions.remove(at: memSessions.startIndex)
+        }
         memSessions[session.cascadeId] = session
         lock.unlock()
         
@@ -497,9 +527,25 @@ public final class CacheManager: @unchecked Sendable {
         }
         
         lock.lock()
+        if memSessions.count >= 15 {
+            memSessions.remove(at: memSessions.startIndex)
+        }
         memSessions[cascadeId] = session
         lock.unlock()
         return session
+    }
+    
+    public func loadSessionAsync(for cascadeId: String) async -> CachedChatSession? {
+        lock.lock()
+        if let mem = memSessions[cascadeId] {
+            lock.unlock()
+            return mem
+        }
+        lock.unlock()
+
+        return await Task.detached(priority: .userInitiated) { [weak self] in
+            return self?.loadSession(for: cascadeId)
+        }.value
     }
     
     public func prewarmSessions(for cascadeIds: [String]) {
@@ -516,6 +562,9 @@ public final class CacheManager: @unchecked Sendable {
                 if let data = try? Data(contentsOf: fileURL),
                    let session = try? JSONDecoder().decode(CachedChatSession.self, from: data) {
                     self.lock.lock()
+                    if self.memSessions.count >= 15 {
+                        self.memSessions.remove(at: self.memSessions.startIndex)
+                    }
                     self.memSessions[cid] = session
                     self.lock.unlock()
                 }

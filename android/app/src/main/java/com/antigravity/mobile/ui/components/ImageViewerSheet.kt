@@ -77,21 +77,23 @@ import kotlin.math.roundToInt
 data class ImageViewerItem(
     val bitmap: Bitmap? = null,
     val url: String? = null,
-    val title: String? = null
+    val title: String? = null,
+    val bytes: ByteArray? = null
 )
 
 data class ImageViewerData(
     val items: List<ImageViewerItem> = emptyList(),
     val initialIndex: Int = 0
 ) {
-    constructor(bitmap: Bitmap? = null, url: String? = null, title: String? = null) : this(
-        items = listOf(ImageViewerItem(bitmap = bitmap, url = url, title = title)),
+    constructor(bitmap: Bitmap? = null, url: String? = null, title: String? = null, bytes: ByteArray? = null) : this(
+        items = listOf(ImageViewerItem(bitmap = bitmap, url = url, title = title, bytes = bytes)),
         initialIndex = 0
     )
 
     val bitmap: Bitmap? get() = items.getOrNull(initialIndex)?.bitmap
     val url: String? get() = items.getOrNull(initialIndex)?.url
     val title: String? get() = items.getOrNull(initialIndex)?.title
+    val bytes: ByteArray? get() = items.getOrNull(initialIndex)?.bytes
 }
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
@@ -107,7 +109,7 @@ fun ImageViewerSheet(
 
     val effectiveItems = remember(data) {
         if (data.items.isNotEmpty()) data.items
-        else listOf(ImageViewerItem(bitmap = data.bitmap, url = data.url, title = data.title))
+        else listOf(ImageViewerItem(bitmap = data.bitmap, url = data.url, title = data.title, bytes = data.bytes))
     }
 
     val pagerState = rememberPagerState(
@@ -255,10 +257,10 @@ fun ImageViewerSheet(
                             contentScale = ContentScale.Fit,
                             modifier = Modifier.fillMaxSize()
                         )
-                    } else if (!item?.url.isNullOrBlank()) {
+                    } else if (item?.bytes != null || !item?.url.isNullOrBlank()) {
                         SubcomposeAsyncImage(
                             model = ImageRequest.Builder(context)
-                                .data(item.url)
+                                .data(item?.bytes ?: item?.url)
                                 .crossfade(true)
                                 .build(),
                             contentDescription = "Full image preview",
@@ -311,7 +313,7 @@ fun ImageViewerSheet(
                             onClick = {
                                 showSaveSheet = false
                                 val currentItem = effectiveItems.getOrNull(pagerState.currentPage)
-                                    ?: ImageViewerItem(data.bitmap, data.url, data.title)
+                                    ?: ImageViewerItem(data.bitmap, data.url, data.title, bytes = data.bytes)
                                 coroutineScope.launch {
                                     saveImageToGallery(context, currentItem)
                                 }
@@ -400,12 +402,13 @@ private suspend fun PointerInputScope.detectZoomAndPan(
 
 private suspend fun resolveBitmap(context: Context, item: ImageViewerItem): Bitmap? {
     if (item.bitmap != null) return item.bitmap
-    if (item.url.isNullOrBlank()) return null
+    val data = item.bytes ?: item.url
+    if (data == null || (data is String && data.isBlank())) return null
     return withContext(Dispatchers.IO) {
         try {
             val loader = context.imageLoader
             val request = ImageRequest.Builder(context)
-                .data(item.url)
+                .data(data)
                 .allowHardware(false)
                 .build()
             val result = loader.execute(request)
@@ -419,7 +422,7 @@ private suspend fun resolveBitmap(context: Context, item: ImageViewerItem): Bitm
 }
 
 private suspend fun resolveBitmap(context: Context, data: ImageViewerData): Bitmap? {
-    val item = data.items.getOrNull(data.initialIndex) ?: ImageViewerItem(data.bitmap, data.url, data.title)
+    val item = data.items.getOrNull(data.initialIndex) ?: ImageViewerItem(data.bitmap, data.url, data.title, bytes = data.bytes)
     return resolveBitmap(context, item)
 }
 
@@ -467,7 +470,7 @@ private suspend fun saveImageToGallery(context: Context, item: ImageViewerItem) 
 }
 
 private suspend fun saveImageToGallery(context: Context, data: ImageViewerData) {
-    val item = data.items.getOrNull(data.initialIndex) ?: ImageViewerItem(data.bitmap, data.url, data.title)
+    val item = data.items.getOrNull(data.initialIndex) ?: ImageViewerItem(data.bitmap, data.url, data.title, bytes = data.bytes)
     saveImageToGallery(context, item)
 }
 
@@ -517,6 +520,6 @@ private suspend fun shareImage(context: Context, item: ImageViewerItem) {
 }
 
 private suspend fun shareImage(context: Context, data: ImageViewerData) {
-    val item = data.items.getOrNull(data.initialIndex) ?: ImageViewerItem(data.bitmap, data.url, data.title)
+    val item = data.items.getOrNull(data.initialIndex) ?: ImageViewerItem(data.bitmap, data.url, data.title, bytes = data.bytes)
     shareImage(context, item)
 }
