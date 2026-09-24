@@ -158,14 +158,29 @@ func (t *CloudflareTunnel) Stop() {
 	t.running = false
 }
 
+// FindCloudflaredBinary checks whether cloudflared exists in PATH or ~/.multigravity/bin.
+func FindCloudflaredBinary() string {
+	if bin, err := exec.LookPath("cloudflared"); err == nil {
+		return bin
+	}
+	binDir := filepath.Join(config.GetDataDir(), "bin")
+	binName := "cloudflared"
+	if runtime.GOOS == "windows" {
+		binName = "cloudflared.exe"
+	}
+	targetPath := filepath.Join(binDir, binName)
+	if fi, err := os.Stat(targetPath); err == nil && !fi.IsDir() && fi.Size() > 1024*1024 {
+		return targetPath
+	}
+	return ""
+}
+
 // EnsureCloudflaredBinary checks for cloudflared in PATH or downloads it automatically.
 func EnsureCloudflaredBinary(ctx context.Context) (string, error) {
-	// 1. Check system PATH
-	if bin, err := exec.LookPath("cloudflared"); err == nil {
+	if bin := FindCloudflaredBinary(); bin != "" {
 		return bin, nil
 	}
 
-	// 2. Check ~/.multigravity/bin/cloudflared
 	binDir := filepath.Join(config.GetDataDir(), "bin")
 	binName := "cloudflared"
 	if runtime.GOOS == "windows" {
@@ -173,9 +188,6 @@ func EnsureCloudflaredBinary(ctx context.Context) (string, error) {
 	}
 	targetPath := filepath.Join(binDir, binName)
 
-	if fi, err := os.Stat(targetPath); err == nil && !fi.IsDir() && fi.Size() > 1024*1024 {
-		return targetPath, nil
-	}
 
 	// 3. Needs download
 	_ = os.MkdirAll(binDir, 0755)

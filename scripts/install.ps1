@@ -337,6 +337,9 @@ Write-Host ""
 Write-Host "🚀 常用指令:" -ForegroundColor Yellow
 Write-Host "   • 启动网关主服务:   mgy" -ForegroundColor White
 Write-Host "   • 终端打印配对码:   mgy pair" -ForegroundColor White
+Write-Host "   • 配置座舱报表:     mgy cockpit" -ForegroundColor White
+Write-Host "   • 配置推送 (iOS):   mgy bark" -ForegroundColor White
+Write-Host "   • 配置公网穿透:     mgy cloudflare" -ForegroundColor White
 Write-Host "   • 查看已连接设备:   mgy list" -ForegroundColor White
 Write-Host "   • 清空已配对设备:   mgy clear all" -ForegroundColor White
 Write-Host "   • 查看命令帮助:     mgy help" -ForegroundColor White

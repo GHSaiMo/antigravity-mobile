@@ -89,6 +89,9 @@ mgy
 mgy                # 前台启动网关主服务，双栈监听并打印一次配对二维码
 mgy run            # 等同于直接运行 mgy，支持传入自定义参数 (如 -port 58900)
 mgy pair           # 向正在运行的网关申请并打印 5 分钟有效的新配对二维码与链接
+mgy cockpit        # 交互式配置 Cockpit 报表服务与安全 Token (支持 status/token/restart)
+mgy bark           # 交互式配置 Bark 实时推送与提示音 (iOS 专用，支持 status/test/set)
+mgy cloudflare     # 交互式配置 Cloudflare 专属穿透隧道与域名 (快捷别名: mgy cf)
 mgy list           # 查看所有已配对授权的移动设备 (支持在线与离线查看)
 mgy clear all      # 一键清除所有已配对设备授权
 mgy clear <dev_id> # 清除指定设备授权

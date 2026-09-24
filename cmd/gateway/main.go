@@ -49,6 +49,12 @@ func main() {
 		case "cockpit":
 			cockpit.RunCockpitCmd(args[1:])
 			return
+		case "bark":
+			notifier.RunBarkCmd(args[1:])
+			return
+		case "cloudflare", "cf":
+			tunnel.RunCloudflareCmd(args[1:])
+			return
 		case "list":
 			runListCmd(args[1:])
 			return
@@ -406,6 +412,8 @@ func runHelpCmd() {
   run (默认)        启动网关服务 (局域网直连 + Cloudflare 专属 HTTPS 隧道)
   pair              向正在运行的网关申请并打印新配对二维码与链接
   cockpit           交互式配置 Cockpit 报表服务与安全 Token (支持 status/token/restart)
+  bark              交互式配置 Bark 实时推送与提示音 (iOS 专用, 支持 status/test/set)
+  cloudflare (cf)   交互式配置 Cloudflare 专属穿透隧道与域名 (支持 status/reset/enable)
   list              查看所有已配对授权的移动设备 (支持在线与离线查看)
   clear [all|id]    清除已配对的设备授权 (支持: mgy clear all 或 mgy clear <device-id>)
   version           查看当前版本信息
