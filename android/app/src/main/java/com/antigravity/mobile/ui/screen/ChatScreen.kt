@@ -802,7 +802,7 @@ fun ChatScreen(
                                             .heightIn(min = 44.dp)
                                             .clip(RoundedCornerShape(22.dp))
                                             .background(colors.surfaceVariant)
-                                            .padding(horizontal = 16.dp, vertical = 11.dp),
+                                            .padding(horizontal = 16.dp, vertical = 8.dp),
                                         contentAlignment = Alignment.CenterStart
                                     ) {
                                         val isActivelyRunning = uiState.isRunning || uiState.isAwaitingResponse || uiState.runningTasks.isNotEmpty()
