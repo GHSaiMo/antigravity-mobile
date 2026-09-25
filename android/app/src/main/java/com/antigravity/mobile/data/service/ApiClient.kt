@@ -800,6 +800,8 @@ class ApiClient(
 
     /**
      * Resolves a raw media/image URI into an authenticated, loadable HTTP URL for Coil / Image loaders.
+     * Note: Image authentication is handled via Authorization Header (configured in Coil ImageLoader)
+     * avoiding deprecated query tokens.
      */
     fun resolveMediaURL(raw: String): String {
         var clean = raw.trim()
@@ -808,14 +810,9 @@ class ApiClient(
         }
         clean = clean.trim('`', '"', '\'', '(', ')', '[', ']', '<', '>')
 
-        val token = prefs.deviceToken ?: ""
         val baseUrl = currentBaseUrl?.trimEnd('/') ?: ""
 
         if (clean.startsWith("http://") || clean.startsWith("https://")) {
-            if (baseUrl.isNotBlank() && clean.contains("/api/v1/files/raw") && !clean.contains("auth_token=") && !clean.contains("token=") && token.isNotBlank()) {
-                val separator = if (clean.contains("?")) "&" else "?"
-                return "$clean${separator}auth_token=$token"
-            }
             return clean
         }
 
@@ -840,8 +837,7 @@ class ApiClient(
         } catch (_: Exception) {
             unescaped
         }
-        val tokenParam = if (token.isNotBlank()) "&auth_token=$token" else ""
-        return "$baseUrl/api/v1/files/raw?uri=$encodedUri$tokenParam"
+        return "$baseUrl/api/v1/files/raw?uri=$encodedUri"
     }
 
     suspend fun downloadFile(
@@ -1002,6 +998,31 @@ class ApiClient(
             }
         } catch (e: Exception) {
             Log.w("ApiClient", "registerPushToken error: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Exchanges the device token for a short-lived one-time ticket via POST /api/v1/auth/ws-ticket.
+     */
+    suspend fun getWsTicket(): Result<String> = withContext(Dispatchers.IO) {
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val url = "$baseUrl/api/v1/auth/ws-ticket"
+        try {
+            val req = buildAuthorizedRequest(url)
+                .post("{}".toRequestBody("application/json".toMediaType()))
+                .build()
+
+            client.newCall(req).await().use { response ->
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(RuntimeException("获取 ws-ticket 失败 (${response.code})"))
+                }
+                val body = response.body?.string() ?: return@withContext Result.failure(RuntimeException("Empty body"))
+                val ticketResp = JsonConfig.instance.decodeFromString<WsTicketResponse>(body)
+                Result.success(ticketResp.ticket)
+            }
+        } catch (e: Exception) {
+            Log.w("ApiClient", "getWsTicket error: ${e.message}")
             Result.failure(e)
         }
     }

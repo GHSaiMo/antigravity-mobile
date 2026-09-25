@@ -130,3 +130,9 @@ data class PairResponse(
     val os: String? = null,
     val platform: String? = null
 )
+
+@Serializable
+data class WsTicketResponse(
+    val ticket: String = "",
+    @SerialName("expires_in") val expiresIn: Int = 30
+)

@@ -96,9 +96,16 @@ class StreamWebSocketClient(
         val wsUrl = buildWebSocketUrl(baseUrl, cascadeId)
         _connectionStatus.value = ConnectionStatus.CONNECTING
 
-        val request = Request.Builder()
+        val token = prefs.deviceToken?.takeIf { it.isNotBlank() }
+        val requestBuilder = Request.Builder()
             .url(wsUrl)
-            .build()
+
+        if (token != null) {
+            requestBuilder.header("Authorization", "Bearer $token")
+            requestBuilder.header("x-device-token", token)
+        }
+
+        val request = requestBuilder.build()
 
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
@@ -155,12 +162,15 @@ class StreamWebSocketClient(
         }
     }
 
-    private fun buildWebSocketUrl(baseUrl: String, cascadeId: String): String {
+    private fun buildWebSocketUrl(baseUrl: String, cascadeId: String, ticket: String? = null): String {
         val cleanBase = baseUrl.trimEnd('/')
         val wsScheme = if (cleanBase.startsWith("https://", ignoreCase = true)) "wss" else "ws"
         val hostAndPort = cleanBase.substringAfter("://")
 
-        val token = prefs.deviceToken ?: ""
-        return "$wsScheme://$hostAndPort/gateway/cascade/stream?cascadeId=$cascadeId&client=android&format=messages&auth_token=$token"
+        var url = "$wsScheme://$hostAndPort/gateway/cascade/stream?cascadeId=$cascadeId&client=android&format=messages"
+        if (!ticket.isNullOrBlank()) {
+            url += "&ticket=$ticket"
+        }
+        return url
     }
 }

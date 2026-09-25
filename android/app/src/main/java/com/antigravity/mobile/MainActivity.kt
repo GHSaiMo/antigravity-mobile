@@ -62,15 +62,6 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
 
-        // Initialize Coil SVG support globally
-        coil.Coil.setImageLoader(
-            coil.ImageLoader.Builder(this)
-                .components {
-                    add(coil.decode.SvgDecoder.Factory())
-                }
-                .build()
-        )
-
         // Initialize Services
         prefs = PreferencesManager(applicationContext)
         connectionManager = ConnectionManager(applicationContext)
@@ -79,6 +70,34 @@ class MainActivity : ComponentActivity() {
         wsClient = StreamWebSocketClient(prefs, connectionManager)
         val cacheManager = CacheManager(applicationContext)
         val documentCacheManager = com.antigravity.mobile.data.service.DocumentCacheManager(applicationContext)
+
+        // Initialize Coil SVG and Gateway Auth Header interceptor globally
+        val coilOkHttpClient = okhttp3.OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                val request = chain.request()
+                val token = prefs.deviceToken
+                val path = request.url.encodedPath
+                val isGatewayRequest = path.startsWith("/api/v1/files/raw") || path.startsWith("/static/")
+                if (!token.isNullOrBlank() && isGatewayRequest && request.header("Authorization") == null) {
+                    val newRequest = request.newBuilder()
+                        .header("Authorization", "Bearer $token")
+                        .header("x-device-token", token)
+                        .build()
+                    chain.proceed(newRequest)
+                } else {
+                    chain.proceed(request)
+                }
+            }
+            .build()
+
+        coil.Coil.setImageLoader(
+            coil.ImageLoader.Builder(this)
+                .okHttpClient(coilOkHttpClient)
+                .components {
+                    add(coil.decode.SvgDecoder.Factory())
+                }
+                .build()
+        )
 
         // Initialize ViewModels
         pairingViewModel = PairingViewModel(apiClient, prefs)

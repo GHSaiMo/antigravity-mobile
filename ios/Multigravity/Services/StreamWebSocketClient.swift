@@ -128,9 +128,6 @@ public final class StreamWebSocketClient {
             URLQueryItem(name: "client", value: "ios"),
             URLQueryItem(name: "format", value: "messages")
         ]
-        if let token = KeychainHelper.shared.read(key: .deviceToken), !token.isEmpty {
-            queryItems.append(URLQueryItem(name: "auth_token", value: token))
-        }
         components.queryItems = queryItems
         
         guard let wsURL = components.url else {
@@ -143,6 +140,12 @@ public final class StreamWebSocketClient {
         let endpoint = NWEndpoint.url(wsURL)
         let wsOptions = NWProtocolWebSocket.Options()
         wsOptions.autoReplyPing = true
+        if let token = KeychainHelper.shared.read(key: .deviceToken) ?? AppSettings.shared.deviceToken, !token.isEmpty {
+            wsOptions.setAdditionalHeaders([
+                ("Authorization", "Bearer \(token)"),
+                ("x-device-token", token)
+            ])
+        }
         
         let parameters: NWParameters
         if wsURL.scheme?.lowercased() == "wss" {
