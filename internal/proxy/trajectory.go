@@ -1416,32 +1416,36 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 	// Historical errors in previous turns that were subsequently recovered must not mark the session as an error.
 	latestTurnHasError := false
 	var latestTurnErrorText string
-	for i := lastUserInputIdx + 1; i < len(steps); i++ {
+	for i := len(steps) - 1; i > lastUserInputIdx; i-- {
 		s := steps[i]
 		if s.Type == "CORTEX_STEP_TYPE_ERROR_MESSAGE" {
 			if isUserVisibleError(s) {
 				latestTurnHasError = true
 				latestTurnErrorText = extractErrorText(s)
 			}
-		} else if s.Type == "CORTEX_STEP_TYPE_PLANNER_RESPONSE" {
-			if s.PlannerResponse != nil && strings.TrimSpace(s.PlannerResponse.Response) != "" {
-				// If planner succeeded with response in this turn, error was resolved
-				latestTurnHasError = false
-				latestTurnErrorText = ""
-			}
+			break
+		} else if s.Type == "CORTEX_STEP_TYPE_PLANNER_RESPONSE" || s.RunCommand != nil || s.CodeAction != nil || s.TaskDetails != nil {
+			// A subsequent step was executed after any earlier error; not terminated by error
+			break
 		}
 	}
 
 	finalStatus := rawResp.Status
-	if (rawResp.Status != "CASCADE_RUN_STATUS_RUNNING" || (len(steps) > 0 && steps[len(steps)-1].Type == "CORTEX_STEP_TYPE_ERROR_MESSAGE")) && latestTurnHasError {
+	if rawResp.Status == "CASCADE_RUN_STATUS_RUNNING" {
+		if len(steps) > 0 && steps[len(steps)-1].Type == "CORTEX_STEP_TYPE_ERROR_MESSAGE" && latestTurnHasError {
+			finalStatus = "CASCADE_RUN_STATUS_ERROR"
+		}
+	} else if latestTurnHasError {
 		finalStatus = "CASCADE_RUN_STATUS_ERROR"
 	}
+
+	hasError := finalStatus == "CASCADE_RUN_STATUS_ERROR"
 
 	return TrajectoryDetails{
 		CascadeID:          rawResp.Trajectory.CascadeID,
 		Title:              title,
 		Status:             finalStatus,
-		HasError:           latestTurnHasError,
+		HasError:           hasError,
 		ErrorMessage:       latestTurnErrorText,
 		Duration:           duration,
 		TotalSteps:         totalSteps,

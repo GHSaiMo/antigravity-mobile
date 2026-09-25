@@ -272,7 +272,7 @@ public final class ChatViewModel {
     /// Whether the latest message from the Agent in this conversation is an unrecovered error message
     public var isLatestMessageError: Bool {
         // Hide Continue button while actively running, sending, or awaiting response
-        guard !isRunning, !isAwaitingResponse, !isSending else { return false }
+        guard !isActivelyRunning, !isSending else { return false }
         
         // 1. Direct check: if the very last message in the chat is an error
         if let last = messages.last {
@@ -280,14 +280,14 @@ public final class ChatViewModel {
         }
         
         // 2. Turn check: in the latest turn (after the last user message),
-        // check if the latest agent or cortex response was an error
+        // check if the latest event was an unrecovered error
         if let lastUserIdx = messages.lastIndex(where: { $0.isUser }) {
             let subsequent = messages.suffix(from: lastUserIdx + 1)
-            if let lastTurnMsg = subsequent.last(where: { $0.isAgent || $0.isError }) {
+            if let lastTurnMsg = subsequent.last {
                 return lastTurnMsg.isError
             }
-        } else if let lastAgentOrError = messages.last(where: { $0.isAgent || $0.isError }) {
-            return lastAgentOrError.isError
+        } else if let lastMsg = messages.last {
+            return lastMsg.isError
         }
         
         return false
@@ -452,8 +452,8 @@ public final class ChatViewModel {
             self.isRunning = (cached.status == "CASCADE_RUN_STATUS_RUNNING")
             let lastUserIdx = healed.lastIndex(where: { $0.isUser }) ?? -1
             let latestTurn = lastUserIdx >= 0 ? healed.suffix(from: lastUserIdx + 1) : healed[...]
-            let latestHasErr = latestTurn.contains(where: { $0.isError }) && !(latestTurn.last?.isAgent == true)
-            self.hasError = (cached.status == "CASCADE_RUN_STATUS_ERROR" || latestHasErr)
+            let latestEndedInError = latestTurn.last?.isError == true
+            self.hasError = (cached.status == "CASCADE_RUN_STATUS_ERROR" || (!self.isRunning && latestEndedInError))
             if self.hasError {
                 self.trajectoryErrorMessage = latestTurn.last(where: { $0.isError })?.content
             }
@@ -724,18 +724,25 @@ public final class ChatViewModel {
             let previouslyRunning = self.isRunning
             let lastUserIdx = self.messages.lastIndex(where: { $0.isUser }) ?? -1
             let latestTurn = lastUserIdx >= 0 ? self.messages.suffix(from: lastUserIdx + 1) : self.messages[...]
-            let latestHasErr = latestTurn.contains(where: { $0.isError }) && !(latestTurn.last?.isAgent == true)
-            let isTrajectoryError = result.hasError || result.status == "CASCADE_RUN_STATUS_ERROR" || latestHasErr
-            self.hasError = isTrajectoryError
-            if isTrajectoryError {
-                self.trajectoryErrorMessage = result.errorMessage ?? latestTurn.last(where: { $0.isError })?.content
-                self.isRunning = false
-                self.isAwaitingResponse = false
-                self.awaitingResponseSince = nil
-            } else if result.status == "CASCADE_RUN_STATUS_RUNNING" {
+            let latestEndedInError = latestTurn.last?.isError == true
+            
+            let isTrajectoryError: Bool
+            if result.status == "CASCADE_RUN_STATUS_RUNNING" {
                 self.isRunning = true
-            } else if !self.isAwaitingResponse {
-                self.isRunning = false
+                self.hasError = false
+                self.trajectoryErrorMessage = nil
+                isTrajectoryError = false
+            } else {
+                isTrajectoryError = result.hasError || result.status == "CASCADE_RUN_STATUS_ERROR" || latestEndedInError
+                self.hasError = isTrajectoryError
+                if isTrajectoryError {
+                    self.trajectoryErrorMessage = result.errorMessage ?? latestTurn.last(where: { $0.isError })?.content
+                    self.isRunning = false
+                    self.isAwaitingResponse = false
+                    self.awaitingResponseSince = nil
+                } else if !self.isAwaitingResponse {
+                    self.isRunning = false
+                }
             }
             
             if !self.isRunning && !self.isAwaitingResponse {
@@ -783,12 +790,13 @@ public final class ChatViewModel {
                     return .error
                 } else if self.canProceed || self.pendingInteraction != nil {
                     return .action
-                } else if self.isRunning {
+                } else if self.isRunning || !self.runningTasks.isEmpty {
                     return .running
                 } else {
                     return .idle
                 }
             }()
+            self.initialConversationStatus = convStatus
             cacheManager.updateConversationStatus(cascadeId: cascadeId, status: convStatus)
             
             // If awaiting response, check if agent has completed response
@@ -2296,10 +2304,17 @@ public final class ChatViewModel {
         awaitingResponseSince = nil
         isRunning = false
         canProceed = false
+        let tasksToStop = self.runningTasks
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            self.runningTasks = []
+        }
         stopPollingFallback()
         
         do {
             try await apiClient.cancelTask(cascadeId: cascadeId, baseURL: url)
+            for task in tasksToStop {
+                try? await apiClient.stopTask(cascadeId: cascadeId, stepIndex: task.stepIndex, taskId: task.id, baseURL: url)
+            }
             if settings.enableLiveActivities {
                 activityManager.endActivity(finalStatus: "CANCELLED")
             }
@@ -2454,22 +2469,32 @@ public final class ChatViewModel {
         let previouslyRunning = self.isRunning
         let lastUserIdx = self.messages.lastIndex(where: { $0.isUser }) ?? -1
         let latestTurn = lastUserIdx >= 0 ? self.messages.suffix(from: lastUserIdx + 1) : self.messages[...]
-        let latestHasErr = latestTurn.contains(where: { $0.isError }) && !(latestTurn.last?.isAgent == true)
-        let isStreamError = payload.hasError == true || payload.status == "CASCADE_RUN_STATUS_ERROR" || latestHasErr
-        self.hasError = isStreamError
+        let latestEndedInError = latestTurn.last?.isError == true
+        
         let statusString: String
-        if isStreamError {
-            self.trajectoryErrorMessage = payload.errorMessage ?? latestTurn.last(where: { $0.isError })?.content
-            self.isRunning = false
-            self.isAwaitingResponse = false
-            self.awaitingResponseSince = nil
-            statusString = "CASCADE_RUN_STATUS_ERROR"
+        let isStreamError: Bool
+        if payload.status == "CASCADE_RUN_STATUS_RUNNING" {
+            self.isRunning = true
+            self.hasError = false
+            self.trajectoryErrorMessage = nil
+            isStreamError = false
+            statusString = "CASCADE_RUN_STATUS_RUNNING"
         } else {
-            statusString = payload.status ?? (previouslyRunning ? "CASCADE_RUN_STATUS_RUNNING" : "CASCADE_RUN_STATUS_DONE")
-            if statusString == "CASCADE_RUN_STATUS_RUNNING" {
-                self.isRunning = true
-            } else if !self.isAwaitingResponse {
+            isStreamError = payload.hasError == true || payload.status == "CASCADE_RUN_STATUS_ERROR" || latestEndedInError
+            self.hasError = isStreamError
+            if isStreamError {
+                self.trajectoryErrorMessage = payload.errorMessage ?? latestTurn.last(where: { $0.isError })?.content
                 self.isRunning = false
+                self.isAwaitingResponse = false
+                self.awaitingResponseSince = nil
+                statusString = "CASCADE_RUN_STATUS_ERROR"
+            } else {
+                statusString = payload.status ?? (previouslyRunning ? "CASCADE_RUN_STATUS_RUNNING" : "CASCADE_RUN_STATUS_DONE")
+                if statusString == "CASCADE_RUN_STATUS_RUNNING" {
+                    self.isRunning = true
+                } else if !self.isAwaitingResponse {
+                    self.isRunning = false
+                }
             }
         }
         
@@ -2561,12 +2586,13 @@ public final class ChatViewModel {
                 return .error
             } else if self.canProceed || self.pendingInteraction != nil {
                 return .action
-            } else if self.isRunning {
+            } else if self.isRunning || !self.runningTasks.isEmpty {
                 return .running
             } else {
                 return .idle
             }
         }()
+        self.initialConversationStatus = convStatus
         cacheManager.updateConversationStatus(cascadeId: cascadeId, status: convStatus)
     }
     

@@ -805,9 +805,10 @@ fun ChatScreen(
                                             .padding(horizontal = 16.dp, vertical = 11.dp),
                                         contentAlignment = Alignment.CenterStart
                                     ) {
+                                        val isActivelyRunning = uiState.isRunning || uiState.isAwaitingResponse || uiState.runningTasks.isNotEmpty()
                                         if (inputText.isEmpty()) {
                                             Text(
-                                                text = if (uiState.isRunning || uiState.isAwaitingResponse) "向队列添加指令..." else "发送对 Agent 的指令...",
+                                                text = if (isActivelyRunning) "向队列添加指令..." else "发送对 Agent 的指令...",
                                                 color = colors.textMuted,
                                                 fontSize = 16.sp,
                                                 lineHeight = 22.sp
@@ -818,11 +819,11 @@ fun ChatScreen(
                                 }
                             )
 
-                            val isRunning = uiState.isRunning || uiState.isAwaitingResponse
+                            val isActivelyRunning = uiState.isRunning || uiState.isAwaitingResponse || uiState.runningTasks.isNotEmpty()
                             val isInputBlank = inputText.isBlank()
                             val hasAttachments = uiState.selectedImages.isNotEmpty()
 
-                            if (isRunning && isInputBlank && !hasAttachments) {
+                            if (isActivelyRunning && isInputBlank && !hasAttachments) {
                                 // Stop button: 44.dp circle, matches iOS stop button (gray circle with red stop square)
                                 Box(
                                     modifier = Modifier

@@ -1606,12 +1606,16 @@ class ChatViewModel(
 
     fun cancelExecution() {
         val cascadeId = _uiState.value.cascadeId
-        _uiState.value = _uiState.value.copy(isRunning = false, isAwaitingResponse = false)
+        val tasksToStop = _uiState.value.runningTasks
+        _uiState.value = _uiState.value.copy(isRunning = false, isAwaitingResponse = false, runningTasks = emptyList())
         liveActivityManager?.endActivity(cascadeId = cascadeId, finalStatus = "CANCELLED")
         notifyConversationUpdated()
         saveSessionToCache()
         viewModelScope.launch {
             apiClient.cancelInvocation(cascadeId)
+            tasksToStop.forEach { task ->
+                apiClient.stopTask(cascadeId, task.id, task.stepIndex)
+            }
         }
     }
 

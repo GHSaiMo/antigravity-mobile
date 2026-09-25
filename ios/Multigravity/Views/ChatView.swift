@@ -896,7 +896,7 @@ public struct ChatView: View {
             
             // Input field and send/stop button
             HStack(alignment: .bottom, spacing: 10) {
-                TextField("", text: $viewModel.inputText, prompt: Text((viewModel.isRunning || viewModel.isAwaitingResponse) ? "向队列添加指令..." : "发送对 Agent 的指令..."), axis: .vertical)
+                TextField("", text: $viewModel.inputText, prompt: Text(viewModel.isActivelyRunning ? "向队列添加指令..." : "发送对 Agent 的指令..."), axis: .vertical)
                     .font(.system(size: 16))
                     .padding(.horizontal, 16)
                     .padding(.vertical, 11)
@@ -906,7 +906,7 @@ public struct ChatView: View {
                     .lineLimit(1...5)
                     .focused($isInputFocused)
                 
-                if (viewModel.isRunning || viewModel.isAwaitingResponse) && viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if viewModel.isActivelyRunning && viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Button(action: handleCancel) {
                         ZStack {
                             Circle()
@@ -947,7 +947,7 @@ public struct ChatView: View {
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 12)
-            .animation(.easeInOut(duration: 0.2), value: viewModel.isRunning || viewModel.isAwaitingResponse)
+            .animation(.easeInOut(duration: 0.2), value: viewModel.isActivelyRunning)
         }
         .background(Color(uiColor: .systemBackground))
         .overlay(
@@ -1075,7 +1075,7 @@ public struct ChatView: View {
     }
     
     private func handleContinue() {
-        guard !viewModel.isSending && !viewModel.isRunning else { return }
+        guard !viewModel.isSending && !viewModel.isActivelyRunning else { return }
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         isInputFocused = false
         let text = viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines)

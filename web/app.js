@@ -1561,7 +1561,7 @@ async function connectStreamWs(cascadeId) {
           syncActiveModel(data.activeModel);
         }
 
-        const isRunning = data.status === "CASCADE_RUN_STATUS_RUNNING";
+        const isRunning = data.status === "CASCADE_RUN_STATUS_RUNNING" || (data.runningTasks && data.runningTasks.length > 0);
 
         if (typeof data.canProceed === "boolean") {
           currentCanProceed = data.canProceed && !isRunning;
@@ -1657,7 +1657,7 @@ async function loadChat(cascadeId, isBackgroundPoll = false) {
     const steps = traj.steps || [];
 
     const summary = currentTrajectories[cascadeId];
-    const isRunning = summary?.status === "CASCADE_RUN_STATUS_RUNNING";
+    const isRunning = summary?.status === "CASCADE_RUN_STATUS_RUNNING" || (summary?.runningTasks && summary.runningTasks.length > 0);
     const wsUri = traj.workspaceUris?.[0] || "";
 
     const dynamicTitle = formatConversationTitle(traj.annotations, traj.summary, "");
@@ -2236,9 +2236,9 @@ const RunningTasksManager = {
     this.render();
   },
 
-  async stopTask(stepIndex, taskId) {
+  async stopTask(stepIndex, taskId, skipConfirm = false) {
     if (!activeCascadeId) return;
-    if (!confirm("确定要终止此后台任务吗？")) return;
+    if (!skipConfirm && !confirm("确定要终止此后台任务吗？")) return;
 
     try {
       const resp = await fetch("/gateway/cascade/task/stop", {
@@ -2930,6 +2930,11 @@ async function cancelCurrentTask() {
   currentCanProceed = false;
   updateProceedButton(false);
   updatePendingInteraction(null, false);
+
+  const tasksToStop = RunningTasksManager.tasks ? [...RunningTasksManager.tasks] : [];
+  for (const t of tasksToStop) {
+    RunningTasksManager.stopTask(t.stepIndex, t.id, true);
+  }
 
   try {
     await rpc("CancelCascadeInvocation", { cascadeId: activeCascadeId });

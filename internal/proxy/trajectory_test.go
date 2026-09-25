@@ -1084,6 +1084,61 @@ func TestParseTrajectoryDetails_UserInputMediaURI(t *testing.T) {
 	}
 }
 
+func TestParseTrajectoryDetails_RunningStatusWithMidTurnError(t *testing.T) {
+	rawJSON := `{
+		"status": "CASCADE_RUN_STATUS_RUNNING",
+		"trajectory": {
+			"cascadeId": "test-running-error-recovery",
+			"steps": [
+				{
+					"type": "CORTEX_STEP_TYPE_USER_INPUT",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"userInput": {
+						"userResponse": "Commit and Push"
+					}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_ERROR_MESSAGE",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"errorMessage": {
+						"error": {
+							"userErrorMessage": "Agent execution terminated due to error.",
+							"shortError": "FAILED_PRECONDITION (code 400): User location is not supported"
+						},
+						"shouldShowUser": true
+					}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_PLANNER_RESPONSE",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"plannerResponse": {
+						"response": ""
+					},
+					"runCommand": {
+						"commandLine": "git push origin main"
+					}
+				}
+			]
+		}
+	}`
+
+	var rawResp upstreamTrajectoryResp
+	if err := json.Unmarshal([]byte(rawJSON), &rawResp); err != nil {
+		t.Fatalf("failed to unmarshal test JSON: %v", err)
+	}
+
+	p := &Proxy{}
+	details := p.ParseTrajectoryDetails(&rawResp)
+
+	if details.HasError {
+		t.Errorf("expected HasError to be false for running cascade, got true")
+	}
+	if details.Status != "CASCADE_RUN_STATUS_RUNNING" {
+		t.Errorf("expected Status to be CASCADE_RUN_STATUS_RUNNING, got %s", details.Status)
+	}
+}
+
+
 
 
 
