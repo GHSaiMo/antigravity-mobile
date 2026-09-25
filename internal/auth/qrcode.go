@@ -46,6 +46,28 @@ func ConsoleLock() func() {
 	return consoleMu.Unlock
 }
 
+const DefaultDomainSuffix = ".jiuge.space"
+
+// CompressHost strips the default domain suffix (e.g. .jiuge.space) from the host if present,
+// reducing QR code density and avoiding direct exposure of the apex domain in URIs.
+func CompressHost(h string) string {
+	clean := strings.TrimSpace(h)
+	lower := strings.ToLower(clean)
+	if strings.HasSuffix(lower, DefaultDomainSuffix) && len(clean) > len(DefaultDomainSuffix) {
+		return clean[:len(clean)-len(DefaultDomainSuffix)]
+	}
+	return clean
+}
+
+// ExpandHost restores the default domain suffix if host is a compressed subdomain without dots.
+func ExpandHost(h string) string {
+	clean := strings.TrimSpace(h)
+	if clean != "" && !strings.Contains(clean, ".") && !strings.Contains(clean, ":") && strings.ToLower(clean) != "localhost" {
+		return clean + DefaultDomainSuffix
+	}
+	return clean
+}
+
 // MultiHostPairingParams specifies parameters for generating multi-endpoint pairing URIs.
 type MultiHostPairingParams struct {
 	PrimaryHost string
@@ -59,44 +81,63 @@ type MultiHostPairingParams struct {
 }
 
 // GenerateMultiHostPairingURI formats the pairing URI according to the agy:// schema specification
-// embedding multiple candidate network endpoints (LAN, IPv6, DDNS, Relay).
+// embedding candidate network endpoints in standardized order:
+// code, host (public/primary), lan (local), port, ssl, platform, followed by optional ipv6/ddns/relay.
 func GenerateMultiHostPairingURI(p MultiHostPairingParams) string {
 	cleanHost := strings.TrimSpace(p.PrimaryHost)
 	if cleanHost == "" {
 		cleanHost = "127.0.0.1"
 	}
 
+	displayHost := CompressHost(cleanHost)
+
 	sslVal := "0"
 	if p.SSL {
 		sslVal = "1"
 	}
 
-	params := url.Values{}
-	params.Set("host", cleanHost)
-	params.Set("port", fmt.Sprintf("%d", p.Port))
-	params.Set("code", p.Code)
-	params.Set("ssl", sslVal)
-	params.Set("os", runtime.GOOS)
-	params.Set("platform", runtime.GOOS)
-
-	if lan := strings.TrimSpace(p.LANHost); lan != "" && (lan != cleanHost || strings.Contains(cleanHost, ":")) {
-		params.Set("lan", lan)
+	type paramItem struct {
+		key   string
+		value string
 	}
+
+	var items []paramItem
+	// 1. code
+	items = append(items, paramItem{"code", p.Code})
+	// 2. host (public / primary)
+	items = append(items, paramItem{"host", displayHost})
+	// 3. lan (host局域网, if present and distinct from primary host)
+	if lan := strings.TrimSpace(p.LANHost); lan != "" && (lan != cleanHost || strings.Contains(cleanHost, ":")) {
+		items = append(items, paramItem{"lan", lan})
+	}
+	// 4. port
+	items = append(items, paramItem{"port", fmt.Sprintf("%d", p.Port)})
+	// 5. ssl
+	items = append(items, paramItem{"ssl", sslVal})
+	// 6. platform
+	items = append(items, paramItem{"platform", runtime.GOOS})
+
+	// Optional endpoints
 	if ipv6 := strings.TrimSpace(p.IPv6Host); ipv6 != "" {
-		params.Set("ipv6", ipv6)
+		items = append(items, paramItem{"ipv6", ipv6})
 	}
 	if ddns := strings.TrimSpace(p.DDNSHost); ddns != "" && ddns != cleanHost {
-		params.Set("ddns", ddns)
+		items = append(items, paramItem{"ddns", ddns})
 	}
 	if relay := strings.TrimSpace(p.RelayHost); relay != "" && relay != cleanHost {
-		params.Set("relay", relay)
+		items = append(items, paramItem{"relay", relay})
 	}
 
-	return fmt.Sprintf("agy://pair?%s", params.Encode())
+	var pairs []string
+	for _, it := range items {
+		pairs = append(pairs, fmt.Sprintf("%s=%s", url.QueryEscape(it.key), url.QueryEscape(it.value)))
+	}
+
+	return fmt.Sprintf("agy://pair?%s", strings.Join(pairs, "&"))
 }
 
 // GeneratePairingURI formats the pairing URI according to the agy:// schema specification.
-// Format: agy://pair?host=<HOST>&port=<PORT>&code=<PAIRING_CODE>&ssl=1&os=<OS>
+// Format: agy://pair?code=<PAIRING_CODE>&host=<HOST>&port=<PORT>&ssl=1&platform=<PLATFORM>
 func GeneratePairingURI(host string, port int, code string, ssl bool) string {
 	return GenerateMultiHostPairingURI(MultiHostPairingParams{
 		PrimaryHost: host,
@@ -197,6 +238,7 @@ func FormatPairingQRCode(primaryHost string, port int, code string, ssl bool, ex
 
 	if ssl || (strings.Contains(primaryHost, ".") && strings.ContainsAny(primaryHost, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")) {
 		b.WriteString("  ☁️  Cloudflare 专属域名已生成\n")
+		fmt.Fprintf(&b, "  ☁️  公网配对 URI: %s\n", uri)
 	} else {
 		scheme := "http://"
 		if ssl {
@@ -276,6 +318,7 @@ func PrintRawPairingQRCode(code string, uri string) {
 
 			if sVal || (strings.Contains(h, ".") && strings.ContainsAny(h, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")) {
 				b.WriteString("  ☁️  Cloudflare 专属域名已生成\n")
+				fmt.Fprintf(&b, "  ☁️  公网配对 URI: %s\n", uri)
 			} else if h != "" {
 				scheme := "http://"
 				if sVal {

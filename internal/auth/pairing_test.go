@@ -2,6 +2,7 @@ package auth
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -85,11 +86,45 @@ func TestGeneratePairingURI(t *testing.T) {
 	if !strings.Contains(uri, "code=abc123code") {
 		t.Errorf("expected code in uri, got %s", uri)
 	}
-	if !strings.Contains(uri, "os="+runtime.GOOS) {
-		t.Errorf("expected os=%s in uri, got %s", runtime.GOOS, uri)
+	if strings.Contains(uri, "os=") {
+		t.Errorf("expected redundant os parameter to be removed, got %s", uri)
 	}
 	if !strings.Contains(uri, "platform="+runtime.GOOS) {
 		t.Errorf("expected platform=%s in uri, got %s", runtime.GOOS, uri)
+	}
+
+	expected := fmt.Sprintf("agy://pair?code=abc123code&host=mac.example.com&port=58900&ssl=1&platform=%s", runtime.GOOS)
+	if uri != expected {
+		t.Errorf("expected ordered URI %s, got %s", expected, uri)
+	}
+}
+
+func TestGeneratePairingURI_JiugeSubdomainCompression(t *testing.T) {
+	uri := GeneratePairingURI("9d6f460f.jiuge.space", 443, "abc123code", true)
+	if strings.Contains(uri, "jiuge.space") {
+		t.Errorf("expected base domain jiuge.space to be hidden, got %s", uri)
+	}
+	if !strings.Contains(uri, "host=9d6f460f") {
+		t.Errorf("expected compressed host=9d6f460f, got %s", uri)
+	}
+
+	expanded := ExpandHost("9d6f460f")
+	if expanded != "9d6f460f.jiuge.space" {
+		t.Errorf("expected 9d6f460f.jiuge.space, got %s", expanded)
+	}
+}
+
+func TestGenerateMultiHostPairingURI_Ordering(t *testing.T) {
+	uri := GenerateMultiHostPairingURI(MultiHostPairingParams{
+		PrimaryHost: "9d6f460f.jiuge.space",
+		Port:        443,
+		Code:        "testcode123",
+		SSL:         true,
+		LANHost:     "192.168.50.9",
+	})
+	expected := fmt.Sprintf("agy://pair?code=testcode123&host=9d6f460f&lan=192.168.50.9&port=443&ssl=1&platform=%s", runtime.GOOS)
+	if uri != expected {
+		t.Errorf("expected %s, got %s", expected, uri)
 	}
 }
 

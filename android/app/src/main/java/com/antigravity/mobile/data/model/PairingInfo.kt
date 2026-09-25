@@ -74,7 +74,7 @@ data class PairingInfo(
                 key to java.net.URLDecoder.decode(value, "UTF-8")
             }
 
-            val host = params["host"] ?: return null
+            val rawHost = params["host"] ?: return null
             val port = params["port"]?.toIntOrNull() ?: return null
             val code = params["code"] ?: return null
             val ssl = params["ssl"] == "1" || params["ssl"].equals("true", ignoreCase = true)
@@ -85,6 +85,16 @@ data class PairingInfo(
             val os = params["os"]
             val platform = params["platform"]
 
+            var host = rawHost.trim()
+            if (!host.contains(".") && !host.contains(":") && !host.equals("localhost", ignoreCase = true)) {
+                host = "$host.jiuge.space"
+            }
+
+            var cleanRelay = relay?.trim()
+            if (cleanRelay != null && !cleanRelay.contains(".") && !cleanRelay.contains(":") && !cleanRelay.equals("localhost", ignoreCase = true)) {
+                cleanRelay = "$cleanRelay.jiuge.space"
+            }
+
             return PairingInfo(
                 host = host,
                 port = port,
@@ -93,7 +103,7 @@ data class PairingInfo(
                 lanHost = lan,
                 ipv6Host = ipv6,
                 ddnsHost = ddns,
-                relayHost = relay,
+                relayHost = cleanRelay,
                 os = os,
                 platform = platform
             )

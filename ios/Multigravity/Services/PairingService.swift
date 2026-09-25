@@ -196,14 +196,25 @@ public final class PairingService: Sendable {
             }
         }
         
-        guard let validHost = host, !validHost.isEmpty else {
+        guard let rawHost = host?.trimmingCharacters(in: .whitespacesAndNewlines), !rawHost.isEmpty else {
             return .failure(.missingFields("未找到主机地址 (host)"))
         }
         guard let validPort = port else {
             return .failure(.missingFields("未找到有效端口号 (port)"))
         }
-        guard let validCode = code, !validCode.isEmpty else {
+        guard let validCode = code?.trimmingCharacters(in: .whitespacesAndNewlines), !validCode.isEmpty else {
             return .failure(.missingFields("未找到配对码 (code)"))
+        }
+        
+        // Auto-expand compressed subdomain (e.g. 9d6f460f -> 9d6f460f.jiuge.space)
+        var validHost = rawHost
+        if !validHost.contains(".") && !validHost.contains(":") && validHost.lowercased() != "localhost" {
+            validHost = "\(validHost).jiuge.space"
+        }
+        
+        var validRelay = relayHost?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let r = validRelay, !r.isEmpty, !r.contains("."), !r.contains(":"), r.lowercased() != "localhost" {
+            validRelay = "\(r).jiuge.space"
         }
         
         return .success(PairingInfo(
@@ -214,7 +225,7 @@ public final class PairingService: Sendable {
             lanHost: lanHost,
             ipv6Host: ipv6Host,
             ddnsHost: ddnsHost,
-            relayHost: relayHost,
+            relayHost: validRelay,
             os: os,
             platform: platform
         ))

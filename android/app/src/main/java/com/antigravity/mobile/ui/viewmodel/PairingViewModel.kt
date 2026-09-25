@@ -45,8 +45,12 @@ class PairingViewModel(
     }
 
     fun pairWithHostAndCode(host: String, port: Int, code: String, ssl: Boolean) {
+        var cleanHost = host.trim()
+        if (!cleanHost.contains(".") && !cleanHost.contains(":") && !cleanHost.equals("localhost", ignoreCase = true)) {
+            cleanHost = "$cleanHost.jiuge.space"
+        }
         val info = PairingInfo(
-            host = host.trim(),
+            host = cleanHost,
             port = port,
             code = code.trim(),
             ssl = ssl
