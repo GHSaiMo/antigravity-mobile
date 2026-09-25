@@ -159,17 +159,25 @@ fun MessageBubble(
         // Render Message Content
         val displayText = message.effectiveText
         if (isUser) {
-            // Consolidated attached user images (both byte bitmaps and URLs)
+            // Consolidated attached user images (aligning with iOS / Web: use imageUrls as primary with bytes as thumbnail, fallback to bytes)
             val allUserImages = remember(message, urlResolver) {
-                val list = mutableListOf<ImageViewerItem>()
-                message.effectiveImageDataList.forEach { bytes ->
-                    list.add(ImageViewerItem(bytes = bytes))
+                if (!message.imageUrls.isNullOrEmpty()) {
+                    val list = message.imageUrls.mapIndexed { idx, rawUrl ->
+                        val resolvedUrl = urlResolver?.invoke(rawUrl) ?: rawUrl
+                        val bytes = message.effectiveImageDataList.getOrNull(idx)
+                        ImageViewerItem(url = resolvedUrl, bytes = bytes)
+                    }.toMutableList()
+                    if (message.effectiveImageDataList.size > message.imageUrls.size) {
+                        for (i in message.imageUrls.size until message.effectiveImageDataList.size) {
+                            list.add(ImageViewerItem(bytes = message.effectiveImageDataList[i]))
+                        }
+                    }
+                    list
+                } else {
+                    message.effectiveImageDataList.map { bytes ->
+                        ImageViewerItem(bytes = bytes)
+                    }
                 }
-                message.imageUrls?.forEach { rawUrl ->
-                    val resolvedUrl = urlResolver?.invoke(rawUrl) ?: rawUrl
-                    list.add(ImageViewerItem(url = resolvedUrl))
-                }
-                list
             }
 
             if (allUserImages.isNotEmpty()) {
@@ -189,7 +197,10 @@ fun MessageBubble(
                                     if (onImageGroupClick != null) {
                                         onImageGroupClick(allUserImages, index)
                                     } else {
-                                        onImageClick?.invoke(item.url, item.bitmap)
+                                        val fallbackBmp = item.bitmap ?: item.bytes?.let { b ->
+                                            try { BitmapFactory.decodeByteArray(b, 0, b.size) } catch (_: Exception) { null }
+                                        }
+                                        onImageClick?.invoke(item.url, fallbackBmp)
                                     }
                                 }
                         ) {

@@ -31,7 +31,8 @@ sealed interface ConversationListUiState {
 class ConversationListViewModel(
     private val apiClient: ApiClient,
     val prefs: PreferencesManager,
-    val cacheManager: CacheManager? = null
+    val cacheManager: CacheManager? = null,
+    private val liveActivityManager: com.antigravity.mobile.data.service.LiveActivityNotificationManager? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<ConversationListUiState>(ConversationListUiState.Loading)
@@ -96,6 +97,7 @@ class ConversationListViewModel(
             rawConversations = all
             applyFilter()
             cacheManager?.prewarmSessions(all.take(15).map { it.id })
+            liveActivityManager?.syncWithConversations(all)
         }
     }
 
@@ -114,6 +116,7 @@ class ConversationListViewModel(
                     persistConversationsToCache(rawConversations)
                     applyFilter()
                     cacheManager?.prewarmSessions(rawConversations.take(15).map { it.id })
+                    liveActivityManager?.syncWithConversations(rawConversations)
                 }
             }
         }
@@ -143,6 +146,7 @@ class ConversationListViewModel(
         if (all.isNotEmpty()) {
             _uiState.value = ConversationListUiState.Success(all)
             cacheManager?.prewarmSessions(all.take(15).map { it.id })
+            liveActivityManager?.syncWithConversations(all)
         }
         return all
     }
@@ -229,6 +233,7 @@ class ConversationListViewModel(
                 persistConversationsToCache(rawConversations)
                 applyFilter()
                 cacheManager?.prewarmSessions(rawConversations.take(15).map { it.id })
+                liveActivityManager?.syncWithConversations(rawConversations)
                 success = true
             }.onFailure { err ->
                 if (rawConversations.isNotEmpty()) {
@@ -307,6 +312,7 @@ class ConversationListViewModel(
                 persistConversationsToCache(rawConversations)
                 applyFilter()
                 cacheManager?.prewarmSessions(rawConversations.take(15).map { it.id })
+                liveActivityManager?.syncWithConversations(rawConversations)
             }.onFailure { err ->
                 if (rawConversations.isEmpty()) {
                     _uiState.value = ConversationListUiState.Error(err.message ?: "无法获取会话列表")
@@ -425,6 +431,7 @@ class ConversationListViewModel(
     }
 
     fun deleteConversation(cascadeId: String) {
+        liveActivityManager?.cancelActivity(cascadeId)
         deletedCascadeIds.add(cascadeId)
         prefs.recordDeletedConversation(cascadeId)
         cacheManager?.deleteSession(cascadeId)

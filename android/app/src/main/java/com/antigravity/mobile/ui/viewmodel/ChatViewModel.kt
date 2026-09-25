@@ -331,7 +331,7 @@ class ChatViewModel(
                 break
             }
             val normMsg = normalizeForComparison(uMsg.effectiveText)
-            val msgHasAttachments = uMsg.imageDataList.isNotEmpty() || !uMsg.media.isNullOrEmpty()
+            val msgHasAttachments = uMsg.imageDataList.isNotEmpty() || !uMsg.media.isNullOrEmpty() || !uMsg.imageUrls.isNullOrEmpty()
 
             if (normText.isNotEmpty()) {
                 if (normText == normMsg) {
@@ -854,6 +854,7 @@ class ChatViewModel(
                         val resolvedTitle = payload.title?.takeIf { it.isNotBlank() && it != "未命名会话" && it != "会话详情" }
                             ?: _uiState.value.title
 
+                        val isRunning = isStatusRunning(payload.status)
                         _uiState.value = _uiState.value.copy(
                             isLoading = false,
                             title = resolvedTitle,
@@ -861,7 +862,7 @@ class ChatViewModel(
                             messages = mergedMsgs,
                             runningTasks = payload.runningTasks ?: emptyList(),
                             queuedMessages = syncQueuedMessages(payload.queuedMessages, mergedMsgs),
-                            isRunning = isStatusRunning(payload.status),
+                            isRunning = isRunning,
                             canProceed = payload.canProceed,
                             proceedArtifactUri = payload.proceedArtifactUri,
                             pendingInteraction = payload.pendingInteraction,
@@ -881,6 +882,29 @@ class ChatViewModel(
                             duration = payload.duration ?: _uiState.value.duration,
                             cascadeConfigRaw = payload.cascadeConfigRaw ?: _uiState.value.cascadeConfigRaw
                         )
+
+                        if (isRunning) {
+                            val stepCount = mergedMsgs.count { !it.isUser }
+                            val latestAction = when {
+                                payload.pendingInteraction != null -> payload.pendingInteraction.prompt ?: "需要审批操作"
+                                !payload.runningTasks.isNullOrEmpty() -> payload.runningTasks.firstOrNull()?.displayCommand?.ifBlank { "正在执行后台任务..." } ?: "正在执行后台任务..."
+                                lastMsg?.toolCalls?.isNotEmpty() == true -> "正在执行: " + (lastMsg.toolCalls.lastOrNull()?.name ?: "操作")
+                                else -> "正在执行任务..."
+                            }
+                            liveActivityManager?.startOrUpdateActivity(
+                                title = resolvedTitle,
+                                cascadeId = cascadeId,
+                                status = payload.status ?: "RUNNING",
+                                stepCount = maxOf(1, stepCount),
+                                latestAction = latestAction,
+                                runningTaskCount = payload.runningTasks?.size ?: 0,
+                                hasPendingAction = payload.pendingInteraction != null
+                            )
+                        } else if (liveActivityManager?.hasNotification(cascadeId) == true) {
+                            val finalStatus = if (isError) "FAILED" else "COMPLETED"
+                            liveActivityManager?.endActivity(cascadeId = cascadeId, finalStatus = finalStatus)
+                        }
+
                         _scrollToBottomTrigger.value++
                         notifyConversationUpdated()
                         saveSessionToCache()
@@ -1008,7 +1032,7 @@ class ChatViewModel(
                             runningTaskCount = payload.runningTasks?.size ?: 0,
                             hasPendingAction = payload.pendingInteraction != null
                         )
-                    } else if (wasRunning) {
+                    } else if (wasRunning || liveActivityManager?.hasNotification(_uiState.value.cascadeId) == true) {
                         val finalStatus = if (isError) "FAILED" else "COMPLETED"
                         liveActivityManager?.endActivity(cascadeId = _uiState.value.cascadeId, finalStatus = finalStatus)
                     }
@@ -1050,6 +1074,7 @@ class ChatViewModel(
                             val hasMore = if (hasEarliest) false else payload.hasMore
                             val nextOffset = if (hasEarliest) 0 else payload.nextOffset
 
+                            val isRunning = isStatusRunning(payload.status)
                             _uiState.value = _uiState.value.copy(
                                 isLoading = false,
                                 title = payload.title?.takeIf { it.isNotBlank() } ?: _uiState.value.title,
@@ -1057,7 +1082,7 @@ class ChatViewModel(
                                 messages = msgs,
                                 runningTasks = payload.runningTasks ?: emptyList(),
                                 queuedMessages = syncQueuedMessages(payload.queuedMessages, msgs),
-                                isRunning = isStatusRunning(payload.status),
+                                isRunning = isRunning,
                                 isLatestMessageError = isError,
                                 hasMore = hasMore,
                                 nextOffset = nextOffset,
@@ -1066,6 +1091,10 @@ class ChatViewModel(
                                 duration = payload.duration ?: _uiState.value.duration,
                                 cascadeConfigRaw = payload.cascadeConfigRaw ?: _uiState.value.cascadeConfigRaw
                             )
+                            if (!isRunning && liveActivityManager?.hasNotification(cid) == true) {
+                                val finalStatus = if (isError) "FAILED" else "COMPLETED"
+                                liveActivityManager?.endActivity(cascadeId = cid, finalStatus = finalStatus)
+                            }
                             notifyConversationUpdated()
                             saveSessionToCache()
                         }
@@ -1532,13 +1561,18 @@ class ChatViewModel(
                     delay(250)
                     apiClient.fetchMessages(newCascadeId, limit = 15).onSuccess { payload ->
                         if (_uiState.value.cascadeId == newCascadeId) {
-                            val msgs = payload.messages ?: emptyList()
+                            val incoming = payload.messages ?: emptyList()
+                            val msgs = if (incoming.isNotEmpty()) {
+                                mergeIncomingMessages(incoming)
+                            } else {
+                                _uiState.value.messages
+                            }
                             val lastMsg = msgs.lastOrNull()
                             val isError = lastMsg?.status.equals("error", ignoreCase = true) || payload.hasError
                             _uiState.value = _uiState.value.copy(
                                 title = payload.title?.takeIf { it.isNotBlank() } ?: _uiState.value.title,
                                 workspaceName = payload.workspaceUri?.trimEnd('/')?.substringAfterLast('/')?.takeIf { it.isNotBlank() } ?: _uiState.value.workspaceName,
-                                messages = if (msgs.isNotEmpty()) msgs else _uiState.value.messages,
+                                messages = msgs,
                                 runningTasks = payload.runningTasks ?: emptyList(),
                                 queuedMessages = syncQueuedMessages(payload.queuedMessages, msgs),
                                 isRunning = isStatusRunning(payload.status),

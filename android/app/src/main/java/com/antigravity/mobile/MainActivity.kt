@@ -52,6 +52,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var pairingViewModel: PairingViewModel
     private lateinit var conversationListViewModel: ConversationListViewModel
     private lateinit var chatViewModel: ChatViewModel
+    private lateinit var liveActivityManager: com.antigravity.mobile.data.service.LiveActivityNotificationManager
 
     private lateinit var qrScanLauncher: ActivityResultLauncher<ScanOptions>
     private lateinit var notificationPermissionLauncher: ActivityResultLauncher<String>
@@ -70,6 +71,7 @@ class MainActivity : ComponentActivity() {
         wsClient = StreamWebSocketClient(prefs, connectionManager)
         val cacheManager = CacheManager(applicationContext)
         val documentCacheManager = com.antigravity.mobile.data.service.DocumentCacheManager(applicationContext)
+        liveActivityManager = com.antigravity.mobile.data.service.LiveActivityNotificationManager(applicationContext, prefs)
 
         // Initialize Coil SVG and Gateway Auth Header interceptor globally
         val coilOkHttpClient = okhttp3.OkHttpClient.Builder()
@@ -101,11 +103,10 @@ class MainActivity : ComponentActivity() {
 
         // Initialize ViewModels
         pairingViewModel = PairingViewModel(apiClient, prefs)
-        conversationListViewModel = ConversationListViewModel(apiClient, prefs, cacheManager)
+        conversationListViewModel = ConversationListViewModel(apiClient, prefs, cacheManager, liveActivityManager)
         pairingViewModel.setPreheatAction {
             conversationListViewModel.loadInitialData()
         }
-        val liveActivityManager = com.antigravity.mobile.data.service.LiveActivityNotificationManager(applicationContext, prefs)
         chatViewModel = ChatViewModel(apiClient, wsClient, prefs, documentCacheManager, liveActivityManager, cacheManager).apply {
             onConversationUpdated = { item ->
                 conversationListViewModel.upsertConversation(item)
@@ -371,6 +372,13 @@ class MainActivity : ComponentActivity() {
             navController.navigate("chat/$cascadeId/$encodedTitle?isNew=$isNew&isUnread=$isUnread&status=${status.name}")
         } catch (e: Exception) {
             Log.w("MainActivity", "Failed to navigate to cascade $cascadeId: ${e.message}")
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::liveActivityManager.isInitialized) {
+            liveActivityManager.cleanUpOrphanedActivities()
         }
     }
 

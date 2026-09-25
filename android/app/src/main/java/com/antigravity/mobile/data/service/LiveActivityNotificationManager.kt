@@ -5,12 +5,15 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.antigravity.mobile.MainActivity
 import com.antigravity.mobile.R
+import com.antigravity.mobile.data.model.ConversationItem
+import java.util.concurrent.ConcurrentHashMap
 
 class LiveActivityNotificationManager(
     private val context: Context,
@@ -18,14 +21,17 @@ class LiveActivityNotificationManager(
 ) {
     private val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     private val handler = Handler(Looper.getMainLooper())
-    private var dismissRunnable: Runnable? = null
+    private val dismissRunnables = ConcurrentHashMap<Int, Runnable>()
 
-    private var activeCascadeId: String? = null
-    private var isNotificationActive: Boolean = false
+    // Track active cascade IDs that currently have a running notification
+    private val activeCascadeIds = ConcurrentHashMap.newKeySet<String>()
+    @Volatile private var activeCascadeId: String? = null
+    @Volatile private var isNotificationActive: Boolean = false
     private var lastActionNotifiedForCascade: String? = null
 
     init {
         NotificationChannelManager.createNotificationChannels(context)
+        cleanUpOrphanedActivities()
     }
 
     private fun resolveNotificationId(cascadeId: String): Int {
@@ -36,6 +42,80 @@ class LiveActivityNotificationManager(
     private fun resolveAlertNotificationId(cascadeId: String): Int {
         val hash = (cascadeId + "_alert").hashCode() and 0x7FFFFFFF
         return if (hash == 0) 2001 else hash
+    }
+
+    fun hasNotification(cascadeId: String): Boolean {
+        val notifId = resolveNotificationId(cascadeId)
+        if (activeCascadeIds.contains(cascadeId)) return true
+        return try {
+            notificationManager.activeNotifications.any { it.id == notifId }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun getRunningCascadeIdsFromCache(): Set<String> {
+        val jsonStr = prefs?.cachedConversationsJson ?: return emptySet()
+        return try {
+            val items = JsonConfig.instance.decodeFromString<List<ConversationItem>>(jsonStr)
+            items.filter { it.status.isRunning || it.status.needsAction }.map { it.id }.toSet()
+        } catch (_: Exception) {
+            emptySet()
+        }
+    }
+
+    /**
+     * Clean up any zombie/orphaned Live Activity notifications for cascades that are not actively running.
+     * Matches iOS ActivityManager.cleanUpOrphanedActivities behavior.
+     */
+    fun cleanUpOrphanedActivities(keepingCascadeId: String? = null, runningCascadeIds: Set<String>? = null) {
+        val allowedRunningIds = mutableSetOf<String>()
+        if (runningCascadeIds != null) {
+            allowedRunningIds.addAll(runningCascadeIds)
+        } else {
+            allowedRunningIds.addAll(getRunningCascadeIdsFromCache())
+        }
+        if (keepingCascadeId != null) {
+            allowedRunningIds.add(keepingCascadeId)
+        }
+
+        val allowedNotifIds = allowedRunningIds.map { resolveNotificationId(it) }.toSet()
+
+        // Clean up internal tracking set
+        activeCascadeIds.retainAll(allowedRunningIds)
+        if (activeCascadeId != null && !allowedRunningIds.contains(activeCascadeId)) {
+            activeCascadeId = activeCascadeIds.firstOrNull()
+            isNotificationActive = activeCascadeId != null
+        }
+
+        // Clean up actual system notifications in Android notification drawer
+        try {
+            val activeNotifs = notificationManager.activeNotifications
+            for (sbn in activeNotifs) {
+                val isLiveActivityChannel = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    sbn.notification.channelId == NotificationChannelManager.CHANNEL_LIVE_ACTIVITY
+                } else {
+                    true
+                }
+                if (isLiveActivityChannel && !allowedNotifIds.contains(sbn.id)) {
+                    dismissRunnables[sbn.id]?.let { handler.removeCallbacks(it) }
+                    dismissRunnables.remove(sbn.id)
+                    notificationManager.cancel(sbn.tag, sbn.id)
+                }
+            }
+        } catch (_: Exception) {}
+    }
+
+    /**
+     * Synchronize live activity notifications with the latest authoritative list of conversations.
+     * Automatically dismisses notifications for any tasks that have finished or become idle.
+     */
+    fun syncWithConversations(conversations: List<ConversationItem>) {
+        val runningIds = conversations
+            .filter { it.status.isRunning || it.status.needsAction }
+            .map { it.id }
+            .toSet()
+        cleanUpOrphanedActivities(runningCascadeIds = runningIds)
     }
 
     fun startOrUpdateActivity(
@@ -52,13 +132,16 @@ class LiveActivityNotificationManager(
             return
         }
 
-        dismissRunnable?.let { handler.removeCallbacks(it) }
-        dismissRunnable = null
-
         activeCascadeId = cascadeId
         isNotificationActive = true
+        activeCascadeIds.add(cascadeId)
 
         val notifId = resolveNotificationId(cascadeId)
+        dismissRunnables[notifId]?.let { handler.removeCallbacks(it) }
+        dismissRunnables.remove(notifId)
+
+        // Clean up any orphaned activities from previous tasks that are no longer running
+        cleanUpOrphanedActivities(keepingCascadeId = cascadeId)
 
         val intent = Intent(context, MainActivity::class.java).apply {
             action = Intent.ACTION_VIEW
@@ -121,11 +204,14 @@ class LiveActivityNotificationManager(
         cascadeId: String? = null,
         finalStatus: String = "COMPLETED"
     ) {
-        if (!isNotificationActive) return
         val targetCascadeId = cascadeId ?: activeCascadeId ?: return
-        if (activeCascadeId != null && targetCascadeId != activeCascadeId) return
-
         val notifId = resolveNotificationId(targetCascadeId)
+
+        activeCascadeIds.remove(targetCascadeId)
+        if (activeCascadeId == targetCascadeId) {
+            activeCascadeId = activeCascadeIds.firstOrNull()
+            isNotificationActive = activeCascadeId != null
+        }
 
         val summary = when (finalStatus) {
             "COMPLETED" -> "任务已完成"
@@ -161,18 +247,19 @@ class LiveActivityNotificationManager(
             )
         }
 
-        isNotificationActive = false
-        activeCascadeId = null
-        lastActionNotifiedForCascade = null
+        if (activeCascadeId == null) {
+            lastActionNotifiedForCascade = null
+        }
 
         // Auto-dismiss the live progress bar after 4 seconds (parity with iOS Live Activity dismissal)
-        dismissRunnable?.let { handler.removeCallbacks(it) }
+        dismissRunnables[notifId]?.let { handler.removeCallbacks(it) }
         val run = Runnable {
             try {
                 notificationManager.cancel(notifId)
             } catch (_: Exception) {}
+            dismissRunnables.remove(notifId)
         }
-        dismissRunnable = run
+        dismissRunnables[notifId] = run
         handler.postDelayed(run, 4000L)
     }
 
@@ -215,20 +302,46 @@ class LiveActivityNotificationManager(
         } catch (_: SecurityException) {}
     }
 
-    fun cancelActivity() {
-        dismissRunnable?.let { handler.removeCallbacks(it) }
-        dismissRunnable = null
-        isNotificationActive = false
-        val cid = activeCascadeId
-        activeCascadeId = null
-        lastActionNotifiedForCascade = null
-        try {
-            if (cid != null) {
-                notificationManager.cancel(resolveNotificationId(cid))
-            } else {
-                notificationManager.cancel(NOTIFICATION_ID)
+    fun cancelActivity(cascadeId: String? = null) {
+        if (cascadeId != null) {
+            activeCascadeIds.remove(cascadeId)
+            if (activeCascadeId == cascadeId) {
+                activeCascadeId = activeCascadeIds.firstOrNull()
+                isNotificationActive = activeCascadeId != null
             }
-        } catch (_: Exception) {}
+            val notifId = resolveNotificationId(cascadeId)
+            dismissRunnables[notifId]?.let { handler.removeCallbacks(it) }
+            dismissRunnables.remove(notifId)
+            try {
+                notificationManager.cancel(notifId)
+            } catch (_: Exception) {}
+        } else {
+            for (cid in activeCascadeIds.toList()) {
+                val nid = resolveNotificationId(cid)
+                dismissRunnables[nid]?.let { handler.removeCallbacks(it) }
+                try {
+                    notificationManager.cancel(nid)
+                } catch (_: Exception) {}
+            }
+            activeCascadeIds.clear()
+            dismissRunnables.clear()
+            activeCascadeId = null
+            isNotificationActive = false
+            lastActionNotifiedForCascade = null
+            try {
+                val activeNotifs = notificationManager.activeNotifications
+                for (sbn in activeNotifs) {
+                    val isLiveActivityChannel = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        sbn.notification.channelId == NotificationChannelManager.CHANNEL_LIVE_ACTIVITY
+                    } else {
+                        true
+                    }
+                    if (isLiveActivityChannel) {
+                        notificationManager.cancel(sbn.tag, sbn.id)
+                    }
+                }
+            } catch (_: Exception) {}
+        }
     }
 
     companion object {
