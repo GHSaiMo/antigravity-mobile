@@ -10,7 +10,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -626,3 +628,143 @@ func RefreshQuotas(activeEmails ...string) (*CockpitQuotaResponse, error) {
 	// If timeout reached before updates observed, return the latest available snapshot
 	return GetQuotas(activeEmails...)
 }
+
+// DetectAntigravityAppPath locates the installed Antigravity application path on the current system.
+func DetectAntigravityAppPath() string {
+	if runtime.GOOS == "darwin" {
+		candidates := []string{
+			"/Applications/Antigravity.app",
+			"/Applications/Antigravity IDE.app",
+		}
+		if home, err := os.UserHomeDir(); err == nil {
+			candidates = append(candidates,
+				filepath.Join(home, "Applications", "Antigravity.app"),
+				filepath.Join(home, "Applications", "Antigravity IDE.app"),
+			)
+		}
+		for _, p := range candidates {
+			if _, err := os.Stat(p); err == nil {
+				return p
+			}
+		}
+		return ""
+	}
+
+	if runtime.GOOS == "windows" {
+		var candidatePaths []string
+		if localApp := os.Getenv("LOCALAPPDATA"); localApp != "" {
+			candidatePaths = append(candidatePaths, filepath.Join(localApp, "Programs", "antigravity", "Antigravity.exe"))
+		}
+		if progFiles := os.Getenv("ProgramFiles"); progFiles != "" {
+			candidatePaths = append(candidatePaths, filepath.Join(progFiles, "Antigravity", "Antigravity.exe"))
+		}
+		if progFilesX86 := os.Getenv("ProgramFiles(x86)"); progFilesX86 != "" {
+			candidatePaths = append(candidatePaths, filepath.Join(progFilesX86, "Antigravity", "Antigravity.exe"))
+		}
+		if home, err := os.UserHomeDir(); err == nil {
+			candidatePaths = append(candidatePaths, filepath.Join(home, "AppData", "Local", "Programs", "antigravity", "Antigravity.exe"))
+		}
+		for _, p := range candidatePaths {
+			if _, err := os.Stat(p); err == nil {
+				return p
+			}
+		}
+		if looked, err := exec.LookPath("Antigravity.exe"); err == nil {
+			return looked
+		}
+		return ""
+	}
+
+	// Linux
+	for _, bin := range []string{"antigravity", "antigravity-ide"} {
+		if looked, err := exec.LookPath(bin); err == nil {
+			return looked
+		}
+	}
+	return ""
+}
+
+// EnsureCockpitAntigravityConfig checks and aligns ~/.antigravity_cockpit/config.json:
+// 1. Sets antigravity_launch_on_switch to false so that Cockpit does not abort switch requests
+//    with APP_PATH_NOT_FOUND when Antigravity is not currently running (gateway manages graceful quit & relaunch).
+// 2. Sets antigravity_app_path to the detected local Antigravity installation if missing or invalid.
+// 3. On macOS, creates an Electron symlink inside Contents/MacOS if needed for legacy compatibility.
+func EnsureCockpitAntigravityConfig() error {
+	dataDir, err := GetCockpitDataDir()
+	if err != nil {
+		return err
+	}
+	configFile := filepath.Join(dataDir, "config.json")
+	cfgBytes, err := os.ReadFile(configFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // Cockpit not configured yet
+		}
+		return err
+	}
+
+	var rawMap map[string]any
+	if err := json.Unmarshal(cfgBytes, &rawMap); err != nil {
+		return fmt.Errorf("parse config.json: %w", err)
+	}
+
+	changed := false
+
+	// 1. Ensure antigravity_launch_on_switch is false
+	if val, ok := rawMap["antigravity_launch_on_switch"].(bool); !ok || val {
+		rawMap["antigravity_launch_on_switch"] = false
+		changed = true
+	}
+
+	// 2. Detect and ensure antigravity_app_path
+	detected := DetectAntigravityAppPath()
+	if detected != "" {
+		currPath, _ := rawMap["antigravity_app_path"].(string)
+		currPath = strings.TrimSpace(currPath)
+		needUpdatePath := false
+		if currPath == "" {
+			needUpdatePath = true
+		} else if _, statErr := os.Stat(currPath); statErr != nil {
+			needUpdatePath = true
+		}
+		if needUpdatePath {
+			rawMap["antigravity_app_path"] = detected
+			changed = true
+		}
+
+		// 3. On macOS, ensure Electron -> Antigravity symlink exists inside the app bundle
+		if runtime.GOOS == "darwin" {
+			agBin := filepath.Join(detected, "Contents", "MacOS", "Antigravity")
+			elBin := filepath.Join(detected, "Contents", "MacOS", "Electron")
+			if _, statErr := os.Stat(agBin); statErr == nil {
+				if _, elErr := os.Lstat(elBin); os.IsNotExist(elErr) {
+					_ = os.Symlink("Antigravity", elBin)
+				}
+			}
+		}
+	}
+
+	if !changed {
+		return nil
+	}
+
+	updatedBytes, err := json.MarshalIndent(rawMap, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal updated config: %w", err)
+	}
+
+	// Backup existing config
+	_ = os.WriteFile(configFile+".bak", cfgBytes, 0644)
+
+	tmpFile := configFile + ".tmp"
+	if err := os.WriteFile(tmpFile, append(updatedBytes, '\n'), 0644); err != nil {
+		return fmt.Errorf("write tmp config: %w", err)
+	}
+	if err := os.Rename(tmpFile, configFile); err != nil {
+		return fmt.Errorf("rename config: %w", err)
+	}
+
+	log.Printf("[Cockpit] Auto-aligned config.json: antigravity_launch_on_switch=false, antigravity_app_path=%q", rawMap["antigravity_app_path"])
+	return nil
+}
+

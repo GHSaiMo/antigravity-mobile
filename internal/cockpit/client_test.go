@@ -124,9 +124,22 @@ func TestSwitchAccountMockWS(t *testing.T) {
 		t.Fatal("expected Antigravity to be quit before switch")
 	}
 
-	// Test failure
+	// Test failure with rollback verification
+	legacyPath := filepath.Join(cockpitDir, "antigravity_legacy_instances.json")
+	_ = os.WriteFile(legacyPath, []byte(`{
+		"instances": [],
+		"defaultSettings": {
+			"bindAccountId": "original-id"
+		}
+	}`), 0644)
+
 	err = SwitchAccount("invalid-id")
 	if err == nil || err.Error() != "ACCOUNT_NOT_FOUND" {
 		t.Fatalf("expected ACCOUNT_NOT_FOUND, got: %v", err)
+	}
+
+	// Verify legacy instance bindAccountId was rolled back to original-id
+	if got := getLegacyBindAccount(); got != "original-id" {
+		t.Fatalf("expected rollback to original-id, got %q", got)
 	}
 }

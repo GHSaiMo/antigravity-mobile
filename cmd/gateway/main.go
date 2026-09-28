@@ -276,6 +276,12 @@ func runGatewayServer(args []string) {
 			_ = notif.NotifyCockpitAlert(title, body)
 		}
 	}
+
+	// Align Cockpit configuration to prevent switch failures (APP_PATH_NOT_FOUND)
+	if err := cockpit.EnsureCockpitAntigravityConfig(); err != nil {
+		log.Printf("[Cockpit] Note: EnsureCockpitAntigravityConfig: %v", err)
+	}
+
 	cockpit.StartQuotaAutoRefresher(watcherCtx, 10*time.Minute, cockpitAlertFn)
 
 	listenLoopback := auth.IsListenAddrLoopback(*host)
