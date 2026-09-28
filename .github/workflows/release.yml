@@ -73,7 +73,7 @@ jobs:
   # ============================================================================
   build-macos:
     name: Build macOS Universal Binary
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -82,6 +82,11 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+
+      - name: Install llvm-lipo
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y llvm
 
       - name: Build macOS Binaries (arm64, amd64 & Universal)
         run: |
@@ -98,13 +103,8 @@ jobs:
           CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X 'main.Version=${VERSION_NUM}'" -o dist/amd64/mgy ./cmd/gateway
 
           # 3. 合成 Universal 二进制
-          lipo -create -output dist/universal/mgy dist/arm64/mgy dist/amd64/mgy
+          llvm-lipo -create -output dist/universal/mgy dist/arm64/mgy dist/amd64/mgy
           chmod +x dist/arm64/mgy dist/amd64/mgy dist/universal/mgy
-
-          # 4. 消除隔离并执行 Ad-hoc 签名
-          codesign -s - -f dist/arm64/mgy || true
-          codesign -s - -f dist/amd64/mgy || true
-          codesign -s - -f dist/universal/mgy || true
 
       - name: Package macOS Tarballs
         run: |
