@@ -103,20 +103,31 @@ type InteractionOption struct {
 	IsDeny bool   `json:"isDeny,omitempty"`
 }
 
-type PendingInteraction struct {
-	Type               string              `json:"type"` // "permission", "ask_question", "file_permission", "run_command"
-	TrajectoryID       string              `json:"trajectoryId"`
-	StepIndex          int                 `json:"stepIndex"`
-	Title              string              `json:"title"`
-	Target             string              `json:"target,omitempty"`
-	Action             string              `json:"action,omitempty"`
-	Description        string              `json:"description,omitempty"`
-	Options            []InteractionOption `json:"options"`
+type InteractionQuestion struct {
+	Question           string              `json:"question"`
 	IsMultiSelect      bool                `json:"isMultiSelect,omitempty"`
+	Options            []InteractionOption `json:"options"`
 	DefaultOptionID    string              `json:"defaultOptionId,omitempty"`
 	HasWriteIn         bool                `json:"hasWriteIn"`
 	WriteInLabel       string              `json:"writeInLabel,omitempty"`
 	WriteInPlaceholder string              `json:"writeInPlaceholder,omitempty"`
+}
+
+type PendingInteraction struct {
+	Type               string                `json:"type"` // "permission", "ask_question", "file_permission", "run_command"
+	TrajectoryID       string                `json:"trajectoryId"`
+	StepIndex          int                   `json:"stepIndex"`
+	Title              string                `json:"title"`
+	Target             string                `json:"target,omitempty"`
+	Action             string                `json:"action,omitempty"`
+	Description        string                `json:"description,omitempty"`
+	Options            []InteractionOption   `json:"options"`
+	IsMultiSelect      bool                  `json:"isMultiSelect,omitempty"`
+	DefaultOptionID    string                `json:"defaultOptionId,omitempty"`
+	HasWriteIn         bool                  `json:"hasWriteIn"`
+	WriteInLabel       string                `json:"writeInLabel,omitempty"`
+	WriteInPlaceholder string                `json:"writeInPlaceholder,omitempty"`
+	Questions          []InteractionQuestion `json:"questions,omitempty"`
 }
 
 type CascadeMessagesResponse struct {
@@ -1274,18 +1285,34 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 				pi.WriteInPlaceholder = "(tell the agent what to do instead)"
 			} else if req.AskQuestion != nil && len(req.AskQuestion.Questions) > 0 {
 				pi.Type = "ask_question"
-				q := req.AskQuestion.Questions[0]
-				pi.Title = q.Question
-				pi.IsMultiSelect = q.IsMultiSelect
-				for _, opt := range q.Options {
-					pi.Options = append(pi.Options, InteractionOption{
-						ID:   opt.ID,
-						Text: opt.Text,
-					})
+				var questions []InteractionQuestion
+				for _, qItem := range req.AskQuestion.Questions {
+					iq := InteractionQuestion{
+						Question:           qItem.Question,
+						IsMultiSelect:      qItem.IsMultiSelect,
+						HasWriteIn:         true,
+						WriteInLabel:       "Other",
+						WriteInPlaceholder: "(write in your response)",
+					}
+					for _, opt := range qItem.Options {
+						iq.Options = append(iq.Options, InteractionOption{
+							ID:   opt.ID,
+							Text: opt.Text,
+						})
+					}
+					if len(iq.Options) > 0 {
+						iq.DefaultOptionID = iq.Options[0].ID
+					}
+					questions = append(questions, iq)
 				}
-				if len(pi.Options) > 0 {
-					pi.DefaultOptionID = pi.Options[0].ID
-				}
+				pi.Questions = questions
+
+				// For backward compatibility with clients that only inspect top-level single question:
+				q0 := questions[0]
+				pi.Title = q0.Question
+				pi.IsMultiSelect = q0.IsMultiSelect
+				pi.Options = q0.Options
+				pi.DefaultOptionID = q0.DefaultOptionID
 				pi.HasWriteIn = true
 				pi.WriteInLabel = "Other"
 				pi.WriteInPlaceholder = "(write in your response)"

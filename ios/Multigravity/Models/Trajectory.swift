@@ -119,6 +119,69 @@ public struct InteractionOption: Codable, Sendable, Identifiable, Hashable {
     }
 }
 
+public struct InteractionQuestion: Codable, Sendable, Identifiable, Hashable {
+    public var id: String { question }
+    public let question: String
+    public let isMultiSelect: Bool?
+    public let options: [InteractionOption]
+    public let defaultOptionId: String?
+    public let hasWriteIn: Bool?
+    public let writeInLabel: String?
+    public let writeInPlaceholder: String?
+    
+    public init(
+        question: String,
+        isMultiSelect: Bool? = nil,
+        options: [InteractionOption] = [],
+        defaultOptionId: String? = nil,
+        hasWriteIn: Bool? = nil,
+        writeInLabel: String? = nil,
+        writeInPlaceholder: String? = nil
+    ) {
+        self.question = question
+        self.isMultiSelect = isMultiSelect
+        self.options = options
+        self.defaultOptionId = defaultOptionId
+        self.hasWriteIn = hasWriteIn
+        self.writeInLabel = writeInLabel
+        self.writeInPlaceholder = writeInPlaceholder
+    }
+    
+    enum CodingKeys: String, CodingKey {
+        case question, isMultiSelect, options, defaultOptionId, hasWriteIn, writeInLabel, writeInPlaceholder
+    }
+    
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.question = try container.decodeIfPresent(String.self, forKey: .question) ?? ""
+        self.isMultiSelect = try container.decodeIfPresent(Bool.self, forKey: .isMultiSelect)
+        self.options = try container.decodeIfPresent([InteractionOption].self, forKey: .options) ?? []
+        self.defaultOptionId = try container.decodeIfPresent(String.self, forKey: .defaultOptionId)
+        self.hasWriteIn = try container.decodeIfPresent(Bool.self, forKey: .hasWriteIn)
+        self.writeInLabel = try container.decodeIfPresent(String.self, forKey: .writeInLabel)
+        self.writeInPlaceholder = try container.decodeIfPresent(String.self, forKey: .writeInPlaceholder)
+    }
+}
+
+public struct QuestionResponse: Codable, Sendable, Hashable {
+    public let questionIndex: Int
+    public let selectedOptionIds: [String]
+    public let writeInResponse: String?
+    public let skipped: Bool?
+    
+    public init(
+        questionIndex: Int,
+        selectedOptionIds: [String] = [],
+        writeInResponse: String? = nil,
+        skipped: Bool? = nil
+    ) {
+        self.questionIndex = questionIndex
+        self.selectedOptionIds = selectedOptionIds
+        self.writeInResponse = writeInResponse
+        self.skipped = skipped
+    }
+}
+
 public struct PendingInteraction: Codable, Sendable, Identifiable, Hashable {
     public var id: String { "\(trajectoryId):\(stepIndex)" }
     public let type: String
@@ -134,6 +197,7 @@ public struct PendingInteraction: Codable, Sendable, Identifiable, Hashable {
     public let hasWriteIn: Bool?
     public let writeInLabel: String?
     public let writeInPlaceholder: String?
+    public let questions: [InteractionQuestion]?
     
     public init(
         type: String,
@@ -148,7 +212,8 @@ public struct PendingInteraction: Codable, Sendable, Identifiable, Hashable {
         defaultOptionId: String? = nil,
         hasWriteIn: Bool? = nil,
         writeInLabel: String? = nil,
-        writeInPlaceholder: String? = nil
+        writeInPlaceholder: String? = nil,
+        questions: [InteractionQuestion]? = nil
     ) {
         self.type = type
         self.trajectoryId = trajectoryId
@@ -163,6 +228,30 @@ public struct PendingInteraction: Codable, Sendable, Identifiable, Hashable {
         self.hasWriteIn = hasWriteIn
         self.writeInLabel = writeInLabel
         self.writeInPlaceholder = writeInPlaceholder
+        self.questions = questions
+    }
+    
+    enum CodingKeys: String, CodingKey {
+        case type, trajectoryId, stepIndex, title, target, action, description
+        case options, isMultiSelect, defaultOptionId, hasWriteIn, writeInLabel, writeInPlaceholder, questions
+    }
+    
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.type = try container.decodeIfPresent(String.self, forKey: .type) ?? ""
+        self.trajectoryId = try container.decodeIfPresent(String.self, forKey: .trajectoryId) ?? ""
+        self.stepIndex = try container.decodeIfPresent(Int.self, forKey: .stepIndex) ?? 0
+        self.title = try container.decodeIfPresent(String.self, forKey: .title) ?? ""
+        self.target = try container.decodeIfPresent(String.self, forKey: .target)
+        self.action = try container.decodeIfPresent(String.self, forKey: .action)
+        self.description = try container.decodeIfPresent(String.self, forKey: .description)
+        self.options = try container.decodeIfPresent([InteractionOption].self, forKey: .options) ?? []
+        self.isMultiSelect = try container.decodeIfPresent(Bool.self, forKey: .isMultiSelect)
+        self.defaultOptionId = try container.decodeIfPresent(String.self, forKey: .defaultOptionId)
+        self.hasWriteIn = try container.decodeIfPresent(Bool.self, forKey: .hasWriteIn)
+        self.writeInLabel = try container.decodeIfPresent(String.self, forKey: .writeInLabel)
+        self.writeInPlaceholder = try container.decodeIfPresent(String.self, forKey: .writeInPlaceholder)
+        self.questions = try container.decodeIfPresent([InteractionQuestion].self, forKey: .questions)
     }
 }
 
@@ -171,24 +260,26 @@ public struct InteractionSubmitRequest: Codable, Sendable {
     public let trajectoryId: String
     public let stepIndex: Int
     public let type: String
-    public let optionId: String
-    public let scope: Int
+    public let optionId: String?
+    public let scope: Int?
     public let allow: Bool
-    public let writeInResponse: String
+    public let writeInResponse: String?
     public let skipped: Bool
     public let target: String?
+    public let questionResponses: [QuestionResponse]?
     
     public init(
         cascadeId: String,
         trajectoryId: String,
         stepIndex: Int,
         type: String,
-        optionId: String,
-        scope: Int = 1,
+        optionId: String? = nil,
+        scope: Int? = 1,
         allow: Bool = true,
-        writeInResponse: String = "",
+        writeInResponse: String? = "",
         skipped: Bool = false,
-        target: String? = nil
+        target: String? = nil,
+        questionResponses: [QuestionResponse]? = nil
     ) {
         self.cascadeId = cascadeId
         self.trajectoryId = trajectoryId
@@ -200,6 +291,7 @@ public struct InteractionSubmitRequest: Codable, Sendable {
         self.writeInResponse = writeInResponse
         self.skipped = skipped
         self.target = target
+        self.questionResponses = questionResponses
     }
 }
 

@@ -626,26 +626,36 @@ class ApiClient(
     }
 
     /**
-     * Submit user interaction response (e.g. command approval)
+     * Submit user interaction response (e.g. command approval, permission, ask_question)
      */
     suspend fun submitInteraction(
         cascadeId: String,
-        stepIndex: Int,
-        responseType: String,
-        selectedOptionId: String? = null,
-        confirmed: Boolean? = null,
-        customText: String? = null
+        trajectoryId: String = "",
+        stepIndex: Int = 0,
+        type: String = "",
+        optionId: String? = null,
+        scope: Int = 1,
+        allow: Boolean = true,
+        writeInResponse: String = "",
+        skipped: Boolean = false,
+        target: String? = null,
+        questionResponses: List<QuestionResponse>? = null
     ): Result<Unit> = withContext(Dispatchers.IO) {
         val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
         val url = "$baseUrl/gateway/cascade/interaction"
 
-        val reqObj = InteractionRespondRequest(
+        val reqObj = InteractionSubmitRequest(
             cascadeId = cascadeId,
+            trajectoryId = trajectoryId,
             stepIndex = stepIndex,
-            responseType = responseType,
-            selectedOptionId = selectedOptionId,
-            confirmed = confirmed,
-            customText = customText
+            type = type,
+            optionId = optionId,
+            scope = scope,
+            allow = allow,
+            writeInResponse = writeInResponse,
+            skipped = skipped,
+            target = target,
+            questionResponses = questionResponses
         )
         val bodyStr = json.encodeToString(reqObj)
 

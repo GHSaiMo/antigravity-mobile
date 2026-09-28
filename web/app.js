@@ -1262,64 +1262,114 @@ function updatePendingInteraction(interaction, isRunning) {
   }
 }
 
+let multiQuestionSelections = {};
+let multiQuestionWriteIns = {};
+
 function renderInteractionCard() {
   const container = document.getElementById("interaction-card-container");
   if (!container || !currentPendingInteraction) return;
 
   const interaction = currentPendingInteraction;
   const isPermission = interaction.type === "permission";
-  const selectedOpt = interaction.options.find(o => o.id === selectedInteractionOptionId) || interaction.options[0];
-  const isDenyOrWriteIn = selectedOpt?.isDeny || selectedOpt?.id === "no" || selectedOpt?.id?.toLowerCase().includes("deny");
+  const hasMultiQuestions = interaction.questions && interaction.questions.length > 1;
 
   const iconSvg = isPermission
     ? `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>`
     : `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>`;
 
-  container.innerHTML = `
-    <div class="interaction-card">
-      <div class="interaction-card-header">
-        <div class="interaction-icon">${iconSvg}</div>
-        <div class="interaction-title-group">
-          <div class="interaction-title">${escapeHtml(interaction.title || "需要确认或授权")}</div>
-          <div class="interaction-subtitle">${escapeHtml(interaction.subtitle || "等待决策响应")}</div>
-        </div>
-      </div>
-
-      ${interaction.target ? `
-        <div class="interaction-target-box">
-          <span class="interaction-target-label">Target</span>
-          <span class="interaction-target-path">${escapeHtml(interaction.target)}</span>
-        </div>
-      ` : ''}
-
-      <div class="interaction-options-list">
-        ${interaction.options.map((opt, idx) => {
-          const isSelected = opt.id === selectedInteractionOptionId;
+  let contentHtml = '';
+  if (hasMultiQuestions) {
+    contentHtml = `
+      <div class="interaction-multi-questions-list" style="max-height: 280px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; margin-bottom: 8px; padding-right: 4px;">
+        ${interaction.questions.map((q, qIdx) => {
+          const selectedId = multiQuestionSelections[qIdx] || q.defaultOptionId || q.options?.[0]?.id || "1";
+          const isDenySelected = selectedId === "5" || selectedId === "__write_in__" || selectedId.toLowerCase() === "other";
           return `
-            <div class="interaction-option-item ${isSelected ? 'selected' : ''}" data-opt-id="${escapeHtml(opt.id)}">
-              <span class="interaction-option-radio">
-                <span class="interaction-radio-dot"></span>
+            <div class="interaction-question-block" style="border: 1px solid var(--border-color, rgba(255,255,255,0.08)); border-radius: 8px; padding: 10px; background: rgba(0,0,0,0.15);">
+              <div style="display: flex; align-items: flex-start; gap: 6px; margin-bottom: 8px;">
+                <span style="background: #9333ea; color: white; font-size: 10px; font-weight: bold; padding: 2px 5px; border-radius: 4px; font-family: monospace;">Q${qIdx + 1}</span>
+                <span style="font-size: 13px; font-weight: 600; color: var(--text-primary); line-height: 1.3;">${escapeHtml(q.question)}</span>
+              </div>
+              <div class="interaction-options-list" style="display: flex; flex-direction: column; gap: 5px;">
+                ${(q.options || []).map(opt => {
+                  const isSelected = opt.id === selectedId;
+                  const label = opt.text || opt.label || "";
+                  return `
+                    <div class="interaction-option-item ${isSelected ? 'selected' : ''}" data-q-idx="${qIdx}" data-opt-id="${escapeHtml(opt.id)}" style="display: flex; align-items: center; gap: 8px; padding: 6px 9px; border-radius: 6px; cursor: pointer; background: ${isSelected ? 'rgba(59,130,246,0.12)' : 'var(--bg-tertiary, rgba(255,255,255,0.04))'}; border: 1px solid ${isSelected ? '#3b82f6' : 'transparent'};">
+                      <span class="interaction-option-radio" style="width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid ${isSelected ? '#3b82f6' : 'var(--text-secondary)'}; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                        ${isSelected ? '<span style="width: 6px; height: 6px; border-radius: 50%; background: #3b82f6;"></span>' : ''}
+                      </span>
+                      <span class="interaction-option-badge" style="font-size: 11px; font-weight: bold; font-family: monospace; color: ${isSelected ? '#3b82f6' : 'var(--text-secondary)'}; flex-shrink: 0;">[${escapeHtml(opt.id)}]</span>
+                      <span class="interaction-option-label" style="font-size: 12.5px; color: ${isSelected ? 'var(--text-primary)' : 'var(--text-secondary)'}; overflow-x: auto; white-space: nowrap; flex: 1; scrollbar-width: none;">${escapeHtml(label)}</span>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+              ${q.hasWriteIn && isDenySelected ? `
+                <div style="margin-top: 6px;">
+                  <input type="text" class="interaction-multi-write-in-input" data-q-idx="${qIdx}" placeholder="${escapeHtml(q.writeInPlaceholder || '输入说明...')}" value="${escapeHtml(multiQuestionWriteIns[qIdx] || '')}" style="width: 100%; font-size: 12px; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary);" />
+                </div>
+              ` : ''}
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+  } else {
+    const selectedOpt = (interaction.options || []).find(o => o.id === selectedInteractionOptionId) || interaction.options?.[0];
+    const isDenyOrWriteIn = selectedOpt?.isDeny || selectedOpt?.id === "5" || selectedOpt?.id === "no" || selectedOpt?.id?.toLowerCase().includes("deny");
+
+    contentHtml = `
+      <div class="interaction-options-list" style="display: flex; flex-direction: column; gap: 6px;">
+        ${(interaction.options || []).map((opt, idx) => {
+          const isSelected = opt.id === selectedInteractionOptionId;
+          const label = opt.text || opt.label || "";
+          return `
+            <div class="interaction-option-item ${isSelected ? 'selected' : ''}" data-opt-id="${escapeHtml(opt.id)}" style="display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; cursor: pointer; background: ${isSelected ? 'rgba(59,130,246,0.12)' : 'var(--bg-tertiary, rgba(255,255,255,0.04))'}; border: 1px solid ${isSelected ? '#3b82f6' : 'transparent'};">
+              <span class="interaction-option-radio" style="width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid ${isSelected ? '#3b82f6' : 'var(--text-secondary)'}; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                ${isSelected ? '<span style="width: 8px; height: 8px; border-radius: 50%; background: #3b82f6;"></span>' : ''}
               </span>
-              <span class="interaction-option-badge">[${idx + 1}]</span>
-              <span class="interaction-option-label">${escapeHtml(opt.label)}</span>
+              <span class="interaction-option-badge" style="font-size: 11px; font-weight: bold; font-family: monospace; color: ${isSelected ? '#3b82f6' : 'var(--text-secondary)'}; flex-shrink: 0;">[${escapeHtml(opt.id || String(idx + 1))}]</span>
+              <span class="interaction-option-label" style="font-size: 13px; color: ${isSelected ? 'var(--text-primary)' : 'var(--text-secondary)'}; overflow-x: auto; white-space: nowrap; flex: 1; scrollbar-width: none;">${escapeHtml(label)}</span>
             </div>
           `;
         }).join('')}
       </div>
 
-      <div id="interaction-write-in-wrap" class="interaction-write-in-wrap ${isDenyOrWriteIn ? '' : 'hidden'}">
-        <input type="text" id="interaction-write-in-input" class="interaction-write-in-input" placeholder="输入说明或拒绝原因..." />
+      <div id="interaction-write-in-wrap" class="interaction-write-in-wrap ${isDenyOrWriteIn ? '' : 'hidden'}" style="margin-top: 8px;">
+        <input type="text" id="interaction-write-in-input" class="interaction-write-in-input" placeholder="${escapeHtml(interaction.writeInPlaceholder || '输入说明或拒绝原因...')}" style="width: 100%; font-size: 12px; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary);" />
+      </div>
+    `;
+  }
+
+  container.innerHTML = `
+    <div class="interaction-card" style="padding: 14px; border-radius: 12px; border: 1px solid rgba(59,130,246,0.35); background: var(--bg-secondary, #1a1d24); box-shadow: 0 4px 16px rgba(0,0,0,0.25);">
+      <div class="interaction-card-header" style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+        <div class="interaction-icon" style="color: ${hasMultiQuestions ? '#9333ea' : '#3b82f6'};">${iconSvg}</div>
+        <div class="interaction-title-group" style="flex: 1;">
+          <div class="interaction-title" style="font-size: 14px; font-weight: bold; color: var(--text-primary);">
+            ${hasMultiQuestions ? `需要确认规格 (${interaction.questions.length} 个问题)` : escapeHtml(interaction.title || "需要确认或授权")}
+          </div>
+        </div>
       </div>
 
-      <div class="interaction-card-actions">
+      ${interaction.target ? `
+        <div class="interaction-target-box" style="margin-bottom: 10px; padding: 6px 10px; border-radius: 6px; background: rgba(0,0,0,0.2); font-family: monospace; font-size: 11.5px; color: var(--text-secondary); word-break: break-all;">
+          ${escapeHtml(interaction.target)}
+        </div>
+      ` : ''}
+
+      ${contentHtml}
+
+      <div class="interaction-card-actions" style="display: flex; align-items: center; gap: 10px; margin-top: 12px;">
         ${(interaction.type === "permission" || interaction.type === "file_permission") ? `
           <button type="button" id="btn-interaction-auto-approve" class="btn-interaction-auto ${autoApprovePermissions ? 'active' : ''}" style="border: 1px solid var(--border-color); border-radius: 6px; padding: 4px 8px; font-size: 11px; background: ${autoApprovePermissions ? 'rgba(234, 179, 8, 0.15)' : 'transparent'}; color: ${autoApprovePermissions ? '#ca8a04' : 'var(--text-secondary)'}; cursor: pointer;">
             <span>⚡️ ${autoApprovePermissions ? '自动审批: 开' : '自动审批: 关'}</span>
           </button>
         ` : ''}
         <div style="flex: 1;"></div>
-        <button type="button" id="btn-interaction-skip" class="btn-interaction-skip" ${isSubmittingInteraction ? 'disabled' : ''}>Skip</button>
-        <button type="button" id="btn-interaction-submit" class="btn-interaction-submit" ${isSubmittingInteraction ? 'disabled' : ''}>
+        <button type="button" id="btn-interaction-skip" class="btn-interaction-skip" ${isSubmittingInteraction ? 'disabled' : ''} style="padding: 6px 14px; border-radius: 8px; border: 1px solid var(--border-color); background: transparent; color: var(--text-secondary); cursor: pointer;">Skip</button>
+        <button type="button" id="btn-interaction-submit" class="btn-interaction-submit" ${isSubmittingInteraction ? 'disabled' : ''} style="padding: 6px 16px; border-radius: 8px; border: none; background: #2563eb; color: white; font-weight: 600; cursor: pointer;">
           <span>${isSubmittingInteraction ? '提交中...' : 'Submit'}</span>
           <span class="interaction-submit-key">↵</span>
         </button>
@@ -1329,8 +1379,28 @@ function renderInteractionCard() {
 
   container.classList.remove("hidden");
 
-  // Add click handlers on option items
-  container.querySelectorAll(".interaction-option-item").forEach(item => {
+  // Multi-question option click handlers
+  container.querySelectorAll(".interaction-option-item[data-q-idx]").forEach(item => {
+    item.addEventListener("click", () => {
+      const qIdx = parseInt(item.dataset.qIdx, 10);
+      const optId = item.dataset.optId;
+      if (optId) {
+        multiQuestionSelections[qIdx] = optId;
+        renderInteractionCard();
+      }
+    });
+  });
+
+  // Multi-question write-in inputs
+  container.querySelectorAll(".interaction-multi-write-in-input").forEach(input => {
+    input.addEventListener("input", (e) => {
+      const qIdx = parseInt(input.dataset.qIdx, 10);
+      multiQuestionWriteIns[qIdx] = e.target.value;
+    });
+  });
+
+  // Single-question option click handlers
+  container.querySelectorAll(".interaction-option-item:not([data-q-idx])").forEach(item => {
     item.addEventListener("click", () => {
       const optId = item.dataset.optId;
       if (optId && optId !== selectedInteractionOptionId) {
@@ -1383,23 +1453,46 @@ async function handleInteractionSubmit(isSkip) {
   renderInteractionCard();
 
   try {
-    const writeInInput = document.getElementById("interaction-write-in-input");
-    const writeInText = writeInInput ? writeInInput.value.trim() : "";
-    const selectedOpt = currentPendingInteraction.options?.find(o => o.id === (isSkip ? "" : selectedInteractionOptionId));
-    const isDeny = selectedOpt?.isDeny || selectedInteractionOptionId === "5" || selectedInteractionOptionId === "__write_in__";
+    const interaction = currentPendingInteraction;
+    const hasMultiQuestions = interaction.questions && interaction.questions.length > 1;
+
+    let questionResponses = null;
+    let selectedOptionId = isSkip ? "" : (selectedInteractionOptionId || "");
+    let writeInText = "";
+
+    if (hasMultiQuestions) {
+      questionResponses = interaction.questions.map((q, idx) => {
+        const optId = multiQuestionSelections[idx] || q.defaultOptionId || q.options?.[0]?.id || "1";
+        const writeIn = multiQuestionWriteIns[idx] || "";
+        return {
+          questionIndex: idx,
+          selectedOptionIds: isSkip ? [] : [optId],
+          writeInResponse: isSkip ? "" : writeIn,
+          skipped: isSkip
+        };
+      });
+      selectedOptionId = questionResponses[0]?.selectedOptionIds?.[0] || "";
+    } else {
+      const writeInInput = document.getElementById("interaction-write-in-input");
+      writeInText = writeInInput ? writeInInput.value.trim() : "";
+    }
+
+    const selectedOpt = interaction.options?.find(o => o.id === selectedOptionId);
+    const isDeny = selectedOpt?.isDeny || selectedOptionId === "5" || selectedOptionId === "__write_in__";
 
     const payload = {
       cascadeId: activeCascadeId,
-      trajectoryId: currentPendingInteraction.trajectoryId || "",
-      stepIndex: currentPendingInteraction.stepIndex,
-      substepIndex: currentPendingInteraction.substepIndex || 0,
-      type: currentPendingInteraction.type,
-      optionId: isSkip ? "" : (selectedInteractionOptionId || ""),
+      trajectoryId: interaction.trajectoryId || "",
+      stepIndex: interaction.stepIndex,
+      substepIndex: interaction.substepIndex || 0,
+      type: interaction.type,
+      optionId: selectedOptionId,
       scope: selectedOpt?.scope || 1,
       allow: isSkip ? false : !isDeny,
       writeInResponse: isSkip ? "" : writeInText,
-      target: currentPendingInteraction.target || "",
-      skipped: isSkip
+      target: interaction.target || "",
+      skipped: isSkip,
+      questionResponses: questionResponses
     };
 
     const res = await fetch("/gateway/cascade/interaction", {
@@ -1414,6 +1507,8 @@ async function handleInteractionSubmit(isSkip) {
     }
 
     // Success: clear pending interaction
+    multiQuestionSelections = {};
+    multiQuestionWriteIns = {};
     updatePendingInteraction(null, false);
     if (activeCascadeId && currentTrajectories[activeCascadeId]) {
       currentTrajectories[activeCascadeId].needsInput = false;

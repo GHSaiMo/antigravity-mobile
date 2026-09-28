@@ -568,14 +568,14 @@ public struct ChatView: View {
             InteractionCardView(
                 interaction: interaction,
                 isSubmitting: viewModel.isSubmittingInteraction,
-                onSubmit: { optionId, writeInText, target in
+                onSubmit: { optionId, writeInText, target, questionResponses in
                     Task {
-                        await viewModel.submitInteraction(optionId: optionId, writeInText: writeInText, target: target)
+                        await viewModel.submitInteraction(optionId: optionId, writeInText: writeInText, target: target, questionResponses: questionResponses)
                     }
                 },
-                onSkip: {
+                onSkip: { questionResponses in
                     Task {
-                        await viewModel.skipInteraction()
+                        await viewModel.skipInteraction(questionResponses: questionResponses)
                     }
                 }
             )

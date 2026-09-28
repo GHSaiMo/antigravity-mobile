@@ -1790,34 +1790,72 @@ class ChatViewModel(
         }
     }
 
-    fun approveInteraction() {
+    fun submitInteraction(
+        optionId: String,
+        writeInText: String? = null,
+        target: String? = null,
+        questionResponses: List<QuestionResponse>? = null
+    ) {
+        val interaction = _uiState.value.pendingInteraction ?: return
+        val cascadeId = _uiState.value.cascadeId
+        val selectedOpt = interaction.options.find { it.id == optionId }
+        val scope = selectedOpt?.scope ?: 1
+        val isDeny = selectedOpt?.isDeny == true || optionId == "5" || optionId == "__write_in__"
+        val allow = !isDeny
+
+        viewModelScope.launch {
+            apiClient.submitInteraction(
+                cascadeId = cascadeId,
+                trajectoryId = interaction.trajectoryId,
+                stepIndex = interaction.stepIndex,
+                type = interaction.type,
+                optionId = optionId,
+                scope = scope,
+                allow = allow,
+                writeInResponse = writeInText ?: "",
+                skipped = false,
+                target = target ?: interaction.target,
+                questionResponses = questionResponses
+            )
+            _uiState.value = _uiState.value.copy(pendingInteraction = null)
+            saveSessionToCache()
+            loadCascadeMessages(isBackgroundPoll = true)
+        }
+    }
+
+    fun skipInteraction(questionResponses: List<QuestionResponse>? = null) {
         val interaction = _uiState.value.pendingInteraction ?: return
         val cascadeId = _uiState.value.cascadeId
         viewModelScope.launch {
             apiClient.submitInteraction(
                 cascadeId = cascadeId,
+                trajectoryId = interaction.trajectoryId,
                 stepIndex = interaction.stepIndex,
-                responseType = interaction.type,
-                confirmed = true
+                type = interaction.type,
+                optionId = "",
+                scope = 1,
+                allow = false,
+                writeInResponse = "",
+                skipped = true,
+                target = interaction.target,
+                questionResponses = questionResponses
             )
             _uiState.value = _uiState.value.copy(pendingInteraction = null)
             saveSessionToCache()
+            loadCascadeMessages(isBackgroundPoll = true)
         }
+    }
+
+    fun approveInteraction() {
+        val interaction = _uiState.value.pendingInteraction ?: return
+        val defaultOpt = interaction.defaultOptionId ?: interaction.options.firstOrNull()?.id ?: "1"
+        submitInteraction(optionId = defaultOpt)
     }
 
     fun rejectInteraction() {
         val interaction = _uiState.value.pendingInteraction ?: return
-        val cascadeId = _uiState.value.cascadeId
-        viewModelScope.launch {
-            apiClient.submitInteraction(
-                cascadeId = cascadeId,
-                stepIndex = interaction.stepIndex,
-                responseType = interaction.type,
-                confirmed = false
-            )
-            _uiState.value = _uiState.value.copy(pendingInteraction = null)
-            saveSessionToCache()
-        }
+        val denyOpt = interaction.options.firstOrNull { it.isDeny }?.id ?: "5"
+        submitInteraction(optionId = denyOpt)
     }
 
     fun proceedArtifact() {

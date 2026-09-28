@@ -343,6 +343,83 @@ func TestParseTrajectoryDetails_PendingInteraction(t *testing.T) {
 	}
 }
 
+func TestParseTrajectoryDetails_AskQuestionMultipleQuestions(t *testing.T) {
+	rawJSON := `{
+		"status": "CASCADE_RUN_STATUS_RUNNING",
+		"trajectory": {
+			"trajectoryId": "traj-test-multi",
+			"cascadeId": "cascade-test-multi",
+			"steps": [
+				{
+					"type": "CORTEX_STEP_TYPE_GENERIC",
+					"status": "CORTEX_STEP_STATUS_WAITING",
+					"requestedInteraction": {
+						"askQuestion": {
+							"questions": [
+								{
+									"question": "Question 1?",
+									"isMultiSelect": false,
+									"options": [
+										{"id": "1", "text": "Opt 1A"},
+										{"id": "2", "text": "Opt 1B"}
+									]
+								},
+								{
+									"question": "Question 2?",
+									"isMultiSelect": true,
+									"options": [
+										{"id": "1", "text": "Opt 2A"},
+										{"id": "2", "text": "Opt 2B"},
+										{"id": "3", "text": "Opt 2C"}
+									]
+								}
+							]
+						}
+					}
+				}
+			]
+		}
+	}`
+
+	var rawResp upstreamTrajectoryResp
+	if err := json.Unmarshal([]byte(rawJSON), &rawResp); err != nil {
+		t.Fatalf("failed to unmarshal test JSON: %v", err)
+	}
+
+	p := &Proxy{}
+	details := p.ParseTrajectoryDetails(&rawResp)
+
+	if details.PendingInteraction == nil {
+		t.Fatalf("expected PendingInteraction to be non-nil, got nil")
+	}
+	pi := details.PendingInteraction
+	if pi.Type != "ask_question" {
+		t.Errorf("expected type 'ask_question', got %q", pi.Type)
+	}
+	if len(pi.Questions) != 2 {
+		t.Fatalf("expected 2 questions, got %d", len(pi.Questions))
+	}
+	if pi.Questions[0].Question != "Question 1?" {
+		t.Errorf("expected first question 'Question 1?', got %q", pi.Questions[0].Question)
+	}
+	if len(pi.Questions[0].Options) != 2 {
+		t.Errorf("expected 2 options in question 0, got %d", len(pi.Questions[0].Options))
+	}
+	if pi.Questions[1].Question != "Question 2?" {
+		t.Errorf("expected second question 'Question 2?', got %q", pi.Questions[1].Question)
+	}
+	if len(pi.Questions[1].Options) != 3 {
+		t.Errorf("expected 3 options in question 1, got %d", len(pi.Questions[1].Options))
+	}
+	// Verify backward compatibility on top-level fields:
+	if pi.Title != "Question 1?" {
+		t.Errorf("expected backward-compatible title 'Question 1?', got %q", pi.Title)
+	}
+	if len(pi.Options) != 2 {
+		t.Errorf("expected backward-compatible 2 options, got %d", len(pi.Options))
+	}
+}
+
 func TestActualCascade_51dbc1ee(t *testing.T) {
 	insp := inspector.NewInspector(5 * time.Second)
 	info := insp.Scan()

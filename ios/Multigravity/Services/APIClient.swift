@@ -963,6 +963,7 @@ public final class APIClient: Sendable {
         writeInResponse: String = "",
         skipped: Bool = false,
         target: String? = nil,
+        questionResponses: [QuestionResponse]? = nil,
         baseURL: URL
     ) async throws {
         let endpoint = baseURL.appendingPathComponent("gateway/cascade/interaction")
@@ -981,7 +982,8 @@ public final class APIClient: Sendable {
             allow: allow,
             writeInResponse: writeInResponse,
             skipped: skipped,
-            target: target
+            target: target,
+            questionResponses: questionResponses
         )
         
         request.httpBody = try JSONEncoder().encode(payload)

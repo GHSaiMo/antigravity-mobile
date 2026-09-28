@@ -2598,7 +2598,12 @@ public final class ChatViewModel {
     
     // Submit user decision on a pending interaction
     @MainActor
-    public func submitInteraction(optionId: String, writeInText: String? = nil, target: String? = nil) async {
+    public func submitInteraction(
+        optionId: String,
+        writeInText: String? = nil,
+        target: String? = nil,
+        questionResponses: [QuestionResponse]? = nil
+    ) async {
         guard let interaction = pendingInteraction, let url = settings.serverURL else { return }
         
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -2623,6 +2628,7 @@ public final class ChatViewModel {
                 writeInResponse: writeIn,
                 skipped: false,
                 target: target ?? interaction.target,
+                questionResponses: questionResponses,
                 baseURL: url
             )
             
@@ -2641,7 +2647,7 @@ public final class ChatViewModel {
     
     // Skip the current interaction
     @MainActor
-    public func skipInteraction() async {
+    public func skipInteraction(questionResponses: [QuestionResponse]? = nil) async {
         guard let interaction = pendingInteraction, let url = settings.serverURL else { return }
         
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -2660,6 +2666,7 @@ public final class ChatViewModel {
                 writeInResponse: "",
                 skipped: true,
                 target: interaction.target,
+                questionResponses: questionResponses,
                 baseURL: url
             )
             

@@ -1203,18 +1203,27 @@ func (p *Proxy) handleUpdateConversationAnnotations(w http.ResponseWriter, r *ht
 	rp.ServeHTTP(w, fwdReq)
 }
 
+// QuestionResponse represents an answer to a single question in a multi-question ask_question interaction.
+type QuestionResponse struct {
+	QuestionIndex     int      `json:"questionIndex"`
+	SelectedOptionIDs []string `json:"selectedOptionIds"`
+	WriteInResponse   string   `json:"writeInResponse,omitempty"`
+	Skipped           bool     `json:"skipped,omitempty"`
+}
+
 // InteractionSubmitRequest represents user decision submitted from mobile client.
 type InteractionSubmitRequest struct {
-	CascadeID       string `json:"cascadeId"`
-	TrajectoryID    string `json:"trajectoryId"`
-	StepIndex       int    `json:"stepIndex"`
-	Type            string `json:"type"` // "permission", "ask_question", "file_permission", "run_command"
-	OptionID        string `json:"optionId"`
-	Scope           int    `json:"scope"`
-	Allow           bool   `json:"allow"`
-	WriteInResponse string `json:"writeInResponse"`
-	Skipped         bool   `json:"skipped"`
-	Target          string `json:"target,omitempty"`
+	CascadeID         string             `json:"cascadeId"`
+	TrajectoryID      string             `json:"trajectoryId"`
+	StepIndex         int                `json:"stepIndex"`
+	Type              string             `json:"type"` // "permission", "ask_question", "file_permission", "run_command"
+	OptionID          string             `json:"optionId,omitempty"`
+	Scope             int                `json:"scope,omitempty"`
+	Allow             bool               `json:"allow"`
+	WriteInResponse   string             `json:"writeInResponse,omitempty"`
+	Skipped           bool               `json:"skipped"`
+	Target            string             `json:"target,omitempty"`
+	QuestionResponses []QuestionResponse `json:"questionResponses,omitempty"`
 }
 
 // HandleCascadeInteraction submits user choice to upstream HandleCascadeUserInteraction.
@@ -1290,15 +1299,40 @@ func (p *Proxy) HandleCascadeInteraction(w http.ResponseWriter, r *http.Request)
 
 	case "ask_question":
 		if req.Skipped {
+			numQuestions := len(req.QuestionResponses)
+			if numQuestions == 0 {
+				numQuestions = 1
+			}
+			responses := make([]map[string]interface{}, numQuestions)
+			for i := 0; i < numQuestions; i++ {
+				responses[i] = map[string]interface{}{
+					"selectedOptionIds": []string{},
+					"writeInResponse":   "",
+					"skipped":           true,
+				}
+			}
 			interaction.AskQuestion = map[string]interface{}{
-				"responses": []map[string]interface{}{
-					{
-						"selectedOptionIds": []string{},
-						"writeInResponse":   "",
-						"skipped":           true,
-					},
-				},
+				"responses": responses,
 				"cancelled": true,
+			}
+		} else if len(req.QuestionResponses) > 0 {
+			responses := make([]map[string]interface{}, len(req.QuestionResponses))
+			for i, qr := range req.QuestionResponses {
+				opts := []string{}
+				for _, oid := range qr.SelectedOptionIDs {
+					if oid != "" && oid != "5" && oid != "__write_in__" {
+						opts = append(opts, oid)
+					}
+				}
+				responses[i] = map[string]interface{}{
+					"selectedOptionIds": opts,
+					"writeInResponse":   qr.WriteInResponse,
+					"skipped":           qr.Skipped,
+				}
+			}
+			interaction.AskQuestion = map[string]interface{}{
+				"responses": responses,
+				"cancelled": false,
 			}
 		} else {
 			opts := []string{}

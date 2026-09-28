@@ -3,38 +3,60 @@ import SwiftUI
 public struct InteractionCardView: View {
     public let interaction: PendingInteraction
     public let isSubmitting: Bool
-    public let onSubmit: (String, String?, String?) -> Void
-    public let onSkip: () -> Void
+    public let onSubmit: (String, String?, String?, [QuestionResponse]?) -> Void
+    public let onSkip: ([QuestionResponse]?) -> Void
     
     @State private var selectedOptionId: String
     @State private var writeInText: String = ""
     @State private var targetText: String
     @State private var settings = AppSettings.shared
     
+    // Multi-question state: questionIndex -> selectedOptionId, questionIndex -> writeInText
+    @State private var selectedOptionsByQuestion: [Int: String] = [:]
+    @State private var writeInByQuestion: [Int: String] = [:]
+    
     private var isPermissionType: Bool {
         interaction.type == "permission" || interaction.type == "file_permission"
+    }
+    
+    private var hasMultipleQuestions: Bool {
+        if let questions = interaction.questions, questions.count > 1 {
+            return true
+        }
+        return false
     }
     
     public init(
         interaction: PendingInteraction,
         isSubmitting: Bool,
-        onSubmit: @escaping (String, String?, String?) -> Void,
-        onSkip: @escaping () -> Void
+        onSubmit: @escaping (String, String?, String?, [QuestionResponse]?) -> Void,
+        onSkip: @escaping ([QuestionResponse]?) -> Void
     ) {
         self.interaction = interaction
         self.isSubmitting = isSubmitting
         self.onSubmit = onSubmit
         self.onSkip = onSkip
+        
+        var initialSelectedId = "1"
         if AppSettings.shared.autoApprovePermissions && (interaction.type == "permission" || interaction.type == "file_permission") {
             if let opt4 = interaction.options.first(where: { $0.id == "4" || $0.scope == 4 || $0.text.localizedCaseInsensitiveContains("always allow") }) {
-                _selectedOptionId = State(initialValue: opt4.id)
+                initialSelectedId = opt4.id
             } else {
-                _selectedOptionId = State(initialValue: interaction.defaultOptionId ?? interaction.options.first?.id ?? "1")
+                initialSelectedId = interaction.defaultOptionId ?? interaction.options.first?.id ?? "1"
             }
         } else {
-            _selectedOptionId = State(initialValue: interaction.defaultOptionId ?? interaction.options.first?.id ?? "1")
+            initialSelectedId = interaction.defaultOptionId ?? interaction.options.first?.id ?? "1"
         }
+        _selectedOptionId = State(initialValue: initialSelectedId)
         _targetText = State(initialValue: interaction.target ?? "")
+        
+        var qMap: [Int: String] = [:]
+        if let questions = interaction.questions {
+            for (idx, q) in questions.enumerated() {
+                qMap[idx] = q.defaultOptionId ?? q.options.first?.id ?? "1"
+            }
+        }
+        _selectedOptionsByQuestion = State(initialValue: qMap)
     }
     
     private var headerIconName: String {
@@ -70,18 +92,32 @@ public struct InteractionCardView: View {
         return selectedOptionId == "5" || selectedOptionId == "__write_in__"
     }
     
+    private func isQuestionDenySelected(qIdx: Int, q: InteractionQuestion) -> Bool {
+        let optId = selectedOptionsByQuestion[qIdx] ?? ""
+        if let opt = q.options.first(where: { $0.id == optId }) {
+            return opt.isDeny == true || opt.id == "5" || opt.id == "__write_in__" || opt.id.lowercased() == "other"
+        }
+        return optId == "5" || optId == "__write_in__" || optId.lowercased() == "other"
+    }
+    
     public var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            // Header: Icon + Question Title
+            // Header: Icon + Question Title / Multi-Question Title
             HStack(alignment: .center, spacing: 8) {
                 Image(systemName: headerIconName)
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(headerIconColor)
                 
-                Text(interaction.title)
-                    .font(.system(size: 14.5, weight: .semibold))
-                    .foregroundColor(.primary)
-                    .fixedSize(horizontal: false, vertical: true)
+                if hasMultipleQuestions, let count = interaction.questions?.count {
+                    Text("需要确认规格 (\(count) 个问题)")
+                        .font(.system(size: 14.5, weight: .semibold))
+                        .foregroundColor(.primary)
+                } else {
+                    Text(interaction.title.isEmpty ? "需要用户审批操作" : interaction.title)
+                        .font(.system(size: 14.5, weight: .semibold))
+                        .foregroundColor(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 
                 Spacer()
             }
@@ -101,17 +137,107 @@ public struct InteractionCardView: View {
                 }
             }
             
-            // Radio Options Group
-            VStack(spacing: 5) {
-                ForEach(interaction.options) { option in
-                    let isSelected = selectedOptionId == option.id
-                    
-                    Button {
-                        UISelectionFeedbackGenerator().selectionChanged()
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            selectedOptionId = option.id
+            // Content Area: Multi-question scrollable list OR Single question options
+            if hasMultipleQuestions, let questions = interaction.questions {
+                ScrollView(.vertical, showsIndicators: true) {
+                    VStack(alignment: .leading, spacing: 14) {
+                        ForEach(Array(questions.enumerated()), id: \.offset) { qIdx, q in
+                            VStack(alignment: .leading, spacing: 7) {
+                                // Question Header with Q[N] badge
+                                HStack(alignment: .top, spacing: 6) {
+                                    Text("Q\(qIdx + 1)")
+                                        .font(.system(size: 10.5, weight: .bold, design: .monospaced))
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 2)
+                                        .background(headerIconColor)
+                                        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                                    
+                                    Text(q.question)
+                                        .font(.system(size: 12.5, weight: .semibold))
+                                        .foregroundColor(.primary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                
+                                // Options for this question
+                                VStack(spacing: 5) {
+                                    ForEach(q.options) { option in
+                                        let isSelected = (selectedOptionsByQuestion[qIdx] ?? q.defaultOptionId ?? "1") == option.id
+                                        
+                                        HStack(alignment: .center, spacing: 8) {
+                                            // Badge
+                                            Text(option.id)
+                                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                                .foregroundColor(isSelected ? .white : .secondary)
+                                                .frame(width: 20, height: 20)
+                                                .background(isSelected ? Color.blue : Color(uiColor: .tertiarySystemFill))
+                                                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                                            
+                                            // Horizontally scrollable Option Text - Never truncated!
+                                            ScrollView(.horizontal, showsIndicators: false) {
+                                                Text(option.text)
+                                                    .font(.system(size: 12.5, weight: isSelected ? .medium : .regular))
+                                                    .foregroundColor(isSelected ? .primary : .secondary)
+                                                    .lineLimit(1)
+                                                    .fixedSize(horizontal: true, vertical: false)
+                                            }
+                                            
+                                            Spacer(minLength: 4)
+                                            
+                                            // Radio indicator
+                                            Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
+                                                .font(.system(size: 14))
+                                                .foregroundColor(isSelected ? .blue : Color(uiColor: .tertiaryLabel))
+                                        }
+                                        .padding(.horizontal, 9)
+                                        .padding(.vertical, 7)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                                .fill(isSelected ? Color.blue.opacity(0.08) : Color(uiColor: .secondarySystemBackground))
+                                        )
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                                .stroke(isSelected ? Color.blue.opacity(0.4) : Color.clear, lineWidth: 1)
+                                        )
+                                        .contentShape(Rectangle())
+                                        .onTapGesture {
+                                            UISelectionFeedbackGenerator().selectionChanged()
+                                            withAnimation(.easeInOut(duration: 0.15)) {
+                                                selectedOptionsByQuestion[qIdx] = option.id
+                                            }
+                                        }
+                                    }
+                                }
+                                
+                                // Inline Write-in if deny or other is selected for this question
+                                if q.hasWriteIn == true && isQuestionDenySelected(qIdx: qIdx, q: q) {
+                                    let binding = Binding<String>(
+                                        get: { writeInByQuestion[qIdx] ?? "" },
+                                        set: { writeInByQuestion[qIdx] = $0 }
+                                    )
+                                    TextField(
+                                        q.writeInPlaceholder ?? "(输入自定义说明)",
+                                        text: binding
+                                    )
+                                    .font(.system(size: 12))
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 6)
+                                    .background(Color(uiColor: .tertiarySystemFill))
+                                    .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                                }
+                            }
+                            .padding(.bottom, 4)
                         }
-                    } label: {
+                    }
+                    .padding(.trailing, 4)
+                }
+                .frame(maxHeight: 280)
+            } else {
+                // Single question radio options
+                VStack(spacing: 5) {
+                    ForEach(interaction.options) { option in
+                        let isSelected = selectedOptionId == option.id
+                        
                         HStack(alignment: .center, spacing: 9) {
                             // Number badge [1], [2], etc.
                             Text(option.id)
@@ -121,14 +247,16 @@ public struct InteractionCardView: View {
                                 .background(isSelected ? Color.blue : Color(uiColor: .tertiarySystemFill))
                                 .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
                             
-                            // Option text
-                            Text(option.text)
-                                .font(.system(size: 13, weight: isSelected ? .medium : .regular))
-                                .foregroundColor(isSelected ? .primary : .secondary)
-                                .multilineTextAlignment(.leading)
-                                .lineLimit(2)
+                            // Horizontally scrollable Option Text - Never truncated!
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                Text(option.text)
+                                    .font(.system(size: 13, weight: isSelected ? .medium : .regular))
+                                    .foregroundColor(isSelected ? .primary : .secondary)
+                                    .lineLimit(1)
+                                    .fixedSize(horizontal: true, vertical: false)
+                            }
                             
-                            Spacer()
+                            Spacer(minLength: 4)
                             
                             // Radio indicator
                             Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
@@ -145,30 +273,36 @@ public struct InteractionCardView: View {
                             RoundedRectangle(cornerRadius: 9, style: .continuous)
                                 .stroke(isSelected ? Color.blue.opacity(0.4) : Color.clear, lineWidth: 1)
                         )
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            UISelectionFeedbackGenerator().selectionChanged()
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                selectedOptionId = option.id
+                            }
+                        }
                     }
-                    .buttonStyle(.plain)
                 }
-            }
-            
-            // Inline Write-In Input for Deny or Custom input
-            if interaction.hasWriteIn == true && isDenySelected {
-                VStack(alignment: .leading, spacing: 4) {
-                    TextField(
-                        interaction.writeInPlaceholder ?? "(告诉 Agent 应该怎么做)",
-                        text: $writeInText,
-                        axis: .vertical
-                    )
-                    .font(.system(size: 12.5))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 7)
-                    .background(Color(uiColor: .tertiarySystemFill))
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
-                    )
+                
+                // Inline Write-In Input for Deny or Custom input
+                if interaction.hasWriteIn == true && isDenySelected {
+                    VStack(alignment: .leading, spacing: 4) {
+                        TextField(
+                            interaction.writeInPlaceholder ?? "(告诉 Agent 应该怎么做)",
+                            text: $writeInText,
+                            axis: .vertical
+                        )
+                        .font(.system(size: 12.5))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(Color(uiColor: .tertiarySystemFill))
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+                        )
+                    }
+                    .transition(.opacity.combined(with: .move(edge: .top)))
                 }
-                .transition(.opacity.combined(with: .move(edge: .top)))
             }
             
             // Bottom Action Bar: Auto-Approve Toggle & Skip & Submit (Blue Background)
@@ -204,7 +338,16 @@ public struct InteractionCardView: View {
                 Spacer()
                 
                 // Skip Button
-                Button(action: onSkip) {
+                Button {
+                    if hasMultipleQuestions, let questions = interaction.questions {
+                        let responses = questions.enumerated().map { idx, _ in
+                            QuestionResponse(questionIndex: idx, selectedOptionIds: [], writeInResponse: "", skipped: true)
+                        }
+                        onSkip(responses)
+                    } else {
+                        onSkip(nil)
+                    }
+                } label: {
                     Text("Skip")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(.secondary)
@@ -218,8 +361,17 @@ public struct InteractionCardView: View {
                 
                 // Submit Button (Blue Background)
                 Button {
-                    let text = isDenySelected ? writeInText : nil
-                    onSubmit(selectedOptionId, text, interaction.target)
+                    if hasMultipleQuestions, let questions = interaction.questions {
+                        let responses = questions.enumerated().map { idx, q in
+                            let optId = selectedOptionsByQuestion[idx] ?? q.defaultOptionId ?? q.options.first?.id ?? "1"
+                            let text = writeInByQuestion[idx]
+                            return QuestionResponse(questionIndex: idx, selectedOptionIds: [optId], writeInResponse: text, skipped: false)
+                        }
+                        onSubmit(selectedOptionId, nil, interaction.target, responses)
+                    } else {
+                        let text = isDenySelected ? writeInText : nil
+                        onSubmit(selectedOptionId, text, interaction.target, nil)
+                    }
                 } label: {
                     HStack(spacing: 5) {
                         if isSubmitting {

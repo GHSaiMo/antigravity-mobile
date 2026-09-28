@@ -614,13 +614,17 @@ fun ChatScreen(
                     uiState.pendingInteraction?.let { interaction ->
                         InteractionCard(
                             interaction = interaction,
-                            onApprove = {
+                            onSubmit = { optId, writeIn, qResponses ->
                                 dismissKeyboard()
-                                viewModel.approveInteraction()
+                                viewModel.submitInteraction(
+                                    optionId = optId,
+                                    writeInText = writeIn,
+                                    questionResponses = qResponses
+                                )
                             },
-                            onReject = {
+                            onSkip = { qResponses ->
                                 dismissKeyboard()
-                                viewModel.rejectInteraction()
+                                viewModel.skipInteraction(questionResponses = qResponses)
                             },
                             modifier = Modifier.fillMaxWidth()
                         )
