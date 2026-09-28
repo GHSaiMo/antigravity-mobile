@@ -87,6 +87,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y llvm
+          LIPO=$(which llvm-lipo 2>/dev/null || ls /usr/bin/llvm-lipo* 2>/dev/null | head -n 1)
+          if [ -n "$LIPO" ]; then
+            sudo ln -sf "$LIPO" /usr/local/bin/llvm-lipo
+          fi
+          llvm-lipo --version
 
       - name: Build macOS Binaries (arm64, amd64 & Universal)
         run: |
