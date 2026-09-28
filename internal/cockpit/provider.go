@@ -744,6 +744,9 @@ func EnsureCockpitAntigravityConfig() error {
 		}
 	}
 
+	// 4. Ensure state.vscdb SQLite databases and Antigravity IDE paths exist
+	ensureAntigravityStateDBs()
+
 	if !changed {
 		return nil
 	}
@@ -765,6 +768,17 @@ func EnsureCockpitAntigravityConfig() error {
 	}
 
 	log.Printf("[Cockpit] Auto-aligned config.json: antigravity_launch_on_switch=false, antigravity_app_path=%q", rawMap["antigravity_app_path"])
+
+	// 5. If Cockpit Tools process is running, restart it so the in-memory config is reloaded
+	if isCockpitProcessRunning() {
+		log.Println("[Cockpit] Restarting Cockpit Tools to reload updated configuration into memory...")
+		if rErr := RestartCockpitApp(); rErr != nil {
+			log.Printf("[Cockpit] Warning: failed to restart Cockpit Tools: %v", rErr)
+		} else {
+			time.Sleep(1 * time.Second)
+		}
+	}
+
 	return nil
 }
 
