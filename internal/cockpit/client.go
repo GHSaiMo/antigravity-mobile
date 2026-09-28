@@ -132,11 +132,14 @@ func generateRequestID() string {
 }
 
 // SwitchAccount connects to Cockpit Tools' WebSocket server and requests an account switch.
-func SwitchAccount(accountID string) error {
+func SwitchAccount(accountID string) (err error) {
 	accountID = strings.TrimSpace(accountID)
 	if accountID == "" {
 		return errors.New("account_id is required")
 	}
+
+	// Auto-align Cockpit config to prevent APP_PATH_NOT_FOUND during switch
+	_ = EnsureCockpitAntigravityConfig()
 
 	// If accountID is an email, resolve it to its matching account UUID in accounts.json
 	if strings.Contains(accountID, "@") {
@@ -156,7 +159,15 @@ func SwitchAccount(accountID string) error {
 		}
 	}
 
-	if err := quitAntigravityBeforeSwitch(); err != nil {
+	prevBindID := getLegacyBindAccount()
+	defer func() {
+		if err != nil && prevBindID != "" && prevBindID != accountID {
+			syncLegacyBindAccount(prevBindID)
+			log.Printf("[Cockpit] SwitchAccount failed; rolled back antigravity_legacy_instances bindAccountId to %s", prevBindID)
+		}
+	}()
+
+	if err = quitAntigravityBeforeSwitch(); err != nil {
 		return fmt.Errorf("quit Antigravity before switch: %w", err)
 	}
 	prepareAntigravityProfileForSwitch(accountID)

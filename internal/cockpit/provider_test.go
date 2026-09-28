@@ -3,6 +3,7 @@ package cockpit
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -167,3 +168,57 @@ func TestFormatResetFriendly(t *testing.T) {
 		t.Errorf("expected '<1m', got '%s'", got)
 	}
 }
+
+func TestEnsureCockpitAntigravityConfig_AlignsConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("COCKPIT_DATA_DIR", tmpDir)
+
+	configFile := filepath.Join(tmpDir, "config.json")
+	initialConfig := map[string]any{
+		"antigravity_launch_on_switch": true,
+		"antigravity_app_path":        "",
+		"other_field":                 "keep_me",
+	}
+	b, err := json.Marshal(initialConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configFile, b, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := EnsureCockpitAntigravityConfig(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	readBytes, err := os.ReadFile(configFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var updated map[string]any
+	if err := json.Unmarshal(readBytes, &updated); err != nil {
+		t.Fatal(err)
+	}
+
+	if val, ok := updated["antigravity_launch_on_switch"].(bool); !ok || val {
+		t.Errorf("expected antigravity_launch_on_switch to be false, got %v", updated["antigravity_launch_on_switch"])
+	}
+	if updated["other_field"] != "keep_me" {
+		t.Errorf("expected other_field to be preserved, got %v", updated["other_field"])
+	}
+
+	// Verify .bak file created
+	if _, err := os.Stat(configFile + ".bak"); err != nil {
+		t.Errorf("expected config.json.bak to exist: %v", err)
+	}
+}
+
+func TestEnsureCockpitAntigravityConfig_NoConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("COCKPIT_DATA_DIR", tmpDir)
+
+	if err := EnsureCockpitAntigravityConfig(); err != nil {
+		t.Fatalf("expected nil when config.json is absent, got: %v", err)
+	}
+}
+

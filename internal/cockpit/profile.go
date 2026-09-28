@@ -57,8 +57,10 @@ func sqliteQuote(s string) string {
 // Cockpit's own UI switch leaves those keys in place, and deleting them leaves
 // the workbench without a hydrated identity (black window). Only align the
 // legacy Antigravity.app bind slot, which Cockpit otherwise leaves stale.
-func prepareAntigravityProfileForSwitch(accountID string) {
+func prepareAntigravityProfileForSwitch(accountID string) (prevAccountID string) {
+	prevAccountID = getLegacyBindAccount()
 	syncLegacyBindAccount(accountID)
+	return prevAccountID
 }
 
 func clearStaleAntigravityIdentity() {
@@ -112,6 +114,28 @@ func execSQLite(dbPath, sql string) error {
 		}
 	}
 	return fmt.Errorf("neither sqlite3 nor python found to execute sqlite query")
+}
+
+func getLegacyBindAccount() string {
+	dataDir, err := GetCockpitDataDir()
+	if err != nil {
+		return ""
+	}
+	path := filepath.Join(dataDir, "antigravity_legacy_instances.json")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return ""
+	}
+	ds, _ := doc["defaultSettings"].(map[string]any)
+	if ds == nil {
+		return ""
+	}
+	val, _ := ds["bindAccountId"].(string)
+	return strings.TrimSpace(val)
 }
 
 func syncLegacyBindAccount(accountID string) {
