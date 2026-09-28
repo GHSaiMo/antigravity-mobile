@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -44,6 +45,36 @@ func antigravityStateDBPaths() []string {
 		)
 	}
 	return paths
+}
+
+// ensureAntigravityStateDBs initializes the directories and SQLite state.vscdb
+// with ItemTable if missing, ensuring Cockpit Tools' profile injection succeeds.
+func ensureAntigravityStateDBs() {
+	home, homeErr := os.UserHomeDir()
+	if homeErr == nil && runtime.GOOS == "darwin" {
+		agDir := filepath.Join(home, "Library", "Application Support", "Antigravity")
+		agIdeDir := filepath.Join(home, "Library", "Application Support", "Antigravity IDE")
+		if _, statErr := os.Stat(agDir); statErr == nil {
+			if _, ideErr := os.Lstat(agIdeDir); os.IsNotExist(ideErr) {
+				_ = os.Symlink("Antigravity", agIdeDir)
+			}
+		}
+	}
+
+	for _, dbPath := range antigravityStateDBPaths() {
+		parentDir := filepath.Dir(dbPath)
+		if err := os.MkdirAll(parentDir, 0755); err != nil {
+			continue
+		}
+		if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+			const initSQL = "CREATE TABLE IF NOT EXISTS ItemTable (key TEXT PRIMARY KEY, value TEXT);"
+			if err := execSQLite(dbPath, initSQL); err != nil {
+				log.Printf("[Cockpit] failed to initialize state.vscdb at %s: %v", dbPath, err)
+			} else {
+				log.Printf("[Cockpit] initialized state.vscdb at %s", dbPath)
+			}
+		}
+	}
 }
 
 func sqliteQuote(s string) string {

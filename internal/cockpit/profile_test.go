@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -152,3 +153,31 @@ func TestSyncLegacyBindAccount(t *testing.T) {
 		t.Fatalf("launchMode should be preserved, got %v", ds["launchMode"])
 	}
 }
+
+func TestEnsureAntigravityStateDBs(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("USERPROFILE", tmp)
+	t.Setenv("APPDATA", filepath.Join(tmp, "AppData", "Roaming"))
+
+	// Create a base Antigravity dir
+	agDir := filepath.Join(tmp, "Library", "Application Support", "Antigravity")
+	_ = os.MkdirAll(agDir, 0755)
+
+	ensureAntigravityStateDBs()
+
+	// Verify state.vscdb is created in Antigravity
+	dbPath := filepath.Join(agDir, "User", "globalStorage", "state.vscdb")
+	if _, err := os.Stat(dbPath); err != nil {
+		t.Fatalf("expected state.vscdb to be created at %s, got: %v", dbPath, err)
+	}
+
+	// On macOS, verify Antigravity IDE symlink or dir is created
+	if runtime.GOOS == "darwin" {
+		ideDir := filepath.Join(tmp, "Library", "Application Support", "Antigravity IDE")
+		if _, err := os.Stat(ideDir); err != nil {
+			t.Fatalf("expected Antigravity IDE directory/symlink to exist at %s: %v", ideDir, err)
+		}
+	}
+}
+
