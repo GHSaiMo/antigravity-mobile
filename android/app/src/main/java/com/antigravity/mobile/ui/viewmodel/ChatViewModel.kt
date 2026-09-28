@@ -1819,7 +1819,7 @@ class ChatViewModel(
             )
             _uiState.value = _uiState.value.copy(pendingInteraction = null)
             saveSessionToCache()
-            loadCascadeMessages(isBackgroundPoll = true)
+            refreshMessages()
         }
     }
 
@@ -1842,7 +1842,7 @@ class ChatViewModel(
             )
             _uiState.value = _uiState.value.copy(pendingInteraction = null)
             saveSessionToCache()
-            loadCascadeMessages(isBackgroundPoll = true)
+            refreshMessages()
         }
     }
 
