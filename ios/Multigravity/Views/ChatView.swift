@@ -104,11 +104,33 @@ public struct ChatView: View {
     }
     
     public var body: some View {
-        VStack(spacing: 0) {
-            contentArea
-            errorBanner
-            floatingCards
-            inputBar
+        ZStack(alignment: .bottom) {
+            VStack(spacing: 0) {
+                contentArea
+                errorBanner
+                floatingCards
+                inputBar
+            }
+            
+            // Interaction Bottom Sheet Overlay (半屏默认，可向上拖动至全屏，多行选项)
+            if let interaction = viewModel.pendingInteraction {
+                InteractionCardView(
+                    interaction: interaction,
+                    isSubmitting: viewModel.isSubmittingInteraction,
+                    onSubmit: { optionId, writeInText, target, questionResponses in
+                        Task {
+                            await viewModel.submitInteraction(optionId: optionId, writeInText: writeInText, target: target, questionResponses: questionResponses)
+                        }
+                    },
+                    onSkip: { questionResponses in
+                        Task {
+                            await viewModel.skipInteraction(questionResponses: questionResponses)
+                        }
+                    }
+                )
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .zIndex(10)
+            }
         }
         .navigationTitle(viewModel.currentTitle)
         .navigationBarTitleDisplayMode(.inline)
@@ -564,24 +586,6 @@ public struct ChatView: View {
     
     @ViewBuilder
     private var floatingCards: some View {
-        if let interaction = viewModel.pendingInteraction {
-            InteractionCardView(
-                interaction: interaction,
-                isSubmitting: viewModel.isSubmittingInteraction,
-                onSubmit: { optionId, writeInText, target, questionResponses in
-                    Task {
-                        await viewModel.submitInteraction(optionId: optionId, writeInText: writeInText, target: target, questionResponses: questionResponses)
-                    }
-                },
-                onSkip: { questionResponses in
-                    Task {
-                        await viewModel.skipInteraction(questionResponses: questionResponses)
-                    }
-                }
-            )
-            .transition(.move(edge: .bottom).combined(with: .opacity))
-        }
-        
         if !viewModel.runningTasks.isEmpty {
             RunningTasksCardView(
                 items: viewModel.runningTasks,

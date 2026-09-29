@@ -1,6 +1,9 @@
 package com.antigravity.mobile.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -8,14 +11,17 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.HelpOutline
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Terminal
@@ -27,9 +33,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.isSpecified
 import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.InteractionOption
 import com.antigravity.mobile.data.model.InteractionQuestion
@@ -70,7 +81,7 @@ fun InteractionCard(
 
     val headerIcon = when (interaction.type) {
         "permission", "file_permission" -> Icons.Default.Lock
-        "ask_question" -> Icons.Default.HelpOutline
+        "ask_question" -> Icons.AutoMirrored.Filled.HelpOutline
         "run_command" -> Icons.Default.Terminal
         else -> Icons.Default.Warning
     }
@@ -82,190 +93,296 @@ fun InteractionCard(
         else -> colors.accentOrange
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .shadow(
-                elevation = 2.5.dp,
-                shape = RoundedCornerShape(14.dp),
-                ambientColor = Color.Black.copy(alpha = 0.05f),
-                spotColor = Color.Black.copy(alpha = 0.10f)
-            )
-            .clip(RoundedCornerShape(14.dp))
-            .background(colors.surface)
-            .border(1.dp, headerColor.copy(alpha = 0.35f), RoundedCornerShape(14.dp))
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        // Header: Icon + Title
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Icon(
-                imageVector = headerIcon,
-                contentDescription = null,
-                tint = headerColor,
-                modifier = Modifier.size(20.dp)
-            )
-            Text(
-                text = if (hasMultipleQuestions) {
-                    "需要确认规格 (${questions?.size} 个问题)"
-                } else {
-                    interaction.title.ifBlank { interaction.prompt ?: "需要用户审批操作" }
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        val screenHeight = LocalConfiguration.current.screenHeightDp.dp
+        val availableHeight = if (maxHeight.isSpecified && maxHeight < Dp.Infinity && maxHeight > 100.dp) maxHeight else screenHeight
+        val fullHeight = availableHeight
+        val halfHeight = availableHeight * 0.52f
+
+        var isExpanded by remember { mutableStateOf(false) }
+        var dragOffsetY by remember { mutableFloatStateOf(0f) }
+
+        val targetHeight = if (isExpanded) fullHeight else halfHeight
+        val animatedHeight by animateDpAsState(
+            targetValue = targetHeight,
+            animationSpec = spring(
+                dampingRatio = Spring.DampingRatioLowBouncy,
+                stiffness = Spring.StiffnessMediumLow
+            ),
+            label = "sheetHeight"
+        )
+
+        val currentHeight = if (dragOffsetY != 0f) {
+            val base = if (isExpanded) fullHeight else halfHeight
+            val density = LocalDensity.current
+            val dragOffsetDp = with(density) { dragOffsetY.toDp() }
+            (base - dragOffsetDp).coerceIn(halfHeight, fullHeight)
+        } else {
+            animatedHeight
+        }
+
+        val dragModifier = Modifier.pointerInput(isExpanded) {
+            detectVerticalDragGestures(
+                onDragStart = {
+                    dragOffsetY = 0f
                 },
-                color = colors.textPrimary,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f)
+                onDragEnd = {
+                    val density = this
+                    val dragOffsetDp = with(density) { dragOffsetY.toDp() }
+                    if (isExpanded) {
+                        if (dragOffsetDp > 40.dp) {
+                            isExpanded = false
+                            haptic.light()
+                        }
+                    } else {
+                        if (dragOffsetDp < (-40).dp) {
+                            isExpanded = true
+                            haptic.light()
+                        }
+                    }
+                    dragOffsetY = 0f
+                },
+                onDragCancel = {
+                    dragOffsetY = 0f
+                },
+                onVerticalDrag = { change, dragAmount ->
+                    change.consume()
+                    dragOffsetY += dragAmount
+                }
             )
         }
 
-        // Target / Command Monospace Preview Box
-        val targetText = interaction.target ?: interaction.command
-        if (!targetText.isNullOrBlank()) {
-            Column(
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(currentHeight)
+                .shadow(
+                    elevation = 10.dp,
+                    shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp),
+                    ambientColor = Color.Black.copy(alpha = 0.08f),
+                    spotColor = Color.Black.copy(alpha = 0.16f)
+                )
+                .clip(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp))
+                .background(colors.surface)
+                .border(
+                    width = 1.dp,
+                    color = headerColor.copy(alpha = 0.35f),
+                    shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp)
+                )
+                .navigationBarsPadding()
+                .imePadding()
+                .padding(horizontal = 14.dp)
+                .padding(top = 2.dp, bottom = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Drag Handle on top (Tap to toggle, Drag to expand/collapse)
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(colors.surfaceVariant)
-                    .padding(8.dp)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        haptic.light()
+                        isExpanded = !isExpanded
+                    }
+                    .then(dragModifier)
+                    .padding(top = 8.dp, bottom = 4.dp),
+                contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = targetText,
-                    color = colors.textPrimary,
-                    fontSize = 11.5.sp,
-                    fontFamily = FontFamily.Monospace,
-                    maxLines = 3
+                Box(
+                    modifier = Modifier
+                        .width(38.dp)
+                        .height(4.5.dp)
+                        .clip(RoundedCornerShape(2.5.dp))
+                        .background(colors.textSecondary.copy(alpha = 0.35f))
                 )
             }
-        }
 
-        // Question Options Area
-        if (hasMultipleQuestions && questions != null) {
-            // Scrollable list of questions
-            Column(
+            // Header: Icon + Title + Expand/Collapse Button (also draggable)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 280.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                    .then(dragModifier)
             ) {
-                questions.forEachIndexed { qIdx, q ->
-                    QuestionSection(
-                        questionIndex = qIdx,
-                        question = q,
-                        selectedOptionId = multiSelections[qIdx] ?: q.defaultOptionId ?: "1",
-                        onSelectOption = { optId ->
-                            haptic.light()
-                            multiSelections[qIdx] = optId
-                        },
-                        writeInText = multiWriteIns[qIdx] ?: "",
-                        onWriteInChange = { multiWriteIns[qIdx] = it }
+                Icon(
+                    imageVector = headerIcon,
+                    contentDescription = null,
+                    tint = headerColor,
+                    modifier = Modifier.size(20.dp)
+                )
+                Text(
+                    text = if (hasMultipleQuestions) {
+                        "需要确认规格 (${questions?.size} 个问题)"
+                    } else {
+                        interaction.title.ifBlank { interaction.prompt ?: "需要用户审批操作" }
+                    },
+                    color = colors.textPrimary,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(
+                    onClick = {
+                        haptic.light()
+                        isExpanded = !isExpanded
+                    },
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isExpanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
+                        contentDescription = if (isExpanded) "收起" else "全屏展开",
+                        tint = colors.textSecondary,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }
-        } else {
-            // Single question options
-            val options = interaction.options
-            if (options.isNotEmpty()) {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    options.forEach { opt ->
-                        val isSelected = selectedOptionId == opt.id
-                        OptionRow(
-                            option = opt,
-                            isSelected = isSelected,
-                            onClick = {
-                                haptic.light()
-                                selectedOptionId = opt.id
-                            }
-                        )
-                    }
-                }
 
-                // Write-in field if deny / other selected
-                val selectedOpt = options.find { it.id == selectedOptionId }
-                val isDenyOrOther = selectedOpt?.isDeny == true || selectedOptionId == "5" || selectedOptionId == "__write_in__"
-                AnimatedVisibility(
-                    visible = (interaction.hasWriteIn || isDenyOrOther) && isDenyOrOther,
-                    enter = fadeIn() + expandVertically(),
-                    exit = fadeOut() + shrinkVertically()
+            // Target / Command Monospace Preview Box
+            val targetText = interaction.target ?: interaction.command
+            if (!targetText.isNullOrBlank()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(colors.surfaceVariant)
+                        .padding(8.dp)
                 ) {
-                    OutlinedTextField(
-                        value = singleWriteInText,
-                        onValueChange = { singleWriteInText = it },
-                        placeholder = {
-                            Text(
-                                interaction.writeInPlaceholder ?: "(告诉 Agent 应该怎么做)",
-                                fontSize = 12.sp
-                            )
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 4.dp),
-                        shape = RoundedCornerShape(8.dp),
-                        singleLine = false,
+                    Text(
+                        text = targetText,
+                        color = colors.textPrimary,
+                        fontSize = 11.5.sp,
+                        fontFamily = FontFamily.Monospace,
                         maxLines = 3
                     )
                 }
             }
-        }
 
-        // Bottom Action Bar: Skip & Submit
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            OutlinedButton(
-                onClick = {
-                    haptic.medium()
-                    if (hasMultipleQuestions && questions != null) {
-                        val responses = questions.mapIndexed { idx, _ ->
-                            QuestionResponse(questionIndex = idx, selectedOptionIds = emptyList(), writeInResponse = "", skipped = true)
-                        }
-                        onSkip(responses)
-                    } else {
-                        onSkip(null)
-                    }
-                },
-                modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.outlinedButtonColors(
-                    contentColor = colors.textSecondary
-                ),
-                shape = RoundedCornerShape(10.dp)
+            // Question Options Area (Takes remaining vertical space and scrolls)
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text("Skip (跳过)")
-            }
+                if (hasMultipleQuestions) {
+                    questions?.forEachIndexed { qIdx, q ->
+                        QuestionSection(
+                            questionIndex = qIdx,
+                            question = q,
+                            selectedOptionId = multiSelections[qIdx] ?: q.defaultOptionId ?: "1",
+                            onSelectOption = { optId ->
+                                haptic.light()
+                                multiSelections[qIdx] = optId
+                            },
+                            writeInText = multiWriteIns[qIdx] ?: "",
+                            onWriteInChange = { multiWriteIns[qIdx] = it }
+                        )
+                    }
+                } else {
+                    val options = interaction.options
+                    if (options.isNotEmpty()) {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            options.forEach { opt ->
+                                val isSelected = selectedOptionId == opt.id
+                                OptionRow(
+                                    option = opt,
+                                    isSelected = isSelected,
+                                    onClick = {
+                                        haptic.light()
+                                        selectedOptionId = opt.id
+                                    }
+                                )
+                            }
+                        }
 
-            Button(
-                onClick = {
-                    haptic.heavy()
-                    if (hasMultipleQuestions && questions != null) {
-                        val responses = questions.mapIndexed { idx, q ->
-                            val optId = multiSelections[idx] ?: q.defaultOptionId ?: q.options.firstOrNull()?.id ?: "1"
-                            val writeIn = multiWriteIns[idx] ?: ""
-                            QuestionResponse(
-                                questionIndex = idx,
-                                selectedOptionIds = listOf(optId),
-                                writeInResponse = writeIn,
-                                skipped = false
+                        val selectedOpt = options.find { it.id == selectedOptionId }
+                        val isDenyOrOther = selectedOpt?.isDeny == true || selectedOptionId == "5" || selectedOptionId == "__write_in__"
+                        AnimatedVisibility(
+                            visible = (interaction.hasWriteIn || isDenyOrOther) && isDenyOrOther,
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically()
+                        ) {
+                            OutlinedTextField(
+                                value = singleWriteInText,
+                                onValueChange = { singleWriteInText = it },
+                                placeholder = {
+                                    Text(
+                                        interaction.writeInPlaceholder ?: "(告诉 Agent 应该怎么做)",
+                                        fontSize = 12.sp
+                                    )
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 4.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                singleLine = false,
+                                maxLines = 3
                             )
                         }
-                        onSubmit(selectedOptionId, null, responses)
-                    } else {
-                        onSubmit(selectedOptionId, singleWriteInText.ifBlank { null }, null)
                     }
-                },
-                modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = colors.accentBlue,
-                    contentColor = Color.White
-                ),
-                shape = RoundedCornerShape(10.dp)
+                }
+            }
+
+            // Bottom Action Bar: Skip & Submit (Always pinned at the bottom)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text("Submit ↵ (提交)")
+                OutlinedButton(
+                    onClick = {
+                        haptic.medium()
+                        if (hasMultipleQuestions) {
+                            val responses = questions?.mapIndexed { idx, _ ->
+                                QuestionResponse(questionIndex = idx, selectedOptionIds = emptyList(), writeInResponse = "", skipped = true)
+                            }
+                            onSkip(responses)
+                        } else {
+                            onSkip(null)
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = colors.textSecondary
+                    ),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("Skip (跳过)")
+                }
+
+                Button(
+                    onClick = {
+                        haptic.heavy()
+                        if (hasMultipleQuestions) {
+                            val responses = questions?.mapIndexed { idx, q ->
+                                val optId = multiSelections[idx] ?: q.defaultOptionId ?: q.options.firstOrNull()?.id ?: "1"
+                                val writeIn = multiWriteIns[idx] ?: ""
+                                QuestionResponse(
+                                    questionIndex = idx,
+                                    selectedOptionIds = listOf(optId),
+                                    writeInResponse = writeIn,
+                                    skipped = false
+                                )
+                            }
+                            onSubmit(selectedOptionId, null, responses)
+                        } else {
+                            onSubmit(selectedOptionId, singleWriteInText.ifBlank { null }, null)
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = colors.accentBlue,
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("Submit ↵ (提交)")
+                }
             }
         }
     }
@@ -355,7 +472,7 @@ private fun OptionRow(
     val colors = AntigravityTheme.colors
 
     Row(
-        verticalAlignment = Alignment.CenterVertically,
+        verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier
             .fillMaxWidth()
@@ -367,11 +484,12 @@ private fun OptionRow(
                 shape = RoundedCornerShape(8.dp)
             )
             .clickable(onClick = onClick)
-            .padding(horizontal = 9.dp, vertical = 7.dp)
+            .padding(horizontal = 9.dp, vertical = 8.dp)
     ) {
         // Number badge [1], [2], etc.
         Box(
             modifier = Modifier
+                .padding(top = 1.dp)
                 .size(20.dp)
                 .clip(RoundedCornerShape(5.dp))
                 .background(if (isSelected) colors.accentBlue else colors.surfaceVariant),
@@ -386,26 +504,22 @@ private fun OptionRow(
             )
         }
 
-        // Horizontally scrollable Option Text - Never truncated!
-        Row(
+        // Multi-line Option Text - Fully visible without horizontal scrolling
+        Text(
+            text = option.text,
+            color = if (isSelected) colors.textPrimary else colors.textSecondary,
+            fontSize = 12.5.sp,
+            fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
+            lineHeight = 17.sp,
             modifier = Modifier
                 .weight(1f)
-                .horizontalScroll(rememberScrollState()),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = option.text,
-                color = if (isSelected) colors.textPrimary else colors.textSecondary,
-                fontSize = 12.5.sp,
-                fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
-                maxLines = 1,
-                softWrap = false
-            )
-        }
+                .padding(vertical = 1.dp)
+        )
 
         // Radio indicator
         Box(
             modifier = Modifier
+                .padding(top = 2.dp)
                 .size(16.dp)
                 .clip(CircleShape)
                 .border(
