@@ -432,6 +432,22 @@ func readMetadataRequestFeedback(filePath string) bool {
 	return result
 }
 
+func isArtifactApproval(status interface{}) bool {
+	if status == nil {
+		return false
+	}
+	switch v := status.(type) {
+	case string:
+		u := strings.ToUpper(v)
+		return strings.Contains(u, "APPROVED") || u == "1"
+	case float64:
+		return int(v) == 1
+	case int:
+		return v == 1
+	}
+	return false
+}
+
 type TrajectoryMediaItem struct {
 	MimeType    string `json:"mimeType"`
 	Description string `json:"description"`
@@ -449,7 +465,12 @@ type TrajectoryUserInput struct {
 		Base64Data string `json:"base64Data"`
 		MimeType   string `json:"mimeType"`
 	} `json:"images"`
-	Media []TrajectoryMediaItem `json:"media"`
+	Media            []TrajectoryMediaItem `json:"media"`
+	ArtifactComments []struct {
+		ArtifactURI    string      `json:"artifactUri"`
+		ApprovalStatus interface{} `json:"approvalStatus"`
+		Comment        string      `json:"comment,omitempty"`
+	} `json:"artifactComments,omitempty"`
 }
 
 type TrajectoryStep struct {
@@ -1151,9 +1172,36 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 	// 2. Status must not be RUNNING.
 	// 3. No non-artifact code files have been modified after the plan artifact in this turn.
 	// 4. An artifact in this turn has requestFeedback == true.
+	// 5. The artifact has NOT already been approved by user in conversation history.
 	canProceed := false
 	proceedArtifactURI := ""
 	hasModifiedNonArtifactFilesAfterPlan := false
+
+	// Track all approved artifact URIs from user input steps throughout the trajectory
+	approvedArtifacts := make(map[string]bool)
+	for _, s := range steps {
+		if s.Type == "CORTEX_STEP_TYPE_USER_INPUT" && s.UserInput != nil {
+			for _, ac := range s.UserInput.ArtifactComments {
+				if ac.ArtifactURI != "" && isArtifactApproval(ac.ApprovalStatus) {
+					approvedArtifacts[ac.ArtifactURI] = true
+					approvedArtifacts[normalizeURI(ac.ArtifactURI)] = true
+				}
+			}
+			text := s.UserInput.UserResponse
+			if text == "" && len(s.UserInput.Items) > 0 {
+				text = s.UserInput.Items[0].Text
+			}
+			trimmed := strings.TrimSpace(text)
+			if strings.Contains(trimmed, "The user has approved this document") && strings.HasPrefix(trimmed, "Comments on artifact URI:") {
+				firstLine := strings.Split(trimmed, "\n")[0]
+				uri := strings.TrimSpace(strings.TrimPrefix(firstLine, "Comments on artifact URI:"))
+				if uri != "" {
+					approvedArtifacts[uri] = true
+					approvedArtifacts[normalizeURI(uri)] = true
+				}
+			}
+		}
+	}
 
 	lastUserInputIdx := -1
 	for i := len(steps) - 1; i >= 0; i-- {
@@ -1201,25 +1249,38 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 							filePath = strings.TrimPrefix(filePath, "file://")
 						}
 
-						// If step metadata was missing but this is an artifact step in the current turn, check its specific metadata file
-						if !reqFeedback && filePath != "" {
-							if readMetadataRequestFeedback(filePath + ".metadata.json") {
+						isCreateFile := (ca.ActionSpec != nil && ca.ActionSpec.CreateFile != nil) ||
+							(ca.ActionResult != nil && ca.ActionResult.Edit != nil && ca.ActionResult.Edit.CreateFile)
+						isApproved := approvedArtifacts[uri] || approvedArtifacts[normalizeURI(uri)]
+
+						// If step metadata was missing but this is an artifact step in the current turn, check its specific metadata file.
+						// Guard: ONLY check disk .metadata.json if:
+						// 1. The step is actually creating/overwriting a file (isCreateFile), not a partial replace_file_content edit.
+						// 2. The artifact was NOT already approved earlier.
+						if !reqFeedback && !isApproved && isCreateFile {
+							if filePath != "" && readMetadataRequestFeedback(filePath+".metadata.json") {
 								reqFeedback = true
 							}
-						}
 
-						// Fallback: ONLY check implementation_plan.md.metadata.json if this step actually targets implementation_plan.md
-						if !reqFeedback && isPlan && rawResp.Trajectory.CascadeID != "" {
-							if home, err := os.UserHomeDir(); err == nil && home != "" {
-								planMetaPath := filepath.Join(home, ".gemini/antigravity/brain", rawResp.Trajectory.CascadeID, "implementation_plan.md.metadata.json")
-								if readMetadataRequestFeedback(planMetaPath) {
-									reqFeedback = true
-									if uri == "" {
-										planAbs := filepath.Join(home, ".gemini", "antigravity", "brain", rawResp.Trajectory.CascadeID, "implementation_plan.md")
-										uri = normalizeURI("file:///" + filepath.ToSlash(planAbs))
+							// Fallback: ONLY check implementation_plan.md.metadata.json if this step actually targets implementation_plan.md
+							if !reqFeedback && isPlan && rawResp.Trajectory.CascadeID != "" {
+								if home, err := os.UserHomeDir(); err == nil && home != "" {
+									planMetaPath := filepath.Join(home, ".gemini/antigravity/brain", rawResp.Trajectory.CascadeID, "implementation_plan.md.metadata.json")
+									if readMetadataRequestFeedback(planMetaPath) {
+										reqFeedback = true
+										if uri == "" {
+											planAbs := filepath.Join(home, ".gemini", "antigravity", "brain", rawResp.Trajectory.CascadeID, "implementation_plan.md")
+											uri = normalizeURI("file:///" + filepath.ToSlash(planAbs))
+										}
 									}
 								}
 							}
+						}
+
+						// If the artifact was already approved and this step did NOT explicitly request feedback via ArtifactMetadata,
+						// do not trigger Proceed.
+						if isApproved && (ca.ArtifactMetadata == nil || !ca.ArtifactMetadata.RequestFeedback) {
+							reqFeedback = false
 						}
 					}
 
