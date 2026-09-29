@@ -4,6 +4,10 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -435,7 +439,8 @@ fun ChatScreen(
         }
     }
 
-    Scaffold(
+    Box(modifier = modifier.fillMaxSize()) {
+        Scaffold(
         topBar = {
             TopAppBar(
                 title = {
@@ -467,7 +472,7 @@ fun ChatScreen(
             )
         },
         containerColor = colors.background,
-        modifier = modifier
+        modifier = Modifier.fillMaxSize()
     ) { padding ->
         Column(
             modifier = Modifier
@@ -598,9 +603,8 @@ fun ChatScreen(
                 }
             }
 
-            // Floating Cards (InteractionCard, RunningTasksCard, QueuedMessagesCard) 对齐 iOS floatingCards
-            val hasFloatingCards = uiState.pendingInteraction != null ||
-                    uiState.runningTasks.isNotEmpty() ||
+            // Floating Cards (RunningTasksCard, QueuedMessagesCard) 对齐 iOS floatingCards
+            val hasFloatingCards = uiState.runningTasks.isNotEmpty() ||
                     uiState.queuedMessages.isNotEmpty()
 
             if (hasFloatingCards) {
@@ -611,24 +615,6 @@ fun ChatScreen(
                         .padding(bottom = 6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    uiState.pendingInteraction?.let { interaction ->
-                        InteractionCard(
-                            interaction = interaction,
-                            onSubmit = { optId, writeIn, qResponses ->
-                                dismissKeyboard()
-                                viewModel.submitInteraction(
-                                    optionId = optId,
-                                    writeInText = writeIn,
-                                    questionResponses = qResponses
-                                )
-                            },
-                            onSkip = { qResponses ->
-                                dismissKeyboard()
-                                viewModel.skipInteraction(questionResponses = qResponses)
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
 
                     if (uiState.runningTasks.isNotEmpty()) {
                         RunningTasksCard(
@@ -892,6 +878,34 @@ fun ChatScreen(
             }
         }
     }
+
+    // Interaction Bottom Sheet Overlay (半屏默认，可向上拖动至全屏，多行选项)
+    AnimatedVisibility(
+        visible = uiState.pendingInteraction != null,
+        enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+        exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+        modifier = Modifier.align(Alignment.BottomCenter)
+    ) {
+        uiState.pendingInteraction?.let { interaction ->
+            InteractionCard(
+                interaction = interaction,
+                onSubmit = { optId, writeIn, qResponses ->
+                    dismissKeyboard()
+                    viewModel.submitInteraction(
+                        optionId = optId,
+                        writeInText = writeIn,
+                        questionResponses = qResponses
+                    )
+                },
+                onSkip = { qResponses ->
+                    dismissKeyboard()
+                    viewModel.skipInteraction(questionResponses = qResponses)
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
 
     // Markdown File Viewer Sheet
     uiState.markdownViewerData?.let { viewerData ->
