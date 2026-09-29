@@ -104,33 +104,11 @@ public struct ChatView: View {
     }
     
     public var body: some View {
-        ZStack(alignment: .bottom) {
-            VStack(spacing: 0) {
-                contentArea
-                errorBanner
-                floatingCards
-                inputBar
-            }
-            
-            // Interaction Bottom Sheet Overlay (半屏默认，可向上拖动至全屏，多行选项)
-            if let interaction = viewModel.pendingInteraction {
-                InteractionCardView(
-                    interaction: interaction,
-                    isSubmitting: viewModel.isSubmittingInteraction,
-                    onSubmit: { optionId, writeInText, target, questionResponses in
-                        Task {
-                            await viewModel.submitInteraction(optionId: optionId, writeInText: writeInText, target: target, questionResponses: questionResponses)
-                        }
-                    },
-                    onSkip: { questionResponses in
-                        Task {
-                            await viewModel.skipInteraction(questionResponses: questionResponses)
-                        }
-                    }
-                )
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-                .zIndex(10)
-            }
+        VStack(spacing: 0) {
+            contentArea
+            errorBanner
+            floatingCards
+            inputBar
         }
         .navigationTitle(viewModel.currentTitle)
         .navigationBarTitleDisplayMode(.inline)
@@ -149,7 +127,7 @@ public struct ChatView: View {
         .onAppear {
             isViewAppeared = true
             viewModel.restoreDraftsIfNeeded()
-            if shouldAutoFocus {
+            if shouldAutoFocus && viewModel.pendingInteraction == nil {
                 scheduleAutoFocus(delay: 0.45)
             }
             if !viewModel.messages.isEmpty {
@@ -161,6 +139,12 @@ public struct ChatView: View {
         .task {
             await viewModel.loadMessages()
             viewModel.connectStream()
+        }
+        .onChange(of: viewModel.pendingInteraction != nil) { _, hasPending in
+            if hasPending {
+                isInputFocused = false
+                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+            }
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
@@ -615,6 +599,27 @@ public struct ChatView: View {
                 },
                 onDelete: { item in
                     viewModel.deleteQueuedMessage(item: item)
+                },
+                onToggleExpand: { isExpanded in
+                    handleFloatingCardToggle(isExpanded: isExpanded)
+                }
+            )
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+        
+        if let interaction = viewModel.pendingInteraction {
+            InteractionCardView(
+                interaction: interaction,
+                isSubmitting: viewModel.isSubmittingInteraction,
+                onSubmit: { optionId, writeInText, target, questionResponses in
+                    Task {
+                        await viewModel.submitInteraction(optionId: optionId, writeInText: writeInText, target: target, questionResponses: questionResponses)
+                    }
+                },
+                onSkip: { questionResponses in
+                    Task {
+                        await viewModel.skipInteraction(questionResponses: questionResponses)
+                    }
                 },
                 onToggleExpand: { isExpanded in
                     handleFloatingCardToggle(isExpanded: isExpanded)
@@ -1115,7 +1120,7 @@ public struct ChatView: View {
             if delay > 0 {
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             }
-            guard !Task.isCancelled, isViewAppeared, !hasAutoFocused, viewModel.messages.isEmpty else { return }
+            guard !Task.isCancelled, isViewAppeared, !hasAutoFocused, viewModel.messages.isEmpty, viewModel.pendingInteraction == nil else { return }
             hasAutoFocused = true
             isInputFocused = true
         }

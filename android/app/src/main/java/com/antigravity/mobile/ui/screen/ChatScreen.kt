@@ -6,8 +6,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -237,8 +235,8 @@ fun ChatScreen(
             isUnread = isUnreadOnEntry,
             conversationStatus = initialStatus
         )
-        // Automatically focus the input field and pop up soft keyboard ONLY on new conversation creation
-        if (isNewConversation) {
+        // Automatically focus the input field and pop up soft keyboard ONLY on new conversation creation without pending options
+        if (isNewConversation && uiState.pendingInteraction == null) {
             delay(250)
             try {
                 focusRequester.requestFocus()
@@ -381,6 +379,13 @@ fun ChatScreen(
         }
     }
 
+    // 在有选项状态下默认收起软键盘
+    LaunchedEffect(uiState.pendingInteraction) {
+        if (uiState.pendingInteraction != null) {
+            dismissKeyboard()
+        }
+    }
+
     // Auto-dismiss keyboard when user manually scrolls through messages and track user manual scroll
     LaunchedEffect(listState.isScrollInProgress) {
         if (listState.isScrollInProgress && !isProgrammaticScrolling) {
@@ -439,8 +444,8 @@ fun ChatScreen(
         }
     }
 
-    Box(modifier = modifier.fillMaxSize()) {
-        Scaffold(
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
                 title = {
@@ -471,8 +476,7 @@ fun ChatScreen(
                 )
             )
         },
-        containerColor = colors.background,
-        modifier = Modifier.fillMaxSize()
+        containerColor = colors.background
     ) { padding ->
         Column(
             modifier = Modifier
@@ -603,9 +607,10 @@ fun ChatScreen(
                 }
             }
 
-            // Floating Cards (RunningTasksCard, QueuedMessagesCard) 对齐 iOS floatingCards
+            // Floating Cards (RunningTasksCard, QueuedMessagesCard, InteractionCard) 对齐 iOS floatingCards
             val hasFloatingCards = uiState.runningTasks.isNotEmpty() ||
-                    uiState.queuedMessages.isNotEmpty()
+                    uiState.queuedMessages.isNotEmpty() ||
+                    uiState.pendingInteraction != null
 
             if (hasFloatingCards) {
                 Column(
@@ -636,6 +641,28 @@ fun ChatScreen(
                             },
                             onEdit = { viewModel.editQueuedMessage(it) },
                             onDelete = { viewModel.deleteQueuedMessage(it) },
+                            onToggleExpand = { isExpanded ->
+                                handleFloatingCardToggle(isExpanded)
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+
+                    uiState.pendingInteraction?.let { interaction ->
+                        InteractionCard(
+                            interaction = interaction,
+                            onSubmit = { optId, writeIn, qResponses ->
+                                dismissKeyboard()
+                                viewModel.submitInteraction(
+                                    optionId = optId,
+                                    writeInText = writeIn,
+                                    questionResponses = qResponses
+                                )
+                            },
+                            onSkip = { qResponses ->
+                                dismissKeyboard()
+                                viewModel.skipInteraction(questionResponses = qResponses)
+                            },
                             onToggleExpand = { isExpanded ->
                                 handleFloatingCardToggle(isExpanded)
                             },
@@ -878,34 +905,6 @@ fun ChatScreen(
             }
         }
     }
-
-    // Interaction Bottom Sheet Overlay (半屏默认，可向上拖动至全屏，多行选项)
-    AnimatedVisibility(
-        visible = uiState.pendingInteraction != null,
-        enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-        exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
-        modifier = Modifier.align(Alignment.BottomCenter)
-    ) {
-        uiState.pendingInteraction?.let { interaction ->
-            InteractionCard(
-                interaction = interaction,
-                onSubmit = { optId, writeIn, qResponses ->
-                    dismissKeyboard()
-                    viewModel.submitInteraction(
-                        optionId = optId,
-                        writeInText = writeIn,
-                        questionResponses = qResponses
-                    )
-                },
-                onSkip = { qResponses ->
-                    dismissKeyboard()
-                    viewModel.skipInteraction(questionResponses = qResponses)
-                },
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-    }
-}
 
     // Markdown File Viewer Sheet
     uiState.markdownViewerData?.let { viewerData ->
