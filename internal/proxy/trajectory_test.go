@@ -281,6 +281,79 @@ func TestParseTrajectoryDetails_CanProceed(t *testing.T) {
 	if details6.ProceedArtifactURI != "file:///path/to/implementation_plan.md" {
 		t.Fatalf("expected ProceedArtifactURI to be 'file:///path/to/implementation_plan.md', got %q", details6.ProceedArtifactURI)
 	}
+
+	// Test 7: Approved artifact modified later via replace_file_content must NOT trigger CanProceed
+	rawJSONApprovedThenEdited := `{
+		"status": "CASCADE_RUN_STATUS_IDLE",
+		"trajectory": {
+			"cascadeId": "test-cascade-123",
+			"steps": [
+				{
+					"type": "CORTEX_STEP_TYPE_USER_INPUT",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"userInput": { "userResponse": "Please generate audit report" }
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_CODE_ACTION",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"codeAction": {
+						"isArtifactFile": true,
+						"artifactMetadata": { "requestFeedback": true },
+						"actionSpec": { "createFile": { "path": { "absoluteUri": "file:///path/to/performance-audit.md" } } },
+						"actionResult": { "edit": { "absoluteUri": "file:///path/to/performance-audit.md", "createFile": true } }
+					}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_USER_INPUT",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"userInput": {
+						"userResponse": "",
+						"artifactComments": [
+							{
+								"artifactUri": "file:///path/to/performance-audit.md",
+								"approvalStatus": "ARTIFACT_APPROVAL_STATUS_APPROVED"
+							}
+						]
+					}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_USER_INPUT",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"userInput": { "userResponse": "Please continue fixing Phase 2 and 3" }
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_CODE_ACTION",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"codeAction": {
+						"isArtifactFile": false,
+						"actionResult": { "edit": { "absoluteUri": "file:///path/to/src/app.js" } }
+					}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_CODE_ACTION",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"codeAction": {
+						"isArtifactFile": true,
+						"actionSpec": { "command": { "instruction": "Update status checklist" } },
+						"actionResult": { "edit": { "absoluteUri": "file:///path/to/performance-audit.md" } }
+					}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_PLANNER_RESPONSE",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"plannerResponse": { "response": "All fixes deployed and report updated." }
+				}
+			]
+		}
+	}`
+	var rawResp7 upstreamTrajectoryResp
+	if err := json.Unmarshal([]byte(rawJSONApprovedThenEdited), &rawResp7); err != nil {
+		t.Fatalf("failed to unmarshal test JSON 7: %v", err)
+	}
+	details7 := p.ParseTrajectoryDetails(&rawResp7)
+	if details7.CanProceed {
+		t.Fatalf("expected CanProceed to be false for already-approved artifact updated via replace_file_content, got true")
+	}
 }
 
 func TestParseTrajectoryDetails_PendingInteraction(t *testing.T) {
@@ -461,6 +534,27 @@ func TestActualCascade_d363164b(t *testing.T) {
 	}
 	if details.ProceedArtifactURI != "" {
 		t.Errorf("expected completed cascade d363164b to have empty ProceedArtifactURI, got %q", details.ProceedArtifactURI)
+	}
+}
+
+func TestActualCascade_cd607000(t *testing.T) {
+	insp := inspector.NewInspector(5 * time.Second)
+	info := insp.Scan()
+	if info == nil {
+		t.Skip("Antigravity instance not available")
+	}
+	p := NewProxy(insp)
+	rawResp, err := p.fetchUpstreamTrajectory("cd607000-9793-458c-b7e5-d8640085cb83", info.Port, info.CSRFToken)
+	if err != nil {
+		t.Skipf("debug cascade cd607000 not found on running instance: %v", err)
+	}
+	details := p.ParseTrajectoryDetails(rawResp)
+	t.Logf("cd607000: CanProceed: %t, ProceedArtifactURI: %s", details.CanProceed, details.ProceedArtifactURI)
+	if details.CanProceed {
+		t.Errorf("expected cd607000 (performance-audit) to have CanProceed == false, got true")
+	}
+	if details.ProceedArtifactURI != "" {
+		t.Errorf("expected cd607000 to have empty ProceedArtifactURI, got %q", details.ProceedArtifactURI)
 	}
 }
 

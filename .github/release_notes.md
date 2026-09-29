@@ -10,6 +10,7 @@
   - **输入法智能避让**：出现选项时自动收起软键盘，避免遮挡用户查看与操作。
 - 🛡️ **Android 健壮性与卡片重构**：修复 `PendingInteraction` 反序列化异常；重构交互卡片，支持分题徽标（Q1/Q2）、单选切换与自由补充输入。
 - ⚡ **Cockpit 切号自愈与全流程自动化**：网关自动校准 Cockpit 启动配置、自动补全缺失的 state.vscdb / Antigravity IDE 软链接与存储表、热重载配置并自动完成平滑热重启与账号注入，彻底根治切号 APP_PATH_NOT_FOUND 与 state.vscdb 丢失问题。
+- 🎯 **方案 Proceed 状态精准对齐**：彻底修复历史已审批文档在后续局部编辑时（`replace_file_content`）因磁盘过期元数据回退而误触发 Proceed 按钮的缺陷，保持手机双端与桌面端 Antigravity IDE 状态 100% 对齐。
 - 📦 **全端版本同步**：网关 `mgy`、iOS、Android、一键安装脚本及 CI 发布流程全面对齐 v1.0.4。
 
 ---
