@@ -1,8 +1,10 @@
 package com.antigravity.mobile.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -11,8 +13,6 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -20,7 +20,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
-import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
@@ -33,14 +32,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.isSpecified
 import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.InteractionOption
 import com.antigravity.mobile.data.model.InteractionQuestion
@@ -53,6 +51,7 @@ fun InteractionCard(
     interaction: PendingInteraction,
     onSubmit: (optionId: String, writeInText: String?, questionResponses: List<QuestionResponse>?) -> Unit,
     onSkip: (questionResponses: List<QuestionResponse>?) -> Unit,
+    onToggleExpand: ((Boolean) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val colors = AntigravityTheme.colors
@@ -88,155 +87,115 @@ fun InteractionCard(
 
     val headerColor = when (interaction.type) {
         "permission", "file_permission" -> colors.accentBlue
-        "ask_question" -> Color(0xFF9333EA)
+        "ask_question" -> colors.accentOrange
         "run_command" -> colors.accentOrange
         else -> colors.accentOrange
     }
 
-    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
-        val screenHeight = LocalConfiguration.current.screenHeightDp.dp
-        val availableHeight = if (maxHeight.isSpecified && maxHeight < Dp.Infinity && maxHeight > 100.dp) maxHeight else screenHeight
-        val fullHeight = availableHeight
-        val halfHeight = availableHeight * 0.52f
+    // 默认自适应高度，只有超出半屏才截断至半屏，支持一键扩展到会话全屏
+    var isExpanded by remember { mutableStateOf(false) }
+    val screenHeight = LocalConfiguration.current.screenHeightDp.dp
+    val halfHeight = (screenHeight * 0.46f).coerceIn(280.dp, 400.dp)
+    val fullHeight = (screenHeight * 0.72f).coerceAtLeast(halfHeight)
 
-        var isExpanded by remember { mutableStateOf(false) }
-        var dragOffsetY by remember { mutableFloatStateOf(0f) }
+    val scrollState = rememberScrollState()
+    val canExpand = isExpanded || scrollState.maxValue > 0 || hasMultipleQuestions
 
-        val targetHeight = if (isExpanded) fullHeight else halfHeight
-        val animatedHeight by animateDpAsState(
-            targetValue = targetHeight,
-            animationSpec = spring(
-                dampingRatio = Spring.DampingRatioLowBouncy,
-                stiffness = Spring.StiffnessMediumLow
-            ),
-            label = "sheetHeight"
-        )
+    val arrowRotation by animateFloatAsState(
+        targetValue = if (isExpanded) 180f else 0f,
+        animationSpec = spring(
+            dampingRatio = 0.82f,
+            stiffness = Spring.StiffnessMediumLow
+        ),
+        label = "interactionArrowRotation"
+    )
 
-        val currentHeight = if (dragOffsetY != 0f) {
-            val base = if (isExpanded) fullHeight else halfHeight
-            val density = LocalDensity.current
-            val dragOffsetDp = with(density) { dragOffsetY.toDp() }
-            (base - dragOffsetDp).coerceIn(halfHeight, fullHeight)
-        } else {
-            animatedHeight
-        }
-
-        val dragModifier = Modifier.pointerInput(isExpanded) {
-            detectVerticalDragGestures(
-                onDragStart = {
-                    dragOffsetY = 0f
-                },
-                onDragEnd = {
-                    val density = this
-                    val dragOffsetDp = with(density) { dragOffsetY.toDp() }
-                    if (isExpanded) {
-                        if (dragOffsetDp > 40.dp) {
-                            isExpanded = false
-                            haptic.light()
-                        }
-                    } else {
-                        if (dragOffsetDp < (-40).dp) {
-                            isExpanded = true
-                            haptic.light()
-                        }
-                    }
-                    dragOffsetY = 0f
-                },
-                onDragCancel = {
-                    dragOffsetY = 0f
-                },
-                onVerticalDrag = { change, dragAmount ->
-                    change.consume()
-                    dragOffsetY += dragAmount
-                }
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(max = if (isExpanded) fullHeight else halfHeight)
+            .animateContentSize(
+                animationSpec = spring(
+                    dampingRatio = 0.82f,
+                    stiffness = Spring.StiffnessMediumLow
+                )
             )
-        }
-
+            .shadow(
+                elevation = 2.5.dp,
+                shape = RoundedCornerShape(16.dp),
+                ambientColor = Color.Black.copy(alpha = 0.04f),
+                spotColor = Color.Black.copy(alpha = 0.08f)
+            ),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = colors.surface),
+        border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(headerColor.copy(alpha = 0.35f)))
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(currentHeight)
-                .shadow(
-                    elevation = 10.dp,
-                    shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp),
-                    ambientColor = Color.Black.copy(alpha = 0.08f),
-                    spotColor = Color.Black.copy(alpha = 0.16f)
-                )
-                .clip(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp))
-                .background(colors.surface)
-                .border(
-                    width = 1.dp,
-                    color = headerColor.copy(alpha = 0.35f),
-                    shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp)
-                )
-                .navigationBarsPadding()
-                .imePadding()
-                .padding(horizontal = 14.dp)
-                .padding(top = 2.dp, bottom = 10.dp),
+                .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Drag Handle on top (Tap to toggle, Drag to expand/collapse)
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) {
-                        haptic.light()
-                        isExpanded = !isExpanded
-                    }
-                    .then(dragModifier)
-                    .padding(top = 8.dp, bottom = 4.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Box(
-                    modifier = Modifier
-                        .width(38.dp)
-                        .height(4.5.dp)
-                        .clip(RoundedCornerShape(2.5.dp))
-                        .background(colors.textSecondary.copy(alpha = 0.35f))
-                )
-            }
-
-            // Header: Icon + Title + Expand/Collapse Button (also draggable)
+            // Header: Icon + Full Multi-line Question Title + Expand/Collapse Button (if expandable)
             Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .then(dragModifier)
+                    .then(
+                        if (canExpand) {
+                            Modifier.clickable {
+                                haptic.light()
+                                isExpanded = !isExpanded
+                                onToggleExpand?.invoke(isExpanded)
+                            }
+                        } else Modifier
+                    ),
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Icon(
-                    imageVector = headerIcon,
-                    contentDescription = null,
-                    tint = headerColor,
-                    modifier = Modifier.size(20.dp)
-                )
-                Text(
-                    text = if (hasMultipleQuestions) {
-                        "需要确认规格 (${questions?.size} 个问题)"
-                    } else {
-                        interaction.title.ifBlank { interaction.prompt ?: "需要用户审批操作" }
-                    },
-                    color = colors.textPrimary,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f)
-                )
-                IconButton(
-                    onClick = {
-                        haptic.light()
-                        isExpanded = !isExpanded
-                    },
-                    modifier = Modifier.size(28.dp)
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.Top,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Icon(
-                        imageVector = if (isExpanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
-                        contentDescription = if (isExpanded) "收起" else "全屏展开",
-                        tint = colors.textSecondary,
-                        modifier = Modifier.size(20.dp)
+                        imageVector = headerIcon,
+                        contentDescription = null,
+                        tint = headerColor,
+                        modifier = Modifier
+                            .padding(top = 2.dp)
+                            .size(20.dp)
                     )
+                    Text(
+                        text = if (hasMultipleQuestions) {
+                            "需要确认规格 (${questions?.size} 个问题)"
+                        } else {
+                            interaction.title.ifBlank { interaction.prompt ?: "需要用户审批操作" }
+                        },
+                        color = colors.textPrimary,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        lineHeight = 19.sp
+                    )
+                }
+
+                if (canExpand) {
+                    // 一键全屏 / 半屏切换按钮
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .background(colors.surfaceVariant.copy(alpha = 0.7f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.KeyboardArrowUp,
+                            contentDescription = if (isExpanded) "收起为半屏" else "一键全屏",
+                            tint = colors.textSecondary,
+                            modifier = Modifier
+                                .size(20.dp)
+                                .graphicsLayer(rotationZ = arrowRotation)
+                        )
+                    }
                 }
             }
 
@@ -255,17 +214,17 @@ fun InteractionCard(
                         color = colors.textPrimary,
                         fontSize = 11.5.sp,
                         fontFamily = FontFamily.Monospace,
-                        maxLines = 3
+                        maxLines = if (isExpanded) 8 else 3
                     )
                 }
             }
 
-            // Question Options Area (Takes remaining vertical space and scrolls)
+            // Question Options Area (Adaptive height, scrollable when exceeding max height)
             Column(
                 modifier = Modifier
-                    .weight(1f)
                     .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
+                    .weight(1f, fill = false)
+                    .verticalScroll(scrollState),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 if (hasMultipleQuestions) {
@@ -408,7 +367,7 @@ private fun QuestionSection(
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(4.dp))
-                    .background(Color(0xFF9333EA))
+                    .background(colors.accentOrange)
                     .padding(horizontal = 5.dp, vertical = 2.dp)
             ) {
                 Text(

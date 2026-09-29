@@ -1,10 +1,18 @@
 import SwiftUI
 
+private struct OptionsHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 public struct InteractionCardView: View {
     public let interaction: PendingInteraction
     public let isSubmitting: Bool
     public let onSubmit: (String, String?, String?, [QuestionResponse]?) -> Void
     public let onSkip: ([QuestionResponse]?) -> Void
+    public let onToggleExpand: (@MainActor @Sendable (Bool) -> Void)?
     
     @State private var selectedOptionId: String
     @State private var writeInText: String = ""
@@ -15,9 +23,9 @@ public struct InteractionCardView: View {
     @State private var selectedOptionsByQuestion: [Int: String] = [:]
     @State private var writeInByQuestion: [Int: String] = [:]
     
-    // Expandable sheet state (default: half screen, draggable to full screen)
-    @State private var isFullScreen: Bool = false
-    @State private var dragOffset: CGFloat = 0
+    // Expandable card state (default: adaptive height up to half screen, expandable to full conversation area)
+    @State private var isExpanded: Bool = false
+    @State private var optionsContentHeight: CGFloat = 0
     
     private var isPermissionType: Bool {
         interaction.type == "permission" || interaction.type == "file_permission"
@@ -30,16 +38,47 @@ public struct InteractionCardView: View {
         return false
     }
     
+    private var maxOptionsHalfHeight: CGFloat {
+        let screenH = UIScreen.main.bounds.height
+        return min(280, max(180, screenH * 0.32))
+    }
+    
+    private var maxOptionsFullHeight: CGFloat {
+        let screenH = UIScreen.main.bounds.height
+        return max(maxOptionsHalfHeight + 100, screenH * 0.58)
+    }
+    
+    private var exceedsHalfScreen: Bool {
+        optionsContentHeight > maxOptionsHalfHeight
+    }
+    
+    private var canExpand: Bool {
+        isExpanded || exceedsHalfScreen || hasMultipleQuestions
+    }
+    
+    private var targetOptionsHeight: CGFloat {
+        if isExpanded {
+            return maxOptionsFullHeight
+        }
+        if optionsContentHeight > 0 {
+            return min(optionsContentHeight, maxOptionsHalfHeight)
+        }
+        let fallback = CGFloat(interaction.options.count * 55 + 15)
+        return min(fallback, maxOptionsHalfHeight)
+    }
+    
     public init(
         interaction: PendingInteraction,
         isSubmitting: Bool,
         onSubmit: @escaping (String, String?, String?, [QuestionResponse]?) -> Void,
-        onSkip: @escaping ([QuestionResponse]?) -> Void
+        onSkip: @escaping ([QuestionResponse]?) -> Void,
+        onToggleExpand: (@MainActor @Sendable (Bool) -> Void)? = nil
     ) {
         self.interaction = interaction
         self.isSubmitting = isSubmitting
         self.onSubmit = onSubmit
         self.onSkip = onSkip
+        self.onToggleExpand = onToggleExpand
         
         var initialSelectedId = "1"
         if AppSettings.shared.autoApprovePermissions && (interaction.type == "permission" || interaction.type == "file_permission") {
@@ -81,11 +120,11 @@ public struct InteractionCardView: View {
         case "permission", "file_permission":
             return .blue
         case "ask_question":
-            return .purple
+            return .orange
         case "run_command":
             return .orange
         default:
-            return .blue
+            return .orange
         }
     }
     
@@ -104,26 +143,12 @@ public struct InteractionCardView: View {
         return optId == "5" || optId == "__write_in__" || optId.lowercased() == "other"
     }
     
-    private var dragGesture: some Gesture {
-        DragGesture()
-            .onChanged { value in
-                dragOffset = value.translation.height
-            }
-            .onEnded { value in
-                let verticalMove = value.translation.height
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                    if isFullScreen {
-                        if verticalMove > 50 {
-                            isFullScreen = false
-                        }
-                    } else {
-                        if verticalMove < -50 {
-                            isFullScreen = true
-                        }
-                    }
-                    dragOffset = 0
-                }
-            }
+    private func toggleExpansion() {
+        UISelectionFeedbackGenerator().selectionChanged()
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
+            isExpanded.toggle()
+        }
+        onToggleExpand?(isExpanded)
     }
     
     private func toggleAutoApprove() {
@@ -142,6 +167,7 @@ public struct InteractionCardView: View {
     }
     
     private func handleSkip() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         if hasMultipleQuestions, let questions = interaction.questions {
             let responses = questions.enumerated().map { idx, _ in
                 QuestionResponse(questionIndex: idx, selectedOptionIds: [], writeInResponse: "", skipped: true)
@@ -153,6 +179,7 @@ public struct InteractionCardView: View {
     }
     
     private func handleSubmit() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         if hasMultipleQuestions, let questions = interaction.questions {
             let responses = questions.enumerated().map { idx, q in
                 let optId = selectedOptionsByQuestion[idx] ?? q.defaultOptionId ?? q.options.first?.id ?? "1"
@@ -167,62 +194,54 @@ public struct InteractionCardView: View {
     }
     
     @ViewBuilder
-    private var dragHandleView: some View {
-        VStack(spacing: 0) {
-            Capsule()
-                .fill(Color.secondary.opacity(0.35))
-                .frame(width: 38, height: 4.5)
-                .padding(.top, 8)
-                .padding(.bottom, 4)
-        }
-        .frame(maxWidth: .infinity)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            UISelectionFeedbackGenerator().selectionChanged()
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                isFullScreen.toggle()
-            }
-        }
-        .gesture(dragGesture)
-    }
-    
-    @ViewBuilder
     private var headerView: some View {
-        HStack(alignment: .center, spacing: 8) {
+        HStack(alignment: .top, spacing: 8) {
             Image(systemName: headerIconName)
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundColor(headerIconColor)
+                .padding(.top, 2)
             
             if hasMultipleQuestions, let count = interaction.questions?.count {
                 Text("需要确认规格 (\(count) 个问题)")
                     .font(.system(size: 14.5, weight: .semibold))
                     .foregroundColor(.primary)
+                    .lineSpacing(2)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
             } else {
-                Text(interaction.title.isEmpty ? "需要用户审批操作" : interaction.title)
+                let questionTitle = interaction.title.isEmpty ? (interaction.description ?? "需要用户审批操作") : interaction.title
+                Text(questionTitle)
                     .font(.system(size: 14.5, weight: .semibold))
                     .foregroundColor(.primary)
+                    .lineSpacing(2.5)
+                    .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
             }
             
-            Spacer()
+            Spacer(minLength: 4)
             
-            Button {
-                UISelectionFeedbackGenerator().selectionChanged()
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                    isFullScreen.toggle()
+            if canExpand {
+                // 一键展开至会话区域全屏 / 收起回半屏
+                Button {
+                    toggleExpansion()
+                } label: {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.up")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.secondary)
+                        .frame(width: 28, height: 28)
+                        .background(Color(uiColor: .tertiarySystemFill))
+                        .clipShape(Circle())
                 }
-            } label: {
-                Image(systemName: isFullScreen ? "chevron.down" : "chevron.up")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.secondary)
-                    .frame(width: 28, height: 28)
-                    .background(Color(uiColor: .tertiarySystemFill))
-                    .clipShape(Circle())
+                .buttonStyle(.plain)
+                .help(isExpanded ? "收起为半屏" : "一键全屏")
             }
-            .buttonStyle(.plain)
         }
-        .padding(.horizontal, 14)
-        .gesture(dragGesture)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if canExpand {
+                toggleExpansion()
+            }
+        }
     }
     
     @ViewBuilder
@@ -232,14 +251,13 @@ public struct InteractionCardView: View {
                 Text(target)
                     .font(.system(size: 11.5, design: .monospaced))
                     .foregroundColor(.secondary)
-                    .lineLimit(3)
+                    .lineLimit(isExpanded ? 8 : 3)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 7)
                     .background(Color(uiColor: .tertiarySystemFill))
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
-            .padding(.horizontal, 14)
         }
     }
     
@@ -258,6 +276,8 @@ public struct InteractionCardView: View {
                 Text(q.question)
                     .font(.system(size: 12.5, weight: .semibold))
                     .foregroundColor(.primary)
+                    .lineSpacing(2)
+                    .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
             }
             
@@ -395,7 +415,7 @@ public struct InteractionCardView: View {
     }
     
     @ViewBuilder
-    private func bottomActionBar(safeAreaBottom: CGFloat) -> some View {
+    private var bottomActionBar: some View {
         HStack(spacing: 8) {
             if isPermissionType {
                 Button(action: toggleAutoApprove) {
@@ -450,55 +470,53 @@ public struct InteractionCardView: View {
             .buttonStyle(.plain)
             .disabled(isSubmitting)
         }
-        .padding(.horizontal, 14)
-        .padding(.top, 4)
-        .padding(.bottom, max(8, safeAreaBottom))
+        .padding(.top, 2)
     }
     
     public var body: some View {
-        GeometryReader { geometry in
-            let fullHeight = geometry.size.height
-            let halfHeight = fullHeight * 0.52
-            let baseHeight = isFullScreen ? fullHeight : halfHeight
-            let currentHeight = min(fullHeight, max(halfHeight, baseHeight - dragOffset))
+        VStack(alignment: .leading, spacing: 8) {
+            headerView
+            targetBoxView
             
-            VStack(spacing: 0) {
-                Spacer(minLength: 0)
-                
-                VStack(alignment: .leading, spacing: 8) {
-                    dragHandleView
-                    headerView
-                    targetBoxView
-                    
-                    ScrollView(.vertical, showsIndicators: true) {
-                        if hasMultipleQuestions, let questions = interaction.questions {
-                            VStack(alignment: .leading, spacing: 14) {
-                                ForEach(Array(questions.enumerated()), id: \.offset) { qIdx, q in
-                                    multiQuestionSection(qIdx: qIdx, q: q)
-                                }
+            ScrollView(.vertical, showsIndicators: exceedsHalfScreen || isExpanded) {
+                VStack(spacing: 6) {
+                    if hasMultipleQuestions, let questions = interaction.questions {
+                        VStack(alignment: .leading, spacing: 14) {
+                            ForEach(Array(questions.enumerated()), id: \.offset) { qIdx, q in
+                                multiQuestionSection(qIdx: qIdx, q: q)
                             }
-                        } else {
-                            singleQuestionOptions
                         }
+                    } else {
+                        singleQuestionOptions
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding(.horizontal, 14)
-                    
-                    bottomActionBar(safeAreaBottom: geometry.safeAreaInsets.bottom)
                 }
-                .frame(width: geometry.size.width, height: currentHeight)
                 .background(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(Color(uiColor: .secondarySystemGroupedBackground))
+                    GeometryReader { geo in
+                        Color.clear.preference(key: OptionsHeightKey.self, value: geo.size.height)
+                    }
                 )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .stroke(headerIconColor.opacity(0.35), lineWidth: 1)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: -2)
             }
-            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .bottom)
+            .frame(height: targetOptionsHeight)
+            
+            bottomActionBar
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(headerIconColor.opacity(0.35), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.08), radius: 6, x: 0, y: 2)
+        .padding(.horizontal, 12)
+        .padding(.bottom, 6)
+        .animation(.spring(response: 0.35, dampingFraction: 0.82), value: isExpanded)
+        .onPreferenceChange(OptionsHeightKey.self) { height in
+            if height > 0 {
+                self.optionsContentHeight = height
+            }
         }
     }
 }
