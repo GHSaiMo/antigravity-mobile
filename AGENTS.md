@@ -18,12 +18,32 @@ cd android && ./gradlew compileReleaseKotlin
 - **严禁行为**：
   - 严禁在未经过本地 `./gradlew compileReleaseKotlin` 校验的情况下直接通知用户已完成开发或直接 git push。
   - 严禁凭经验臆造不存在的 ViewModel 方法、不存在的资源 ID 或错误的类型转换。
+  - 严禁随意更改 Release 签名配置或删除签名文件，避免造成用户无法覆盖安装。
 - **全量打包验证（可选/发布前推荐）**：
   ```bash
   cd android && ./gradlew assembleRelease
   ```
 
-### 2. iOS 模块代码修改
+### 2. Android Release 签名一致性规范（强制保持 ⭐⭐⭐⭐⭐）
+为确保用户升级客户端时可以**无缝直接覆盖安装**，避免因签名变更导致 Android 系统报 `INSTALL_FAILED_UPDATE_INCOMPATIBLE` 而被迫卸载，项目已配置永久固定的 Release 签名密钥库，所有 Agent 必须严格遵守并保持签名一致：
+
+- **密钥库文件**：`android/app/release.jks`（已纳入 Git 仓库管理）
+- **Key Alias**：`multigravity`
+- **默认口令**：`antigravity`（可通过环境变量 `MGY_KEYSTORE_PASSWORD` / `MGY_KEY_ALIAS` / `MGY_KEY_PASSWORD` 覆盖）
+- **证书所有者**：`CN=Multigravity, OU=Mobile, O=Multigravity, C=CN`
+- **有效期**：至 2054 年 2 月（28 年）
+- **证书 SHA-256 指纹**：
+  `A1:B0:17:A4:1F:61:1D:BE:B8:3C:97:65:B2:D3:BC:3D:34:70:EF:74:D7:6B:58:7F:D6:81:E9:7C:EC:D4:29:00`
+- **验证命令**：
+  ```bash
+  # 校验构建出的 APK 签名指纹
+  ~/Library/Android/sdk/build-tools/34.0.0/apksigner verify --print-certs android/app/build/outputs/apk/release/app-release.apk
+  ```
+- **核心红线**：
+  - 严禁将 `build.gradle.kts` 中 `buildTypes.release` 的签名改回临时生成的 `debug` 签名或随意替换 keystore！
+  - CI/CD（GitHub Actions `release.yml`）必须统一使用该固定签名。
+
+### 3. iOS 模块代码修改
 凡是修改了 `ios/` 目录下的 Swift 源码或工程配置，必须使用 `xcodebuild` 进行本地编译验证：
 ```bash
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
@@ -33,7 +53,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
   clean build CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
 ```
 
-### 3. Go 服务端网关代码修改
+### 4. Go 服务端网关代码修改
 凡是修改了 `cmd/`、`internal/` 目录下的 Go 代码，必须执行测试与编译：
 ```bash
 go test -count=1 ./...
