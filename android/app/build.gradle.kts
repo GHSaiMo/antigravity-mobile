@@ -22,9 +22,24 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            val customPath = System.getenv("MGY_KEYSTORE_PATH")
+            val keystoreFile = if (!customPath.isNullOrBlank()) file(customPath) else file("release.jks")
+            if (keystoreFile.exists()) {
+                storeFile = keystoreFile
+                storePassword = System.getenv("MGY_KEYSTORE_PASSWORD") ?: "antigravity"
+                keyAlias = System.getenv("MGY_KEY_ALIAS") ?: "multigravity"
+                keyPassword = System.getenv("MGY_KEY_PASSWORD") ?: "antigravity"
+            } else {
+                initWith(getByName("debug"))
+            }
+        }
+    }
+
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
