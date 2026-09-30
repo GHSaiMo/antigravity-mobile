@@ -86,7 +86,7 @@ data class PairingInfo(
 
             var host = rawHost.trim()
             if (!host.contains(".") && !host.contains(":") && !host.equals("localhost", ignoreCase = true)) {
-                host = "$host.mgy.jiuge.space"
+                host = "$host.jiuge.space"
             }
 
             val ssl = params["ssl"]?.let { it == "1" || it.equals("true", ignoreCase = true) }
@@ -94,7 +94,7 @@ data class PairingInfo(
 
             var cleanRelay = relay?.trim()
             if (cleanRelay != null && !cleanRelay.contains(".") && !cleanRelay.contains(":") && !cleanRelay.equals("localhost", ignoreCase = true)) {
-                cleanRelay = "$cleanRelay.mgy.jiuge.space"
+                cleanRelay = "$cleanRelay.jiuge.space"
             }
 
             return PairingInfo(

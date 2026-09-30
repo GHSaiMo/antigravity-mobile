@@ -55,6 +55,7 @@ class ConnectionManager(private val context: Context) {
     private val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
 
     private val httpClient = OkHttpClient.Builder()
+        .dns(CloudflareOptimizedDns)
         .connectTimeout(2500, TimeUnit.MILLISECONDS)
         .readTimeout(2500, TimeUnit.MILLISECONDS)
         .writeTimeout(2500, TimeUnit.MILLISECONDS)

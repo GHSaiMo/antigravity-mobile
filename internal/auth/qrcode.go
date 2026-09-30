@@ -46,18 +46,20 @@ func ConsoleLock() func() {
 	return consoleMu.Unlock
 }
 
-const DefaultDomainSuffix = ".mgy.jiuge.space"
+const DefaultDomainSuffix = ".jiuge.space"
 
-// CompressHost strips the default domain suffix (e.g. .mgy.jiuge.space) from the host if present,
+// CompressHost strips the default domain suffix (e.g. .jiuge.space) from the host if present,
 // reducing QR code density and avoiding direct exposure of the apex domain in URIs.
 func CompressHost(h string) string {
 	clean := strings.TrimSpace(h)
 	lower := strings.ToLower(clean)
-	if strings.HasSuffix(lower, DefaultDomainSuffix) && len(clean) > len(DefaultDomainSuffix) {
-		prefix := clean[:len(clean)-len(DefaultDomainSuffix)]
-		// Only compress if the prefix does NOT contain any dots (i.e. single-level subdomain like "825a5a50").
-		if !strings.Contains(prefix, ".") {
-			return prefix
+	for _, suffix := range []string{DefaultDomainSuffix, ".mgy.jiuge.space"} {
+		if strings.HasSuffix(lower, suffix) && len(clean) > len(suffix) {
+			prefix := clean[:len(clean)-len(suffix)]
+			// Only compress if the prefix does NOT contain any dots (i.e. single-level subdomain like "825a5a50").
+			if !strings.Contains(prefix, ".") {
+				return prefix
+			}
 		}
 	}
 	return clean

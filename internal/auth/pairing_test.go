@@ -100,7 +100,7 @@ func TestGeneratePairingURI(t *testing.T) {
 }
 
 func TestGeneratePairingURI_JiugeSubdomainCompression(t *testing.T) {
-	uri := GeneratePairingURI("825a5a50.mgy.jiuge.space", 443, "abc123code", true)
+	uri := GeneratePairingURI("825a5a50.jiuge.space", 443, "abc123code", true)
 	if strings.Contains(uri, "jiuge.space") {
 		t.Errorf("expected base domain jiuge.space to be hidden, got %s", uri)
 	}
@@ -109,19 +109,24 @@ func TestGeneratePairingURI_JiugeSubdomainCompression(t *testing.T) {
 	}
 
 	expanded := ExpandHost("825a5a50")
-	if expanded != "825a5a50.mgy.jiuge.space" {
-		t.Errorf("expected 825a5a50.mgy.jiuge.space, got %s", expanded)
+	if expanded != "825a5a50.jiuge.space" {
+		t.Errorf("expected 825a5a50.jiuge.space, got %s", expanded)
 	}
 
-	// Multi-level subdomains (e.g. foo.bar.mgy.jiuge.space) must NOT be compressed
-	if full := CompressHost("foo.bar.mgy.jiuge.space"); full != "foo.bar.mgy.jiuge.space" {
-		t.Errorf("expected foo.bar.mgy.jiuge.space, got %s", full)
+	// Legacy mgy.jiuge.space compression
+	if comp := CompressHost("825a5a50.mgy.jiuge.space"); comp != "825a5a50" {
+		t.Errorf("expected 825a5a50, got %s", comp)
+	}
+
+	// Multi-level subdomains (e.g. foo.bar.jiuge.space) must NOT be compressed
+	if full := CompressHost("foo.bar.jiuge.space"); full != "foo.bar.jiuge.space" {
+		t.Errorf("expected foo.bar.jiuge.space, got %s", full)
 	}
 }
 
 func TestGenerateMultiHostPairingURI_Ordering(t *testing.T) {
 	uri := GenerateMultiHostPairingURI(MultiHostPairingParams{
-		PrimaryHost: "825a5a50.mgy.jiuge.space",
+		PrimaryHost: "825a5a50.jiuge.space",
 		Port:        443,
 		Code:        "testcode123",
 		SSL:         true,
@@ -173,14 +178,14 @@ func TestPrintPairingQRCode(t *testing.T) {
 }
 
 func TestFormatPairingQRCode(t *testing.T) {
-	out := FormatPairingQRCode("825a5a50.mgy.jiuge.space", 443, "abc123code", true, "192.168.50.9")
+	out := FormatPairingQRCode("825a5a50.jiuge.space", 443, "abc123code", true, "192.168.50.9")
 	if !strings.Contains(out, "Multigravity 客户端扫码一键配对") && !strings.Contains(out, "Antigravity Mobile 客户端扫码一键配对") {
 		t.Errorf("expected header banner in output")
 	}
 	if !strings.Contains(out, "Cloudflare 专属域名已就绪") {
 		t.Errorf("expected Cloudflare prompt in output")
 	}
-	if strings.Contains(out, "mgy.jiuge.space") {
+	if strings.Contains(out, "jiuge.space") {
 		t.Errorf("domain should be hidden from output")
 	}
 	if !strings.Contains(out, "🔗 配对 URI:") {
