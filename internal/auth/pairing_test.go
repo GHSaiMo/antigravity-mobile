@@ -100,29 +100,34 @@ func TestGeneratePairingURI(t *testing.T) {
 }
 
 func TestGeneratePairingURI_JiugeSubdomainCompression(t *testing.T) {
-	uri := GeneratePairingURI("9d6f460f.jiuge.space", 443, "abc123code", true)
+	uri := GeneratePairingURI("825a5a50.mgy.jiuge.space", 443, "abc123code", true)
 	if strings.Contains(uri, "jiuge.space") {
 		t.Errorf("expected base domain jiuge.space to be hidden, got %s", uri)
 	}
-	if !strings.Contains(uri, "host=9d6f460f") {
-		t.Errorf("expected compressed host=9d6f460f, got %s", uri)
+	if !strings.Contains(uri, "host=825a5a50") {
+		t.Errorf("expected compressed host=825a5a50, got %s", uri)
 	}
 
-	expanded := ExpandHost("9d6f460f")
-	if expanded != "9d6f460f.jiuge.space" {
-		t.Errorf("expected 9d6f460f.jiuge.space, got %s", expanded)
+	expanded := ExpandHost("825a5a50")
+	if expanded != "825a5a50.mgy.jiuge.space" {
+		t.Errorf("expected 825a5a50.mgy.jiuge.space, got %s", expanded)
+	}
+
+	// Multi-level subdomains (e.g. foo.bar.mgy.jiuge.space) must NOT be compressed
+	if full := CompressHost("foo.bar.mgy.jiuge.space"); full != "foo.bar.mgy.jiuge.space" {
+		t.Errorf("expected foo.bar.mgy.jiuge.space, got %s", full)
 	}
 }
 
 func TestGenerateMultiHostPairingURI_Ordering(t *testing.T) {
 	uri := GenerateMultiHostPairingURI(MultiHostPairingParams{
-		PrimaryHost: "9d6f460f.jiuge.space",
+		PrimaryHost: "825a5a50.mgy.jiuge.space",
 		Port:        443,
 		Code:        "testcode123",
 		SSL:         true,
 		LANHost:     "192.168.50.9",
 	})
-	expected := fmt.Sprintf("agy://pair?code=testcode123&host=9d6f460f&lan=192.168.50.9&port=443&ssl=1&platform=%s", runtime.GOOS)
+	expected := fmt.Sprintf("agy://pair?code=testcode123&host=825a5a50&lan=192.168.50.9&platform=%s", runtime.GOOS)
 	if uri != expected {
 		t.Errorf("expected %s, got %s", expected, uri)
 	}
@@ -168,18 +173,21 @@ func TestPrintPairingQRCode(t *testing.T) {
 }
 
 func TestFormatPairingQRCode(t *testing.T) {
-	out := FormatPairingQRCode("mgy-test.jiuge.space", 443, "abc123code", true, "192.168.50.9")
+	out := FormatPairingQRCode("825a5a50.mgy.jiuge.space", 443, "abc123code", true, "192.168.50.9")
 	if !strings.Contains(out, "Multigravity 客户端扫码一键配对") && !strings.Contains(out, "Antigravity Mobile 客户端扫码一键配对") {
 		t.Errorf("expected header banner in output")
 	}
-	if !strings.Contains(out, "Cloudflare 专属域名已生成") {
+	if !strings.Contains(out, "Cloudflare 专属域名已就绪") {
 		t.Errorf("expected Cloudflare prompt in output")
 	}
-	if strings.Contains(out, "mgy-test.jiuge.space") {
+	if strings.Contains(out, "mgy.jiuge.space") {
 		t.Errorf("domain should be hidden from output")
 	}
-	if !strings.Contains(out, "局域网 Wi-Fi 直连 URI:") {
-		t.Errorf("expected LAN URI in output")
+	if !strings.Contains(out, "🔗 配对 URI:") {
+		t.Errorf("expected unified pairing URI in output")
+	}
+	if strings.Contains(out, "局域网 Wi-Fi 直连 URI:") {
+		t.Errorf("separate LAN URI should no longer be printed")
 	}
 	if !strings.Contains(out, "请使用 Multigravity 手机客户端扫描上方二维码") && !strings.Contains(out, "请使用 Antigravity 手机客户端扫描上方二维码") {
 		t.Errorf("expected footer instructions in output")

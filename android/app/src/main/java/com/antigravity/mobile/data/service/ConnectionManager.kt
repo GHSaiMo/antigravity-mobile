@@ -476,7 +476,7 @@ class ConnectionManager(private val context: Context) {
             if (usedHost.isNotBlank()) allowed.add(usedHost)
 
             if (allowed.contains(clean)) return true
-            if (clean.endsWith(".jiuge.space") || clean.endsWith(".antigravity.internal")) return true
+            if (clean.endsWith(".mgy.jiuge.space") || clean.endsWith(".jiuge.space") || clean.endsWith(".antigravity.internal")) return true
             if (urlString.startsWith("https://", ignoreCase = true)) return true
             return isLanHost(clean) || isTailscaleHost(clean) || isRelayHost(clean)
         }

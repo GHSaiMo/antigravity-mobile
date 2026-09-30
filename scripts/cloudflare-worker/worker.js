@@ -35,7 +35,7 @@ export default {
       return jsonResponse({
         status: "ok",
         service: "Multigravity Cloudflare Tunnel Dispatcher",
-        version: "1.0.0",
+        version: "1.1.0",
         base_domain: env.BASE_DOMAIN || "not_configured"
       });
     }
@@ -107,6 +107,13 @@ async function handleTunnelRegister(request, env) {
       const existingTunnel = searchData.result[0];
       const tunnelId = existingTunnel.id;
 
+      // 🌟 核心改进：当复用已有隧道时，同步刷新 Ingress 路由规则与 DNS 映射！
+      // 保证切换域名后（如由 jiuge.space 切换到 mgy.jiuge.space），老隧道不会报 404
+      await Promise.allSettled([
+        setTunnelConfigurations(CF_ACCOUNT_ID, tunnelId, subdomain, targetPort, cfHeaders),
+        setTunnelDnsRecord(CF_ZONE_ID, tunnelId, subdomain, cfHeaders),
+      ]);
+
       // 获取该 Tunnel 的 run token
       const token = await fetchTunnelToken(CF_ACCOUNT_ID, tunnelId, cfHeaders);
       if (token) {
@@ -148,78 +155,11 @@ async function handleTunnelRegister(request, env) {
     }
     const tunnelId = createData.result.id;
 
-    // 7 & 8. 并行配置 Ingress 规则与查询 DNS 记录
-    const dnsTarget = `${tunnelId}.cfargotunnel.com`;
-    const [configRes, dnsSearchRes] = await Promise.all([
-      fetch(
-        `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnelId}/configurations`,
-        {
-          method: "PUT",
-          headers: cfHeaders,
-          body: JSON.stringify({
-            config: {
-              ingress: [
-                {
-                  hostname: subdomain,
-                  service: `http://localhost:${targetPort}`,
-                },
-                {
-                  service: "http_status:404",
-                },
-              ],
-            },
-          }),
-        }
-      ),
-      fetch(
-        `https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records?name=${encodeURIComponent(subdomain)}&type=CNAME`,
-        { headers: cfHeaders }
-      ),
+    // 7 & 8. 并行配置 Ingress 规则与更新 DNS 记录
+    await Promise.allSettled([
+      setTunnelConfigurations(CF_ACCOUNT_ID, tunnelId, subdomain, targetPort, cfHeaders),
+      setTunnelDnsRecord(CF_ZONE_ID, tunnelId, subdomain, cfHeaders),
     ]);
-
-    const [configData, dnsSearchData] = await Promise.all([
-      configRes.json(),
-      dnsSearchRes.json(),
-    ]);
-
-    if (!configData.success) {
-      console.warn("Failed to set tunnel ingress config:", configData.errors);
-    }
-
-    if (dnsSearchData.success && dnsSearchData.result && dnsSearchData.result.length > 0) {
-      // 更新已有记录
-      const recordId = dnsSearchData.result[0].id;
-      await fetch(
-        `https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records/${recordId}`,
-        {
-          method: "PUT",
-          headers: cfHeaders,
-          body: JSON.stringify({
-            type: "CNAME",
-            name: subdomain,
-            content: dnsTarget,
-            proxied: true,
-            ttl: 1,
-          }),
-        }
-      );
-    } else {
-      // 新建 CNAME 记录
-      await fetch(
-        `https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records`,
-        {
-          method: "POST",
-          headers: cfHeaders,
-          body: JSON.stringify({
-            type: "CNAME",
-            name: subdomain,
-            content: dnsTarget,
-            proxied: true,
-            ttl: 1,
-          }),
-        }
-      );
-    }
 
     // 9. 获取刚刚创建的 Tunnel 的运行 Token
     const token = await fetchTunnelToken(CF_ACCOUNT_ID, tunnelId, cfHeaders);
@@ -244,6 +184,78 @@ async function handleTunnelRegister(request, env) {
       message: err.message,
     }, 500);
   }
+}
+
+/**
+ * 设置或刷新 Cloudflare Tunnel 内部 Ingress 规则
+ */
+async function setTunnelConfigurations(accountId, tunnelId, subdomain, targetPort, headers) {
+  const res = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${accountId}/cfd_tunnel/${tunnelId}/configurations`,
+    {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({
+        config: {
+          ingress: [
+            {
+              hostname: subdomain,
+              service: `http://localhost:${targetPort}`,
+            },
+            {
+              service: "http_status:404",
+            },
+          ],
+        },
+      }),
+    }
+  );
+  return res.json();
+}
+
+/**
+ * 创建或更新 Cloudflare 区域内的 CNAME 解析记录
+ */
+async function setTunnelDnsRecord(zoneId, tunnelId, subdomain, headers) {
+  const dnsTarget = `${tunnelId}.cfargotunnel.com`;
+  const dnsSearchRes = await fetch(
+    `https://api.cloudflare.com/client/v4/zones/${zoneId}/dns_records?name=${encodeURIComponent(subdomain)}&type=CNAME`,
+    { headers }
+  );
+  const dnsSearchData = await dnsSearchRes.json();
+
+  if (dnsSearchData.success && dnsSearchData.result && dnsSearchData.result.length > 0) {
+    const recordId = dnsSearchData.result[0].id;
+    return fetch(
+      `https://api.cloudflare.com/client/v4/zones/${zoneId}/dns_records/${recordId}`,
+      {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({
+          type: "CNAME",
+          name: subdomain,
+          content: dnsTarget,
+          proxied: true,
+          ttl: 1,
+        }),
+      }
+    );
+  }
+
+  return fetch(
+    `https://api.cloudflare.com/client/v4/zones/${zoneId}/dns_records`,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        type: "CNAME",
+        name: subdomain,
+        content: dnsTarget,
+        proxied: true,
+        ttl: 1,
+      }),
+    }
+  );
 }
 
 async function fetchTunnelToken(accountId, tunnelId, headers) {

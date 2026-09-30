@@ -46,15 +46,19 @@ func ConsoleLock() func() {
 	return consoleMu.Unlock
 }
 
-const DefaultDomainSuffix = ".jiuge.space"
+const DefaultDomainSuffix = ".mgy.jiuge.space"
 
-// CompressHost strips the default domain suffix (e.g. .jiuge.space) from the host if present,
+// CompressHost strips the default domain suffix (e.g. .mgy.jiuge.space) from the host if present,
 // reducing QR code density and avoiding direct exposure of the apex domain in URIs.
 func CompressHost(h string) string {
 	clean := strings.TrimSpace(h)
 	lower := strings.ToLower(clean)
 	if strings.HasSuffix(lower, DefaultDomainSuffix) && len(clean) > len(DefaultDomainSuffix) {
-		return clean[:len(clean)-len(DefaultDomainSuffix)]
+		prefix := clean[:len(clean)-len(DefaultDomainSuffix)]
+		// Only compress if the prefix does NOT contain any dots (i.e. single-level subdomain like "825a5a50").
+		if !strings.Contains(prefix, ".") {
+			return prefix
+		}
 	}
 	return clean
 }
@@ -82,7 +86,7 @@ type MultiHostPairingParams struct {
 
 // GenerateMultiHostPairingURI formats the pairing URI according to the agy:// schema specification
 // embedding candidate network endpoints in standardized order:
-// code, host (public/primary), lan (local), port, ssl, platform, followed by optional ipv6/ddns/relay.
+// code, host (public/primary), lan (local), platform, followed by port/ssl only if non-default.
 func GenerateMultiHostPairingURI(p MultiHostPairingParams) string {
 	cleanHost := strings.TrimSpace(p.PrimaryHost)
 	if cleanHost == "" {
@@ -90,11 +94,6 @@ func GenerateMultiHostPairingURI(p MultiHostPairingParams) string {
 	}
 
 	displayHost := CompressHost(cleanHost)
-
-	sslVal := "0"
-	if p.SSL {
-		sslVal = "1"
-	}
 
 	type paramItem struct {
 		key   string
@@ -110,10 +109,16 @@ func GenerateMultiHostPairingURI(p MultiHostPairingParams) string {
 	if lan := strings.TrimSpace(p.LANHost); lan != "" && (lan != cleanHost || strings.Contains(cleanHost, ":")) {
 		items = append(items, paramItem{"lan", lan})
 	}
-	// 4. port
-	items = append(items, paramItem{"port", fmt.Sprintf("%d", p.Port)})
-	// 5. ssl
-	items = append(items, paramItem{"ssl", sslVal})
+	// 4. port (omitted if default 443)
+	if p.Port != 0 && p.Port != 443 {
+		items = append(items, paramItem{"port", fmt.Sprintf("%d", p.Port)})
+	}
+	// 5. ssl (omitted if default: public 443 is SSL=1, non-443 is SSL=0)
+	if !p.SSL && p.Port == 443 {
+		items = append(items, paramItem{"ssl", "0"})
+	} else if p.SSL && p.Port != 443 {
+		items = append(items, paramItem{"ssl", "1"})
+	}
 	// 6. platform
 	items = append(items, paramItem{"platform", runtime.GOOS})
 
@@ -237,26 +242,20 @@ func FormatPairingQRCode(primaryHost string, port int, code string, ssl bool, ex
 	b.WriteString("  请使用 Multigravity 手机客户端扫描上方二维码\n")
 
 	if ssl || (strings.Contains(primaryHost, ".") && strings.ContainsAny(primaryHost, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")) {
-		b.WriteString("  ☁️  Cloudflare 专属域名已生成\n")
-		fmt.Fprintf(&b, "  ☁️  公网配对 URI: %s\n", uri)
+		b.WriteString("  ☁️  Cloudflare 专属域名已就绪\n")
 	} else {
 		scheme := "http://"
 		if ssl {
 			scheme = "https://"
 		}
-		if port != 80 && port != 443 {
+		if port != 80 && port != 443 && port != 0 {
 			fmt.Fprintf(&b, "  🌐 访问地址: %s%s:%d\n", scheme, primaryHost, port)
 		} else {
 			fmt.Fprintf(&b, "  🌐 访问地址: %s%s\n", scheme, primaryHost)
 		}
 	}
 
-	if params.LANHost != "" {
-		lanURI := GeneratePairingURI(params.LANHost, 58900, code, false)
-		fmt.Fprintf(&b, "  🏠 局域网 Wi-Fi 直连 URI: %s\n", lanURI)
-	}
-	b.WriteString("\n")
-
+	fmt.Fprintf(&b, "  🔗 配对 URI: %s\n\n", uri)
 	return b.String()
 }
 
@@ -313,29 +312,23 @@ func PrintRawPairingQRCode(code string, uri string) {
 			h := q.Get("host")
 			pStr := q.Get("port")
 			pVal, _ := strconv.Atoi(pStr)
-			sVal := q.Get("ssl") == "1"
-			lan := q.Get("lan")
+			sVal := q.Get("ssl") == "1" || (q.Get("ssl") == "" && (pVal == 443 || pVal == 0))
 
 			if sVal || (strings.Contains(h, ".") && strings.ContainsAny(h, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")) {
-				b.WriteString("  ☁️  Cloudflare 专属域名已生成\n")
-				fmt.Fprintf(&b, "  ☁️  公网配对 URI: %s\n", uri)
+				b.WriteString("  ☁️  Cloudflare 专属域名已就绪\n")
 			} else if h != "" {
 				scheme := "http://"
 				if sVal {
 					scheme = "https://"
 				}
-				if pVal != 80 && pVal != 443 {
+				if pVal != 80 && pVal != 443 && pVal != 0 {
 					fmt.Fprintf(&b, "  🌐 访问地址: %s%s:%d\n", scheme, h, pVal)
 				} else {
 					fmt.Fprintf(&b, "  🌐 访问地址: %s%s\n", scheme, h)
 				}
 			}
-
-			if lan != "" {
-				fmt.Fprintf(&b, "  🏠 局域网 Wi-Fi 直连 URI: %s\n", GeneratePairingURI(lan, 58900, code, false))
-			}
 		}
-		b.WriteString("\n")
+		fmt.Fprintf(&b, "  🔗 配对 URI: %s\n\n", uri)
 	}
 
 	consoleMu.Lock()

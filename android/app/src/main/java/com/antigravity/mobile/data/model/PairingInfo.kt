@@ -75,9 +75,8 @@ data class PairingInfo(
             }
 
             val rawHost = params["host"] ?: return null
-            val port = params["port"]?.toIntOrNull() ?: return null
+            val port = params["port"]?.toIntOrNull() ?: 443
             val code = params["code"] ?: return null
-            val ssl = params["ssl"] == "1" || params["ssl"].equals("true", ignoreCase = true)
             val lan = params["lan"]
             val ipv6 = params["ipv6"]
             val ddns = params["ddns"]
@@ -87,12 +86,15 @@ data class PairingInfo(
 
             var host = rawHost.trim()
             if (!host.contains(".") && !host.contains(":") && !host.equals("localhost", ignoreCase = true)) {
-                host = "$host.jiuge.space"
+                host = "$host.mgy.jiuge.space"
             }
+
+            val ssl = params["ssl"]?.let { it == "1" || it.equals("true", ignoreCase = true) }
+                ?: (port == 443 || (!host.startsWith("192.168.") && !host.startsWith("10.") && !host.startsWith("172.") && !host.startsWith("127.")))
 
             var cleanRelay = relay?.trim()
             if (cleanRelay != null && !cleanRelay.contains(".") && !cleanRelay.contains(":") && !cleanRelay.equals("localhost", ignoreCase = true)) {
-                cleanRelay = "$cleanRelay.jiuge.space"
+                cleanRelay = "$cleanRelay.mgy.jiuge.space"
             }
 
             return PairingInfo(

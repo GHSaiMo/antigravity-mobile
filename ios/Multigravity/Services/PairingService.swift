@@ -159,7 +159,7 @@ public final class PairingService: Sendable {
         var host: String?
         var port: Int?
         var code: String?
-        var ssl: Bool = false
+        var sslExplicit: Bool?
         var lanHost: String?
         var ipv6Host: String?
         var ddnsHost: String?
@@ -178,7 +178,9 @@ public final class PairingService: Sendable {
             case "code":
                 code = item.value
             case "ssl":
-                ssl = (item.value == "1" || item.value?.lowercased() == "true")
+                if let val = item.value {
+                    sslExplicit = (val == "1" || val.lowercased() == "true")
+                }
             case "lan":
                 lanHost = item.value
             case "ipv6":
@@ -199,29 +201,29 @@ public final class PairingService: Sendable {
         guard let rawHost = host?.trimmingCharacters(in: .whitespacesAndNewlines), !rawHost.isEmpty else {
             return .failure(.missingFields("未找到主机地址 (host)"))
         }
-        guard let validPort = port else {
-            return .failure(.missingFields("未找到有效端口号 (port)"))
-        }
         guard let validCode = code?.trimmingCharacters(in: .whitespacesAndNewlines), !validCode.isEmpty else {
             return .failure(.missingFields("未找到配对码 (code)"))
         }
+        let validPort = port ?? 443
         
-        // Auto-expand compressed subdomain (e.g. 9d6f460f -> 9d6f460f.jiuge.space)
+        // Auto-expand compressed subdomain (e.g. 825a5a50 -> 825a5a50.mgy.jiuge.space)
         var validHost = rawHost
         if !validHost.contains(".") && !validHost.contains(":") && validHost.lowercased() != "localhost" {
-            validHost = "\(validHost).jiuge.space"
+            validHost = "\(validHost).mgy.jiuge.space"
         }
+        
+        let effectiveSSL = sslExplicit ?? (validPort == 443 || (!validHost.hasPrefix("192.168.") && !validHost.hasPrefix("10.") && !validHost.hasPrefix("127.")))
         
         var validRelay = relayHost?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let r = validRelay, !r.isEmpty, !r.contains("."), !r.contains(":"), r.lowercased() != "localhost" {
-            validRelay = "\(r).jiuge.space"
+            validRelay = "\(r).mgy.jiuge.space"
         }
         
         return .success(PairingInfo(
             host: validHost,
             port: validPort,
             code: validCode,
-            ssl: ssl,
+            ssl: effectiveSSL,
             lanHost: lanHost,
             ipv6Host: ipv6Host,
             ddnsHost: ddnsHost,
@@ -407,7 +409,7 @@ public final class PairingService: Sendable {
         if allowed.contains(h) {
             return true
         }
-        if NetworkTransport.isLocalOrPrivateHost(h) || h.hasSuffix(".jiuge.space") || h.hasSuffix(".antigravity.internal") {
+        if NetworkTransport.isLocalOrPrivateHost(h) || h.hasSuffix(".mgy.jiuge.space") || h.hasSuffix(".jiuge.space") || h.hasSuffix(".antigravity.internal") {
             return true
         }
         return url.scheme?.lowercased() == "https"
