@@ -312,7 +312,7 @@ public struct ManualPairingSheet: View {
         
         var effectiveHost = trimmedHost
         if !effectiveHost.contains(".") && !effectiveHost.contains(":") && effectiveHost.lowercased() != "localhost" {
-            effectiveHost = "\(effectiveHost).mgy.jiuge.space"
+            effectiveHost = "\(effectiveHost).jiuge.space"
         }
         
         let info = PairingInfo(

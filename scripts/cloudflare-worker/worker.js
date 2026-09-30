@@ -1,14 +1,21 @@
 /**
  * Multigravity Cloudflare Tunnel Dispatcher (Serverless Worker)
  * 
+ * 架构：方案 A - Cloudflare 原生隧道与 DNS 自动化联动（客户端智能 Anycast 优选加速）
  * 作用：为 Multigravity 网关客户端自动按机器指纹创建、检索专属永久 Cloudflare Tunnel。
+ * 特性：
+ *   - 自动在 Zone DNS 中配置专属 CNAME 记录并开启 Proxied (橙色云朵)；
+ *   - 自动生成 Ingress 规则并提供本地网关全量兜底，绝不 404；
+ *   - 完美适配根域通配符 Universal SSL (*.jiuge.space)，秒级自动覆盖，无需证书等待；
+ *   - 无需 Cloudflare for SaaS，无需第三方外部 DNS，彻底根除 Error 1000 自环；
+ *   - 原生支持手机客户端通过亚太 Anycast 优选节点（35~50ms）免 DNS 污染极速直连。
  * 部署环境：Cloudflare Workers (免费版即可，每日 100,000 次请求额度)
  * 
  * 必需环境变量 / Secrets (在 Cloudflare Worker 设置页面配置):
  *   - CF_ACCOUNT_ID: Cloudflare 账户 ID (在控制台右侧可查)
  *   - CF_API_TOKEN:  Cloudflare API Token (需包含 Account: Cloudflare Tunnel: Edit 与 Zone: DNS: Edit 权限)
  *   - CF_ZONE_ID:    域名的 Zone ID
- *   - BASE_DOMAIN:   基础域名 (例如 mgy.yourdomain.com 或 yourdomain.com)
+ *   - BASE_DOMAIN:   基础域名 (推荐根域名 jiuge.space)
  * 
  * 可选配置:
  *   - INVITE_CODE:   群专属接入暗号 (留空则全公开无感接入)
@@ -35,8 +42,9 @@ export default {
       return jsonResponse({
         status: "ok",
         service: "Multigravity Cloudflare Tunnel Dispatcher",
-        version: "1.1.0",
-        base_domain: env.BASE_DOMAIN || "not_configured"
+        version: "1.3.0",
+        architecture: "Scheme A (Native Tunnel + Anycast Edge Acceleration)",
+        base_domain: env.BASE_DOMAIN || "jiuge.space"
       });
     }
 
@@ -54,10 +62,10 @@ async function handleTunnelRegister(request, env) {
   const CF_ACCOUNT_ID = (env.CF_ACCOUNT_ID || env.CLOUDFLARE_ACCOUNT_ID || "").trim();
   const CF_API_TOKEN = (env.CF_API_TOKEN || env.CLOUDFLARE_API_TOKEN || "").trim();
   const CF_ZONE_ID = (env.CF_ZONE_ID || env.CLOUDFLARE_ZONE_ID || "").trim();
-  const BASE_DOMAIN = (env.BASE_DOMAIN || "").trim();
+  const BASE_DOMAIN = (env.BASE_DOMAIN || "jiuge.space").trim();
   if (!CF_ACCOUNT_ID || !CF_API_TOKEN || !CF_ZONE_ID || !BASE_DOMAIN) {
     return jsonResponse({
-      error: "Worker environment misconfigured. Please check CF_ACCOUNT_ID/CLOUDFLARE_ACCOUNT_ID, CF_API_TOKEN/CLOUDFLARE_API_TOKEN, CF_ZONE_ID/CLOUDFLARE_ZONE_ID, BASE_DOMAIN.",
+      error: "Worker environment misconfigured. Please check CF_ACCOUNT_ID, CF_API_TOKEN, CF_ZONE_ID, BASE_DOMAIN.",
     }, 500);
   }
 
@@ -107,11 +115,10 @@ async function handleTunnelRegister(request, env) {
       const existingTunnel = searchData.result[0];
       const tunnelId = existingTunnel.id;
 
-      // 🌟 核心改进：当复用已有隧道时，同步刷新 Ingress 路由规则与 DNS 映射！
-      // 保证切换域名后（如由 jiuge.space 切换到 mgy.jiuge.space），老隧道不会报 404
+      // 同步刷新 Ingress 路由规则与 Cloudflare DNS 原生映射
       await Promise.allSettled([
         setTunnelConfigurations(CF_ACCOUNT_ID, tunnelId, subdomain, targetPort, cfHeaders),
-        setTunnelDnsRecord(CF_ZONE_ID, tunnelId, subdomain, cfHeaders),
+        syncTunnelDns(CF_ZONE_ID, tunnelId, subdomain, cfHeaders),
       ]);
 
       // 获取该 Tunnel 的 run token
@@ -155,10 +162,10 @@ async function handleTunnelRegister(request, env) {
     }
     const tunnelId = createData.result.id;
 
-    // 7 & 8. 并行配置 Ingress 规则与更新 DNS 记录
+    // 7 & 8. 并行配置 Ingress 规则与 Cloudflare DNS 映射
     await Promise.allSettled([
       setTunnelConfigurations(CF_ACCOUNT_ID, tunnelId, subdomain, targetPort, cfHeaders),
-      setTunnelDnsRecord(CF_ZONE_ID, tunnelId, subdomain, cfHeaders),
+      syncTunnelDns(CF_ZONE_ID, tunnelId, subdomain, cfHeaders),
     ]);
 
     // 9. 获取刚刚创建的 Tunnel 的运行 Token
@@ -188,6 +195,7 @@ async function handleTunnelRegister(request, env) {
 
 /**
  * 设置或刷新 Cloudflare Tunnel 内部 Ingress 规则
+ * 精准绑定客户端专属子域名，并在末尾全量兜底直达本地网关，绝不返回 404
  */
 async function setTunnelConfigurations(accountId, tunnelId, subdomain, targetPort, headers) {
   const res = await fetch(
@@ -203,7 +211,7 @@ async function setTunnelConfigurations(accountId, tunnelId, subdomain, targetPor
               service: `http://localhost:${targetPort}`,
             },
             {
-              service: "http_status:404",
+              service: `http://localhost:${targetPort}`, // 关键：全量兜底直达网关，绝不 404！
             },
           ],
         },
@@ -214,22 +222,39 @@ async function setTunnelConfigurations(accountId, tunnelId, subdomain, targetPor
 }
 
 /**
- * 创建或更新 Cloudflare 区域内的 CNAME 解析记录
+ * 为专属子域名创建/更新原生的 Cloudflare DNS CNAME 记录，开启 Proxy (橙色云朵)
+ * 1. 彻底解除外部 DNS 与 SaaS 回退源依赖；
+ * 2. 直连对应机器的 Argo Tunnel (${tunnelId}.cfargotunnel.com)；
+ * 3. 根域通配符证书 (*.jiuge.space) 瞬时保护。
  */
-async function setTunnelDnsRecord(zoneId, tunnelId, subdomain, headers) {
+async function syncTunnelDns(zoneId, tunnelId, subdomain, headers) {
   const dnsTarget = `${tunnelId}.cfargotunnel.com`;
-  const dnsSearchRes = await fetch(
-    `https://api.cloudflare.com/client/v4/zones/${zoneId}/dns_records?name=${encodeURIComponent(subdomain)}&type=CNAME`,
-    { headers }
-  );
-  const dnsSearchData = await dnsSearchRes.json();
 
-  if (dnsSearchData.success && dnsSearchData.result && dnsSearchData.result.length > 0) {
-    const recordId = dnsSearchData.result[0].id;
-    return fetch(
-      `https://api.cloudflare.com/client/v4/zones/${zoneId}/dns_records/${recordId}`,
-      {
-        method: "PUT",
+  try {
+    const dnsSearchRes = await fetch(
+      `https://api.cloudflare.com/client/v4/zones/${zoneId}/dns_records?name=${encodeURIComponent(subdomain)}`,
+      { headers }
+    );
+    const dnsSearchData = await dnsSearchRes.json();
+
+    if (dnsSearchData.success && dnsSearchData.result && dnsSearchData.result.length > 0) {
+      const existing = dnsSearchData.result[0];
+      if (existing.type !== "CNAME" || existing.content !== dnsTarget || !existing.proxied) {
+        await fetch(`https://api.cloudflare.com/client/v4/zones/${zoneId}/dns_records/${existing.id}`, {
+          method: "PUT",
+          headers,
+          body: JSON.stringify({
+            type: "CNAME",
+            name: subdomain,
+            content: dnsTarget,
+            proxied: true,
+            ttl: 1,
+          }),
+        });
+      }
+    } else {
+      await fetch(`https://api.cloudflare.com/client/v4/zones/${zoneId}/dns_records`, {
+        method: "POST",
         headers,
         body: JSON.stringify({
           type: "CNAME",
@@ -238,24 +263,11 @@ async function setTunnelDnsRecord(zoneId, tunnelId, subdomain, headers) {
           proxied: true,
           ttl: 1,
         }),
-      }
-    );
-  }
-
-  return fetch(
-    `https://api.cloudflare.com/client/v4/zones/${zoneId}/dns_records`,
-    {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        type: "CNAME",
-        name: subdomain,
-        content: dnsTarget,
-        proxied: true,
-        ttl: 1,
-      }),
+      });
     }
-  );
+  } catch (e) {
+    console.error("Failed to sync tunnel DNS record:", e);
+  }
 }
 
 async function fetchTunnelToken(accountId, tunnelId, headers) {

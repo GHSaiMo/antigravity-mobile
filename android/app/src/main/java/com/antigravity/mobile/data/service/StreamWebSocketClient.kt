@@ -24,6 +24,7 @@ class StreamWebSocketClient(
     private val json = JsonConfig.instance
 
     private val client = OkHttpClient.Builder()
+        .dns(CloudflareOptimizedDns)
         .pingInterval(15, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.MILLISECONDS) // infinite for websockets
         .addInterceptor(LanCleartextSecurityInterceptor())

@@ -154,6 +154,15 @@ public final class NetworkTransport: Sendable {
             return (data, decorateResponse(response, url: req.url, forcedCellular: preferCellular || isCellular))
         }
         
+        if let url = req.url, url.scheme?.lowercased() == "https", CloudflareAnycastAccelerator.isCloudflareTunnelHost(url.host ?? "") {
+            do {
+                let (data, response) = try await sendCloudflareAcceleratedHTTPS(req)
+                return (data, decorateResponse(response, url: req.url))
+            } catch {
+                // If Anycast acceleration fails, smoothly fall back to system URLSession
+            }
+        }
+        
         let (data, response) = try await fallbackSession.data(for: req)
         return (data, decorateResponse(response, url: req.url))
     }
@@ -169,6 +178,31 @@ public final class NetworkTransport: Sendable {
         return !isLocalOrPrivateHost(host)
     }
     
+    private func sendCloudflareAcceleratedHTTPS(_ request: URLRequest) async throws -> (Data, URLResponse) {
+        guard let url = request.url else {
+            throw URLError(.badURL)
+        }
+        let bareHost = (url.host ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        guard !bareHost.isEmpty else {
+            throw URLError(.badURL)
+        }
+        
+        let tlsOptions = NWProtocolTLS.Options()
+        sec_protocol_options_set_tls_server_name(tlsOptions.securityProtocolOptions, bareHost)
+        let parameters = NWParameters(tls: tlsOptions)
+        
+        let anycastIP = CloudflareAnycastAccelerator.primaryIP
+        let port = NWEndpoint.Port(rawValue: UInt16(url.port ?? 443)) ?? .https
+        let connection = NWConnection(host: NWEndpoint.Host(anycastIP), port: port, using: parameters)
+        try await Self.waitUntilReady(connection, timeout: request.timeoutInterval > 0 ? min(request.timeoutInterval, 5) : 5)
+        defer { connection.cancel() }
+        
+        let payload = Self.buildHTTP11Request(request, url: url, bareHost: bareHost)
+        try await Self.sendAll(connection, payload)
+        let raw = try await Self.receiveHTTPMessage(connection)
+        return try Self.parseHTTP11Response(raw, url: url)
+    }
+
     private func sendCleartextHTTP(_ request: URLRequest) async throws -> (Data, URLResponse) {
         guard let url = request.url else {
             throw URLError(.badURL)
@@ -235,11 +269,12 @@ public final class NetworkTransport: Sendable {
             path += "?" + query
         }
         let method = request.httpMethod ?? "GET"
-        let port = url.port ?? 80
+        let defaultPort = (url.scheme?.lowercased() == "https") ? 443 : 80
+        let port = url.port ?? defaultPort
         let hostHeader: String
         if bareHost.contains(":") {
             hostHeader = "[\(bareHost)]:\(port)"
-        } else if port == 80 {
+        } else if port == defaultPort {
             hostHeader = bareHost
         } else {
             hostHeader = "\(bareHost):\(port)"

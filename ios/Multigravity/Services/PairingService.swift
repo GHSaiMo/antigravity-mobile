@@ -206,17 +206,17 @@ public final class PairingService: Sendable {
         }
         let validPort = port ?? 443
         
-        // Auto-expand compressed subdomain (e.g. 825a5a50 -> 825a5a50.mgy.jiuge.space)
+        // Auto-expand compressed subdomain (e.g. 825a5a50 -> 825a5a50.jiuge.space)
         var validHost = rawHost
         if !validHost.contains(".") && !validHost.contains(":") && validHost.lowercased() != "localhost" {
-            validHost = "\(validHost).mgy.jiuge.space"
+            validHost = "\(validHost).jiuge.space"
         }
         
         let effectiveSSL = sslExplicit ?? (validPort == 443 || (!validHost.hasPrefix("192.168.") && !validHost.hasPrefix("10.") && !validHost.hasPrefix("127.")))
         
         var validRelay = relayHost?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let r = validRelay, !r.isEmpty, !r.contains("."), !r.contains(":"), r.lowercased() != "localhost" {
-            validRelay = "\(r).mgy.jiuge.space"
+            validRelay = "\(r).jiuge.space"
         }
         
         return .success(PairingInfo(

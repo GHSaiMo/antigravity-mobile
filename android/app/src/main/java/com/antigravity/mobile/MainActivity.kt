@@ -75,6 +75,7 @@ class MainActivity : ComponentActivity() {
 
         // Initialize Coil SVG and Gateway Auth Header interceptor globally
         val coilOkHttpClient = okhttp3.OkHttpClient.Builder()
+            .dns(com.antigravity.mobile.data.service.CloudflareOptimizedDns)
             .addInterceptor { chain ->
                 val request = chain.request()
                 val token = prefs.deviceToken

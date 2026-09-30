@@ -137,26 +137,43 @@ public final class StreamWebSocketClient {
         
         updateStatus(.connecting)
         
-        let endpoint = NWEndpoint.url(wsURL)
+        let hostStr = (wsURL.host ?? "").lowercased()
+        let isCloudflare = CloudflareAnycastAccelerator.isCloudflareTunnelHost(hostStr)
+        
+        let endpoint: NWEndpoint
+        if isCloudflare && reconnectAttempt % 2 == 0 {
+            let port = NWEndpoint.Port(rawValue: UInt16(wsURL.port ?? 443)) ?? .https
+            endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(CloudflareAnycastAccelerator.primaryIP), port: port)
+        } else {
+            endpoint = NWEndpoint.url(wsURL)
+        }
+        
         let wsOptions = NWProtocolWebSocket.Options()
         wsOptions.autoReplyPing = true
+        var extraHeaders: [(String, String)] = []
+        if isCloudflare {
+            extraHeaders.append(("Host", hostStr))
+        }
         if let token = KeychainHelper.shared.read(key: .deviceToken) ?? AppSettings.shared.deviceToken, !token.isEmpty {
-            wsOptions.setAdditionalHeaders([
-                ("Authorization", "Bearer \(token)"),
-                ("x-device-token", token)
-            ])
+            extraHeaders.append(("Authorization", "Bearer \(token)"))
+            extraHeaders.append(("x-device-token", token))
+        }
+        if !extraHeaders.isEmpty {
+            wsOptions.setAdditionalHeaders(extraHeaders)
         }
         
         let parameters: NWParameters
         if wsURL.scheme?.lowercased() == "wss" {
             let tlsOptions = NWProtocolTLS.Options()
-            let hostStr = (wsURL.host ?? "").lowercased()
             let isLoopback = hostStr == "127.0.0.1" || hostStr == "::1" || hostStr == "localhost"
             if isLoopback {
                 sec_protocol_options_set_verify_block(tlsOptions.securityProtocolOptions, { (metadata, trust, completion) in
                     // Trust self-signed certificates only for local gateway loopback connections
                     completion(true)
                 }, .global())
+            }
+            if isCloudflare {
+                sec_protocol_options_set_tls_server_name(tlsOptions.securityProtocolOptions, hostStr)
             }
             parameters = NWParameters(tls: tlsOptions)
         } else {
