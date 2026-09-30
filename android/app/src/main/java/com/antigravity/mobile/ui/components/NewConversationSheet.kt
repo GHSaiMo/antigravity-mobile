@@ -192,10 +192,12 @@ fun NewConversationSheet(
                             ) {
                                 Text(
                                     text = "Chat",
+                                    modifier = Modifier.weight(1f, fill = false),
                                     fontSize = 15.5.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = colors.textPrimary,
-                                    maxLines = 1
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                                 Box(
                                     modifier = Modifier
@@ -207,7 +209,9 @@ fun NewConversationSheet(
                                         text = "新对话",
                                         fontSize = 10.5.sp,
                                         fontWeight = FontWeight.SemiBold,
-                                        color = colors.accentIndigo
+                                        color = colors.accentIndigo,
+                                        maxLines = 1,
+                                        softWrap = false
                                     )
                                 }
                             }
@@ -288,6 +292,7 @@ fun NewConversationSheet(
                                 ) {
                                     Text(
                                         text = project.name,
+                                        modifier = Modifier.weight(1f, fill = false),
                                         fontSize = 15.5.sp,
                                         fontWeight = FontWeight.SemiBold,
                                         color = colors.textPrimary,
@@ -306,7 +311,9 @@ fun NewConversationSheet(
                                                 text = "${project.sessionCount} 会话",
                                                 fontSize = 10.5.sp,
                                                 fontWeight = FontWeight.SemiBold,
-                                                color = colors.textSecondary
+                                                color = colors.textSecondary,
+                                                maxLines = 1,
+                                                softWrap = false
                                             )
                                         }
                                     }
