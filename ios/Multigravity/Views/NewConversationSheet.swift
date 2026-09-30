@@ -123,6 +123,9 @@ public struct NewConversationSheet: View {
                             .padding(.vertical, 2)
                             .background(Color.indigo.opacity(0.12))
                             .clipShape(Capsule())
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .layoutPriority(1)
                     }
                     
                     Text("新对话 · 不关联任何工作区")
@@ -169,6 +172,7 @@ public struct NewConversationSheet: View {
                             .font(.system(size: 15.5, weight: .semibold))
                             .foregroundColor(.primary)
                             .lineLimit(1)
+                            .truncationMode(.tail)
                         
                         if project.sessionCount > 0 {
                             Text("\(project.sessionCount) 会话")
@@ -178,6 +182,9 @@ public struct NewConversationSheet: View {
                                 .padding(.vertical, 2)
                                 .background(Color.secondary.opacity(0.12))
                                 .clipShape(Capsule())
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
+                                .layoutPriority(1)
                         }
                     }
                     

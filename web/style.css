@@ -1978,6 +1978,7 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .project-card-badge {
@@ -1986,6 +1987,7 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
   padding: 2px 6px;
   border-radius: 10px;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .project-card-badge.indigo {
