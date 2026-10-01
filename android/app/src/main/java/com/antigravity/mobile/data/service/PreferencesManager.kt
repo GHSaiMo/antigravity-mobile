@@ -179,10 +179,6 @@ class PreferencesManager(context: Context) {
         get() = prefs.getString(KEY_LAN_URL, null)
         set(value) = prefs.edit().putString(KEY_LAN_URL, value?.trimEnd('/')).apply()
 
-    var ipv6ServerUrl: String?
-        get() = prefs.getString(KEY_IPV6_URL, null)
-        set(value) = prefs.edit().putString(KEY_IPV6_URL, value?.trimEnd('/')).apply()
-
     var relayServerUrl: String?
         get() = prefs.getString(KEY_RELAY_URL, null)
         set(value) = prefs.edit().putString(KEY_RELAY_URL, value?.trimEnd('/')).apply()
@@ -227,7 +223,6 @@ class PreferencesManager(context: Context) {
 
     fun updateEndpoints(
         lan: String? = null,
-        ipv6: String? = null,
         relay: String? = null,
         custom: String? = null,
         active: String? = null,
@@ -236,9 +231,6 @@ class PreferencesManager(context: Context) {
         val editor = prefs.edit()
         if (!lan.isNullOrBlank()) {
             editor.putString(KEY_LAN_URL, lan.trimEnd('/'))
-        }
-        if (!ipv6.isNullOrBlank()) {
-            editor.putString(KEY_IPV6_URL, ipv6.trimEnd('/'))
         }
         if (!relay.isNullOrBlank()) {
             editor.putString(KEY_RELAY_URL, relay.trimEnd('/'))
@@ -528,7 +520,6 @@ class PreferencesManager(context: Context) {
         private const val KEY_LIVE_NOTIFICATIONS = "live_notifications"
         private const val KEY_FCM_PUSH_TOKEN = "fcm_push_token"
         private const val KEY_LAN_URL = "lan_server_url"
-        private const val KEY_IPV6_URL = "ipv6_server_url"
         private const val KEY_RELAY_URL = "relay_server_url"
         private const val KEY_CUSTOM_URL = "custom_server_url"
         private const val KEY_LAST_VIEW_PREFIX = "ag_last_view_"

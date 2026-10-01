@@ -24,7 +24,7 @@ type PairRequest struct {
 
 // EndpointInfo represents an accessible network endpoint of the gateway.
 type EndpointInfo struct {
-	Type string `json:"type"` // "lan", "ipv6", "ddns", "primary"
+	Type string `json:"type"` // "lan", "ddns", "primary"
 	URL  string `json:"url"`  // e.g. "http://192.168.1.50:58900"
 }
 
@@ -45,7 +45,6 @@ type AuthHandler struct {
 	port       int
 	ssl        bool
 	lanHost    string
-	ipv6Host   string
 	ddnsHost   string
 	relayURL   string
 	cfURL      string
@@ -65,10 +64,9 @@ func NewAuthHandler(store *AuthStore, pairingMgr *PairingManager, host string, p
 	}
 }
 
-// SetEndpoints sets discovered network hosts (LAN IPv4, IPv6, DDNS) for pairing responses.
-func (h *AuthHandler) SetEndpoints(lanHost, ipv6Host, ddnsHost string) {
+// SetEndpoints sets discovered network hosts (LAN IPv4, DDNS) for pairing responses.
+func (h *AuthHandler) SetEndpoints(lanHost, ddnsHost string) {
 	h.lanHost = strings.TrimSpace(lanHost)
-	h.ipv6Host = strings.TrimSpace(ipv6Host)
 	h.ddnsHost = strings.TrimSpace(ddnsHost)
 }
 
@@ -146,7 +144,7 @@ func (h *AuthHandler) GetEndpoints() []EndpointInfo {
 				URL:  fmt.Sprintf("http://%s:%d", lan, lanPort),
 			})
 		}
-		// On the Cloudflare branch, IPv6 literals, DDNS, and legacy FRP relays are retired.
+		// On the Cloudflare branch, DDNS and legacy FRP relays are retired.
 		return endpoints
 	}
 
@@ -164,22 +162,6 @@ func (h *AuthHandler) GetEndpoints() []EndpointInfo {
 			endpoints = append(endpoints, EndpointInfo{
 				Type: "lan",
 				URL:  fmt.Sprintf("http://%s:%d", lan, lanPort),
-			})
-		}
-	}
-
-	// LAN / public IPv6 literals are only advertised for cleartext HTTP.
-	// TLS certificates are issued for domains, not RFC1918 or raw IPv6.
-	if !h.ssl {
-		ipv6 := h.ipv6Host
-		if ipv6 == "" && strings.Contains(h.host, ":") {
-			ipv6 = h.host
-		}
-		if ipv6 != "" {
-			cleanV6 := strings.Trim(ipv6, "[]")
-			endpoints = append(endpoints, EndpointInfo{
-				Type: "ipv6",
-				URL:  fmt.Sprintf("%s[%s]:%d", scheme, cleanV6, h.port),
 			})
 		}
 	}
@@ -580,7 +562,7 @@ func (h *AuthHandler) HandleNewPairingSession(w http.ResponseWriter, r *http.Req
 	}
 
 	relayHost := h.relayHost()
-	lanHost, ipv6Host := h.lanHost, h.ipv6Host
+	lanHost := h.lanHost
 	primaryHost := h.host
 	port := h.port
 	ssl := h.ssl
@@ -600,20 +582,15 @@ func (h *AuthHandler) HandleNewPairingSession(w http.ResponseWriter, r *http.Req
 			if h.lanHost != "" {
 				lanHost = h.lanHost
 			}
-			// In unified Cloudflare tunnel mode, IPv6 literals, FRP relays, and DDNS are retired.
-			ipv6Host = ""
 			relayHost = ""
 			ddnsHost = ""
 		}
 	} else if h.ssl {
 		// Cert is issued for DDNS_HOST only; IP literals fail iOS ATS/trust.
-		lanHost, ipv6Host = "", ""
+		lanHost = ""
 		ddnsHost = h.ddnsHost
 	} else {
 		ddnsHost = h.ddnsHost
-		if (r.URL.Query().Get("prefer") == "ipv6" || primaryHost == "" || primaryHost == "127.0.0.1" || primaryHost == lanHost) && ipv6Host != "" {
-			primaryHost = ipv6Host
-		}
 	}
 
 	uri := GenerateMultiHostPairingURI(MultiHostPairingParams{
@@ -622,7 +599,6 @@ func (h *AuthHandler) HandleNewPairingSession(w http.ResponseWriter, r *http.Req
 		Code:        session.Code,
 		SSL:         ssl,
 		LANHost:     lanHost,
-		IPv6Host:    ipv6Host,
 		DDNSHost:    ddnsHost,
 		RelayHost:   relayHost,
 	})
@@ -640,9 +616,6 @@ func (h *AuthHandler) HandleNewPairingSession(w http.ResponseWriter, r *http.Req
 		extraHosts = append(extraHosts, lanHost)
 	}
 	if h.cfURL == "" {
-		if ipv6Host != "" && ipv6Host != primaryHost {
-			extraHosts = append(extraHosts, ipv6Host)
-		}
 		if ddnsHost != "" && ddnsHost != primaryHost {
 			extraHosts = append(extraHosts, ddnsHost)
 		}

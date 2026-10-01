@@ -8,7 +8,6 @@ public struct PairingInfo: Equatable, Sendable {
     public let code: String
     public let ssl: Bool
     public let lanHost: String?
-    public let ipv6Host: String?
     public let ddnsHost: String?
     public let relayHost: String?
     public let os: String?
@@ -20,7 +19,6 @@ public struct PairingInfo: Equatable, Sendable {
         code: String,
         ssl: Bool,
         lanHost: String? = nil,
-        ipv6Host: String? = nil,
         ddnsHost: String? = nil,
         relayHost: String? = nil,
         os: String? = nil,
@@ -31,7 +29,6 @@ public struct PairingInfo: Equatable, Sendable {
         self.code = code
         self.ssl = ssl
         self.lanHost = lanHost
-        self.ipv6Host = ipv6Host
         self.ddnsHost = ddnsHost
         self.relayHost = Self.normalizeHost(relayHost)
         self.os = os
@@ -53,11 +50,7 @@ public struct PairingInfo: Equatable, Sendable {
     
     public static func formatURL(host: String, port: Int, ssl: Bool) -> String {
         let scheme = ssl ? "https://" : "http://"
-        var formattedHost = host
-        // Wrap raw IPv6 address in brackets if needed
-        if !formattedHost.hasPrefix("[") && formattedHost.filter({ $0 == ":" }).count >= 2 {
-            formattedHost = "[\(formattedHost)]"
-        }
+        let formattedHost = host
         if (ssl && port == 443) || (!ssl && port == 80) {
             return "\(scheme)\(formattedHost)"
         }
@@ -73,11 +66,6 @@ public struct PairingInfo: Equatable, Sendable {
         let lanPort = (ssl && port == 443) ? 58900 : port
         let lanSSL = (ssl && port == 443) ? false : ssl
         return Self.formatURL(host: lan, port: lanPort, ssl: lanSSL)
-    }
-    
-    public var ipv6BaseURL: String? {
-        guard let v6 = ipv6Host, !v6.isEmpty else { return nil }
-        return Self.formatURL(host: v6, port: port, ssl: ssl)
     }
     
     public var ddnsBaseURL: String? {
@@ -96,7 +84,6 @@ public struct PairingInfo: Equatable, Sendable {
         let prim = serverBaseURL
         if !list.contains(prim) { list.append(prim) }
         if let relay = relayBaseURL, !list.contains(relay) { list.append(relay) }
-        if let v6 = ipv6BaseURL, !list.contains(v6) { list.append(v6) }
         if let ddns = ddnsBaseURL, !list.contains(ddns) { list.append(ddns) }
         return list
     }
@@ -161,7 +148,6 @@ public final class PairingService: Sendable {
         var code: String?
         var sslExplicit: Bool?
         var lanHost: String?
-        var ipv6Host: String?
         var ddnsHost: String?
         var relayHost: String?
         var os: String?
@@ -183,8 +169,6 @@ public final class PairingService: Sendable {
                 }
             case "lan":
                 lanHost = item.value
-            case "ipv6":
-                ipv6Host = item.value
             case "ddns":
                 ddnsHost = item.value
             case "relay":
@@ -225,7 +209,6 @@ public final class PairingService: Sendable {
             code: validCode,
             ssl: effectiveSSL,
             lanHost: lanHost,
-            ipv6Host: ipv6Host,
             ddnsHost: ddnsHost,
             relayHost: validRelay,
             os: os,
@@ -237,7 +220,7 @@ public final class PairingService: Sendable {
     public func pair(with info: PairingInfo) async throws -> (deviceId: String, deviceToken: String) {
         var candidates = info.candidateBaseURLs
         if NetworkTransport.shared.isCellular {
-            // Off-LAN: try cloud relay / IPv6 before RFC1918 addresses that will just time out.
+            // Off-LAN: try cloud relay before RFC1918 addresses that will just time out.
             let privateLAN = candidates.filter { url in
                 guard let host = URL(string: url)?.host else { return false }
                 return NetworkTransport.isLocalOrPrivateHost(host)
@@ -316,7 +299,6 @@ public final class PairingService: Sendable {
                         AppSettings.shared.gatewayPlatform = plat
                     }
                     var lanURL: String? = info.lanBaseURL
-                    var ipv6URL: String? = info.ipv6BaseURL
                     var relayURL: String? = nil
                     var cloudURL: String? = nil
                     
@@ -332,8 +314,6 @@ public final class PairingService: Sendable {
                             switch ep.type.lowercased() {
                             case "lan":
                                 lanURL = ep.url
-                            case "ipv6":
-                                ipv6URL = ep.url
                             case "relay":
                                 relayURL = ep.url
                                 if cloudURL == nil { cloudURL = ep.url }
@@ -364,7 +344,6 @@ public final class PairingService: Sendable {
                     
                     AppSettings.shared.updateEndpoints(
                         lan: lanURL,
-                        ipv6: ipv6URL,
                         relay: relayURL,
                         custom: nil,
                         active: baseURL,
@@ -400,7 +379,6 @@ public final class PairingService: Sendable {
         let h = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
         var allowed: [String] = [info.host.lowercased()]
         if let lan = info.lanHost { allowed.append(lan.lowercased()) }
-        if let v6 = info.ipv6Host { allowed.append(v6.lowercased()) }
         if let ddns = info.ddnsHost { allowed.append(ddns.lowercased()) }
         if let relay = info.relayHost { allowed.append(relay.lowercased()) }
         if let used = URL(string: usedBase)?.host {

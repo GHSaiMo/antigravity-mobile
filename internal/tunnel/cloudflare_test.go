@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"antigravity-mobile/internal/config"
 )
 
 func TestGetStableMachineID(t *testing.T) {
@@ -99,5 +101,73 @@ func TestDetectLocalProxy_Env(t *testing.T) {
 	}
 	if proxyURL.Host != "127.0.0.1:9999" {
 		t.Errorf("expected host 127.0.0.1:9999, got %s", proxyURL.Host)
+	}
+}
+
+func TestBuildTunnelArgs(t *testing.T) {
+	// 1. Full config with DNS resolvers
+	cfg := &config.CloudflareConfig{
+		EdgeIPVersion: "4",
+		Protocol:      "http2",
+		Region:        "us",
+		DNSResolvers:  "223.5.5.5,119.29.29.29:53",
+	}
+	args := buildTunnelArgs(cfg)
+	expected := []string{
+		"tunnel",
+		"--edge-ip-version", "4",
+		"--region", "us",
+		"--protocol", "http2",
+		"--dns-resolver-addrs", "223.5.5.5:53",
+		"--dns-resolver-addrs", "119.29.29.29:53",
+		"run",
+	}
+	if len(args) != len(expected) {
+		t.Fatalf("expected %d args, got %d: %v", len(expected), len(args), args)
+	}
+	for i := range expected {
+		if args[i] != expected[i] {
+			t.Errorf("arg[%d]: expected %q, got %q", i, expected[i], args[i])
+		}
+	}
+
+	// 2. DNS override disabled
+	cfgDisabled := &config.CloudflareConfig{
+		DNSResolvers: "system",
+	}
+	argsDisabled := buildTunnelArgs(cfgDisabled)
+	for _, a := range argsDisabled {
+		if a == "--dns-resolver-addrs" {
+			t.Errorf("expected no --dns-resolver-addrs when disabled with 'system'")
+		}
+	}
+}
+
+func TestIsBenignCloudflareLog(t *testing.T) {
+	benignCases := []string{
+		"context canceled",
+		"2026-10-01T02:29:55Z ERR failed to serve incoming request error=\"already connected to this server, trying another address\"",
+		"2026-10-01T02:29:55Z WRN Unable to establish connection. error=\"already connected to this server, trying another address\" connIndex=3 event=0 ip=198.41.200.113",
+		"2026-10-01T02:29:57Z WRN Connection terminated error=\"already connected to this server, trying another address\" connIndex=3",
+		"2026-10-01T01:59:59Z ERR Failed to initialize DNS local resolver error=\"lookup region1.v2.argotunnel.com: i/o timeout\"",
+		"2026-10-01T02:05:04Z ERR Failed to refresh DNS local resolver error=\"lookup region1.v2.argotunnel.com: i/o timeout\"",
+	}
+
+	for _, line := range benignCases {
+		if !isBenignCloudflareLog(line) {
+			t.Errorf("expected benign log to be filtered: %q", line)
+		}
+	}
+
+	criticalCases := []string{
+		"ERR Fatal error: failed to authenticate with token",
+		"ERR Cannot dial edge: connection refused",
+		"ERR Registration failed",
+	}
+
+	for _, line := range criticalCases {
+		if isBenignCloudflareLog(line) {
+			t.Errorf("expected critical error NOT to be filtered: %q", line)
+		}
 	}
 }

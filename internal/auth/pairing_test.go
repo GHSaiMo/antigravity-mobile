@@ -147,8 +147,8 @@ func TestGenerateQRCodePNG(t *testing.T) {
 		t.Errorf("expected non-empty png bytes")
 	}
 
-	// Test with extra hosts (LAN & IPv6)
-	multiPngData, err := GenerateQRCodePNG("192.168.1.100", 58900, "abc123code", false, 128, "2001:db8::1", "mac.example.com")
+	// Test with extra hosts (LAN & DDNS)
+	multiPngData, err := GenerateQRCodePNG("192.168.1.100", 58900, "abc123code", false, 128, "mac.example.com")
 	if err != nil {
 		t.Fatalf("failed to generate multi-host qr png: %v", err)
 	}
@@ -162,7 +162,6 @@ func TestGenerateQRCodePNG(t *testing.T) {
 		Port:        58900,
 		Code:        "abc123code",
 		LANHost:     "192.168.1.100",
-		IPv6Host:    "2001:db8::1",
 	}, 128)
 	if err != nil {
 		t.Fatalf("failed to generate direct multi-host qr png: %v", err)
@@ -249,7 +248,7 @@ func TestPairingManager_CleanupAndLatest(t *testing.T) {
 
 func TestDetectNetworkAddresses(t *testing.T) {
 	addrs := DetectNetworkAddresses()
-	t.Logf("Detected LAN IPv4: %s, Public IPv6: %s", addrs.LANIPv4, addrs.PublicIPv6)
+	t.Logf("Detected LAN IPv4: %s", addrs.LANIPv4)
 }
 
 func TestGenerateMultiHostPairingURI(t *testing.T) {
@@ -259,7 +258,6 @@ func TestGenerateMultiHostPairingURI(t *testing.T) {
 		Code:        "testcode123",
 		SSL:         false,
 		LANHost:     "192.168.1.100",
-		IPv6Host:    "2001:db8:abcd::1",
 		DDNSHost:    "mac.example.com",
 	})
 
@@ -268,9 +266,6 @@ func TestGenerateMultiHostPairingURI(t *testing.T) {
 	}
 	if !strings.Contains(uri, "host=192.168.1.100") {
 		t.Errorf("missing primary host in %s", uri)
-	}
-	if !strings.Contains(uri, "ipv6=2001%3Adb8%3Aabcd%3A%3A1") && !strings.Contains(uri, "ipv6=2001:db8:abcd::1") {
-		t.Errorf("missing ipv6 in %s", uri)
 	}
 	if !strings.Contains(uri, "ddns=mac.example.com") {
 		t.Errorf("missing ddns in %s", uri)
@@ -284,7 +279,6 @@ func TestGenerateMultiHostPairingURI_IncludesRelay(t *testing.T) {
 		Code:        "testcode123",
 		SSL:         false,
 		LANHost:     "192.168.50.9",
-		IPv6Host:    "2001:db8:abcd::1",
 		RelayHost:   "198.51.100.1",
 	})
 	if !strings.Contains(uri, "relay=198.51.100.1") {
@@ -300,7 +294,7 @@ func TestAuthHandler_NewPairingSessionIncludesRelay(t *testing.T) {
 	}
 	pm := NewPairingManager()
 	h := NewAuthHandler(store, pm, "192.168.50.9", 58900, false)
-	h.SetEndpoints("192.168.50.9", "2001:db8:abcd::1", "")
+	h.SetEndpoints("192.168.50.9", "")
 	h.SetRelayURL("http://198.51.100.1:58900")
 
 	if got := h.relayHost(); got != "198.51.100.1" {
@@ -323,34 +317,27 @@ func TestAuthHandler_NewPairingSessionIncludesRelay(t *testing.T) {
 	if !strings.Contains(resp.URI, "relay=198.51.100.1") {
 		t.Fatalf("session URI missing relay: %s", resp.URI)
 	}
-	if !strings.Contains(resp.URI, "ipv6=") {
-		t.Fatalf("session URI missing ipv6: %s", resp.URI)
-	}
 }
 
 func TestAuthHandler_GetEndpoints(t *testing.T) {
 	store, _ := NewAuthStore(t.TempDir() + "/auth.json")
 	pm := NewPairingManager()
 	h := NewAuthHandler(store, pm, "192.168.1.50", 58900, false)
-	h.SetEndpoints("192.168.1.50", "2001:db8:abcd::1", "mac.example.com")
+	h.SetEndpoints("192.168.1.50", "mac.example.com")
 	h.SetRelayURL("http://relay.example.com:58900")
 
 	endpoints := h.GetEndpoints()
-	if len(endpoints) < 4 {
-		t.Fatalf("expected at least 4 endpoints, got %d", len(endpoints))
+	if len(endpoints) < 3 {
+		t.Fatalf("expected at least 3 endpoints, got %d", len(endpoints))
 	}
 
 	foundLAN := false
-	foundV6 := false
 	foundDDNS := false
 	foundRelay := false
 
 	for _, ep := range endpoints {
 		if ep.Type == "lan" && strings.Contains(ep.URL, "192.168.1.50:58900") {
 			foundLAN = true
-		}
-		if ep.Type == "ipv6" && strings.Contains(ep.URL, "[2001:db8:abcd::1]:58900") {
-			foundV6 = true
 		}
 		if ep.Type == "ddns" && strings.Contains(ep.URL, "mac.example.com:58900") {
 			foundDDNS = true
@@ -362,9 +349,6 @@ func TestAuthHandler_GetEndpoints(t *testing.T) {
 
 	if !foundLAN {
 		t.Errorf("LAN endpoint missing")
-	}
-	if !foundV6 {
-		t.Errorf("IPv6 endpoint missing")
 	}
 	if !foundDDNS {
 		t.Errorf("DDNS endpoint missing")
@@ -382,7 +366,7 @@ func TestAuthHandler_NewPairingSession_SSLOmitsIPLiterals(t *testing.T) {
 	}
 	pm := NewPairingManager()
 	h := NewAuthHandler(store, pm, "agy.example.com", 58900, true)
-	h.SetEndpoints("192.168.50.9", "2001:db8:abcd::1", "agy.example.com")
+	h.SetEndpoints("192.168.50.9", "agy.example.com")
 	h.SetRelayURL("https://agy.example.com:58900")
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", nil)
@@ -404,7 +388,7 @@ func TestAuthHandler_NewPairingSession_SSLOmitsIPLiterals(t *testing.T) {
 	if !strings.Contains(resp.URI, "host=agy.example.com") {
 		t.Fatalf("expected domain host in %s", resp.URI)
 	}
-	if strings.Contains(resp.URI, "lan=") || strings.Contains(resp.URI, "ipv6=") {
+	if strings.Contains(resp.URI, "lan=") {
 		t.Fatalf("TLS pairing URI must not include IP literals: %s", resp.URI)
 	}
 }
@@ -413,7 +397,7 @@ func TestAuthHandler_GetEndpoints_SSLOmitsIPLiterals(t *testing.T) {
 	store, _ := NewAuthStore(t.TempDir() + "/auth.json")
 	pm := NewPairingManager()
 	h := NewAuthHandler(store, pm, "agy.example.com", 58900, true)
-	h.SetEndpoints("192.168.50.9", "2001:db8:abcd::1", "agy.example.com")
+	h.SetEndpoints("192.168.50.9", "agy.example.com")
 	h.SetRelayURL("https://agy.example.com:58900")
 
 	endpoints := h.GetEndpoints()
@@ -542,7 +526,7 @@ func TestAuthHandler_HandleEndpoints_Security(t *testing.T) {
 	store, _ := NewAuthStore(t.TempDir() + "/auth.json")
 	pm := NewPairingManager()
 	h := NewAuthHandler(store, pm, "192.168.1.100", 58900, false)
-	h.SetEndpoints("192.168.1.100", "", "")
+	h.SetEndpoints("192.168.1.100", "")
 	h.SetCloudflareURL("https://custom.mgy")
 
 	// 1. External unauthenticated request: private LAN IP should be redacted

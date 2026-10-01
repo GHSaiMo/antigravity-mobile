@@ -35,7 +35,7 @@ endif
 #
 # 1. 命令行参数 (CLI Flags):
 #    -port <端口号>        : 网关服务 HTTP/WebSocket 监听端口，默认 58900 (支持环境变量: MULTIGRAVITY_PORT / GATEWAY_PORT)
-#    -host <主机/IP>       : 监听地址，默认 "" 自动双栈监听本机所有 IPv4 与 IPv6 接口；
+#    -host <主机/IP>       : 监听地址，默认 "" 监听本机所有 IPv4 接口 (0.0.0.0)；
 #                            若设为 127.0.0.1 则仅限本机访问 (支持环境变量: MULTIGRAVITY_HOST / GATEWAY_HOST)
 #    -qr=<true|false>     : 启动时是否在控制台默认打印一次客户端配对二维码，默认 true (可通过 -qr=false 关闭)
 #    -poll <秒数>          : 探测本地 Antigravity 实例与健康检查的轮询间隔秒数，默认 5 秒

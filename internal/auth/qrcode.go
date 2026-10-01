@@ -81,7 +81,6 @@ type MultiHostPairingParams struct {
 	Code        string
 	SSL         bool
 	LANHost     string
-	IPv6Host    string
 	DDNSHost    string
 	RelayHost   string
 }
@@ -125,9 +124,6 @@ func GenerateMultiHostPairingURI(p MultiHostPairingParams) string {
 	items = append(items, paramItem{"platform", runtime.GOOS})
 
 	// Optional endpoints
-	if ipv6 := strings.TrimSpace(p.IPv6Host); ipv6 != "" {
-		items = append(items, paramItem{"ipv6", ipv6})
-	}
 	if ddns := strings.TrimSpace(p.DDNSHost); ddns != "" && ddns != cleanHost {
 		items = append(items, paramItem{"ddns", ddns})
 	}
@@ -155,9 +151,9 @@ func GeneratePairingURI(host string, port int, code string, ssl bool) string {
 }
 
 // BuildMultiHostPairingParams constructs MultiHostPairingParams by automatically classifying
-// candidate network endpoints (LAN IPv4, IPv6, DDNS, Cloud Relay) from primaryHost and extraHosts.
+// candidate network endpoints (LAN IPv4, DDNS, Cloud Relay) from primaryHost and extraHosts.
 func BuildMultiHostPairingParams(primaryHost string, port int, code string, ssl bool, extraHosts ...string) MultiHostPairingParams {
-	var lanHost, ipv6Host, ddnsHost, relayHost string
+	var lanHost, ddnsHost, relayHost string
 
 	isPrivateIPv4 := func(ipStr string) bool {
 		if strings.HasPrefix(ipStr, "192.168.") || strings.HasPrefix(ipStr, "10.") {
@@ -176,14 +172,10 @@ func BuildMultiHostPairingParams(primaryHost string, port int, code string, ssl 
 
 	classifyHost := func(h string) {
 		h = strings.TrimSpace(h)
-		if h == "" || h == "127.0.0.1" || h == "localhost" {
+		if h == "" || h == "127.0.0.1" || h == "localhost" || strings.Contains(h, ":") {
 			return
 		}
-		if strings.Contains(h, ":") {
-			if ipv6Host == "" {
-				ipv6Host = h
-			}
-		} else if strings.Count(h, ".") == 3 && !strings.ContainsAny(h, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ") {
+		if strings.Count(h, ".") == 3 && !strings.ContainsAny(h, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ") {
 			if isPrivateIPv4(h) {
 				if lanHost == "" {
 					lanHost = h
@@ -215,7 +207,6 @@ func BuildMultiHostPairingParams(primaryHost string, port int, code string, ssl 
 		Code:        code,
 		SSL:         ssl,
 		LANHost:     lanHost,
-		IPv6Host:    ipv6Host,
 		DDNSHost:    ddnsHost,
 		RelayHost:   relayHost,
 	}

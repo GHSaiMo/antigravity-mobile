@@ -447,11 +447,6 @@ class ConnectionManager(private val context: Context) {
             return false
         }
 
-        fun isIpv6Host(host: String): Boolean {
-            val clean = host.trim().trim('[', ']').lowercase()
-            return clean.contains(":") && !clean.startsWith("fe80") && !clean.startsWith("fc") && !clean.startsWith("fd")
-        }
-
         fun isRelayHost(host: String): Boolean {
             val clean = host.trim().trim('[', ']').lowercase()
             return clean.contains("relay")
@@ -469,7 +464,6 @@ class ConnectionManager(private val context: Context) {
             val allowed = mutableListOf<String>()
             allowed.add(info.host.trim('[', ']').lowercase())
             info.lanHost?.takeIf { it.isNotBlank() }?.let { allowed.add(it.trim('[', ']').lowercase()) }
-            info.ipv6Host?.takeIf { it.isNotBlank() }?.let { allowed.add(it.trim('[', ']').lowercase()) }
             info.ddnsHost?.takeIf { it.isNotBlank() }?.let { allowed.add(it.trim('[', ']').lowercase()) }
             info.relayHost?.takeIf { it.isNotBlank() }?.let { allowed.add(it.trim('[', ']').lowercase()) }
 

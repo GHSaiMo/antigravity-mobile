@@ -267,21 +267,6 @@ func RedactFCMKey(raw string) string {
 	return raw[:4] + "..." + raw[len(raw)-4:]
 }
 
-
-// AdvertisePublicIPv6 reports whether pairing QR / endpoints should include the
-// machine's global unicast IPv6. Defaults to true whenever a global IPv6 is detected,
-// unless explicitly disabled via INCLUDE_PUBLIC_IPV6=0, false, or no.
-func AdvertisePublicIPv6(sslEnabled bool) bool {
-	v := strings.ToLower(strings.TrimSpace(os.Getenv("MULTIGRAVITY_INCLUDE_PUBLIC_IPV6")))
-	if v == "" {
-		v = strings.ToLower(strings.TrimSpace(os.Getenv("INCLUDE_PUBLIC_IPV6")))
-	}
-	if v == "0" || v == "false" || v == "no" {
-		return false
-	}
-	return true
-}
-
 // DefaultCloudflareWorkerURL is the default public dispatcher URL.
 const DefaultCloudflareWorkerURL = "https://dispatcher.jiuge.space"
 
@@ -291,9 +276,10 @@ type CloudflareConfig struct {
 	WorkerURL     string
 	InviteCode    string
 	Token         string // manual token override if desired
-	EdgeIPVersion string // "auto", "4", "6"
+	EdgeIPVersion string // "auto", "4"
 	Protocol      string // "quic", "http2"
 	Region        string // optional region code
+	DNSResolvers  string // optional custom DNS resolvers, e.g. "223.5.5.5:53,119.29.29.29:53"
 }
 
 // GetCloudflareConfig extracts Cloudflare Tunnel settings from environment variables.
@@ -319,8 +305,8 @@ func GetCloudflareConfig() CloudflareConfig {
 	if edgeIPVersion == "" {
 		edgeIPVersion = strings.TrimSpace(os.Getenv("TUNNEL_EDGE_IP_VERSION"))
 	}
-	if edgeIPVersion == "" {
-		edgeIPVersion = "4" // 默认优先 IPv4，避免跨洋 IPv6 Anycast 绕路
+	if edgeIPVersion == "" || edgeIPVersion == "6" {
+		edgeIPVersion = "4" // 统一使用 IPv4
 	}
 
 	protocol := strings.TrimSpace(os.Getenv("CF_PROTOCOL"))
@@ -334,6 +320,15 @@ func GetCloudflareConfig() CloudflareConfig {
 	region := strings.TrimSpace(os.Getenv("CF_REGION"))
 	if region == "" {
 		region = strings.TrimSpace(os.Getenv("TUNNEL_REGION"))
+	}
+
+	dnsResolvers := strings.TrimSpace(os.Getenv("CF_DNS_RESOLVERS"))
+	if dnsResolvers == "" {
+		dnsResolvers = strings.TrimSpace(os.Getenv("TUNNEL_DNS_RESOLVER_ADDRS"))
+	}
+	if dnsResolvers == "" {
+		// 默认优先国内高可用公共 DNS，避免本地运营商下发的失效 DNS 引发解析超时
+		dnsResolvers = "223.5.5.5:53,119.29.29.29:53"
 	}
 
 	enabled := true
@@ -353,6 +348,7 @@ func GetCloudflareConfig() CloudflareConfig {
 		EdgeIPVersion: edgeIPVersion,
 		Protocol:      protocol,
 		Region:        region,
+		DNSResolvers:  dnsResolvers,
 	}
 }
 

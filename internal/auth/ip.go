@@ -9,11 +9,10 @@ import (
 
 // NetworkAddresses holds detected network IPs suitable for pairing.
 type NetworkAddresses struct {
-	LANIPv4    string
-	PublicIPv6 string
+	LANIPv4 string
 }
 
-// DetectNetworkAddresses discovers local network IPv4 and public IPv6 addresses.
+// DetectNetworkAddresses discovers local network IPv4 address.
 func DetectNetworkAddresses() NetworkAddresses {
 	var result NetworkAddresses
 
@@ -23,13 +22,7 @@ func DetectNetworkAddresses() NetworkAddresses {
 		result.LANIPv4 = v
 	}
 
-	if v := strings.TrimSpace(os.Getenv("MULTIGRAVITY_PUBLIC_IPV6")); v != "" {
-		result.PublicIPv6 = v
-	} else if v := strings.TrimSpace(os.Getenv("PUBLIC_IPV6")); v != "" {
-		result.PublicIPv6 = v
-	}
-
-	if result.LANIPv4 != "" && result.PublicIPv6 != "" {
+	if result.LANIPv4 != "" {
 		return result
 	}
 
@@ -156,13 +149,6 @@ func DetectNetworkAddresses() NetworkAddresses {
 						result.LANIPv4 = ip4.String()
 					}
 					continue
-				}
-
-				// IPv6: global unicast 2000::/3 (starts with 001 in top 3 bits)
-				if len(ip) == net.IPv6len && (ip[0]&0xe0) == 0x20 {
-					if result.PublicIPv6 == "" {
-						result.PublicIPv6 = ip.String()
-					}
 				}
 			}
 		}

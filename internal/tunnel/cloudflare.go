@@ -86,19 +86,7 @@ func (t *CloudflareTunnel) Start(ctx context.Context, binPath string) error {
 		return fmt.Errorf("missing cloudflare tunnel token")
 	}
 
-	args := []string{"tunnel"}
-	if t.cfg != nil {
-		if t.cfg.EdgeIPVersion != "" {
-			args = append(args, "--edge-ip-version", t.cfg.EdgeIPVersion)
-		}
-		if t.cfg.Region != "" {
-			args = append(args, "--region", t.cfg.Region)
-		}
-		if t.cfg.Protocol != "" {
-			args = append(args, "--protocol", t.cfg.Protocol)
-		}
-	}
-	args = append(args, "run")
+	args := buildTunnelArgs(t.cfg)
 
 	cmd := exec.CommandContext(ctx, binPath, args...)
 	// SEC-AUDIT H-3: Pass TUNNEL_TOKEN via environment variable instead of CLI argument
@@ -114,7 +102,7 @@ func (t *CloudflareTunnel) Start(ctx context.Context, binPath string) error {
 				trimmed := strings.TrimSpace(line)
 				if trimmed != "" {
 					if strings.Contains(trimmed, "ERR") || strings.Contains(trimmed, "error") {
-						if !strings.Contains(trimmed, "context canceled") {
+						if !isBenignCloudflareLog(trimmed) {
 							log.Printf("⚠️  [Cloudflare] %s", trimmed)
 						}
 					}
@@ -476,3 +464,55 @@ func RegisterOrFetchTunnel(ctx context.Context, workerURL, inviteCode string) (*
 	_ = os.WriteFile(cachePath, respData, 0600)
 	return &result, nil
 }
+
+// buildTunnelArgs constructs the CLI arguments for running cloudflared.
+func buildTunnelArgs(cfg *config.CloudflareConfig) []string {
+	args := []string{"tunnel"}
+	if cfg != nil {
+		if cfg.EdgeIPVersion != "" {
+			args = append(args, "--edge-ip-version", cfg.EdgeIPVersion)
+		}
+		if cfg.Region != "" {
+			args = append(args, "--region", cfg.Region)
+		}
+		if cfg.Protocol != "" {
+			args = append(args, "--protocol", cfg.Protocol)
+		}
+		if cfg.DNSResolvers != "" && !isDNSOverrideDisabled(cfg.DNSResolvers) {
+			for _, addr := range strings.Split(cfg.DNSResolvers, ",") {
+				addr = strings.TrimSpace(addr)
+				if addr != "" {
+					if !strings.Contains(addr, ":") {
+						addr = addr + ":53"
+					}
+					args = append(args, "--dns-resolver-addrs", addr)
+				}
+			}
+		}
+	}
+	args = append(args, "run")
+	return args
+}
+
+// isDNSOverrideDisabled reports whether DNS resolver override is explicitly disabled.
+func isDNSOverrideDisabled(val string) bool {
+	v := strings.ToLower(strings.TrimSpace(val))
+	return v == "none" || v == "off" || v == "disable" || v == "disabled" || v == "system" || v == "0"
+}
+
+// isBenignCloudflareLog reports whether a log line is an expected non-fatal transient message.
+func isBenignCloudflareLog(line string) bool {
+	benignKeywords := []string{
+		"context canceled",
+		"already connected to this server",
+		"Failed to initialize DNS local resolver",
+		"Failed to refresh DNS local resolver",
+	}
+	for _, kw := range benignKeywords {
+		if strings.Contains(line, kw) {
+			return true
+		}
+	}
+	return false
+}
+
