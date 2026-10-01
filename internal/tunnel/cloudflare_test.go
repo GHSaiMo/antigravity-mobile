@@ -117,10 +117,10 @@ func TestBuildTunnelArgs(t *testing.T) {
 		"tunnel",
 		"--edge-ip-version", "4",
 		"--region", "us",
+		"run",
 		"--protocol", "http2",
 		"--dns-resolver-addrs", "223.5.5.5:53",
 		"--dns-resolver-addrs", "119.29.29.29:53",
-		"run",
 	}
 	if len(args) != len(expected) {
 		t.Fatalf("expected %d args, got %d: %v", len(expected), len(args), args)

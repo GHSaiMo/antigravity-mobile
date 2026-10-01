@@ -39,11 +39,13 @@ type CFTunnelResult struct {
 
 // CloudflareTunnel manages the local cloudflared daemon child process.
 type CloudflareTunnel struct {
-	result  *CFTunnelResult
-	cfg     *config.CloudflareConfig
-	cmd     *exec.Cmd
-	mu      sync.Mutex
-	running bool
+	result   *CFTunnelResult
+	cfg      *config.CloudflareConfig
+	cmd      *exec.Cmd
+	mu       sync.Mutex
+	running  bool
+	stopping bool
+	cancel   context.CancelFunc
 }
 
 // NewCloudflareTunnel creates a supervisor for a Cloudflare Tunnel.
@@ -74,7 +76,7 @@ func (t *CloudflareTunnel) Subdomain() string {
 	return t.result.Subdomain
 }
 
-// Start launches `cloudflared tunnel run --token ...` in the background.
+// Start launches `cloudflared tunnel run --token ...` in the background with auto-recovery supervision.
 func (t *CloudflareTunnel) Start(ctx context.Context, binPath string) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -86,12 +88,30 @@ func (t *CloudflareTunnel) Start(ctx context.Context, binPath string) error {
 		return fmt.Errorf("missing cloudflare tunnel token")
 	}
 
+	tunnelCtx, cancel := context.WithCancel(ctx)
+	t.cancel = cancel
+	t.stopping = false
+
+	if err := t.launchProcessLocked(tunnelCtx, binPath); err != nil {
+		cancel()
+		return err
+	}
+
+	go t.supervise(tunnelCtx, binPath)
+	return nil
+}
+
+func (t *CloudflareTunnel) launchProcessLocked(ctx context.Context, binPath string) error {
 	args := buildTunnelArgs(t.cfg)
 
 	cmd := exec.CommandContext(ctx, binPath, args...)
 	// SEC-AUDIT H-3: Pass TUNNEL_TOKEN via environment variable instead of CLI argument
 	// to prevent leaking the token in process listings (e.g. ps aux / tasklist).
 	cmd.Env = append(os.Environ(), "TUNNEL_TOKEN="+t.result.Token)
+	if t.cfg != nil && t.cfg.DNSResolvers != "" && !isDNSOverrideDisabled(t.cfg.DNSResolvers) {
+		cmd.Env = append(cmd.Env, "TUNNEL_DNS_RESOLVER_ADDRS="+t.cfg.DNSResolvers)
+	}
+
 	// Do not attach stdin. Divert stderr to logger with prefix
 	stderr, err := cmd.StderrPipe()
 	if err == nil {
@@ -101,7 +121,10 @@ func (t *CloudflareTunnel) Start(ctx context.Context, binPath string) error {
 				line, rErr := reader.ReadString('\n')
 				trimmed := strings.TrimSpace(line)
 				if trimmed != "" {
-					if strings.Contains(trimmed, "ERR") || strings.Contains(trimmed, "error") {
+					if strings.Contains(trimmed, "Registered tunnel connection") {
+						log.Printf("✅ [Cloudflare] 专属隧道连接就绪: %s", t.PublicURL())
+					} else if strings.Contains(trimmed, "ERR") || strings.Contains(trimmed, "error") ||
+						strings.Contains(trimmed, "Incorrect Usage") || strings.Contains(trimmed, "flag provided") {
 						if !isBenignCloudflareLog(trimmed) {
 							log.Printf("⚠️  [Cloudflare] %s", trimmed)
 						}
@@ -120,28 +143,62 @@ func (t *CloudflareTunnel) Start(ctx context.Context, binPath string) error {
 
 	t.cmd = cmd
 	t.running = true
+	return nil
+}
 
-	go func() {
-		_ = cmd.Wait()
+func (t *CloudflareTunnel) supervise(ctx context.Context, binPath string) {
+	for {
+		t.mu.Lock()
+		cmd := t.cmd
+		t.mu.Unlock()
+
+		if cmd != nil {
+			_ = cmd.Wait()
+		}
+
 		t.mu.Lock()
 		t.running = false
+		if t.stopping || ctx.Err() != nil {
+			t.mu.Unlock()
+			return
+		}
 		t.mu.Unlock()
-	}()
 
-	return nil
+		log.Printf("⚠️  [Cloudflare] 穿透守护进程退出，将在 3 秒后尝试自动恢复连接...")
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(3 * time.Second):
+		}
+
+		t.mu.Lock()
+		if t.stopping || ctx.Err() != nil {
+			t.mu.Unlock()
+			return
+		}
+		if err := t.launchProcessLocked(ctx, binPath); err != nil {
+			log.Printf("⚠️  [Cloudflare] 自动恢复穿透失败: %v", err)
+		}
+		t.mu.Unlock()
+	}
 }
 
 // Stop terminates the running cloudflared process gracefully with fallback to Kill.
 func (t *CloudflareTunnel) Stop() {
 	t.mu.Lock()
-	defer t.mu.Unlock()
+	t.stopping = true
+	if t.cancel != nil {
+		t.cancel()
+	}
 	if !t.running || t.cmd == nil || t.cmd.Process == nil {
+		t.mu.Unlock()
 		return
 	}
 	proc := t.cmd.Process
-	_ = proc.Signal(os.Interrupt)
 	t.running = false
+	t.mu.Unlock()
 
+	_ = proc.Signal(os.Interrupt)
 	go func() {
 		time.Sleep(2500 * time.Millisecond)
 		_ = proc.Kill()
@@ -466,6 +523,9 @@ func RegisterOrFetchTunnel(ctx context.Context, workerURL, inviteCode string) (*
 }
 
 // buildTunnelArgs constructs the CLI arguments for running cloudflared.
+// In cloudflared CLI:
+//   - tunnel options (e.g. --edge-ip-version, --region) must appear before 'run'
+//   - run options (e.g. --protocol, --dns-resolver-addrs) must appear after 'run'
 func buildTunnelArgs(cfg *config.CloudflareConfig) []string {
 	args := []string{"tunnel"}
 	if cfg != nil {
@@ -475,6 +535,9 @@ func buildTunnelArgs(cfg *config.CloudflareConfig) []string {
 		if cfg.Region != "" {
 			args = append(args, "--region", cfg.Region)
 		}
+	}
+	args = append(args, "run")
+	if cfg != nil {
 		if cfg.Protocol != "" {
 			args = append(args, "--protocol", cfg.Protocol)
 		}
@@ -490,7 +553,6 @@ func buildTunnelArgs(cfg *config.CloudflareConfig) []string {
 			}
 		}
 	}
-	args = append(args, "run")
 	return args
 }
 
