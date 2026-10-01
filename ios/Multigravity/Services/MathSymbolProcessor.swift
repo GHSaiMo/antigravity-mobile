@@ -353,7 +353,7 @@ public enum MathSymbolProcessor: Sendable {
     private static let inlineRegex = try? NSRegularExpression(pattern: #"`[^`\n]+`"#)
     private static let displayBlockRegex = try? NSRegularExpression(pattern: #"\$\$(.*?)\$\$|\\\[(.*?)\\\]"#, options: [.dotMatchesLineSeparators])
     private static let inlineMathRegex = try? NSRegularExpression(pattern: #"(?<!\\)\$(?!\s)([^$\n]+?)(?<!\s)(?<!\\)\$|\\\((.*?)\\\)"#)
-    private static let textWrapperRegex = try? NSRegularExpression(pattern: #"\\(?:text|mathrm|mathbf|mathit|operatorname|pmb)\{([^}]*)\}"#)
+    private static let textWrapperRegex = try? NSRegularExpression(pattern: #"\\(?:text|mathrm|mathbf|mathit|mathsf|mathtt|operatorname|pmb|boldsymbol|bm|bold)\{([^}]*)\}"#)
     private static let fracRegex = try? NSRegularExpression(pattern: #"\\frac\{([^}]*)\}\{([^}]*)\}"#)
     private static let sqrtNRegex = try? NSRegularExpression(pattern: #"\\sqrt\[([^\]]*)\]\{([^}]*)\}"#)
     private static let sqrtRegex = try? NSRegularExpression(pattern: #"\\sqrt\{([^}]*)\}"#)
@@ -361,6 +361,13 @@ public enum MathSymbolProcessor: Sendable {
     private static let supSingleRegex = try? NSRegularExpression(pattern: #"\^([0-9a-zA-Z\+\-\*])"#)
     private static let subGroupRegex = try? NSRegularExpression(pattern: #"_\{([0-9a-zA-Z\+\-\=\(\)]+)\}"#)
     private static let subSingleRegex = try? NSRegularExpression(pattern: #"_([0-9a-zA-Z])"#)
+    private static let extensibleArrowRegex = try? NSRegularExpression(pattern: #"\\x(rightarrow|leftarrow|Rightarrow|Leftarrow|leftrightarrow|Leftrightarrow|mapsto)(?:\[([^\]]*)\])?\{([^}]*)\}"#)
+    private static let oversetRegex = try? NSRegularExpression(pattern: #"\\overset\{([^}]*)\}\{([^}]*)\}"#)
+    private static let undersetRegex = try? NSRegularExpression(pattern: #"\\underset\{([^}]*)\}\{([^}]*)\}"#)
+    private static let boxedRegex = try? NSRegularExpression(pattern: #"\\boxed\{([^}]*)\}"#)
+    private static let mathEnvRegex = try? NSRegularExpression(pattern: #"\\(?:begin|end)\{(?:aligned|matrix|bmatrix|pmatrix|vmatrix|cases|array|equation\*?)\}"#)
+    private static let mathTagRegex = try? NSRegularExpression(pattern: #"\\tag\{([^}]*)\}"#)
+    private static let mathLabelRegex = try? NSRegularExpression(pattern: #"\\label\{([^}]*)\}"#)
     
     // MARK: - Main Processing Entry Point
     
@@ -407,11 +414,12 @@ public enum MathSymbolProcessor: Sendable {
         // 3. Process display math blocks: $$...$$ and \[...\]
         if let displayBlockRegex = Self.displayBlockRegex {
             protectedText = replaceRegexMatches(in: protectedText, regex: displayBlockRegex) { matchText in
-                let content = matchText
+                var content = matchText
                     .trimmingCharacters(in: CharacterSet(charactersIn: "$"))
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                     .replacingOccurrences(of: #"\\["#, with: "")
                     .replacingOccurrences(of: #"\]"#, with: "")
+                content = content.replacingOccurrences(of: #"\\\\"#, with: "\n")
                 return cleanMathExpression(content)
             }
         }
@@ -430,8 +438,18 @@ public enum MathSymbolProcessor: Sendable {
             }
         }
         
-        // 5. Transform ONLY standalone LaTeX symbol commands in prose (e.g. \rightarrow outside of $)
+        // 5. Transform standalone extensible arrows, boxed, overset, and LaTeX symbol commands in prose
         // CRITICAL: NEVER run subscripts (_), superscripts (^), fractions, or bracket cleanups on bare prose!
+        protectedText = replaceExtensibleArrows(protectedText)
+        if let boxedRegex = Self.boxedRegex {
+            protectedText = boxedRegex.stringByReplacingMatches(in: protectedText, range: NSRange(location: 0, length: (protectedText as NSString).length), withTemplate: "[$1]")
+        }
+        if let oversetRegex = Self.oversetRegex {
+            protectedText = oversetRegex.stringByReplacingMatches(in: protectedText, range: NSRange(location: 0, length: (protectedText as NSString).length), withTemplate: "$2 ($1)")
+        }
+        if let undersetRegex = Self.undersetRegex {
+            protectedText = undersetRegex.stringByReplacingMatches(in: protectedText, range: NSRange(location: 0, length: (protectedText as NSString).length), withTemplate: "$2 ($1)")
+        }
         // Uses single-pass O(N) scanner instead of 150+ sequential regex replacements for performance
         protectedText = replaceSymbolsSinglePass(protectedText)
         
@@ -451,23 +469,161 @@ public enum MathSymbolProcessor: Sendable {
         return protectedText
     }
     
+    // MARK: - Extensible Arrows Processor
+    
+    /// Translates dynamic extensible arrows like \xrightarrow{text} into clean native Unicode typography.
+    public static func replaceExtensibleArrows(_ input: String) -> String {
+        guard input.contains(#"\x"#), let regex = extensibleArrowRegex else { return input }
+        let nsText = input as NSString
+        let matches = regex.matches(in: input, range: NSRange(location: 0, length: nsText.length))
+        guard !matches.isEmpty else { return input }
+        
+        var result = input
+        for match in matches.reversed() {
+            let arrowType = nsText.substring(with: match.range(at: 1))
+            let subRange = match.range(at: 2)
+            let rawSub = subRange.location != NSNotFound ? nsText.substring(with: subRange) : nil
+            let rawSup = nsText.substring(with: match.range(at: 3))
+            
+            let sup = cleanArrowLabel(rawSup)
+            let sub = rawSub != nil ? cleanArrowLabel(rawSub!) : ""
+            
+            let replacement: String
+            switch arrowType {
+            case "rightarrow":
+                if !sup.isEmpty && !sub.isEmpty {
+                    replacement = "──(\(sup) / \(sub))──>"
+                } else if !sup.isEmpty {
+                    replacement = "──(\(sup))──>"
+                } else if !sub.isEmpty {
+                    replacement = "──(\(sub))──>"
+                } else {
+                    replacement = "⟶"
+                }
+            case "leftarrow":
+                if !sup.isEmpty && !sub.isEmpty {
+                    replacement = "<──(\(sup) / \(sub))──"
+                } else if !sup.isEmpty {
+                    replacement = "<──(\(sup))──"
+                } else if !sub.isEmpty {
+                    replacement = "<──(\(sub))──"
+                } else {
+                    replacement = "⟵"
+                }
+            case "Rightarrow":
+                if !sup.isEmpty && !sub.isEmpty {
+                    replacement = "══(\(sup) / \(sub))══>"
+                } else if !sup.isEmpty {
+                    replacement = "══(\(sup))══>"
+                } else if !sub.isEmpty {
+                    replacement = "══(\(sub))══>"
+                } else {
+                    replacement = "⟹"
+                }
+            case "Leftarrow":
+                if !sup.isEmpty && !sub.isEmpty {
+                    replacement = "<══(\(sup) / \(sub))══"
+                } else if !sup.isEmpty {
+                    replacement = "<══(\(sup))══"
+                } else if !sub.isEmpty {
+                    replacement = "<══(\(sub))══"
+                } else {
+                    replacement = "⟸"
+                }
+            case "leftrightarrow":
+                if !sup.isEmpty && !sub.isEmpty {
+                    replacement = "<──(\(sup) / \(sub))──>"
+                } else if !sup.isEmpty {
+                    replacement = "<──(\(sup))──>"
+                } else if !sub.isEmpty {
+                    replacement = "<──(\(sub))──>"
+                } else {
+                    replacement = "⟷"
+                }
+            case "Leftrightarrow":
+                if !sup.isEmpty && !sub.isEmpty {
+                    replacement = "<══(\(sup) / \(sub))══>"
+                } else if !sup.isEmpty {
+                    replacement = "<══(\(sup))══>"
+                } else if !sub.isEmpty {
+                    replacement = "<══(\(sub))══>"
+                } else {
+                    replacement = "⟺"
+                }
+            case "mapsto":
+                if !sup.isEmpty && !sub.isEmpty {
+                    replacement = "|──(\(sup) / \(sub))──>"
+                } else if !sup.isEmpty {
+                    replacement = "|──(\(sup))──>"
+                } else if !sub.isEmpty {
+                    replacement = "|──(\(sub))──>"
+                } else {
+                    replacement = "⟼"
+                }
+            default:
+                replacement = "⟶"
+            }
+            
+            result = (result as NSString).replacingCharacters(in: match.range, with: replacement)
+        }
+        return result
+    }
+    
+    private static func cleanArrowLabel(_ label: String) -> String {
+        var s = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let textWrapperRegex = Self.textWrapperRegex {
+            s = textWrapperRegex.stringByReplacingMatches(in: s, range: NSRange(location: 0, length: (s as NSString).length), withTemplate: "$1")
+        }
+        s = s.replacingOccurrences(of: "{", with: "").replacingOccurrences(of: "}", with: "")
+        return s.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    
     // MARK: - Math Expression Cleaner
     
     /// Cleans a math expression, stripping wrappers and translating LaTeX symbols
     public static func cleanMathExpression(_ input: String) -> String {
         var str = input
         
-        // 1. Text wrappers: \text{...}, \mathrm{...}, \mathbf{...}, etc.
+        // 1. Text wrappers: \text{...}, \mathrm{...}, \mathbf{...}, \operatorname{...}, etc.
         if let textWrapperRegex = Self.textWrapperRegex {
             str = textWrapperRegex.stringByReplacingMatches(in: str, range: NSRange(location: 0, length: (str as NSString).length), withTemplate: "$1")
         }
         
-        // 2. Fractions: \frac{a}{b} -> a / b
+        // 2. Boxed: \boxed{x} -> [x]
+        if let boxedRegex = Self.boxedRegex {
+            str = boxedRegex.stringByReplacingMatches(in: str, range: NSRange(location: 0, length: (str as NSString).length), withTemplate: "[$1]")
+        }
+        
+        // 3. Overset / Underset: \overset{a}{b} -> b (a)
+        if let oversetRegex = Self.oversetRegex {
+            str = oversetRegex.stringByReplacingMatches(in: str, range: NSRange(location: 0, length: (str as NSString).length), withTemplate: "$2 ($1)")
+        }
+        if let undersetRegex = Self.undersetRegex {
+            str = undersetRegex.stringByReplacingMatches(in: str, range: NSRange(location: 0, length: (str as NSString).length), withTemplate: "$2 ($1)")
+        }
+        
+        // 4. Extensible arrows: \xrightarrow{训练} -> ──(训练)──>
+        str = replaceExtensibleArrows(str)
+        
+        // 5. Math tag and label
+        if let mathTagRegex = Self.mathTagRegex {
+            str = mathTagRegex.stringByReplacingMatches(in: str, range: NSRange(location: 0, length: (str as NSString).length), withTemplate: "($1)")
+        }
+        if let mathLabelRegex = Self.mathLabelRegex {
+            str = mathLabelRegex.stringByReplacingMatches(in: str, range: NSRange(location: 0, length: (str as NSString).length), withTemplate: "")
+        }
+        
+        // 6. Math environments
+        if let mathEnvRegex = Self.mathEnvRegex {
+            str = mathEnvRegex.stringByReplacingMatches(in: str, range: NSRange(location: 0, length: (str as NSString).length), withTemplate: "")
+        }
+        
+        // 7. Fractions: \frac{a}{b} -> a / b
         if let fracRegex = Self.fracRegex {
             str = fracRegex.stringByReplacingMatches(in: str, range: NSRange(location: 0, length: (str as NSString).length), withTemplate: "$1 / $2")
         }
         
-        // 3. Square roots: \sqrt{x} -> √(x), \sqrt[n]{x} -> ⁿ√(x)
+        // 8. Square roots: \sqrt{x} -> √(x), \sqrt[n]{x} -> ⁿ√(x)
         if let sqrtNRegex = Self.sqrtNRegex {
             str = sqrtNRegex.stringByReplacingMatches(in: str, range: NSRange(location: 0, length: (str as NSString).length), withTemplate: "$1√($2)")
         }

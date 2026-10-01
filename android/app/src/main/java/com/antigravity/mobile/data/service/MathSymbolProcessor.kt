@@ -192,7 +192,7 @@ object MathSymbolProcessor {
         "\\chi" to "χ", "\\psi" to "ψ", "\\omega" to "ω"
     )
 
-    private val textWrapperRegex = Regex("""\\(?:text|mathrm|mathbf|mathit|mathsf|mathtt)\{([^}]+)\}""")
+    private val textWrapperRegex = Regex("""\\(?:text|mathrm|mathbf|mathit|mathsf|mathtt|operatorname|pmb|boldsymbol|bm|bold)\{([^}]+)\}""")
     private val fracRegex = Regex("""\\frac\{([^}]+)\}\{([^}]+)\}""")
     private val sqrtNRegex = Regex("""\\sqrt\[([^\]]+)\]\{([^}]+)\}""")
     private val sqrtRegex = Regex("""\\sqrt\{([^}]+)\}""")
@@ -200,10 +200,139 @@ object MathSymbolProcessor {
     private val supSingleRegex = Regex("""\^([a-zA-Z0-9+\-=()])""")
     private val subGroupRegex = Regex("""_\{([^}]+)\}""")
     private val subSingleRegex = Regex("""_([a-zA-Z0-9+\-=()])""")
+    private val extensibleArrowRegex = Regex("""\\x(rightarrow|leftarrow|Rightarrow|Leftarrow|leftrightarrow|Leftrightarrow|mapsto)(?:\[([^\]]*)\])?\{([^}]*)\}""")
+    private val oversetRegex = Regex("""\\overset\{([^}]*)\}\{([^}]*)\}""")
+    private val undersetRegex = Regex("""\\underset\{([^}]*)\}\{([^}]*)\}""")
+    private val boxedRegex = Regex("""\\boxed\{([^}]*)\}""")
+    private val mathEnvRegex = Regex("""\\(?:begin|end)\{(?:aligned|matrix|bmatrix|pmatrix|vmatrix|cases|array|equation\*?)\}""")
+    private val mathTagRegex = Regex("""\\tag\{([^}]*)\}""")
+    private val mathLabelRegex = Regex("""\\label\{([^}]*)\}""")
 
-    // Formula wrapper regexes: $$...$$, $...$, \[...\], \(...\)
+    private val blockRegex = Regex("""```[a-zA-Z0-9_\-]*\n[\s\S]*?```""")
+    private val inlineRegex = Regex("""`[^`\n]+`""")
     private val blockMathRegex = Regex("""\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]""")
-    private val inlineMathRegex = Regex("""(?<!\$)\$(?!\$)(.+?)(?<!\$)\$(?!\$)|\\\(([\s\S]+?)\\\)""")
+    private val inlineMathRegex = Regex("""(?<!\\)\$(?!\s)([^$\n]+?)(?<!\s)(?<!\\)\$|\\\(([\s\S]+?)\\\)""")
+
+    private val symbolLookup: Map<String, String> by lazy {
+        val map = mutableMapOf<String, String>()
+        for ((pattern, replacement) in symbols) {
+            val cmd = pattern.removePrefix("\\")
+            map[cmd] = replacement
+        }
+        map
+    }
+
+    private val wordBoundaryCommands = setOf("to", "gets", "le", "ge", "ne", "in", "ni", "empty", "sim")
+
+    private fun replaceSymbolsSinglePass(input: String): String {
+        if (!input.contains('\\')) return input
+        val sb = StringBuilder(input.length)
+        var i = 0
+        val n = input.length
+        while (i < n) {
+            val ch = input[i]
+            if (ch == '\\' && i + 1 < n && ((input[i + 1] in 'a'..'z') || (input[i + 1] in 'A'..'Z'))) {
+                var j = i + 1
+                while (j < n && ((input[j] in 'a'..'z') || (input[j] in 'A'..'Z'))) j++
+                val cmdName = input.substring(i + 1, j)
+                var fullKey = cmdName
+                if (j < n && input[j] == '{') {
+                    val closeBrace = input.indexOf('}', j + 1)
+                    if (closeBrace != -1) {
+                        val paramKey = cmdName + input.substring(j, closeBrace + 1)
+                        if (symbolLookup.containsKey(paramKey)) {
+                            fullKey = paramKey
+                            j = closeBrace + 1
+                        }
+                    }
+                }
+                val replacement = symbolLookup[fullKey]
+                if (replacement != null) {
+                    if (wordBoundaryCommands.contains(fullKey) && j < n && ((input[j] in 'a'..'z') || (input[j] in 'A'..'Z'))) {
+                        sb.append(ch)
+                        i++
+                    } else {
+                        sb.append(replacement)
+                        i = j
+                    }
+                } else {
+                    sb.append(ch)
+                    i++
+                }
+            } else {
+                sb.append(ch)
+                i++
+            }
+        }
+        return sb.toString()
+    }
+
+    /**
+     * Translates dynamic extensible arrows like \xrightarrow{text} into clean native Unicode typography.
+     */
+    fun replaceExtensibleArrows(input: String): String {
+        if (!input.contains("\\x")) return input
+        return extensibleArrowRegex.replace(input) { match ->
+            val arrowType = match.groupValues[1]
+            val rawSub = match.groups[2]?.value
+            val rawSup = match.groupValues[3]
+            val sup = cleanArrowLabel(rawSup)
+            val sub = if (rawSub != null) cleanArrowLabel(rawSub) else ""
+
+            when (arrowType) {
+                "rightarrow" -> when {
+                    sup.isNotEmpty() && sub.isNotEmpty() -> "──($sup / $sub)──>"
+                    sup.isNotEmpty() -> "──($sup)──>"
+                    sub.isNotEmpty() -> "──($sub)──>"
+                    else -> "⟶"
+                }
+                "leftarrow" -> when {
+                    sup.isNotEmpty() && sub.isNotEmpty() -> "<──($sup / $sub)──"
+                    sup.isNotEmpty() -> "<──($sup)──"
+                    sub.isNotEmpty() -> "<──($sub)──"
+                    else -> "⟵"
+                }
+                "Rightarrow" -> when {
+                    sup.isNotEmpty() && sub.isNotEmpty() -> "══($sup / $sub)══>"
+                    sup.isNotEmpty() -> "══($sup)══>"
+                    sub.isNotEmpty() -> "══($sub)══>"
+                    else -> "⟹"
+                }
+                "Leftarrow" -> when {
+                    sup.isNotEmpty() && sub.isNotEmpty() -> "<══($sup / $sub)══"
+                    sup.isNotEmpty() -> "<══($sup)══"
+                    sub.isNotEmpty() -> "<══($sub)══"
+                    else -> "⟸"
+                }
+                "leftrightarrow" -> when {
+                    sup.isNotEmpty() && sub.isNotEmpty() -> "<──($sup / $sub)──>"
+                    sup.isNotEmpty() -> "<──($sup)──>"
+                    sub.isNotEmpty() -> "<──($sub)──>"
+                    else -> "⟷"
+                }
+                "Leftrightarrow" -> when {
+                    sup.isNotEmpty() && sub.isNotEmpty() -> "<══($sup / $sub)══>"
+                    sup.isNotEmpty() -> "<══($sup)══>"
+                    sub.isNotEmpty() -> "<══($sub)══>"
+                    else -> "⟺"
+                }
+                "mapsto" -> when {
+                    sup.isNotEmpty() && sub.isNotEmpty() -> "|──($sup / $sub)──>"
+                    sup.isNotEmpty() -> "|──($sup)──>"
+                    sub.isNotEmpty() -> "|──($sub)──>"
+                    else -> "⟼"
+                }
+                else -> "⟶"
+            }
+        }
+    }
+
+    private fun cleanArrowLabel(label: String): String {
+        var s = label.trim()
+        s = textWrapperRegex.replace(s, "$1")
+        s = s.replace("{", "").replace("}", "")
+        return s.trim()
+    }
 
     /**
      * Translates an isolated math expression into Unicode.
@@ -211,13 +340,30 @@ object MathSymbolProcessor {
     fun cleanMathExpression(input: String): String {
         var str = input
 
-        // 1. Text wrappers: \text{...} -> ...
+        // 1. Text wrappers: \text{...}, \mathrm{...}, \mathbf{...}, \operatorname{...}, etc.
         str = textWrapperRegex.replace(str, "$1")
 
-        // 2. Fractions: \frac{a}{b} -> a / b
+        // 2. Boxed: \boxed{x} -> [x]
+        str = boxedRegex.replace(str, "[$1]")
+
+        // 3. Overset / Underset: \overset{a}{b} -> b (a)
+        str = oversetRegex.replace(str, "$2 ($1)")
+        str = undersetRegex.replace(str, "$2 ($1)")
+
+        // 4. Extensible arrows: \xrightarrow{训练} -> ──(训练)──>
+        str = replaceExtensibleArrows(str)
+
+        // 5. Math tag and label
+        str = mathTagRegex.replace(str, "($1)")
+        str = mathLabelRegex.replace(str, "")
+
+        // 6. Math environments
+        str = mathEnvRegex.replace(str, "")
+
+        // 7. Fractions: \frac{a}{b} -> a / b
         str = fracRegex.replace(str, "$1 / $2")
 
-        // 3. Square roots: \sqrt[n]{x} -> ⁿ√(x), \sqrt{x} -> √(x)
+        // 8. Square roots: \sqrt[n]{x} -> ⁿ√(x), \sqrt{x} -> √(x)
         str = sqrtNRegex.replace(str) { match ->
             val n = match.groupValues[1].map { superscriptMap[it] ?: it }.joinToString("")
             val inner = match.groupValues[2]
@@ -225,7 +371,7 @@ object MathSymbolProcessor {
         }
         str = sqrtRegex.replace(str, "√($1)")
 
-        // 4. Bracket cleanups
+        // 9. Bracket cleanups
         str = str
             .replace("\\left(", "(")
             .replace("\\right)", ")")
@@ -243,12 +389,10 @@ object MathSymbolProcessor {
             .replace("\\quad", " ")
             .replace("\\qquad", "  ")
 
-        // 5. Replace LaTeX symbols
-        for ((pattern, replacement) in symbols) {
-            str = str.replace(pattern, replacement)
-        }
+        // 10. Replace LaTeX symbols (single-pass scanner)
+        str = replaceSymbolsSinglePass(str)
 
-        // 6. Convert superscripts
+        // 11. Convert superscripts
         if (str.contains("^")) {
             str = supGroupRegex.replace(str) { match ->
                 match.groupValues[1].map { superscriptMap[it] ?: it }.joinToString("")
@@ -259,7 +403,7 @@ object MathSymbolProcessor {
             }
         }
 
-        // 7. Convert subscripts
+        // 12. Convert subscripts
         if (str.contains("_")) {
             str = subGroupRegex.replace(str) { match ->
                 match.groupValues[1].map { subscriptMap[it] ?: it }.joinToString("")
@@ -273,38 +417,103 @@ object MathSymbolProcessor {
         return str.trim()
     }
 
+    private final class ProcessedMathCache {
+        private val lock = Any()
+        private val cache = LinkedHashMap<Int, String>(100, 0.75f, true)
+
+        fun get(hash: Int): String? {
+            synchronized(lock) {
+                return cache[hash]
+            }
+        }
+
+        fun set(hash: Int, value: String) {
+            synchronized(lock) {
+                if (cache.size > 500) {
+                    val it = cache.iterator()
+                    if (it.hasNext()) {
+                        it.next()
+                        it.remove()
+                    }
+                }
+                cache[hash] = value
+            }
+        }
+    }
+
+    private val cache = ProcessedMathCache()
+
     /**
      * Processes full document or paragraph text:
      * Replaces $$...$$, \[...\], $...$, and \(...\) blocks with clean Unicode math.
-     * Also replaces common standalone LaTeX arrows and symbols outside formulas.
+     * Also replaces common standalone LaTeX arrows and symbols outside formulas,
+     * safely protecting code blocks and inline code spans.
      */
     fun process(text: String): String {
         if (!text.contains("$") && !text.contains("\\")) return text
 
-        var result = text
+        val hash = text.hashCode()
+        cache.get(hash)?.let { return it }
 
-        // 1. Process block math $$...$$ or \[...\]
-        result = blockMathRegex.replace(result) { match ->
-            val formula = match.groupValues[1].ifEmpty { match.groupValues[2] }
+        var protectedText = text
+
+        // 1. Protect fenced code blocks ```...```
+        val codeBlocks = mutableListOf<String>()
+        protectedText = blockRegex.replace(protectedText) { match ->
+            val token = "XXAGYBLOCKTOKEN${codeBlocks.size}XX"
+            codeBlocks.add(match.value)
+            token
+        }
+
+        // 2. Protect inline code spans `code`
+        val inlineSpans = mutableListOf<String>()
+        protectedText = inlineRegex.replace(protectedText) { match ->
+            val token = "XXAGYINLINETOKEN${inlineSpans.size}XX"
+            inlineSpans.add(match.value)
+            token
+        }
+
+        // 3. Process block math $$...$$ or \[...\]
+        protectedText = blockMathRegex.replace(protectedText) { match ->
+            var formula = match.groupValues[1].ifEmpty { match.groupValues[2] }
+                .trim('$', ' ', '\t', '\n', '\r')
+                .replace("\\[", "")
+                .replace("\\]", "")
+                .replace("\\\\", "\n")
             cleanMathExpression(formula)
         }
 
-        // 2. Process inline math $...$ or \(...\)
-        result = inlineMathRegex.replace(result) { match ->
-            val formula = match.groupValues[1].ifEmpty { match.groupValues[2] }
-            cleanMathExpression(formula)
+        // 4. Process inline math $...$ or \(...\)
+        protectedText = inlineMathRegex.replace(protectedText) { match ->
+            var inner = match.value
+            if (inner.startsWith("$") && inner.endsWith("$") && inner.length >= 2) {
+                inner = inner.substring(1, inner.length - 1)
+            } else if (inner.startsWith("\\(") && inner.endsWith("\\)") && inner.length >= 4) {
+                inner = inner.substring(2, inner.length - 2)
+            }
+            cleanMathExpression(inner)
         }
 
-        // 3. Clean remaining common standalone arrows or comparisons
-        result = result
-            .replace("\\to", "→")
-            .replace("\\gets", "←")
-            .replace("\\implies", "⇒")
-            .replace("\\iff", "⇔")
-            .replace("\\le", "≤")
-            .replace("\\ge", "≥")
-            .replace("\\ne", "≠")
+        // 5. Transform standalone extensible arrows, boxed, overset, and LaTeX symbols in prose
+        protectedText = replaceExtensibleArrows(protectedText)
+        protectedText = boxedRegex.replace(protectedText, "[$1]")
+        protectedText = oversetRegex.replace(protectedText, "$2 ($1)")
+        protectedText = undersetRegex.replace(protectedText, "$2 ($1)")
+        protectedText = replaceSymbolsSinglePass(protectedText)
 
-        return result
+        // 6. Restore inline code spans
+        for (idx in inlineSpans.indices) {
+            val token = "XXAGYINLINETOKEN${idx}XX"
+            protectedText = protectedText.replace(token, inlineSpans[idx])
+        }
+
+        // 7. Restore fenced code blocks
+        for (idx in codeBlocks.indices) {
+            val token = "XXAGYBLOCKTOKEN${idx}XX"
+            protectedText = protectedText.replace(token, codeBlocks[idx])
+        }
+
+        cache.set(hash, protectedText)
+        return protectedText
     }
 }
