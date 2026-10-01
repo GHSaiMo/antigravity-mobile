@@ -108,7 +108,6 @@ class ApiClient(
                     val pairResp = json.decodeFromString<PairResponse>(respStr)
 
                     var lanUrl: String? = info.lanBaseUrl
-                    var ipv6Url: String? = info.ipv6BaseUrl
                     var relayUrl: String? = info.relayBaseUrl
                     var cloudUrl: String? = null
 
@@ -124,14 +123,12 @@ class ApiClient(
                             }
                             when (ep.type.lowercase()) {
                                 "lan" -> lanUrl = epUrl
-                                "ipv6" -> ipv6Url = epUrl
                                 "relay" -> relayUrl = epUrl
                                 "cloudflare" -> cloudUrl = epUrl
                                 "primary" -> {
                                     val h = ConnectionManager.extractHost(epUrl)
                                     when {
                                         ConnectionManager.isLanHost(h) && lanUrl.isNullOrBlank() -> lanUrl = epUrl
-                                        ConnectionManager.isIpv6Host(h) && ipv6Url.isNullOrBlank() -> ipv6Url = epUrl
                                         ConnectionManager.isRelayHost(h) && relayUrl.isNullOrBlank() -> relayUrl = epUrl
                                         else -> if (cloudUrl.isNullOrBlank()) cloudUrl = epUrl
                                     }
@@ -147,9 +144,6 @@ class ApiClient(
                         ConnectionManager.isLanHost(candHost) -> {
                             if (lanUrl.isNullOrBlank()) lanUrl = candClean
                         }
-                        ConnectionManager.isIpv6Host(candHost) -> {
-                            if (ipv6Url.isNullOrBlank()) ipv6Url = candClean
-                        }
                         ConnectionManager.isRelayHost(candHost) -> {
                             if (relayUrl.isNullOrBlank()) relayUrl = candClean
                         }
@@ -161,7 +155,6 @@ class ApiClient(
 
                     prefs.updateEndpoints(
                         lan = lanUrl,
-                        ipv6 = ipv6Url,
                         relay = relayUrl,
                         custom = null, // Strictly null: custom is left for manual user configuration only
                         active = candidate,

@@ -280,7 +280,7 @@ public final class APIClient: Sendable {
         req.httpBody = try? JSONEncoder().encode(payload)
         
         // Conforms to Swift 6 Sendable concurrency and NetworkTransport
-        // Automatically injects Bearer token and bypasses iOS ATS on raw IPv6 literals
+        // Automatically injects Bearer token and handles transport routing
         Task { [transport] in
             _ = try? await transport.send(request: req)
         }

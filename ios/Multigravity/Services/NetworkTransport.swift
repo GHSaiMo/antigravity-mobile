@@ -118,10 +118,6 @@ public final class NetworkTransport: Sendable {
         if clean.hasPrefix("100.") || clean.hasSuffix(".ts.net") {
             return true
         }
-        // IPv6 Link-Local (fe80::/10) and Unique Local Address ULA (fc00::/7, fd00::/8)
-        if clean.hasPrefix("fe80:") || clean.hasPrefix("fc") || clean.hasPrefix("fd") {
-            return true
-        }
         return false
     }
 
@@ -139,7 +135,7 @@ public final class NetworkTransport: Sendable {
         return false
     }
 
-    /// Sends a request using URLSession, except cleartext HTTP to IPv6 literals
+    /// Sends a request using URLSession, except cleartext HTTP to non-local endpoints
     /// which App Transport Security blocks. Those go through Network.framework.
     public func send(request: URLRequest, preferCellular: Bool = false) async throws -> (Data, URLResponse) {
         var req = request
@@ -168,13 +164,10 @@ public final class NetworkTransport: Sendable {
     }
     
     /// ATS blocks cleartext HTTP to public hosts (NSAllowsArbitraryLoads is false).
-    /// IPv6 literals and the cloud FRP relay must still work, so those go through Network.framework.
+    /// Cloud HTTP relays must still work, so those go through Network.framework.
     nonisolated public static func requiresCleartextATSBypass(_ url: URL?) -> Bool {
         guard let url, url.scheme?.lowercased() == "http" else { return false }
         let host = (url.host ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-        if host.contains(":") {
-            return true
-        }
         return !isLocalOrPrivateHost(host)
     }
     

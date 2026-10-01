@@ -10,7 +10,6 @@ data class PairingInfo(
     val code: String,
     val ssl: Boolean = false,
     val lanHost: String? = null,
-    val ipv6Host: String? = null,
     val ddnsHost: String? = null,
     val relayHost: String? = null,
     val os: String? = null,
@@ -27,9 +26,6 @@ data class PairingInfo(
             return formatUrl(lan, lanPort, lanSsl)
         }
 
-    val ipv6BaseUrl: String?
-        get() = ipv6Host?.takeIf { it.isNotBlank() }?.let { formatUrl(it, port, ssl) }
-
     val ddnsBaseUrl: String?
         get() = ddnsHost?.takeIf { it.isNotBlank() }?.let { formatUrl(it, port, ssl) }
 
@@ -42,7 +38,6 @@ data class PairingInfo(
         val primary = serverBaseUrl
         if (!list.contains(primary)) list.add(primary)
         relayBaseUrl?.let { if (!list.contains(it)) list.add(it) }
-        ipv6BaseUrl?.let { if (!list.contains(it)) list.add(it) }
         ddnsBaseUrl?.let { if (!list.contains(it)) list.add(it) }
         return list
     }
@@ -78,7 +73,6 @@ data class PairingInfo(
             val port = params["port"]?.toIntOrNull() ?: 443
             val code = params["code"] ?: return null
             val lan = params["lan"]
-            val ipv6 = params["ipv6"]
             val ddns = params["ddns"]
             val relay = params["relay"]
             val os = params["os"]
@@ -103,7 +97,6 @@ data class PairingInfo(
                 code = code,
                 ssl = ssl,
                 lanHost = lan,
-                ipv6Host = ipv6,
                 ddnsHost = ddns,
                 relayHost = cleanRelay,
                 os = os,

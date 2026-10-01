@@ -102,18 +102,18 @@ func defaultPort() int {
 func runGatewayServer(args []string) {
 	// ==============================================================================
 	// 启动项配置参数定义与中文说明
-	// 1. host: 监听主机/IP 地址。默认 "" 双栈监听本机所有 IPv4 与 IPv6 接口；设为 127.0.0.1 则仅限本机访问
+	// 1. host: 监听主机/IP 地址。默认 "" 监听本机所有 IPv4 接口；设为 127.0.0.1 则仅限本机访问
 	defaultHost := defaultHost()
 
 	// 2. port: 网关服务 HTTP/WebSocket 监听端口，默认 58900 (可通过 MULTIGRAVITY_PORT 环境变量覆盖)
 	defaultPort := defaultPort()
 
 	fs := flag.NewFlagSet("mgy", flag.ExitOnError)
-	host := fs.String("host", defaultHost, "网关监听的主机/IP 地址（默认 \"\" 双栈绑定所有 IPv4/IPv6 网卡，设为 127.0.0.1 仅限本机访问）")
+	host := fs.String("host", defaultHost, "网关监听的主机/IP 地址（默认 \"\" 绑定所有 IPv4 网卡，设为 127.0.0.1 仅限本机访问）")
 	port := fs.Int("port", defaultPort, "网关 HTTP/WebSocket 监听端口（默认 58900）")
 	printQR := fs.Bool("qr", false, "启动时是否输出配对二维码（默认: 未配对时自动输出，已配对时默认隐藏）")
 	pollSec := fs.Int("poll", 5, "探测本地 Antigravity 实例与健康检查的轮询间隔秒数（默认 5 秒）")
-	ddnsHost := fs.String("ddns", os.Getenv("DDNS_HOST"), "公网 DDNS 域名或固定 IPv6 地址，用于生成扫码配对链接及外部直连")
+	ddnsHost := fs.String("ddns", os.Getenv("DDNS_HOST"), "公网 DDNS 域名，用于生成扫码配对链接及外部直连")
 	_ = fs.Parse(args)
 
 	qrExplicitlySet := false
@@ -166,7 +166,7 @@ func runGatewayServer(args []string) {
 
 	pairingMgr := auth.NewPairingManager()
 	authHandler := auth.NewAuthHandler(authStore, pairingMgr, qrHost, *port, false)
-	authHandler.SetEndpoints(netAddrs.LANIPv4, "", "")
+	authHandler.SetEndpoints(netAddrs.LANIPv4, *ddnsHost)
 
 	qrPort := *port
 
@@ -312,7 +312,8 @@ func runGatewayServer(args []string) {
 	}
 
 	// Synchronously bind the network listener so we verify port availability immediately
-	rawListener, err := net.Listen("tcp", server.Addr)
+	// Strictly listen on IPv4 only (tcp4) to prevent exposing IPv6 sockets or Bonjour/scanner characteristics.
+	rawListener, err := net.Listen("tcp4", server.Addr)
 	if err != nil {
 		log.Fatalf("❌ Failed to bind server address %s: %v", server.Addr, err)
 	}
@@ -436,7 +437,7 @@ func runHelpCmd() {
 
 网关运行参数 (用于 mgy 或 mgy run):
   -port <端口号>    HTTP/WebSocket 监听端口 (默认: 58900, 环境变量: MULTIGRAVITY_PORT)
-  -host <主机/IP>   监听地址 (默认: "" 双栈全网卡监听; 设为 127.0.0.1 仅限本机)
+  -host <主机/IP>   监听地址 (默认: "" 全网卡 IPv4 监听; 设为 127.0.0.1 仅限本机)
   -qr=<true|false>  启动时是否打印配对二维码 (默认: true)
   -poll <秒数>      Antigravity 实例轮询间隔 (默认: 5秒)
   -ddns <域名/IP>   公网 DDNS 域名或固定 IP 地址
@@ -447,7 +448,6 @@ func runPairCmd(args []string) {
 	fs := flag.NewFlagSet("pair", flag.ExitOnError)
 	port := defaultPort()
 	portFlag := fs.Int("port", port, "网关端口")
-	ipv6Flag := fs.Bool("ipv6", false, "是否优先生成纯公网 IPv6 配对二维码与链接")
 	_ = fs.Parse(args)
 
 	targetPort := *portFlag
@@ -466,9 +466,6 @@ func runPairCmd(args []string) {
 	}
 
 	u := fmt.Sprintf("http://127.0.0.1:%d/api/v1/auth/session", targetPort)
-	if *ipv6Flag {
-		u += "?prefer=ipv6"
-	}
 	req, err := http.NewRequest(http.MethodPost, u, nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "❌ 创建请求失败: %v\n", err)

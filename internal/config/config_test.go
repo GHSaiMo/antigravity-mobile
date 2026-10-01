@@ -99,28 +99,6 @@ BARK_SOUND_ACTION=alarm
 }
 
 
-func TestAdvertisePublicIPv6(t *testing.T) {
-	t.Setenv("INCLUDE_PUBLIC_IPV6", "")
-	if !AdvertisePublicIPv6(false) {
-		t.Errorf("expected true when unset by default")
-	}
-	if !AdvertisePublicIPv6(true) {
-		t.Errorf("expected true when ssl enabled")
-	}
-	t.Setenv("INCLUDE_PUBLIC_IPV6", "0")
-	if AdvertisePublicIPv6(false) {
-		t.Errorf("expected false when INCLUDE_PUBLIC_IPV6=0")
-	}
-	t.Setenv("INCLUDE_PUBLIC_IPV6", "false")
-	if AdvertisePublicIPv6(false) {
-		t.Errorf("expected false when INCLUDE_PUBLIC_IPV6=false")
-	}
-	t.Setenv("INCLUDE_PUBLIC_IPV6", "1")
-	if !AdvertisePublicIPv6(false) {
-		t.Errorf("expected true when INCLUDE_PUBLIC_IPV6=1")
-	}
-}
-
 func TestRedactBarkEndpoint(t *testing.T) {
 	got := RedactBarkEndpoint("https://api.day.app/supersecretkey123/")
 	if got != "https://api.day.app/***" {
@@ -131,8 +109,6 @@ func TestRedactBarkEndpoint(t *testing.T) {
 	}
 }
 
-
-
 func TestGetCloudflareConfig(t *testing.T) {
 	// 1. Test defaults
 	t.Setenv("CF_EDGE_IP_VERSION", "")
@@ -141,6 +117,8 @@ func TestGetCloudflareConfig(t *testing.T) {
 	t.Setenv("TUNNEL_TRANSPORT_PROTOCOL", "")
 	t.Setenv("CF_REGION", "")
 	t.Setenv("TUNNEL_REGION", "")
+	t.Setenv("CF_DNS_RESOLVERS", "")
+	t.Setenv("TUNNEL_DNS_RESOLVER_ADDRS", "")
 
 	cfg := GetCloudflareConfig()
 	if cfg.EdgeIPVersion != "4" {
@@ -152,21 +130,28 @@ func TestGetCloudflareConfig(t *testing.T) {
 	if !cfg.Enabled {
 		t.Errorf("expected default Enabled = true")
 	}
+	if cfg.DNSResolvers != "223.5.5.5:53,119.29.29.29:53" {
+		t.Errorf("expected default DNSResolvers = 223.5.5.5:53,119.29.29.29:53, got %s", cfg.DNSResolvers)
+	}
 
 	// 2. Test overrides
-	t.Setenv("CF_EDGE_IP_VERSION", "6")
+	t.Setenv("CF_EDGE_IP_VERSION", "4")
 	t.Setenv("CF_PROTOCOL", "quic")
 	t.Setenv("CF_REGION", "us")
+	t.Setenv("CF_DNS_RESOLVERS", "1.1.1.1:53")
 
 	cfgOverridden := GetCloudflareConfig()
-	if cfgOverridden.EdgeIPVersion != "6" {
-		t.Errorf("expected overridden EdgeIPVersion = 6, got %s", cfgOverridden.EdgeIPVersion)
+	if cfgOverridden.EdgeIPVersion != "4" {
+		t.Errorf("expected overridden EdgeIPVersion = 4, got %s", cfgOverridden.EdgeIPVersion)
 	}
 	if cfgOverridden.Protocol != "quic" {
 		t.Errorf("expected overridden Protocol = quic, got %s", cfgOverridden.Protocol)
 	}
 	if cfgOverridden.Region != "us" {
 		t.Errorf("expected overridden Region = us, got %s", cfgOverridden.Region)
+	}
+	if cfgOverridden.DNSResolvers != "1.1.1.1:53" {
+		t.Errorf("expected overridden DNSResolvers = 1.1.1.1:53, got %s", cfgOverridden.DNSResolvers)
 	}
 }
 
