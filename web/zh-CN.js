@@ -381,7 +381,11 @@
     ["Enable Telemetry", "发送匿名诊断与性能数据"],
     ["Marketing Emails", "接收产品更新与资讯邮件"],
     ["When toggled on, Antigravity collects usage data to help Google enhance performance and features.", "开启后，Multigravity 将收集匿名使用诊断数据，以帮助提升系统性能与体验。"],
+    ["When toggled on, Multigravity collects usage data to help Google enhance performance and features.", "开启后，Multigravity 将收集匿名使用诊断数据，以帮助提升系统性能与体验。"],
+    ["When toggled on, Google Multigravity collects usage data to help Google enhance performance and features.", "开启后，Multigravity 将收集匿名使用诊断数据，以帮助提升系统性能与体验。"],
     ["Receive product updates, tips, and promotions from Google Antigravity via email.", "通过电子邮件接收来自 Multigravity 的产品更新速递、使用技巧与官方资讯。"],
+    ["Receive product updates, tips, and promotions from Google Multigravity via email.", "通过电子邮件接收来自 Multigravity 的产品更新速递、使用技巧与官方资讯。"],
+    ["Receive product updates, tips, and promotions from Multigravity via email.", "通过电子邮件接收来自 Multigravity 的产品更新速递、使用技巧与官方资讯。"],
     ["Automatically prompt you to restart the app when a new update is available. When disabled, you can check for updates manually from the app menu.", "发现新版本时自动提示重启应用更新。关闭后可在菜单中手动检查更新。"],
 
     // --- 外观主题设置 (Appearance Settings) ---
@@ -622,6 +626,266 @@
     ["New Folder", "新建文件夹"],
     ["Folder Name", "文件夹名称"],
     ["Create Folder", "创建文件夹"],
+
+    // --- 意见与问题反馈 (Feedback Modal) ---
+    ["Feedback Type", "反馈类型"],
+    ["Bug Report", "问题缺陷报告 (Bug Report)"],
+    ["Feature Request", "功能建议需求 (Feature Request)"],
+    ["Auth and Billing", "身份认证与账单 (Auth and Billing)"],
+    ["Remote Control Issue", "远程控制连接问题 (Remote Control Issue)"],
+    ["General Feedback", "常规体验反馈 (General Feedback)"],
+    ["Description", "问题描述"],
+    ["Please describe the issue in detail. The more actionable your feedback, the quicker our team can address your request. Some helpful information includes:", "请详细描述您遇到的问题。反馈信息越具体，我们就能越快处理您的请求。有帮助的信息包括："],
+    ["Steps to reproduce the issue", "重现此问题的操作步骤"],
+    ["Expected behavior", "预期表现行为"],
+    ["Actual behavior", "实际表现行为"],
+    ["Any error messages", "出现的任何报错信息"],
+    ["Any relevant information", "其他任何相关信息"],
+    ["Steps to Reproduce", "复现步骤"],
+    ["Please list the steps to reproduce the issue", "请列出重现该问题的详细步骤..."],
+    ["Please describe the feature you'd like to see. The more detailed the requirements, the easier it will be for our team to incorporate your ideas. Some helpful information includes:", "请描述您希望获得的新功能。需求越详尽，团队就越容易采纳您的构想。有帮助的信息包括："],
+    ["What is missing in your workflow", "在您的工作流中缺少什么能力"],
+    ["What you would like to see to address this gap in your workflow", "您希望通过何种方式或界面来填补该工作流空白"],
+    ["How this feature would help you and other users", "该功能如何为您及其他用户带来帮助"],
+    ["Please describe your auth or billing issue. More details will help our support team resolve your issue quicker. Some helpful information includes:", "请描述您的身份认证或计费账单问题。更详尽的信息将帮助支持团队更快解决。有帮助的信息包括："],
+    ["What quota or feature is being incorrectly limited", "哪些配额或功能被错误地限制"],
+    ["What functionality you expect your account tier to have available that is missing", "您期望当前账户等级拥有但实际缺失的权益与功能"],
+    ["Any error messages seen when trying to log in", "尝试登录时出现的任何报错信息"],
+    ["Use this form if you cannot connect to Remote Control. If your instance is already connected and you are experiencing issues in the browser, report directly from the Remote Control web page so that relevant logs are included. Some helpful information includes:", "如果您无法连接至远程控制 (Remote Control)，请使用此表单。如果已连接且仅在浏览器端遇到问题，请直接在远程控制网页端反馈以便附带相关日志。有帮助的信息包括："],
+    ["Whether it never connects or is intermittent/flaky", "是始终无法连接还是偶发中断/不稳定"],
+    ["Did restarting the desktop app help?", "重启桌面客户端是否能解决问题？"],
+    ["For any feedback that does not fit into the above categories.", "适用于不属于上述分类的任何其他建议与反馈。"],
+    ["Describe the bug you encountered...", "请描述您遇到的问题与缺陷..."],
+    ["Describe the feature you would like to see...", "请描述您希望实现的新特性..."],
+    ["Describe your auth or billing issue...", "请描述您的认证或账单问题..."],
+    ["Describe your Remote Control issue...", "请描述您的远程控制连接问题..."],
+    ["Enter your feedback here...", "在此输入您的反馈意见..."],
+    ["Attach Antigravity server logs", "附加本地服务运行日志"],
+    ["Attach Multigravity server logs", "附加本地服务运行日志"],
+    ["Attach a screenshot (optional)", "附加截图（可选）"],
+    ["Attaching logs requires an email address", "附加日志需要提供邮箱地址"],
+    ["We recommend attaching logs. Attaching logs will help the Antigravity team act on and prioritize your feedback.", "建议勾选附加日志，这将帮助开发团队更快定位并优先处理您的反馈。"],
+    ["We recommend attaching logs. Attaching logs will help the Multigravity team act on and prioritize your feedback.", "建议勾选附加日志，这将帮助开发团队更快定位并优先处理您的反馈。"],
+    ["Visit", "访问"],
+    ["Legal Help", "法律援助中心 (Legal Help)"],
+    ["to ask for content changes for legal reasons.", "以法律原因为由申请内容变更。"],
+    ["to ask for content changes for legal reasons", "以法律原因为由申请内容变更"],
+    ["Submitting...", "正在提交..."],
+    ["Submit", "提交反馈"],
+    ["Send Feedback", "发送反馈"],
+    ["Feedback", "意见反馈"],
+
+    // --- 扩展、技能与 Token 预算明细 (Customizations & Token Budget) ---
+    ["The breakdown below shows token usage from customizations like rules, skills, and MCP. If a budget is exceeded, large rules are demoted to path pointers and large customizations are excluded automatically.", "下方明细展示了规则 (Rules)、技能 (Skills) 及 MCP 等扩展占用的上下文 Token 额度。若超出预算上限，体积较大的规则将被降级为路径指针，体积较大的扩展将被自动排除。"],
+    ["The breakdown below shows token usage from customizations like skills, rules, and MCP. If a budget is exceeded, large rules are demoted to path pointers and large customizations are excluded automatically.", "下方明细展示了技能 (Skills)、规则 (Rules) 及 MCP 等扩展占用的上下文 Token 额度。若超出预算上限，体积较大的规则将被降级为路径指针，体积较大的扩展将被自动排除。"],
+    ["There are no customizations enabled.", "当前未启用任何个性化扩展。"],
+    ["Customization token budget exceeded. Large customizations are excluded from context.", "扩展 Token 预算已超出上限。体积较大的扩展已从上下文中排除。"],
+    ["Rules and customization token budgets exceeded. Large rules are demoted to path pointers and large customizations are excluded from context.", "规则与扩展 Token 预算均已超出上限。体积较大的规则已被降级为路径指针，体积较大的扩展已从上下文中排除。"],
+    ["Rules token budget exceeded. Large rules are demoted to path pointers.", "规则 Token 预算已超出上限。体积较大的规则已被降级为路径指针。"],
+    ["Customizations & Skills", "扩展与技能"],
+    ["Search and discover customizations to extend your Agent's capabilities.", "搜索并发现扩展以增强智能体的能力。"],
+    ["Refresh customizations", "刷新扩展与技能"],
+
+    // --- 项目权限继承与范围 (Project Permissions & Inheritance) ---
+    ["Also includes", "同时包含"],
+    ["when working in this project.", "在当前项目中生效。"],
+    ["when working in this project", "在当前项目中生效"],
+    ["Inherits your Global Permissions when working in this project.", "在当前项目中工作时继承您的全局权限。"],
+    ["Manually customize individual settings.", "手动自定义各项偏好设置。"],
+
+    // --- 配额上限与额度耗尽提示 (Quota & Usage Limits) ---
+    ["You have hit your weekly limit.", "您已达到每周额度上限。"],
+    ["You have hit your 5-hour limit.", "您已达到 5 小时额度上限。"],
+    ["If on a supported paid plan, you can use AI credits in the interim or upgrade to a higher tier.", "若订阅了支持的付费计划，期间您可以使用 AI 点数或升级到更高等级。"],
+    ["the 5-hour limit does not currently apply", "目前不适用 5 小时额度限制"],
+    ["the weekly limit does not currently apply", "目前不适用每周额度限制"],
+    ["To continue using this model now, enable AI Credit overages.", "如需现在继续使用此模型，请启用 AI 点数超额替补。"],
+    ["AI Credits Used to Generate Response", "已使用 AI 点数生成此响应"],
+    ["Baseline model quota reached", "已达到基础模型配额上限"],
+    ["Model quota reached", "已达模型配额上限"],
+    ["Insufficient AI Credits", "AI 点数不足"],
+    ["Your AI credits balance is too low to continue.", "您的 AI 点数余额不足，无法继续操作。"],
+
+    // --- 面板、分屏与终端管理器 (Panes, Splits & Terminals) ---
+    ["Standalone Terminals", "独立终端"],
+    ["Standalone terminals", "独立终端"],
+    ["Terminals", "终端列表"],
+    ["Restore split view", "恢复分屏视图"],
+    ["Maximize split view", "最大化分屏视图"],
+    ["Maximize Inspector", "最大化检查器"],
+    ["Maximize Trajectory", "最大化轨迹面板"],
+    ["Maximize Timeline", "最大化时间线"],
+    ["Maximize Pane", "最大化面板"],
+    ["Restore Pane", "恢复面板"],
+    ["Equalize Split Panes", "均分分屏面板"],
+    ["Remove from Split", "移出分屏"],
+    ["Remove From Split", "移出分屏"],
+    ["Split Down", "向下分屏"],
+    ["Split Right", "向右分屏"],
+    ["Split Terminal", "分屏终端"],
+    ["Split Conversation Horizontally", "水平分屏会话"],
+    ["Split Conversation Vertically", "垂直分屏会话"],
+    ["View Split Diff", "查看分屏差异"],
+    ["Close panel", "关闭面板"],
+    ["Close skills panel", "关闭技能面板"],
+    ["Resize terminal panes", "调整终端面板大小"],
+    ["Resize side question panel", "调整提问侧栏大小"],
+    ["Artifact Viewer", "产物查看器"],
+    ["Browser Subagent Viewer", "浏览器智能体查看器"],
+    ["Background Task Output", "后台任务输出"],
+    ["No background tasks", "暂无后台任务"],
+    ["Browser Task", "浏览器任务"],
+    ["Custom View", "自定义视图"],
+    ["Sidecar View", "Sidecar 视图"],
+    ["Auxiliary Pane", "辅助面板"],
+    ["Next Aux Pane Tab", "下一个辅助面板标签"],
+    ["Previous Aux Pane Tab", "上一个辅助面板标签"],
+    ["Go Back in Pane", "在面板中后退"],
+    ["Go Forward in Pane", "在面板中前进"],
+    ["Open in Preview Pane", "在预览面板中打开"],
+    ["Open in Side Pane", "在侧边面板中打开"],
+    ["Open preview in embedded pane", "在内嵌面板中打开预览"],
+    ["Side Pane UI Available", "侧边面板可用"],
+    ["Open File", "打开文件"],
+    ["New Terminal", "新建终端"],
+    ["Open Terminal", "打开终端"],
+    ["Delete Terminal", "删除终端"],
+    ["Failed to create terminal", "创建终端失败"],
+
+    // --- 代码变更与审查 (Review Changes, Diff & Git) ---
+    ["Files Changed", "变更文件"],
+    ["Files changed", "变更文件"],
+    ["No file changes", "无文件变更"],
+    ["(no file changes detected)", "(未检测到文件变更)"],
+    ["Review Changes", "审查代码变更"],
+    ["Review changes", "审查代码变更"],
+    ["Modified Files", "已修改文件"],
+    ["Both staged and unstaged changes are being committed.", "已暂存和未暂存的更改都将被提交。"],
+    ["Only staged changes are being committed.", "仅已暂存的更改将被提交。"],
+    ["Commit", "提交 (Git)"],
+    ["Amend", "修改上次提交 (Amend)"],
+    ["Push", "推送 (Git Push)"],
+    ["Commit succeeded", "提交成功"],
+    ["Amend succeeded", "修改提交成功"],
+    ["Push succeeded", "推送成功"],
+    ["Failed to Commit", "提交失败"],
+    ["Failed to Amend", "修改提交失败"],
+    ["Failed to Push", "推送失败"],
+    ["Failed to Generate Commit Message", "生成提交信息失败"],
+    ["Branch Changes", "分支变更"],
+    ["Include unstaged changes", "包含未暂存的修改"],
+    ["Changes", "变更"],
+    ["Added (Staged)", "已添加（已暂存）"],
+    ["Uncommitted", "未提交更改"],
+    ["Revert file changes", "还原文件更改"],
+    ["Open Commit Graph", "打开提交记录图"],
+    ["Configure Branches", "配置分支"],
+    ["Configure Worktree Branches", "配置工作树分支"],
+    ["New Worktree", "新建工作树"],
+    ["New worktree", "新建工作树"],
+    ["Select branch", "选择分支"],
+    ["No branches", "暂无分支"],
+    ["changed", "已修改"],
+    ["modified", "已修改"],
+    ["added", "已添加"],
+    ["deleted", "已删除"],
+    ["renamed", "已重命名"],
+    ["copied", "已复制"],
+
+    // --- 智能体状态、操作与界面导航 ---
+    ["Failed to create workspace.", "创建工作区失败。"],
+    ["Failed to archive workspace", "归档工作区失败"],
+    ["Failed to delete conversation", "删除会话失败"],
+    ["Failed to fork conversation", "分叉会话失败"],
+    ["Failed to rename conversation", "重命名会话失败"],
+    ["Failed to save project", "保存工程项目失败"],
+    ["Failed to start conversation", "启动会话失败"],
+    ["Failed to stop agent", "停止智能体失败"],
+    ["Failed to stop conversation", "停止会话失败"],
+    ["Could not create project", "无法创建工程项目"],
+    ["Error Loading Models", "加载模型列表出错"],
+    ["Close split view and go to forked conversation", "关闭分屏并前往分叉会话"],
+    ["Find in Conversation", "在会话中查找"],
+    ["Rename This Conversation", "重命名此会话"],
+    ["Current Workspace", "当前工作区"],
+    ["Current workspace", "当前工作区"],
+    ["All Workspaces", "所有工作区"],
+    ["Group By Project", "按工程项目分组"],
+    ["Group By Workspace", "按工作区分组"],
+    ["Group name", "分组名称"],
+    ["Move to New Group", "移动至新分组"],
+    ["Remove from Group", "从分组中移除"],
+    ["Expand All Folders", "展开所有文件夹"],
+    ["Collapse All Folders", "折叠所有文件夹"],
+    ["Conversation ID", "会话 ID"],
+    ["Conversation Name", "会话名称"],
+    ["Conversation Archived", "会话已归档"],
+    ["Conversation copied as Markdown to clipboard", "会话已复制为 Markdown 到剪贴板"],
+    ["Conversation unavailable", "会话当前不可用"],
+    ["Copy thinking", "复制思考过程"],
+    ["Copy Trajectory ID", "复制轨迹 ID"],
+    ["Copy trajectory ID", "复制轨迹 ID"],
+    ["Copy Conversation ID", "复制会话 ID"],
+    ["Copy Config File Path", "复制配置文件路径"],
+    ["Copy debug info", "复制调试信息"],
+    ["Copy error to clipboard", "复制错误信息到剪贴板"],
+    ["Copy raw string value", "复制原始字符串"],
+    ["Copy schema JSON", "复制 Schema JSON"],
+    ["Copy this subtree JSON", "复制子树 JSON"],
+    ["Copy section content", "复制本节内容"],
+    ["Copy output", "复制输出"],
+    ["Copy value", "复制值"],
+    ["Download Diagnostics", "下载诊断日志"],
+    ["Download PDF", "下载 PDF"],
+    ["Download SVG", "下载 SVG"],
+    ["Start Voice Recording", "开始语音录制"],
+    ["Stop Voice Recording", "停止语音录制"],
+    ["Cancel recording", "取消录制"],
+    ["Proceed with Plan", "按此计划执行"],
+    ["Other (write your answer)", "其他（填写您的回答）"],
+    ["Input required", "需要用户输入"],
+    ["Action required", "需要用户操作"],
+    ["Needs Attention", "需要关注"],
+    ["Got it", "知道了"],
+    ["In Progress", "正在处理中"],
+    ["Streaming Generation", "正在流式生成"],
+    ["Files modified by the agent in this conversation", "智能体在此会话中修改的文件"],
+    ["Explain and Fix in Current Conversation", "在当前会话中解释并修复"],
+    ["Open in Built-in Browser", "在内置浏览器中打开"],
+    ["Open in external browser", "在外部浏览器中打开"],
+    ["Show Remote Control QR code", "显示远程控制二维码"],
+    ["Share Conversation (Preview)", "分享会话（预览版）"],
+    ["Discover helpful skills & plugins", "探索实用的技能与插件"],
+    ["Explore the plugin marketplace", "浏览插件市场"],
+    ["Paste auth code", "粘贴授权码"],
+    ["Paste code here", "在此粘贴代码"],
+    ["Reload app", "重新加载应用"],
+    ["Restart Main Language Server", "重启主语言服务器"],
+    ["Search by name or Cascade ID...", "按名称或 Cascade ID 搜索..."],
+    ["Search tabs, files, plugins, subagents, artifacts, tasks...", "搜索标签页、文件、插件、子智能体、产物、任务..."],
+    ["Search file contents...", "搜索文件内容..."],
+    ["Search results", "搜索结果"],
+    ["Search Conversations", "搜索会话"],
+    ["Pay as you go", "按量计费 (Pay as you go)"],
+    ["Strict Mode", "严格安全模式"],
+    ["System Prompt", "系统提示词"],
+    ["System Instruction", "系统指令"],
+    ["Step Details", "步骤详情"],
+    ["Step Type", "步骤类型"],
+    ["Sunday", "星期日"],
+    ["Monday", "星期一"],
+    ["Tuesday", "星期二"],
+    ["Wednesday", "星期三"],
+    ["Thursday", "星期四"],
+    ["Friday", "星期五"],
+    ["Saturday", "星期六"],
+    ["Daily", "每日"],
+    ["Hourly", "每小时"],
+    ["Weekly", "每周"],
+    ["Monthly", "每月"],
+    ["Last 7 days", "过去 7 天"],
+    ["Last 30 days", "过去 30 天"],
+    ["Last 24 hours", "过去 24 小时"],
     ["OK", "确定"]
   ]);
 
@@ -629,6 +893,29 @@
   const lowerDict = new Map();
   for (const [k, v] of exactDict.entries()) {
     lowerDict.set(k.toLowerCase().trim(), v);
+  }
+
+  // 辅助函数：格式化时间与时长描述
+  function translateDuration(str) {
+    if (!str) return str;
+    return str
+      .replace(/(\d+)\s*days?/gi, "$1 天")
+      .replace(/(\d+)\s*hours?/gi, "$1 小时")
+      .replace(/(\d+)\s*minutes?/gi, "$1 分钟")
+      .replace(/(\d+)\s*seconds?/gi, "$1 秒")
+      .replace(/,\s*/g, " ")
+      .trim();
+  }
+
+  // 辅助函数：配额类型转换
+  function translateLimitType(str) {
+    if (!str) return "";
+    const lower = str.toLowerCase().trim();
+    if (lower === "weekly" || lower === "the weekly") return "每周";
+    if (lower === "5-hour" || lower === "5 hour" || lower === "the 5-hour" || lower === "the 5 hour") return "5 小时";
+    if (lower === "daily" || lower === "the daily") return "每日";
+    if (lower === "monthly" || lower === "the monthly") return "每月";
+    return str.trim();
   }
 
   // 2. 动态正则匹配规则 (处理带变量、数字、时间的文本)
@@ -644,7 +931,26 @@
     [new RegExp("^When toggled on,\\s*(.+?)\\s*will use your AI credits to fulfill model requests once you're out of model quota\\.\\s*(.+?)\\s*will always use your model quota first before using AI credits\\.?$", "i"), "开启后，当模型额度耗尽时，系统将使用 AI 点数继续响应模型请求。系统始终会优先消耗免费额度，之后再使用 AI 点数。"],
     [new RegExp("^Available AI Credits:\\s*(.+)$", "i"), "可用 AI 点数：$1"],
 
-    // 配额刷新时间
+    // 配额刷新时间与达到额度上限 (You have hit your limit...)
+    [new RegExp("^You have hit your ([^,]+) limit,\\s*it refreshes in (.+?)\\.\\s*If on a supported paid plan,\\s*you can use AI credits in the interim or upgrade to a higher tier\\.?$", "i"),
+      (m, l, t) => `您已达到${translateLimitType(l)}额度上限，将在 ${translateDuration(t)} 后刷新。若订阅了支持的付费计划，期间您可以使用 AI 点数或升级到更高等级。`],
+    [new RegExp("^You have hit your ([^,]+) limit,\\s*the ([^,]+) limit does not currently apply\\.\\s*Your ([^,]+) limit will fully refresh in (.+?)\\.?$", "i"),
+      (m, l1, l2, l3, t) => `您已达到${translateLimitType(l1)}额度上限，目前不适用${translateLimitType(l2)}额度限制。您的${translateLimitType(l3)}额度将在 ${translateDuration(t)} 后完全刷新。`],
+    [new RegExp("^You have hit your ([^,]+) limit,\\s*the ([^,]+) limit does not currently apply\\.?$", "i"),
+      (m, l1, l2) => `您已达到${translateLimitType(l1)}额度上限，目前不适用${translateLimitType(l2)}额度限制。`],
+    [new RegExp("^You have hit your ([^,]+) limit,\\s*it refreshes in (.+?)\\.?$", "i"),
+      (m, l, t) => `您已达到${translateLimitType(l)}额度上限，将在 ${translateDuration(t)} 后刷新。`],
+    [new RegExp("^You have hit your ([^,]+) limit,\\s*it will fully refresh in (.+?)\\.?$", "i"),
+      (m, l, t) => `您已达到${translateLimitType(l)}额度上限，将在 ${translateDuration(t)} 后完全刷新。`],
+    [new RegExp("^Your ([^,]+) limit will fully refresh in (.+?)\\.?$", "i"),
+      (m, l, t) => `您的${translateLimitType(l)}额度将在 ${translateDuration(t)} 后完全刷新。`],
+    [new RegExp("^the ([^,]+) limit does not currently apply\\.?$", "i"),
+      (m, l) => `目前不适用${translateLimitType(l)}额度限制。`],
+    [new RegExp("^If on a supported paid plan,\\s*you can use AI credits in the interim or upgrade to a higher tier\\.?$", "i"),
+      "若订阅了支持的付费计划，期间您可以使用 AI 点数或升级到更高等级。"],
+    [new RegExp("^You have hit your ([^,]+) limit\\.?$", "i"),
+      (m, l) => `您已达到${translateLimitType(l)}额度上限。`],
+
     [new RegExp("^You have used some of your weekly limit,\\s*it will fully refresh in (\\d+)\\s*days?,\\s*(\\d+)\\s*hours?\\.?$", "i"), "您已消耗部分每周额度，将在 $1 天 $2 小时后完全刷新。"],
     [new RegExp("^You have used some of your weekly limit,\\s*it will fully refresh in (\\d+)\\s*days?\\.?$", "i"), "您已消耗部分每周额度，将在 $1 天后完全刷新。"],
     [new RegExp("^You have used some of your weekly limit,\\s*it will fully refresh in (\\d+)\\s*hours?,\\s*(\\d+)\\s*minutes?\\.?$", "i"), "您已消耗部分每周额度，将在 $1 小时 $2 分钟后完全刷新。"],
@@ -655,14 +961,14 @@
     [new RegExp("^You have used some of your 5-hour limit,\\s*it will fully refresh in (\\d+)\\s*minutes?\\.?$", "i"), "您已消耗部分 5 小时额度，将在 $1 分钟后完全刷新。"],
     [new RegExp("^You have used some of your 5-hour limit,\\s*it will fully refresh in (.+)$", "i"), "您已消耗部分 5 小时额度，将在 $1 后完全刷新。"],
     [new RegExp("^You have used some of your (\\d+)-hour limit,\\s*it will fully refresh in (.+)$", "i"), "您已消耗部分 $1 小时额度，将在 $2 后完全刷新。"],
-    [new RegExp("^it will fully refresh in (.+)$", "i"), "将在 $1 后完全刷新。"],
+    [new RegExp("^it will fully refresh in (.+)$", "i"), (m, t) => `将在 ${translateDuration(t)} 后完全刷新。`],
+    [new RegExp("^it refreshes in (.+)$", "i"), (m, t) => `将在 ${translateDuration(t)} 后刷新。`],
 
     // Token 预算与项目设置
     [new RegExp("^([\\d.]+)%\\s*of the customization budget is available\\.?$", "i"), "可用个性化扩展预算仍有 $1%。"],
     [new RegExp("of the customization budget is available", "i"), "的扩展预算仍可用"],
     [new RegExp("^Show (\\d+) breakdowns?$", "i"), "展开 $1 项明细"],
     [new RegExp("^\\(([\\d,]+) tokens\\)\\s*([\\d.]+)%$", "i"), "($1 Tokens) $2%"],
-
 
     [new RegExp("^Permanently delete (.+?) including (\\d+) active conversations?\\.?$", "i"), "永久删除 $1（包含 $2 个活动会话）。"],
     [new RegExp("^Permanently delete (.+?)\\s*\\.?$", "i"), "永久删除 $1。"],
@@ -691,8 +997,13 @@
     [new RegExp("^just now$", "i"), "刚刚"],
 
     // 设置描述长文本动态支持
+    [new RegExp("^Also includes\\s*(?:Global Permissions|全局权限规则)?\\s*when working in this project\\.?$", "i"), "在当前项目中工作时同时继承全局权限。"],
     [new RegExp("^Also includes Global Permissions when working in this project\\. Learn more\\.?$", "i"), "在当前项目中工作时同时继承全局权限。了解更多。"],
-    [new RegExp("^The breakdown below shows token usage from customizations like skills, rules, and MCP\\. If the budget is exceeded, large customizations will be truncated automatically\\.?$", "i"), "下方明细展示了技能 (Skills)、规则 (Rules) 及 MCP 等扩展占用的上下文 Token 额度。若超出上限，体积较大的扩展将被自动截断。"],
+    [new RegExp("^Also includes (.+?) when working in this project\\.?$", "i"), "在当前项目中工作时同时包含 $1。"],
+    [new RegExp("^Inherits your Global Permissions when working in this project\\.?$", "i"), "在当前项目中工作时继承您的全局权限。"],
+    [new RegExp("^when working in this project\\.?$", "i"), "在当前项目中生效。"],
+    [new RegExp("^The breakdown below shows token usage from customizations like [^.]*?\\.\\s*If (?:a|the) budget is exceeded[^.]*?\\.?$", "i"), "下方明细展示了规则 (Rules)、技能 (Skills) 及 MCP 等扩展占用的上下文 Token 额度。若超出预算上限，体积较大的规则将被降级为路径指针，体积较大的扩展将被自动排除。"],
+    [new RegExp("^(?:Rules and customization|Customization|Rules) token budgets? exceeded\\.\\s*(.+)$", "i"), (m, p1) => `Token 预算已超出上限。${translateString(p1)}`],
     [new RegExp("^Configure default behaviors, skills, and MCP servers\\. Learn more\\.?$", "i"), "配置默认行为策略、技能库 (Skills) 与 MCP 服务节点。了解更多。"],
     [new RegExp("^Configure global allowed and denied resource permissions\\. Learn more\\.?$", "i"), "配置全局允许与拒绝的资源访问权限。了解更多。"],
     [new RegExp("^Browser settings have moved to the Browser section of General settings\\. Go to General settings$", "i"), "浏览器设置已整合至常规偏好设置中的“浏览器”专区。前往常规设置"],
@@ -701,6 +1012,19 @@
     [new RegExp("^No (.+) found\\.?$", "i"), "未找到 $1。"],
     [new RegExp("^Working directory:\\s*(.+)$", "i"), "工作目录：$1"],
     [new RegExp("^Page title:\\s*(.+)$", "i"), "页面标题：$1"],
+
+    // 意见反馈
+    [new RegExp("^Send feedback as\\s*(.+)$", "i"), "以 $1 身份发送反馈"],
+    [new RegExp("^Visit\\s+(?:Legal Help)?\\s+to ask for content changes for legal reasons\\.?$", "i"), "访问 法律援助中心 (Legal Help) 以法律原因为由申请内容变更。"],
+    [new RegExp("^We recommend attaching logs\\.\\s*Attaching logs will help the (?:Antigravity|Multigravity) team act on and prioritize your feedback\\.?$", "i"), "建议勾选附加日志，这将帮助开发团队更快定位并优先处理您的反馈。"],
+
+    // 遥测与邮件
+    [new RegExp("^When toggled on,\\s*(?:Google\\s*)?(?:Antigravity|Multigravity)\\s*collects usage data to help Google enhance performance and features\\.?$", "i"), "开启后，Multigravity 将收集匿名使用诊断数据，以帮助提升系统性能与体验。"],
+    [new RegExp("^(?:Yes,\\s*I'd like to receive|Receive)\\s*product updates,\\s*tips,\\s*and promotions from Google\\s*(?:Antigravity|Multigravity)?\\s*via email\\.?$", "i"), "通过电子邮件接收来自 Multigravity 的产品更新速递、使用技巧与官方资讯。"],
+
+    // 面板与分屏操作
+    [new RegExp("^Maximize\\s+(.+)$", "i"), (m, p1) => `最大化 ${translateString(p1)}`],
+    [new RegExp("^Restore\\s+(.+)$", "i"), (m, p1) => `恢复 ${translateString(p1)}`],
 
     // 模型与项目选择下拉 aria-label
     [new RegExp("^Select model,\\s*current:\\s*(.+)$", "i"), (m, p1) => `选择模型，当前为：${translateString(p1)}`],
@@ -718,7 +1042,6 @@
     [new RegExp("^The browser subagent can be invoked by typing /browser in the conversation input box\\.?$", "i"), "在对话输入框输入 /browser 即可调用浏览器智能体。"],
     [new RegExp("^Type\\s*/\\s*and select\\s*plan\\s*to have the agent generate a plan\\.?$", "i"), "输入 / 并选择 plan 即可让智能体生成执行计划。"],
     [new RegExp("^Sign in to use (.+?)!?$", "i"), "登录以使用 $1 服务！"],
-    [new RegExp("^Also includes (.+?) when working in this project\\.?$", "i"), "在当前项目中工作时同时包含 $1。"],
     [new RegExp("^By using this app, you agree to its$", "i"), "使用此应用即表示您同意其"],
     [new RegExp("^When working in this project\\. Learn more\\.?$", "i"), "在当前项目中生效。了解更多。"],
     [new RegExp("^The folder “(.+?)” does not exist\\. Would you like to create it\\?$", "i"), "目录 “$1” 不存在。您是否希望创建它？"],
@@ -739,7 +1062,8 @@
       className.includes("monaco-editor") ||
       className.includes("syntax-highlight") ||
       className.includes("xterm") ||
-      className.includes("terminal") ||
+      className.includes("terminal-screen") ||
+      className.includes("terminal-container") ||
       className.includes("code-block") ||
       className.includes("language-")
     ) {
