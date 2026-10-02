@@ -73,7 +73,7 @@ temp/
 
 # --- Internal Docs & Notes ---
 Agent.md
-docs/
+!docs/*.md
 
 # --- IDE & Editor Settings ---
 .idea/
