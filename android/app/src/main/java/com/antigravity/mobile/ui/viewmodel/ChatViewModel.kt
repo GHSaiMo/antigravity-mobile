@@ -182,6 +182,19 @@ class ChatViewModel(
     private val pendingOptimisticQueueItems = mutableListOf<PendingOptimisticQueueItem>()
     private val deletedQueueTombstones = mutableListOf<QueuedMessageTombstone>()
     private val inFlightDeletingQueueIds = mutableSetOf<String>()
+    private val stoppedTaskKeys = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
+    private fun filterRunningTasks(tasks: List<RunningTaskItem>?): List<RunningTaskItem> {
+        if (tasks.isNullOrEmpty()) {
+            stoppedTaskKeys.clear()
+            return emptyList()
+        }
+        if (stoppedTaskKeys.isEmpty()) return tasks
+        return tasks.filterNot { task ->
+            stoppedTaskKeys.contains("${task.id}:${task.stepIndex}") ||
+            (task.id.isNotBlank() && stoppedTaskKeys.contains(task.id))
+        }
+    }
 
     private fun extractStepIndex(id: String): Int? {
         if (id.startsWith("step-")) {
@@ -570,6 +583,7 @@ class ChatViewModel(
         pendingOptimisticQueueItems.clear()
         deletedQueueTombstones.clear()
         inFlightDeletingQueueIds.clear()
+        stoppedTaskKeys.clear()
         currentDraftProject = null
         currentLastModifiedTime = null
         _inputText.value = ""
@@ -598,6 +612,7 @@ class ChatViewModel(
         pendingOptimisticQueueItems.clear()
         deletedQueueTombstones.clear()
         inFlightDeletingQueueIds.clear()
+        stoppedTaskKeys.clear()
 
         val isDraft = cascadeId.startsWith("local_draft_")
         val resolvedDraftProject = draftProject ?: (if (isDraft) prefs?.getLocalDraftSession(cascadeId)?.project else null)
@@ -715,6 +730,7 @@ class ChatViewModel(
             pendingOptimisticQueueItems.clear()
             deletedQueueTombstones.clear()
             inFlightDeletingQueueIds.clear()
+            stoppedTaskKeys.clear()
 
             val savedDraftText = prefs?.getDraftText(cascadeId).orEmpty()
             _inputText.value = savedDraftText
@@ -855,12 +871,13 @@ class ChatViewModel(
                             ?: _uiState.value.title
 
                         val isRunning = isStatusRunning(payload.status)
+                        val activeRunningTasks = filterRunningTasks(payload.runningTasks)
                         _uiState.value = _uiState.value.copy(
                             isLoading = false,
                             title = resolvedTitle,
                             workspaceName = wsFromPayload ?: _uiState.value.workspaceName,
                             messages = mergedMsgs,
-                            runningTasks = payload.runningTasks ?: emptyList(),
+                            runningTasks = activeRunningTasks,
                             queuedMessages = syncQueuedMessages(payload.queuedMessages, mergedMsgs),
                             isRunning = isRunning,
                             canProceed = payload.canProceed,
@@ -887,7 +904,7 @@ class ChatViewModel(
                             val stepCount = mergedMsgs.count { !it.isUser }
                             val latestAction = when {
                                 payload.pendingInteraction != null -> payload.pendingInteraction.prompt ?: "需要审批操作"
-                                !payload.runningTasks.isNullOrEmpty() -> payload.runningTasks.firstOrNull()?.displayCommand?.ifBlank { "正在执行后台任务..." } ?: "正在执行后台任务..."
+                                activeRunningTasks.isNotEmpty() -> activeRunningTasks.firstOrNull()?.displayCommand?.ifBlank { "正在执行后台任务..." } ?: "正在执行后台任务..."
                                 lastMsg?.toolCalls?.isNotEmpty() == true -> "正在执行: " + (lastMsg.toolCalls.lastOrNull()?.name ?: "操作")
                                 else -> "正在执行任务..."
                             }
@@ -897,7 +914,7 @@ class ChatViewModel(
                                 status = payload.status ?: "RUNNING",
                                 stepCount = maxOf(1, stepCount),
                                 latestAction = latestAction,
-                                runningTaskCount = payload.runningTasks?.size ?: 0,
+                                runningTaskCount = activeRunningTasks.size,
                                 hasPendingAction = payload.pendingInteraction != null
                             )
                         } else if (liveActivityManager?.hasNotification(cascadeId) == true) {
@@ -985,12 +1002,13 @@ class ChatViewModel(
                     val hasMore = if (hasEarliest) false else (if (payload.hasMore) true else _uiState.value.hasMore)
                     val nextOffset = if (hasEarliest) 0 else (if (payload.nextOffset > 0) payload.nextOffset else _uiState.value.nextOffset)
 
+                    val activeRunningTasks = filterRunningTasks(payload.runningTasks)
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
                         title = payload.title?.takeIf { it.isNotBlank() } ?: _uiState.value.title,
                         workspaceName = wsFromPayload ?: _uiState.value.workspaceName,
                         messages = msgs,
-                        runningTasks = payload.runningTasks ?: emptyList(),
+                        runningTasks = activeRunningTasks,
                         queuedMessages = syncQueuedMessages(payload.queuedMessages, msgs),
                         isRunning = isRunning,
                         isAwaitingResponse = awaiting,
@@ -1018,7 +1036,7 @@ class ChatViewModel(
                         val stepCount = msgs.count { !it.isUser }
                         val latestAction = when {
                             payload.pendingInteraction != null -> payload.pendingInteraction.prompt ?: "需要审批操作"
-                            !payload.runningTasks.isNullOrEmpty() -> payload.runningTasks.firstOrNull()?.displayCommand?.ifBlank { "正在执行后台任务..." } ?: "正在执行后台任务..."
+                            activeRunningTasks.isNotEmpty() -> activeRunningTasks.firstOrNull()?.displayCommand?.ifBlank { "正在执行后台任务..." } ?: "正在执行后台任务..."
                             lastMsg?.toolCalls?.isNotEmpty() == true -> "正在执行: " + (lastMsg.toolCalls.lastOrNull()?.name ?: "操作")
                             awaiting -> "正在思考并组织回复..."
                             else -> "正在执行任务..."
@@ -1029,7 +1047,7 @@ class ChatViewModel(
                             status = payload.status,
                             stepCount = maxOf(1, stepCount),
                             latestAction = latestAction,
-                            runningTaskCount = payload.runningTasks?.size ?: 0,
+                            runningTaskCount = activeRunningTasks.size,
                             hasPendingAction = payload.pendingInteraction != null
                         )
                     } else if (wasRunning || liveActivityManager?.hasNotification(_uiState.value.cascadeId) == true) {
@@ -1080,7 +1098,7 @@ class ChatViewModel(
                                 title = payload.title?.takeIf { it.isNotBlank() } ?: _uiState.value.title,
                                 workspaceName = wsFromPayload ?: _uiState.value.workspaceName,
                                 messages = msgs,
-                                runningTasks = payload.runningTasks ?: emptyList(),
+                                runningTasks = filterRunningTasks(payload.runningTasks),
                                 queuedMessages = syncQueuedMessages(payload.queuedMessages, msgs),
                                 isRunning = isRunning,
                                 isLatestMessageError = isError,
@@ -1573,7 +1591,7 @@ class ChatViewModel(
                                 title = payload.title?.takeIf { it.isNotBlank() } ?: _uiState.value.title,
                                 workspaceName = payload.workspaceUri?.trimEnd('/')?.substringAfterLast('/')?.takeIf { it.isNotBlank() } ?: _uiState.value.workspaceName,
                                 messages = msgs,
-                                runningTasks = payload.runningTasks ?: emptyList(),
+                                runningTasks = filterRunningTasks(payload.runningTasks),
                                 queuedMessages = syncQueuedMessages(payload.queuedMessages, msgs),
                                 isRunning = isStatusRunning(payload.status),
                                 canProceed = payload.canProceed,
@@ -1641,6 +1659,10 @@ class ChatViewModel(
     fun cancelExecution() {
         val cascadeId = _uiState.value.cascadeId
         val tasksToStop = _uiState.value.runningTasks
+        tasksToStop.forEach { task ->
+            stoppedTaskKeys.add("${task.id}:${task.stepIndex}")
+            if (task.id.isNotBlank()) stoppedTaskKeys.add(task.id)
+        }
         _uiState.value = _uiState.value.copy(isRunning = false, isAwaitingResponse = false, runningTasks = emptyList())
         liveActivityManager?.endActivity(cascadeId = cascadeId, finalStatus = "CANCELLED")
         notifyConversationUpdated()
@@ -1655,8 +1677,23 @@ class ChatViewModel(
 
     fun stopTask(task: RunningTaskItem) {
         val cascadeId = _uiState.value.cascadeId
+        val taskKey = "${task.id}:${task.stepIndex}"
+        stoppedTaskKeys.add(taskKey)
+        if (task.id.isNotBlank()) {
+            stoppedTaskKeys.add(task.id)
+        }
+        // 乐观从 UI 移除该任务，带来即时反馈（对齐 iOS 与 Web）
+        _uiState.value = _uiState.value.copy(
+            runningTasks = _uiState.value.runningTasks.filterNot {
+                (it.id == task.id && it.stepIndex == task.stepIndex) ||
+                (task.id.isNotBlank() && it.id == task.id)
+            }
+        )
         viewModelScope.launch {
-            apiClient.stopTask(cascadeId, task.id, task.stepIndex)
+            val result = apiClient.stopTask(cascadeId, task.id, task.stepIndex)
+            if (result.isFailure) {
+                Log.e("ChatViewModel", "stopTask failed for task ${task.id} (step ${task.stepIndex}): ${result.exceptionOrNull()?.message}")
+            }
         }
     }
 

@@ -597,6 +597,9 @@ class ApiClient(
         val url = "$baseUrl/gateway/cascade/task/stop"
 
         val payload = buildJsonObject {
+            put("cascadeId", cascadeId)
+            put("taskId", taskId)
+            put("stepIndex", stepIndex)
             put("cascade_id", cascadeId)
             put("task_id", taskId)
             put("step_index", stepIndex)

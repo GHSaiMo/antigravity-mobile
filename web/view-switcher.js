@@ -1,8 +1,8 @@
 /**
- * Multigravity Mobile / Desktop 双模视图与品牌对齐控制器
- * 1. 桌面工作台/宽屏/iPad：自动将品牌名称与 Logo 对齐为 Multigravity，锁定 Favicon 与标题。
- * 2. 移动端：常驻提供便捷切换到桌面工作台的悬浮入口与宽屏横幅提示。
- * 3. 桌面端：支持一键切回移动视图，并在未配对时弹出桌面专属配对弹窗。
+ * Multigravity 屏幕自适应与品牌对齐控制器
+ * 1. 响应式自适应：严格按照屏幕宽度自适应不同模式（Desktop 桌面端、Tablet 平板、Mobile 手机），无手动切换按钮。
+ * 2. 品牌与标题对齐：桌面工作台对齐为 Multigravity，锁定 Favicon 与标题。
+ * 3. 授权状态感知：桌面端未授权时提供一键配对接入。
  */
 (function () {
   "use strict";
@@ -44,58 +44,62 @@
     }
   }
 
-  // --- 2. 视图切换控制器 ---
-  function initSwitcher() {
-    if (!isDesktopView) {
-      // 移动视图：提供切换至桌面工作台
-      if (!document.getElementById("agy-view-switcher-btn")) {
-        const btn = document.createElement("button");
-        btn.id = "agy-view-switcher-btn";
-        btn.className = "agy-view-switcher";
-        btn.title = "切换到电脑/iPad 桌面工作台";
-        btn.innerHTML = '<span class="agy-view-switcher-icon">🖥️</span><span>桌面工作台</span>';
-        btn.addEventListener("click", () => {
-          document.cookie = "agy_view_mode=desktop; path=/; max-age=31536000";
-          try { localStorage.setItem("agy_view_mode", "desktop"); } catch (e) {}
-          window.location.href = "/?view=desktop";
-        });
-        if (document.body) document.body.appendChild(btn);
-      }
+  // --- 2. 屏幕宽度自适应控制器 (Desktop / 平板 / 手机) ---
+  const BREAKPOINT_TABLET = 768;
+  const BREAKPOINT_DESKTOP = 1024;
 
-      // 宽屏时，在移动版顶部增加醒目横幅提示
-      if (window.innerWidth >= 768 && !document.getElementById("agy-wide-mobile-banner")) {
-        const banner = document.createElement("div");
-        banner.id = "agy-wide-mobile-banner";
-        banner.className = "agy-wide-mobile-banner";
-        banner.innerHTML = `
-          <span>💻 检测到当前为宽屏设备，推荐使用完整的 <strong>桌面工作台</strong> 体验</span>
-          <button class="agy-wide-mobile-banner-btn" id="agy-wide-mobile-switch-btn">立即切换 🖥️</button>
-        `;
-        if (document.body) {
-          document.body.prepend(banner);
-          document.getElementById("agy-wide-mobile-switch-btn")?.addEventListener("click", () => {
-            document.cookie = "agy_view_mode=desktop; path=/; max-age=31536000";
-            try { localStorage.setItem("agy_view_mode", "desktop"); } catch (e) {}
-            window.location.href = "/?view=desktop";
-          });
-        }
-      }
-    } else {
-      // 桌面视图：在左下角提供低调的切回移动端入口
-      if (!document.getElementById("agy-view-switcher-desktop-btn")) {
-        const btn = document.createElement("button");
-        btn.id = "agy-view-switcher-desktop-btn";
-        btn.className = "agy-view-switcher desktop-mode";
-        btn.title = "切换至轻量移动端视图";
-        btn.innerHTML = '<span class="agy-view-switcher-icon">📱</span><span>移动端视图</span>';
-        btn.addEventListener("click", () => {
-          document.cookie = "agy_view_mode=mobile; path=/; max-age=31536000";
-          try { localStorage.setItem("agy_view_mode", "mobile"); } catch (e) {}
-          window.location.href = "/?view=mobile";
-        });
-        if (document.body) document.body.appendChild(btn);
-      }
+  function getScreenMode() {
+    const w = window.innerWidth;
+    if (w < BREAKPOINT_TABLET) return "mobile";
+    if (w < BREAKPOINT_DESKTOP) return "tablet";
+    return "desktop";
+  }
+
+  function updateScreenModeAttributes() {
+    const mode = getScreenMode();
+    const targets = [document.documentElement, document.body].filter(Boolean);
+    for (let i = 0; i < targets.length; i++) {
+      const el = targets[i];
+      el.setAttribute("data-screen-mode", mode);
+      el.classList.remove("mode-desktop", "mode-tablet", "mode-mobile");
+      el.classList.add("mode-" + mode);
     }
+  }
+
+  // 清除历史版本遗留的切换按钮与横幅
+  function cleanupLegacyButtons() {
+    const legacyIds = [
+      "agy-view-switcher-btn",
+      "agy-view-switcher-desktop-btn",
+      "agy-wide-mobile-banner"
+    ];
+    for (let i = 0; i < legacyIds.length; i++) {
+      const el = document.getElementById(legacyIds[i]);
+      if (el) el.remove();
+    }
+  }
+
+  function checkResponsiveViewAdaptation() {
+    const w = window.innerWidth;
+    const isMobileWidth = w < BREAKPOINT_TABLET;
+
+    if (isDesktopView && isMobileWidth) {
+      // 桌面端视图下若检测到手机窄屏，自适应切至移动端视图
+      document.cookie = "agy_view_mode=mobile; path=/; max-age=31536000; SameSite=Lax";
+      try { localStorage.setItem("agy_view_mode", "mobile"); } catch (e) {}
+      window.location.replace("/?view=mobile");
+      return true;
+    }
+
+    if (!isDesktopView && !isMobileWidth) {
+      // 移动端视图下若检测到平板/桌面宽屏，自适应切至桌面工作台
+      document.cookie = "agy_view_mode=desktop; path=/; max-age=31536000; SameSite=Lax";
+      try { localStorage.setItem("agy_view_mode", "desktop"); } catch (e) {}
+      window.location.replace("/?view=desktop");
+      return true;
+    }
+
+    return false;
   }
 
   // --- 3. 桌面工作台未配对弹窗 ---
@@ -203,9 +207,22 @@
   }
 
   function runAll() {
-    initSwitcher();
+    cleanupLegacyButtons();
+    updateScreenModeAttributes();
+    checkResponsiveViewAdaptation();
     if (isDesktopView) alignDesktopBrand();
   }
+
+  // 监听窗口尺寸变化，自适应切换屏幕模式（防抖避免频繁重定向）
+  let resizeTimer = null;
+  window.addEventListener("resize", () => {
+    updateScreenModeAttributes();
+    if (resizeTimer) clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      resizeTimer = null;
+      checkResponsiveViewAdaptation();
+    }, 250);
+  });
 
   let brandTimer = null;
   const debouncedAlignBrand = () => {

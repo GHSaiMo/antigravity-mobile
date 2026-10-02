@@ -1,95 +1,47 @@
-/* Floating View Switcher Pill */
-.agy-view-switcher {
-  position: fixed;
-  bottom: 18px;
-  right: 18px;
-  z-index: 99999;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
-  font-size: 13px;
-  font-weight: 500;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  color: #e2e8f0;
-  background-color: rgba(30, 41, 59, 0.9);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 9999px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
-  cursor: pointer;
-  user-select: none;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  opacity: 0.9;
+/* ==========================================================================
+   Multigravity Responsive Modes (Desktop / 平板 / 手机)
+   自适应屏幕宽度不同模式样式
+   ========================================================================== */
+
+/* 1. 桌面工作台模式 (Desktop: >= 1024px) */
+@media (min-width: 1024px) {
+  html[data-screen-mode="desktop"],
+  body[data-screen-mode="desktop"] {
+    -webkit-font-smoothing: antialiased;
+  }
 }
 
-.agy-view-switcher:hover {
-  opacity: 1;
-  transform: translateY(-2px);
-  background-color: rgba(30, 41, 59, 0.98);
-  border-color: rgba(56, 189, 248, 0.4);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+/* 2. 平板触控模式 (Tablet: 768px ~ 1023.98px) */
+@media (min-width: 768px) and (max-width: 1023.98px) {
+  html[data-screen-mode="tablet"],
+  body[data-screen-mode="tablet"] {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    overflow-x: hidden;
+  }
+
+  /* 平板下优化触摸与面板自适应防遮挡 */
+  body[data-screen-mode="tablet"] {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
 }
 
-.agy-view-switcher:active {
-  transform: translateY(0);
+/* 3. 手机移动模式 (Mobile: < 768px) */
+@media (max-width: 767.98px) {
+  html[data-screen-mode="mobile"],
+  body[data-screen-mode="mobile"] {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
 }
 
-.agy-view-switcher-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* Switcher button when inside desktop view */
-.agy-view-switcher.desktop-mode {
-  left: 18px;
-  right: auto;
-  bottom: 18px;
-  opacity: 0.6;
-  background-color: rgba(15, 23, 42, 0.85);
-  font-size: 12px;
-  padding: 5px 12px;
-}
-.agy-view-switcher.desktop-mode:hover {
-  opacity: 1;
-}
-
-/* Wide screen mobile banner hint */
-.agy-wide-mobile-banner {
-  background: linear-gradient(90deg, #1e293b, #0f172a);
-  border-bottom: 1px solid rgba(56, 189, 248, 0.3);
-  color: #cbd5e1;
-  padding: 8px 16px;
-  font-size: 13px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  position: sticky;
-  top: 0;
-  z-index: 99990;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-}
-
-.agy-wide-mobile-banner-btn {
-  background: #0284c7;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  padding: 5px 12px;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.15s ease;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.agy-wide-mobile-banner-btn:hover {
-  background: #0369a1;
+/* 隐藏任何可能残留的切换元素 */
+.agy-view-switcher,
+.agy-wide-mobile-banner,
+#agy-view-switcher-btn,
+#agy-view-switcher-desktop-btn,
+#agy-wide-mobile-banner {
+  display: none !important;
 }
 
 /* Desktop Pairing Overlay */

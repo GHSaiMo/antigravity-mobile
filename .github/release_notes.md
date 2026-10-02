@@ -23,10 +23,10 @@
   - **全功能桌面工作台深度精准汉化**：完整汉化侧边栏、项目权限继承、意见与问题反馈模态框、Token 预算与扩展明细、额度上限耗尽动态提示、变更文件 (Files Changed) 与 Git 提交流程、独立终端 (Standalone Terminals) 与分屏控制面板；
   - **展开/折叠与搜索状态汉化补全**：全面覆盖 `See All` / `See Less` / `See More` / `Collapse All` / `Expand All` 及动态数量统计，汉化 `Artifacts` (交付工件)、`Review` (审核)、`No Results` (未找到结果)；
   - **主题与系统设置全下拉菜单深度汉化**：完整汉化主题预设全量方案（`Catppuccin`, `One Light`, `One Dark Pro`, `Solarized Light`, `Solarized Dark`, `Dracula`, `Monokai`, `Tokyo Night`, `Vesper` 等），以及安全策略、沙箱执行、计划审核、终端权限等所有下拉菜单内部选项；
-  - 修复平板 / iPad 设备视图模式判定，平板与桌面统一直接渲染全功能桌面工作台，消除手机版配对浮层误弹。
+  - **按屏幕宽度严格自适应三端模式**：彻底移除手动切换按钮（「移动端视图」与「桌面工作台」浮窗），根据视口宽度纯自动适配桌面端（Desktop >= 1024px）、平板端（Tablet 768px~1024px）与手机端（Mobile < 768px），拖拽窗口或切换设备零延迟自适应。
 
 - 🛑 **彻底排查并修复 Web 桌面版停止按钮 (Stop/Cancel) 无响应问题**：
-  - **消除右下角操作热区层叠冲突**：修正桌面模式下视图切换胶囊定位，由原本右下角调整至左下角，彻底避免遮挡底栏输入框右下侧的发送与停止交互按钮；
+  - **彻底移除底层浮动切换胶囊**：全面消除视图切换胶囊与底栏操作热区的重叠隐患，保障发送与停止按钮 100% 灵敏响应；
   - **严格保护 Material / Google Symbols 字体图标连字**：汉化引擎全面排除 `.google-symbols`、`.material-symbols`、`.material-icons`、`.codicon` 与 SVG，杜绝 `stop` / `stop_circle` 等连字被替换为中文字符导致的图标渲染破损与点击事件阻断；
   - **网关代理层拦截与实时状态广播**：针对 `/CancelCascadeInvocation` 与 `/ForceStopCascadeTree` 增加代理转发与缓存失效联动，取消操作完成后毫秒级重置本地缓存并触达实时流，状态即刻恢复 Idle。
 
