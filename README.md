@@ -7,6 +7,7 @@
 
 [![Release](https://img.shields.io/github/v/release/GHSaiMo/antigravity-mobile?color=blue&style=flat-square&logo=github)](https://github.com/GHSaiMo/antigravity-mobile/releases/latest)
 [![Android](https://img.shields.io/badge/Android-APK%20Direct%20Install-3DDC84?style=flat-square&logo=android&logoColor=white)](https://github.com/GHSaiMo/antigravity-mobile/releases/latest)
+[![Linux](https://img.shields.io/badge/Linux-x86__64%20%7C%20NAS-FCC624?style=flat-square&logo=linux&logoColor=black)](https://github.com/GHSaiMo/antigravity-mobile/releases/latest)
 [![macOS](https://img.shields.io/badge/macOS-Apple%20Silicon%20%2B%20Intel-000000?style=flat-square&logo=apple&logoColor=white)](https://github.com/GHSaiMo/antigravity-mobile/releases/latest)
 [![Windows](https://img.shields.io/badge/Windows-x86__64-0078D6?style=flat-square&logo=windows&logoColor=white)](https://github.com/GHSaiMo/antigravity-mobile/releases/latest)
 [![Kotlin](https://img.shields.io/badge/Kotlin-1.9+-7F52FF?style=flat-square&logo=kotlin&logoColor=white)](https://kotlinlang.org)
@@ -22,13 +23,13 @@
 
 ---
 
-## ⚡ 极速开始 (v1.0.4 正式版)
+## ⚡ 极速开始 (v1.0.5 正式版)
 
-### 1. 🍎 macOS / 🪟 Windows 服务端一键安装 (推荐)
+### 1. 🍎 macOS / 🐧 Linux / 🪟 Windows 服务端一键安装 (推荐)
 
 一键安装指令**支持全自动根据操作系统与架构自适应下载匹配的二进制包**（**免翻墙免代理，秒级全自动完成部署**）：
 
-#### 🍎 macOS / 🪟 Windows (Git Bash / MSYS) 用户：
+#### 🍎 macOS / 🐧 Linux (x86_64 / NAS) / 🪟 Windows (Git Bash / MSYS) 用户：
 国内网络加速一键安装（默认推荐）：
 ```bash
 curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.sh | bash
@@ -57,18 +58,19 @@ irm https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/in
 </details>
 
 > **智能安装特性**：
-> - 🖥️ **跨平台自适应**：自动识别 **macOS**（Apple Silicon M系列 / Intel）与 **Windows**（x86_64），精准下载对应系统的 **~7MB 单架构极简包**；
+> - 🖥️ **跨平台自适应**：自动识别 **macOS**（Apple Silicon M系列 / Intel）、**Linux**（x86_64 / NAS / 无头服务器）与 **Windows**（x86_64），精准下载对应系统的单架构极简包；
+> - 🐧 **Linux & NAS 首发支持 (v1.0.5)**：完美适配 Linux x86_64（如群晖/极空间/自建 NAS/Debian/Ubuntu/Arch 等），原生支持 Antigravity Daemon Discovery 协议 (`~/.gemini/antigravity/daemon/ls_*.json`)，支持无 CSRF Token 的 Headless / Standalone 实例自动秒级发现与反代，提供 `ss` 与 `lsof` 双模端口探测，并支持配置为 systemd 用户守护进程开机常驻！
 > - ⚡ **自适应本地代理**：自动探测本机活跃代理（Clash: 7890、V2Ray: 10808、Surge: 6152 等），无需手动 export；
 > - 🚀 **镜像双保险**：无代理或直连受阻时，秒级无缝降级至国内加速节点；
-> - 🔒 **平滑部署**：macOS 免 sudo 部署至 `~/.local/bin/mgy`；Windows 自动注册至用户 PATH 及 WindowsApps 目录，开箱即用免重启终端。
+> - 🔒 **平滑部署**：macOS / Linux 免 sudo 部署至 `~/.local/bin/mgy` 并自动配置全局快捷方式；Windows 自动注册至用户 PATH 及 WindowsApps 目录，开箱即用免重启终端。
 
 ### 2. 📱 Android 手机客户端安装
-前往 [GitHub Releases v1.0.4](https://github.com/GHSaiMo/antigravity-mobile/releases/latest)，下载：
-- **`Multigravity-v1.0.4.apk`**
+前往 [GitHub Releases v1.0.5](https://github.com/GHSaiMo/antigravity-mobile/releases/latest)，下载：
+- **`Multigravity-v1.0.5.apk`**
 - *安装包已配置标准签名，任何安卓手机下载后均可直接点击安装，零编译门槛。*
 
 ### 3. 🔑 启动服务与扫码配对
-在终端（macOS / Windows PowerShell / CMD）中直接运行：
+在终端（macOS / Linux / Windows PowerShell / CMD）中直接运行：
 ```bash
 mgy
 ```
@@ -138,11 +140,11 @@ mgy help           # 查看完整命令与启动参数帮助
 | | **局域网 Wi-Fi 直连 (LAN Direct)** | 同一 Wi-Fi 下直连本地内网 IP，极低延迟，外出或异网自动走 Cloudflare 隧道 |
 | | **二维码扫码配对 (QR Pairing)** | 终端或 `mgy pair` 自动生成一次性 `agy://pair` 配对二维码，扫码秒级签发独占 Device Token，存入系统安全存储 (Keychain / EncryptedSharedPreferences)，与 IP 完全解耦；支持高级手动大小写不敏感配对 |
 | | **Tailscale / 私有 Mesh VPN (备选)** | 点对点加密 WireGuard 网络，无公网 IP 时安全组网互联 |
-| **🖥️ 本地网关层** | **自愈实例探测器 (Inspector)** | **原生支持 macOS 与 Windows**：深度逆向自动嗅探各平台 `language_server` 进程、实时捕获动态端口与鉴权令牌、进程重启零感知毫秒级自愈；离线状态具备指数退避 (5s→10s→20s→40s) 防 CPU 空转 |
+| **🖥️ 本地网关层** | **自愈实例探测器 (Inspector)** | **原生支持 macOS、Linux 与 Windows**：深度逆向自动嗅探各平台 `language_server` 进程、实时捕获动态端口与鉴权令牌、原生支持 Linux Headless/Daemon Discovery 协议即时发现与免 CSRF 令牌连通、具备 `lsof` 与 `ss` 双模端口探测、进程重启零感知毫秒级自愈；离线状态具备指数退避 (5s→10s→20s→40s) 防 CPU 空转 |
 | | **ConnectRPC & WebSocket 代理** | 双向流式转发与长连接保活、**原生解析 `askQuestion` 多题交互列表与 `questionResponses` 聚合提交**、自动注入 `x-codeium-csrf-token`、免二次编码大图透传优化 (`needsModification`)、单 IP 60次/分 WS Ticket 限流加固、安全沙箱文件代理 (`/api/v1/files/content`) 与 Brain 伴生元数据解析、内置提供 Web 静态资产与排队追问代理 |
 | | **Cockpit 配额引擎 (Cockpit Engine)** | 实时提取多账号配额数据、支持双模型 5h/Weekly 四象限监控与精准重置时间倒计时、多账号池一键无感热切与邮箱脱敏遮罩、**自动校准应用配置并自愈补全缺失的 state.vscdb / IDE 软链接，切号失败自动回滚保障** |
 | | **Bark 实时推送守护 (Notification Watcher)** | 后台持续监听 Agent 状态，任务完成/失败/审批拦截/提问/Proceed 自动触发 Bark 实时推送与 DeepLink 唤醒 |
-| **⚙️ 核心引擎层** | **Antigravity Core** | `language_server` 核心智能体进程，运行于 Mac 或 Windows 本地回环 |
+| **⚙️ 核心引擎层** | **Antigravity Core** | `language_server` 核心智能体进程，运行于 macOS、Linux (NAS/无头服务) 或 Windows 本地回环 |
 
 ---
 
@@ -150,8 +152,8 @@ mgy help           # 查看完整命令与启动参数帮助
 
 ### 1. 🧭 开箱即用与跨平台秒级配对 (Onboarding Guide & QR Pairing)
 - **单页紧凑型引导设计**：对齐 iOS / Android 双端视觉，首次启动或重新配对呈现极简两步式操作；
-- **跨平台一键安装指令**：macOS (Apple Silicon & Intel) 与 Windows (PowerShell) 一键部署命令直接一键复制，支持横向防折叠滚动展示；若已安装网关，直接提示终端执行 `mgy`；
-- **扫码一键自动配对**：电脑终端前台运行网关后自动生成复合 ASCII 二维码，手机端打开扫码器秒级捕获并完成凭据交换与设备绑定，零手动配置；
+- **跨平台一键安装指令**：macOS (Apple Silicon & Intel)、Linux (x86_64 / NAS) 与 Windows (PowerShell) 一键部署命令直接一键复制，支持横向防折叠滚动展示；若已安装网关，直接提示终端执行 `mgy`；
+- **扫码一键自动配对**：电脑或服务器终端前台运行网关后自动生成复合 ASCII 二维码，手机端打开扫码器秒级捕获并完成凭据交换与设备绑定，零手动配置；
 - **高级手动配对选项**：支持手动输入网关 URL 或 6 位配对码，支持大小写不敏感容错校验，全展开抽屉自适应软键盘防遮挡。
 
 ---

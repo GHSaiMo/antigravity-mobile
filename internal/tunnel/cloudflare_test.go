@@ -2,6 +2,8 @@ package tunnel
 
 import (
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -171,3 +173,29 @@ func TestIsBenignCloudflareLog(t *testing.T) {
 		}
 	}
 }
+
+func TestFindCloudflaredBinary_IgnoresInvalidFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	// Create a 0-byte fake "cloudflared" in tmpDir
+	fakeBin := filepath.Join(tmpDir, "cloudflared")
+	if err := os.WriteFile(fakeBin, []byte(""), 0755); err != nil {
+		t.Fatalf("failed to create fake binary: %v", err)
+	}
+
+	// isValidCloudflared must return false for 0-byte file
+	if isValidCloudflared(fakeBin) {
+		t.Errorf("expected isValidCloudflared to be false for 0-byte file")
+	}
+
+	// Prepend tmpDir to PATH
+	origPath := os.Getenv("PATH")
+	t.Setenv("PATH", tmpDir+string(os.PathListSeparator)+origPath)
+
+	// If the real cloudflared was in original PATH, FindCloudflaredBinary might find the real one,
+	// but it MUST NEVER return fakeBin!
+	found := FindCloudflaredBinary()
+	if found == fakeBin {
+		t.Errorf("FindCloudflaredBinary returned invalid 0-byte binary %s", fakeBin)
+	}
+}
+

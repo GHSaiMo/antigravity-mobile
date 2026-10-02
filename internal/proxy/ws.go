@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
@@ -352,6 +353,26 @@ func (p *Proxy) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 			}
 			upstreamConn.SetReadDeadline(time.Now().Add(wsTimeout))
 			clientConn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+
+			// Check if message contains FILE_TYPE_ to normalize enums
+			if msgType == websocket.TextMessage || msgType == websocket.BinaryMessage {
+				raw, readErr := io.ReadAll(r)
+				if readErr != nil {
+					break
+				}
+				if bytes.Contains(raw, []byte("FILE_TYPE_")) {
+					norm := normalizeFileTypes(raw)
+					if writeErr := clientConn.WriteMessage(msgType, norm); writeErr != nil {
+						break
+					}
+					continue
+				}
+				if writeErr := clientConn.WriteMessage(msgType, raw); writeErr != nil {
+					break
+				}
+				continue
+			}
+
 			w, err := clientConn.NextWriter(msgType)
 			if err != nil {
 				break

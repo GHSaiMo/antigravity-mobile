@@ -352,3 +352,29 @@ func GetCloudflareConfig() CloudflareConfig {
 	}
 }
 
+// GetTrustLAN reports whether LAN clients are trusted without requiring pairing tokens.
+// Controlled via MULTIGRAVITY_TRUST_LAN, TRUST_LAN, or ALLOW_LAN. Defaults to false (secure pairing required).
+func GetTrustLAN() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("MULTIGRAVITY_TRUST_LAN")))
+	if v == "" {
+		v = strings.ToLower(strings.TrimSpace(os.Getenv("TRUST_LAN")))
+	}
+	if v == "" {
+		v = strings.ToLower(strings.TrimSpace(os.Getenv("ALLOW_LAN")))
+	}
+	return v == "1" || v == "true" || v == "yes"
+}
+
+// GetOpenBrowser reports whether to automatically open the default browser on GUI desktops at startup.
+// Controlled via MULTIGRAVITY_OPEN_BROWSER or OPEN_BROWSER. Defaults to true (headless systems skip automatically).
+func GetOpenBrowser() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("MULTIGRAVITY_OPEN_BROWSER")))
+	if v == "" {
+		v = strings.ToLower(strings.TrimSpace(os.Getenv("OPEN_BROWSER")))
+	}
+	if v == "" {
+		return true
+	}
+	return !(v == "0" || v == "false" || v == "no")
+}
+

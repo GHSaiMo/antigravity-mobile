@@ -532,6 +532,25 @@ func liveUserEmail() (string, error) {
 }
 
 func lookupLanguageServer() (int, string, error) {
+	// Fast path: check daemon discovery files
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		daemonDir := filepath.Join(home, ".gemini", "antigravity", "daemon")
+		if files, _ := filepath.Glob(filepath.Join(daemonDir, "ls_*.json")); len(files) > 0 {
+			type daemonInfo struct {
+				HTTPSPort int    `json:"httpsPort"`
+				CSRFToken string `json:"csrfToken"`
+			}
+			for _, f := range files {
+				if data, err := os.ReadFile(f); err == nil {
+					var d daemonInfo
+					if json.Unmarshal(data, &d) == nil && d.HTTPSPort > 0 {
+						return d.HTTPSPort, d.CSRFToken, nil
+					}
+				}
+			}
+		}
+	}
+
 	if runtime.GOOS == "windows" {
 		psScript := `Get-CimInstance Win32_Process | Where-Object { $_.Name -like '*language_server*' } | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress`
 		cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", psScript)
@@ -559,16 +578,16 @@ func lookupLanguageServer() (int, string, error) {
 		var pid int
 		var csrf string
 		for _, p := range procs {
-			if strings.Contains(p.CommandLine, "language_server") && strings.Contains(p.CommandLine, "--csrf_token") {
+			if strings.Contains(p.CommandLine, "language_server") {
+				pid = p.ProcessID
 				if m := lsCSRFRE.FindStringSubmatch(p.CommandLine); len(m) > 1 {
-					pid = p.ProcessID
 					csrf = m[1]
-					break
 				}
+				break
 			}
 		}
-		if pid == 0 || csrf == "" {
-			return 0, "", fmt.Errorf("language_server not found or missing csrf")
+		if pid == 0 {
+			return 0, "", fmt.Errorf("language_server not found")
 		}
 		netstatOut, err := exec.Command("netstat", "-ano", "-p", "tcp").Output()
 		if err != nil {
@@ -599,7 +618,7 @@ func lookupLanguageServer() (int, string, error) {
 	}
 	var pid, csrf string
 	for _, line := range strings.Split(string(out), "\n") {
-		if !strings.Contains(line, "language_server") || !strings.Contains(line, "--csrf_token") {
+		if !strings.Contains(line, "language_server") {
 			continue
 		}
 		if strings.Contains(line, "multicall") {
@@ -615,7 +634,7 @@ func lookupLanguageServer() (int, string, error) {
 		}
 		break
 	}
-	if pid == "" || csrf == "" {
+	if pid == "" {
 		return 0, "", fmt.Errorf("language_server not found")
 	}
 	lsof, err := exec.Command("lsof", "-nP", "-p", pid, "-a", "-iTCP", "-sTCP:LISTEN").Output()

@@ -205,10 +205,31 @@ func (t *CloudflareTunnel) Stop() {
 	}()
 }
 
+// isValidCloudflared checks whether a cloudflared executable exists, is >= 5MB, and can execute `--version`.
+func isValidCloudflared(binPath string) bool {
+	if binPath == "" {
+		return false
+	}
+	fi, err := os.Stat(binPath)
+	if err != nil || fi.IsDir() || fi.Size() < 5*1024*1024 {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, binPath, "--version")
+	if err := cmd.Run(); err != nil {
+		return false
+	}
+	return true
+}
+
 // FindCloudflaredBinary checks whether cloudflared exists in PATH or ~/.multigravity/bin.
 func FindCloudflaredBinary() string {
 	if bin, err := exec.LookPath("cloudflared"); err == nil {
-		return bin
+		if isValidCloudflared(bin) {
+			return bin
+		}
+		log.Printf("⚠️  系统路径中的 cloudflared 损坏或无效 (%s)，将尝试使用本地专用版本...", bin)
 	}
 	binDir := filepath.Join(config.GetDataDir(), "bin")
 	binName := "cloudflared"
@@ -216,7 +237,7 @@ func FindCloudflaredBinary() string {
 		binName = "cloudflared.exe"
 	}
 	targetPath := filepath.Join(binDir, binName)
-	if fi, err := os.Stat(targetPath); err == nil && !fi.IsDir() && fi.Size() > 1024*1024 {
+	if isValidCloudflared(targetPath) {
 		return targetPath
 	}
 	return ""
@@ -423,7 +444,17 @@ func downloadAndInstallBinary(ctx context.Context, downloadURL, destPath string)
 		out.Close()
 	}
 
-	return os.Rename(tmpFile, destPath)
+	if err := os.Rename(tmpFile, destPath); err != nil {
+		return err
+	}
+	_ = os.Chmod(destPath, 0755)
+
+	if !isValidCloudflared(destPath) {
+		_ = os.Remove(destPath)
+		return fmt.Errorf("downloaded binary failed validation")
+	}
+
+	return nil
 }
 
 // GetStableMachineID retrieves or creates a persistent unique machine fingerprint.
@@ -569,6 +600,8 @@ func isBenignCloudflareLog(line string) bool {
 		"already connected to this server",
 		"Failed to initialize DNS local resolver",
 		"Failed to refresh DNS local resolver",
+		"ping_group_range",
+		"ICMP proxy feature is disabled",
 	}
 	for _, kw := range benignKeywords {
 		if strings.Contains(line, kw) {

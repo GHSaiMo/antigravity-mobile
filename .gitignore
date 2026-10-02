@@ -74,6 +74,7 @@ temp/
 # --- Internal Docs & Notes ---
 Agent.md
 !docs/*.md
+docs/multiplayer_collaboration_plan.md
 
 # --- IDE & Editor Settings ---
 .idea/

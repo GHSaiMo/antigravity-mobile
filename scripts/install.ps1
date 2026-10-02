@@ -47,7 +47,9 @@ MULTIGRAVITY_PORT=58900
 # BARK_ICON=https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/web/icons/icon-192.png
 # BARK_GROUP=Antigravity
 # BARK_SOUND_ACTION=alarm
-# BARK_SOUND_COMPLETE=glass
+# 局域网免配对信任模式 (0: 需配对码[默认推荐], 1: 信任局域网免配对直连)
+# 本机 127.0.0.1 始终免配对，Cloudflare 公网穿透始终强制验证
+MULTIGRAVITY_TRUST_LAN=0
 "@
     [System.IO.File]::WriteAllText("$confDir\.env", $defaultEnv, [System.Text.Encoding]::UTF8)
     Write-Host "📝 已生成全局默认配置: $confDir\.env" -ForegroundColor Green
@@ -178,7 +180,7 @@ if ($downloadSuccess) {
     if ($repoRoot -and (Test-Path "$repoRoot\..\cmd\gateway")) {
         Set-Location (Join-Path $repoRoot "..")
     }
-    & $goCmd build -ldflags="-s -w -X 'main.Version=1.0.4'" -o "$installDir\mgy.exe" ./cmd/gateway
+    & $goCmd build -ldflags="-s -w -X 'main.Version=1.0.5'" -o "$installDir\mgy.exe" ./cmd/gateway
 }
 
 # 6. 安装到 WindowsApps (Windows 默认已在 PATH 中的用户级目录，免重启即生效)
@@ -207,9 +209,17 @@ $cfTarget = "$cfBinDir\cloudflared.exe"
 
 $cfExisting = $null
 if (Get-Command cloudflared.exe -ErrorAction SilentlyContinue) {
-    $cfExisting = (Get-Command cloudflared.exe).Source
-} elseif ((Test-Path $cfTarget) -and ((Get-Item $cfTarget).Length -gt 10000000)) {
-    $cfExisting = $cfTarget
+    $cfCmd = (Get-Command cloudflared.exe).Source
+    $cfItem = Get-Item $cfCmd -ErrorAction SilentlyContinue
+    if ($cfItem -and ($cfItem.Length -gt 10000000)) {
+        $cfExisting = $cfCmd
+    }
+}
+if (!$cfExisting -and (Test-Path $cfTarget)) {
+    $cfTargetItem = Get-Item $cfTarget -ErrorAction SilentlyContinue
+    if ($cfTargetItem -and ($cfTargetItem.Length -gt 10000000)) {
+        $cfExisting = $cfTarget
+    }
 }
 
 if ($cfExisting) {
@@ -322,9 +332,78 @@ if ($cfExisting) {
     }
 }
 
+# 8.5 首次安装交互式安全向导：局域网配对策略配置
+$envFile = "$confDir\.env"
+$lanPrefConfigured = $false
+if (Test-Path $envFile) {
+    $envContent = Get-Content $envFile -Raw -ErrorAction SilentlyContinue
+    if ($envContent -and ($envContent -match "(?m)^MULTIGRAVITY_TRUST_LAN=")) {
+        $lanPrefConfigured = $true
+    }
+}
+
+$isInteractive = [Environment]::UserInteractive -and -not [Console]::IsInputRedirected
+if (-not $lanPrefConfigured -or ($env:FORCE_CONFIG -eq "1")) {
+    if ($isInteractive) {
+        Write-Host ""
+        Write-Host "==================================================" -ForegroundColor Cyan
+        Write-Host "⚙️  Multigravity 局域网访问安全偏好配置向导" -ForegroundColor Cyan
+        Write-Host "==================================================" -ForegroundColor Cyan
+        Write-Host "当您在手机、iPad 或同局域网其他电脑访问本网关时，是否需要配对码？"
+        Write-Host ""
+        Write-Host "  [1] 🔐 开启局域网配对校验（默认推荐）" -ForegroundColor Green
+        Write-Host "      适合办公网络、公共 Wi-Fi 或有多人/访客环境。" -ForegroundColor Gray
+        Write-Host "      新设备首次接入必须输入配对码授权。" -ForegroundColor Gray
+        Write-Host ""
+        Write-Host "  [2] 🚀 信任局域网免配对（极简直连）" -ForegroundColor Yellow
+        Write-Host "      适合家庭纯净内网、私人可控网络。" -ForegroundColor Gray
+        Write-Host "      同局域网设备打开网页即可直接进入桌面工作台，公网穿透仍强制验证。" -ForegroundColor Gray
+        Write-Host ""
+
+        $lanChoice = Read-Host "请选择 [1-2] (默认: 1)"
+        if ($lanChoice -eq "2") {
+            $trustVal = "1"
+            Write-Host "✅ 已启用局域网信任免配对直连模式 (MULTIGRAVITY_TRUST_LAN=1)" -ForegroundColor Green
+        } else {
+            $trustVal = "0"
+            Write-Host "✅ 已保持标准安全配对模式 (MULTIGRAVITY_TRUST_LAN=0)" -ForegroundColor Green
+        }
+
+        # 更新或追加到 .env
+        if (Test-Path $envFile) {
+            $lines = Get-Content $envFile
+            $newLines = @()
+            $found = $false
+            foreach ($line in $lines) {
+                if ($line -match "^MULTIGRAVITY_TRUST_LAN=") {
+                    $newLines += "MULTIGRAVITY_TRUST_LAN=$trustVal"
+                    $found = $true
+                } else {
+                    $newLines += $line
+                }
+            }
+            if (-not $found) {
+                $newLines += "MULTIGRAVITY_TRUST_LAN=$trustVal"
+            }
+            [System.IO.File]::WriteAllLines($envFile, $newLines, [System.Text.Encoding]::UTF8)
+        } else {
+            [System.IO.File]::WriteAllText($envFile, "MULTIGRAVITY_TRUST_LAN=$trustVal`n", [System.Text.Encoding]::UTF8)
+        }
+        Write-Host "💡 提示: 之后可随时在 $confDir\.env 中修改 MULTIGRAVITY_TRUST_LAN 的值" -ForegroundColor Gray
+    } else {
+        # 非交互环境追加默认值
+        if (Test-Path $envFile) {
+            $raw = Get-Content $envFile -Raw -ErrorAction SilentlyContinue
+            if (-not ($raw -match "(?m)^MULTIGRAVITY_TRUST_LAN=")) {
+                [System.IO.File]::AppendAllText($envFile, "`nMULTIGRAVITY_TRUST_LAN=0`n", [System.Text.Encoding]::UTF8)
+            }
+        }
+    }
+}
+
 # 9. 验证与打印完成信息
 $installedVer = & "$installDir\mgy.exe" version 2>$null
-if (!$installedVer) { $installedVer = "Multigravity (mgy) 1.0.4" }
+if (!$installedVer) { $installedVer = "Multigravity (mgy) 1.0.5" }
 
 Write-Host ""
 Write-Host "==================================================" -ForegroundColor Cyan

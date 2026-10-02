@@ -1,6 +1,13 @@
 package inspector
 
 import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -39,8 +46,67 @@ func TestLiveScan(t *testing.T) {
 	if info == nil {
 		t.Skip("Antigravity language_server not running, skipping live scan test")
 	}
-	if info.Port == 0 || info.CSRFToken == "" {
+	if info.Port == 0 {
 		t.Fatalf("invalid scanned info: %+v", info)
 	}
 	t.Logf("Live discovery succeeded: Port=%d, CSRF=%s, PID=%d", info.Port, info.CSRFToken, info.PID)
 }
+
+func TestDaemonDiscovery(t *testing.T) {
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/exa.language_server_pb.LanguageServerService/GetStatus" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("{}"))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer ts.Close()
+
+	u, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("failed to parse url: %v", err)
+	}
+	port, err := strconv.Atoi(u.Port())
+	if err != nil {
+		t.Fatalf("failed to parse port: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+	daemonDirOverride = tmpDir
+	t.Cleanup(func() {
+		daemonDirOverride = ""
+	})
+
+	jsonContent := fmt.Sprintf(`{
+  "pid": 99999,
+  "httpsPort": %d,
+  "httpPort": 50005,
+  "lspPort": 41067,
+  "lsVersion": "1.11.0",
+  "csrfToken": ""
+}`, port)
+
+	jsonPath := filepath.Join(tmpDir, "ls_e3b0c44298fc1c14.json")
+	if err := os.WriteFile(jsonPath, []byte(jsonContent), 0600); err != nil {
+		t.Fatalf("failed to write mock discovery json: %v", err)
+	}
+
+	insp := NewInspector(10 * time.Second)
+	info := insp.Scan()
+	if info == nil {
+		t.Fatalf("expected discovery info, got nil")
+	}
+	if info.PID != 99999 {
+		t.Errorf("expected PID 99999, got %d", info.PID)
+	}
+	if info.Port != port {
+		t.Errorf("expected port %d, got %d", port, info.Port)
+	}
+	if !info.IsHealthy {
+		t.Errorf("expected healthy instance")
+	}
+}
+
+

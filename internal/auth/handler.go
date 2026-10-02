@@ -348,13 +348,14 @@ func (h *AuthHandler) HandlePair(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	isSSL := h.ssl || r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 	http.SetCookie(w, &http.Cookie{
 		Name:     DeviceCookieName,
 		Value:    deviceToken,
 		Path:     "/",
 		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
-		Secure:   h.ssl,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   isSSL,
 		MaxAge:   DefaultDeviceCookieMaxAge,
 	})
 
@@ -440,13 +441,14 @@ func (h *AuthHandler) HandleUnpair(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Clear session cookie if set
+	isSSL := h.ssl || r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 	http.SetCookie(w, &http.Cookie{
 		Name:     DeviceCookieName,
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
-		Secure:   h.ssl,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   isSSL,
 		MaxAge:   -1,
 	})
 
@@ -635,16 +637,8 @@ func (h *AuthHandler) isAuthorizedAdmin(r *http.Request) bool {
 		return ConstantTimeTokenEquals(BearerToken(r), adminToken)
 	}
 
-	// Loopback fallback is incompatible with tunnels: remote clients dial localhost via the tunnel daemon.
-	// Never trust RemoteAddr when a tunnel is on without an explicit admin token.
-	if h.policy.TunnelEnabled {
-		return false
-	}
-
-	// SEC-AUDIT L-2: Only trust RemoteAddr if NOT behind ANY reverse proxy or PROXY protocol.
-	// Check all known proxy indicators: X-Forwarded-For, X-Real-IP, and CF-Connecting-IP
-	// (Cloudflare Tunnel / PROXY Protocol can rewrite RemoteAddr to the real client IP).
-	if r.Header.Get("X-Forwarded-For") == "" && r.Header.Get("X-Real-IP") == "" && r.Header.Get("CF-Connecting-IP") == "" {
+	// Check if genuinely from localhost (not behind a reverse proxy or Cloudflare tunnel).
+	if !IsCloudflareRequest(r) && r.Header.Get("X-Forwarded-For") == "" && r.Header.Get("X-Real-IP") == "" {
 		if IsLoopbackAddr(r.RemoteAddr) {
 			return true
 		}

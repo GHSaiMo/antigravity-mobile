@@ -14,7 +14,13 @@ window.fetch = async function (url, options = {}) {
     localStorage.removeItem("agy_device_id");
     localStorage.removeItem("agy_device_token");
     if (typeof updateAuthUI === "function") updateAuthUI();
-    if (typeof openPairingSheet === "function") openPairingSheet("设备凭据已失效或被网关吊销，请重新配对");
+    const inputEl = document.getElementById("input-pairing-code");
+    const hasCode = inputEl && inputEl.value.trim().length > 0;
+    if (!hasCode && typeof openPairingSheet === "function") {
+      openPairingSheet("设备凭据已失效或被网关吊销，请重新配对");
+    } else if (typeof openPairingSheet === "function") {
+      openPairingSheet();
+    }
   }
 
   return response;
@@ -2839,6 +2845,11 @@ async function sendMessage() {
     return;
   }
 
+  if (!activeCascadeId) {
+    alert("请先选择或新建一个会话");
+    return;
+  }
+
   isSendingMessage = true;
   const isRunning = currentTrajectories[activeCascadeId]?.status === "CASCADE_RUN_STATUS_RUNNING";
 
@@ -3440,6 +3451,27 @@ function renderNewProjectsList(projects) {
     }).join("");
   }
 
+  // 3. Custom NAS directory card
+  html += `
+    <div class="project-select-card custom-path-card" data-mode="custom">
+      <div class="project-card-icon green">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+        </svg>
+      </div>
+      <div class="project-card-info">
+        <div class="project-card-title-row">
+          <span class="project-card-title">指定 NAS 目录</span>
+          <span class="project-card-badge green">自定义路径</span>
+        </div>
+        <span class="project-card-subtitle monospaced">输入 NAS 绝对路径开启新工作区</span>
+      </div>
+      <svg class="project-card-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="9 18 15 12 9 6"></polyline>
+      </svg>
+    </div>
+  `;
+
   listEl.innerHTML = html;
 
   listEl.querySelectorAll(".project-select-card").forEach(card => {
@@ -3449,6 +3481,19 @@ function renderNewProjectsList(projects) {
       const mode = card.getAttribute("data-mode");
       if (mode === "chat") {
         startDraftSession({ isPure: true, name: "新对话", path: "", uri: "", rawId: "outside-of-project" });
+      } else if (mode === "custom") {
+        const defaultPath = (projects && projects.length > 0 && projects[0].path) ? projects[0].path : "/home/jiuzai";
+        const customPath = prompt("请输入 NAS 工作区目录路径 (例如 /home/jiuzai 或 /vol1/1000):", defaultPath);
+        if (customPath && customPath.trim()) {
+          const trimmed = customPath.trim();
+          const folderName = trimmed.split("/").filter(Boolean).pop() || trimmed;
+          startDraftSession({
+            isPure: false,
+            name: folderName,
+            path: trimmed,
+            uri: trimmed.startsWith("file://") ? trimmed : `file://${trimmed}`
+          });
+        }
       } else {
         const idx = parseInt(card.getAttribute("data-index"), 10);
         const p = projects[idx];
@@ -3561,7 +3606,9 @@ function openPairingSheet(errorMsg = "") {
     }
   }
   if (inputEl) {
-    inputEl.value = "";
+    if (!inputEl.value) {
+      inputEl.value = "";
+    }
     setTimeout(() => inputEl.focus(), 150);
   }
   if (sheet) sheet.classList.remove("hidden");

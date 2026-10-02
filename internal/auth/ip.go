@@ -167,6 +167,42 @@ func IsLoopbackAddr(remoteAddr string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
+// IsPrivateLANAddr checks whether a remote address belongs to an RFC 1918 private IPv4 or private IPv6 subnet.
+func IsPrivateLANAddr(remoteAddr string) bool {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		host = remoteAddr
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	// IPv4 RFC 1918
+	if ip4 := ip.To4(); ip4 != nil {
+		if ip4[0] == 10 {
+			return true
+		}
+		if ip4[0] == 172 && ip4[1] >= 16 && ip4[1] <= 31 {
+			return true
+		}
+		if ip4[0] == 192 && ip4[1] == 168 {
+			return true
+		}
+		return false
+	}
+	// IPv6 Private (ULA or link-local)
+	return ip.IsPrivate() || ip.IsLinkLocalUnicast()
+}
+
+// IsCloudflareRequest reports whether the request originated through a Cloudflare Tunnel.
+func IsCloudflareRequest(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	return strings.TrimSpace(r.Header.Get("CF-Connecting-IP")) != "" ||
+		strings.TrimSpace(r.Header.Get("CF-Ray")) != ""
+}
+
 // IsListenAddrLoopback reports whether the gateway listen host is loopback-only.
 // Empty host, 0.0.0.0, :: and [::] bind all interfaces and are not loopback.
 func IsListenAddrLoopback(host string) bool {

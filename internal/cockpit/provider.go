@@ -360,6 +360,20 @@ func GetQuotas(activeEmails ...string) (*CockpitQuotaResponse, error) {
 	accountsFile := filepath.Join(dataDir, "accounts.json")
 	accBytes, err := os.ReadFile(accountsFile)
 	if err != nil {
+		if os.IsNotExist(err) {
+			emptyResp := &CockpitQuotaResponse{
+				Accounts:  []AccountQuota{},
+				UpdatedAt: time.Now().Unix(),
+			}
+			quotaCacheMu.Lock()
+			quotaCache = &quotaCacheEntry{
+				data:      emptyResp,
+				emailKey:  emailKey,
+				expiresAt: time.Now().Add(30 * time.Second),
+			}
+			quotaCacheMu.Unlock()
+			return emptyResp, nil
+		}
 		return nil, fmt.Errorf("failed to read accounts.json: %w", err)
 	}
 

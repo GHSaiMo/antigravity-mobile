@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"runtime"
 	"strconv"
@@ -31,7 +32,7 @@ import (
 )
 
 // Version represents the Multigravity Gateway release version.
-var Version = "1.0.4"
+var Version = "1.0.5"
 
 func main() {
 	// 0. Initialize console output synchronization so concurrent logs don't tear terminal output
@@ -114,6 +115,8 @@ func runGatewayServer(args []string) {
 	printQR := fs.Bool("qr", false, "启动时是否输出配对二维码（默认: 未配对时自动输出，已配对时默认隐藏）")
 	pollSec := fs.Int("poll", 5, "探测本地 Antigravity 实例与健康检查的轮询间隔秒数（默认 5 秒）")
 	ddnsHost := fs.String("ddns", os.Getenv("DDNS_HOST"), "公网 DDNS 域名，用于生成扫码配对链接及外部直连")
+	trustLAN := fs.Bool("trust-lan", config.GetTrustLAN(), "是否信任局域网访问（允许免配对直接使用，默认: 需配对码）")
+	openBrowser := fs.Bool("open", config.GetOpenBrowser(), "启动后是否自动在默认浏览器中打开主页（无头系统自动跳过）")
 	_ = fs.Parse(args)
 
 	qrExplicitlySet := false
@@ -288,6 +291,7 @@ func runGatewayServer(args []string) {
 	authPolicy := auth.AuthPolicy{
 		TunnelEnabled:  cfTunnel != nil,
 		ListenLoopback: listenLoopback,
+		TrustLAN:       *trustLAN,
 	}
 	authHandler.SetAuthPolicy(authPolicy)
 
@@ -368,17 +372,35 @@ func runGatewayServer(args []string) {
 	fmt.Println()
 	fmt.Printf("  Multigravity (mgy) v%s\n", Version)
 	fmt.Println("  --------------------------------------------------")
-	fmt.Printf("  ➜  本地访问:   http://127.0.0.1:%d\n", *port)
+	fmt.Printf("  ➜  本地访问:   http://127.0.0.1:%d (免配对)\n", *port)
 	if lanURL != "-" {
-		fmt.Printf("  ➜  局域网络:   %s\n", lanURL)
+		if authPolicy.TrustLAN {
+			fmt.Printf("  ➜  局域网络:   %s (已信任免配对)\n", lanURL)
+		} else {
+			fmt.Printf("  ➜  局域网络:   %s (需配对码)\n", lanURL)
+		}
 	}
 	if tunnelDesc != "未启用" {
-		fmt.Printf("  ➜  云端穿透:   %s\n", tunnelDesc)
+		fmt.Printf("  ➜  云端穿透:   %s (强制配对)\n", tunnelDesc)
+	}
+	if authPolicy.TrustLAN {
+		fmt.Printf("  ➜  安全策略:   局域网已信任免密放行 (可通过 MULTIGRAVITY_TRUST_LAN=0 切换)\n")
+	} else {
+		fmt.Printf("  ➜  安全策略:   局域网标准安全配对 (可通过 MULTIGRAVITY_TRUST_LAN=1 切换)\n")
 	}
 	fmt.Printf("  ➜  目标实例:   %s\n", upstreamDesc)
 	fmt.Printf("  ➜  远程推送:   %s\n", pushSummary)
 	fmt.Printf("  ➜  已配设备:   %s\n", deviceDesc)
 	fmt.Println("  --------------------------------------------------")
+
+	// 在带桌面 GUI 的系统中，服务启动后异步在默认浏览器中打开本地地址 (无头系统静默跳过)
+	if *openBrowser && !isHeadlessEnvironment() {
+		go func() {
+			time.Sleep(300 * time.Millisecond)
+			openURL := fmt.Sprintf("http://127.0.0.1:%d/", *port)
+			_ = openBrowserURL(openURL)
+		}()
+	}
 
 	shouldPrintQR := false
 	if qrExplicitlySet {
@@ -436,11 +458,13 @@ func runHelpCmd() {
   help              显示帮助信息
 
 网关运行参数 (用于 mgy 或 mgy run):
-  -port <端口号>    HTTP/WebSocket 监听端口 (默认: 58900, 环境变量: MULTIGRAVITY_PORT)
-  -host <主机/IP>   监听地址 (默认: "" 全网卡 IPv4 监听; 设为 127.0.0.1 仅限本机)
-  -qr=<true|false>  启动时是否打印配对二维码 (默认: true)
-  -poll <秒数>      Antigravity 实例轮询间隔 (默认: 5秒)
-  -ddns <域名/IP>   公网 DDNS 域名或固定 IP 地址
+  -port <端口号>          HTTP/WebSocket 监听端口 (默认: 58900, 环境变量: MULTIGRAVITY_PORT)
+  -host <主机/IP>         监听地址 (默认: "" 全网卡 IPv4 监听; 设为 127.0.0.1 仅限本机)
+  -qr=<true|false>        启动时是否打印配对二维码 (默认: true)
+  -poll <秒数>            Antigravity 实例轮询间隔 (默认: 5秒)
+  -ddns <域名/IP>         公网 DDNS 域名或固定 IP 地址
+  -trust-lan=<true|false> 是否信任局域网免配对访问 (默认: false, 环境变量: MULTIGRAVITY_TRUST_LAN)
+  -open=<true|false>      启动时是否自动在默认浏览器打开主页 (默认: true, 无头系统自动跳过)
 `, Version)
 }
 
@@ -820,7 +844,7 @@ func buildRouter(
 
 		// Desktop static asset fallback
 		if isDesktopStaticPath(path) {
-			p.HandleDesktopStatic(w, r)
+			web.GzipHandler(http.HandlerFunc(p.HandleDesktopStatic)).ServeHTTP(w, r)
 			return
 		}
 
@@ -828,7 +852,7 @@ func buildRouter(
 		viewMode := determineViewMode(r)
 		qv := r.URL.Query().Get("view")
 
-		// Persist if explicitly requested via query param
+		// Explicit ?view query parameter overrides viewMode and sets cookie
 		if qv != "" {
 			http.SetCookie(w, &http.Cookie{
 				Name:     "agy_view_mode",
@@ -839,16 +863,8 @@ func buildRouter(
 			})
 		}
 
-		// Check if request is authenticated before serving desktop workbench.
-		// If unauthenticated and no explicit view parameter, show mobile view so user can pair.
-		token := auth.ExtractToken(r)
-		_, isAuthenticated := authStore.ValidateToken(token)
-		if !isAuthenticated && viewMode == "desktop" && qv == "" {
-			viewMode = "mobile"
-		}
-
 		if viewMode == "desktop" {
-			p.HandleDesktopIndex(w, r)
+			web.GzipHandler(http.HandlerFunc(p.HandleDesktopIndex)).ServeHTTP(w, r)
 			return
 		}
 
@@ -896,27 +912,84 @@ func determineViewMode(r *http.Request) string {
 		return "mobile"
 	}
 
-	// 2. Explicit cookie (agy_view_mode)
+	// 2. Classify device by User-Agent (tablets, iPad, and desktop browsers are never phones)
+	ua := strings.ToLower(r.UserAgent())
+	isTablet := strings.Contains(ua, "ipad") || strings.Contains(ua, "tablet")
+	isPhone := !isTablet && (strings.Contains(ua, "iphone") || strings.Contains(ua, "ipod") ||
+		(strings.Contains(ua, "android") && strings.Contains(ua, "mobile")))
+
+	// 3. Explicit cookie (agy_view_mode)
 	if c, err := r.Cookie("agy_view_mode"); err == nil {
 		val := strings.ToLower(c.Value)
+		if isPhone && val == "desktop" {
+			return "desktop"
+		}
+		// Non-phone devices (iPad, Mac, PC, Tablets) always default to desktop,
+		// ignoring any stale mobile cookie unless query parameter explicitly requested mobile.
+		if !isPhone && (val == "mobile" || val == "") {
+			return "desktop"
+		}
 		if val == "desktop" || val == "mobile" {
 			return val
 		}
 	}
 
-	// 3. User-Agent auto-detection
-	ua := strings.ToLower(r.UserAgent())
-
-	// Mobile phones: iPhone, iPod, or Android with "Mobile"
-	if strings.Contains(ua, "iphone") || strings.Contains(ua, "ipod") {
-		return "mobile"
-	}
-	if strings.Contains(ua, "android") && strings.Contains(ua, "mobile") {
+	if isPhone {
 		return "mobile"
 	}
 
 	// Default to desktop for iPad, Mac, Windows, Linux, Tablets, and desktop browsers
 	return "desktop"
+}
+
+// isHeadlessEnvironment detects if the current machine is running without a graphical desktop (e.g. headless NAS, SSH, systemd).
+func isHeadlessEnvironment() bool {
+	if v := os.Getenv("MULTIGRAVITY_HEADLESS"); v == "1" || strings.EqualFold(v, "true") {
+		return true
+	}
+	if v := os.Getenv("MULTIGRAVITY_NO_BROWSER"); v == "1" || strings.EqualFold(v, "true") {
+		return true
+	}
+
+	switch runtime.GOOS {
+	case "windows":
+		return false
+	case "darwin":
+		// Remote SSH session without X11 or Aqua display
+		if os.Getenv("SSH_TTY") != "" && os.Getenv("DISPLAY") == "" {
+			return true
+		}
+		return false
+	case "linux":
+		// Linux: Check DISPLAY (X11) and WAYLAND_DISPLAY (Wayland)
+		if os.Getenv("DISPLAY") == "" && os.Getenv("WAYLAND_DISPLAY") == "" {
+			return true
+		}
+		// Running as systemd background service
+		if os.Getenv("INVOCATION_ID") != "" || os.Getenv("JOURNAL_STREAM") != "" {
+			return true
+		}
+		if os.Getenv("SSH_TTY") != "" {
+			return true
+		}
+		return false
+	default:
+		return true
+	}
+}
+
+// openBrowserURL opens the specified URL in the default web browser.
+func openBrowserURL(targetURL string) error {
+	switch runtime.GOOS {
+	case "darwin":
+		return exec.Command("open", targetURL).Start()
+	case "windows":
+		return exec.Command("rundll32", "url.dll,FileProtocolHandler", targetURL).Start()
+	case "linux":
+		return exec.Command("xdg-open", targetURL).Start()
+	default:
+		return nil
+	}
 }
 
 func isDesktopStaticPath(path string) bool {

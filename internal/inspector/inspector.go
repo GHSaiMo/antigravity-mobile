@@ -3,10 +3,14 @@ package inspector
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
+	"sort"
 	"sync"
 	"time"
 
@@ -132,6 +136,16 @@ func (i *Inspector) Scan() *InstanceInfo {
 		}
 	}
 
+	// Fast path: check daemon discovery files (~/.gemini/antigravity/daemon/ls_*.json)
+	if dInfo := i.findFromDaemon(); dInfo != nil {
+		i.failedScanMu.Lock()
+		i.failedBackoff = 0
+		i.failedScanMu.Unlock()
+
+		i.update(dInfo)
+		return dInfo
+	}
+
 	// PERF-3: exponential backoff — skip expensive ps+lsof if we recently failed.
 	i.failedScanMu.Lock()
 	if i.failedBackoff > 0 && time.Since(i.failedScanAt) < i.failedBackoff {
@@ -249,7 +263,9 @@ func (i *Inspector) verifyPort(port int, csrfToken string) bool {
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Connect-Protocol-Version", "1")
-	req.Header.Set("x-codeium-csrf-token", csrfToken)
+	if csrfToken != "" {
+		req.Header.Set("x-codeium-csrf-token", csrfToken)
+	}
 
 	resp, err := i.httpClient.Do(req)
 	if err != nil {
@@ -259,3 +275,69 @@ func (i *Inspector) verifyPort(port int, csrfToken string) bool {
 
 	return resp.StatusCode == http.StatusOK
 }
+
+type daemonDiscoveryInfo struct {
+	PID       int    `json:"pid"`
+	HTTPSPort int    `json:"httpsPort"`
+	HTTPPort  int    `json:"httpPort"`
+	LSPPort   int    `json:"lspPort"`
+	LSVersion string `json:"lsVersion"`
+	CSRFToken string `json:"csrfToken"`
+}
+
+var daemonDirOverride string
+
+// findFromDaemon inspects ~/.gemini/antigravity/daemon/ls_*.json written by Antigravity daemon/headless modes.
+func (i *Inspector) findFromDaemon() *InstanceInfo {
+	var daemonDir string
+	if daemonDirOverride != "" {
+		daemonDir = daemonDirOverride
+	} else {
+		home, err := os.UserHomeDir()
+		if err != nil || home == "" {
+			return nil
+		}
+		daemonDir = filepath.Join(home, ".gemini", "antigravity", "daemon")
+	}
+	files, err := filepath.Glob(filepath.Join(daemonDir, "ls_*.json"))
+	if err != nil || len(files) == 0 {
+		return nil
+	}
+
+	type fileEntry struct {
+		path    string
+		modTime time.Time
+	}
+	var entries []fileEntry
+	for _, f := range files {
+		st, err := os.Stat(f)
+		if err == nil {
+			entries = append(entries, fileEntry{path: f, modTime: st.ModTime()})
+		}
+	}
+	sort.Slice(entries, func(a, b int) bool {
+		return entries[a].modTime.After(entries[b].modTime)
+	})
+
+	for _, entry := range entries {
+		data, err := os.ReadFile(entry.path)
+		if err != nil {
+			continue
+		}
+		var d daemonDiscoveryInfo
+		if err := json.Unmarshal(data, &d); err != nil {
+			continue
+		}
+		if d.HTTPSPort > 0 && i.verifyPort(d.HTTPSPort, d.CSRFToken) {
+			return &InstanceInfo{
+				PID:          d.PID,
+				Port:         d.HTTPSPort,
+				CSRFToken:    d.CSRFToken,
+				DiscoveredAt: time.Now(),
+				IsHealthy:    true,
+			}
+		}
+	}
+	return nil
+}
+
