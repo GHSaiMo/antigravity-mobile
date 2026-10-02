@@ -411,6 +411,10 @@
     // --- 扩展、技能与 Token (Customizations) ---
     ["Configure default behaviors, skills, and MCP servers. Learn more.", "配置默认行为策略、技能库 (Skills) 与 MCP 服务节点。了解更多。"],
     ["Token Usage", "扩展上下文 Token 消耗"],
+    ["Loading token usage...", "正在加载 Token 消耗数据..."],
+    ["Loading token usage.", "正在加载 Token 消耗数据。"],
+    ["Loading token usage", "正在加载 Token 消耗数据"],
+    ["There are no customizations enabled", "当前未启用任何个性化扩展。"],
     ["Skills", "技能库 (Skills)"],
     ["Mcp Tools", "MCP 外部工具"],
     ["Rules", "规则库 (Rules)"],
@@ -462,10 +466,22 @@
     ["Copy Path", "复制路径"],
     ["Copy Link", "复制分享链接"],
     ["Delete Conversation", "删除会话"],
+    ["Delete conversation", "删除会话"],
     ["Rename Conversation", "重命名会话"],
+    ["Rename conversation", "重命名会话"],
     ["Archive this conversation", "归档此会话"],
+    ["Archive This Conversation", "归档此会话"],
     ["Pin this conversation", "置顶此会话"],
+    ["Pin This Conversation", "置顶此会话"],
     ["Unpin this conversation", "取消置顶"],
+    ["Unpin This Conversation", "取消置顶此会话"],
+    ["Pin", "置顶"],
+    ["Unpin", "取消置顶"],
+    ["Archive", "归档"],
+    ["Unarchive", "取消归档"],
+    ["Archive / Restore", "归档 / 恢复"],
+    ["Restore", "恢复"],
+    ["Delete Permanently", "永久删除"],
     ["Mark as Read", "标记为已读"],
     ["Mark as Unread", "标记为未读"],
     ["Mark Read", "标记为已读"],
@@ -473,10 +489,37 @@
     ["Split", "分屏查看"],
     ["Split Vertically", "垂直分屏"],
     ["Split Horizontally", "水平分屏"],
+    ["Split Right", "分屏到右侧"],
+    ["Split Down", "分屏到下方"],
+    ["Replace With New", "替换为新建"],
+    ["Remove From Split", "移出分屏"],
+    ["View Debug", "查看调试信息"],
+    ["Fork", "分叉会话"],
+    ["Share", "分享"],
+    ["Telemetry", "诊断遥测"],
+    ["Conversation Name", "会话名称"],
+    ["Conversation ID", "会话 ID"],
+    ["Worktree Name", "工作树名称"],
+    ["Workspace Name", "工作区名称"],
+    ["Project Name", "工程项目名称"],
     ["More options", "更多选项"],
     ["Pin conversation", "置顶会话"],
     ["Archive conversation", "归档会话"],
     ["Stop execution", "停止执行"],
+    ["Permanently delete", "永久删除"],
+    ["including", "包含"],
+    ["This will permanently delete", "这将永久删除"],
+    ["within it.", "及其内部所有数据。"],
+    ["within it", "及其内部所有数据"],
+    ["Are you sure you want to delete the", "您确定要删除此"],
+    ["Are you sure you want to delete the project", "您确定要删除此工程项目"],
+    ["Are you sure you want to delete the workspace", "您确定要删除此工作区"],
+    ["Delete project", "删除工程项目"],
+    ["Delete workspace", "删除工作区"],
+    ["Working", "正在执行..."],
+    ["Done", "已完成"],
+    ["Edited files", "已编辑文件"],
+    ["Editing files", "正在编辑文件"],
     ["Project options", "项目设置选项"],
     ["Undo changes up to this point", "撤销至此步的所有变更"],
     ["Mark all as read", "全部标记为已读"],
@@ -886,6 +929,72 @@
     ["Last 7 days", "过去 7 天"],
     ["Last 30 days", "过去 30 天"],
     ["Last 24 hours", "过去 24 小时"],
+    ["Open Launchpad", "打开应用启动台"],
+    ["Toggle Project Selector", "切换工程项目选择器"],
+    ["Toggle Environment Selector", "切换环境选择器"],
+    ["Toggle Overview Panel", "切换概览面板"],
+    ["New Window", "新建窗口"],
+    ["New Tab", "新建标签页"],
+    ["Select All", "全选"],
+    ["Cut", "剪切"],
+    ["Paste", "粘贴"],
+    ["Copy Image", "复制图片"],
+    ["Allow List Terminal Commands", "终端命令白名单"],
+    ["Deny List Terminal Commands", "终端命令黑名单"],
+    ["Agent Auto-Fix Lints", "智能体自动修复 Lint 报错"],
+    ["Enable Terminal Sandbox", "启用终端沙箱隔离"],
+    ["Sandbox Allow Network", "沙箱允许网络访问"],
+    ["Enable Shell Integration", "启用 Shell 终端集成"],
+    ["Terminal Command Auto Execution", "终端命令自动执行"],
+    ["Enable Sounds for Agent", "启用智能体声音提示"],
+    ["Enable Notifications for Agent", "启用智能体桌面通知"],
+    ["Auto-Expand Changes Overview", "自动展开代码变更概览"],
+    ["Auto-Open Edited Files", "自动打开编辑的文件"],
+    ["Open Agent on Reload", "重载时自动打开智能体"],
+    ["Enable Browser Tools", "启用浏览器自动化工具"],
+    ["Chrome Binary Path", "Chrome 可执行文件路径"],
+    ["Browser User Profile Path", "浏览器用户配置路径"],
+    ["Browser CDP Port", "浏览器 CDP 调试端口"],
+    ["Show Selection Actions", "显示选中操作浮条"],
+    ["Default Workspace VCS", "默认工作区版本控制系统 (VCS)"],
+    ["See more results", "查看更多结果"],
+    ["Running", "运行中"],
+    ["Starting", "正在启动"],
+    ["Overview", "概览"],
+    ["Automations", "自动化任务"],
+    ["Marketplace", "插件市场"],
+    ["Installed", "已安装"],
+    ["Discard", "放弃改动"],
+    ["Ask first", "执行前询问"],
+    ["Always run", "始终运行"],
+    ["Allow once", "仅允许一次"],
+    ["Undo", "撤销"],
+    ["Undo To Here", "撤销至此步骤"],
+    ["Open with External Browser", "使用系统默认浏览器打开"],
+    ["Create fork in current workspace", "在当前工作区中创建分叉"],
+    ["Create fork in shared workspace", "在共享工作区中创建分叉"],
+    ["Create fork in new workspace", "在新工作区中创建分叉"],
+    ["Ask every time", "每次均询问"],
+    ["Standalone Conversations", "独立会话"],
+    ["Console logs", "控制台日志"],
+    ["Commands", "执行指令"],
+    ["Run command", "执行命令"],
+    ["File access", "文件访问"],
+    ["Open URL", "打开链接"],
+    ["Read URL", "读取网页内容"],
+    ["MCP tool", "MCP 工具"],
+    ["Run JS", "执行 JavaScript"],
+    ["Approval", "等待审批"],
+    ["About", "关于"],
+    ["Toggle Fullscreen", "切换全屏"],
+    ["Minimize", "最小化"],
+    ["Maximize", "最大化"],
+    ["Custom", "自定义"],
+    ["Steps", "执行步骤"],
+    ["Activity", "活动记录"],
+    ["Open Preferences", "打开偏好设置"],
+    ["Block", "阻止"],
+    ["Standalone", "独立模式"],
     ["OK", "确定"]
   ]);
 
@@ -899,12 +1008,79 @@
   function translateDuration(str) {
     if (!str) return str;
     return str
+      .replace(/(\d+)\s*d\b/gi, "$1 天 ")
+      .replace(/(\d+)\s*h\b/gi, "$1 小时 ")
+      .replace(/(\d+)\s*m\b/gi, "$1 分钟 ")
+      .replace(/(\d+)\s*s\b/gi, "$1 秒")
       .replace(/(\d+)\s*days?/gi, "$1 天")
       .replace(/(\d+)\s*hours?/gi, "$1 小时")
       .replace(/(\d+)\s*minutes?/gi, "$1 分钟")
       .replace(/(\d+)\s*seconds?/gi, "$1 秒")
       .replace(/,\s*/g, " ")
+      .replace(/\s+/g, " ")
       .trim();
+  }
+
+  // 辅助函数：格式化活动与归档会话数量
+  function translateConversationCount(str) {
+    if (!str) return str;
+    const hasDot = str.endsWith(".");
+    const res = str
+      .replace(/\.$/, "")
+      .replace(/(\d+)\s*active conversations?/gi, "$1 个活动会话")
+      .replace(/(\d+)\s*archived conversations?/gi, "$1 个归档会话")
+      .replace(/\s+and\s+/gi, " 与 ")
+      .trim();
+    return res + (hasDot ? "。" : "");
+  }
+
+  // 辅助函数：格式化探索与执行步骤摘要 (Explored X files, Y tasks, ran Z commands)
+  function translateExploredSummary(str) {
+    if (!str) return str;
+    const m = str.match(/^(Explored|Exploring|Edited|Editing)\s+(.+)$/i);
+    if (!m) return str;
+    const verb = m[1].toLowerCase();
+    const rest = m[2];
+
+    let verbZh = "";
+    if (verb === "explored") verbZh = "已探索 ";
+    else if (verb === "exploring") verbZh = "正在探索 ";
+    else if (verb === "edited") verbZh = "已编辑 ";
+    else if (verb === "editing") verbZh = "正在编辑 ";
+
+    const parts = rest.split(/,\s*/);
+    const zhParts = parts.map(p => {
+      p = p.trim();
+      const mRan = p.match(/^(?:ran|Ran)\s+(.+)$/i);
+      if (mRan) {
+        const cmd = mRan[1];
+        const mCmdCount = cmd.match(/^(\d+)\s*commands?$/i);
+        if (mCmdCount) return `执行 ${mCmdCount[1]} 条指令`;
+        return `执行指令 ${cmd}`;
+      }
+      const mRunning = p.match(/^(?:running|Running)\s+(.+)$/i);
+      if (mRunning) {
+        const cmd = mRunning[1];
+        const mCmdCount = cmd.match(/^(\d+)\s*commands?$/i);
+        if (mCmdCount) return `正在运行 ${mCmdCount[1]} 条指令`;
+        return `正在运行指令 ${cmd}`;
+      }
+      return p
+        .replace(/^(\d+)\s*files?$/i, "$1 个文件")
+        .replace(/^(\d+)\s*folders?$/i, "$1 个目录")
+        .replace(/^(\d+)\s*edits?$/i, "$1 处修改")
+        .replace(/^(\d+)\s*artifacts?$/i, "$1 个工件")
+        .replace(/^(\d+)\s*search(?:es)?$/i, "$1 次检索")
+        .replace(/^(\d+)\s*terminals?$/i, "$1 个终端")
+        .replace(/^(\d+)\s*tasks?$/i, "$1 个任务")
+        .replace(/^(\d+)\s*webs?$/i, "$1 次网页访问")
+        .replace(/^(\d+)\s*browsers?$/i, "$1 个浏览器页面")
+        .replace(/^(\d+)\s*images?$/i, "$1 张图片")
+        .replace(/^(\d+)\s*actions?$/i, "$1 项操作")
+        .replace(/^files$/i, "文件");
+    });
+
+    return verbZh + zhParts.join("，");
   }
 
   // 辅助函数：配额类型转换
@@ -970,8 +1146,16 @@
     [new RegExp("^Show (\\d+) breakdowns?$", "i"), "展开 $1 项明细"],
     [new RegExp("^\\(([\\d,]+) tokens\\)\\s*([\\d.]+)%$", "i"), "($1 Tokens) $2%"],
 
-    [new RegExp("^Permanently delete (.+?) including (\\d+) active conversations?\\.?$", "i"), "永久删除 $1（包含 $2 个活动会话）。"],
-    [new RegExp("^Permanently delete (.+?)\\s*\\.?$", "i"), "永久删除 $1。"],
+    // Token 消耗加载与明细
+    [new RegExp("^Loading token usage\\.{0,3}$", "i"), "正在加载 Token 消耗数据..."],
+    [new RegExp("^There are no customizations enabled\\.?$", "i"), "当前未启用任何个性化扩展。"],
+
+    // 会话数量与项目危险区删除
+    [new RegExp("^(?:\\d+\\s*(?:active|archived)\\s*conversations?(?:\\s+and\\s+)?)+\\.?$", "i"), (m) => translateConversationCount(m)],
+    [new RegExp("^Permanently delete\\s+(.+?)\\s+including\\s+(.+?)\\.?$", "i"), (m, p, c) => `永久删除 ${p}（包含 ${translateConversationCount(c)}）。`],
+    [new RegExp("^Permanently delete\\s+(.+?)\\s*\\.?$", "i"), "永久删除 $1。"],
+    [new RegExp("^This will permanently delete\\s+(.+?)\\s+within it\\.?$", "i"), (m, c) => `这将永久删除其包含的 ${translateConversationCount(c)}。`],
+    [new RegExp("^Are you sure you want to delete the\\s+(project|workspace)\\s+(.+?)\\??$", "i"), (m, type, name) => `您确定要删除此${type.toLowerCase() === "project" ? "工程项目" : "工作区"} ${name} 吗？`],
 
     // 项目管理与删除
     [new RegExp("^Agent settings and permissions for conversations outside of (projects|workspaces)\\.?$", "i"), "非$1会话的智能体配置与执行权限。"],
@@ -981,8 +1165,13 @@
     [new RegExp("^A (project|workspace) with this name already exists\\.?$", "i"), "已存在同名的$1。"],
 
     // 智能体执行与步数
+    [new RegExp("^Worked for\\s+(.+)$", "i"), (m, t) => `运行耗时 ${translateDuration(t)}`],
+    [new RegExp("^Stopped after\\s+(.+)$", "i"), (m, t) => `在 ${translateDuration(t)}后停止`],
+    [new RegExp("^(?:Explored|Exploring|Edited|Editing)\\s+.+$", "i"), (m) => translateExploredSummary(m)],
     [new RegExp("^Ran (\\d+) commands?$", "i"), "已执行 $1 条指令"],
     [new RegExp("^Running (\\d+) commands?$", "i"), "正在运行 $1 条指令..."],
+    [new RegExp("^Ran\\s+(.+)$", "i"), "已执行指令 $1"],
+    [new RegExp("^Running\\s+(.+)$", "i"), "正在运行指令 $1..."],
     [new RegExp("^Explored (\\d+) files?, (\\d+) folders?$", "i"), "已探索 $1 个文件，$2 个目录"],
     [new RegExp("^Explored (\\d+) files?, (\\d+) search(?:es)?$", "i"), "已探索 $1 个文件，$2 次检索"],
     [new RegExp("^Explored (\\d+) files?$", "i"), "已探索 $1 个文件"],
