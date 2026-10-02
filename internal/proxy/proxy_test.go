@@ -1168,6 +1168,76 @@ func TestNormalizeFileTypesGrpcWebFraming(t *testing.T) {
 	}
 }
 
+func TestHandleCascadeTaskStop_CamelAndSnakeCase(t *testing.T) {
+	var canceledStepIndices []int
+	mockUpstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/exa.language_server_pb.LanguageServerService/CancelCascadeSteps" {
+			var body struct {
+				CascadeID   string `json:"cascadeId"`
+				StepIndices []int  `json:"stepIndices"`
+			}
+			json.NewDecoder(r.Body).Decode(&body)
+			canceledStepIndices = append(canceledStepIndices, body.StepIndices...)
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer mockUpstream.Close()
+
+	port := mockUpstream.Listener.Addr().(*net.TCPAddr).Port
+	p := NewProxy(inspector.NewInspector(10 * time.Second))
+	p.mediumClient = mockUpstream.Client()
+	p.updateUpstream(inspector.InstanceInfo{
+		PID:       1234,
+		Port:      port,
+		CSRFToken: "test-token",
+		IsHealthy: true,
+	})
+
+	// Test 1: camelCase payload
+	req1 := httptest.NewRequest(http.MethodPost, "/gateway/cascade/task/stop", strings.NewReader(`{"cascadeId":"cas-1","stepIndex":10,"taskId":"task-10"}`))
+	req1.Header.Set("Content-Type", "application/json")
+	rec1 := httptest.NewRecorder()
+	p.ServeHTTP(rec1, req1)
+	if rec1.Code != http.StatusOK {
+		t.Fatalf("expected 200 for camelCase, got %d: %s", rec1.Code, rec1.Body.String())
+	}
+
+	// Test 2: snake_case payload (from Android client)
+	req2 := httptest.NewRequest(http.MethodPost, "/gateway/cascade/task/stop", strings.NewReader(`{"cascade_id":"cas-1","step_index":20,"task_id":"task-20"}`))
+	req2.Header.Set("Content-Type", "application/json")
+	rec2 := httptest.NewRecorder()
+	p.ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("expected 200 for snake_case, got %d: %s", rec2.Code, rec2.Body.String())
+	}
+
+	// Test 3: fallback extract stepIndex from taskId
+	req3 := httptest.NewRequest(http.MethodPost, "/gateway/cascade/task/stop", strings.NewReader(`{"cascadeId":"cas-1","taskId":"cas-1/task-30"}`))
+	req3.Header.Set("Content-Type", "application/json")
+	rec3 := httptest.NewRecorder()
+	p.ServeHTTP(rec3, req3)
+	if rec3.Code != http.StatusOK {
+		t.Fatalf("expected 200 for taskId fallback, got %d: %s", rec3.Code, rec3.Body.String())
+	}
+
+	// Verify canceled steps
+	if len(canceledStepIndices) != 3 || canceledStepIndices[0] != 10 || canceledStepIndices[1] != 20 || canceledStepIndices[2] != 30 {
+		t.Fatalf("unexpected canceled steps: %v", canceledStepIndices)
+	}
+
+	// Test 4: missing cascadeId returns 400
+	req4 := httptest.NewRequest(http.MethodPost, "/gateway/cascade/task/stop", strings.NewReader(`{"taskId":"task-10"}`))
+	req4.Header.Set("Content-Type", "application/json")
+	rec4 := httptest.NewRecorder()
+	p.ServeHTTP(rec4, req4)
+	if rec4.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing cascadeId, got %d", rec4.Code)
+	}
+}
+
 
 
 

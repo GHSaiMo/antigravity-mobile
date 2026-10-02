@@ -116,6 +116,27 @@ html, body {
   background-color: var(--ios-bg);
 }
 
+/* Responsive container adaptation for Tablet and Desktop */
+@media (min-width: 768px) and (max-width: 1023.98px) {
+  #app {
+    max-width: 768px;
+    margin: 0 auto;
+    border-left: 0.5px solid var(--ios-separator-subtle);
+    border-right: 0.5px solid var(--ios-separator-subtle);
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.45);
+  }
+}
+
+@media (min-width: 1024px) {
+  #app {
+    max-width: 920px;
+    margin: 0 auto;
+    border-left: 0.5px solid var(--ios-separator-subtle);
+    border-right: 0.5px solid var(--ios-separator-subtle);
+    box-shadow: 0 0 50px rgba(0, 0, 0, 0.55);
+  }
+}
+
 /* iOS Navigation Bar */
 .ios-navbar {
   height: calc(var(--navbar-height) + var(--safe-top));

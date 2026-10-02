@@ -193,10 +193,10 @@ fun RunningTasksCard(
                                 }
                             }
 
-                            // Stop Task Button (对齐 iOS: 缩小并放置在命令气泡外部)
+                            // Stop Task Button (对齐 iOS: 缩小并放置在命令气泡外部，外层触摸区域扩展至 36dp)
                             Box(
                                 modifier = Modifier
-                                    .size(28.dp)
+                                    .size(36.dp)
                                     .clip(CircleShape)
                                     .clickable {
                                         haptic.medium()

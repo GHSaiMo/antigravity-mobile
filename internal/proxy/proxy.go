@@ -1490,18 +1490,45 @@ func (p *Proxy) handleCascadeTaskStop(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		CascadeID string `json:"cascadeId"`
-		StepIndex int    `json:"stepIndex"`
-		TaskID    string `json:"taskId"`
+		CascadeID  string `json:"cascadeId"`
+		CascadeID2 string `json:"cascade_id"`
+		StepIndex  *int   `json:"stepIndex"`
+		StepIndex2 *int   `json:"step_index"`
+		TaskID     string `json:"taskId"`
+		TaskID2    string `json:"task_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSONError(w, "invalid request: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	if req.CascadeID == "" {
+	cascadeID := strings.TrimSpace(req.CascadeID)
+	if cascadeID == "" {
+		cascadeID = strings.TrimSpace(req.CascadeID2)
+	}
+	if cascadeID == "" {
 		http.Error(w, `{"error":"missing cascadeId"}`, http.StatusBadRequest)
 		return
+	}
+
+	taskID := strings.TrimSpace(req.TaskID)
+	if taskID == "" {
+		taskID = strings.TrimSpace(req.TaskID2)
+	}
+
+	stepIndex := -1
+	if req.StepIndex != nil {
+		stepIndex = *req.StepIndex
+	} else if req.StepIndex2 != nil {
+		stepIndex = *req.StepIndex2
+	}
+
+	if stepIndex <= 0 && taskID != "" {
+		if idx := strings.LastIndex(taskID, "task-"); idx != -1 {
+			if num, err := strconv.Atoi(taskID[idx+5:]); err == nil && num > 0 {
+				stepIndex = num
+			}
+		}
 	}
 
 	p.mu.RLock()
@@ -1514,14 +1541,36 @@ func (p *Proxy) handleCascadeTaskStop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := p.CancelCascadeStep(req.CascadeID, req.StepIndex, port, token); err != nil {
-		log.Printf("[Proxy] CancelCascadeStep failed (cascade: %s, step: %d): %v", req.CascadeID, req.StepIndex, err)
+	if stepIndex <= 0 {
+		rawResp, err := p.fetchUpstreamTrajectory(cascadeID, port, token)
+		if err == nil && rawResp != nil {
+			details := p.ParseTrajectoryDetails(rawResp)
+			for _, t := range details.RunningTasks {
+				if taskID == "" || t.ID == taskID || strings.HasSuffix(t.ID, "/"+taskID) || strings.HasSuffix(taskID, "/"+t.ID) {
+					stepIndex = t.StepIndex
+					break
+				}
+			}
+			if stepIndex <= 0 && len(details.RunningTasks) == 1 {
+				stepIndex = details.RunningTasks[0].StepIndex
+			}
+		}
+	}
+
+	if stepIndex < 0 {
+		stepIndex = 0
+	}
+
+	if err := p.CancelCascadeStep(cascadeID, stepIndex, port, token); err != nil {
+		log.Printf("[Proxy] CancelCascadeStep failed (cascade: %s, step: %d): %v", cascadeID, stepIndex, err)
 		writeJSONError(w, "cancel step failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	// Immediately invalidate trajectory cache so next stream tick picks up the changed status
-	ClearTrajectoryCache(req.CascadeID)
+	ClearTrajectoryCache(cascadeID)
+	ClearPendingMessagesCache(cascadeID)
+	p.notifyStreamTouch(cascadeID)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"success":true}`))
