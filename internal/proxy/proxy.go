@@ -593,11 +593,51 @@ func (p *Proxy) handleRpcProxy(w http.ResponseWriter, r *http.Request) {
 		p.handleDeleteAgentMessage(w, r, rp, reqPath)
 		return
 	}
+	if (strings.HasSuffix(reqPath, "/CancelCascadeInvocation") || strings.HasSuffix(reqPath, "/ForceStopCascadeTree")) && r.Method == http.MethodPost {
+		p.handleCancelCascadeInvocation(w, r, rp, reqPath)
+		return
+	}
 
 	// Clone the request to avoid mutating the original before forwarding
 	fwdReq := r.Clone(r.Context())
 	fwdReq.URL.Path = reqPath
 	rp.ServeHTTP(w, fwdReq)
+}
+
+func (p *Proxy) handleCancelCascadeInvocation(w http.ResponseWriter, r *http.Request, rp http.Handler, reqPath string) {
+	bodyBytes, cleanup, err := readBodyToPool(r.Body, 64*1024)
+	if err != nil {
+		writeJSONError(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+	defer cleanup()
+
+	var payload struct {
+		CascadeID      string `json:"cascadeId"`
+		ConversationID string `json:"conversationId"`
+	}
+	_ = json.Unmarshal(bodyBytes, &payload)
+	targetID := strings.TrimSpace(payload.CascadeID)
+	if targetID == "" {
+		targetID = strings.TrimSpace(payload.ConversationID)
+	}
+
+	fwdReq := r.Clone(r.Context())
+	fwdReq.URL.Path = reqPath
+	fwdReq.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+	fwdReq.ContentLength = int64(len(bodyBytes))
+	fwdReq.Header.Set("Content-Length", strconv.Itoa(len(bodyBytes)))
+
+	rp.ServeHTTP(w, fwdReq)
+
+	if targetID != "" {
+		ClearTrajectoryCache(targetID)
+		ClearPendingMessagesCache(targetID)
+		p.notifyStreamTouch(targetID)
+		if verboseRPC {
+			log.Printf("[Proxy] CancelCascadeInvocation forwarded and cache invalidated for: %s", shortCascadeID(targetID))
+		}
+	}
 }
 
 type bufferedResponseWriter struct {

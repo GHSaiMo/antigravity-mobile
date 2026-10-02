@@ -1067,7 +1067,150 @@
     ["Open Preferences", "打开偏好设置"],
     ["Block", "阻止"],
     ["Standalone", "独立模式"],
-    ["OK", "确定"]
+    ["OK", "确定"],
+
+    // --- 界面展开/收起/搜索与状态 ---
+    ["See All", "查看全部"],
+    ["See all", "查看全部"],
+    ["See Less", "收起"],
+    ["See less", "收起"],
+    ["See More", "查看更多"],
+    ["See more", "查看更多"],
+    ["See more results", "查看更多结果"],
+    ["Artifacts", "交付工件"],
+    ["Review", "审核"],
+    ["Review Policy", "工件审核策略"],
+    ["Review Mode", "审核模式"],
+    ["Review Comments", "批注审核"],
+    ["Collapse All", "全部收起"],
+    ["Expand All", "全部展开"],
+    ["Collapse All Folders", "收起所有文件夹"],
+    ["Expand All Folders", "展开所有文件夹"],
+    ["Collapse All Diffs", "收起所有差异对比"],
+    ["Expand All Diffs", "展开所有差异对比"],
+    ["No Results", "未找到结果"],
+    ["No results", "未找到结果"],
+    ["No results found", "未找到匹配结果"],
+    ["No results found.", "未找到匹配结果。"],
+    ["No conversations available", "暂无历史会话"],
+    ["No subagents", "暂无子智能体"],
+    ["No active terminals", "暂无活动终端"],
+
+    // --- 主题预设 (Theme Presets) ---
+    ["Preset", "预设配色"],
+    ["Default Light", "默认浅色"],
+    ["Default Dark", "默认深色"],
+    ["Catppuccin", "Catppuccin 主题"],
+    ["One Light", "One Light 亮色"],
+    ["One Dark Pro", "One Dark Pro 深色"],
+    ["One Dark", "One Dark 暗色"],
+    ["Solarized Light", "Solarized 浅色"],
+    ["Solarized Dark", "Solarized 深色"],
+    ["Dracula", "Dracula 经典紫"],
+    ["Monokai", "Monokai 代码高亮"],
+    ["Tokyo Night", "Tokyo Night 东京之夜"],
+    ["Vesper", "Vesper 暮色黑"],
+    ["Nord", "Nord 极光蓝"],
+    ["Reset to preset", "重置为预设配色"],
+    ["Low contrast ratio", "低对比度"],
+
+    // --- 设置下拉菜单与策略选项 (Settings Dropdowns & Policies) ---
+    ["Inherit Global", "继承全局配置"],
+    ["Always Ask", "每次询问"],
+    ["Always Proceed", "始终执行"],
+    ["Request Review", "请求审核 (Request Review)"],
+    ["Proceed in Sandbox", "沙箱内直接执行"],
+    ["Proceed In Sandbox", "沙箱内直接执行"],
+    ["Custom", "自定义"],
+    ["Full machine", "完全访问整机"],
+    ["Turbo mode", "极速模式 (Turbo)"],
+    ["Vetted (Preview)", "安全审核 (预览版)"],
+    ["Simplified", "极简模式"],
+    ["Fast", "快速"],
+    ["Slow", "慢速"],
+    ["Narrow", "紧凑窄屏"],
+    ["Wide", "加宽"],
+    ["Fill", "自适应铺满"],
+    ["High Contrast", "高对比度"],
+    ["Normal", "标准对比度"],
+    ["Inherit Editor", "跟随编辑器"],
+    ["Auto (detected)", "自动检测 (Auto)"],
+    ["Electron (Desktop)", "Electron 客户端 (桌面)"],
+    ["Electron (Gemini App)", "Electron 客户端 (Gemini 应用)"],
+    ["Electron (Android Desktop)", "Electron 客户端 (安卓桌面)"],
+    ["Web (desktop)", "Web 端 (桌面浏览器)"],
+    ["Web (desktop, PWA)", "Web 端 (桌面 PWA)"],
+    ["Web (desktop, remote control)", "Web 端 (桌面远程控制)"],
+    ["Web (desktop, remote control, PWA)", "Web 端 (桌面远程控制 PWA)"],
+    ["Web (mobile)", "Web 端 (手机浏览器)"],
+    ["Web (mobile, PWA)", "Web 端 (手机 PWA)"],
+    ["Web (mobile, remote control)", "Web 端 (手机远程控制)"],
+    ["Web (mobile, remote control, PWA)", "Web 端 (手机远程控制 PWA)"],
+    ["Google (internal)", "Google (内部)"],
+    ["External", "外部开发者 (External)"],
+    ["Enterprise", "企业用户 (Enterprise)"],
+    ["Allow", "允许"],
+    ["Deny", "拒绝"],
+    ["Enabled", "已启用"],
+    ["Disabled", "已禁用"],
+    ["Disabled by organization policy", "已被组织管理策略禁用"],
+    ["Outside of folder access", "工作区外部文件访问"],
+    ["Auto-execution policy", "终端命令自动执行策略"],
+    ["Enable Sandbox Mode", "启用沙箱隔离模式"],
+    ["Artifact Review Policy", "工件审核策略"],
+    ["Permission Preset", "权限预设配置"],
+    ["Security Preset", "安全预设策略"],
+    ["Plan Review Policy", "执行计划审核策略"],
+    ["Product Skin", "界面风格与模式"],
+    ["Conversation Width", "会话面板宽度"],
+    ["Markdown Artifact Width", "Markdown 工件宽度"],
+    ["Tab Speed", "Tab 智能补全速度"],
+    ["Send Immediately", "立即发送"],
+    ["Queue message", "排队发送"],
+    ["Send message", "发送消息"],
+    ["Queue", "排队等待"],
+    ["Queued Messages", "排队发送的消息"],
+    ["Piper", "Piper (Google)"],
+    ["Piper (g4)", "Piper (g4)"],
+    ["JJ", "Jujutsu (JJ)"],
+    ["Fig", "Fig 工作区"],
+    ["Cog (GoB)", "Cog (GoB)"],
+    ["CitC Workspace Type", "CitC 工作区类型"],
+
+    // --- 下拉菜单详细描述与选项说明 ---
+    ["Requires manual review for all terminal commands and file accesses outside of the working folders.", "所有终端命令及工作目录外部的文件访问均需手动审核确认。"],
+    ["Useful for typical development with an emphasis on security. It prioritizes safety over speed by requiring manual approval for all terminal commands and files outside the project directory.", "适用于强调安全性的常规开发场景。通过要求对所有终端命令及项目外部文件进行手动确认，将安全性置于执行速度之上。"],
+    ["All terminal commands require review. The agent can read or write to any file in the machine.", "所有终端命令均需手动审核。智能体可以读写本机任意文件。"],
+    ["Useful for tasks that require file access across your full machine. The agent has full read and write access to all local files, but all proposed terminal commands require manual review and approval before running.", "适用于需要跨整机访问文件的任务。智能体对所有本地文件拥有完全读写权限，但所有终端命令执行前必须经过手动审核与批准。"],
+    ["Disables all safety barriers for maximal iteration velocity.", "禁用所有安全屏障以获得极致迭代速度。"],
+    ["A high-risk mode that disables all safety barriers. The agent operates with full system access, auto-executes all terminal commands, and reads or writes to all local files without review prompts.", "高风险模式，禁用所有安全防护。智能体拥有完整系统权限，自动执行所有终端命令，读写任意本地文件且无任何审核提示。"],
+    ["Inherits your Global Permissions when working in this project.", "在当前项目中继承您的全局权限策略配置。"],
+    ["Every command requires approval.", "所有命令都需要手动审核批准。"],
+    ["Ask before sensitive operations.", "执行敏感操作前进行确认提示。"],
+    ["Security agent decides if commands run.", "由内置安全审查智能体判定命令是否执行。"],
+    ["Simplified interface without developer tooling.", "隐藏开发者调试工具的极简界面。"],
+    ["The full developer experience.", "包含完整开发者工具的高级体验。"],
+    ["Agent never asks for review. This maximizes the autonomy of the Agent, but also has the highest risk of the Agent operating over unsafe or injected Artifact content.", "智能体从不请求审核。这极大提升了自主执行速度，但对未知或注入内容存在安全风险。"],
+    ["The agent never asks for review. This maximizes the autonomy of the agent, but also has the highest risk of the agent operating over unsafe or injected artifact content.", "智能体从不请求审核。这极大提升了自主执行速度，但对未知或注入内容存在安全风险。"],
+    ["Agent always asks for review.", "智能体始终在生成工件后请求手动审核。"],
+    ["The agent always asks for review.", "智能体始终在生成工件后请求手动审核。"],
+    ["The agent always asks for confirmation before executing terminal commands (except those in the Allow list).", "在执行终端命令前始终请求确认（在允许列表中的命令除外）。"],
+    ["Terminal command automatically proceeds if the command runs inside the sandbox. Otherwise, it requests review.", "若终端命令在沙箱内运行则自动执行；离开沙箱的命令将请求手动审核。"],
+    ["Terminal commands automatically proceed inside the sandbox. A command that needs to leave the sandbox proceeds only if an agent judges it reversible, and otherwise requests review.", "沙箱内的终端命令自动执行。需要脱离沙箱的命令仅在智能体判定为可逆时自动执行，否则请求手动审核。"],
+    ["Block all browser JavaScript execution.", "禁止所有浏览器端 JavaScript 脚本执行。"],
+    ["Prompt for approval before running browser scripts.", "运行浏览器脚本前提示审批确认。"],
+    ["Allow full browser script execution without prompting.", "允许完整执行浏览器脚本且无需手动提示。"],
+    ["Simulate running on a different OS.", "模拟在不同操作系统环境下运行。"],
+    ["Simulate a different host (Electron, desktop or mobile Web, Extension, remote control, or installed PWA).", "模拟不同宿主环境（Electron 桌面、移动/桌面 Web、扩展程序、远程控制或 PWA 应用）。"],
+    ["Simulate a different user cohort (Google, External, Enterprise).", "模拟不同用户群体环境（Google 内部、外部开发者、企业客户）。"],
+    ["Configure when follow-up messages are sent.", "配置后续排队消息的发送时机。"],
+    ["Interrupt the agent and send immediately.", "打断智能体当前思考并立即发送。"],
+    ["Queue until after the current turn.", "在当前对话轮次结束后排队发送。"],
+    ["Choose how technical the interface should be.", "选择界面的技术细节丰富度与展示模式。"],
+    ["Configure the maximum width of the conversation panel.", "配置对话面板的最大展示宽度。"],
+    ["Configure the default width of markdown artifacts.", "配置 Markdown 交付工件的默认展示宽度。"],
+    ["Set the speed of tab suggestions", "设置 Tab 智能代码补全的触发速度。"],
+    ["Select the workspace type that will be used for new conversations started with the New Workspace option.", "选择使用“新建工作区”选项启动新会话时将使用的工作区类型。"]
   ]);
 
   // 建立忽略大小写的查询备份表，消除大小写差异
@@ -1311,18 +1454,36 @@
     [new RegExp("^When working in this project\\. Learn more\\.?$", "i"), "在当前项目中生效。了解更多。"],
     [new RegExp("^The folder “(.+?)” does not exist\\. Would you like to create it\\?$", "i"), "目录 “$1” 不存在。您是否希望创建它？"],
     [new RegExp("^Directory (.+?) does not exist\\.?$", "i"), "目录 $1 不存在。"],
-    [new RegExp("^Failed to read directory (.+?):\\s*(.+)$", "i"), "读取目录 $1 失败：$2"]
+    [new RegExp("^Failed to read directory (.+?):\\s*(.+)$", "i"), "读取目录 $1 失败：$2"],
+
+    // 展开/收起/搜索结果与动态数量
+    [new RegExp("^See all\\s*\\((.+)\\)$", "i"), (m, p1) => `查看全部 (${p1})`],
+    [new RegExp("^See less\\s*\\((.+)\\)$", "i"), (m, p1) => `收起 (${p1})`],
+    [new RegExp("^Show all\\s*\\((.+)\\)$", "i"), (m, p1) => `查看全部 (${p1})`],
+    [new RegExp("^Show less\\s*\\((.+)\\)$", "i"), (m, p1) => `收起 (${p1})`],
+    [new RegExp("^Show finished\\s*\\((.+)\\)$", "i"), (m, p1) => `显示已完成 (${p1})`],
+    [new RegExp("^See\\s+(\\d+)\\s+more\\s*(.*)$", "i"), (m, p1, p2) => `查看其余 ${p1} 项${p2 ? ' ' + translateString(p2) : ''}`],
+    [new RegExp("^See more in\\s*(.+)$", "i"), (m, p1) => `查看 ${translateString(p1)} 中的更多项`],
+    [new RegExp("^See less in\\s*(.+)$", "i"), (m, p1) => `收起 ${translateString(p1)} 中的项`],
+    [new RegExp("^Collapse All\\s*(.*)$", "i"), (m, p1) => p1 ? `全部收起 ${translateString(p1)}` : "全部收起"],
+    [new RegExp("^Expand All\\s*(.*)$", "i"), (m, p1) => p1 ? `全部展开 ${translateString(p1)}` : "全部展开"],
+    [new RegExp("^No results found\\.?$", "i"), "未找到匹配结果。"],
+    [new RegExp("^Cancel\\s*\\(\\u2303C\\)$", "i"), "取消 (⌃C)"],
+    [new RegExp("^Cancel\\s*\\(Ctrl\\+D\\)$", "i"), "取消 (Ctrl+D)"],
+    [new RegExp("^Low contrast ratio\\s*\\((.+)\\)\\.?$", "i"), (m, p1) => `低对比度 (${p1})`],
+    [new RegExp("^Stop Execution$", "i"), "停止执行"],
+    [new RegExp("^Stop execution$", "i"), "停止执行"]
   ];
 
-  // 3. 安全检测：判断是否为不可汉化的代码块或数据区域
-  const IGNORE_TAGS = new Set(["SCRIPT", "STYLE", "CODE", "PRE", "NOSCRIPT", "PATH"]);
+  // 3. 安全检测：判断是否为不可汉化的代码块、数据或字体图标区域
+  const IGNORE_TAGS = new Set(["SCRIPT", "STYLE", "CODE", "PRE", "NOSCRIPT", "PATH", "SVG"]);
 
   function shouldIgnoreElement(el) {
     if (!el || !el.tagName) return true;
     if (IGNORE_TAGS.has(el.tagName)) return true;
 
-    // 排除编辑器、终端、代码高亮容器
-    const className = typeof el.className === "string" ? el.className : "";
+    // 排除编辑器、终端、代码高亮容器与字体图标容器
+    const className = typeof el.className === "string" ? el.className : (el.getAttribute ? (el.getAttribute("class") || "") : "");
     if (
       className.includes("monaco-editor") ||
       className.includes("syntax-highlight") ||
@@ -1330,8 +1491,21 @@
       className.includes("terminal-screen") ||
       className.includes("terminal-container") ||
       className.includes("code-block") ||
-      className.includes("language-")
+      className.includes("language-") ||
+      className.includes("google-symbols") ||
+      className.includes("material-symbols") ||
+      className.includes("material-icons") ||
+      className.includes("codicon")
     ) {
+      return true;
+    }
+
+    if (el.closest && (
+      el.closest(".google-symbols") ||
+      el.closest(".material-symbols") ||
+      el.closest(".material-icons") ||
+      el.closest(".codicon")
+    )) {
       return true;
     }
 
@@ -1379,6 +1553,14 @@
     if (node.nodeType === Node.TEXT_NODE) {
       const parent = node.parentElement;
       if (parent && shouldIgnoreElement(parent)) return;
+      if (parent && parent.closest && (
+        parent.closest(".google-symbols") ||
+        parent.closest(".material-symbols") ||
+        parent.closest(".material-icons") ||
+        parent.closest(".codicon")
+      )) {
+        return;
+      }
 
       // 保护用户自定义的项目名称：如果位于 [data-testid="project-selector-item"] 下的项目名称 span，则跳过文本翻译
       if (parent && parent.tagName === "SPAN" && parent.closest && parent.closest('[data-testid="project-selector-item"]') && !parent.closest("button")) {

@@ -44,8 +44,9 @@
 
 /* Switcher button when inside desktop view */
 .agy-view-switcher.desktop-mode {
-  right: 18px;
-  left: auto;
+  left: 18px;
+  right: auto;
+  bottom: 18px;
   opacity: 0.6;
   background-color: rgba(15, 23, 42, 0.85);
   font-size: 12px;
