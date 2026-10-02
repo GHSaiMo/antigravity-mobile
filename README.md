@@ -208,6 +208,7 @@ mgy help           # 查看完整命令与启动参数帮助
   - **健壮性与架构加固 (v1.0.4)**：修复 `PendingInteraction` 反序列化异常、解决图片重复渲染、优化通知生命周期管理；
   - **新建会话抽屉 (`NewConversationSheet`)**：支持工作区选择与纯对话模式（Pure Chat）。
 - **iOS 原生客户端 (`ios/`)**：
+  - 📖 **真机调试与打包构建指南**：详见 ➔ [**iOS 原生应用本地构建与真机调试指南 (docs/ios_build_guide.md)**](docs/ios_build_guide.md)；
   - 基于 **SwiftUI 5** 与 **Swift 6 严格并发模式**（Strict Concurrency Checking），零数据竞态；
   - **交互卡片深度优化 (v1.0.4)**：`InteractionCardView` 高度自适应、全屏/半屏平滑伸缩、选项多行完整排版与活力橙视觉系统；
   - **原生手势修复**：全面恢复交互式侧滑返回（Swipe-Back）手势，消除进出会话时的抖动与高度跳跃；
