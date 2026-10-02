@@ -1957,6 +1957,11 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
   color: var(--ios-blue);
 }
 
+.project-card-icon.green {
+  background-color: rgba(48, 209, 88, 0.14);
+  color: var(--ios-green);
+}
+
 .project-card-info {
   flex: 1;
   min-width: 0;
@@ -1993,6 +1998,11 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
 .project-card-badge.indigo {
   color: var(--ios-indigo);
   background-color: rgba(94, 92, 230, 0.12);
+}
+
+.project-card-badge.green {
+  color: var(--ios-green);
+  background-color: rgba(48, 209, 88, 0.12);
 }
 
 .project-card-badge.gray {

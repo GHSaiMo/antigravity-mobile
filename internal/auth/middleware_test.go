@@ -370,8 +370,10 @@ func TestAuthDisabledIgnoredWhenTunnelEnabled(t *testing.T) {
 	})
 	wrapped := AuthMiddlewareWithPolicy(store, next, AuthPolicy{TunnelEnabled: true, ListenLoopback: true})
 
+	// Cloudflare tunnel request (forwarded to loopback with CF headers) must be rejected
 	req := httptest.NewRequest(http.MethodGet, "/api/secret", nil)
 	req.RemoteAddr = "127.0.0.1:9"
+	req.Header.Set("CF-Connecting-IP", "203.0.113.195")
 	rr := httptest.NewRecorder()
 	wrapped.ServeHTTP(rr, req)
 	if rr.Code != http.StatusUnauthorized {
@@ -379,6 +381,59 @@ func TestAuthDisabledIgnoredWhenTunnelEnabled(t *testing.T) {
 	}
 	if hit {
 		t.Fatalf("protected handler must not run")
+	}
+
+	// Genuine localhost (no Cloudflare headers) is auto-authorized
+	hit = false
+	reqLocal := httptest.NewRequest(http.MethodGet, "/api/secret", nil)
+	reqLocal.RemoteAddr = "127.0.0.1:9"
+	rrLocal := httptest.NewRecorder()
+	wrapped.ServeHTTP(rrLocal, reqLocal)
+	if rrLocal.Code != http.StatusOK {
+		t.Fatalf("expected 200 for genuine loopback request, got %d", rrLocal.Code)
+	}
+	if !hit {
+		t.Fatalf("genuine loopback handler must run")
+	}
+}
+
+func TestAuthMiddleware_TrustLANPolicy(t *testing.T) {
+	tempDir := t.TempDir()
+	store, err := NewAuthStore(filepath.Join(tempDir, "auth_store.json"))
+	if err != nil {
+		t.Fatalf("failed to create auth store: %v", err)
+	}
+
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	// 1. TrustLAN = false (default): LAN request must be 401
+	wrappedStrict := AuthMiddlewareWithPolicy(store, next, AuthPolicy{TrustLAN: false})
+	reqLAN := httptest.NewRequest(http.MethodGet, "/api/secret", nil)
+	reqLAN.RemoteAddr = "192.168.1.100:12345"
+	rr1 := httptest.NewRecorder()
+	wrappedStrict.ServeHTTP(rr1, reqLAN)
+	if rr1.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for LAN request when TrustLAN=false, got %d", rr1.Code)
+	}
+
+	// 2. TrustLAN = true: genuine LAN request must be 200
+	wrappedTrust := AuthMiddlewareWithPolicy(store, next, AuthPolicy{TrustLAN: true})
+	rr2 := httptest.NewRecorder()
+	wrappedTrust.ServeHTTP(rr2, reqLAN)
+	if rr2.Code != http.StatusOK {
+		t.Fatalf("expected 200 for LAN request when TrustLAN=true, got %d", rr2.Code)
+	}
+
+	// 3. TrustLAN = true, but request arrives via Cloudflare tunnel (CF-Connecting-IP): must be 401
+	reqLANCF := httptest.NewRequest(http.MethodGet, "/api/secret", nil)
+	reqLANCF.RemoteAddr = "192.168.1.100:12345"
+	reqLANCF.Header.Set("CF-Connecting-IP", "203.0.113.50")
+	rr3 := httptest.NewRecorder()
+	wrappedTrust.ServeHTTP(rr3, reqLANCF)
+	if rr3.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for Cloudflare request even when TrustLAN=true, got %d", rr3.Code)
 	}
 }
 

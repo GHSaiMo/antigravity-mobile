@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -1037,6 +1038,136 @@ func TestGetAllCascadeTrajectoriesErrorStatus(t *testing.T) {
 		t.Errorf("expected ErrorMessage to contain 'checkpoint validation failed', got %q", sum.ErrorMessage)
 	}
 }
+
+func TestNormalizeFileTypes(t *testing.T) {
+	input := []byte(`{"entries":[{"uri":"file:///home","fileType":"FILE_TYPE_DIRECTORY"},{"uri":"file:///file.txt","fileType":"FILE_TYPE_FILE"},{"uri":"file:///link","fileType":"FILE_TYPE_SYMLINK"},{"uri":"file:///unknown","fileType":"FILE_TYPE_UNSPECIFIED"}]}`)
+	expected := `{"entries":[{"uri":"file:///home","fileType":2},{"uri":"file:///file.txt","fileType":1},{"uri":"file:///link","fileType":3},{"uri":"file:///unknown","fileType":0}]}`
+
+	normalized := normalizeFileTypes(input)
+	if string(normalized) != expected {
+		t.Fatalf("expected normalized json %s, got %s", expected, string(normalized))
+	}
+
+	// Verify no allocation / change when no FILE_TYPE_ present
+	noEnum := []byte(`{"status":"ok"}`)
+	if string(normalizeFileTypes(noEnum)) != string(noEnum) {
+		t.Fatalf("expected untouched json")
+	}
+}
+
+func TestReadDirProxyNormalization(t *testing.T) {
+	mockUpstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/exa.language_server_pb.LanguageServerService/ReadDir" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"entries":[{"uri":"file:///home","fileType":"FILE_TYPE_DIRECTORY"}]}`))
+			return
+		}
+		if r.URL.Path == "/exa.language_server_pb.LanguageServerService/StatUri" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"fileType":"FILE_TYPE_DIRECTORY","size":"4096"}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer mockUpstream.Close()
+
+	port := mockUpstream.Listener.Addr().(*net.TCPAddr).Port
+	p := NewProxy(inspector.NewInspector(10 * time.Second))
+	p.transport = mockUpstream.Client().Transport.(*http.Transport)
+	p.updateUpstream(inspector.InstanceInfo{
+		PID:       1234,
+		Port:      port,
+		CSRFToken: "test-token",
+		IsHealthy: true,
+	})
+
+	// Test 1: ReadDir
+	req := httptest.NewRequest(http.MethodPost, "/exa.language_server_pb.LanguageServerService/ReadDir", strings.NewReader(`{"uri":"file:///"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	p.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	expectedReadDir := `{"entries":[{"uri":"file:///home","fileType":2}]}`
+	if strings.TrimSpace(rec.Body.String()) != expectedReadDir {
+		t.Errorf("expected %s, got %s", expectedReadDir, rec.Body.String())
+	}
+
+	// Test 2: StatUri
+	reqStat := httptest.NewRequest(http.MethodPost, "/api/exa.language_server_pb.LanguageServerService/StatUri", strings.NewReader(`{"uri":"file:///home"}`))
+	reqStat.Header.Set("Content-Type", "application/json")
+	recStat := httptest.NewRecorder()
+	p.ServeHTTP(recStat, reqStat)
+
+	if recStat.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", recStat.Code)
+	}
+	expectedStat := `{"fileType":2,"size":"4096"}`
+	if strings.TrimSpace(recStat.Body.String()) != expectedStat {
+		t.Errorf("expected %s, got %s", expectedStat, recStat.Body.String())
+	}
+}
+
+func TestNormalizeFileTypesGrpcWebFraming(t *testing.T) {
+	// Construct data frame: flag 0x00, 4-byte len, JSON payload
+	jsonPayload := []byte(`{"entries":[{"uri":"file:///home","fileType":"FILE_TYPE_DIRECTORY"},{"uri":"file:///vol1/1000","fileType":"FILE_TYPE_DIRECTORY"}]}`)
+	var frame1 []byte
+	frame1 = append(frame1, 0x00)
+	var len1 [4]byte
+	binary.BigEndian.PutUint32(len1[:], uint32(len(jsonPayload)))
+	frame1 = append(frame1, len1[:]...)
+	frame1 = append(frame1, jsonPayload...)
+
+	// Construct trailer frame: flag 0x80, 4-byte len, trailer text
+	trailerPayload := []byte("grpc-status: 0\r\n")
+	var frame2 []byte
+	frame2 = append(frame2, 0x80)
+	var len2 [4]byte
+	binary.BigEndian.PutUint32(len2[:], uint32(len(trailerPayload)))
+	frame2 = append(frame2, len2[:]...)
+	frame2 = append(frame2, trailerPayload...)
+
+	fullStream := append(frame1, frame2...)
+
+	norm := normalizeFileTypes(fullStream)
+
+	// Validate framing of normalized stream
+	if !isGrpcWebFramed(norm) {
+		t.Fatalf("expected normalized stream to be valid gRPC-Web framing")
+	}
+
+	// Parse first frame
+	flag1 := norm[0]
+	if flag1 != 0x00 {
+		t.Fatalf("expected flag 0x00, got 0x%02x", flag1)
+	}
+	msgLen1 := int(binary.BigEndian.Uint32(norm[1:5]))
+	payload1 := norm[5 : 5+msgLen1]
+	expectedPayload1 := `{"entries":[{"uri":"file:///home","fileType":2},{"uri":"file:///vol1/1000","fileType":2}]}`
+	if string(payload1) != expectedPayload1 {
+		t.Fatalf("expected payload %s, got %s", expectedPayload1, string(payload1))
+	}
+
+	// Parse second frame
+	trailerOffset := 5 + msgLen1
+	flag2 := norm[trailerOffset]
+	if flag2 != 0x80 {
+		t.Fatalf("expected flag 0x80, got 0x%02x", flag2)
+	}
+	msgLen2 := int(binary.BigEndian.Uint32(norm[trailerOffset+1 : trailerOffset+5]))
+	payload2 := norm[trailerOffset+5 : trailerOffset+5+msgLen2]
+	if string(payload2) != "grpc-status: 0\r\n" {
+		t.Fatalf("expected trailer 'grpc-status: 0\\r\\n', got %s", string(payload2))
+	}
+	if trailerOffset+5+msgLen2 != len(norm) {
+		t.Fatalf("expected stream to end cleanly at total length %d, got %d", len(norm), trailerOffset+5+msgLen2)
+	}
+}
+
 
 
 

@@ -26,8 +26,14 @@ case "${OS}" in
         BIN_NAME="mgy.exe"
         PKG_EXT="zip"
         ;;
+    Linux)
+        OS_TYPE="linux"
+        OS_DESC="Linux"
+        BIN_NAME="mgy"
+        PKG_EXT="tar.gz"
+        ;;
     *)
-        echo "❌ 暂不支持的操作系统: ${OS} (目前官方正式版支持 macOS 及 Windows)"
+        echo "❌ 暂不支持的操作系统: ${OS} (目前官方正式版支持 macOS, Linux 及 Windows)"
         exit 1
         ;;
 esac
@@ -47,7 +53,7 @@ case "${ARCH}" in
             ARCH_DESC="Windows ARM64 (amd64 仿真)"
             PKG_ARCH="amd64"
         else
-            ARCH_DESC="Linux"
+            ARCH_DESC="Linux ARM64"
             PKG_ARCH="arm64"
         fi
         ;;
@@ -65,6 +71,9 @@ if [[ "${ARCH_DESC}" == *"("* ]]; then
 else
     echo "🖥️  检测到系统架构: ${ARCH_DESC} (${PKG_ARCH})"
 fi
+if [ "${OS_TYPE}" = "linux" ]; then
+    echo "🐧 已识别 Linux 平台环境，原生支持 Antigravity Daemon Discovery 协议与实例自愈"
+fi
 
 # 3. 准备安装与配置目录
 mkdir -p "${INSTALL_DIR}"
@@ -78,6 +87,10 @@ if [ ! -f "${CONF_DIR}/.env" ]; then
 
 # 网关监听端口 (默认 58900)
 MULTIGRAVITY_PORT=58900
+
+# 🛡️ 局域网访问安全策略 (0: 需配对码; 1: 信任局域网免配对直达工作台)
+# 适合家庭纯净内网开启 (1)；办公/公共 Wi-Fi 网络保持标准配对 (0)
+MULTIGRAVITY_TRUST_LAN=0
 
 # ☁️ Cloudflare Tunnel 专属公网穿透配置 (开箱即用)
 # CF_WORKER_URL=https://dispatcher.jiuge.space
@@ -216,7 +229,7 @@ else
         cp -f "./bin/${BIN_NAME}" "${INSTALL_DIR}/${BIN_NAME}"
     elif command -v go >/dev/null 2>&1 && [ -f "go.mod" ]; then
         echo "🔨 检测到本地 Go 编译环境，正在就地编译..."
-        go build -ldflags="-s -w -X 'main.Version=1.0.4'" -o "${INSTALL_DIR}/${BIN_NAME}" ./cmd/gateway
+        go build -ldflags="-s -w -X 'main.Version=1.0.5'" -o "${INSTALL_DIR}/${BIN_NAME}" ./cmd/gateway
     else
         echo "❌ 无法下载 Release 预编译包且无可用本地环境。"
         echo "   您可以尝试开启代理或手动访问以下地址下载解压:"
@@ -263,6 +276,29 @@ if [ "${OS_TYPE}" = "darwin" ]; then
     fi
 
     # 若仍未成功且存在 /usr/local/bin，尝试免密 sudo 创建软链接
+    if [ "${GLOBAL_LINKED}" = "false" ] && [ -d "/usr/local/bin" ]; then
+        if sudo -n true 2>/dev/null; then
+            sudo ln -sf "${INSTALL_DIR}/${BIN_NAME}" "/usr/local/bin/${BIN_NAME}" 2>/dev/null && {
+                echo "🔗 已通过免密授权创建全局快捷方式: /usr/local/bin/${BIN_NAME} (当前终端即刻可用)"
+                GLOBAL_LINKED=true
+            }
+        fi
+    fi
+
+elif [ "${OS_TYPE}" = "linux" ]; then
+    # 尝试将可执行文件软链接至已在默认 PATH 中的全局目录
+    CANDIDATE_DIRS=("/usr/local/bin" "/usr/bin")
+    for c_dir in "${CANDIDATE_DIRS[@]}"; do
+        if [ -d "${c_dir}" ] && [ -w "${c_dir}" ]; then
+            ln -sf "${INSTALL_DIR}/${BIN_NAME}" "${c_dir}/${BIN_NAME}" 2>/dev/null && {
+                echo "🔗 已自动创建全局快捷方式: ${c_dir}/${BIN_NAME} (当前终端即刻可用)"
+                GLOBAL_LINKED=true
+                break
+            }
+        fi
+    done
+
+    # 若常规目录不可写，尝试免密 sudo 创建软链接
     if [ "${GLOBAL_LINKED}" = "false" ] && [ -d "/usr/local/bin" ]; then
         if sudo -n true 2>/dev/null; then
             sudo ln -sf "${INSTALL_DIR}/${BIN_NAME}" "/usr/local/bin/${BIN_NAME}" 2>/dev/null && {
@@ -334,10 +370,15 @@ fi
 
 CF_EXISTING=""
 if command -v cloudflared >/dev/null 2>&1; then
-    CF_EXISTING="$(command -v cloudflared)"
-elif [ -f "${CF_TARGET}" ]; then
+    CF_CMD="$(command -v cloudflared)"
+    CF_SIZE="$(wc -c < "${CF_CMD}" 2>/dev/null || stat -f%z "${CF_CMD}" 2>/dev/null || stat -c%s "${CF_CMD}" 2>/dev/null || echo 0)"
+    if [ "${CF_SIZE}" -gt 10000000 ] && "${CF_CMD}" --version >/dev/null 2>&1; then
+        CF_EXISTING="${CF_CMD}"
+    fi
+fi
+if [ -z "${CF_EXISTING}" ] && [ -f "${CF_TARGET}" ]; then
     CF_SIZE="$(wc -c < "${CF_TARGET}" 2>/dev/null || stat -f%z "${CF_TARGET}" 2>/dev/null || stat -c%s "${CF_TARGET}" 2>/dev/null || echo 0)"
-    if [ "${CF_SIZE}" -gt 10000000 ]; then
+    if [ "${CF_SIZE}" -gt 10000000 ] && "${CF_TARGET}" --version >/dev/null 2>&1; then
         CF_EXISTING="${CF_TARGET}"
     fi
 fi
@@ -468,8 +509,66 @@ else
     fi
 fi
 
+# 8.5 首次安装交互式安全向导：局域网配对策略配置
+LAN_PREF_CONFIGURED=false
+if grep -q "^MULTIGRAVITY_TRUST_LAN=" "${CONF_DIR}/.env" 2>/dev/null && [ "${FORCE_CONFIG:-0}" != "1" ]; then
+    LAN_PREF_CONFIGURED=true
+fi
+
+# 检查是否支持交互式终端输入
+CAN_PROMPT=false
+if [ -t 0 ] || [ -c /dev/tty ]; then
+    CAN_PROMPT=true
+fi
+
+if [ "${LAN_PREF_CONFIGURED}" = "false" ] || [ "${FORCE_CONFIG:-0}" = "1" ]; then
+    if [ "${CAN_PROMPT}" = "true" ]; then
+        echo ""
+        echo "=================================================="
+        echo "⚙️  Multigravity 局域网访问安全偏好配置向导"
+        echo "=================================================="
+        echo "当您在手机、iPad 或同局域网其他电脑访问本网关时，是否需要配对码？"
+        echo ""
+        echo "  [1] 🔐 开启局域网配对校验（默认推荐）"
+        echo "      适合办公网络、公共 Wi-Fi 或有多人/访客环境。"
+        echo "      新设备首次接入必须输入配对码授权。"
+        echo ""
+        echo "  [2] 🚀 信任局域网免配对（极简直连）"
+        echo "      适合家庭纯净内网、私人可控网络。"
+        echo "      同局域网设备打开网页即可直接进入桌面工作台，公网穿透仍强制验证。"
+        echo ""
+        LAN_CHOICE="1"
+        if [ -c /dev/tty ]; then
+            read -r -p "请选择 [1-2] (默认: 1): " LAN_CHOICE </dev/tty || LAN_CHOICE="1"
+        elif [ -t 0 ]; then
+            read -r -p "请选择 [1-2] (默认: 1): " LAN_CHOICE || LAN_CHOICE="1"
+        fi
+
+        case "${LAN_CHOICE}" in
+            2|yes|true)
+                sed -i.bak '/^MULTIGRAVITY_TRUST_LAN=/d' "${CONF_DIR}/.env" 2>/dev/null || true
+                rm -f "${CONF_DIR}/.env.bak" 2>/dev/null || true
+                echo "MULTIGRAVITY_TRUST_LAN=1" >> "${CONF_DIR}/.env"
+                echo "✅ 已启用局域网信任免配对直连模式 (MULTIGRAVITY_TRUST_LAN=1)"
+                ;;
+            *)
+                sed -i.bak '/^MULTIGRAVITY_TRUST_LAN=/d' "${CONF_DIR}/.env" 2>/dev/null || true
+                rm -f "${CONF_DIR}/.env.bak" 2>/dev/null || true
+                echo "MULTIGRAVITY_TRUST_LAN=0" >> "${CONF_DIR}/.env"
+                echo "✅ 已保持标准安全配对模式 (MULTIGRAVITY_TRUST_LAN=0)"
+                ;;
+        esac
+        echo "💡 提示: 之后可随时在 ~/.multigravity/.env 中修改 MULTIGRAVITY_TRUST_LAN 的值"
+    else
+        # 非交互环境保持默认安全策略
+        if ! grep -q "^MULTIGRAVITY_TRUST_LAN=" "${CONF_DIR}/.env" 2>/dev/null; then
+            echo "MULTIGRAVITY_TRUST_LAN=0" >> "${CONF_DIR}/.env"
+        fi
+    fi
+fi
+
 # 9. 验证安装
-INSTALLED_VER="$("${INSTALL_DIR}/${BIN_NAME}" version 2>/dev/null || echo "1.0.4")"
+INSTALLED_VER="$("${INSTALL_DIR}/${BIN_NAME}" version 2>/dev/null || echo "1.0.5")"
 
 echo ""
 echo "=================================================="

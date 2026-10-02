@@ -27,11 +27,22 @@ type gzipResponseWriter struct {
 }
 
 func (g *gzipResponseWriter) Write(b []byte) (int, error) {
+	g.ResponseWriter.Header().Del("Content-Length")
+	g.ResponseWriter.Header().Set("Content-Encoding", "gzip")
 	return g.writer.Write(b)
 }
 
 func (g *gzipResponseWriter) WriteHeader(status int) {
+	g.ResponseWriter.Header().Del("Content-Length")
+	g.ResponseWriter.Header().Set("Content-Encoding", "gzip")
 	g.ResponseWriter.WriteHeader(status)
+}
+
+func (g *gzipResponseWriter) Flush() {
+	_ = g.writer.Flush()
+	if f, ok := g.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
 }
 
 // Handler returns an http.Handler that serves embedded web assets with gzip compression,
@@ -96,8 +107,8 @@ func GzipHandler(next http.Handler) http.Handler {
 }
 
 func setCacheHeaders(w http.ResponseWriter, path string) {
-	// Service worker and HTML shell must not be cached aggressively
-	if path == "sw.js" || path == "index.html" || path == "" {
+	// Service worker, HTML shell, localization, and switcher scripts must not be cached aggressively
+	if path == "sw.js" || path == "index.html" || path == "zh-CN.js" || path == "view-switcher.js" || path == "view-switcher.css" || path == "" {
 		w.Header().Set("Cache-Control", "no-cache, must-revalidate")
 		return
 	}

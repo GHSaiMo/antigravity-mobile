@@ -10,12 +10,12 @@ import (
 	"time"
 )
 
-// AuthPolicy controls loopback-trust and AUTH_DISABLED. Zero value preserves
-// historical local-dev behavior (loopback may administer; AUTH_DISABLED honored
-// only when the process is actually listening on loopback with no tunnel).
+// AuthPolicy controls loopback-trust, LAN trust, and AUTH_DISABLED. Zero value preserves
+// historical local-dev behavior.
 type AuthPolicy struct {
 	TunnelEnabled  bool
 	ListenLoopback bool
+	TrustLAN       bool
 }
 
 type contextKey string
@@ -185,6 +185,53 @@ func AuthMiddlewareWithPolicy(store *AuthStore, next http.Handler, policy AuthPo
 		// Whitelisted paths bypass authentication
 		if IsWhitelistedPath(path) {
 			next.ServeHTTP(w, r)
+			return
+		}
+
+		// 1. Genuine Localhost access (no pairing required)
+		isLocalhost := IsLoopbackAddr(r.RemoteAddr) && !IsCloudflareRequest(r)
+
+		// 2. Genuine Private LAN access when policy.TrustLAN is enabled
+		isTrustedLAN := policy.TrustLAN && IsPrivateLANAddr(r.RemoteAddr) && !IsCloudflareRequest(r)
+
+		if isLocalhost || isTrustedLAN {
+			var autoDev *PairedDevice
+			if isLocalhost {
+				autoDev = &PairedDevice{
+					DeviceID:   "admin-local",
+					DeviceName: "Local Administrator",
+					Platform:   "local",
+					CreatedAt:  time.Now(),
+					LastSeenAt: time.Now(),
+					LastSeenIP: "127.0.0.1",
+				}
+			} else {
+				clientIP := ExtractClientIP(r)
+				autoDev = &PairedDevice{
+					DeviceID:   "lan-" + clientIP,
+					DeviceName: "LAN (" + clientIP + ")",
+					Platform:   "lan",
+					CreatedAt:  time.Now(),
+					LastSeenAt: time.Now(),
+					LastSeenIP: clientIP,
+				}
+			}
+
+			// Ensure session cookie is set so subsequent browser requests remain authenticated
+			if _, err := r.Cookie(DeviceCookieName); err != nil {
+				if adminTok := GetAdminToken(); adminTok != "" {
+					http.SetCookie(w, &http.Cookie{
+						Name:     DeviceCookieName,
+						Value:    adminTok,
+						Path:     "/",
+						HttpOnly: true,
+						SameSite: http.SameSiteLaxMode,
+					})
+				}
+			}
+
+			ctx := context.WithValue(r.Context(), DeviceContextKey, autoDev)
+			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
 

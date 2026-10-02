@@ -51,15 +51,17 @@ func (i *Inspector) findProcess(ctx context.Context) (int, string, error) {
 	}
 
 	for _, p := range procs {
-		if strings.Contains(p.CommandLine, "language_server") && strings.Contains(p.CommandLine, "--csrf_token") {
+		if strings.Contains(p.CommandLine, "language_server") {
+			var csrfToken string
 			matches := csrfRegex.FindStringSubmatch(p.CommandLine)
 			if len(matches) > 1 {
-				return p.ProcessID, matches[1], nil
+				csrfToken = matches[1]
 			}
+			return p.ProcessID, csrfToken, nil
 		}
 	}
 
-	return 0, "", fmt.Errorf("language_server process found but no CSRF token in command line")
+	return 0, "", fmt.Errorf("language_server process not found")
 }
 
 // findListeningPorts uses netstat -ano -p tcp to query TCP LISTEN ports for a given PID on Windows.

@@ -8,7 +8,7 @@ endif
 # Build the unified single binary with embedded web assets
 build:
 	@mkdir -p bin
-	go build -ldflags="-s -w -X 'main.Version=1.0.4'" -o bin/$(BIN_NAME) ./cmd/gateway
+	go build -ldflags="-s -w -X 'main.Version=1.0.5'" -o bin/$(BIN_NAME) ./cmd/gateway
 ifeq ($(OS),Windows_NT)
 	@echo Build complete: bin/$(BIN_NAME)
 else
@@ -16,6 +16,13 @@ else
 	@codesign -s - -f bin/mgy 2>/dev/null || true
 	@echo "Build complete: bin/mgy (symlinked as bin/gateway)"
 endif
+
+# Build for Linux x86_64
+build-linux:
+	@mkdir -p bin
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X 'main.Version=1.0.5'" -o bin/mgy-linux-amd64 ./cmd/gateway
+	@echo "Build complete: bin/mgy-linux-amd64"
+
 
 # Install mgy to user PATH for quick local testing
 install-local: build

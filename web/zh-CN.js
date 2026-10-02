@@ -510,8 +510,126 @@
     ["All", "全部"],
     ["Dark", "深色模式"],
     ["Light", "浅色模式"],
-    ["System", "跟随系统"]
+    ["System", "跟随系统"],
+
+    // --- 新版常用操作与菜单按钮 ---
+    ["Add context", "添加上下文"],
+    ["Add Context", "添加上下文"],
+    ["Send message", "发送消息"],
+    ["Send Message", "发送消息"],
+    ["Select Agent", "选择智能体"],
+    ["Select agent", "选择智能体"],
+    ["Main Agent", "主智能体"],
+    ["Main agent", "主智能体"],
+    ["Message input", "消息输入"],
+    ["Media", "媒体文件"],
+    ["Mentions", "@提及引用"],
+    ["Actions", "/快捷指令"],
+    ["Loading models...", "正在加载模型列表..."],
+    ["Refresh", "刷新"],
+    ["Agents", "智能体群"],
+    ["Getting scripts...", "正在获取脚本..."],
+    ["Click to Open Docs", "点击打开官方文档"],
+    ["Click to open docs", "点击打开官方文档"],
+    ["Terminal", "集成终端"],
+    ["Group By", "分组方式"],
+    ["Group by", "分组方式"],
+    ["Sort Conversations", "会话排序"],
+    ["Sort conversations", "会话排序"],
+    ["Last Updated", "最近更新时间"],
+    ["Last Prompt", "最后提问时间"],
+    ["Alphabetical (A-Z)", "字母顺序 (A-Z)"],
+    ["Date Added", "创建添加时间"],
+    ["View", "视图与展示"],
+    ["Archived Only", "仅显示归档会话"],
+    ["Display", "界面显示"],
+    ["Subtitles", "副标题与信息展示"],
+    ["Worktree", "工作树路径 (Worktree)"],
+    ["No Project", "未关联项目"],
+    ["New Conversation in Project", "在项目中新建会话"],
+    ["Conversation History", "历史会话"],
+    ["Create New Project", "创建新工程项目"],
+    ["Type", "输入"],
+    ["and select", "并选择"],
+    ["to have the agent generate a plan.", "即可让智能体生成计划。"],
+    ["to have the agent generate a plan", "即可让智能体生成计划"],
+    ["Configure the browser subagent. It requires", "配置浏览器智能体，该功能需要已安装"],
+    ["to be installed.", "。"],
+    ["to be installed", "。"],
+    ["Close", "关闭"],
+    ["Queue until after the current turn.", "在当前轮次结束后排队发送。"],
+    ["Interrupt the agent and send immediately.", "打断智能体并立即发送。"],
+    ["Keyboard shortcuts", "键盘快捷键"],
+    ["Security Preset", "安全预设策略"],
+    ["Turbo Mode", "极速模式 (Turbo)"],
+    ["Turbo mode", "极速模式 (Turbo)"],
+    ["Learn more about", "了解更多关于"],
+    ["Plan Review Policy", "计划审核策略"],
+    ["Always Ask", "每次询问确认"],
+    ["Inherit Global", "继承全局设置"],
+    ["Terminal & Tooling Permissions", "终端与工具权限"],
+    ["Request Review", "每次请求审查"],
+    ["Automatic Check for Updates", "自动检查版本更新"],
+    ["Contrast", "对比度"],
+    ["Strong", "高对比 (Strong)"],
+    ["Default Light", "经典浅白"],
+    ["Default Dark", "深邃炭黑"],
+    ["Context Menus", "右键上下文菜单"],
+    ["Custom Context Menus", "自定义右键快捷菜单"],
+    ["Replace the default browser right-click menu with quick actions.", "使用智能体快捷操作替换浏览器默认的右键菜单。"],
+    ["No token data available.", "暂无 Token 消耗数据。"],
+    ["Add MCP", "添加 MCP 服务"],
+    ["Add MCP Servers", "添加 MCP 服务"],
+    ["Loading MCP servers...", "正在加载 MCP 服务..."],
+    ["Customize", "自定义配置"],
+    ["Agent Settings", "智能体设置"],
+    ["Local Permissions", "项目本地权限"],
+    ["Loading workspace customizations...", "正在加载工作区扩展配置..."],
+    ["RECOMMENDED", "推荐常用快捷键"],
+    ["NAVIGATION", "页面与窗口导航"],
+    ["CONVERSATION", "对话与交互操作"],
+    ["LAYOUT CONTROLS", "布局与面板控制"],
+    ["Manage your plan, credentials, and general preferences.", "管理您的计划订阅、身份凭据与通用偏好设置。"],
+    ["Manage Multigravity app settings.", "管理 Multigravity 客户端设置与偏好。"],
+    ["Not Signed In", "未登录账户"],
+    ["Sign In", "立即登录"],
+    ["By using this app, you agree to its", "使用此应用即表示您同意其"],
+    ["Terms of Service", "服务条款"],
+    ["Mark as read", "标记为已读"],
+    ["Mark as Read", "标记为已读"],
+    ["Status", "按状态分组"],
+    ["None", "不分组"],
+    ["Allow Once", "仅允许一次"],
+    ["Always Allow", "始终允许"],
+    ["Allow", "允许"],
+    ["Deny", "拒绝"],
+    ["Run in Terminal", "在终端中运行"],
+    ["Approve Command", "批准执行命令"],
+    ["Approve File Edit", "批准修改文件"],
+    ["Keep Changes", "保留改动"],
+    ["Discard Changes", "放弃改动"],
+    ["Show Diff", "显示差异对比"],
+    ["Hide Diff", "隐藏差异对比"],
+    ["Inline Diff", "行内差异"],
+    ["Side-by-Side Diff", "并排差异"],
+    ["Thinking Process", "深度思考过程"],
+    ["Hide Thinking", "收起思考过程"],
+    ["Show Thinking", "展开思考过程"],
+    ["Thought for", "深度思考耗时"],
+    ["Interactive Folder Picker", "文件夹浏览选择器"],
+    ["Open Folder", "打开文件夹"],
+    ["Select Folder", "选择文件夹"],
+    ["New Folder", "新建文件夹"],
+    ["Folder Name", "文件夹名称"],
+    ["Create Folder", "创建文件夹"],
+    ["OK", "确定"]
   ]);
+
+  // 建立忽略大小写的查询备份表，消除大小写差异
+  const lowerDict = new Map();
+  for (const [k, v] of exactDict.entries()) {
+    lowerDict.set(k.toLowerCase().trim(), v);
+  }
 
   // 2. 动态正则匹配规则 (处理带变量、数字、时间的文本)
   // 注意：使用 RegExp 构造函数以避免转义歧义
@@ -578,12 +696,34 @@
     [new RegExp("^Configure default behaviors, skills, and MCP servers\\. Learn more\\.?$", "i"), "配置默认行为策略、技能库 (Skills) 与 MCP 服务节点。了解更多。"],
     [new RegExp("^Configure global allowed and denied resource permissions\\. Learn more\\.?$", "i"), "配置全局允许与拒绝的资源访问权限。了解更多。"],
     [new RegExp("^Browser settings have moved to the Browser section of General settings\\. Go to General settings$", "i"), "浏览器设置已整合至常规偏好设置中的“浏览器”专区。前往常规设置"],
-    [new RegExp("^Select project,\\s*current:\\s*(.+)$", "i"), "选择项目，当前为：$1"],
     [new RegExp("^Select project$", "i"), "选择工程项目"],
     [new RegExp("^No matching (.+)$", "i"), "未找到匹配的 $1"],
     [new RegExp("^No (.+) found\\.?$", "i"), "未找到 $1。"],
     [new RegExp("^Working directory:\\s*(.+)$", "i"), "工作目录：$1"],
-    [new RegExp("^Page title:\\s*(.+)$", "i"), "页面标题：$1"]
+    [new RegExp("^Page title:\\s*(.+)$", "i"), "页面标题：$1"],
+
+    // 模型与项目选择下拉 aria-label
+    [new RegExp("^Select model,\\s*current:\\s*(.+)$", "i"), (m, p1) => `选择模型，当前为：${translateString(p1)}`],
+    [new RegExp("^Select project,\\s*current:\\s*(.+)$", "i"), (m, p1) => `选择项目，当前为：${translateString(p1)}`],
+    [new RegExp("^Select Agent$", "i"), "选择智能体"],
+    [new RegExp("^Main Agent$", "i"), "主智能体"],
+    [new RegExp("^Security Preset\\s+(.+)$", "i"), (m, p1) => `安全预设策略：${translateString(p1)}`],
+    [new RegExp("^Plan Review Policy\\s+(.+)$", "i"), (m, p1) => `计划审核策略：${translateString(p1)}`],
+    [new RegExp("^Queue until after the current turn\\.?$", "i"), "在当前轮次结束后排队发送。"],
+    [new RegExp("^Interrupt the agent and send immediately\\.?$", "i"), "打断智能体并立即发送。"],
+    [new RegExp("^Manage Multigravity app settings\\.?$", "i"), "管理 Multigravity 客户端设置与偏好。"],
+    [new RegExp("^Manage your plan, credentials, and general preferences\\.?$", "i"), "管理您的计划订阅、身份凭据与通用偏好设置。"],
+    [new RegExp("^Replace the default browser right-click menu with quick actions\\.?$", "i"), "使用智能体快捷操作替换浏览器默认的右键菜单。"],
+    [new RegExp("^Configure the browser subagent\\.\\s*It requires\\s*(.+?)\\s*to be installed\\.?$", "i"), "配置浏览器智能体。这需要已安装 $1。"],
+    [new RegExp("^The browser subagent can be invoked by typing /browser in the conversation input box\\.?$", "i"), "在对话输入框输入 /browser 即可调用浏览器智能体。"],
+    [new RegExp("^Type\\s*/\\s*and select\\s*plan\\s*to have the agent generate a plan\\.?$", "i"), "输入 / 并选择 plan 即可让智能体生成执行计划。"],
+    [new RegExp("^Sign in to use (.+?)!?$", "i"), "登录以使用 $1 服务！"],
+    [new RegExp("^Also includes (.+?) when working in this project\\.?$", "i"), "在当前项目中工作时同时包含 $1。"],
+    [new RegExp("^By using this app, you agree to its$", "i"), "使用此应用即表示您同意其"],
+    [new RegExp("^When working in this project\\. Learn more\\.?$", "i"), "在当前项目中生效。了解更多。"],
+    [new RegExp("^The folder “(.+?)” does not exist\\. Would you like to create it\\?$", "i"), "目录 “$1” 不存在。您是否希望创建它？"],
+    [new RegExp("^Directory (.+?) does not exist\\.?$", "i"), "目录 $1 不存在。"],
+    [new RegExp("^Failed to read directory (.+?):\\s*(.+)$", "i"), "读取目录 $1 失败：$2"]
   ];
 
   // 3. 安全检测：判断是否为不可汉化的代码块或数据区域
@@ -621,6 +761,13 @@
     // 优先静态查表
     if (exactDict.has(trimmed)) {
       const translated = exactDict.get(trimmed);
+      return str.replace(trimmed, translated);
+    }
+
+    // 忽略大小写查表
+    const lower = trimmed.toLowerCase();
+    if (lowerDict.has(lower)) {
+      const translated = lowerDict.get(lower);
       return str.replace(trimmed, translated);
     }
 
@@ -668,7 +815,7 @@
 
     if (node.nodeType === Node.ELEMENT_NODE) {
       const el = node;
-      if (shouldIgnoreElement(el)) return;
+      if (!el || !el.tagName || IGNORE_TAGS.has(el.tagName)) return;
 
       // 翻译 input / textarea 的 placeholder
       if (el.placeholder) {
@@ -694,6 +841,15 @@
         const trLabel = translateString(label);
         if (trLabel !== label) {
           el.setAttribute("aria-label", trLabel);
+        }
+      }
+
+      // 翻译 aria-description 提示
+      if (el.getAttribute && el.getAttribute("aria-description")) {
+        const desc = el.getAttribute("aria-description");
+        const trDesc = translateString(desc);
+        if (trDesc !== desc) {
+          el.setAttribute("aria-description", trDesc);
         }
       }
 
@@ -730,6 +886,9 @@
         }
       }
 
+      // 保护内部代码/终端/用户编辑文本：如果是忽略元素，则不递归翻译其内部子节点
+      if (shouldIgnoreElement(el)) return;
+
       // 递归子节点
       for (let child = el.firstChild; child; child = child.nextSibling) {
         translateNode(child);
@@ -764,38 +923,61 @@
           }
         } else if (m.type === "characterData") {
           translateNode(m.target);
+        } else if (m.type === "attributes") {
+          const attr = m.attributeName;
+          const el = m.target;
+          if (el && el.getAttribute && !shouldIgnoreElement(el)) {
+            const current = el.getAttribute(attr);
+            if (current) {
+              const tr = translateString(current);
+              if (tr !== current) {
+                el.setAttribute(attr, tr);
+                if (attr === "placeholder") el.placeholder = tr;
+                if (attr === "title") el.title = tr;
+              }
+            }
+          }
         }
       }
     });
   });
 
+  const observeConfig = {
+    childList: true,
+    subtree: true,
+    characterData: true,
+    attributes: true,
+    attributeFilter: [
+      "aria-label",
+      "aria-description",
+      "placeholder",
+      "title",
+      "data-tooltip-content",
+      "data-tooltip-text",
+      "data-tooltip",
+      "data-tip"
+    ]
+  };
+
   // 启动观察器
   function init() {
     runLocalization();
     if (document.body) {
-      observer.observe(document.body, {
-        childList: true,
-        subtree: true,
-        characterData: true
-      });
+      observer.observe(document.body, observeConfig);
     } else {
       document.addEventListener("DOMContentLoaded", () => {
         runLocalization();
-        observer.observe(document.body, {
-          childList: true,
-          subtree: true,
-          characterData: true
-        });
+        observer.observe(document.body, observeConfig);
       });
     }
     // 周期空闲扫描兜底（处理某些 React 异步重渲染）
     setInterval(() => {
       if (typeof requestIdleCallback === "function") {
-        requestIdleCallback(runLocalization, { timeout: 2000 });
+        requestIdleCallback(runLocalization, { timeout: 1000 });
       } else {
         runLocalization();
       }
-    }, 15000);
+    }, 3000);
   }
 
   if (document.readyState === "loading") {

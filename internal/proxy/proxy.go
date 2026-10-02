@@ -2,8 +2,10 @@ package proxy
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -185,7 +187,7 @@ func NewProxy(insp inspector.UpstreamDiscoverer) *Proxy {
 		MaxIdleConnsPerHost:   50,
 		MaxConnsPerHost:       100,
 		IdleConnTimeout:       90 * time.Second,
-		ResponseHeaderTimeout: 30 * time.Second,
+		ResponseHeaderTimeout: 0, // 0 allows long-polling and streaming ConnectRPC endpoints without dropping
 		ExpectContinueTimeout: 1 * time.Second,
 	}
 
@@ -258,6 +260,29 @@ func (p *Proxy) updateUpstream(info inspector.InstanceInfo) {
 			resp.Header.Del("Content-Length") // length is now unknown
 			resp.ContentLength = -1
 		}
+		if resp.Request != nil && resp.Request.URL != nil {
+			path := resp.Request.URL.Path
+			if path == "/main.js" || path == "/jetbox.css" || path == "/compiled_tailwind.css" ||
+				path == "/prism_bundle.js" || path == "/diff_worker.js" || path == "/icon.png" ||
+				strings.HasPrefix(path, "/symbols-icons/") {
+				resp.Header.Set("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800")
+				resp.Header.Del("Content-Length")
+				resp.ContentLength = -1
+			}
+
+			// Normalize FileType enum strings ("FILE_TYPE_DIRECTORY", "FILE_TYPE_FILE", etc.)
+			// to numeric enum values (2, 1, 3, 0) expected by the official web bundle.
+			if resp.StatusCode == http.StatusOK && (strings.HasSuffix(path, "/ReadDir") || strings.HasSuffix(path, "/StatUri") || strings.HasSuffix(path, "/GetFileDetails") || strings.HasSuffix(path, "/FindFiles")) {
+				raw, err := io.ReadAll(resp.Body)
+				if err == nil {
+					_ = resp.Body.Close()
+					norm := normalizeFileTypes(raw)
+					resp.Body = io.NopCloser(bytes.NewReader(norm))
+					resp.ContentLength = int64(len(norm))
+					resp.Header.Set("Content-Length", strconv.Itoa(len(norm)))
+				}
+			}
+		}
 		return nil
 	}
 
@@ -268,7 +293,8 @@ func (p *Proxy) updateUpstream(info inspector.InstanceInfo) {
 		log.Printf("[Proxy] Updated upstream proxy to 127.0.0.1:%d", port)
 	}
 
-	// Reset historical sync state and asynchronously sync historical trajectories
+	// Reset historical sync state, static cache, and asynchronously sync historical trajectories
+	ClearDesktopStaticCache()
 	ResetHistoricalSyncState()
 	go func(prt int, tok string) {
 		_ = p.SyncHistoricalTrajectories(prt, tok)
@@ -738,6 +764,10 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 	cascadeID := ""
 	if err := json.Unmarshal(bodyBytes, &rawMap); err == nil {
 		cascadeID, _ = rawMap["cascadeId"].(string)
+		if strings.TrimSpace(cascadeID) == "" {
+			http.Error(w, `{"error":"invalid_argument: cascadeId is required"}`, http.StatusBadRequest)
+			return
+		}
 
 		// Short-window idempotency check: prevent duplicate triggers within 15 seconds
 		// PERF: use streaming hasher to avoid full string copy for sha256
@@ -1985,18 +2015,123 @@ func isSubagentTrajectoryMap(s map[string]interface{}, id string) bool {
 	return false
 }
 
-// HandleDesktopStatic proxies desktop static assets directly to upstream language_server.
+type desktopStaticCacheItem struct {
+	contentType string
+	etag        string
+	rawBody     []byte
+	gzipBody    []byte
+}
+
+var (
+	desktopStaticCacheMu sync.RWMutex
+	desktopStaticCache   = make(map[string]*desktopStaticCacheItem)
+)
+
+// ClearDesktopStaticCache flushes cached desktop static assets (e.g. on upstream reconnect).
+func ClearDesktopStaticCache() {
+	desktopStaticCacheMu.Lock()
+	desktopStaticCache = make(map[string]*desktopStaticCacheItem)
+	desktopStaticCacheMu.Unlock()
+}
+
+// HandleDesktopStatic serves desktop static assets with in-memory caching, pre-compressed gzip,
+// and conditional 304 Not Modified validation to maximize frontend responsiveness.
 func (p *Proxy) HandleDesktopStatic(w http.ResponseWriter, r *http.Request) {
 	p.mu.RLock()
-	rp := p.activeProxy
+	port := p.activePort
+	token := p.activeToken
 	p.mu.RUnlock()
 
-	if rp == nil {
+	if port == 0 {
 		http.Error(w, "Antigravity language_server is not connected", http.StatusServiceUnavailable)
 		return
 	}
 
-	rp.ServeHTTP(w, r)
+	path := r.URL.Path
+
+	desktopStaticCacheMu.RLock()
+	item := desktopStaticCache[path]
+	desktopStaticCacheMu.RUnlock()
+
+	if item == nil {
+		targetURL := fmt.Sprintf("https://127.0.0.1:%d%s", port, path)
+		req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, targetURL, nil)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if token != "" {
+			req.Header.Set("x-codeium-csrf-token", token)
+		}
+		resp, err := p.shortClient.Do(req)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			w.WriteHeader(resp.StatusCode)
+			_, _ = io.Copy(w, resp.Body)
+			return
+		}
+
+		rawBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		cType := resp.Header.Get("Content-Type")
+		if cType == "" {
+			cType = "application/javascript; charset=utf-8"
+		}
+		etag := resp.Header.Get("Etag")
+		if etag == "" {
+			h := sha256.Sum256(rawBytes)
+			etag = fmt.Sprintf(`W/"%x"`, h[:8])
+		}
+
+		var gzBuf bytes.Buffer
+		gw, _ := gzip.NewWriterLevel(&gzBuf, gzip.BestSpeed)
+		_, _ = gw.Write(rawBytes)
+		_ = gw.Close()
+
+		item = &desktopStaticCacheItem{
+			contentType: cType,
+			etag:        etag,
+			rawBody:     rawBytes,
+			gzipBody:    gzBuf.Bytes(),
+		}
+
+		desktopStaticCacheMu.Lock()
+		desktopStaticCache[path] = item
+		desktopStaticCacheMu.Unlock()
+	}
+
+	// 304 Not Modified validation
+	if match := r.Header.Get("If-None-Match"); match != "" && (match == item.etag || match == "*") {
+		w.Header().Set("ETag", item.etag)
+		w.Header().Set("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800")
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+
+	w.Header().Set("Content-Type", item.contentType)
+	w.Header().Set("ETag", item.etag)
+	w.Header().Set("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800")
+	w.Header().Set("Vary", "Accept-Encoding")
+
+	if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") && len(item.gzipBody) > 0 {
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Set("Content-Length", strconv.Itoa(len(item.gzipBody)))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(item.gzipBody)
+	} else {
+		w.Header().Set("Content-Length", strconv.Itoa(len(item.rawBody)))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(item.rawBody)
+	}
 }
 
 // HandleDesktopIndex serves the official desktop web index.html with live CSRF injection,
@@ -2061,18 +2196,20 @@ func (p *Proxy) HandleDesktopIndex(w http.ResponseWriter, r *http.Request) {
 	htmlStr := string(bodyBytes)
 
 	// 1. Ensure fresh CSRF token is injected into window.__APP_CONFIG__
-	if token != "" {
-		reCSRF := regexp.MustCompile(`"csrfToken":"[^"]*"`)
-		htmlStr = reCSRF.ReplaceAllString(htmlStr, fmt.Sprintf(`"csrfToken":%q`, token))
-
-		// Set cookie so L9() and T6b() can read it
-		http.SetCookie(w, &http.Cookie{
-			Name:     "csrfToken",
-			Value:    token,
-			Path:     "/",
-			SameSite: http.SameSiteLaxMode,
-		})
+	effectiveToken := token
+	if effectiveToken == "" {
+		effectiveToken = "headless-csrf-token"
 	}
+	reCSRF := regexp.MustCompile(`"csrfToken":"[^"]*"`)
+	htmlStr = reCSRF.ReplaceAllString(htmlStr, fmt.Sprintf(`"csrfToken":%q`, effectiveToken))
+
+	// Set cookie so L9() and T6b() can read it
+	http.SetCookie(w, &http.Cookie{
+		Name:     "csrfToken",
+		Value:    effectiveToken,
+		Path:     "/",
+		SameSite: http.SameSiteLaxMode,
+	})
 
 	// 2. Align productName to Multigravity in window.__APP_CONFIG__
 	reProduct := regexp.MustCompile(`"productName":"[^"]*"`)
@@ -2100,11 +2237,12 @@ func (p *Proxy) HandleDesktopIndex(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 5. Inject view-switcher.css into <head>
-	cssInject := "    <link rel=\"stylesheet\" href=\"/view-switcher.css\" />\n  </head>"
+	versionTs := p.startTime.Unix()
+	cssInject := fmt.Sprintf("    <link rel=\"stylesheet\" href=\"/view-switcher.css?v=%d\" />\n  </head>", versionTs)
 	htmlStr = strings.Replace(htmlStr, "</head>", cssInject, 1)
 
 	// 6. Inject zh-CN.js and view-switcher.js before </body>
-	jsInject := "    <script src=\"/zh-CN.js\"></script>\n    <script src=\"/view-switcher.js\"></script>\n  </body>"
+	jsInject := fmt.Sprintf("    <script src=\"/zh-CN.js?v=%d\"></script>\n    <script src=\"/view-switcher.js?v=%d\"></script>\n  </body>", versionTs, versionTs)
 	htmlStr = strings.Replace(htmlStr, "</body>", jsInject, 1)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -2114,3 +2252,75 @@ func (p *Proxy) HandleDesktopIndex(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(htmlStr))
 }
+
+// isGrpcWebFramed checks if data matches gRPC-Web / Connect framed streaming format:
+// A sequence of frames where each frame has [1 byte flag][4 bytes big-endian length][payload bytes].
+func isGrpcWebFramed(data []byte) bool {
+	if len(data) < 5 {
+		return false
+	}
+	idx := 0
+	for idx < len(data) {
+		if idx+5 > len(data) {
+			return false
+		}
+		flag := data[idx]
+		// Valid gRPC-Web flags: 0x00 (data), 0x01 (compressed data), 0x80 (trailers)
+		if flag != 0x00 && flag != 0x01 && flag != 0x80 {
+			return false
+		}
+		msgLen := int(binary.BigEndian.Uint32(data[idx+1 : idx+5]))
+		if idx+5+msgLen > len(data) {
+			return false
+		}
+		idx += 5 + msgLen
+	}
+	return idx == len(data)
+}
+
+func replaceFileTypeEnums(body []byte) []byte {
+	body = bytes.ReplaceAll(body, []byte(`"FILE_TYPE_DIRECTORY"`), []byte(`2`))
+	body = bytes.ReplaceAll(body, []byte(`"FILE_TYPE_FILE"`), []byte(`1`))
+	body = bytes.ReplaceAll(body, []byte(`"FILE_TYPE_SYMLINK"`), []byte(`3`))
+	body = bytes.ReplaceAll(body, []byte(`"FILE_TYPE_UNSPECIFIED"`), []byte(`0`))
+	return body
+}
+
+// normalizeFileTypes transforms proto enum string values ("FILE_TYPE_DIRECTORY", etc.)
+// into numeric enum values (2, 1, 3, 0) expected by the ConnectRPC client in main.js.
+// It supports both raw JSON and gRPC-Web / Connect enveloped streams, adjusting
+// the 4-byte big-endian frame lengths to prevent "protocol error: incomplete envelope".
+func normalizeFileTypes(body []byte) []byte {
+	if !bytes.Contains(body, []byte("FILE_TYPE_")) {
+		return body
+	}
+	if !isGrpcWebFramed(body) {
+		return replaceFileTypeEnums(body)
+	}
+
+	var out bytes.Buffer
+	idx := 0
+	for idx < len(body) {
+		flag := body[idx]
+		msgLen := int(binary.BigEndian.Uint32(body[idx+1 : idx+5]))
+		payload := body[idx+5 : idx+5+msgLen]
+
+		if flag == 0x00 || flag == 0x01 {
+			normPayload := replaceFileTypeEnums(payload)
+			out.WriteByte(flag)
+			var lenBuf [4]byte
+			binary.BigEndian.PutUint32(lenBuf[:], uint32(len(normPayload)))
+			out.Write(lenBuf[:])
+			out.Write(normPayload)
+		} else {
+			out.WriteByte(flag)
+			var lenBuf [4]byte
+			binary.BigEndian.PutUint32(lenBuf[:], uint32(len(payload)))
+			out.Write(lenBuf[:])
+			out.Write(payload)
+		}
+		idx += 5 + msgLen
+	}
+	return out.Bytes()
+}
+

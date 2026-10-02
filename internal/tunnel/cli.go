@@ -2,6 +2,7 @@ package tunnel
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -35,6 +36,8 @@ func RunCloudflareCmd(args []string) {
 		runCloudflareSetCodeCmd(args[1:])
 	case "set-token":
 		runCloudflareSetTokenCmd(args[1:])
+	case "pull", "download", "install":
+		runCloudflarePullCmd()
 	case "wizard", "config":
 		runCloudflareInteractiveWizard()
 	case "help", "-h", "--help":
@@ -64,8 +67,19 @@ func runCloudflareHelpCmd() {
   mgy cloudflare set-worker  设置自定义 Cloudflare Worker 调度器地址
   mgy cloudflare set-code    设置 Worker 调度器专属暗号/邀请码
   mgy cloudflare set-token   手动指定已有专属 Tunnel Token
+  mgy cloudflare pull        预载/校验/更新 Cloudflare 官方穿透引擎
   mgy cloudflare help        显示此帮助信息
 `)
+}
+
+func runCloudflarePullCmd() {
+	fmt.Println("⏬ 正在获取/验证 Cloudflare 官方穿透引擎...")
+	bin, err := EnsureCloudflaredBinary(context.Background())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "❌ 获取穿透引擎失败: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("✅ Cloudflare 穿透引擎已就绪: %s\n", bin)
 }
 
 func runCloudflareStatusCmd() {
@@ -134,7 +148,7 @@ func runCloudflareStatusCmd() {
 	fmt.Fprintf(w, "隧道凭据\t%s\tCloudflare Tunnel 鉴权信息\n", tokenDesc)
 
 	// Binary
-	binDesc := "❌ 未就绪 (启动网关时自动下载)"
+	binDesc := "❌ 未就绪 (启动网关或执行 mgy cf pull 自动下载)"
 	if hasBin {
 		binDesc = fmt.Sprintf("✅ 已就绪 (%s)", binPath)
 	}
