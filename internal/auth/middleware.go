@@ -108,8 +108,8 @@ func IsWhitelistedPath(path string) bool {
 		return true
 	}
 
-	// Public health probe only. /gateway/status, cascade touch/invalidate require a device token.
-	if path == "/healthz" || path == "/readyz" {
+	// Public health probe and version info. /gateway/status, cascade touch/invalidate require a device token.
+	if path == "/healthz" || path == "/readyz" || path == "/api/v1/version" {
 		return true
 	}
 
@@ -306,8 +306,8 @@ var defaultSecurityHeaders = []staticHeaderItem{
 	{"X-Frame-Options", "DENY"},
 	{"Referrer-Policy", "strict-origin-when-cross-origin"},
 	{"Permissions-Policy", "camera=(), microphone=(), geolocation=()"},
-	// S4: 'unsafe-inline' removed; explicit SHA-256 hashes of known static scripts.
-	{"Content-Security-Policy", "default-src 'self'; script-src 'self' 'sha256-Xk1+itJeFRvwjzt1EHd9xXCB+HwHPF80YyAScWAl3Q8=' 'sha256-YbM1pG3wWnzhyYN49g5fPnen+2CKEFaZfopkkwSpNtY=' 'sha256-XKqsbto5R82BOuH6aUtFveBZbz4d08CZ8KPyGnkeoaY='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"},
+	// S4: Security policy supporting both desktop Monaco workbench and mobile PWA with WebSocket
+	{"Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.gstatic.com https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https: ws: wss:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"},
 }
 
 const defaultHSTSValue = "max-age=31536000; includeSubDomains"

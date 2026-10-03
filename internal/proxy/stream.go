@@ -230,9 +230,25 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			return true
 		}
 
-		maxAge := 200 * time.Millisecond
+		maxAge := 300 * time.Millisecond
+		if !firstPush && lastDetails.Status != "" && lastDetails.Status != "CASCADE_RUN_STATUS_RUNNING" && len(lastDetails.QueuedMessages) == 0 {
+			maxAge = 15 * time.Second
+		}
 		rawResp, err := p.fetchUpstreamTrajectoryWithMaxAge(cascadeID, port, token, maxAge)
 		if err != nil {
+			if firstPush {
+				// Send empty init payload immediately so client never hangs spinning on load
+				_ = writeJSON(StreamUpdatePayload{
+					Type:       "init",
+					CascadeID:  cascadeID,
+					Title:      streamTitle,
+					Status:     "CASCADE_RUN_STATUS_IDLE",
+					TotalSteps: 0,
+					Steps:      []TrajectoryStep{},
+					Messages:   []CascadeMessageItem{},
+				})
+				firstPush = false
+			}
 			ticker.Reset(1000 * time.Millisecond)
 			return true
 		}
@@ -242,9 +258,9 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			// Fast path: Upstream trajectory has not changed at all.
 			// Skip full steps scan, regex image extraction, and payload construction.
 			if lastDetails.Status == "CASCADE_RUN_STATUS_RUNNING" || len(lastDetails.QueuedMessages) > 0 {
-				ticker.Reset(250 * time.Millisecond)
+				ticker.Reset(350 * time.Millisecond)
 			} else {
-				ticker.Reset(1200 * time.Millisecond)
+				ticker.Reset(2000 * time.Millisecond)
 			}
 			return true
 		}
@@ -327,9 +343,9 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 
 		// Adjust poll interval dynamically: fast when executing or queued messages exist, slower when idle
 		if details.Status == "CASCADE_RUN_STATUS_RUNNING" || len(details.QueuedMessages) > 0 {
-			ticker.Reset(250 * time.Millisecond)
+			ticker.Reset(350 * time.Millisecond)
 		} else {
-			ticker.Reset(1200 * time.Millisecond)
+			ticker.Reset(2000 * time.Millisecond)
 		}
 		return true
 	}

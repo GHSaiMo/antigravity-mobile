@@ -1,6 +1,9 @@
 /**
  * Multigravity 屏幕自适应与品牌对齐控制器
- * 1. 响应式自适应：严格按照屏幕宽度自适应不同模式（Desktop 桌面端、Tablet 平板、Mobile 手机），无手动切换按钮。
+ * 1. 响应式自适应：严格按照屏幕宽度动态感知并切换模式（Desktop 桌面端 >=1024px、Tablet 平板 768px~1023px、Mobile 手机 <768px）。
+ *    - 手机窄屏下，桌面工作台侧边栏自动转为平滑抽屉（Drawer）并配合半透明遮罩，主区域满屏展示，点按遮罩或切换会话时自动收起抽屉。
+ *    - 平板模式下自适应紧凑侧边栏与触控交互，无任何横向溢出。
+ *    - 严禁触发任何页面强制重载（location.replace），无缝保持用户当前会话与编辑状态。
  * 2. 品牌与标题对齐：桌面工作台对齐为 Multigravity，锁定 Favicon 与标题。
  * 3. 授权状态感知：桌面端未授权时提供一键配对接入。
  */
@@ -55,6 +58,24 @@
     return "desktop";
   }
 
+  function openDrawer() {
+    document.documentElement.classList.add("agy-drawer-open");
+    document.body.classList.add("agy-drawer-open");
+  }
+
+  function closeDrawer() {
+    document.documentElement.classList.remove("agy-drawer-open");
+    document.body.classList.remove("agy-drawer-open");
+  }
+
+  function toggleDrawer() {
+    if (document.body.classList.contains("agy-drawer-open")) {
+      closeDrawer();
+    } else {
+      openDrawer();
+    }
+  }
+
   function updateScreenModeAttributes() {
     const mode = getScreenMode();
     const targets = [document.documentElement, document.body].filter(Boolean);
@@ -63,6 +84,86 @@
       el.setAttribute("data-screen-mode", mode);
       el.classList.remove("mode-desktop", "mode-tablet", "mode-mobile");
       el.classList.add("mode-" + mode);
+    }
+    if (mode !== "mobile") {
+      closeDrawer();
+    }
+  }
+
+  // 为桌面工作台标注关键响应式布局 DOM 节点与事件绑定
+  function tagWorkbenchElements() {
+    if (!isDesktopView) return;
+
+    // 1. 标注工作台外层容器及其三个核心子元素（侧边栏、Sash分割线、主会话区域）
+    const container = document.querySelector('[style*="container-type: size"]');
+    if (container && container.children.length >= 3) {
+      container.classList.add("agy-workbench-container");
+      const sidebar = container.children[0];
+      const sash = container.children[1];
+      const main = container.children[2];
+
+      if (!sidebar.classList.contains("agy-desktop-sidebar")) {
+        sidebar.classList.add("agy-desktop-sidebar");
+      }
+      if (!sash.classList.contains("agy-desktop-sash")) {
+        sash.classList.add("agy-desktop-sash");
+      }
+      if (!main.classList.contains("agy-desktop-main")) {
+        main.classList.add("agy-desktop-main");
+      }
+    }
+
+    // 2. 确保手机模式抽屉遮罩层存在
+    let backdrop = document.getElementById("agy-mobile-drawer-backdrop");
+    if (!backdrop) {
+      backdrop = document.createElement("div");
+      backdrop.id = "agy-mobile-drawer-backdrop";
+      backdrop.className = "agy-mobile-drawer-backdrop";
+      document.body.appendChild(backdrop);
+
+      backdrop.addEventListener("click", () => {
+        closeDrawer();
+      });
+      backdrop.addEventListener("touchstart", (e) => {
+        e.preventDefault();
+        closeDrawer();
+      }, { passive: false });
+    }
+
+    // 3. 增强侧边栏切换按钮在手机模式下的抽屉控制
+    const toggleBtn = document.querySelector('button[aria-label="切换侧边栏"]') ||
+                      document.querySelector('button[aria-label*="侧边栏"]') ||
+                      document.querySelector('button[aria-label*="sidebar" i]');
+    if (toggleBtn && !toggleBtn.__agy_bound) {
+      toggleBtn.__agy_bound = true;
+      toggleBtn.classList.add("agy-sidebar-toggle-btn");
+      toggleBtn.addEventListener("click", () => {
+        const mode = getScreenMode();
+        if (mode === "mobile") {
+          toggleDrawer();
+        }
+      });
+    }
+
+    // 4. 手机模式下，点击会话列表项或新建会话自动收起侧边栏抽屉，呈现对话界面
+    const sidebar = document.querySelector(".agy-desktop-sidebar");
+    if (sidebar && !sidebar.__agy_click_bound) {
+      sidebar.__agy_click_bound = true;
+      sidebar.addEventListener("click", (e) => {
+        if (getScreenMode() !== "mobile") return;
+        const target = e.target;
+        const clickable = target.closest("a") || target.closest("button") || target.closest('[role="button"]');
+        if (clickable) {
+          const text = (clickable.textContent || "").trim();
+          const href = clickable.getAttribute("href");
+          const isExpandArrow = clickable.getAttribute("aria-label")?.includes("选项") ||
+                                clickable.getAttribute("aria-label")?.includes("创建新工程") ||
+                                (clickable.querySelector("svg") && !text && !href);
+          if (!isExpandArrow && (href || text.includes("新建会话") || text.includes("历史会话") || clickable.closest("li"))) {
+            setTimeout(closeDrawer, 120);
+          }
+        }
+      });
     }
   }
 
@@ -77,29 +178,6 @@
       const el = document.getElementById(legacyIds[i]);
       if (el) el.remove();
     }
-  }
-
-  function checkResponsiveViewAdaptation() {
-    const w = window.innerWidth;
-    const isMobileWidth = w < BREAKPOINT_TABLET;
-
-    if (isDesktopView && isMobileWidth) {
-      // 桌面端视图下若检测到手机窄屏，自适应切至移动端视图
-      document.cookie = "agy_view_mode=mobile; path=/; max-age=31536000; SameSite=Lax";
-      try { localStorage.setItem("agy_view_mode", "mobile"); } catch (e) {}
-      window.location.replace("/?view=mobile");
-      return true;
-    }
-
-    if (!isDesktopView && !isMobileWidth) {
-      // 移动端视图下若检测到平板/桌面宽屏，自适应切至桌面工作台
-      document.cookie = "agy_view_mode=desktop; path=/; max-age=31536000; SameSite=Lax";
-      try { localStorage.setItem("agy_view_mode", "desktop"); } catch (e) {}
-      window.location.replace("/?view=desktop");
-      return true;
-    }
-
-    return false;
   }
 
   // --- 3. 桌面工作台未配对弹窗 ---
@@ -206,22 +284,63 @@
     }
   }
 
+  function getCurrentCascadeId() {
+    // 1. From desktop URL path /c/<id>
+    const pathMatch = window.location.pathname.match(/\/c\/([a-zA-Z0-9_-]+)/);
+    if (pathMatch && pathMatch[1]) return pathMatch[1];
+    // 2. From hash #c=<id>
+    if (window.location.hash.startsWith("#c=")) return window.location.hash.slice(3);
+    return "";
+  }
+
+  function checkResponsiveViewAdaptation() {
+    const w = window.innerWidth;
+    const cascadeId = getCurrentCascadeId();
+
+    if (isDesktopView && w < BREAKPOINT_TABLET) {
+      // 桌面工作台拉窄为手机尺寸 (<768px) 时，自适应切至移动端视图并无缝保持当前会话
+      document.cookie = "agy_view_mode=mobile; path=/; max-age=31536000; SameSite=Lax";
+      try { localStorage.setItem("agy_view_mode", "mobile"); } catch (e) {}
+      const targetUrl = "/?view=mobile" + (cascadeId ? "#c=" + cascadeId : "");
+      window.location.replace(targetUrl);
+      return true;
+    }
+
+    if (!isDesktopView && w >= BREAKPOINT_DESKTOP) {
+      // 移动端拉宽为桌面工作台尺寸 (>=1024px) 时，自适应切至桌面工作台并无缝保持当前会话
+      document.cookie = "agy_view_mode=desktop; path=/; max-age=31536000; SameSite=Lax";
+      try { localStorage.setItem("agy_view_mode", "desktop"); } catch (e) {}
+      const targetUrl = cascadeId ? ("/c/" + cascadeId + "?view=desktop") : "/?view=desktop";
+      window.location.replace(targetUrl);
+      return true;
+    }
+
+    return false;
+  }
+
   function runAll() {
     cleanupLegacyButtons();
     updateScreenModeAttributes();
-    checkResponsiveViewAdaptation();
-    if (isDesktopView) alignDesktopBrand();
+    if (checkResponsiveViewAdaptation()) return;
+    if (isDesktopView) {
+      alignDesktopBrand();
+      tagWorkbenchElements();
+    }
   }
 
-  // 监听窗口尺寸变化，自适应切换屏幕模式（防抖避免频繁重定向）
+  // 监听窗口尺寸变化，自适应屏幕模式与视图动态切换 (防抖 500ms，拖拽窗口结束后平滑切换)
   let resizeTimer = null;
   window.addEventListener("resize", () => {
     updateScreenModeAttributes();
+    if (isDesktopView) tagWorkbenchElements();
     if (resizeTimer) clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
       resizeTimer = null;
-      checkResponsiveViewAdaptation();
-    }, 250);
+      updateScreenModeAttributes();
+      if (!checkResponsiveViewAdaptation() && isDesktopView) {
+        tagWorkbenchElements();
+      }
+    }, 500);
   });
 
   let brandTimer = null;
@@ -229,7 +348,10 @@
     if (brandTimer) return;
     brandTimer = requestAnimationFrame(() => {
       brandTimer = null;
-      if (isDesktopView) alignDesktopBrand();
+      if (isDesktopView) {
+        alignDesktopBrand();
+        tagWorkbenchElements();
+      }
     });
   };
 

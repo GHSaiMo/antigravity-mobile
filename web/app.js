@@ -42,7 +42,7 @@ let activeCascadeId = null;
 let pollTimer = null;
 let currentTrajectories = {};
 let availableModels = [];
-const sessionStepsCache = {};
+let sessionStepsCache = {};
 const MAX_SESSION_STEPS_CACHE = 15;
 const sessionStepsLRU = [];
 
@@ -306,11 +306,19 @@ async function checkGatewayStatus() {
         statusPill.textContent = "未连接";
       }
     }
-  } catch (e) {
+  } catch (err) {
     if (statusPill) {
       statusPill.className = "status-badge disconnected";
-      statusPill.textContent = "网关离线";
+      statusPill.textContent = "未连接";
     }
+  }
+
+  const versionEl = document.getElementById("settings-app-version");
+  if (versionEl) {
+    fetch("/api/v1/version")
+      .then(r => r.json())
+      .then(d => { if (d && d.version) versionEl.textContent = d.version; })
+      .catch(() => {});
   }
 }
 
@@ -423,6 +431,12 @@ function renderRoute() {
             <p>正在同步会话历史与步骤...</p>
           </div>
         `;
+      }
+
+      // Fetch initial conversation trajectory via fast HTTP RPC so messages appear
+      // in milliseconds without waiting on WebSocket handshake.
+      if (!sessionStepsCache[activeCascadeId] || !sessionStepsCache[activeCascadeId].steps?.length) {
+        loadChat(activeCascadeId, true);
       }
     }
 
@@ -5075,7 +5089,7 @@ const ImageViewerManager = {
 
 // --- Initialization ---
 
-window.addEventListener("DOMContentLoaded", () => {
+function initApp() {
   // Initialize Image Viewer Modal
   ImageViewerManager.init();
 
@@ -5418,7 +5432,13 @@ window.addEventListener("DOMContentLoaded", () => {
   renderRoute();
   initQuotaModule();
   initMarkdownViewer();
-});
+}
+
+if (document.readyState === "loading") {
+  window.addEventListener("DOMContentLoaded", initApp);
+} else {
+  initApp();
+}
 
 // ==========================================================================
 // Cockpit Quota Monitor Module

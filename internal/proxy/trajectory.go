@@ -1745,9 +1745,9 @@ func (p *Proxy) fetchUpstreamTrajectoryWithContext(ctx context.Context, cascadeI
 			hasTitle := (cached.data.Trajectory.Annotations != nil && cached.data.Trajectory.Annotations.Title != "") ||
 				cached.data.Trajectory.Summary != ""
 			if hasTitle && len(cached.data.Trajectory.Steps) > 0 {
-				maxAge = 2 * time.Second
+				maxAge = 60 * time.Second
 			} else {
-				maxAge = 1500 * time.Millisecond
+				maxAge = 5 * time.Second
 			}
 		}
 	}
@@ -2046,7 +2046,7 @@ func (p *Proxy) SyncHistoricalTrajectories(port int, token string) error {
 		log.Printf("[Proxy] Syncing %d historical trajectories into upstream language_server...", len(candidates))
 	}
 
-	concurrency := 8
+	concurrency := 2
 	if concurrency > len(candidates) {
 		concurrency = len(candidates)
 	}

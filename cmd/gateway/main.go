@@ -56,6 +56,9 @@ func main() {
 		case "cloudflare", "cf":
 			tunnel.RunCloudflareCmd(args[1:])
 			return
+		case "lan":
+			runLanCmd(args[1:])
+			return
 		case "list":
 			runListCmd(args[1:])
 			return
@@ -346,12 +349,6 @@ func runGatewayServer(args []string) {
 		upstreamDesc = fmt.Sprintf("已连接 (PID %d, 端口 %d)", cur.PID, cur.Port)
 	}
 
-	tunnelDesc := "未启用"
-	if cfDomain != "" {
-		tunnelDesc = cfDomain + " (Cloudflare 专属域名)"
-	} else if *ddnsHost != "" {
-		tunnelDesc = *ddnsHost + " (DDNS)"
-	}
 
 	lanDisplay := netAddrs.LANIPv4
 	if lanDisplay == "" && qrHost != "127.0.0.1" && !strings.Contains(qrHost, ":") {
@@ -380,13 +377,15 @@ func runGatewayServer(args []string) {
 			fmt.Printf("  ➜  局域网络:   %s (需配对码)\n", lanURL)
 		}
 	}
-	if tunnelDesc != "未启用" {
-		fmt.Printf("  ➜  云端穿透:   %s (强制配对)\n", tunnelDesc)
+	if cfDomain != "" {
+		fmt.Printf("  ➜  云端穿透:   Cloudflare 专属域名已生成 (强制配对)\n")
+	} else if *ddnsHost != "" {
+		fmt.Printf("  ➜  云端穿透:   DDNS 专属域名已配置 (强制配对)\n")
 	}
 	if authPolicy.TrustLAN {
-		fmt.Printf("  ➜  安全策略:   局域网已信任免密放行 (可通过 MULTIGRAVITY_TRUST_LAN=0 切换)\n")
+		fmt.Printf("  ➜  安全策略:   局域网已信任免密放行 (可通过 mgy lan 切换策略)\n")
 	} else {
-		fmt.Printf("  ➜  安全策略:   局域网标准安全配对 (可通过 MULTIGRAVITY_TRUST_LAN=1 切换)\n")
+		fmt.Printf("  ➜  安全策略:   局域网标准安全配对 (可通过 mgy lan 切换策略)\n")
 	}
 	fmt.Printf("  ➜  目标实例:   %s\n", upstreamDesc)
 	fmt.Printf("  ➜  远程推送:   %s\n", pushSummary)
@@ -452,6 +451,7 @@ func runHelpCmd() {
   cockpit           交互式配置 Cockpit 报表服务与安全 Token (支持 status/token/restart)
   bark              交互式配置 Bark 实时推送与提示音 (iOS 专用, 支持 status/test/set)
   cloudflare (cf)   交互式配置 Cloudflare 专属穿透隧道与域名 (支持 status/reset/enable)
+  lan               交互式配置局域网安全配对策略 (支持 status/trust/pair)
   list              查看所有已配对授权的移动设备 (支持在线与离线查看)
   clear [all|id]    清除已配对的设备授权 (支持: mgy clear all 或 mgy clear <device-id>)
   version           查看当前版本信息
@@ -790,6 +790,7 @@ func buildRouter(
 	rootMux.Handle("/static/artifacts/", p)
 	rootMux.Handle("/connect-websocket", p)
 	rootMux.Handle("/exa.language_server_pb.", p)
+	rootMux.Handle("/exa.language_server_pb.LanguageServerService/", p)
 
 	// Desktop static assets (direct endpoints)
 	rootMux.HandleFunc("GET /main.js", p.HandleDesktopStatic)
@@ -799,10 +800,18 @@ func buildRouter(
 	rootMux.HandleFunc("GET /diff_worker.js", p.HandleDesktopStatic)
 	rootMux.Handle("/symbols-icons/", p)
 
-	// Health and readiness probes
+	// Version, health and readiness probes
+	rootMux.HandleFunc("GET /api/v1/version", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]string{
+			"version":  Version,
+			"app_name": "Multigravity",
+			"os":       runtime.GOOS,
+		})
+	})
 	rootMux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{
 			"status":   "ok",
+			"version":  Version,
 			"os":       runtime.GOOS,
 			"platform": runtime.GOOS,
 		})
@@ -818,6 +827,7 @@ func buildRouter(
 		}
 		writeJSON(w, httpCode, map[string]any{
 			"status":         status,
+			"version":        Version,
 			"os":             runtime.GOOS,
 			"platform":       runtime.GOOS,
 			"uptime_seconds": int(time.Since(startTime).Seconds()),
@@ -921,14 +931,6 @@ func determineViewMode(r *http.Request) string {
 	// 3. Explicit cookie (agy_view_mode)
 	if c, err := r.Cookie("agy_view_mode"); err == nil {
 		val := strings.ToLower(c.Value)
-		if isPhone && val == "desktop" {
-			return "desktop"
-		}
-		// Non-phone devices (iPad, Mac, PC, Tablets) always default to desktop,
-		// ignoring any stale mobile cookie unless query parameter explicitly requested mobile.
-		if !isPhone && (val == "mobile" || val == "") {
-			return "desktop"
-		}
 		if val == "desktop" || val == "mobile" {
 			return val
 		}
