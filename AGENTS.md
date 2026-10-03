@@ -60,6 +60,21 @@ go test -count=1 ./...
 go build -o /dev/null ./cmd/gateway
 ```
 
+### 5. 本机网关运行与拉起规范（强制遵守 ⭐⭐⭐⭐⭐）
+修改完代码，本机重新拉起网关时，**必须在 tmux 对应的会话（会话名：`mgy`）里重新拉起**，严禁在 Agent 后台以独立子进程/守护进程方式直接拉起，避免端口冲突与会话脱节：
+
+```bash
+# 1. 优雅终止已有网关实例（若仍在运行）
+tmux send-keys -t mgy C-c
+
+# 2. 在 tmux 对应会话中重新拉起网关
+tmux send-keys -t mgy "mgy" Enter
+```
+
+- **核心红线**：
+  - 严禁通过 `run_command` (IsDaemon=true) 直接在 Agent 环境中独立拉起 `mgy` 常驻，避免导致用户在终端 attached 的 `mgy` 会话中执行时报 `bind: address already in use` 端口冲突。
+  - 本机常驻与调试统一归属 `mgy` tmux 会话。
+
 ---
 
 ## 🛠️ 本机 Android 开发与验证环境
@@ -84,3 +99,4 @@ go build -o /dev/null ./cmd/gateway
    - iOS: `xcodebuild ...`
    - Go: `go test ./...`
 4. **提交与推送**：只有当上述对应模块的本地编译校验全部成功后，方可进行 `git commit` 与后续交付。
+5. **本机网关重启**：交付或验证需要重新拉起网关时，一律通过 `tmux send-keys -t mgy "mgy" Enter` 在 `mgy` 会话中拉起。
