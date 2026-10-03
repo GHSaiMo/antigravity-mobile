@@ -10,7 +10,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
 	"runtime"
 	"strconv"
@@ -119,7 +118,6 @@ func runGatewayServer(args []string) {
 	pollSec := fs.Int("poll", 5, "探测本地 Antigravity 实例与健康检查的轮询间隔秒数（默认 5 秒）")
 	ddnsHost := fs.String("ddns", os.Getenv("DDNS_HOST"), "公网 DDNS 域名，用于生成扫码配对链接及外部直连")
 	trustLAN := fs.Bool("trust-lan", config.GetTrustLAN(), "是否信任局域网访问（允许免配对直接使用，默认: 需配对码）")
-	openBrowser := fs.Bool("open", config.GetOpenBrowser(), "启动后是否自动在默认浏览器中打开主页（无头系统自动跳过）")
 	_ = fs.Parse(args)
 
 	qrExplicitlySet := false
@@ -391,15 +389,6 @@ func runGatewayServer(args []string) {
 	fmt.Printf("  ➜  远程推送:   %s\n", pushSummary)
 	fmt.Printf("  ➜  已配设备:   %s\n", deviceDesc)
 	fmt.Println("  --------------------------------------------------")
-
-	// 在带桌面 GUI 的系统中，服务启动后异步在默认浏览器中打开本地地址 (无头系统静默跳过)
-	if *openBrowser && !isHeadlessEnvironment() {
-		go func() {
-			time.Sleep(300 * time.Millisecond)
-			openURL := fmt.Sprintf("http://127.0.0.1:%d/", *port)
-			_ = openBrowserURL(openURL)
-		}()
-	}
 
 	shouldPrintQR := false
 	if qrExplicitlySet {
@@ -860,54 +849,4 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 	w.WriteHeader(status)
 	w.Write(data)
-}
-
-// isHeadlessEnvironment detects if the current machine is running without a graphical desktop (e.g. headless NAS, SSH, systemd).
-func isHeadlessEnvironment() bool {
-	if v := os.Getenv("MULTIGRAVITY_HEADLESS"); v == "1" || strings.EqualFold(v, "true") {
-		return true
-	}
-	if v := os.Getenv("MULTIGRAVITY_NO_BROWSER"); v == "1" || strings.EqualFold(v, "true") {
-		return true
-	}
-
-	switch runtime.GOOS {
-	case "windows":
-		return false
-	case "darwin":
-		// Remote SSH session without X11 or Aqua display
-		if os.Getenv("SSH_TTY") != "" && os.Getenv("DISPLAY") == "" {
-			return true
-		}
-		return false
-	case "linux":
-		// Linux: Check DISPLAY (X11) and WAYLAND_DISPLAY (Wayland)
-		if os.Getenv("DISPLAY") == "" && os.Getenv("WAYLAND_DISPLAY") == "" {
-			return true
-		}
-		// Running as systemd background service
-		if os.Getenv("INVOCATION_ID") != "" || os.Getenv("JOURNAL_STREAM") != "" {
-			return true
-		}
-		if os.Getenv("SSH_TTY") != "" {
-			return true
-		}
-		return false
-	default:
-		return true
-	}
-}
-
-// openBrowserURL opens the specified URL in the default web browser.
-func openBrowserURL(targetURL string) error {
-	switch runtime.GOOS {
-	case "darwin":
-		return exec.Command("open", targetURL).Start()
-	case "windows":
-		return exec.Command("rundll32", "url.dll,FileProtocolHandler", targetURL).Start()
-	case "linux":
-		return exec.Command("xdg-open", targetURL).Start()
-	default:
-		return nil
-	}
 }
