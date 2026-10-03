@@ -823,8 +823,73 @@ func buildRouter(
 		})
 	})
 
-	// Web frontend (SPA & embedded static assets)
-	rootMux.Handle("/", webHandler)
+	// Desktop static assets (direct endpoints)
+	rootMux.HandleFunc("GET /main.js", p.HandleDesktopStatic)
+	rootMux.HandleFunc("GET /jetbox.css", p.HandleDesktopStatic)
+	rootMux.HandleFunc("GET /compiled_tailwind.css", p.HandleDesktopStatic)
+	rootMux.HandleFunc("GET /prism_bundle.js", p.HandleDesktopStatic)
+	rootMux.HandleFunc("GET /diff_worker.js", p.HandleDesktopStatic)
+	rootMux.HandleFunc("GET /icon.png", p.HandleDesktopStatic)
+	rootMux.Handle("/symbols-icons/", http.HandlerFunc(p.HandleDesktopStatic))
+
+	// Dedicated direct endpoints for Desktop and PWA
+	rootMux.HandleFunc("GET /desktop", p.HandleDesktopIndex)
+	rootMux.HandleFunc("GET /pwa", webHandler.ServeHTTP)
+
+	// Adaptive Web frontend:
+	// - PC / Computers (Mac, Windows, Linux) -> Desktop Workbench
+	// - iPhone or Tablet (iPad, Android, Mobile) -> Mobile PWA
+	// - Explicit ?view=desktop or ?view=pwa / cookie override
+	adaptiveWebHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+
+		// ConnectRPC direct proto calls
+		if strings.HasPrefix(path, "/exa.language_server_pb.") {
+			web.GzipHandler(p).ServeHTTP(w, r)
+			return
+		}
+
+		// Embedded web files for mobile PWA
+		if path == "/style.css" || path == "/app.js" || path == "/mermaid.min.js" ||
+			path == "/manifest.json" || path == "/sw.js" || path == "/favicon.ico" || strings.HasPrefix(path, "/icons/") {
+			webHandler.ServeHTTP(w, r)
+			return
+		}
+
+		// Desktop static asset fallback
+		if proxy.IsDesktopStaticPath(path) {
+			web.GzipHandler(http.HandlerFunc(p.HandleDesktopStatic)).ServeHTTP(w, r)
+			return
+		}
+
+		// Determine view mode (desktop vs pwa)
+		viewMode := determineViewMode(r)
+		qv := r.URL.Query().Get("view")
+		if qv == "" {
+			qv = r.URL.Query().Get("mode")
+		}
+
+		// Explicit ?view query parameter overrides viewMode and sets cookie
+		if qv != "" {
+			http.SetCookie(w, &http.Cookie{
+				Name:     "agy_view_mode",
+				Value:    viewMode,
+				Path:     "/",
+				MaxAge:   86400 * 365,
+				SameSite: http.SameSiteLaxMode,
+			})
+		}
+
+		if viewMode == "desktop" {
+			p.HandleDesktopIndex(w, r)
+			return
+		}
+
+		// Mobile / tablet view
+		webHandler.ServeHTTP(w, r)
+	})
+
+	rootMux.Handle("/", adaptiveWebHandler)
 
 	// Inject Cloudflare tunnel domain in response headers for client auto-discovery and healing
 	endpointHeadersMiddleware := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -849,4 +914,47 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 	w.WriteHeader(status)
 	w.Write(data)
+}
+
+// determineViewMode detects whether the client should receive the desktop workbench or mobile PWA.
+// - Computers/PC (Mac, Windows, Linux) -> "desktop"
+// - iPhone or Tablets (iPad, Android, Mobile, Tablet) -> "pwa"
+// - Explicit ?view=desktop or ?view=pwa (or cookie) overrides default.
+func determineViewMode(r *http.Request) string {
+	// 1. Explicit query parameter (?view=desktop / ?view=pwa / ?view=mobile)
+	qView := strings.ToLower(r.URL.Query().Get("view"))
+	if qView == "" {
+		qView = strings.ToLower(r.URL.Query().Get("mode"))
+	}
+	if qView == "desktop" || qView == "pc" {
+		return "desktop"
+	}
+	if qView == "pwa" || qView == "mobile" || qView == "phone" || qView == "tablet" || qView == "ipad" {
+		return "pwa"
+	}
+
+	// 2. Explicit cookie (agy_view_mode)
+	if c, err := r.Cookie("agy_view_mode"); err == nil {
+		val := strings.ToLower(c.Value)
+		if val == "desktop" {
+			return "desktop"
+		}
+		if val == "pwa" || val == "mobile" {
+			return "pwa"
+		}
+	}
+
+	// 3. User-Agent detection:
+	// iPhone or Tablet (iPad, Android, Mobile, Tablet) -> PWA
+	ua := strings.ToLower(r.UserAgent())
+	isPhoneOrTablet := strings.Contains(ua, "iphone") || strings.Contains(ua, "ipod") ||
+		strings.Contains(ua, "ipad") || strings.Contains(ua, "tablet") ||
+		strings.Contains(ua, "android") || strings.Contains(ua, "mobile")
+
+	if isPhoneOrTablet {
+		return "pwa"
+	}
+
+	// Default to desktop for PC / Computer (Mac, Windows, Linux)
+	return "desktop"
 }

@@ -166,3 +166,92 @@ func TestStaticWebAssetsAccessible(t *testing.T) {
 	}
 }
 
+func TestDetermineViewMode(t *testing.T) {
+	tests := []struct {
+		name       string
+		url        string
+		userAgent  string
+		cookie     *http.Cookie
+		expectMode string
+	}{
+		{
+			name:       "PC Mac Chrome default",
+			url:        "http://localhost:58900/",
+			userAgent:  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+			expectMode: "desktop",
+		},
+		{
+			name:       "PC Windows Edge default",
+			url:        "http://localhost:58900/",
+			userAgent:  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
+			expectMode: "desktop",
+		},
+		{
+			name:       "PC Linux Firefox default",
+			url:        "http://localhost:58900/",
+			userAgent:  "Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/119.0",
+			expectMode: "desktop",
+		},
+		{
+			name:       "iPhone Safari -> PWA",
+			url:        "http://localhost:58900/",
+			userAgent:  "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+			expectMode: "pwa",
+		},
+		{
+			name:       "iPad Safari -> PWA",
+			url:        "http://localhost:58900/",
+			userAgent:  "Mozilla/5.0 (iPad; CPU OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1",
+			expectMode: "pwa",
+		},
+		{
+			name:       "Android Phone -> PWA",
+			url:        "http://localhost:58900/",
+			userAgent:  "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+			expectMode: "pwa",
+		},
+		{
+			name:       "Android Tablet -> PWA",
+			url:        "http://localhost:58900/",
+			userAgent:  "Mozilla/5.0 (Linux; Android 13; SM-X900) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+			expectMode: "pwa",
+		},
+		{
+			name:       "Query override view=desktop on mobile",
+			url:        "http://localhost:58900/?view=desktop",
+			userAgent:  "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)",
+			expectMode: "desktop",
+		},
+		{
+			name:       "Query override view=pwa on desktop",
+			url:        "http://localhost:58900/?view=pwa",
+			userAgent:  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+			expectMode: "pwa",
+		},
+		{
+			name:       "Cookie override desktop",
+			url:        "http://localhost:58900/",
+			userAgent:  "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)",
+			cookie:     &http.Cookie{Name: "agy_view_mode", Value: "desktop"},
+			expectMode: "desktop",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tc.url, nil)
+			if tc.userAgent != "" {
+				req.Header.Set("User-Agent", tc.userAgent)
+			}
+			if tc.cookie != nil {
+				req.AddCookie(tc.cookie)
+			}
+			actual := determineViewMode(req)
+			if actual != tc.expectMode {
+				t.Errorf("expected view mode %q, got %q", tc.expectMode, actual)
+			}
+		})
+	}
+}
+
+

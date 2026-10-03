@@ -1,8 +1,10 @@
 package com.antigravity.mobile.ui.components
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -30,7 +32,7 @@ import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.ProjectItem
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun NewConversationSheet(
     projects: List<ProjectItem>,
@@ -38,6 +40,7 @@ fun NewConversationSheet(
     errorMessage: String? = null,
     onRefreshProjects: () -> Unit = {},
     onSelectProject: (ProjectItem) -> Unit,
+    onEditProjectAlias: (ProjectItem) -> Unit = {},
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -264,7 +267,10 @@ fun NewConversationSheet(
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(14.dp))
                                 .background(colors.surfaceVariant)
-                                .clickable { onSelectProject(project) }
+                                .combinedClickable(
+                                    onClick = { onSelectProject(project) },
+                                    onLongClick = { onEditProjectAlias(project) }
+                                )
                                 .padding(horizontal = 14.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(14.dp)
@@ -293,7 +299,7 @@ fun NewConversationSheet(
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     Text(
-                                        text = project.name,
+                                        text = project.displayName,
                                         modifier = Modifier.weight(1f, fill = false),
                                         fontSize = 15.5.sp,
                                         fontWeight = FontWeight.SemiBold,
@@ -321,8 +327,14 @@ fun NewConversationSheet(
                                     }
                                 }
 
+                                val displayPath = project.path.ifBlank { project.uri }
+                                val subtitleText = if (project.hasCustomAlias) {
+                                    "${project.name} · $displayPath"
+                                } else {
+                                    displayPath
+                                }
                                 Text(
-                                    text = project.path.ifBlank { project.uri },
+                                    text = subtitleText,
                                     fontSize = 11.sp,
                                     fontFamily = FontFamily.Monospace,
                                     color = colors.textSecondary,
