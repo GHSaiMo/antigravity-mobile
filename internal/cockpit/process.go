@@ -29,6 +29,17 @@ func antigravityStillRunning() bool {
 		}
 		return false
 	}
+	if runtime.GOOS == "linux" {
+		if exec.Command("systemctl", "--user", "is-active", "--quiet", "antigravity-ls").Run() == nil {
+			return true
+		}
+		for _, pat := range []string{"language_server", "antigravity"} {
+			if exec.Command("pgrep", "-f", pat).Run() == nil {
+				return true
+			}
+		}
+		return false
+	}
 	if runtime.GOOS != "darwin" {
 		cmd := exec.Command("pgrep", "-f", "Antigravity.app")
 		return cmd.Run() == nil
@@ -56,6 +67,10 @@ func signalAntigravity(sig syscall.Signal) {
 	if runtime.GOOS == "windows" {
 		_ = exec.Command("taskkill", "/F", "/IM", "Antigravity.exe", "/T").Run()
 		_ = exec.Command("taskkill", "/F", "/IM", "language_server.exe", "/T").Run()
+		return
+	}
+	if runtime.GOOS == "linux" {
+		_ = exec.Command("pkill", fmt.Sprintf("-%d", sig), "-f", "language_server").Run()
 		return
 	}
 	patterns := []string{antigravityBundlePattern, antigravityIDEBundlePattern}
@@ -105,6 +120,20 @@ func quitRunningAntigravity() error {
 			return nil
 		}
 		return fmt.Errorf("Antigravity still running after force kill on Windows")
+	}
+
+	if runtime.GOOS == "linux" {
+		if exec.Command("systemctl", "--user", "is-active", "--quiet", "antigravity-ls").Run() == nil {
+			_ = exec.Command("systemctl", "--user", "stop", "antigravity-ls").Run()
+		} else {
+			_ = exec.Command("pkill", "-f", "language_server").Run()
+		}
+		if waitUntilAntigravityExited(5 * time.Second) {
+			log.Printf("[Cockpit] Antigravity stopped cleanly on Linux")
+			return nil
+		}
+		_ = exec.Command("pkill", "-9", "-f", "language_server").Run()
+		return nil
 	}
 
 	if runtime.GOOS == "darwin" {
