@@ -32,3 +32,25 @@ func TestLocalizeMainJS(t *testing.T) {
 	}
 }
 
+func TestLocalizeMainJS_DisposeGC(t *testing.T) {
+	input := []byte(`_scheduleGc(a,b){b.gcTimer!==void 0&&clearTimeout(b.gcTimer);b.gcTimer=setTimeout(()=>{this.JSC$7815__states.get(a)===b&&b.holds<=0&&this._disposeEntry(a)},3E4)}`)
+	output := LocalizeMainJS(input)
+	if !bytes.Contains(output, []byte(`this._disposeEntry(a)},0)`)) {
+		t.Fatalf("expected output to contain this._disposeEntry(a)},0), got: %s", string(output))
+	}
+	if bytes.Contains(output, []byte(`3E4`)) {
+		t.Fatalf("expected 3E4 to be replaced with 0, got: %s", string(output))
+	}
+}
+
+func TestLocalizeMainJS_DisposeGC_DifferentVar(t *testing.T) {
+	input := []byte(`_scheduleGc(x,y){y.gcTimer!==void 0&&clearTimeout(y.gcTimer);y.gcTimer=setTimeout(()=>{this._states.get(x)===y&&y.holds<=0&&this._disposeEntry(x)},30000)}`)
+	output := LocalizeMainJS(input)
+	if !bytes.Contains(output, []byte(`this._disposeEntry(x)},0)`)) {
+		t.Fatalf("expected output to contain this._disposeEntry(x)},0), got: %s", string(output))
+	}
+	if bytes.Contains(output, []byte(`30000`)) {
+		t.Fatalf("expected 30000 to be replaced with 0, got: %s", string(output))
+	}
+}
+
