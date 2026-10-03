@@ -1495,7 +1495,13 @@
       className.includes("google-symbols") ||
       className.includes("material-symbols") ||
       className.includes("material-icons") ||
-      className.includes("codicon")
+      className.includes("codicon") ||
+      className.includes("markdown-body") ||
+      className.includes("rendered-markdown") ||
+      className.includes("message-row") ||
+      className.includes("chat-stream") ||
+      className.includes("agent-bubble") ||
+      className.includes("prose")
     ) {
       return true;
     }
@@ -1504,7 +1510,10 @@
       el.closest(".google-symbols") ||
       el.closest(".material-symbols") ||
       el.closest(".material-icons") ||
-      el.closest(".codicon")
+      el.closest(".codicon") ||
+      el.closest(".markdown-body") ||
+      el.closest(".rendered-markdown") ||
+      el.closest(".prose")
     )) {
       return true;
     }

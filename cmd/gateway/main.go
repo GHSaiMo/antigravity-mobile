@@ -423,11 +423,19 @@ func runGatewayServer(args []string) {
 	<-stopCh
 	log.Println("🛑 网关正在安全停止...")
 
+	// 1. Stop background watchers and inspector polling first to prevent new requests
+	cancelWatcher()
+	insp.Stop()
+
 	if cfTunnel != nil {
 		cfTunnel.Stop()
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// 2. Gracefully close all tracked WebSocket connections so server.Shutdown can drain
+	p.Shutdown()
+
+	// 3. Shutdown HTTP server with 10s timeout (hijacked WS conns already closed)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := server.Shutdown(ctx); err != nil {
 		log.Printf("Server shutdown error: %v", err)

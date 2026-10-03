@@ -90,9 +90,11 @@
     }
   }
 
+  let workbenchTagged = false;
+
   // 为桌面工作台标注关键响应式布局 DOM 节点与事件绑定
   function tagWorkbenchElements() {
-    if (!isDesktopView) return;
+    if (!isDesktopView || workbenchTagged) return;
 
     // 1. 标注工作台外层容器及其三个核心子元素（侧边栏、Sash分割线、主会话区域）
     const container = document.querySelector('[style*="container-type: size"]');
@@ -111,6 +113,7 @@
       if (!main.classList.contains("agy-desktop-main")) {
         main.classList.add("agy-desktop-main");
       }
+      workbenchTagged = true;
     }
 
     // 2. 确保手机模式抽屉遮罩层存在
@@ -167,16 +170,39 @@
     }
   }
 
-  // 清除历史版本遗留的切换按钮与横幅
-  function cleanupLegacyButtons() {
-    const legacyIds = [
-      "agy-view-switcher-btn",
-      "agy-view-switcher-desktop-btn",
-      "agy-wide-mobile-banner"
-    ];
-    for (let i = 0; i < legacyIds.length; i++) {
-      const el = document.getElementById(legacyIds[i]);
-      if (el) el.remove();
+  // --- 2.5. 视图模式手动切换器 (Desktop ↔ Mobile View Switcher) ---
+  function initSwitcher() {
+    if (isDesktopView) {
+      if (!document.getElementById("agy-view-switcher-desktop-btn")) {
+        const btn = document.createElement("button");
+        btn.id = "agy-view-switcher-desktop-btn";
+        btn.className = "agy-view-switcher desktop-mode";
+        btn.title = "切换至轻量移动端视图";
+        btn.innerHTML = '<span class="agy-view-switcher-icon">📱</span><span>切换移动视图</span>';
+        btn.addEventListener("click", () => {
+          document.cookie = "agy_view_mode=mobile; path=/; max-age=31536000; SameSite=Lax";
+          try { localStorage.setItem("agy_view_mode", "mobile"); } catch (e) {}
+          const cascadeId = getCurrentCascadeId();
+          window.location.href = "/?view=mobile" + (cascadeId ? "#c=" + cascadeId : "");
+        });
+        if (document.body) document.body.appendChild(btn);
+      }
+    } else {
+      if (!document.getElementById("agy-view-switcher-btn")) {
+        const btn = document.createElement("button");
+        btn.id = "agy-view-switcher-btn";
+        btn.className = "agy-view-switcher";
+        btn.title = "切换至电脑/iPad 桌面工作台";
+        btn.innerHTML = '<span class="agy-view-switcher-icon">🖥️</span><span>桌面工作台</span>';
+        btn.addEventListener("click", () => {
+          document.cookie = "agy_view_mode=desktop; path=/; max-age=31536000; SameSite=Lax";
+          try { localStorage.setItem("agy_view_mode", "desktop"); } catch (e) {}
+          let cascadeId = "";
+          if (window.location.hash.startsWith("#c=")) cascadeId = window.location.hash.slice(3);
+          window.location.href = cascadeId ? ("/c/" + cascadeId + "?view=desktop") : "/?view=desktop";
+        });
+        if (document.body) document.body.appendChild(btn);
+      }
     }
   }
 
@@ -294,84 +320,61 @@
   }
 
   function checkResponsiveViewAdaptation() {
-    const w = window.innerWidth;
-    const cascadeId = getCurrentCascadeId();
-
-    if (isDesktopView && w < BREAKPOINT_TABLET) {
-      // 桌面工作台拉窄为手机尺寸 (<768px) 时，自适应切至移动端视图并无缝保持当前会话
-      document.cookie = "agy_view_mode=mobile; path=/; max-age=31536000; SameSite=Lax";
-      try { localStorage.setItem("agy_view_mode", "mobile"); } catch (e) {}
-      const targetUrl = "/?view=mobile" + (cascadeId ? "#c=" + cascadeId : "");
-      window.location.replace(targetUrl);
-      return true;
-    }
-
-    if (!isDesktopView && w >= BREAKPOINT_DESKTOP) {
-      // 移动端拉宽为桌面工作台尺寸 (>=1024px) 时，自适应切至桌面工作台并无缝保持当前会话
-      document.cookie = "agy_view_mode=desktop; path=/; max-age=31536000; SameSite=Lax";
-      try { localStorage.setItem("agy_view_mode", "desktop"); } catch (e) {}
-      const targetUrl = cascadeId ? ("/c/" + cascadeId + "?view=desktop") : "/?view=desktop";
-      window.location.replace(targetUrl);
-      return true;
-    }
-
+    // Desktop and mobile are separate frontends served by different handlers.
+    // Automatic navigation between them on resize is disruptive and can cause
+    // reload loops near breakpoints. Instead, rely on CSS responsive rules
+    // within each view mode and let the user explicitly switch via cookie/URL.
     return false;
   }
 
   function runAll() {
-    cleanupLegacyButtons();
     updateScreenModeAttributes();
-    if (checkResponsiveViewAdaptation()) return;
+    initSwitcher();
     if (isDesktopView) {
       alignDesktopBrand();
       tagWorkbenchElements();
     }
   }
 
-  // 监听窗口尺寸变化，自适应屏幕模式与视图动态切换 (防抖 500ms，拖拽窗口结束后平滑切换)
+  // 监听窗口尺寸变化，自适应屏幕模式与视图动态切换
   let resizeTimer = null;
   window.addEventListener("resize", () => {
     updateScreenModeAttributes();
-    if (isDesktopView) tagWorkbenchElements();
+    if (isDesktopView && !workbenchTagged) tagWorkbenchElements();
     if (resizeTimer) clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
       resizeTimer = null;
       updateScreenModeAttributes();
-      if (!checkResponsiveViewAdaptation() && isDesktopView) {
+      if (isDesktopView && !workbenchTagged) {
         tagWorkbenchElements();
       }
-    }, 500);
+    }, 200);
   });
 
-  let brandTimer = null;
-  const debouncedAlignBrand = () => {
-    if (brandTimer) return;
-    brandTimer = requestAnimationFrame(() => {
-      brandTimer = null;
-      if (isDesktopView) {
-        alignDesktopBrand();
-        tagWorkbenchElements();
+  // 仅在工作台容器初始挂载前进行轻量监听，一旦挂载完成立即注销 Observer，彻底消除会话切换性能损耗
+  let workbenchObserver = null;
+  function startWorkbenchObserver() {
+    if (!isDesktopView || workbenchTagged || workbenchObserver) return;
+    workbenchObserver = new MutationObserver(() => {
+      tagWorkbenchElements();
+      alignDesktopBrand();
+      if (workbenchTagged && workbenchObserver) {
+        workbenchObserver.disconnect();
+        workbenchObserver = null;
       }
     });
-  };
+    if (document.body) {
+      workbenchObserver.observe(document.body, { childList: true, subtree: true });
+    }
+  }
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () => {
       runAll();
-      if (document.body && isDesktopView) {
-        new MutationObserver(debouncedAlignBrand).observe(document.body, {
-          childList: true,
-          subtree: true,
-        });
-      }
+      startWorkbenchObserver();
     });
   } else {
     runAll();
-    if (document.body && isDesktopView) {
-      new MutationObserver(debouncedAlignBrand).observe(document.body, {
-        childList: true,
-        subtree: true,
-      });
-    }
+    startWorkbenchObserver();
   }
 })();

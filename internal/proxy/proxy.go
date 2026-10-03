@@ -26,6 +26,8 @@ import (
 
 	"antigravity-mobile/internal/inspector"
 	"antigravity-mobile/internal/localtls"
+
+	"github.com/gorilla/websocket"
 )
 
 // GatewayStatus represents the public status of the gateway.
@@ -86,6 +88,10 @@ type Proxy struct {
 
 	projectsCacheMu      sync.RWMutex
 	lastReadProjectsResp []byte
+
+	// Active WebSocket connection tracking for graceful shutdown
+	wsConnsMu sync.Mutex
+	wsConns   map[*websocket.Conn]struct{}
 }
 
 type cascadeDedupEntry struct {
@@ -202,6 +208,7 @@ func NewProxy(insp inspector.UpstreamDiscoverer) *Proxy {
 		startTime:    time.Now(),
 		msgDedup:     make(map[string]time.Time),
 		cascadeDedup: make(map[string]cascadeDedupEntry),
+		wsConns:      make(map[*websocket.Conn]struct{}),
 		shortClient: &http.Client{
 			Timeout:   2 * time.Second,
 			Transport: tr,
@@ -226,6 +233,43 @@ func NewProxy(insp inspector.UpstreamDiscoverer) *Proxy {
 	}
 
 	return p
+}
+
+// trackWSConn registers a WebSocket connection for lifecycle tracking.
+// The returned cleanup function must be deferred by the caller.
+func (p *Proxy) trackWSConn(conn *websocket.Conn) func() {
+	p.wsConnsMu.Lock()
+	p.wsConns[conn] = struct{}{}
+	p.wsConnsMu.Unlock()
+	return func() {
+		p.wsConnsMu.Lock()
+		delete(p.wsConns, conn)
+		p.wsConnsMu.Unlock()
+	}
+}
+
+// Shutdown gracefully closes all tracked WebSocket connections and releases upstream resources.
+// Must be called before http.Server.Shutdown to allow hijacked connections to drain.
+func (p *Proxy) Shutdown() {
+	p.wsConnsMu.Lock()
+	conns := make([]*websocket.Conn, 0, len(p.wsConns))
+	for c := range p.wsConns {
+		conns = append(conns, c)
+	}
+	p.wsConnsMu.Unlock()
+
+	for _, c := range conns {
+		_ = c.WriteControl(
+			websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseGoingAway, "gateway shutting down"),
+			time.Now().Add(1*time.Second),
+		)
+		_ = c.Close()
+	}
+
+	if p.transport != nil {
+		p.transport.CloseIdleConnections()
+	}
 }
 
 func (p *Proxy) updateUpstream(info inspector.InstanceInfo) {
@@ -2291,6 +2335,13 @@ func (p *Proxy) HandleDesktopStatic(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+var (
+	desktopIndexCacheMu    sync.RWMutex
+	desktopIndexCacheHTML  []byte
+	desktopIndexCachePort  int
+	desktopIndexCacheToken string
+)
+
 // HandleDesktopIndex serves the official desktop web index.html with live CSRF injection,
 // desktop Chinese localization (zh-CN.js), and view switcher (view-switcher.js).
 func (p *Proxy) HandleDesktopIndex(w http.ResponseWriter, r *http.Request) {
@@ -2327,6 +2378,33 @@ func (p *Proxy) HandleDesktopIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	effectiveToken := token
+	if effectiveToken == "" {
+		effectiveToken = "headless-csrf-token"
+	}
+
+	// Fast path: serve cached transformed HTML if upstream port and token are unchanged
+	desktopIndexCacheMu.RLock()
+	if desktopIndexCachePort == port && desktopIndexCacheToken == token && len(desktopIndexCacheHTML) > 0 {
+		cachedBytes := desktopIndexCacheHTML
+		desktopIndexCacheMu.RUnlock()
+
+		http.SetCookie(w, &http.Cookie{
+			Name:     "csrfToken",
+			Value:    effectiveToken,
+			Path:     "/",
+			SameSite: http.SameSiteLaxMode,
+		})
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.gstatic.com https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https: ws: wss:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'")
+		w.Header().Set("Content-Length", strconv.Itoa(len(cachedBytes)))
+		w.WriteHeader(http.StatusOK)
+		w.Write(cachedBytes)
+		return
+	}
+	desktopIndexCacheMu.RUnlock()
+
 	targetURL := fmt.Sprintf("https://127.0.0.1:%d/", port)
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, targetURL, nil)
 	if err != nil {
@@ -2353,10 +2431,6 @@ func (p *Proxy) HandleDesktopIndex(w http.ResponseWriter, r *http.Request) {
 	htmlStr := string(bodyBytes)
 
 	// 1. Ensure fresh CSRF token is injected into window.__APP_CONFIG__
-	effectiveToken := token
-	if effectiveToken == "" {
-		effectiveToken = "headless-csrf-token"
-	}
 	reCSRF := regexp.MustCompile(`"csrfToken":"[^"]*"`)
 	htmlStr = reCSRF.ReplaceAllString(htmlStr, fmt.Sprintf(`"csrfToken":%q`, effectiveToken))
 
@@ -2401,13 +2475,19 @@ func (p *Proxy) HandleDesktopIndex(w http.ResponseWriter, r *http.Request) {
 	// 6. Inject zh-CN.js and view-switcher.js before </body>
 	jsInject := fmt.Sprintf("    <script src=\"/zh-CN.js?v=%d\"></script>\n    <script src=\"/view-switcher.js?v=%d\"></script>\n  </body>", versionTs, versionTs)
 	htmlStr = strings.Replace(htmlStr, "</body>", jsInject, 1)
+	htmlBytes := []byte(htmlStr)
+	desktopIndexCacheMu.Lock()
+	desktopIndexCachePort = port
+	desktopIndexCacheToken = token
+	desktopIndexCacheHTML = htmlBytes
+	desktopIndexCacheMu.Unlock()
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.gstatic.com https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https: ws: wss:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'")
-	w.Header().Set("Content-Length", strconv.Itoa(len(htmlStr)))
+	w.Header().Set("Content-Length", strconv.Itoa(len(htmlBytes)))
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(htmlStr))
+	w.Write(htmlBytes)
 }
 
 // isGrpcWebFramed checks if data matches gRPC-Web / Connect framed streaming format:

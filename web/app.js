@@ -1633,6 +1633,9 @@ function updateChatControls(isRunning, wsUri, hasAction = false) {
 }
 
 async function connectStreamWs(cascadeId) {
+  if (activeWs && activeWs.__cascadeId === cascadeId && (activeWs.readyState === WebSocket.OPEN || activeWs.readyState === WebSocket.CONNECTING)) {
+    return;
+  }
   closeActiveWs();
 
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
@@ -1655,6 +1658,7 @@ async function connectStreamWs(cascadeId) {
 
   try {
     const ws = new WebSocket(wsUrl);
+    ws.__cascadeId = cascadeId;
     activeWs = ws;
 
     ws.onopen = () => {
@@ -5191,6 +5195,12 @@ function initApp() {
   });
   document.getElementById("btn-unpair-device")?.addEventListener("click", unpairDevice);
   document.getElementById("btn-clear-web-cache")?.addEventListener("click", clearWebCache);
+  document.getElementById("btn-switch-to-desktop")?.addEventListener("click", () => {
+    document.cookie = "agy_view_mode=desktop; path=/; max-age=31536000; SameSite=Lax";
+    try { localStorage.setItem("agy_view_mode", "desktop"); } catch (e) {}
+    const cascadeId = activeCascadeId;
+    window.location.href = cascadeId ? (`/c/${cascadeId}?view=desktop`) : "/?view=desktop";
+  });
   const sheetSettings = document.getElementById("sheet-settings");
   sheetSettings?.addEventListener("click", (e) => {
     if (e.target === sheetSettings) closeSettingsSheet();

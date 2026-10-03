@@ -247,6 +247,7 @@ func (p *Proxy) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer clientConn.Close()
+	defer p.trackWSConn(clientConn)()
 
 	// Dial upstream language_server
 	upstreamURL := fmt.Sprintf("wss://127.0.0.1:%d/connect-websocket", cur.Port)
@@ -271,6 +272,7 @@ func (p *Proxy) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer upstreamConn.Close()
+	defer p.trackWSConn(upstreamConn)()
 
 	var wg sync.WaitGroup
 	wg.Add(2)
