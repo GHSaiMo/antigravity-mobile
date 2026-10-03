@@ -1,10 +1,13 @@
 package web
 
 import (
+	"bufio"
 	"compress/gzip"
 	"embed"
+	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -23,26 +26,55 @@ var gzipPool = sync.Pool{
 
 type gzipResponseWriter struct {
 	http.ResponseWriter
-	writer *gzip.Writer
-}
-
-func (g *gzipResponseWriter) Write(b []byte) (int, error) {
-	g.ResponseWriter.Header().Del("Content-Length")
-	g.ResponseWriter.Header().Set("Content-Encoding", "gzip")
-	return g.writer.Write(b)
+	writer      *gzip.Writer
+	wroteHeader bool
+	skipGzip    bool
 }
 
 func (g *gzipResponseWriter) WriteHeader(status int) {
+	if g.wroteHeader {
+		return
+	}
+	g.wroteHeader = true
+	ct := strings.ToLower(g.ResponseWriter.Header().Get("Content-Type"))
+	if status == http.StatusNoContent || status == http.StatusNotModified ||
+		g.ResponseWriter.Header().Get("Content-Encoding") != "" ||
+		strings.HasPrefix(ct, "application/connect+") ||
+		strings.HasPrefix(ct, "application/grpc") ||
+		strings.HasPrefix(ct, "text/event-stream") {
+		g.skipGzip = true
+		g.ResponseWriter.WriteHeader(status)
+		return
+	}
 	g.ResponseWriter.Header().Del("Content-Length")
 	g.ResponseWriter.Header().Set("Content-Encoding", "gzip")
 	g.ResponseWriter.WriteHeader(status)
 }
 
+func (g *gzipResponseWriter) Write(b []byte) (int, error) {
+	if !g.wroteHeader {
+		g.WriteHeader(http.StatusOK)
+	}
+	if g.skipGzip {
+		return g.ResponseWriter.Write(b)
+	}
+	return g.writer.Write(b)
+}
+
 func (g *gzipResponseWriter) Flush() {
-	_ = g.writer.Flush()
+	if !g.skipGzip && g.writer != nil {
+		_ = g.writer.Flush()
+	}
 	if f, ok := g.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
+}
+
+func (g *gzipResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if h, ok := g.ResponseWriter.(http.Hijacker); ok {
+		return h.Hijack()
+	}
+	return nil, nil, fmt.Errorf("response writer does not support hijacking")
 }
 
 // Handler returns an http.Handler that serves embedded web assets with gzip compression,
@@ -88,7 +120,11 @@ func Handler() http.Handler {
 func GzipHandler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") ||
-			strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
+			strings.Contains(strings.ToLower(r.Header.Get("Upgrade")), "websocket") ||
+			r.Header.Get("Sec-WebSocket-Key") != "" ||
+			strings.Contains(r.URL.Path, "Stream") ||
+			strings.Contains(r.URL.Path, "Subscribe") ||
+			strings.Contains(r.URL.Path, "Watch") {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -98,10 +134,14 @@ func GzipHandler(next http.Handler) http.Handler {
 		defer gzipPool.Put(gz)
 
 		gz.Reset(w)
-		defer gz.Close()
 
-		w.Header().Set("Content-Encoding", "gzip")
 		gzw := &gzipResponseWriter{ResponseWriter: w, writer: gz}
+		defer func() {
+			if !gzw.skipGzip {
+				_ = gz.Close()
+			}
+		}()
+
 		next.ServeHTTP(gzw, r)
 	})
 }

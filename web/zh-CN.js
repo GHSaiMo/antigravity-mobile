@@ -1501,6 +1501,14 @@
       className.includes("message-row") ||
       className.includes("chat-stream") ||
       className.includes("agent-bubble") ||
+      className.includes("message-stream") ||
+      className.includes("messages-stream") ||
+      className.includes("conversation-panel") ||
+      className.includes("chat-container") ||
+      className.includes("chat-history") ||
+      className.includes("step-item") ||
+      className.includes("bubble") ||
+      className.includes("tool-batch") ||
       className.includes("prose")
     ) {
       return true;
@@ -1513,6 +1521,15 @@
       el.closest(".codicon") ||
       el.closest(".markdown-body") ||
       el.closest(".rendered-markdown") ||
+      el.closest(".message-stream") ||
+      el.closest(".messages-stream") ||
+      el.closest(".conversation-panel") ||
+      el.closest(".chat-container") ||
+      el.closest(".chat-stream") ||
+      el.closest(".message-row") ||
+      el.closest(".bubble") ||
+      el.closest(".agent-thinking-card") ||
+      el.closest('[data-testid="message-list"]') ||
       el.closest(".prose")
     )) {
       return true;
@@ -1579,15 +1596,16 @@
       const original = node.nodeValue;
       if (!original || !original.trim()) return;
 
+      node._agy_translated = true;
       // 如果当前文本与上次翻译的一致，无需重复处理
       if (node._agy_orig === original && node._agy_res === node.nodeValue) {
         return;
       }
 
       const translated = translateString(original);
+      node._agy_orig = original;
+      node._agy_res = translated;
       if (translated !== original) {
-        node._agy_orig = original;
-        node._agy_res = translated;
         node.nodeValue = translated;
       }
       return;
@@ -1596,6 +1614,8 @@
     if (node.nodeType === Node.ELEMENT_NODE) {
       const el = node;
       if (!el || !el.tagName || IGNORE_TAGS.has(el.tagName)) return;
+      // 快速检查忽略容器，避免遍历无用子树
+      if (shouldIgnoreElement(el)) return;
 
       // 翻译 input / textarea 的 placeholder
       if (el.placeholder) {
@@ -1666,9 +1686,6 @@
         }
       }
 
-      // 保护内部代码/终端/用户编辑文本：如果是忽略元素，则不递归翻译其内部子节点
-      if (shouldIgnoreElement(el)) return;
-
       // 递归子节点
       for (let child = el.firstChild; child; child = child.nextSibling) {
         translateNode(child);
@@ -1676,18 +1693,49 @@
     }
   }
 
-  // 6. 初始扫描与全量 DOM 监听
-  function runLocalization() {
-    if (document.body) {
-      translateNode(document.body);
+  // 6. 分片安全扫描（避免单次全量全树遍历卡顿主线程）
+  function runLocalization(target) {
+    const root = target || (document.body ? document.body : null);
+    if (!root || (typeof document.visibilityState === "string" && document.visibilityState === "hidden")) return;
+
+    const queue = [root];
+    const maxNodesPerBatch = 250;
+
+    function processBatch() {
+      let count = 0;
+      while (queue.length > 0 && count < maxNodesPerBatch) {
+        const curr = queue.shift();
+        count++;
+        if (!curr) continue;
+        if (curr.nodeType === Node.TEXT_NODE) {
+          translateNode(curr);
+        } else if (curr.nodeType === Node.ELEMENT_NODE) {
+          if (IGNORE_TAGS.has(curr.tagName) || shouldIgnoreElement(curr)) continue;
+          translateNode(curr);
+          for (let child = curr.firstChild; child; child = child.nextSibling) {
+            queue.push(child);
+          }
+        }
+      }
+      if (queue.length > 0) {
+        if (typeof requestIdleCallback === "function") {
+          requestIdleCallback(processBatch, { timeout: 100 });
+        } else {
+          setTimeout(processBatch, 16);
+        }
+      }
     }
+    processBatch();
   }
 
-  // 监听动态 DOM 变动
+  // 监听动态 DOM 变动（带熔断保护与防重入机制）
   let pendingMutations = [];
   let timer = null;
+  const MAX_MUTATIONS_BATCH = 300;
+
   const observer = new MutationObserver((mutations) => {
     for (let i = 0; i < mutations.length; i++) {
+      if (pendingMutations.length >= MAX_MUTATIONS_BATCH) break;
       pendingMutations.push(mutations[i]);
     }
     if (timer) return;
@@ -1695,28 +1743,38 @@
       timer = null;
       const batch = pendingMutations;
       pendingMutations = [];
-      for (let i = 0; i < batch.length; i++) {
-        const m = batch[i];
-        if (m.type === "childList") {
-          for (let j = 0; j < m.addedNodes.length; j++) {
-            translateNode(m.addedNodes[j]);
-          }
-        } else if (m.type === "characterData") {
-          translateNode(m.target);
-        } else if (m.type === "attributes") {
-          const attr = m.attributeName;
-          const el = m.target;
-          if (el && el.getAttribute && !shouldIgnoreElement(el)) {
-            const current = el.getAttribute(attr);
-            if (current) {
-              const tr = translateString(current);
-              if (tr !== current) {
-                el.setAttribute(attr, tr);
-                if (attr === "placeholder") el.placeholder = tr;
-                if (attr === "title") el.title = tr;
+      if (!batch.length) return;
+
+      // 暂停监听以杜绝 DOM 修改引发的连锁级联事件
+      observer.disconnect();
+      try {
+        for (let i = 0; i < batch.length; i++) {
+          const m = batch[i];
+          if (m.type === "childList") {
+            for (let j = 0; j < m.addedNodes.length; j++) {
+              translateNode(m.addedNodes[j]);
+            }
+          } else if (m.type === "characterData") {
+            translateNode(m.target);
+          } else if (m.type === "attributes") {
+            const attr = m.attributeName;
+            const el = m.target;
+            if (el && el.getAttribute && !shouldIgnoreElement(el)) {
+              const current = el.getAttribute(attr);
+              if (current) {
+                const tr = translateString(current);
+                if (tr !== current) {
+                  el.setAttribute(attr, tr);
+                  if (attr === "placeholder") el.placeholder = tr;
+                  if (attr === "title") el.title = tr;
+                }
               }
             }
           }
+        }
+      } finally {
+        if (document.body) {
+          observer.observe(document.body, observeConfig);
         }
       }
     });
@@ -1750,14 +1808,14 @@
         observer.observe(document.body, observeConfig);
       });
     }
-    // 周期空闲扫描兜底（处理某些 React 异步重渲染）
+    // 周期空闲扫描兜底（改为 30s 兜底，避免 3s 高频空转卡顿）
     setInterval(() => {
       if (typeof requestIdleCallback === "function") {
-        requestIdleCallback(runLocalization, { timeout: 1000 });
+        requestIdleCallback(() => runLocalization(), { timeout: 1000 });
       } else {
         runLocalization();
       }
-    }, 3000);
+    }, 30000);
   }
 
   if (document.readyState === "loading") {

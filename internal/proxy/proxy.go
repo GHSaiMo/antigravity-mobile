@@ -307,30 +307,30 @@ func (p *Proxy) updateUpstream(info inspector.InstanceInfo) {
 	// Decompress gzip responses from upstream so browsers can parse JSON directly.
 	// The Antigravity language_server (HTTP/2) may compress regardless of Accept-Encoding.
 	rp.ModifyResponse = func(resp *http.Response) error {
-		if resp.Header.Get("Content-Encoding") == "gzip" {
-			// PERF: use pooled gzip reader to avoid ~32KB allocation per response
-			gzReader, err := GetGzipReader(resp.Body)
-			if err != nil {
-				return err
-			}
-			resp.Body = &pooledGzipReadCloser{gz: gzReader, body: resp.Body}
-			resp.Header.Del("Content-Encoding")
-			resp.Header.Del("Content-Length") // length is now unknown
-			resp.ContentLength = -1
-		}
 		if resp.Request != nil && resp.Request.URL != nil {
 			path := resp.Request.URL.Path
 			if path == "/main.js" || path == "/jetbox.css" || path == "/compiled_tailwind.css" ||
 				path == "/prism_bundle.js" || path == "/diff_worker.js" || path == "/icon.png" ||
 				strings.HasPrefix(path, "/symbols-icons/") {
 				resp.Header.Set("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800")
-				resp.Header.Del("Content-Length")
-				resp.ContentLength = -1
 			}
 
-			// Normalize FileType enum strings ("FILE_TYPE_DIRECTORY", "FILE_TYPE_FILE", etc.)
-			// to numeric enum values (2, 1, 3, 0) expected by the official web bundle.
-			if resp.StatusCode == http.StatusOK && (strings.HasSuffix(path, "/ReadDir") || strings.HasSuffix(path, "/StatUri") || strings.HasSuffix(path, "/GetFileDetails") || strings.HasSuffix(path, "/FindFiles")) {
+			needsModification := resp.StatusCode == http.StatusOK && 
+				(strings.HasSuffix(path, "/ReadDir") || strings.HasSuffix(path, "/StatUri") || 
+				 strings.HasSuffix(path, "/GetFileDetails") || strings.HasSuffix(path, "/FindFiles"))
+
+			if needsModification {
+				if resp.Header.Get("Content-Encoding") == "gzip" {
+					gzReader, err := GetGzipReader(resp.Body)
+					if err != nil {
+						return err
+					}
+					resp.Body = &pooledGzipReadCloser{gz: gzReader, body: resp.Body}
+					resp.Header.Del("Content-Encoding")
+					resp.Header.Del("Content-Length")
+					resp.ContentLength = -1
+				}
+				
 				raw, err := io.ReadAll(resp.Body)
 				if err == nil {
 					_ = resp.Body.Close()
@@ -601,6 +601,7 @@ func (p *Proxy) handleRescan(w http.ResponseWriter, r *http.Request) {
 }
 
 func (p *Proxy) handleRpcProxy(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[RPC] Request: %s", r.URL.Path)
 	p.mu.RLock()
 	rp := p.activeProxy
 	port := p.activePort
@@ -2473,7 +2474,7 @@ func (p *Proxy) HandleDesktopIndex(w http.ResponseWriter, r *http.Request) {
 	htmlStr = strings.Replace(htmlStr, "</head>", cssInject, 1)
 
 	// 6. Inject zh-CN.js and view-switcher.js before </body>
-	jsInject := fmt.Sprintf("    <script src=\"/zh-CN.js?v=%d\"></script>\n    <script src=\"/view-switcher.js?v=%d\"></script>\n  </body>", versionTs, versionTs)
+	jsInject := fmt.Sprintf("    <!-- disabled zh-CN -->\n    <script src=\"/view-switcher.js?v=%d\"></script>\n  </body>", versionTs)
 	htmlStr = strings.Replace(htmlStr, "</body>", jsInject, 1)
 	htmlBytes := []byte(htmlStr)
 	desktopIndexCacheMu.Lock()

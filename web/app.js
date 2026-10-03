@@ -43,8 +43,70 @@ let pollTimer = null;
 let currentTrajectories = {};
 let availableModels = [];
 let sessionStepsCache = {};
-const MAX_SESSION_STEPS_CACHE = 15;
+const MAX_SESSION_STEPS_CACHE = 30;
 const sessionStepsLRU = [];
+
+// --- IndexedDB Persistent Steps Cache (P1 / B-3) ---
+const PersistentStepsCache = {
+  dbPromise: null,
+  getDB() {
+    if (!this.dbPromise) {
+      this.dbPromise = new Promise((resolve) => {
+        if (typeof window === "undefined" || !window.indexedDB) return resolve(null);
+        try {
+          const req = indexedDB.open("agy_sessions_db", 1);
+          req.onupgradeneeded = (e) => {
+            const db = e.target.result;
+            if (!db.objectStoreNames.contains("session_steps")) {
+              db.createObjectStore("session_steps", { keyPath: "cascadeId" });
+            }
+          };
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => resolve(null);
+        } catch (_) {
+          resolve(null);
+        }
+      });
+    }
+    return this.dbPromise;
+  },
+  async get(cascadeId) {
+    if (!cascadeId) return null;
+    const db = await this.getDB();
+    if (!db) return null;
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction("session_steps", "readonly");
+        const store = tx.objectStore("session_steps");
+        const req = store.get(cascadeId);
+        req.onsuccess = () => resolve(req.result?.data || null);
+        req.onerror = () => resolve(null);
+      } catch (_) {
+        resolve(null);
+      }
+    });
+  },
+  async set(cascadeId, data) {
+    if (!cascadeId || !data) return;
+    const db = await this.getDB();
+    if (!db) return;
+    try {
+      const tx = db.transaction("session_steps", "readwrite");
+      const store = tx.objectStore("session_steps");
+      store.put({ cascadeId, data, updatedAt: Date.now() });
+    } catch (_) {}
+  },
+  async delete(cascadeId) {
+    if (!cascadeId) return;
+    const db = await this.getDB();
+    if (!db) return;
+    try {
+      const tx = db.transaction("session_steps", "readwrite");
+      const store = tx.objectStore("session_steps");
+      store.delete(cascadeId);
+    } catch (_) {}
+  }
+};
 
 function setSessionStepsCache(cascadeId, data) {
   if (!cascadeId) return;
@@ -58,6 +120,8 @@ function setSessionStepsCache(cascadeId, data) {
       delete sessionStepsCache[oldest];
     }
   }
+  // Asynchronously persist to IndexedDB for zero-latency instant restores
+  PersistentStepsCache.set(cascadeId, data);
 }
 
 // --- Session Drafts Manager ---
@@ -424,17 +488,24 @@ function renderRoute() {
       const cached = sessionStepsCache[activeCascadeId];
       if (cached && cached.steps && cached.steps.length > 0) {
         renderMessages(cached.steps, cached.isRunning);
-      } else if (streamEl) {
-        streamEl.innerHTML = `
-          <div class="loading-state">
-            <div class="ios-spinner"></div>
-            <p>正在同步会话历史与步骤...</p>
-          </div>
-        `;
+      } else {
+        // P1 / B-3: Query IndexedDB persistent cache first to eliminate loading spinner on cold visits
+        PersistentStepsCache.get(activeCascadeId).then(persisted => {
+          if (persisted && persisted.steps && persisted.steps.length > 0 && activeCascadeId === newCascadeId) {
+            setSessionStepsCache(newCascadeId, persisted);
+            renderMessages(persisted.steps, persisted.isRunning);
+          } else if (streamEl && activeCascadeId === newCascadeId && (!streamEl.children.length || streamEl.querySelector(".loading-state"))) {
+            streamEl.innerHTML = `
+              <div class="loading-state">
+                <div class="ios-spinner"></div>
+                <p>正在同步会话历史与步骤...</p>
+              </div>
+            `;
+          }
+        });
       }
 
-      // Fetch initial conversation trajectory via fast HTTP RPC so messages appear
-      // in milliseconds without waiting on WebSocket handshake.
+      // Fetch initial conversation trajectory via HTTP RPC only if not cached in memory
       if (!sessionStepsCache[activeCascadeId] || !sessionStepsCache[activeCascadeId].steps?.length) {
         loadChat(activeCascadeId, true);
       }
@@ -920,6 +991,7 @@ async function confirmDeleteConversation() {
 
   delete currentTrajectories[id];
   delete sessionStepsCache[id];
+  PersistentStepsCache.delete(id);
   const lruIdx = sessionStepsLRU.indexOf(id);
   if (lruIdx !== -1) sessionStepsLRU.splice(lruIdx, 1);
   DraftManager.clear(id);
@@ -1789,31 +1861,34 @@ async function loadChat(cascadeId, isBackgroundPoll = false) {
     RunningTasksManager.init(cascadeId);
     renderMessages(steps, isRunning);
 
-    fetch(`/gateway/cascade/messages?cascadeId=${encodeURIComponent(cascadeId)}&limit=1`)
-      .then(res => res.json())
-      .then(info => {
-        if (activeCascadeId === cascadeId) {
-          if (info.activeModel) {
-            syncActiveModel(info.activeModel);
+    // P1 / B-4: Avoid redundant HTTP messages request when WebSocket stream is active
+    if (!activeWs || activeWs.readyState !== WebSocket.OPEN) {
+      fetch(`/gateway/cascade/messages?cascadeId=${encodeURIComponent(cascadeId)}&limit=1`)
+        .then(res => res.json())
+        .then(info => {
+          if (activeCascadeId === cascadeId) {
+            if (info.activeModel) {
+              syncActiveModel(info.activeModel);
+            }
+            if (info.queuedMessages !== undefined) {
+              LocalQueueManager.syncFromServer(info.queuedMessages, info.messages || info.steps);
+            } else if (info.messages) {
+              LocalQueueManager.syncFromServer(null, info.messages);
+            }
+            RunningTasksManager.syncFromServer(info.runningTasks);
+            currentCanProceed = !!info.canProceed && !isRunning;
+            currentProceedArtifactUri = info.proceedArtifactUri || null;
+            updateProceedButton(currentCanProceed);
+            updatePendingInteraction(info.pendingInteraction || null, isRunning);
+            const hasAction = !!(info.pendingInteraction || currentCanProceed);
+            updateChatControls(isRunning, wsUri, hasAction);
+            if (currentTrajectories[cascadeId]) {
+              currentTrajectories[cascadeId].needsInput = hasAction;
+            }
           }
-          if (info.queuedMessages !== undefined) {
-            LocalQueueManager.syncFromServer(info.queuedMessages, info.messages || info.steps);
-          } else if (info.messages) {
-            LocalQueueManager.syncFromServer(null, info.messages);
-          }
-          RunningTasksManager.syncFromServer(info.runningTasks);
-          currentCanProceed = !!info.canProceed && !isRunning;
-          currentProceedArtifactUri = info.proceedArtifactUri || null;
-          updateProceedButton(currentCanProceed);
-          updatePendingInteraction(info.pendingInteraction || null, isRunning);
-          const hasAction = !!(info.pendingInteraction || currentCanProceed);
-          updateChatControls(isRunning, wsUri, hasAction);
-          if (currentTrajectories[cascadeId]) {
-            currentTrajectories[cascadeId].needsInput = hasAction;
-          }
-        }
-      })
-      .catch(() => {});
+        })
+        .catch(() => {});
+    }
 
     if (isRunning && (!activeWs || activeWs.readyState !== WebSocket.OPEN) && !pollTimer) {
       pollTimer = setInterval(() => {
@@ -2203,73 +2278,45 @@ function renderMessages(steps, isRunning = false) {
   updateContinueButton(isLastError);
 
   const items = groupSteps(steps);
-  const currentChildIds = new Set(items.map(it => it.id));
-  currentChildIds.add("agent-thinking-indicator");
+  const isSessionSwitch = streamEl.__currentCascadeId !== activeCascadeId;
+  streamEl.__currentCascadeId = activeCascadeId;
+
+  const lastItem = items[items.length - 1];
+  const isAwaiting = isRunning && lastItem?.type !== "tools";
 
   let hasDOMChanges = false;
 
-  // Remove nodes that no longer exist
-  Array.from(streamEl.children).forEach(child => {
-    if (!currentChildIds.has(child.id)) {
-      child.remove();
-      hasDOMChanges = true;
-    }
-  });
+  if (isSessionSwitch) {
+    // P2 / B-5 Fast Path: Session switch! Replace the entire child tree in one single
+    // atomic DOM layout operation via DocumentFragment + replaceChildren to eliminate
+    // tens of layout reflows and eliminate stuttering.
+    const fragment = document.createDocumentFragment();
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const isLastItem = (i === items.length - 1);
+      const fp = getItemFingerprint(item, isRunning, isLastItem);
 
-  for (let i = 0; i < items.length; i++) {
-    const item = items[i];
-    const isLastItem = (i === items.length - 1);
-    const fp = getItemFingerprint(item, isRunning, isLastItem);
-
-    let rowClass = "message-row";
-    if (item.type === "user") {
-      rowClass = "message-row user";
-    } else if (item.type === "agent") {
-      rowClass = "message-row agent";
-    } else if (item.type === "tools") {
-      rowClass = (isRunning && isLastItem) ? "message-row agent" : "message-row tool-batch-row";
-    } else if (item.type === "error") {
-      rowClass = "message-row agent error-row";
-    }
-
-    let existingEl = document.getElementById(item.id);
-    if (existingEl) {
-      if (existingEl.getAttribute("data-fp") !== fp) {
-        const wasOpen = existingEl.querySelector("details")?.open;
-        existingEl.setAttribute("data-fp", fp);
-        existingEl.className = rowClass;
-        existingEl.innerHTML = generateItemHtml(item, isRunning, isLastItem);
-        if (wasOpen) {
-          const newDetails = existingEl.querySelector("details");
-          if (newDetails) newDetails.open = true;
-        }
-        hasDOMChanges = true;
+      let rowClass = "message-row";
+      if (item.type === "user") {
+        rowClass = "message-row user";
+      } else if (item.type === "agent") {
+        rowClass = "message-row agent";
+      } else if (item.type === "tools") {
+        rowClass = (isRunning && isLastItem) ? "message-row agent" : "message-row tool-batch-row";
+      } else if (item.type === "error") {
+        rowClass = "message-row agent error-row";
       }
-    } else {
+
       const newEl = document.createElement("div");
       newEl.id = item.id;
-      newEl.className = rowClass + " message-entering";
+      newEl.className = rowClass;
       newEl.setAttribute("data-fp", fp);
       newEl.innerHTML = generateItemHtml(item, isRunning, isLastItem);
-
-      const indicator = document.getElementById("agent-thinking-indicator");
-      if (indicator) {
-        streamEl.insertBefore(newEl, indicator);
-      } else {
-        streamEl.appendChild(newEl);
-      }
-      hasDOMChanges = true;
+      fragment.appendChild(newEl);
     }
-  }
 
-  // Standalone Agent Thinking Indicator (shown while awaiting response or continuing plan execution)
-  const lastItem = items[items.length - 1];
-  const isAwaiting = isRunning && lastItem?.type !== "tools";
-  let thinkingIndicator = document.getElementById("agent-thinking-indicator");
-
-  if (isAwaiting) {
-    if (!thinkingIndicator) {
-      thinkingIndicator = document.createElement("div");
+    if (isAwaiting) {
+      const thinkingIndicator = document.createElement("div");
       thinkingIndicator.id = "agent-thinking-indicator";
       thinkingIndicator.className = "agent-thinking-card";
       thinkingIndicator.innerHTML = `
@@ -2289,12 +2336,100 @@ function renderMessages(steps, isRunning = false) {
           </div>
         </div>
       `;
-      streamEl.appendChild(thinkingIndicator);
+      fragment.appendChild(thinkingIndicator);
+    }
+
+    streamEl.replaceChildren(fragment);
+    hasDOMChanges = true;
+  } else {
+    // Incremental diffing for live streaming updates within the same active session
+    const currentChildIds = new Set(items.map(it => it.id));
+    currentChildIds.add("agent-thinking-indicator");
+
+    // Remove nodes that no longer exist
+    Array.from(streamEl.children).forEach(child => {
+      if (!currentChildIds.has(child.id)) {
+        child.remove();
+        hasDOMChanges = true;
+      }
+    });
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const isLastItem = (i === items.length - 1);
+      const fp = getItemFingerprint(item, isRunning, isLastItem);
+
+      let rowClass = "message-row";
+      if (item.type === "user") {
+        rowClass = "message-row user";
+      } else if (item.type === "agent") {
+        rowClass = "message-row agent";
+      } else if (item.type === "tools") {
+        rowClass = (isRunning && isLastItem) ? "message-row agent" : "message-row tool-batch-row";
+      } else if (item.type === "error") {
+        rowClass = "message-row agent error-row";
+      }
+
+      let existingEl = document.getElementById(item.id);
+      if (existingEl) {
+        if (existingEl.getAttribute("data-fp") !== fp) {
+          const wasOpen = existingEl.querySelector("details")?.open;
+          existingEl.setAttribute("data-fp", fp);
+          existingEl.className = rowClass;
+          existingEl.innerHTML = generateItemHtml(item, isRunning, isLastItem);
+          if (wasOpen) {
+            const newDetails = existingEl.querySelector("details");
+            if (newDetails) newDetails.open = true;
+          }
+          hasDOMChanges = true;
+        }
+      } else {
+        const newEl = document.createElement("div");
+        newEl.id = item.id;
+        newEl.className = rowClass + " message-entering";
+        newEl.setAttribute("data-fp", fp);
+        newEl.innerHTML = generateItemHtml(item, isRunning, isLastItem);
+
+        const indicator = document.getElementById("agent-thinking-indicator");
+        if (indicator) {
+          streamEl.insertBefore(newEl, indicator);
+        } else {
+          streamEl.appendChild(newEl);
+        }
+        hasDOMChanges = true;
+      }
+    }
+
+    let thinkingIndicator = document.getElementById("agent-thinking-indicator");
+    if (isAwaiting) {
+      if (!thinkingIndicator) {
+        thinkingIndicator = document.createElement("div");
+        thinkingIndicator.id = "agent-thinking-indicator";
+        thinkingIndicator.className = "agent-thinking-card";
+        thinkingIndicator.innerHTML = `
+          <div class="agent-avatar">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"></path>
+            </svg>
+          </div>
+          <div class="agent-thinking-body">
+            <div class="thinking-title-row">
+              <span>Agent 正在思考与执行</span>
+              <div class="activity-dots">
+                <span class="dot"></span>
+                <span class="dot"></span>
+                <span class="dot"></span>
+              </div>
+            </div>
+          </div>
+        `;
+        streamEl.appendChild(thinkingIndicator);
+        hasDOMChanges = true;
+      }
+    } else if (thinkingIndicator) {
+      thinkingIndicator.remove();
       hasDOMChanges = true;
     }
-  } else if (thinkingIndicator) {
-    thinkingIndicator.remove();
-    hasDOMChanges = true;
   }
 
   // 1. First-time render on entering a conversation: align cleanly to bottom without whole-page jump
@@ -4806,7 +4941,7 @@ function getCachedMarkdown(md) {
     return markdownCache.get(key);
   }
   const html = renderMarkdown(md);
-  if (markdownCache.size > 250) {
+  if (markdownCache.size > 1000) {
     const firstKey = markdownCache.keys().next().value;
     markdownCache.delete(firstKey);
   }

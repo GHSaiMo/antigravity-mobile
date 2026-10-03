@@ -793,12 +793,12 @@ func buildRouter(
 	rootMux.HandleFunc("GET /api/v1/files/raw", p.HandleFileRaw)
 
 	// Proxy routes: APIs, WebSocket, Artifacts, Gateway status
-	rootMux.Handle("/api/", p)
-	rootMux.Handle("/gateway/", p)
-	rootMux.Handle("/static/artifacts/", p)
-	rootMux.Handle("/connect-websocket", p)
-	rootMux.Handle("/exa.language_server_pb.", p)
-	rootMux.Handle("/exa.language_server_pb.LanguageServerService/", p)
+	rootMux.Handle("/api/", web.GzipHandler(p))
+	rootMux.Handle("/gateway/", web.GzipHandler(p))
+	rootMux.Handle("/static/artifacts/", web.GzipHandler(p))
+	rootMux.Handle("/connect-websocket", p) // WebSocket: must NOT wrap with GzipHandler
+	rootMux.Handle("/exa.language_server_pb.", web.GzipHandler(p))
+	rootMux.Handle("/exa.language_server_pb.LanguageServerService/", web.GzipHandler(p))
 
 	// Desktop static assets (direct endpoints)
 	rootMux.HandleFunc("GET /main.js", p.HandleDesktopStatic)
@@ -848,7 +848,7 @@ func buildRouter(
 
 		// ConnectRPC direct proto calls (e.g. /exa.language_server_pb.LanguageServerService/...)
 		if strings.HasPrefix(path, "/exa.language_server_pb.") {
-			p.ServeHTTP(w, r)
+			web.GzipHandler(p).ServeHTTP(w, r)
 			return
 		}
 
