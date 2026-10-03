@@ -47,6 +47,29 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
 
+      - name: Verify APK Release Signature
+        run: |
+          APK_PATH=$(find android/app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          if [ -z "$APK_PATH" ]; then
+            echo "❌ 未找到构建好的 APK 文件"
+            exit 1
+          fi
+          echo "🔍 正在校验 APK Release 签名证书指纹..."
+          EXPECTED_SHA256="a1b017a41f611dbeb83c9765b2d3bc3d3470ef74d76b587fd681e97cecd42900"
+          APKSIGNER=$(find $ANDROID_HOME/build-tools -name "apksigner" | sort -V | tail -n 1)
+          if [ -z "$APKSIGNER" ] || [ ! -x "$APKSIGNER" ]; then
+            echo "❌ 未找到 apksigner 工具"
+            exit 1
+          fi
+          CERT_DIGEST=$("$APKSIGNER" verify --print-certs "$APK_PATH" | grep -i "SHA-256 digest" | awk '{print $NF}' | tr '[:upper:]' '[:lower:]' | head -n 1)
+          echo "APK 实际指纹: $CERT_DIGEST"
+          echo "预期固定指纹: $EXPECTED_SHA256"
+          if [ "$CERT_DIGEST" != "$EXPECTED_SHA256" ]; then
+            echo "❌ 签名指纹不匹配！禁止发布非统一签名的 APK！"
+            exit 1
+          fi
+          echo "✅ 签名证书指纹校验通过！"
+
       - name: Prepare APK Asset
         run: |
           mkdir -p dist
