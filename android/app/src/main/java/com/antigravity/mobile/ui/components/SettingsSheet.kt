@@ -611,6 +611,23 @@ private fun MainSettingsContent(
         }
 
         // MARK: - 7. 关于 (1:1 iOS 对齐)
+        val appVersion = remember(localContext) {
+            try {
+                val packageInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    localContext.packageManager.getPackageInfo(
+                        localContext.packageName,
+                        PackageManager.PackageInfoFlags.of(0)
+                    )
+                } else {
+                    @Suppress("DEPRECATION")
+                    localContext.packageManager.getPackageInfo(localContext.packageName, 0)
+                }
+                packageInfo.versionName ?: "1.0.5"
+            } catch (e: Exception) {
+                "1.0.5"
+            }
+        }
+
         SettingsSection(title = "关于") {
             Column(
                 modifier = Modifier
@@ -638,7 +655,7 @@ private fun MainSettingsContent(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(text = "版本", color = colors.textPrimary, fontSize = 15.sp)
-                    Text(text = "1.0.3", color = colors.textSecondary, fontSize = 14.sp)
+                    Text(text = appVersion, color = colors.textSecondary, fontSize = 14.sp)
                 }
             }
         }
