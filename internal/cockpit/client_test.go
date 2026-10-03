@@ -1,6 +1,7 @@
 package cockpit
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -141,5 +142,108 @@ func TestSwitchAccountMockWS(t *testing.T) {
 	// Verify legacy instance bindAccountId was rolled back to original-id
 	if got := getLegacyBindAccount(); got != "original-id" {
 		t.Fatalf("expected rollback to original-id, got %q", got)
+	}
+}
+
+func TestSwitchAccount_DirectNativeSwitch(t *testing.T) {
+	origQuit := quitAntigravityBeforeSwitch
+	quitCalled := 0
+	quitAntigravityBeforeSwitch = func() error {
+		quitCalled++
+		return nil
+	}
+	t.Cleanup(func() { quitAntigravityBeforeSwitch = origQuit })
+
+	origApply := applyLanguageServerOAuth
+	applyCalled := 0
+	var appliedID string
+	applyLanguageServerOAuth = func(id string) error {
+		applyCalled++
+		appliedID = id
+		return nil
+	}
+	t.Cleanup(func() { applyLanguageServerOAuth = origApply })
+
+	tmpDir := t.TempDir()
+	cockpitDir := filepath.Join(tmpDir, ".antigravity_cockpit")
+	_ = os.MkdirAll(cockpitDir, 0755)
+
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
+	t.Setenv("COCKPIT_DATA_DIR", cockpitDir)
+
+	// Setup AES key
+	rawKey := make([]byte, 32)
+	for i := range rawKey {
+		rawKey[i] = byte(i + 1)
+	}
+	_ = os.WriteFile(filepath.Join(cockpitDir, storageKeyFile), []byte(base64.StdEncoding.EncodeToString(rawKey)), 0600)
+
+	// Setup accounts.json
+	idx := accountsIndex{
+		CurrentAccountID: "acc-old",
+		Accounts: []struct {
+			ID    string `json:"id"`
+			Email string `json:"email"`
+			Name  string `json:"name"`
+		}{
+			{ID: "acc-old", Email: "old@example.com", Name: "Old User"},
+			{ID: "acc-native-1", Email: "native@example.com", Name: "Native User"},
+		},
+	}
+	idxBytes, _ := json.Marshal(idx)
+	_ = os.WriteFile(filepath.Join(cockpitDir, "accounts.json"), idxBytes, 0644)
+
+	// Save target account details in encrypted format
+	targetAcc := &CockpitAccountDetail{
+		ID:        "acc-native-1",
+		Email:     "native@example.com",
+		CreatedAt: 1791000000,
+		Token: CockpitTokenData{
+			AccessToken:     "ya29.native-access",
+			RefreshToken:    "1//native-refresh",
+			ExpiryTimestamp: 9999999999, // Fresh
+		},
+	}
+	if err := SaveAccountDetail(targetAcc); err != nil {
+		t.Fatalf("SaveAccountDetail failed: %v", err)
+	}
+
+	// NO server.json or mock WS server created! Direct native switch must work completely offline.
+	if err := SwitchAccount("native@example.com"); err != nil {
+		t.Fatalf("SwitchAccount failed on direct native path: %v", err)
+	}
+
+	if quitCalled != 1 {
+		t.Fatalf("expected quitAntigravityBeforeSwitch to be called once, got %d", quitCalled)
+	}
+	if applyCalled != 1 || appliedID != "acc-native-1" {
+		t.Fatalf("expected applyLanguageServerOAuth to be called for acc-native-1, got count=%d id=%q", applyCalled, appliedID)
+	}
+
+	// Verify local state was synchronized
+	var curDoc struct {
+		Email string `json:"email"`
+	}
+	curBytes, err := os.ReadFile(filepath.Join(cockpitDir, "current_account.json"))
+	if err != nil {
+		t.Fatalf("current_account.json not written: %v", err)
+	}
+	_ = json.Unmarshal(curBytes, &curDoc)
+	if curDoc.Email != "native@example.com" {
+		t.Fatalf("current_account.json email mismatch: got %q", curDoc.Email)
+	}
+
+	// Verify accounts.json was updated
+	updatedAccBytes, _ := os.ReadFile(filepath.Join(cockpitDir, "accounts.json"))
+	var updatedIdx accountsIndex
+	_ = json.Unmarshal(updatedAccBytes, &updatedIdx)
+	if updatedIdx.CurrentAccountID != "acc-native-1" {
+		t.Fatalf("accounts.json current_account_id mismatch: got %q", updatedIdx.CurrentAccountID)
+	}
+
+	// Verify legacy bind account was updated
+	if got := getLegacyBindAccount(); got != "acc-native-1" {
+		t.Fatalf("legacy bind account mismatch: got %q", got)
 	}
 }

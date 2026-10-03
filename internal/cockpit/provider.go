@@ -572,7 +572,7 @@ func TriggerRefresh(force ...bool) error {
 		}
 	}
 
-	if reportPort > 0 && cfg.ReportToken != "" {
+	if reportPort > 0 && cfg.ReportToken != "" && IsCockpitListening(reportPort, 300*time.Millisecond) {
 		go func(port int, token string) {
 			defer func() {
 				refreshMutex.Lock()
@@ -581,7 +581,8 @@ func TriggerRefresh(force ...bool) error {
 			}()
 
 			if err := QueryReport(port, token); err != nil {
-				log.Printf("[Cockpit] Report request error: %v", err)
+				log.Printf("[Cockpit] Report request error: %v; falling back to direct quota fetch", err)
+				_ = FetchAllRemoteQuotas()
 			} else {
 				InvalidateQuotaCache()
 			}
@@ -589,9 +590,20 @@ func TriggerRefresh(force ...bool) error {
 		return nil
 	}
 
-	refreshMutex.Lock()
-	isRefreshing = false
-	refreshMutex.Unlock()
+	// Native path: Cockpit Tools desktop process not running, query directly via Google Cloud Code API
+	go func() {
+		defer func() {
+			refreshMutex.Lock()
+			isRefreshing = false
+			refreshMutex.Unlock()
+		}()
+		log.Println("[Cockpit] Cockpit Tools desktop process not listening; triggering direct native quota fetch...")
+		if err := FetchAllRemoteQuotas(); err != nil {
+			log.Printf("[Cockpit] Direct native quota fetch failed: %v", err)
+		} else {
+			InvalidateQuotaCache()
+		}
+	}()
 	return nil
 }
 
