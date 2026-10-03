@@ -1,6 +1,9 @@
 .PHONY: build run test clean tmux-start tmux-stop pair list clear clear-all install-local
 
 BIN_NAME := mgy
+# Version derives from the latest git tag (leading 'v' stripped); falls back to the default baked into main.go.
+VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')
+LDFLAGS := -s -w $(if $(VERSION),-X 'main.Version=$(VERSION)')
 ifeq ($(OS),Windows_NT)
   BIN_NAME := mgy.exe
 endif
@@ -8,7 +11,7 @@ endif
 # Build the unified single binary with embedded web assets
 build:
 	@mkdir -p bin
-	go build -ldflags="-s -w -X 'main.Version=1.0.5'" -o bin/$(BIN_NAME) ./cmd/gateway
+	go build -ldflags="$(LDFLAGS)" -o bin/$(BIN_NAME) ./cmd/gateway
 ifeq ($(OS),Windows_NT)
 	@echo Build complete: bin/$(BIN_NAME)
 else
@@ -20,7 +23,7 @@ endif
 # Build for Linux x86_64
 build-linux:
 	@mkdir -p bin
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X 'main.Version=1.0.5'" -o bin/mgy-linux-amd64 ./cmd/gateway
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="$(LDFLAGS)" -o bin/mgy-linux-amd64 ./cmd/gateway
 	@echo "Build complete: bin/mgy-linux-amd64"
 
 
