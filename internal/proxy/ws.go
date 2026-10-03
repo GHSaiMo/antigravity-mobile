@@ -152,8 +152,8 @@ func CheckWebSocketOrigin(r *http.Request) bool {
 }
 
 var upgrader = websocket.Upgrader{
-	ReadBufferSize:    32768,
-	WriteBufferSize:   32768,
+	ReadBufferSize:    131072, // 128KB (was 32KB)
+	WriteBufferSize:   131072, // 128KB (was 32KB)
 	CheckOrigin:       CheckWebSocketOrigin,
 	EnableCompression: true, // PERF: permessage-deflate — reduces text/JSON WS bandwidth by 60-80%
 }
@@ -255,7 +255,9 @@ func (p *Proxy) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		TLSClientConfig:   localtls.ClientConfig(),
 		NetDialTLSContext: localtls.DialTLSContext,
 		HandshakeTimeout:  5 * time.Second,
-		EnableCompression: true, // PERF: permessage-deflate for upstream tunnel traffic
+		ReadBufferSize:    131072, // 128KB
+		WriteBufferSize:   131072, // 128KB
+		EnableCompression: false,  // PERF: disabled on loopback to eliminate redundant deflate/inflate CPU overhead
 	}
 
 	reqHeader := make(http.Header)
@@ -344,10 +346,13 @@ func (p *Proxy) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	// Pump: Upstream -> Client (streaming — avoids loading full messages into memory)
+	// Pump: Upstream -> Client (streaming with smart small-message normalization)
 	go func() {
 		defer wg.Done()
 		defer closeBoth()
+
+		const maxNormalizeSize = 128 * 1024 // 128KB: only file tree/stat responses ever need FILE_TYPE_ enum normalization
+
 		for {
 			msgType, r, err := upstreamConn.NextReader()
 			if err != nil {
@@ -356,32 +361,71 @@ func (p *Proxy) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 			upstreamConn.SetReadDeadline(time.Now().Add(wsTimeout))
 			clientConn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 
-			// Check if message contains FILE_TYPE_ to normalize enums
-			if msgType == websocket.TextMessage || msgType == websocket.BinaryMessage {
-				raw, readErr := io.ReadAll(r)
-				if readErr != nil {
+			// Fast path for non-text/binary control messages (if any)
+			if msgType != websocket.TextMessage && msgType != websocket.BinaryMessage {
+				w, err := clientConn.NextWriter(msgType)
+				if err != nil {
 					break
 				}
-				if bytes.Contains(raw, []byte("FILE_TYPE_")) {
-					norm := normalizeFileTypes(raw)
-					if writeErr := clientConn.WriteMessage(msgType, norm); writeErr != nil {
-						break
-					}
-					continue
-				}
-				if writeErr := clientConn.WriteMessage(msgType, raw); writeErr != nil {
+				buf := GetLargeBuffer()
+				_, copyErr := io.CopyBuffer(w, r, buf.Bytes()[:cap(buf.Bytes())])
+				PutLargeBuffer(buf)
+				if closeErr := w.Close(); closeErr != nil || copyErr != nil {
 					break
 				}
 				continue
 			}
 
-			w, err := clientConn.NextWriter(msgType)
-			if err != nil {
+			// Read up to maxNormalizeSize to determine if message needs normalization
+			peekBuf := GetLargeBuffer()
+			lr := io.LimitReader(r, maxNormalizeSize+1)
+			_, readErr := peekBuf.ReadFrom(lr)
+			if readErr != nil && readErr != io.EOF {
+				PutLargeBuffer(peekBuf)
 				break
 			}
-			buf := GetLargeBuffer()
-			_, copyErr := io.CopyBuffer(w, r, buf.Bytes()[:cap(buf.Bytes())])
-			PutLargeBuffer(buf)
+
+			if peekBuf.Len() <= maxNormalizeSize {
+				// Entire message fit within 128KB — check for FILE_TYPE_ enum strings
+				raw := peekBuf.Bytes()
+				if bytes.Contains(raw, []byte("FILE_TYPE_")) {
+					norm := normalizeFileTypes(raw)
+					PutLargeBuffer(peekBuf)
+					if writeErr := clientConn.WriteMessage(msgType, norm); writeErr != nil {
+						break
+					}
+					continue
+				}
+				// Small message without FILE_TYPE_ — send directly
+				writeErr := clientConn.WriteMessage(msgType, raw)
+				PutLargeBuffer(peekBuf)
+				if writeErr != nil {
+					break
+				}
+				continue
+			}
+
+			// Message is larger than 128KB (e.g. multi-MB conversation trajectory, large files)
+			// It NEVER requires FILE_TYPE_ replacement. Stream it directly to avoid multi-MB memory allocations!
+			w, err := clientConn.NextWriter(msgType)
+			if err != nil {
+				PutLargeBuffer(peekBuf)
+				break
+			}
+
+			// 1. Write the already-read prefix
+			if _, writeErr := w.Write(peekBuf.Bytes()); writeErr != nil {
+				PutLargeBuffer(peekBuf)
+				w.Close()
+				break
+			}
+			PutLargeBuffer(peekBuf)
+
+			// 2. Stream the rest directly from upstream reader to client writer
+			streamBuf := GetLargeBuffer()
+			_, copyErr := io.CopyBuffer(w, r, streamBuf.Bytes()[:cap(streamBuf.Bytes())])
+			PutLargeBuffer(streamBuf)
+
 			if closeErr := w.Close(); closeErr != nil || copyErr != nil {
 				break
 			}
