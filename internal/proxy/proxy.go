@@ -2625,7 +2625,7 @@ func (p *Proxy) WarmupDesktopStatic(port int, token string) {
 		return
 	}
 
-	rawBytes = LocalizeMainJS(rawBytes)
+	rawBytes = localizeMainJSChecked(rawBytes)
 	h := sha256.Sum256(rawBytes)
 	etag := fmt.Sprintf(`W/"%x"`, h[:8])
 
@@ -2752,7 +2752,7 @@ func (p *Proxy) HandleDesktopStatic(w http.ResponseWriter, r *http.Request) {
 
 		// Gateway-level zero-runtime-overhead translation for main.js
 		if path == "/main.js" {
-			rawBytes = LocalizeMainJS(rawBytes)
+			rawBytes = localizeMainJSChecked(rawBytes)
 		}
 
 		etag := resp.Header.Get("Etag")
