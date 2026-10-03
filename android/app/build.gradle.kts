@@ -26,14 +26,13 @@ android {
         create("release") {
             val customPath = System.getenv("MGY_KEYSTORE_PATH")
             val keystoreFile = if (!customPath.isNullOrBlank()) file(customPath) else file("release.jks")
-            if (keystoreFile.exists()) {
-                storeFile = keystoreFile
-                storePassword = System.getenv("MGY_KEYSTORE_PASSWORD") ?: "antigravity"
-                keyAlias = System.getenv("MGY_KEY_ALIAS") ?: "multigravity"
-                keyPassword = System.getenv("MGY_KEY_PASSWORD") ?: "antigravity"
-            } else {
-                initWith(getByName("debug"))
+            if (!keystoreFile.exists()) {
+                throw GradleException("❌ 致命错误: 未找到 Release 签名密钥库文件 [${keystoreFile.absolutePath}]，禁止静默使用 debug 签名打包发布！")
             }
+            storeFile = keystoreFile
+            storePassword = System.getenv("MGY_KEYSTORE_PASSWORD") ?: "antigravity"
+            keyAlias = System.getenv("MGY_KEY_ALIAS") ?: "multigravity"
+            keyPassword = System.getenv("MGY_KEY_PASSWORD") ?: "antigravity"
         }
     }
 
