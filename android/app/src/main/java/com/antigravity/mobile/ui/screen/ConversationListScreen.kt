@@ -55,6 +55,7 @@ import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import com.antigravity.mobile.data.model.CockpitQuotaResponse
 import com.antigravity.mobile.data.model.ConversationItem
+import com.antigravity.mobile.data.model.ProjectItem
 import com.antigravity.mobile.ui.components.*
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 import com.antigravity.mobile.ui.viewmodel.ConversationListUiState
@@ -107,6 +108,8 @@ fun ConversationListScreen(
     var renamingItem by remember { mutableStateOf<ConversationItem?>(null) }
     var renameText by remember { mutableStateOf("") }
     var deletingItem by remember { mutableStateOf<ConversationItem?>(null) }
+    var editingAliasProject by remember { mutableStateOf<ProjectItem?>(null) }
+    var aliasInputText by remember { mutableStateOf("") }
 
     val colors = AntigravityTheme.colors
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
@@ -465,8 +468,12 @@ fun ConversationListScreen(
             onSelectProject = { project ->
                 showNewConvSheet = false
                 val draftSession = viewModel.createLocalDraftSession(project)
-                val title = if (project.isPureChat) "新对话" else project.name
+                val title = if (project.isPureChat) "新对话" else project.displayName
                 onSelectConversation(draftSession.id, title, true, false, com.antigravity.mobile.data.model.ConversationStatus.IDLE, null)
+            },
+            onEditProjectAlias = { project ->
+                editingAliasProject = project
+                aliasInputText = project.alias ?: ""
             },
             onDismiss = { showNewConvSheet = false }
         )
@@ -484,7 +491,7 @@ fun ConversationListScreen(
         )
     }
 
-    // Rename Dialog
+    // Rename Conversation Dialog
     renamingItem?.let { item ->
         AlertDialog(
             onDismissRequest = { renamingItem = null },
@@ -520,13 +527,62 @@ fun ConversationListScreen(
             },
             dismissButton = {
                 TextButton(
-                    onClick = {
-                        deletingItem = item
-                        renamingItem = null
-                    },
-                    colors = ButtonDefaults.textButtonColors(contentColor = colors.accentRed)
+                    onClick = { renamingItem = null },
+                    colors = ButtonDefaults.textButtonColors(contentColor = colors.textSecondary)
                 ) {
-                    Text("删除此会话")
+                    Text("取消")
+                }
+            },
+            containerColor = colors.surface
+        )
+    }
+
+    // Workspace Alias Dialog (matches rename conversation dialog structure)
+    editingAliasProject?.let { project ->
+        AlertDialog(
+            onDismissRequest = { editingAliasProject = null },
+            title = { Text("设置工作区备注", color = colors.textPrimary, fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "原文件夹：${project.name}",
+                        fontSize = 12.5.sp,
+                        color = colors.textSecondary
+                    )
+                    OutlinedTextField(
+                        value = aliasInputText,
+                        onValueChange = { aliasInputText = it },
+                        placeholder = { Text("输入中文备注（留空恢复默认）", color = colors.textMuted) },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = colors.surface,
+                            unfocusedContainerColor = colors.surface,
+                            focusedBorderColor = colors.accentIndigo,
+                            unfocusedBorderColor = colors.border,
+                            focusedTextColor = colors.textPrimary,
+                            unfocusedTextColor = colors.textPrimary
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.updateProjectAlias(project, aliasInputText)
+                        editingAliasProject = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = colors.accentIndigo)
+                ) {
+                    Text("保存")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { editingAliasProject = null },
+                    colors = ButtonDefaults.textButtonColors(contentColor = colors.textSecondary)
+                ) {
+                    Text("取消")
                 }
             },
             containerColor = colors.surface

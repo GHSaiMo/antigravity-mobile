@@ -471,6 +471,38 @@ class ConversationListViewModel(
         }
     }
 
+    fun updateProjectAlias(project: ProjectItem, newAlias: String) {
+        val trimmed = newAlias.trim()
+        val targetPath = project.path.ifBlank { project.uri }
+        val updatedAlias = trimmed.ifEmpty { null }
+
+        // 1. Optimistic update in-memory projects state flow
+        val currentList = _projects.value
+        val updatedList = currentList.map { item ->
+            val itemPath = item.path.ifBlank { item.uri }
+            if (itemPath == targetPath || (item.id.isNotBlank() && item.id == project.id)) {
+                item.copy(alias = updatedAlias)
+            } else {
+                item
+            }
+        }
+        _projects.value = updatedList
+
+        // 2. Persist to local cache for instant cold starts
+        try {
+            prefs.cachedProjectsJson = apiClient.json.encodeToString(updatedList)
+        } catch (e: Exception) {
+            Log.w("ConvListVM", "Failed to cache updated projects: ${e.message}")
+        }
+
+        // 3. Asynchronously sync to gateway host
+        viewModelScope.launch {
+            apiClient.updateProjectAlias(targetPath, trimmed).onFailure { err ->
+                Log.e("ConvListVM", "Failed to sync project alias to gateway: ${err.message}")
+            }
+        }
+    }
+
     fun onSearchQueryChanged(query: String) {
         _searchQuery.value = query
         applyFilter()

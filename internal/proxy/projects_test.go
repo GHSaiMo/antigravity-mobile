@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -685,6 +686,60 @@ func TestHandleCreateCascade_AutoResolveProjectID(t *testing.T) {
 		t.Errorf("expected CORTEX_TRAJECTORY_SOURCE_CASCADE_CLIENT, got: %v", lastReceivedPayload["source"])
 	}
 }
+
+func TestProjectAliasEndpoint(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "multigravity-alias-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	origEnv := os.Getenv("MULTIGRAVITY_DATA_DIR")
+	defer os.Setenv("MULTIGRAVITY_DATA_DIR", origEnv)
+	os.Setenv("MULTIGRAVITY_DATA_DIR", tempDir)
+
+	insp := inspector.NewInspector(5 * time.Second)
+	p := NewProxy(insp)
+
+	// 1. Set alias
+	setBody, _ := json.Marshal(map[string]string{
+		"path":  "/Users/test/my-cool-project",
+		"alias": "我的酷项目",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/gateway/projects/alias", bytes.NewReader(setBody))
+	rec := httptest.NewRecorder()
+	p.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 from POST /gateway/projects/alias, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 2. Verify stored in memory / disk
+	aliases := loadWorkspaceAliases()
+	normKey := normalizeWorkspaceKey("/Users/test/my-cool-project")
+	if aliases[normKey] != "我的酷项目" {
+		t.Errorf("expected '我的酷项目', got: %q", aliases[normKey])
+	}
+
+	// 3. Clear alias
+	clearBody, _ := json.Marshal(map[string]string{
+		"path":  "/Users/test/my-cool-project",
+		"alias": "",
+	})
+	reqClear := httptest.NewRequest(http.MethodPost, "/gateway/projects/alias", bytes.NewReader(clearBody))
+	recClear := httptest.NewRecorder()
+	p.ServeHTTP(recClear, reqClear)
+
+	if recClear.Code != http.StatusOK {
+		t.Fatalf("expected 200 from clear alias, got %d: %s", recClear.Code, recClear.Body.String())
+	}
+
+	aliasesAfter := loadWorkspaceAliases()
+	if _, exists := aliasesAfter[normKey]; exists {
+		t.Errorf("expected alias to be deleted, but still exists: %v", aliasesAfter[normKey])
+	}
+}
+
 
 
 

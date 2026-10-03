@@ -327,6 +327,35 @@ class ApiClient(
     }
 
     /**
+     * Update or clear custom alias for a workspace/project path
+     */
+    suspend fun updateProjectAlias(path: String, alias: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val url = "$baseUrl/gateway/projects/alias"
+
+        val payload = buildJsonObject {
+            put("path", path.trim())
+            put("alias", alias.trim())
+        }
+
+        try {
+            val req = buildAuthorizedRequest(url)
+                .post(payload.toString().toRequestBody(jsonMediaType))
+                .build()
+
+            client.newCall(req).await().use { response ->
+                if (response.isSuccessful) {
+                    Result.success(Unit)
+                } else {
+                    Result.failure(RuntimeException("修改工作区备注失败: HTTP ${response.code}"))
+                }
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
      * Create a new cascade session
      */
     suspend fun createCascade(
