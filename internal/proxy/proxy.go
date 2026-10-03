@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"bytes"
-	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
@@ -321,11 +320,6 @@ func (p *Proxy) updateUpstream(info inspector.InstanceInfo) {
 	rp.ModifyResponse = func(resp *http.Response) error {
 		if resp.Request != nil && resp.Request.URL != nil {
 			path := resp.Request.URL.Path
-			if path == "/main.js" || path == "/jetbox.css" || path == "/compiled_tailwind.css" ||
-				path == "/prism_bundle.js" || path == "/diff_worker.js" || path == "/icon.png" ||
-				strings.HasPrefix(path, "/symbols-icons/") {
-				resp.Header.Set("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800")
-			}
 
 			needsModification := resp.StatusCode == http.StatusOK && 
 				(strings.HasSuffix(path, "/ReadDir") || strings.HasSuffix(path, "/StatUri") || 
@@ -363,8 +357,7 @@ func (p *Proxy) updateUpstream(info inspector.InstanceInfo) {
 		log.Printf("[Proxy] Updated upstream proxy to 127.0.0.1:%d", port)
 	}
 
-	// Reset historical sync state, static cache, and asynchronously sync historical trajectories
-	ClearDesktopStaticCache()
+	// Reset historical sync state and asynchronously sync historical trajectories
 	ResetHistoricalSyncState()
 	go func(prt int, tok string) {
 		_ = p.SyncHistoricalTrajectories(prt, tok)
@@ -441,24 +434,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Desktop static assets (e.g. /symbols-icons/*, /main.js, etc.)
-	if strings.HasPrefix(r.URL.Path, "/symbols-icons/") || isDesktopStaticPath(r.URL.Path) {
-		p.HandleDesktopStatic(w, r)
-		return
-	}
-
 	http.NotFound(w, r)
-}
-
-func isDesktopStaticPath(path string) bool {
-	return path == "/main.js" ||
-		path == "/jetbox.css" ||
-		path == "/compiled_tailwind.css" ||
-		path == "/prism_bundle.js" ||
-		path == "/diff_worker.js" ||
-		path == "/icon.png" ||
-		path == "/favicon.ico" ||
-		strings.HasPrefix(path, "/symbols-icons/")
 }
 
 // SetActiveStream records the currently connected active cascade stream on mobile.
@@ -2395,280 +2371,6 @@ func isSubagentTrajectoryMap(s map[string]interface{}, id string) bool {
 	}
 
 	return false
-}
-
-type desktopStaticCacheItem struct {
-	contentType string
-	etag        string
-	rawBody     []byte
-	gzipBody    []byte
-}
-
-var (
-	desktopStaticCacheMu sync.RWMutex
-	desktopStaticCache   = make(map[string]*desktopStaticCacheItem)
-)
-
-// ClearDesktopStaticCache flushes cached desktop static assets (e.g. on upstream reconnect).
-func ClearDesktopStaticCache() {
-	desktopStaticCacheMu.Lock()
-	desktopStaticCache = make(map[string]*desktopStaticCacheItem)
-	desktopStaticCacheMu.Unlock()
-}
-
-// HandleDesktopStatic serves desktop static assets with in-memory caching, pre-compressed gzip,
-// and conditional 304 Not Modified validation to maximize frontend responsiveness.
-func (p *Proxy) HandleDesktopStatic(w http.ResponseWriter, r *http.Request) {
-	p.mu.RLock()
-	port := p.activePort
-	token := p.activeToken
-	p.mu.RUnlock()
-
-	if port == 0 {
-		http.Error(w, "Antigravity language_server is not connected", http.StatusServiceUnavailable)
-		return
-	}
-
-	path := r.URL.Path
-
-	desktopStaticCacheMu.RLock()
-	item := desktopStaticCache[path]
-	desktopStaticCacheMu.RUnlock()
-
-	if item == nil {
-		targetURL := fmt.Sprintf("https://127.0.0.1:%d%s", port, path)
-		req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, targetURL, nil)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		if token != "" {
-			req.Header.Set("x-codeium-csrf-token", token)
-		}
-		resp, err := p.shortClient.Do(req)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
-			return
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			w.WriteHeader(resp.StatusCode)
-			_, _ = io.Copy(w, resp.Body)
-			return
-		}
-
-		rawBytes, err := io.ReadAll(resp.Body)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		cType := resp.Header.Get("Content-Type")
-		if cType == "" {
-			cType = "application/javascript; charset=utf-8"
-		}
-		etag := resp.Header.Get("Etag")
-		if etag == "" {
-			h := sha256.Sum256(rawBytes)
-			etag = fmt.Sprintf(`W/"%x"`, h[:8])
-		}
-
-		var gzBuf bytes.Buffer
-		gw, _ := gzip.NewWriterLevel(&gzBuf, gzip.BestSpeed)
-		_, _ = gw.Write(rawBytes)
-		_ = gw.Close()
-
-		item = &desktopStaticCacheItem{
-			contentType: cType,
-			etag:        etag,
-			rawBody:     rawBytes,
-			gzipBody:    gzBuf.Bytes(),
-		}
-
-		desktopStaticCacheMu.Lock()
-		desktopStaticCache[path] = item
-		desktopStaticCacheMu.Unlock()
-	}
-
-	// 304 Not Modified validation
-	if match := r.Header.Get("If-None-Match"); match != "" && (match == item.etag || match == "*") {
-		w.Header().Set("ETag", item.etag)
-		w.Header().Set("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800")
-		w.WriteHeader(http.StatusNotModified)
-		return
-	}
-
-	w.Header().Set("Content-Type", item.contentType)
-	w.Header().Set("ETag", item.etag)
-	w.Header().Set("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800")
-	w.Header().Set("Vary", "Accept-Encoding")
-
-	if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") && len(item.gzipBody) > 0 {
-		w.Header().Set("Content-Encoding", "gzip")
-		w.Header().Set("Content-Length", strconv.Itoa(len(item.gzipBody)))
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(item.gzipBody)
-	} else {
-		w.Header().Set("Content-Length", strconv.Itoa(len(item.rawBody)))
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(item.rawBody)
-	}
-}
-
-var (
-	desktopIndexCacheMu    sync.RWMutex
-	desktopIndexCacheHTML  []byte
-	desktopIndexCachePort  int
-	desktopIndexCacheToken string
-)
-
-// HandleDesktopIndex serves the official desktop web index.html with live CSRF injection,
-// desktop Chinese localization (zh-CN.js), and view switcher (view-switcher.js).
-func (p *Proxy) HandleDesktopIndex(w http.ResponseWriter, r *http.Request) {
-	p.mu.RLock()
-	port := p.activePort
-	token := p.activeToken
-	p.mu.RUnlock()
-
-	if port == 0 {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-  <meta charset="UTF-8">
-  <title>Multigravity 启动中...</title>
-  <link rel="icon" type="image/x-icon" href="/favicon.ico?v=3" />
-  <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png?v=3" />
-  <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=3" />
-  <link rel="apple-touch-icon" href="/icons/icon-192.png?v=3" />
-  <style>
-    body { background: #131313; color: #e2e8f0; font-family: -apple-system, BlinkMacSystemFont, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-    .spinner { width: 36px; height: 36px; border: 3px solid rgba(255,255,255,0.1); border-top-color: #38bdf8; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 16px; }
-    @keyframes spin { to { transform: rotate(360deg); } }
-  </style>
-</head>
-<body>
-  <div class="spinner"></div>
-  <h2>正在连接 Multigravity 智能体服务...</h2>
-  <p style="color: #94a3b8; font-size: 14px;">language_server 启动后将自动载入工作台</p>
-  <script>setTimeout(() => location.reload(), 2000);</script>
-</body>
-</html>`))
-		return
-	}
-
-	effectiveToken := token
-	if effectiveToken == "" {
-		effectiveToken = "headless-csrf-token"
-	}
-
-	// Fast path: serve cached transformed HTML if upstream port and token are unchanged
-	desktopIndexCacheMu.RLock()
-	if desktopIndexCachePort == port && desktopIndexCacheToken == token && len(desktopIndexCacheHTML) > 0 {
-		cachedBytes := desktopIndexCacheHTML
-		desktopIndexCacheMu.RUnlock()
-
-		http.SetCookie(w, &http.Cookie{
-			Name:     "csrfToken",
-			Value:    effectiveToken,
-			Path:     "/",
-			SameSite: http.SameSiteLaxMode,
-		})
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.gstatic.com https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https: ws: wss:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'")
-		w.Header().Set("Content-Length", strconv.Itoa(len(cachedBytes)))
-		w.WriteHeader(http.StatusOK)
-		w.Write(cachedBytes)
-		return
-	}
-	desktopIndexCacheMu.RUnlock()
-
-	targetURL := fmt.Sprintf("https://127.0.0.1:%d/", port)
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, targetURL, nil)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if token != "" {
-		req.Header.Set("x-codeium-csrf-token", token)
-	}
-
-	resp, err := p.shortClient.Do(req)
-	if err != nil {
-		http.Error(w, "Upstream language_server error: "+err.Error(), http.StatusBadGateway)
-		return
-	}
-	defer resp.Body.Close()
-
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		http.Error(w, "Failed to read upstream response: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	htmlStr := string(bodyBytes)
-
-	// 1. Ensure fresh CSRF token is injected into window.__APP_CONFIG__
-	reCSRF := regexp.MustCompile(`"csrfToken":"[^"]*"`)
-	htmlStr = reCSRF.ReplaceAllString(htmlStr, fmt.Sprintf(`"csrfToken":%q`, effectiveToken))
-
-	// Set cookie so L9() and T6b() can read it
-	http.SetCookie(w, &http.Cookie{
-		Name:     "csrfToken",
-		Value:    effectiveToken,
-		Path:     "/",
-		SameSite: http.SameSiteLaxMode,
-	})
-
-	// 2. Align productName to Multigravity in window.__APP_CONFIG__
-	reProduct := regexp.MustCompile(`"productName":"[^"]*"`)
-	htmlStr = reProduct.ReplaceAllString(htmlStr, `"productName":"multigravity"`)
-
-	// 3. Align page title to Multigravity
-	reTitle := regexp.MustCompile(`(?i)<title>[^<]*</title>`)
-	htmlStr = reTitle.ReplaceAllString(htmlStr, "<title>Multigravity</title>")
-
-	// 4. Replace upstream gift box icon with Multigravity branded icons & PWA metadata
-	reFavicon := regexp.MustCompile(`(?s)<link\s+(?:[^"'<>]|"[^"]*"|'[^']*')*rel=["'](?:shortcut\s+)?icon["'](?:[^"'<>]|"[^"]*"|'[^']*')*/?\s*>`)
-	multigravityIconsMeta := `    <link rel="icon" type="image/x-icon" href="/favicon.ico?v=3" />
-    <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png?v=3" />
-    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=3" />
-    <link rel="apple-touch-icon" href="/icons/icon-192.png?v=3" />
-    <link rel="manifest" href="/manifest.json" />
-    <meta name="apple-mobile-web-app-title" content="Multigravity" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="theme-color" content="#0f172a" />`
-	if reFavicon.MatchString(htmlStr) {
-		htmlStr = reFavicon.ReplaceAllString(htmlStr, multigravityIconsMeta)
-	} else {
-		htmlStr = strings.Replace(htmlStr, "<head>", "<head>\n"+multigravityIconsMeta, 1)
-	}
-
-	// 5. Inject view-switcher.css into <head>
-	versionTs := p.startTime.Unix()
-	cssInject := fmt.Sprintf("    <link rel=\"stylesheet\" href=\"/view-switcher.css?v=%d\" />\n  </head>", versionTs)
-	htmlStr = strings.Replace(htmlStr, "</head>", cssInject, 1)
-
-	// 6. Inject zh-CN.js and view-switcher.js before </body>
-	jsInject := fmt.Sprintf("    <!-- disabled zh-CN -->\n    <script src=\"/view-switcher.js?v=%d\"></script>\n  </body>", versionTs)
-	htmlStr = strings.Replace(htmlStr, "</body>", jsInject, 1)
-	htmlBytes := []byte(htmlStr)
-	desktopIndexCacheMu.Lock()
-	desktopIndexCachePort = port
-	desktopIndexCacheToken = token
-	desktopIndexCacheHTML = htmlBytes
-	desktopIndexCacheMu.Unlock()
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.gstatic.com https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https: ws: wss:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'")
-	w.Header().Set("Content-Length", strconv.Itoa(len(htmlBytes)))
-	w.WriteHeader(http.StatusOK)
-	w.Write(htmlBytes)
 }
 
 // isGrpcWebFramed checks if data matches gRPC-Web / Connect framed streaming format:

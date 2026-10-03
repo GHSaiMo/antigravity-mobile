@@ -14,7 +14,7 @@ import (
 	"sync"
 )
 
-//go:embed index.html style.css app.js manifest.json sw.js icons mermaid.min.js zh-CN.js view-switcher.js view-switcher.css favicon.ico
+//go:embed index.html style.css app.js manifest.json sw.js icons mermaid.min.js favicon.ico
 var staticFiles embed.FS
 
 var gzipPool = sync.Pool{
@@ -147,8 +147,8 @@ func GzipHandler(next http.Handler) http.Handler {
 }
 
 func setCacheHeaders(w http.ResponseWriter, path string) {
-	// Service worker, HTML shell, localization, switcher, core app.js and style.css must not be cached aggressively
-	if path == "sw.js" || path == "index.html" || path == "app.js" || path == "style.css" || path == "zh-CN.js" || path == "view-switcher.js" || path == "view-switcher.css" || path == "" {
+	// Service worker, HTML shell, core app.js and style.css must not be cached aggressively
+	if path == "sw.js" || path == "index.html" || path == "app.js" || path == "style.css" || path == "" {
 		w.Header().Set("Cache-Control", "no-cache, must-revalidate")
 		return
 	}
