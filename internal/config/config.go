@@ -365,16 +365,3 @@ func GetTrustLAN() bool {
 	return v == "1" || v == "true" || v == "yes"
 }
 
-// GetOpenBrowser reports whether to automatically open the default browser on GUI desktops at startup.
-// Controlled via MULTIGRAVITY_OPEN_BROWSER or OPEN_BROWSER. Defaults to true (headless systems skip automatically).
-func GetOpenBrowser() bool {
-	v := strings.ToLower(strings.TrimSpace(os.Getenv("MULTIGRAVITY_OPEN_BROWSER")))
-	if v == "" {
-		v = strings.ToLower(strings.TrimSpace(os.Getenv("OPEN_BROWSER")))
-	}
-	if v == "" {
-		return true
-	}
-	return !(v == "0" || v == "false" || v == "no")
-}
-
