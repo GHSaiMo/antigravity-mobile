@@ -136,12 +136,25 @@ func writeGeminiKeychainOAuth(tok *parsedOAuth) error {
 		return nil
 	}
 
-	cmd := exec.Command("security", "add-generic-password", "-U", "-s", "gemini", "-a", "antigravity", "-w", secret)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+	if runtime.GOOS == "darwin" {
+		cmd := exec.Command("security", "add-generic-password", "-U", "-s", "gemini", "-a", "antigravity", "-w", secret)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+		}
+		log.Printf("[Cockpit] updated keychain gemini/antigravity for %s", tok.Email)
+		return nil
 	}
-	log.Printf("[Cockpit] updated keychain gemini/antigravity for %s", tok.Email)
+
+	// Linux / Headless:
+	// Secret Service (secret-tool) is optional.
+	// Primary credential store for language_server is jetski-standalone-oauth-token and google_accounts.json.
+	if _, err := exec.LookPath("secret-tool"); err == nil {
+		cmd := exec.Command("secret-tool", "store", "--label=antigravity", "service", "gemini", "account", "antigravity")
+		cmd.Stdin = strings.NewReader(secret)
+		_ = cmd.Run()
+		log.Printf("[Cockpit] updated secret-tool gemini/antigravity for %s", tok.Email)
+	}
 	return nil
 }
 
@@ -218,6 +231,23 @@ func launchAntigravityWithCockpitProxy() error {
 			log.Printf("[Cockpit] launching Antigravity.exe without global proxy")
 		}
 		return cmd.Start()
+	}
+
+	if runtime.GOOS == "linux" {
+		if exec.Command("systemctl", "--user", "cat", "antigravity-ls.service").Run() == nil {
+			log.Printf("[Cockpit] starting systemd service antigravity-ls")
+			if err := exec.Command("systemctl", "--user", "start", "antigravity-ls").Run(); err != nil {
+				return fmt.Errorf("start antigravity-ls: %w", err)
+			}
+			return nil
+		}
+		if lsPath, err := exec.LookPath("language_server"); err == nil {
+			log.Printf("[Cockpit] launching standalone language_server")
+			cmd := exec.Command(lsPath, "--standalone", "--headless", "--persistent_mode", "--http_server_port=50005")
+			return cmd.Start()
+		}
+		log.Println("[Cockpit] no language_server or antigravity-ls service found on Linux")
+		return nil
 	}
 
 	args := []string{"-a", "Antigravity"}

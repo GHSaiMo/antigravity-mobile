@@ -559,10 +559,22 @@ func TriggerRefresh(force ...bool) error {
 
 	cfg, err := getCockpitConfig()
 	if err != nil {
-		refreshMutex.Lock()
-		isRefreshing = false
-		refreshMutex.Unlock()
-		return err
+		// Cockpit Tools config.json not found (e.g. headless Linux/NAS without Cockpit desktop app).
+		// Fall directly to native Google Cloud Code API quota fetch.
+		go func() {
+			defer func() {
+				refreshMutex.Lock()
+				isRefreshing = false
+				refreshMutex.Unlock()
+			}()
+			log.Println("[Cockpit] Cockpit config not available; triggering direct native quota fetch...")
+			if fErr := FetchAllRemoteQuotas(); fErr != nil {
+				log.Printf("[Cockpit] Direct native quota fetch failed: %v", fErr)
+			} else {
+				InvalidateQuotaCache()
+			}
+		}()
+		return nil
 	}
 
 	reportPort := cfg.ReportPort

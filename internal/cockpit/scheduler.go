@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"runtime"
 	"sync"
 	"time"
 )
@@ -64,13 +65,34 @@ func StartQuotaAutoRefresher(ctx context.Context, defaultInterval time.Duration,
 			}
 
 			cfg, err := getCockpitConfig()
-			if err != nil || cfg.ReportToken == "" || cfg.ReportToken == "change-this-token" || !cfg.ReportEnabled {
+			if err != nil {
+				// Config not available (headless/NAS): run native quota fetch directly
+				if fErr := FetchAllRemoteQuotas(); fErr == nil {
+					InvalidateQuotaCache()
+					schedulerMutex.Lock()
+					backoffUntil = time.Time{}
+					schedulerMutex.Unlock()
+					return
+				}
 				schedulerMutex.Lock()
 				backoffUntil = time.Now().Add(targetInterval)
 				schedulerMutex.Unlock()
 				return
 			}
-
+			if cfg.ReportToken == "" || cfg.ReportToken == "change-this-token" || !cfg.ReportEnabled {
+				// Report disabled in config; fall back to direct native quota fetch
+				if fErr := FetchAllRemoteQuotas(); fErr == nil {
+					InvalidateQuotaCache()
+					schedulerMutex.Lock()
+					backoffUntil = time.Time{}
+					schedulerMutex.Unlock()
+					return
+				}
+				schedulerMutex.Lock()
+				backoffUntil = time.Now().Add(targetInterval)
+				schedulerMutex.Unlock()
+				return
+			}
 
 			activePort, portErr := ResolveActiveReportPort(cfg.ReportToken, cfg.ReportPort)
 			if portErr != nil && cfg.ReportPort > 0 {
@@ -80,6 +102,15 @@ func StartQuotaAutoRefresher(ctx context.Context, defaultInterval time.Duration,
 			// First check reachability and execute report query
 			var queryErr error
 			if activePort <= 0 || !IsCockpitListening(activePort, 2*time.Second) {
+				// Cockpit Tools desktop process not listening (e.g. headless Linux or desktop app not running)
+				// Try direct native quota fetch
+				if fErr := FetchAllRemoteQuotas(); fErr == nil {
+					InvalidateQuotaCache()
+					schedulerMutex.Lock()
+					backoffUntil = time.Time{}
+					schedulerMutex.Unlock()
+					return
+				}
 				queryErr = fmt.Errorf("port %d not listening (connection refused)", activePort)
 			} else {
 				queryErr = QueryReport(activePort, cfg.ReportToken)
@@ -88,6 +119,14 @@ func StartQuotaAutoRefresher(ctx context.Context, defaultInterval time.Duration,
 			if queryErr == nil {
 				schedulerMutex.Lock()
 				backoffUntil = time.Time{}
+				schedulerMutex.Unlock()
+				return
+			}
+
+			// On Linux / headless systems, Cockpit desktop app does not exist; skip GUI relaunch
+			if runtime.GOOS == "linux" {
+				schedulerMutex.Lock()
+				backoffUntil = time.Now().Add(targetInterval)
 				schedulerMutex.Unlock()
 				return
 			}

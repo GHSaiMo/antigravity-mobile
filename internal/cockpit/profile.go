@@ -38,12 +38,26 @@ func antigravityStateDBPaths() []string {
 		)
 	}
 	if home, err := os.UserHomeDir(); err == nil {
-		paths = append(paths,
-			filepath.Join(home, "Library", "Application Support", "Antigravity", "User", "globalStorage", "state.vscdb"),
-			filepath.Join(home, "Library", "Application Support", "Antigravity IDE", "User", "globalStorage", "state.vscdb"),
-			filepath.Join(home, "AppData", "Roaming", "Antigravity", "User", "globalStorage", "state.vscdb"),
-			filepath.Join(home, "AppData", "Roaming", "Antigravity IDE", "User", "globalStorage", "state.vscdb"),
-		)
+		if runtime.GOOS == "darwin" {
+			paths = append(paths,
+				filepath.Join(home, "Library", "Application Support", "Antigravity", "User", "globalStorage", "state.vscdb"),
+				filepath.Join(home, "Library", "Application Support", "Antigravity IDE", "User", "globalStorage", "state.vscdb"),
+			)
+		} else if runtime.GOOS == "windows" {
+			paths = append(paths,
+				filepath.Join(home, "AppData", "Roaming", "Antigravity", "User", "globalStorage", "state.vscdb"),
+				filepath.Join(home, "AppData", "Roaming", "Antigravity IDE", "User", "globalStorage", "state.vscdb"),
+			)
+		} else {
+			configDir := os.Getenv("XDG_CONFIG_HOME")
+			if configDir == "" {
+				configDir = filepath.Join(home, ".config")
+			}
+			paths = append(paths,
+				filepath.Join(configDir, "Antigravity", "User", "globalStorage", "state.vscdb"),
+				filepath.Join(configDir, "Antigravity IDE", "User", "globalStorage", "state.vscdb"),
+			)
+		}
 	}
 	return paths
 }
