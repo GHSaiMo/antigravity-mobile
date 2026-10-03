@@ -213,6 +213,16 @@ type TrajectoryCache struct {
 	// hot-path disk I/O during stream polling and status inquiries.
 	annotationTitleCache   map[string]*annotationTitleCacheEntry
 	annotationTitleCacheMu sync.RWMutex
+
+	// inFlightTraj deduplicates concurrent requests for the same cascade trajectory
+	inFlightTraj   map[string]*inFlightTraj
+	inFlightTrajMu sync.Mutex
+}
+
+type inFlightTraj struct {
+	wg  sync.WaitGroup
+	res *upstreamTrajectoryResp
+	err error
 }
 
 // NewTrajectoryCache creates a new TrajectoryCache with initialized maps.
@@ -226,6 +236,7 @@ func NewTrajectoryCache() *TrajectoryCache {
 		deletedCascades:      make(map[string]time.Time),
 		metadataCache:        make(map[string]*metadataCacheEntry),
 		annotationTitleCache: make(map[string]*annotationTitleCacheEntry),
+		inFlightTraj:         make(map[string]*inFlightTraj),
 	}
 }
 
@@ -1735,12 +1746,31 @@ func (p *Proxy) fetchUpstreamTrajectoryWithContext(ctx context.Context, cascadeI
 		return nil, fmt.Errorf("cascade trajectory %s has been deleted", cascadeID)
 	}
 
+	tc := defaultTrajCache
+	tc.inFlightTrajMu.Lock()
+	if flight, exists := tc.inFlightTraj[cascadeID]; exists {
+		tc.inFlightTrajMu.Unlock()
+		flight.wg.Wait()
+		return flight.res, flight.err
+	}
+	flight := &inFlightTraj{}
+	flight.wg.Add(1)
+	tc.inFlightTraj[cascadeID] = flight
+	tc.inFlightTrajMu.Unlock()
+
+	defer func() {
+		tc.inFlightTrajMu.Lock()
+		delete(tc.inFlightTraj, cascadeID)
+		tc.inFlightTrajMu.Unlock()
+		flight.wg.Done()
+	}()
+
 	// Status-aware TTL: completed sessions rarely change, so cache them longer.
 	// But if title is missing or session has few/no steps, keep TTL short (1.5s)
 	// so newly generated titles/summaries are quickly discovered.
 	maxAge := 800 * time.Millisecond
-	defaultTrajCache.trajCacheMu.RLock()
-	if cached, ok := defaultTrajCache.trajCache[cascadeID]; ok {
+	tc.trajCacheMu.RLock()
+	if cached, ok := tc.trajCache[cascadeID]; ok {
 		if cached.data.Status != "" && cached.data.Status != "CASCADE_RUN_STATUS_RUNNING" {
 			hasTitle := (cached.data.Trajectory.Annotations != nil && cached.data.Trajectory.Annotations.Title != "") ||
 				cached.data.Trajectory.Summary != ""
@@ -1751,23 +1781,27 @@ func (p *Proxy) fetchUpstreamTrajectoryWithContext(ctx context.Context, cascadeI
 			}
 		}
 	}
-	defaultTrajCache.trajCacheMu.RUnlock()
+	tc.trajCacheMu.RUnlock()
 
 	resp, err := p.fetchUpstreamTrajectoryWithMaxAgeContext(ctx, cascadeID, port, token, maxAge)
 	// Fallback: If not found or empty steps, try loading from disk via LoadTrajectory and retry once
 	if (err != nil || (resp != nil && len(resp.Trajectory.Steps) == 0)) && port > 0 {
 		if ctx != nil && ctx.Err() != nil {
+			flight.err = ctx.Err()
 			return nil, ctx.Err()
 		}
 		if loadErr := p.LoadTrajectory(cascadeID, port, token); loadErr == nil {
-			defaultTrajCache.trajCacheMu.Lock()
-			delete(defaultTrajCache.trajCache, cascadeID)
-			defaultTrajCache.trajCacheMu.Unlock()
+			tc.trajCacheMu.Lock()
+			delete(tc.trajCache, cascadeID)
+			tc.trajCacheMu.Unlock()
 			if retryResp, retryErr := p.fetchUpstreamTrajectoryWithMaxAgeContext(ctx, cascadeID, port, token, 0); retryErr == nil && retryResp != nil {
+				flight.res = retryResp
 				return retryResp, nil
 			}
 		}
 	}
+	flight.res = resp
+	flight.err = err
 	return resp, err
 }
 

@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Multigravity" />
@@ -297,14 +297,25 @@
             </button>
           </div>
 
-          <!-- Section 3: 本地数据与缓存 -->
+          <!-- Section 3: 视图模式切换 -->
+          <div class="ios-grouped-section">
+            <div class="ios-cell between">
+              <span class="cell-label">当前视图</span>
+              <span class="cell-value">轻量移动端 (PWA)</span>
+            </div>
+            <button id="btn-switch-to-desktop" class="ios-cell-button" type="button">
+              <span>🖥️ 切换到桌面完整工作台</span>
+            </button>
+          </div>
+
+          <!-- Section 4: 本地数据与缓存 -->
           <div class="ios-grouped-section">
             <button id="btn-clear-web-cache" class="ios-cell-button destructive" type="button">
               <span>清空本地会话与文档缓存</span>
             </button>
           </div>
 
-          <!-- Section 4: 关于 -->
+          <!-- Section 5: 关于 -->
           <div class="ios-grouped-section">
             <div class="ios-cell between">
               <span class="cell-label">应用名称</span>

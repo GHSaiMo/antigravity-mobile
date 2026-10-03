@@ -153,6 +153,7 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer clientConn.Close()
+	defer p.trackWSConn(clientConn)()
 
 	if verboseRPC {
 		log.Printf("[Stream] WS client connected: cascadeId=%s remote=%s client=%s format=%s", cascadeID, r.RemoteAddr, clientType, format)
