@@ -341,10 +341,11 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 		if firstPush || fp != lastFingerprint {
 			lastFingerprint = fp
 			firstPush = false
-			log.Printf("[DEBUG] About to writeJSON")
-  t3 := time.Now()
+			t3 := time.Now()
 			errWrite := writeJSON(payload)
-			if time.Since(t3) > 100*time.Millisecond { log.Printf("[Stream Perf] writeJSON took %v", time.Since(t3)) }
+			if time.Since(t3) > 100*time.Millisecond {
+				log.Printf("[Stream Perf] writeJSON took %v", time.Since(t3))
+			}
 			if errWrite != nil {
 				return false
 			}

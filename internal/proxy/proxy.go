@@ -89,10 +89,22 @@ type Proxy struct {
 	projectsCacheMu      sync.RWMutex
 	lastReadProjectsResp []byte
 
+	// nuxCache caches GetCascadeNuxes responses for nuxCacheTTL to avoid
+	// 300-900ms upstream latency on every desktop workbench initialization.
+	nuxCacheMu      sync.RWMutex
+	nuxCacheBody    []byte
+	nuxCacheHeaders http.Header
+	nuxCachedAt     time.Time
+
 	// Active WebSocket connection tracking for graceful shutdown
 	wsConnsMu sync.Mutex
 	wsConns   map[*websocket.Conn]struct{}
 }
+
+// nuxCacheTTL is the duration to cache GetCascadeNuxes responses.
+// NUX (New User Experience) data changes at most once per feature release; 60s is safe.
+const nuxCacheTTL = 60 * time.Second
+
 
 type cascadeDedupEntry struct {
 	cascadeID string
@@ -607,7 +619,12 @@ func (p *Proxy) handleRpcProxy(w http.ResponseWriter, r *http.Request) {
 		if dur > 100*time.Millisecond &&
 			!strings.Contains(r.URL.Path, "Stream") &&
 			!strings.Contains(r.URL.Path, "Subscribe") &&
-			!strings.Contains(r.URL.Path, "Watch") {
+			!strings.Contains(r.URL.Path, "Watch") &&
+			// Whitelist: these are known upstream-bound slow RPCs that are now cached at the
+			// gateway layer or are inherently full-scan operations; do not spam the log.
+			!strings.HasSuffix(r.URL.Path, "/GetCascadeNuxes") &&
+			!strings.HasSuffix(r.URL.Path, "/GetAllCascadeTrajectories") &&
+			!strings.HasSuffix(r.URL.Path, "/GetCascadeTrajectory") {
 			log.Printf("[RPC] ⚠️ SLOW: %s in %v", r.URL.Path, dur)
 		}
 	}()
@@ -649,6 +666,14 @@ func (p *Proxy) handleRpcProxy(w http.ResponseWriter, r *http.Request) {
 		p.handleGetAllCascadeTrajectories(w, r, port, token)
 		return
 	}
+	if strings.HasSuffix(reqPath, "/GetCascadeNuxes") && r.Method == http.MethodPost {
+		p.handleGetCascadeNuxes(w, r, rp, reqPath)
+		return
+	}
+	if strings.HasSuffix(reqPath, "/GetCascadeTrajectory") && r.Method == http.MethodPost {
+		p.handleGetCascadeTrajectoryRPC(w, r, port, token)
+		return
+	}
 	if strings.HasSuffix(reqPath, "/UpdateConversationAnnotations") && r.Method == http.MethodPost {
 		p.handleUpdateConversationAnnotations(w, r, rp, reqPath)
 		return
@@ -675,6 +700,152 @@ func (p *Proxy) handleRpcProxy(w http.ResponseWriter, r *http.Request) {
 	fwdReq.URL.Path = reqPath
 	rp.ServeHTTP(w, fwdReq)
 }
+
+// handleGetCascadeNuxes proxies GetCascadeNuxes with a 60s gateway-level cache.
+// The upstream language_server takes 300-900ms to respond; NUX data is nearly static
+// and caching it eliminates the stall on every desktop workbench initialization.
+func (p *Proxy) handleGetCascadeNuxes(w http.ResponseWriter, r *http.Request, rp http.Handler, reqPath string) {
+	// Fast path: return cached response if still fresh
+	p.nuxCacheMu.RLock()
+	body := p.nuxCacheBody
+	headers := p.nuxCacheHeaders
+	cachedAt := p.nuxCachedAt
+	p.nuxCacheMu.RUnlock()
+
+	if len(body) > 0 && time.Since(cachedAt) < nuxCacheTTL {
+		for k, v := range headers {
+			w.Header()[k] = v
+		}
+		w.Header().Set("X-Gateway-Cache", "HIT")
+		w.WriteHeader(http.StatusOK)
+		w.Write(body)
+		return
+	}
+
+	// Slow path: fetch from upstream and cache the result
+	rec := newBufferedResponseWriter()
+	defer rec.release()
+
+	fwdReq := r.Clone(r.Context())
+	fwdReq.URL.Path = reqPath
+	rp.ServeHTTP(rec, fwdReq)
+
+	if rec.statusCode == http.StatusOK && rec.body.Len() > 0 {
+		respBytes := make([]byte, rec.body.Len())
+		copy(respBytes, rec.body.Bytes())
+		savedHeaders := rec.header.Clone()
+
+		p.nuxCacheMu.Lock()
+		p.nuxCacheBody = respBytes
+		p.nuxCacheHeaders = savedHeaders
+		p.nuxCachedAt = time.Now()
+		p.nuxCacheMu.Unlock()
+
+		for k, v := range rec.header {
+			w.Header()[k] = v
+		}
+		w.WriteHeader(rec.statusCode)
+		w.Write(respBytes)
+		return
+	}
+
+	// Upstream error: serve cached stale data if available, otherwise pass through
+	p.nuxCacheMu.RLock()
+	staleBody := p.nuxCacheBody
+	staleHeaders := p.nuxCacheHeaders
+	p.nuxCacheMu.RUnlock()
+
+	if len(staleBody) > 0 {
+		for k, v := range staleHeaders {
+			w.Header()[k] = v
+		}
+		w.Header().Set("X-Gateway-Cache", "STALE")
+		w.WriteHeader(http.StatusOK)
+		w.Write(staleBody)
+		return
+	}
+
+	// No cache at all — pass through whatever upstream returned
+	for k, v := range rec.header {
+		w.Header()[k] = v
+	}
+	w.WriteHeader(rec.statusCode)
+	w.Write(rec.body.Bytes())
+}
+
+// handleGetCascadeTrajectoryRPC intercepts the standard Connect-RPC GetCascadeTrajectory
+// call from the desktop workbench and routes it through the gateway's TrajectoryCache,
+// eliminating redundant upstream fetches when the same cascade is already cached.
+func (p *Proxy) handleGetCascadeTrajectoryRPC(w http.ResponseWriter, r *http.Request, port int, token string) {
+	bodyBytes, cleanup, err := readBodyToPool(r.Body, 64*1024)
+	if err != nil {
+		writeJSONError(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+	defer cleanup()
+
+	var req struct {
+		CascadeID string `json:"cascadeId"`
+	}
+	if len(bodyBytes) > 0 {
+		_ = json.Unmarshal(bodyBytes, &req)
+	}
+
+	cascadeID := strings.TrimSpace(req.CascadeID)
+	if cascadeID == "" || port == 0 {
+		// Missing cascadeId or no upstream — fall through to raw proxy
+		p.mu.RLock()
+		rp := p.activeProxy
+		p.mu.RUnlock()
+		if rp == nil {
+			writeJSONError(w, "Antigravity language_server is not connected", http.StatusServiceUnavailable)
+			return
+		}
+		fwdReq := r.Clone(r.Context())
+		fwdReq.URL.Path = "/exa.language_server_pb.LanguageServerService/GetCascadeTrajectory"
+		fwdReq.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		fwdReq.ContentLength = int64(len(bodyBytes))
+		rp.ServeHTTP(w, fwdReq)
+		return
+	}
+
+	// Use the same cache as the stream / messages endpoints.
+	// For running cascades use a short 300ms maxAge so the desktop stays responsive;
+	// for idle cascades 15s is fine since the content is static.
+	maxAge := 300 * time.Millisecond
+	rawResp, fetchErr := p.fetchUpstreamTrajectoryWithMaxAge(cascadeID, port, token, maxAge)
+	if fetchErr != nil {
+		// Forward raw to upstream on cache miss / error
+		p.mu.RLock()
+		rp := p.activeProxy
+		p.mu.RUnlock()
+		if rp == nil {
+			writeJSONError(w, "Antigravity language_server is not connected", http.StatusServiceUnavailable)
+			return
+		}
+		fwdReq := r.Clone(r.Context())
+		fwdReq.URL.Path = "/exa.language_server_pb.LanguageServerService/GetCascadeTrajectory"
+		fwdReq.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		fwdReq.ContentLength = int64(len(bodyBytes))
+		rp.ServeHTTP(w, fwdReq)
+		return
+	}
+
+	// Re-encode as JSON for the client (same wire format as upstream Connect-RPC response)
+	respBytes, encErr := json.Marshal(rawResp)
+	if encErr != nil {
+		writeJSONError(w, "Failed to encode trajectory response", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Connect-Protocol-Version", "1")
+	w.Header().Set("X-Gateway-Cache", "HIT")
+	w.Header().Set("Content-Length", strconv.Itoa(len(respBytes)))
+	w.WriteHeader(http.StatusOK)
+	w.Write(respBytes)
+}
+
 
 func (p *Proxy) handleCancelCascadeInvocation(w http.ResponseWriter, r *http.Request, rp http.Handler, reqPath string) {
 	bodyBytes, cleanup, err := readBodyToPool(r.Body, 64*1024)
