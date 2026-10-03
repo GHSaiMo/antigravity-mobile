@@ -50,10 +50,23 @@ class CacheManager(context: Context) {
                     }
                     tempFile.renameTo(targetFile)
                 }
+                pruneSessionFiles()
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to persist session $cascadeId to disk: ${e.message}")
             }
         }
+    }
+
+    /**
+     * Bound on-disk session cache growth: keep only the most recently written sessions.
+     * filesDir is never reclaimed by the OS, so without this the cache grows forever.
+     */
+    private fun pruneSessionFiles() {
+        val files = sessionsDir.listFiles { f -> f.isFile && f.name.endsWith(".json") } ?: return
+        if (files.size <= MAX_CACHED_SESSIONS) return
+        files.sortedBy { it.lastModified() }
+            .take(files.size - MAX_CACHED_SESSIONS)
+            .forEach { it.delete() }
     }
 
     /**
@@ -184,5 +197,6 @@ class CacheManager(context: Context) {
 
     companion object {
         private const val TAG = "CacheManager"
+        private const val MAX_CACHED_SESSIONS = 100
     }
 }
