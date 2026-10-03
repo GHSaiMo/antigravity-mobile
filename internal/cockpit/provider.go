@@ -247,16 +247,47 @@ var (
 	lastRefreshAttempt time.Time
 )
 
-// GetCockpitDataDir returns the path to ~/.antigravity_cockpit, or COCKPIT_DATA_DIR if set.
+// GetCockpitDataDir returns the path to Cockpit Tools data directory.
+// Resolution order aligns with official Cockpit Tools:
+// 1. COCKPIT_TOOLS_DATA_DIR environment variable (official)
+// 2. COCKPIT_DATA_DIR environment variable (legacy)
+// 3. ~/.cockpit_tools directory (official primary default)
+// 4. ~/.antigravity_cockpit directory (legacy default)
+// If neither exists, defaults to ~/.cockpit_tools and ensures bidirectional symlink compatibility.
 func GetCockpitDataDir() (string, error) {
-	if override := os.Getenv("COCKPIT_DATA_DIR"); override != "" {
+	if override := strings.TrimSpace(os.Getenv("COCKPIT_TOOLS_DATA_DIR")); override != "" {
+		return override, nil
+	}
+	if override := strings.TrimSpace(os.Getenv("COCKPIT_DATA_DIR")); override != "" {
 		return override, nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".antigravity_cockpit"), nil
+
+	officialDir := filepath.Join(home, ".cockpit_tools")
+	legacyDir := filepath.Join(home, ".antigravity_cockpit")
+
+	// 1. If official directory exists, prefer it
+	if fi, sErr := os.Stat(officialDir); sErr == nil && fi.IsDir() {
+		// Ensure legacy symlink exists for backward compatibility if missing
+		if _, lErr := os.Lstat(legacyDir); os.IsNotExist(lErr) {
+			_ = os.Symlink(officialDir, legacyDir)
+		}
+		return officialDir, nil
+	}
+
+	// 2. If legacy directory exists, use it and ensure official symlink exists
+	if fi, sErr := os.Stat(legacyDir); sErr == nil && fi.IsDir() {
+		if _, oErr := os.Lstat(officialDir); os.IsNotExist(oErr) {
+			_ = os.Symlink(legacyDir, officialDir)
+		}
+		return legacyDir, nil
+	}
+
+	// 3. Default to official directory
+	return officialDir, nil
 }
 
 // formatResetFriendly converts an ISO timestamp to "3d 11h 34m" (if >24h), "7h 3m" (if <24h), "<1m", or "已就绪".
