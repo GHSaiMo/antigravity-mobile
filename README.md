@@ -68,6 +68,7 @@ irm https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/in
 前往 [GitHub Releases v1.0.5](https://github.com/GHSaiMo/antigravity-mobile/releases/latest)，下载：
 - **`Multigravity-v1.0.5.apk`**
 - *安装包已配置标准签名，任何安卓手机下载后均可直接点击安装，零编译门槛。*
+- *安全提示：为保证覆盖安装，Release 签名密钥库 `android/app/release.jks` 与默认口令随仓库公开。因此 APK 签名只代表「同一发布线」，不能证明来源可信，请仅从本仓库 Releases 页面下载。如需自行分发，请用 `MGY_KEYSTORE_PASSWORD` 等环境变量与自己的密钥库重新签名。*
 
 ### 3. 🔑 启动服务与扫码配对
 在终端（macOS / Linux / Windows PowerShell / CMD）中直接运行：
