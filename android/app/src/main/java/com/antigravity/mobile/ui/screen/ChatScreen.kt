@@ -28,7 +28,8 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
-import androidx.compose.material3.pulltorefresh.PullToRefreshContainer
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -178,21 +179,7 @@ fun ChatScreen(
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     val pullRefreshState = rememberPullToRefreshState()
 
-    LaunchedEffect(pullRefreshState.isRefreshing) {
-        if (pullRefreshState.isRefreshing) {
-            viewModel.refresh {
-                pullRefreshState.endRefresh()
-            }
-        }
-    }
 
-    LaunchedEffect(isRefreshing) {
-        if (isRefreshing) {
-            pullRefreshState.startRefresh()
-        } else {
-            pullRefreshState.endRefresh()
-        }
-    }
 
     // Photo picker launcher
     val photoPickerLauncher = rememberLauncherForActivityResult(
@@ -505,10 +492,20 @@ fun ChatScreen(
                         ChatEmptyStateView(title = uiState.title)
                     }
                     else -> {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .nestedScroll(pullRefreshState.nestedScrollConnection)
+                        PullToRefreshBox(
+                            isRefreshing = isRefreshing,
+                            onRefresh = { viewModel.refresh() },
+                            modifier = Modifier.fillMaxSize(),
+                            state = pullRefreshState,
+                            indicator = {
+                                PullToRefreshDefaults.Indicator(
+                                    state = pullRefreshState,
+                                    isRefreshing = isRefreshing,
+                                    modifier = Modifier.align(Alignment.TopCenter),
+                                    containerColor = colors.surface,
+                                    color = colors.accentIndigo
+                                )
+                            }
                         ) {
                             LazyColumn(
                                 state = listState,
@@ -594,14 +591,6 @@ fun ChatScreen(
                                 }
                             }
 
-                            if (pullRefreshState.verticalOffset > 0 || isRefreshing) {
-                                PullToRefreshContainer(
-                                    state = pullRefreshState,
-                                    modifier = Modifier.align(Alignment.TopCenter),
-                                    containerColor = colors.surface,
-                                    contentColor = colors.accentIndigo
-                                )
-                            }
                         }
                     }
                 }

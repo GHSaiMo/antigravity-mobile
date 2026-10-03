@@ -30,6 +30,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -117,10 +118,11 @@ fun PairingScreen(
             ModalBottomSheet(
                 onDismissRequest = { showManualInput = false },
                 sheetState = sheetState,
+                sheetMaxWidth = Dp.Unspecified,
                 containerColor = colors.surface,
                 dragHandle = null,
                 shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-                windowInsets = WindowInsets(0, 0, 0, 0)
+                contentWindowInsets = { WindowInsets(0, 0, 0, 0) }
             ) {
                 Column(
                     modifier = Modifier

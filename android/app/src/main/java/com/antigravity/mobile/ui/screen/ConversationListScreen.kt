@@ -27,7 +27,8 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.material3.pulltorefresh.PullToRefreshContainer
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -132,18 +133,7 @@ fun ConversationListScreen(
         }
     }
 
-    LaunchedEffect(pullRefreshState.isRefreshing) {
-        if (pullRefreshState.isRefreshing) {
-            viewModel.refresh {
-                pullRefreshState.endRefresh()
-            }
-        }
-    }
-    LaunchedEffect(isRefreshing) {
-        if (!isRefreshing && pullRefreshState.isRefreshing) {
-            pullRefreshState.endRefresh()
-        }
-    }
+
 
     val density = LocalDensity.current
     val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
@@ -179,11 +169,24 @@ fun ConversationListScreen(
             .background(colors.background)
     ) {
         // Content Area with PullToRefresh and Bottom Floating Search Bar
-        Box(
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = { viewModel.refresh() },
             modifier = Modifier
                 .fillMaxSize()
-                .nestedScroll(pullRefreshState.nestedScrollConnection)
-                .clipToBounds()
+                .clipToBounds(),
+            state = pullRefreshState,
+            indicator = {
+                PullToRefreshDefaults.Indicator(
+                    state = pullRefreshState,
+                    isRefreshing = isRefreshing,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = topBarHeight),
+                    containerColor = colors.surface,
+                    color = colors.accentIndigo
+                )
+            }
         ) {
             when (val state = uiState) {
                 is ConversationListUiState.Loading -> {
@@ -272,17 +275,6 @@ fun ConversationListScreen(
                 }
             }
 
-            // Pull to refresh spinner (only shown when actively pulled down or refreshing)
-            if (pullRefreshState.verticalOffset > 0 || isRefreshing) {
-                PullToRefreshContainer(
-                    state = pullRefreshState,
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = topBarHeight),
-                    containerColor = colors.surface,
-                    contentColor = colors.accentIndigo
-                )
-            }
 
             // iOS-Style Floating Bottom Search Bar (as specified in session_list.jpg)
             Box(
