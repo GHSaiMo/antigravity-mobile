@@ -5330,12 +5330,6 @@ function initApp() {
   });
   document.getElementById("btn-unpair-device")?.addEventListener("click", unpairDevice);
   document.getElementById("btn-clear-web-cache")?.addEventListener("click", clearWebCache);
-  document.getElementById("btn-switch-to-desktop")?.addEventListener("click", () => {
-    document.cookie = "agy_view_mode=desktop; path=/; max-age=31536000; SameSite=Lax";
-    try { localStorage.setItem("agy_view_mode", "desktop"); } catch (e) {}
-    const cascadeId = activeCascadeId;
-    window.location.href = cascadeId ? (`/c/${cascadeId}?view=desktop`) : "/?view=desktop";
-  });
   const sheetSettings = document.getElementById("sheet-settings");
   sheetSettings?.addEventListener("click", (e) => {
     if (e.target === sheetSettings) closeSettingsSheet();

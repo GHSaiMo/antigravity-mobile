@@ -800,14 +800,6 @@ func buildRouter(
 	rootMux.Handle("/exa.language_server_pb.", web.GzipHandler(p))
 	rootMux.Handle("/exa.language_server_pb.LanguageServerService/", web.GzipHandler(p))
 
-	// Desktop static assets (direct endpoints)
-	rootMux.HandleFunc("GET /main.js", p.HandleDesktopStatic)
-	rootMux.HandleFunc("GET /jetbox.css", p.HandleDesktopStatic)
-	rootMux.HandleFunc("GET /compiled_tailwind.css", p.HandleDesktopStatic)
-	rootMux.HandleFunc("GET /prism_bundle.js", p.HandleDesktopStatic)
-	rootMux.HandleFunc("GET /diff_worker.js", p.HandleDesktopStatic)
-	rootMux.Handle("/symbols-icons/", p)
-
 	// Version, health and readiness probes
 	rootMux.HandleFunc("GET /api/v1/version", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{
@@ -842,55 +834,8 @@ func buildRouter(
 		})
 	})
 
-	// Adaptive Dual-Mode Web frontend (Desktop Workbench on iPad/PC, Lightweight PWA on Phones)
-	adaptiveWebHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := r.URL.Path
-
-		// ConnectRPC direct proto calls (e.g. /exa.language_server_pb.LanguageServerService/...)
-		if strings.HasPrefix(path, "/exa.language_server_pb.") {
-			web.GzipHandler(p).ServeHTTP(w, r)
-			return
-		}
-
-		// Embedded web files (localization, switcher, mobile app files)
-		if path == "/zh-CN.js" || path == "/view-switcher.js" || path == "/view-switcher.css" ||
-			path == "/style.css" || path == "/app.js" || path == "/mermaid.min.js" ||
-			path == "/manifest.json" || path == "/sw.js" || path == "/favicon.ico" || strings.HasPrefix(path, "/icons/") {
-			webHandler.ServeHTTP(w, r)
-			return
-		}
-
-		// Desktop static asset fallback
-		if isDesktopStaticPath(path) {
-			web.GzipHandler(http.HandlerFunc(p.HandleDesktopStatic)).ServeHTTP(w, r)
-			return
-		}
-
-		// Determine view mode (desktop vs mobile)
-		viewMode := determineViewMode(r)
-		qv := r.URL.Query().Get("view")
-
-		// Explicit ?view query parameter overrides viewMode and sets cookie
-		if qv != "" {
-			http.SetCookie(w, &http.Cookie{
-				Name:     "agy_view_mode",
-				Value:    viewMode,
-				Path:     "/",
-				MaxAge:   86400 * 365,
-				SameSite: http.SameSiteLaxMode,
-			})
-		}
-
-		if viewMode == "desktop" {
-			web.GzipHandler(http.HandlerFunc(p.HandleDesktopIndex)).ServeHTTP(w, r)
-			return
-		}
-
-		// Mobile view
-		webHandler.ServeHTTP(w, r)
-	})
-
-	rootMux.Handle("/", adaptiveWebHandler)
+	// Web frontend (SPA & embedded static assets)
+	rootMux.Handle("/", webHandler)
 
 	// Inject Cloudflare tunnel domain in response headers for client auto-discovery and healing
 	endpointHeadersMiddleware := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -915,41 +860,6 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 	w.WriteHeader(status)
 	w.Write(data)
-}
-
-func determineViewMode(r *http.Request) string {
-	// 1. Explicit query parameter (?view=desktop / ?view=mobile, or ?mode=...)
-	qView := strings.ToLower(r.URL.Query().Get("view"))
-	if qView == "" {
-		qView = strings.ToLower(r.URL.Query().Get("mode"))
-	}
-	if qView == "desktop" || qView == "ipad" || qView == "pc" {
-		return "desktop"
-	}
-	if qView == "mobile" || qView == "phone" {
-		return "mobile"
-	}
-
-	// 2. Classify device by User-Agent (tablets, iPad, and desktop browsers are never phones)
-	ua := strings.ToLower(r.UserAgent())
-	isTablet := strings.Contains(ua, "ipad") || strings.Contains(ua, "tablet")
-	isPhone := !isTablet && (strings.Contains(ua, "iphone") || strings.Contains(ua, "ipod") ||
-		(strings.Contains(ua, "android") && strings.Contains(ua, "mobile")))
-
-	// 3. Explicit cookie (agy_view_mode)
-	if c, err := r.Cookie("agy_view_mode"); err == nil {
-		val := strings.ToLower(c.Value)
-		if val == "desktop" || val == "mobile" {
-			return val
-		}
-	}
-
-	if isPhone {
-		return "mobile"
-	}
-
-	// Default to desktop for iPad, Mac, Windows, Linux, Tablets, and desktop browsers
-	return "desktop"
 }
 
 // isHeadlessEnvironment detects if the current machine is running without a graphical desktop (e.g. headless NAS, SSH, systemd).
@@ -1000,15 +910,4 @@ func openBrowserURL(targetURL string) error {
 	default:
 		return nil
 	}
-}
-
-func isDesktopStaticPath(path string) bool {
-	return path == "/main.js" ||
-		path == "/jetbox.css" ||
-		path == "/compiled_tailwind.css" ||
-		path == "/prism_bundle.js" ||
-		path == "/diff_worker.js" ||
-		path == "/icon.png" ||
-		path == "/favicon.ico" ||
-		strings.HasPrefix(path, "/symbols-icons/")
 }
