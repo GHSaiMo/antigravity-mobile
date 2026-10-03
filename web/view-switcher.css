@@ -184,11 +184,11 @@ body.agy-drawer-open .agy-mobile-drawer-backdrop {
   justify-content: center;
 }
 
-/* Switcher button in desktop view: positioned neatly at bottom left */
+/* Switcher button in desktop view: positioned neatly at bottom right */
 .agy-view-switcher.desktop-mode {
-  left: 16px;
-  right: auto;
-  bottom: 14px;
+  right: 18px;
+  left: auto;
+  bottom: 18px;
   opacity: 0.7;
   background-color: rgba(15, 23, 42, 0.88);
   font-size: 12px;
