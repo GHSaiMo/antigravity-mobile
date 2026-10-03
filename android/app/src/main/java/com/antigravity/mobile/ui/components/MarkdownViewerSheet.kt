@@ -29,6 +29,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
@@ -77,6 +78,7 @@ fun MarkdownViewerSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
+        sheetMaxWidth = Dp.Unspecified,
         containerColor = colors.background,
         shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         dragHandle = {
@@ -89,7 +91,7 @@ fun MarkdownViewerSheet(
                     .background(colors.textMuted.copy(alpha = 0.35f))
             )
         },
-        windowInsets = WindowInsets(0, 0, 0, 0),
+        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
         modifier = modifier
             .fillMaxWidth()
             .fillMaxHeight(0.94f)

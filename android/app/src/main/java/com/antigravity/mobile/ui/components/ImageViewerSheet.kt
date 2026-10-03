@@ -44,6 +44,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -289,6 +290,7 @@ fun ImageViewerSheet(
                 ModalBottomSheet(
                     onDismissRequest = { showSaveSheet = false },
                     sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+                    sheetMaxWidth = Dp.Unspecified,
                     containerColor = Color(0xFF1E1E1E),
                     dragHandle = {
                         Box(
@@ -301,7 +303,7 @@ fun ImageViewerSheet(
                         )
                     },
                     shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-                    windowInsets = WindowInsets(0, 0, 0, 0)
+                    contentWindowInsets = { WindowInsets(0, 0, 0, 0) }
                 ) {
                     Column(
                         modifier = Modifier

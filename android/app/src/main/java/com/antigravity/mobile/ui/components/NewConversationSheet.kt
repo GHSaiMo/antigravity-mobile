@@ -24,6 +24,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.ProjectItem
@@ -50,10 +51,11 @@ fun NewConversationSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
+        sheetMaxWidth = Dp.Unspecified,
         containerColor = colors.surface,
         dragHandle = null,
         shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-        windowInsets = WindowInsets(0, 0, 0, 0),
+        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
         modifier = modifier
             .fillMaxWidth()
             .fillMaxHeight(0.94f)

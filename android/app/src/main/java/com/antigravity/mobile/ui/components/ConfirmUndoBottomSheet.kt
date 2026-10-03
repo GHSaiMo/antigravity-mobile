@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.GatewayMessageItem
@@ -45,10 +46,11 @@ fun ConfirmUndoBottomSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
+        sheetMaxWidth = Dp.Unspecified,
         containerColor = colors.surface,
         contentColor = colors.textPrimary,
         dragHandle = { BottomSheetDefaults.DragHandle() },
-        windowInsets = WindowInsets(0, 0, 0, 0),
+        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
         modifier = modifier
     ) {
         Column(
