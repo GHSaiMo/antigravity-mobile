@@ -601,7 +601,16 @@ func (p *Proxy) handleRescan(w http.ResponseWriter, r *http.Request) {
 }
 
 func (p *Proxy) handleRpcProxy(w http.ResponseWriter, r *http.Request) {
-	log.Printf("[RPC] Request: %s", r.URL.Path)
+	start := time.Now()
+	defer func() {
+		dur := time.Since(start)
+		if dur > 100*time.Millisecond &&
+			!strings.Contains(r.URL.Path, "Stream") &&
+			!strings.Contains(r.URL.Path, "Subscribe") &&
+			!strings.Contains(r.URL.Path, "Watch") {
+			log.Printf("[RPC] ⚠️ SLOW: %s in %v", r.URL.Path, dur)
+		}
+	}()
 	p.mu.RLock()
 	rp := p.activeProxy
 	port := p.activePort
