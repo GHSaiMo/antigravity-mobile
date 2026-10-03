@@ -1,6 +1,7 @@
 package cockpit
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -179,14 +180,22 @@ func syncLegacyBindAccount(accountID string) {
 		return
 	}
 	path := filepath.Join(dataDir, "antigravity_legacy_instances.json")
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return
-	}
 	var doc map[string]any
-	if err := json.Unmarshal(raw, &doc); err != nil {
-		log.Printf("[Cockpit] failed to parse %s: %v", path, err)
-		return
+	fileExists := false
+	if raw, err := os.ReadFile(path); err == nil {
+		fileExists = true
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			log.Printf("[Cockpit] failed to parse %s: %v", path, err)
+			return
+		}
+	}
+	if doc == nil {
+		doc = map[string]any{
+			"instances": []any{},
+			"defaultSettings": map[string]any{
+				"bindAccountId": accountID,
+			},
+		}
 	}
 	ds, _ := doc["defaultSettings"].(map[string]any)
 	if ds == nil {
@@ -194,7 +203,7 @@ func syncLegacyBindAccount(accountID string) {
 		doc["defaultSettings"] = ds
 	}
 	prev, _ := ds["bindAccountId"].(string)
-	if prev == accountID {
+	if fileExists && prev == accountID {
 		return
 	}
 	ds["bindAccountId"] = accountID
@@ -216,3 +225,158 @@ func syncLegacyBindAccount(accountID string) {
 
 // wait is kept tiny so tests can override if needed.
 var afterProfilePrepare = func() { time.Sleep(50 * time.Millisecond) }
+
+func querySQLite(dbPath, sql string) (string, error) {
+	cleanDB := filepath.Clean(dbPath)
+	if _, lookErr := exec.LookPath("sqlite3"); lookErr == nil {
+		cmd := exec.Command("sqlite3", "-batch", "-noheader", cleanDB, sql)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(string(out)), nil
+	}
+	pyScript := "import sqlite3, sys; conn = sqlite3.connect(sys.argv[1]); cur = conn.cursor(); cur.execute(sys.argv[2]); row = cur.fetchone(); sys.stdout.write(str(row[0]) if row and row[0] is not None else '')"
+	for _, py := range []string{"python", "python3"} {
+		if _, lookErr := exec.LookPath(py); lookErr == nil {
+			cmd := exec.Command(py, "-c", pyScript, cleanDB, sql)
+			out, err := cmd.CombinedOutput()
+			if err == nil {
+				return strings.TrimSpace(string(out)), nil
+			}
+		}
+	}
+	return "", fmt.Errorf("sqlite query runner not found")
+}
+
+// InjectAccountToAntigravityStateDB writes unified OAuth token protobuf and flags into state.vscdb.
+func InjectAccountToAntigravityStateDB(acc *CockpitAccountDetail) error {
+	if acc == nil {
+		return fmt.Errorf("cannot inject nil account")
+	}
+
+	ensureAntigravityStateDBs()
+
+	isGCP := false
+	if acc.Token.IsGCPToS != nil {
+		isGCP = *acc.Token.IsGCPToS
+	}
+
+	expiry := acc.Token.ExpiryTimestamp
+	if expiry <= 0 {
+		expiry = time.Now().Unix() + 3600
+	}
+
+	oauthPayload := CreateOAuthInfoWithMetadata(
+		acc.Token.AccessToken,
+		acc.Token.RefreshToken,
+		expiry,
+		isGCP,
+		acc.Token.IDToken,
+	)
+
+	dbs := antigravityStateDBPaths()
+	for _, dbPath := range dbs {
+		if _, err := os.Stat(dbPath); err != nil {
+			continue
+		}
+
+		var currentTopic []byte
+		if val, err := querySQLite(dbPath, "SELECT value FROM ItemTable WHERE key = 'antigravityUnifiedStateSync.oauthToken';"); err == nil && val != "" {
+			if b, bErr := base64.StdEncoding.DecodeString(val); bErr == nil {
+				currentTopic = b
+			}
+		}
+
+		topic, _ := RemoveUnifiedTopicEntry(currentTopic, "oauthTokenInfoSentinelKey")
+		topic, _ = RemoveUnifiedTopicEntry(topic, "authStateWithContextSentinelKey")
+
+		entry := CreateUnifiedTopicEntry("oauthTokenInfoSentinelKey", oauthPayload)
+		topic = append(topic, entry...)
+		topicB64 := base64.StdEncoding.EncodeToString(topic)
+
+		sql := fmt.Sprintf("INSERT OR REPLACE INTO ItemTable (key, value) VALUES ('antigravityUnifiedStateSync.oauthToken', %s);", sqliteQuote(topicB64))
+		if err := execSQLite(dbPath, sql); err != nil {
+			log.Printf("[Cockpit] failed to write unified oauthToken to %s: %v", dbPath, err)
+		}
+
+		// Inject minimal userStatus if missing
+		userStatusCount, _ := querySQLite(dbPath, "SELECT COUNT(*) FROM ItemTable WHERE key = 'antigravityUnifiedStateSync.userStatus';")
+		if userStatusCount == "0" || userStatusCount == "" {
+			minPayload := CreateMinimalUserStatusPayload(acc.Email)
+			userTopic := CreateUnifiedTopicEntry("userStatusSentinelKey", minPayload)
+			userTopicB64 := base64.StdEncoding.EncodeToString(userTopic)
+			uSQL := fmt.Sprintf("INSERT OR REPLACE INTO ItemTable (key, value) VALUES ('antigravityUnifiedStateSync.userStatus', %s);", sqliteQuote(userTopicB64))
+			_ = execSQLite(dbPath, uSQL)
+		}
+
+		// Inject Onboarding flag
+		_ = execSQLite(dbPath, "INSERT OR REPLACE INTO ItemTable (key, value) VALUES ('antigravityOnboarding', 'true');")
+		log.Printf("[Cockpit] Injected account %s tokens into %s", acc.Email, dbPath)
+	}
+	return nil
+}
+
+// SyncCockpitLocalState updates accounts.json, current_account.json, and legacy instance binding.
+func SyncCockpitLocalState(accountID, email string) error {
+	accountID = strings.TrimSpace(accountID)
+	email = strings.TrimSpace(email)
+	if accountID == "" && email == "" {
+		return nil
+	}
+
+	dataDir, err := GetCockpitDataDir()
+	if err != nil {
+		return err
+	}
+
+	now := time.Now().Unix()
+
+	// 1. Update current_account.json
+	if email != "" {
+		curDoc := map[string]any{
+			"email":      email,
+			"updated_at": now,
+		}
+		if raw, err := json.MarshalIndent(curDoc, "", "  "); err == nil {
+			curPath := filepath.Join(dataDir, "current_account.json")
+			tmpPath := curPath + ".tmp"
+			if os.WriteFile(tmpPath, append(raw, '\n'), 0644) == nil {
+				_ = os.Rename(tmpPath, curPath)
+			}
+		}
+	}
+
+	// 2. Update accounts.json (current_account_id & last_used)
+	accPath := filepath.Join(dataDir, "accounts.json")
+	if raw, err := os.ReadFile(accPath); err == nil {
+		var idx map[string]any
+		if json.Unmarshal(raw, &idx) == nil {
+			if accountID != "" {
+				idx["current_account_id"] = accountID
+			}
+			if accList, ok := idx["accounts"].([]any); ok {
+				for _, item := range accList {
+					if m, ok := item.(map[string]any); ok {
+						if (accountID != "" && m["id"] == accountID) || (email != "" && strings.EqualFold(fmt.Sprint(m["email"]), email)) {
+							m["last_used"] = now
+						}
+					}
+				}
+			}
+			if updated, err := json.MarshalIndent(idx, "", "  "); err == nil {
+				tmpPath := accPath + ".tmp"
+				if os.WriteFile(tmpPath, append(updated, '\n'), 0644) == nil {
+					_ = os.Rename(tmpPath, accPath)
+				}
+			}
+		}
+	}
+
+	// 3. Update legacy bind account
+	if accountID != "" {
+		syncLegacyBindAccount(accountID)
+	}
+	return nil
+}
+

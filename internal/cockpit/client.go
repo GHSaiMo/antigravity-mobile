@@ -131,7 +131,52 @@ func generateRequestID() string {
 	return "req-" + hex.EncodeToString(b)
 }
 
-// SwitchAccount connects to Cockpit Tools' WebSocket server and requests an account switch.
+func switchAccountDirect(accountID string) (bool, error) {
+	detail, err := DecryptAccountDetail(accountID)
+	if err != nil || detail == nil || detail.Token.RefreshToken == "" {
+		return false, nil
+	}
+
+	log.Printf("[Cockpit] Found local encrypted account for %s (ID: %s). Executing direct native switch...", detail.Email, detail.ID)
+
+	// Ensure token is fresh before injection
+	freshTok, refreshed, rErr := EnsureFreshToken(&detail.Token)
+	if rErr != nil {
+		log.Printf("[Cockpit] Warning: token refresh failed (%v), proceeding with existing token", rErr)
+	} else if refreshed {
+		detail.Token = *freshTok
+		if sErr := SaveAccountDetail(detail); sErr != nil {
+			log.Printf("[Cockpit] Warning: failed to save refreshed account: %v", sErr)
+		}
+	}
+
+	if err := quitAntigravityBeforeSwitch(); err != nil {
+		return true, fmt.Errorf("quit Antigravity before switch: %w", err)
+	}
+
+	// Sync Cockpit Tools local state
+	if err := SyncCockpitLocalState(detail.ID, detail.Email); err != nil {
+		log.Printf("[Cockpit] Warning: sync Cockpit local state failed: %v", err)
+	}
+	afterProfilePrepare()
+
+	// Inject unified OAuth token into Antigravity SQLite state.vscdb
+	if err := InjectAccountToAntigravityStateDB(detail); err != nil {
+		log.Printf("[Cockpit] Warning: SQLite state.vscdb injection error: %v", err)
+	}
+
+	// Apply Keychain, Jetski token file, relaunch IDE and verify with Language Server
+	InvalidateQuotaCache()
+	if err := applyLanguageServerOAuth(detail.ID); err != nil {
+		return true, fmt.Errorf("apply language server oauth and relaunch: %w", err)
+	}
+
+	log.Printf("[Cockpit] Direct native switch completed successfully for %s", detail.Email)
+	return true, nil
+}
+
+// SwitchAccount switches active account using direct local storage if available,
+// falling back to Cockpit Tools WebSocket server only if local storage is missing.
 func SwitchAccount(accountID string) (err error) {
 	accountID = strings.TrimSpace(accountID)
 	if accountID == "" {
@@ -141,22 +186,9 @@ func SwitchAccount(accountID string) (err error) {
 	// Auto-align Cockpit config to prevent APP_PATH_NOT_FOUND during switch
 	_ = EnsureCockpitAntigravityConfig()
 
-	// If accountID is an email, resolve it to its matching account UUID in accounts.json
-	if strings.Contains(accountID, "@") {
-		if dataDir, err := GetCockpitDataDir(); err == nil {
-			if accBytes, err := os.ReadFile(filepath.Join(dataDir, "accounts.json")); err == nil {
-				var idx accountsIndex
-				if json.Unmarshal(accBytes, &idx) == nil {
-					targetEmail := strings.ToLower(accountID)
-					for _, acc := range idx.Accounts {
-						if strings.ToLower(strings.TrimSpace(acc.Email)) == targetEmail {
-							accountID = acc.ID
-							break
-						}
-					}
-				}
-			}
-		}
+	// If accountID is an email or alias, resolve it to canonical UUID in accounts.json
+	if resolved, rErr := ResolveAccountID(accountID); rErr == nil && resolved != "" {
+		accountID = resolved
 	}
 
 	prevBindID := getLegacyBindAccount()
@@ -167,6 +199,15 @@ func SwitchAccount(accountID string) (err error) {
 		}
 	}()
 
+	// Fast path: Direct local native switch without Cockpit Tools desktop process
+	if handled, sErr := switchAccountDirect(accountID); handled {
+		if sErr != nil {
+			return sErr
+		}
+		return nil
+	}
+
+	// Fallback path: WebSocket switch via running Cockpit Tools desktop process
 	if err = quitAntigravityBeforeSwitch(); err != nil {
 		return fmt.Errorf("quit Antigravity before switch: %w", err)
 	}
@@ -269,6 +310,26 @@ func SwitchAccount(accountID string) (err error) {
 }
 
 func fetchAccountOAuth(accountID string) (*parsedOAuth, error) {
+	// Fast path: direct from local storage without connecting to WebSocket
+	if detail, err := DecryptAccountDetail(accountID); err == nil && detail != nil && detail.Token.RefreshToken != "" {
+		freshTok, refreshed, _ := EnsureFreshToken(&detail.Token)
+		if refreshed {
+			detail.Token = *freshTok
+			_ = SaveAccountDetail(detail)
+		}
+		exp := time.Now().Add(50 * time.Minute)
+		if freshTok.ExpiryTimestamp > 0 {
+			exp = time.Unix(freshTok.ExpiryTimestamp, 0)
+		}
+		return &parsedOAuth{
+			AccessToken:  freshTok.AccessToken,
+			RefreshToken: freshTok.RefreshToken,
+			IDToken:      freshTok.IDToken,
+			Email:        strings.ToLower(strings.TrimSpace(detail.Email)),
+			Expiry:       exp,
+		}, nil
+	}
+
 	serverInfo, err := GetCockpitServerInfo()
 	if err != nil {
 		return nil, err
