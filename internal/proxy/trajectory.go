@@ -2193,6 +2193,49 @@ func (p *Proxy) fetchUpstreamTrajectoryWithMaxAgeContext(ctx context.Context, ca
 	}
 	defaultTrajCache.trajCacheMu.RUnlock()
 
+	// Coalesce concurrent cache misses for the same cascade into one upstream request,
+	// so N stream subscribers expiring the cache together don't each hit language_server.
+	return trajFlights.do(cascadeID, func() (*upstreamTrajectoryResp, error) {
+		return p.fetchUpstreamTrajectoryUncached(ctx, cascadeID, port, token)
+	})
+}
+
+// trajFlightGroup is a minimal singleflight keyed by cascade ID.
+type trajFlightGroup struct {
+	mu    sync.Mutex
+	calls map[string]*trajFlightCall
+}
+
+type trajFlightCall struct {
+	done chan struct{}
+	data *upstreamTrajectoryResp
+	err  error
+}
+
+var trajFlights = &trajFlightGroup{calls: make(map[string]*trajFlightCall)}
+
+func (g *trajFlightGroup) do(key string, fn func() (*upstreamTrajectoryResp, error)) (*upstreamTrajectoryResp, error) {
+	g.mu.Lock()
+	if c, ok := g.calls[key]; ok {
+		g.mu.Unlock()
+		<-c.done
+		return c.data, c.err
+	}
+	c := &trajFlightCall{done: make(chan struct{})}
+	g.calls[key] = c
+	g.mu.Unlock()
+
+	defer func() {
+		g.mu.Lock()
+		delete(g.calls, key)
+		g.mu.Unlock()
+		close(c.done)
+	}()
+	c.data, c.err = fn()
+	return c.data, c.err
+}
+
+func (p *Proxy) fetchUpstreamTrajectoryUncached(ctx context.Context, cascadeID string, port int, token string) (*upstreamTrajectoryResp, error) {
 	buf := GetSmallBuffer()
 	defer PutSmallBuffer(buf)
 	buf.WriteString(`{"cascadeId":`)
