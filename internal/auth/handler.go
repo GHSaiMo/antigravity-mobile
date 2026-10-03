@@ -637,6 +637,12 @@ func (h *AuthHandler) isAuthorizedAdmin(r *http.Request) bool {
 		return ConstantTimeTokenEquals(BearerToken(r), adminToken)
 	}
 
+	// When a tunnel is enabled, the connector reaches us from loopback, so a loopback
+	// source address proves nothing: require the admin token instead.
+	if h.policy.TunnelEnabled {
+		return false
+	}
+
 	// Check if genuinely from localhost (not behind a reverse proxy or Cloudflare tunnel).
 	if !IsCloudflareRequest(r) && r.Header.Get("X-Forwarded-For") == "" && r.Header.Get("X-Real-IP") == "" {
 		if IsLoopbackAddr(r.RemoteAddr) {
