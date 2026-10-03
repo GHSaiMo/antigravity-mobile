@@ -407,6 +407,7 @@ func (p *Proxy) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 			// Message is larger than 128KB (e.g. multi-MB conversation trajectory, large files)
 			// It NEVER requires FILE_TYPE_ replacement. Stream it directly to avoid multi-MB memory allocations!
+			streamStart := time.Now()
 			w, err := clientConn.NextWriter(msgType)
 			if err != nil {
 				PutLargeBuffer(peekBuf)
@@ -414,6 +415,7 @@ func (p *Proxy) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// 1. Write the already-read prefix
+			prefixLen := peekBuf.Len()
 			if _, writeErr := w.Write(peekBuf.Bytes()); writeErr != nil {
 				PutLargeBuffer(peekBuf)
 				w.Close()
@@ -423,10 +425,13 @@ func (p *Proxy) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 			// 2. Stream the rest directly from upstream reader to client writer
 			streamBuf := GetLargeBuffer()
-			_, copyErr := io.CopyBuffer(w, r, streamBuf.Bytes()[:cap(streamBuf.Bytes())])
+			streamedBytes, copyErr := io.CopyBuffer(w, r, streamBuf.Bytes()[:cap(streamBuf.Bytes())])
 			PutLargeBuffer(streamBuf)
 
-			if closeErr := w.Close(); closeErr != nil || copyErr != nil {
+			totalBytes := int64(prefixLen) + streamedBytes
+			closeErr := w.Close()
+			log.Printf("[WS] Streamed large message: %d bytes (%.2f MB) in %v", totalBytes, float64(totalBytes)/(1024*1024), time.Since(streamStart))
+			if closeErr != nil || copyErr != nil {
 				break
 			}
 		}
