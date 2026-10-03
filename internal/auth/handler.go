@@ -668,6 +668,32 @@ func (h *AuthHandler) HandleWSTicket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if genuinely from localhost (no pairing required) or trusted LAN
+	isLocalhost := IsLoopbackAddr(r.RemoteAddr) && !IsCloudflareRequest(r)
+	isTrustedLAN := h.policy.TrustLAN && IsPrivateLANAddr(r.RemoteAddr) && !IsCloudflareRequest(r)
+
+	if isLocalhost || isTrustedLAN {
+		deviceID := "admin-local"
+		if !isLocalhost {
+			deviceID = "lan-" + clientIP
+		}
+		ticket, err := h.store.IssueWSTicket(deviceID)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": "failed to generate ticket"})
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]any{
+			"ticket":     ticket,
+			"expires_in": 30,
+		})
+		return
+	}
+
 	token := ExtractToken(r)
 	if token == "" {
 		log.Printf("[AUDIT:AUTH_FAILURE] action=issue_wsticket reason=missing_token ip=%s", CleanIP(r.RemoteAddr))

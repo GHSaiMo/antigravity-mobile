@@ -1,6 +1,6 @@
 /* ==========================================================================
    Multigravity Responsive Modes (Desktop / 平板 / 手机)
-   自适应屏幕宽度不同模式样式
+   全端动态响应式屏幕自适应样式系统
    ========================================================================== */
 
 /* 1. 桌面工作台模式 (Desktop: >= 1024px) */
@@ -20,22 +20,127 @@
     overflow-x: hidden;
   }
 
-  /* 平板下优化触摸与面板自适应防遮挡 */
-  body[data-screen-mode="tablet"] {
-    padding-bottom: env(safe-area-inset-bottom, 0px);
+  /* 平板下优化侧边栏宽度，给聊天与编辑器保留充裕空间 */
+  .agy-desktop-sidebar,
+  [style*="container-type: size"] > div.flex:first-child {
+    max-width: 240px !important;
+    flex-shrink: 0 !important;
+  }
+
+  .agy-desktop-main,
+  [style*="container-type: size"] > div:last-child {
+    min-width: 0 !important;
+    flex-grow: 1 !important;
+    overflow-x: hidden !important;
+  }
+
+  /* 平板触控热区优化 */
+  nav[aria-label="Sidebar"] a,
+  nav[aria-label="Sidebar"] button {
+    min-height: 36px !important;
   }
 }
 
 /* 3. 手机移动模式 (Mobile: < 768px) */
+/* 遮罩背景层 (Backdrop) */
+.agy-mobile-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 999;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+html.agy-drawer-open .agy-mobile-drawer-backdrop,
+body.agy-drawer-open .agy-mobile-drawer-backdrop {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 @media (max-width: 767.98px) {
-  html[data-screen-mode="mobile"],
-  body[data-screen-mode="mobile"] {
+  html,
+  body {
+    overflow-x: hidden !important;
+    width: 100% !important;
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
   }
+
+  /* 隐藏桌面 Sash 分割调整条 */
+  .agy-desktop-sash,
+  [data-testid="sidebar-sash"],
+  .bg-border.flex-shrink-0 {
+    display: none !important;
+    width: 0 !important;
+  }
+
+  /* 侧边栏转换为浮动抽屉 (Drawer) */
+  .agy-desktop-sidebar,
+  [style*="container-type: size"] > div.flex:first-child {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    bottom: 0 !important;
+    width: min(85vw, 320px) !important;
+    max-width: 85vw !important;
+    height: 100dvh !important;
+    z-index: 1000 !important;
+    background-color: #0b0f19 !important;
+    box-shadow: 4px 0 28px rgba(0, 0, 0, 0.7) !important;
+    transform: translateX(-100%) !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+    transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.28s !important;
+    border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+  }
+
+  /* 抽屉打开状态 */
+  html.agy-drawer-open .agy-desktop-sidebar,
+  body.agy-drawer-open .agy-desktop-sidebar,
+  html.agy-drawer-open [style*="container-type: size"] > div.flex:first-child,
+  body.agy-drawer-open [style*="container-type: size"] > div.flex:first-child {
+    transform: translateX(0) !important;
+    visibility: visible !important;
+    pointer-events: auto !important;
+  }
+
+  /* 桌面工作台主对话区域自适应满屏 */
+  .agy-desktop-main,
+  [style*="container-type: size"] > div:last-child {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    min-width: 0 !important;
+    flex: 1 1 100% !important;
+    overflow-x: hidden !important;
+  }
+
+  /* 顶部侧边栏切换按钮提升层级与触控友好度 */
+  .absolute.left-0.top-0 {
+    z-index: 998 !important;
+    padding-left: 6px !important;
+  }
+
+  .agy-sidebar-toggle-btn,
+  button[aria-label="切换侧边栏"] {
+    min-width: 36px !important;
+    min-height: 36px !important;
+    touch-action: manipulation !important;
+  }
+
+  /* 输入框与工具栏防溢出适配 */
+  [style*="container-type: size"] textarea,
+  [style*="container-type: size"] [contenteditable="true"],
+  [style*="container-type: size"] form {
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+  }
 }
 
-/* 隐藏任何可能残留的切换元素 */
+/* 隐藏任何可能残留的旧版切换元素 */
 .agy-view-switcher,
 .agy-wide-mobile-banner,
 #agy-view-switcher-btn,

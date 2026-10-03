@@ -116,13 +116,16 @@ func (t *CloudflareTunnel) launchProcessLocked(ctx context.Context, binPath stri
 	stderr, err := cmd.StderrPipe()
 	if err == nil {
 		go func() {
+			var readyOnce sync.Once
 			reader := bufio.NewReader(stderr)
 			for {
 				line, rErr := reader.ReadString('\n')
 				trimmed := strings.TrimSpace(line)
 				if trimmed != "" {
 					if strings.Contains(trimmed, "Registered tunnel connection") {
-						log.Printf("✅ [Cloudflare] 专属隧道连接就绪: %s", t.PublicURL())
+						readyOnce.Do(func() {
+							log.Println("✅ [Cloudflare] 专属隧道连接就绪")
+						})
 					} else if strings.Contains(trimmed, "ERR") || strings.Contains(trimmed, "error") ||
 						strings.Contains(trimmed, "Incorrect Usage") || strings.Contains(trimmed, "flag provided") {
 						if !isBenignCloudflareLog(trimmed) {

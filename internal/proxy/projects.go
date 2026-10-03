@@ -232,6 +232,41 @@ func (p *Proxy) GetProjects() ([]ProjectItem, error) {
 	return result, nil
 }
 
+// FindProjectIDForWorkspaces matches workspace URIs against known projects and returns the project ID.
+func (p *Proxy) FindProjectIDForWorkspaces(workspaceURIs []string) string {
+	if len(workspaceURIs) == 0 {
+		return ""
+	}
+	projects, err := p.GetProjects()
+	if err != nil || len(projects) == 0 {
+		projects = fetchProjectsFromGeminiConfig()
+	}
+	for _, wsURI := range workspaceURIs {
+		if wsURI == "" {
+			continue
+		}
+		targetNorm := normalizeURI(wsURI)
+		targetPath := uriToPath(targetNorm)
+		for _, prj := range projects {
+			if prj.ID == "" {
+				continue
+			}
+			if normalizeURI(prj.URI) == targetNorm || uriToPath(prj.URI) == targetPath || (prj.Path != "" && filepath.Clean(prj.Path) == filepath.Clean(targetPath)) {
+				return prj.ID
+			}
+		}
+		for _, prj := range fetchProjectsFromGeminiConfig() {
+			if prj.ID == "" {
+				continue
+			}
+			if normalizeURI(prj.URI) == targetNorm || uriToPath(prj.URI) == targetPath || (prj.Path != "" && filepath.Clean(prj.Path) == filepath.Clean(targetPath)) {
+				return prj.ID
+			}
+		}
+	}
+	return ""
+}
+
 func getAntigravityAppStoragePaths() []string {
 	var paths []string
 	if appData := os.Getenv("APPDATA"); appData != "" {
@@ -1024,30 +1059,7 @@ func (p *Proxy) HandleCreateCascade(w http.ResponseWriter, r *http.Request) {
 	// Determine projectId: prefer explicitly provided projectId, otherwise match against known projects
 	projectID := strings.TrimSpace(req.ProjectID)
 	if projectID == "" && wsURI != "" {
-		targetNorm := normalizeURI(wsURI)
-		targetPath := uriToPath(targetNorm)
-		if projects, err := p.GetProjects(); err == nil {
-			for _, prj := range projects {
-				if prj.ID == "" {
-					continue
-				}
-				if normalizeURI(prj.URI) == targetNorm || uriToPath(prj.URI) == targetPath || filepath.Clean(prj.Path) == filepath.Clean(targetPath) {
-					projectID = prj.ID
-					break
-				}
-			}
-		}
-		if projectID == "" {
-			for _, prj := range fetchProjectsFromGeminiConfig() {
-				if prj.ID == "" {
-					continue
-				}
-				if normalizeURI(prj.URI) == targetNorm || uriToPath(prj.URI) == targetPath || filepath.Clean(prj.Path) == filepath.Clean(targetPath) {
-					projectID = prj.ID
-					break
-				}
-			}
-		}
+		projectID = p.FindProjectIDForWorkspaces([]string{wsURI})
 	}
 
 	// 1. Call StartCascade RPC upstream

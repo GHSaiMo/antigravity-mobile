@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -82,6 +83,9 @@ type Proxy struct {
 	desktopFocusedAt          time.Time
 	suppressDesktopFocusUntil time.Time
 	mobileStickyDuration      time.Duration
+
+	projectsCacheMu      sync.RWMutex
+	lastReadProjectsResp []byte
 }
 
 type cascadeDedupEntry struct {
@@ -182,10 +186,11 @@ func NewProxy(insp inspector.UpstreamDiscoverer) *Proxy {
 	tr := &http.Transport{
 		TLSClientConfig:       localtls.ClientConfig(),
 		DialTLSContext:        localtls.DialTLSContext,
+		ForceAttemptHTTP2:     true,
 		DisableCompression:    true,
-		MaxIdleConns:          100,
-		MaxIdleConnsPerHost:   50,
-		MaxConnsPerHost:       100,
+		MaxIdleConns:          200,
+		MaxIdleConnsPerHost:   100,
+		MaxConnsPerHost:       200,
 		IdleConnTimeout:       90 * time.Second,
 		ResponseHeaderTimeout: 0, // 0 allows long-polling and streaming ConnectRPC endpoints without dropping
 		ExpectContinueTimeout: 1 * time.Second,
@@ -230,6 +235,15 @@ func (p *Proxy) updateUpstream(info inspector.InstanceInfo) {
 	targetURL, _ := url.Parse(fmt.Sprintf("https://127.0.0.1:%d", info.Port))
 	rp := httputil.NewSingleHostReverseProxy(targetURL)
 	rp.Transport = p.transport
+	rp.FlushInterval = -1 // Flush immediately to deliver streaming responses without buffering
+	rp.ErrorHandler = func(rw http.ResponseWriter, req *http.Request, err error) {
+		if errors.Is(err, context.Canceled) || errors.Is(req.Context().Err(), context.Canceled) {
+			// Client disconnected or canceled the request (e.g. page navigation or switching tabs)
+			return
+		}
+		log.Printf("[Proxy] Upstream proxy error for %s %s: %v", req.Method, req.URL.Path, err)
+		rw.WriteHeader(http.StatusBadGateway)
+	}
 
 	originalDirector := rp.Director
 	token := info.CSRFToken
@@ -593,6 +607,10 @@ func (p *Proxy) handleRpcProxy(w http.ResponseWriter, r *http.Request) {
 		p.handleDeleteAgentMessage(w, r, rp, reqPath)
 		return
 	}
+	if strings.HasSuffix(reqPath, "/ReadProjects") && r.Method == http.MethodPost {
+		p.handleReadProjects(w, r, rp, reqPath)
+		return
+	}
 	if (strings.HasSuffix(reqPath, "/CancelCascadeInvocation") || strings.HasSuffix(reqPath, "/ForceStopCascadeTree")) && r.Method == http.MethodPost {
 		p.handleCancelCascadeInvocation(w, r, rp, reqPath)
 		return
@@ -671,6 +689,61 @@ func (b *bufferedResponseWriter) WriteHeader(code int) {
 
 func (b *bufferedResponseWriter) Write(p []byte) (int, error) {
 	return b.body.Write(p)
+}
+
+func (p *Proxy) handleReadProjects(w http.ResponseWriter, r *http.Request, rp http.Handler, reqPath string) {
+	bodyBytes, cleanup, err := readBodyToPool(r.Body, 64*1024)
+	if err != nil {
+		writeJSONError(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+	defer cleanup()
+
+	rec := newBufferedResponseWriter()
+	defer rec.release()
+
+	fwdReq := r.Clone(r.Context())
+	fwdReq.URL.Path = reqPath
+	fwdReq.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+	fwdReq.ContentLength = int64(len(bodyBytes))
+	fwdReq.Header.Set("Content-Length", strconv.Itoa(len(bodyBytes)))
+
+	rp.ServeHTTP(rec, fwdReq)
+
+	if rec.statusCode == http.StatusOK && rec.body.Len() > 0 {
+		respBytes := rec.body.Bytes()
+		p.projectsCacheMu.Lock()
+		p.lastReadProjectsResp = make([]byte, len(respBytes))
+		copy(p.lastReadProjectsResp, respBytes)
+		p.projectsCacheMu.Unlock()
+
+		for k, v := range rec.header {
+			w.Header()[k] = v
+		}
+		w.WriteHeader(rec.statusCode)
+		w.Write(respBytes)
+		return
+	}
+
+	p.projectsCacheMu.RLock()
+	cached := p.lastReadProjectsResp
+	p.projectsCacheMu.RUnlock()
+
+	if len(cached) > 0 {
+		log.Printf("[Proxy] Upstream ReadProjects returned status %d; serving cached projects list (%d bytes)", rec.statusCode, len(cached))
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Connect-Protocol-Version", "1")
+		w.Header().Set("Content-Length", strconv.Itoa(len(cached)))
+		w.WriteHeader(http.StatusOK)
+		w.Write(cached)
+		return
+	}
+
+	for k, v := range rec.header {
+		w.Header()[k] = v
+	}
+	w.WriteHeader(rec.statusCode)
+	w.Write(rec.body.Bytes())
 }
 
 func (p *Proxy) checkAndRecordMessageDedup(key string, ttl time.Duration) bool {
@@ -1663,9 +1736,11 @@ func (p *Proxy) HandleCascadeRevertExecute(w http.ResponseWriter, r *http.Reques
 }
 
 func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.Request, port int, token string) {
-	// 1. Ensure historical trajectories on disk are loaded into upstream memory for this port
+	// 1. Ensure historical trajectories on disk are loaded into upstream memory asynchronously
 	if port > 0 && !HasSyncedHistoricalTrajectories(port) {
-		_ = p.SyncHistoricalTrajectories(port, token)
+		go func(prt int, tok string) {
+			_ = p.SyncHistoricalTrajectories(prt, tok)
+		}(port, token)
 	}
 
 	url := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories", port)
@@ -1773,8 +1848,11 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 			}
 		}
 		if !hasTitle {
-			if t := p.lookupCascadeTitle(id, port, token); t != "" && t != "未命名会话" {
-				cleanTitle := SanitizeTitle(t)
+			defaultTrajCache.cascadeTitlesMu.RLock()
+			cachedT := defaultTrajCache.cascadeTitles[id]
+			defaultTrajCache.cascadeTitlesMu.RUnlock()
+			if cachedT != "" && cachedT != "未命名会话" {
+				cleanTitle := SanitizeTitle(cachedT)
 				if cleanTitle != "" {
 					ann, _ := s["annotations"].(map[string]interface{})
 					if ann == nil {
@@ -1803,6 +1881,42 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 			}
 		}
 
+		// Backfill projectId if missing or outside-of-project
+		meta, _ := s["trajectoryMetadata"].(map[string]interface{})
+		curPID, _ := meta["projectId"].(string)
+		if curPID == "" || curPID == "outside-of-project" {
+			var wsURIs []string
+			if meta != nil {
+				if uris, ok := meta["workspaceUris"].([]interface{}); ok {
+					for _, u := range uris {
+						if us, ok := u.(string); ok && us != "" {
+							wsURIs = append(wsURIs, us)
+						}
+					}
+				}
+			}
+			if len(wsURIs) == 0 {
+				if wss, ok := s["workspaces"].([]interface{}); ok {
+					for _, w := range wss {
+						if wm, ok := w.(map[string]interface{}); ok {
+							if uri, ok := wm["workspaceFolderAbsoluteUri"].(string); ok && uri != "" {
+								wsURIs = append(wsURIs, uri)
+							}
+						}
+					}
+				}
+			}
+			if len(wsURIs) > 0 {
+				if matchedPID := p.FindProjectIDForWorkspaces(wsURIs); matchedPID != "" {
+					if meta == nil {
+						meta = make(map[string]interface{})
+					}
+					meta["projectId"] = matchedPID
+					s["trajectoryMetadata"] = meta
+				}
+			}
+		}
+
 		// Filter out stale empty drafts (0 steps, not running, older than 15 minutes, no custom title)
 		status, _ := s["status"].(string)
 		stepCount := 0
@@ -1825,123 +1939,48 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 		}
 	}
 
-	// Identify candidate cascades that might need user action (permissions or CanProceed plan feedback)
-	candidates := make(map[string]bool)
-
-	type recentItem struct {
-		id string
-		t  time.Time
+	// 1. In-memory fast inspection: check sessions already cached in trajCache (instant, zero network cost)
+	defaultTrajCache.trajCacheMu.RLock()
+	type snapEntry struct {
+		cid  string
+		data *upstreamTrajectoryResp
 	}
-	var recentItems []recentItem
+	var snapshots []snapEntry
+	for cid, entry := range defaultTrajCache.trajCache {
+		if entry != nil && entry.data != nil {
+			snapshots = append(snapshots, snapEntry{cid: cid, data: entry.data})
+		}
+	}
+	defaultTrajCache.trajCacheMu.RUnlock()
 
-	for id, s := range summaries {
-		status, _ := s["status"].(string)
-		if status == "CASCADE_RUN_STATUS_RUNNING" {
-			candidates[id] = true
-		} else {
-			// Extract timestamp with fallbacks across lastModifiedTime, lastUserViewTime, createdTime, lastUserInputTime
-			var modTime time.Time
-			foundTime := false
-
-			if modStr, ok := s["lastModifiedTime"].(string); ok && modStr != "" {
-				if t, err := parseTime(modStr); err == nil {
-					modTime = t
-					foundTime = true
-				}
+	for _, sn := range snapshots {
+		if s := summaries[sn.cid]; s != nil {
+			details := p.ParseTrajectoryDetails(sn.data)
+			if details.PendingInteraction != nil || details.CanProceed {
+				s["needsInput"] = true
 			}
-			if !foundTime {
-				if ann, ok := s["annotations"].(map[string]interface{}); ok {
-					if uvStr, ok := ann["lastUserViewTime"].(string); ok && uvStr != "" {
-						if t, err := parseTime(uvStr); err == nil {
-							modTime = t
-							foundTime = true
-						}
-					}
-				}
-			}
-			if !foundTime {
-				if ctStr, ok := s["createdTime"].(string); ok && ctStr != "" {
-					if t, err := parseTime(ctStr); err == nil {
-						modTime = t
-						foundTime = true
-					}
-				}
-			}
-			if !foundTime {
-				if uiStr, ok := s["lastUserInputTime"].(string); ok && uiStr != "" {
-					if t, err := parseTime(uiStr); err == nil {
-						modTime = t
-						foundTime = true
-					}
-				}
-			}
-
-			if foundTime {
-				recentItems = append(recentItems, recentItem{id: id, t: modTime})
+			if details.HasError {
+				s["hasError"] = true
+				s["errorMessage"] = details.ErrorMessage
 			}
 		}
 	}
 
-	// Check recent sessions for CanProceed / PendingInteraction:
-	// Check up to 10 most recent sessions (within 48 hours) to prevent upstream N+1 RPC storms.
-	// For any session already cached with terminal status and within 60s TTL, parse directly without RPC.
-	if len(recentItems) > 0 {
-		sort.Slice(recentItems, func(i, j int) bool {
-			return recentItems[i].t.After(recentItems[j].t)
-		})
-		for i := 0; i < len(recentItems) && i < 10; i++ {
-			if i < 5 || time.Since(recentItems[i].t) < 48*time.Hour {
-				cid := recentItems[i].id
-				// Fast path: if already cached, non-running, and within TTL, reuse directly.
-				// P2 fix: copy the data pointer under a short RLock, then parse outside the lock.
-				defaultTrajCache.trajCacheMu.RLock()
-				cached, ok := defaultTrajCache.trajCache[cid]
-				var cachedData *upstreamTrajectoryResp
-				if ok && cached != nil && cached.data != nil {
-					if cached.data.Status != "" && cached.data.Status != "CASCADE_RUN_STATUS_RUNNING" && time.Since(cached.fetchedAt) < 60*time.Second {
-						cachedData = cached.data
-					}
-				}
-				defaultTrajCache.trajCacheMu.RUnlock()
-
-				if cachedData != nil {
-					// ParseTrajectoryDetails does significant JSON work — keep it outside any lock.
-					details := p.ParseTrajectoryDetails(cachedData)
-					if details.PendingInteraction != nil || details.CanProceed {
-						if summaries[cid] != nil {
-							summaries[cid]["needsInput"] = true
-						}
-					}
-					if details.HasError {
-						if summaries[cid] != nil {
-							summaries[cid]["hasError"] = true
-							summaries[cid]["errorMessage"] = details.ErrorMessage
-						}
-					}
-					continue
-				}
-				candidates[cid] = true
-			}
-		}
-	}
-
-	// Fast disk inspection: If ~/.gemini/antigravity/brain/<id>/implementation_plan.md.metadata.json has requestFeedback == true
+	// 2. Fast disk inspection: If implementation_plan.md.metadata.json has requestFeedback == true
 	// and walkthrough.md does not yet exist (plan not yet delivered).
-	// Both file reads are served from metadataCache (TTL: 10s) to avoid per-request syscalls.
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		for cid := range summaries {
-			if candidates[cid] {
+		for cid, s := range summaries {
+			if s["needsInput"] == true {
 				continue
 			}
 			walkthroughFile := filepath.Join(home, ".gemini/antigravity/brain", cid, "walkthrough.md")
-			// Cache os.Stat result via metadataCache using a "stat:" key prefix.
 			walkthroughStatKey := "stat:" + walkthroughFile
 			defaultTrajCache.metadataCacheMu.RLock()
 			statEntry, statCached := defaultTrajCache.metadataCache[walkthroughStatKey]
 			defaultTrajCache.metadataCacheMu.RUnlock()
 			walkthroughExists := false
 			if statCached && time.Since(statEntry.fetchedAt) < metadataCacheTTL {
-				walkthroughExists = statEntry.requestFeedback // re-purposed: true = file exists
+				walkthroughExists = statEntry.requestFeedback
 			} else {
 				_, serr := os.Stat(walkthroughFile)
 				walkthroughExists = serr == nil
@@ -1957,31 +1996,62 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 			}
 			metaFile := filepath.Join(home, ".gemini/antigravity/brain", cid, "implementation_plan.md.metadata.json")
 			if readMetadataRequestFeedback(metaFile) {
-				candidates[cid] = true
+				s["needsInput"] = true
 			}
 		}
 	}
 
-	// Also check any cascade in trajCache that has PendingInteraction, CanProceed, or HasError.
-	// P2 fix: snapshot entries under RLock, then parse outside the lock.
-	defaultTrajCache.trajCacheMu.RLock()
-	type snapEntry struct {
-		cid  string
-		data *upstreamTrajectoryResp
-	}
-	var snapshots []snapEntry
-	for cid, entry := range defaultTrajCache.trajCache {
-		if entry != nil && entry.data != nil {
-			snapshots = append(snapshots, snapEntry{cid: cid, data: entry.data})
-		}
-	}
-	defaultTrajCache.trajCacheMu.RUnlock()
+	// 3. Candidates that might need live upstream probing:
+	// Only probe for mobile/API clients (/api/...) that actively consume needsInput/hasError.
+	// Desktop web workbench (/exa.language_server_pb...) does not use these flags.
+	isApiClient := strings.HasPrefix(r.URL.Path, "/api/")
+	candidates := make(map[string]bool)
 
-	for _, sn := range snapshots {
-		details := p.ParseTrajectoryDetails(sn.data)
-		if details.PendingInteraction != nil || details.CanProceed || details.HasError {
-			if _, exists := summaries[sn.cid]; exists {
-				candidates[sn.cid] = true
+	if isApiClient {
+		for id, s := range summaries {
+			if s["needsInput"] == true {
+				continue
+			}
+			status, _ := s["status"].(string)
+			if status == "CASCADE_RUN_STATUS_RUNNING" {
+				candidates[id] = true
+			}
+		}
+
+		// Also check top recent items if not already cached in trajCache
+		type recentItem struct {
+			id string
+			t  time.Time
+		}
+		var recentItems []recentItem
+		for id, s := range summaries {
+			if s["needsInput"] == true || candidates[id] {
+				continue
+			}
+			if modStr, ok := s["lastModifiedTime"].(string); ok && modStr != "" {
+				if t, err := parseTime(modStr); err == nil {
+					recentItems = append(recentItems, recentItem{id: id, t: t})
+				}
+			}
+		}
+		if len(recentItems) > 0 {
+			sort.Slice(recentItems, func(i, j int) bool {
+				return recentItems[i].t.After(recentItems[j].t)
+			})
+			for i := 0; i < len(recentItems) && i < 3; i++ {
+				cid := recentItems[i].id
+				defaultTrajCache.trajCacheMu.RLock()
+				cached, cachedOk := defaultTrajCache.trajCache[cid]
+				var isCachedNonRunning bool
+				if cachedOk && cached != nil && cached.data != nil {
+					if cached.data.Status != "" && cached.data.Status != "CASCADE_RUN_STATUS_RUNNING" && time.Since(cached.fetchedAt) < 60*time.Second {
+						isCachedNonRunning = true
+					}
+				}
+				defaultTrajCache.trajCacheMu.RUnlock()
+				if !isCachedNonRunning {
+					candidates[cid] = true
+				}
 			}
 		}
 	}
@@ -1991,10 +2061,10 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 		actionMap := make(map[string]bool)
 		errorMap := make(map[string]string)
 		clearedErrorMap := make(map[string]string)
-		sem := make(chan struct{}, 6) // Limit concurrent upstream RPCs to prevent hammering language_server while maximizing throughput
+		sem := make(chan struct{}, 3)
 
-		// PERF-P0: Responsive 3.5s timeout budget with full context propagation to cancel in-flight HTTP requests
-		ctx, cancel := context.WithTimeout(r.Context(), 3500*time.Millisecond)
+		// Responsive 500ms timeout budget with full context propagation
+		ctx, cancel := context.WithTimeout(r.Context(), 500*time.Millisecond)
 		defer cancel()
 
 		var wg sync.WaitGroup
@@ -2003,8 +2073,8 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 			go func(cascadeID string) {
 				defer wg.Done()
 				select {
-				case sem <- struct{}{}: // Acquire semaphore slot
-					defer func() { <-sem }() // Release semaphore slot
+				case sem <- struct{}{}:
+					defer func() { <-sem }()
 				case <-ctx.Done():
 					return
 				}
@@ -2029,7 +2099,6 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 			}(cid)
 		}
 
-		// Wait for completion or timeout, whichever comes first
 		done := make(chan struct{})
 		go func() {
 			wg.Wait()
@@ -2038,7 +2107,6 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 		select {
 		case <-done:
 		case <-ctx.Done():
-			log.Printf("[Proxy] GetAllCascadeTrajectories: timeout after 3.5s, returning partial results (%d/%d checked)", len(actionMap), len(candidates))
 		}
 
 		for cid, hasAction := range actionMap {
