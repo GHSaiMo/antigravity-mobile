@@ -1,17 +1,25 @@
 {
   "details": {
     "cascadeId": "g-proceed-approved-text",
-    "title": "Comments on artifact URI: file:///va...",
+    "title": "go",
     "status": "CASCADE_RUN_STATUS_IDLE",
     "hasError": false,
     "duration": "0秒",
-    "totalSteps": 2,
+    "totalSteps": 3,
     "totalTools": 1,
     "workspaceUri": "",
     "steps": null,
     "allMessages": [
       {
-        "id": "tools-0",
+        "id": "step-0",
+        "type": "user",
+        "role": "user",
+        "text": "go",
+        "content": "go",
+        "stepIndex": 0
+      },
+      {
+        "id": "tools-1",
         "type": "tools",
         "role": "tools",
         "text": "已思考并执行 1 项操作",
@@ -25,6 +33,6 @@
     "queuedMessages": [],
     "canProceed": false
   },
-  "cachedTitle": "Comments on artifact URI: file:///va...",
+  "cachedTitle": "go",
   "lastKnownConfig": ""
 }
