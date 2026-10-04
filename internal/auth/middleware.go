@@ -88,7 +88,7 @@ const DeviceCookieName = "agy_dt"
 func IsWhitelistedPath(path string) bool {
 	// Root and standard static web files
 	if path == "/" || path == "/index.html" || path == "/manifest.json" ||
-		path == "/sw.js" || path == "/style.css" || path == "/app.js" ||
+		path == "/sw.js" || path == "/style.css" || strings.HasPrefix(path, "/js/") ||
 		path == "/mermaid.min.js" || path == "/favicon.ico" ||
 		strings.HasPrefix(path, "/c/") || path == "/history" {
 		return true
