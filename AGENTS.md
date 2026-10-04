@@ -60,7 +60,28 @@ go test -count=1 ./...
 go build -o /dev/null ./cmd/gateway
 ```
 
-### 5. 本机网关运行与拉起规范（强制遵守 ⭐⭐⭐⭐⭐）
+### 5. Go 代码的 Linux 环境验证（对齐 CI，强制门禁 ⭐⭐⭐⭐）
+本机是 macOS，而 GitHub CI 跑在 ubuntu 上。路径约定（如 `Library/Application Support` 与 `~/.config`）、符号链接（`/tmp`、`/var` → `/private/...`）、可用的系统工具等平台差异，会造成“本机全绿、CI 变红”。因此凡是修改了 `cmd/`、`internal/`、`web/` 下的 Go 代码或测试，在 `git push` 之前，除第 4 节外还必须在 Linux 环境复现 CI 的校验：
+
+```bash
+# 通过 ssh 在 nas 上的一次性 Linux 容器内执行 go vet + go build + go test（对齐 .github/workflows/ci.yml）
+scripts/test-on-nas.sh
+
+# 只复现某个包 / 某个用例（仍会先跑全量 vet 与 build）
+scripts/test-on-nas.sh ./internal/cockpit
+scripts/test-on-nas.sh -run TestEnsureAntigravityStateDBs -v ./internal/cockpit
+```
+
+- **通过标准**：脚本末尾输出 `✅ Linux 验证通过`，退出码为 `0`。
+- **同步内容**：脚本同步的是本地工作区（含未提交改动），不含 `android/`、`ios/` 等与 Go 无关的目录，因此可以在 `git commit` 之前运行。
+- **环境说明**：脚本通过 NAS 上的 Go 模块代理（默认 `http://127.0.0.1:10001`，容器 `dev-goproxy`）下载与 `go.mod` 版本一致的 Go 工具链和依赖，缓存在 NAS 的 `/tmp/mgy-ci`；测试在一次性容器里以普通用户 + 临时 HOME 运行，不会改动 NAS 上的其他服务。可用环境变量覆盖：`NAS_HOST`、`NAS_WORKDIR`、`NAS_GOPROXY`、`NAS_IMAGE`、`NAS_TOOLCHAIN_IMAGE`（详见脚本头部注释）。
+- **已知局限**：该容器不是 GitHub runner 的完整镜像（例如没有 `lsof`、`sqlite3` 命令行），涉及进程/端口发现、外部命令的测试，在真实 CI 上仍可能走不同分支。**Linux 验证通过不等于 CI 一定通过**，推送后仍应核对 CI 结果。
+- **严禁行为**：
+  - 严禁在脚本无法执行（例如 `ssh nas` 不通，脚本会以退出码 `3` 提示）时声称“Linux 验证已通过”；此时必须明确告知用户该项未验证。
+  - 严禁用 `t.Skip`、删除用例或放宽断言来“绕过”Linux 上的失败；应让测试按平台取路径或按能力跳过，并说明理由。
+  - 测试里不得写死 macOS 专属路径或依赖本机真实的 `~/.gemini`、正在运行的 Antigravity；需要 HOME 时使用 `t.Setenv("HOME", t.TempDir())`，并避免让断言依赖临时目录的具体路径。
+
+### 6. 本机网关运行与拉起规范（强制遵守 ⭐⭐⭐⭐⭐）
 修改完代码，本机重新拉起网关时，**必须在 tmux 对应的会话（会话名：`mgy`）里重新拉起**，严禁在 Agent 后台以独立子进程/守护进程方式直接拉起，避免端口冲突与会话脱节：
 
 ```bash
@@ -98,5 +119,6 @@ tmux send-keys -t mgy "mgy" Enter
    - Android: `cd android && ./gradlew compileReleaseKotlin`
    - iOS: `xcodebuild ...`
    - Go: `go test ./...`
-4. **提交与推送**：只有当上述对应模块的本地编译校验全部成功后，方可进行 `git commit` 与后续交付。
+   - Go（推送前，对齐 CI）: `scripts/test-on-nas.sh`
+4. **提交与推送**：只有当上述对应模块的本地编译校验全部成功后，方可进行 `git commit` 与后续交付；涉及 Go 代码的推送还需通过 Linux 验证（第 5 节），推送后核对 CI 结果。
 5. **本机网关重启**：交付或验证需要重新拉起网关时，一律通过 `tmux send-keys -t mgy "mgy" Enter` 在 `mgy` 会话中拉起。
