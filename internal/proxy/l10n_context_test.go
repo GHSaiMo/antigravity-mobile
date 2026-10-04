@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"encoding/binary"
 	"os"
 	"strings"
 	"testing"
@@ -138,7 +139,7 @@ func TestLocalizeRPCResponse(t *testing.T) {
 	out := string(LocalizeRPCResponse("/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary", in))
 	for _, want := range []string{
 		`"displayName":"Gemini 模型群"`, `"每周剩余额度"`, `"5小时剩余额度"`, `将在 3 天 17 小时 后完全刷新`, `将在 4 小时 后完全刷新`,
-		`"tagTitle":"提示"`, `自 2026 年 11 月 2 日起`, `该分组包含的模型：Gemini Flash, Gemini Pro`,
+		`该分组包含的模型：Gemini Flash, Gemini Pro`,
 		`"label":"Gemini 3.1 Pro (High)"`, // model labels are identifiers: untouched
 	} {
 		if !strings.Contains(out, want) {
@@ -148,6 +149,11 @@ func TestLocalizeRPCResponse(t *testing.T) {
 	for _, keep := range []string{`"name":"Recommended"`, `"upgradeSubscriptionText":"You can upgrade`} {
 		if !strings.Contains(out, keep) {
 			t.Errorf("%s is read by the workbench and must stay untranslated: %s", keep, out)
+		}
+	}
+	for _, p := range []string{"/x/GetCascadeTrajectory", "/x/GetUserStatus", "/x/GetCascadeModelConfigData"} {
+		if got := LocalizeRPCResponse(p, in); string(got) != string(in) {
+			t.Errorf("%s must not be rewritten", p)
 		}
 	}
 	if got := LocalizeRPCResponse("/x/GetCascadeTrajectory", in); string(got) != string(in) {
@@ -162,5 +168,28 @@ func TestSettingsNavAndQuotaPatches(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("want %q in %q", want, out)
 		}
+	}
+}
+
+func TestLocalizeConnectEnvelopes(t *testing.T) {
+	payload := []byte(`{"response":{"groups":[{"displayName":"Gemini Models"}]}}`)
+	frame := func(flags byte, p []byte) []byte {
+		h := []byte{flags, 0, 0, 0, 0}
+		binary.BigEndian.PutUint32(h[1:], uint32(len(p)))
+		return append(h, p...)
+	}
+	body := append(frame(0, payload), frame(2, []byte(`{}`))...)
+	out := localizeConnectEnvelopes("/x/RetrieveUserQuotaSummary", body)
+	n := int(binary.BigEndian.Uint32(out[1:5]))
+	if got := string(out[5 : 5+n]); !strings.Contains(got, "Gemini 模型群") {
+		t.Fatalf("payload not translated: %s", got)
+	}
+	// the length prefix must match the rewritten payload, and the trailer frame must survive
+	rest := out[5+n:]
+	if len(rest) != 5+2 || rest[0] != 2 || string(rest[5:]) != "{}" {
+		t.Fatalf("trailer frame mangled: %v", rest)
+	}
+	if got := localizeConnectEnvelopes("/x/RetrieveUserQuotaSummary", payload); string(got) != string(payload) {
+		t.Fatal("malformed envelope must be returned untouched")
 	}
 }

@@ -2,8 +2,10 @@ package proxy
 
 import (
 	"bytes"
+	"encoding/binary"
 	"io"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -21,11 +23,22 @@ import (
 // up by name in the model selector - translating it broke the Models page and account
 // menu), and userTier upgradeSubscriptionText/upgradeButtonText (fed into 429 handling).
 
-var l10nRPCSuffixes = []string{
-	"/RetrieveUserQuotaSummary", "/GetUserStatus", "/GetCascadeModelConfigData", "/GetAvailableModels",
+// Only the quota summary is translated. GetUserStatus / GetCascadeModelConfigData feed the
+// workbench's userStatus state (account menu, model selector, auth redirect); rewriting
+// them broke the account button and the Models page, so they are passed through verbatim.
+var l10nRPCSuffixes = []string{"/RetrieveUserQuotaSummary"}
+
+// l10nDisabled reports whether the MGY_L10N_DISABLE kill switch covers part ("rpc" or
+// "bundle"); the value "all" (or any other non-empty value) disables both.
+func l10nDisabled(part string) bool {
+	v := os.Getenv("MGY_L10N_DISABLE")
+	return v != "" && (v == part || v == "all" || (v != "rpc" && v != "bundle"))
 }
 
 func isL10nRPCPath(path string) bool {
+	if l10nDisabled("rpc") {
+		return false
+	}
 	for _, s := range l10nRPCSuffixes {
 		if strings.HasSuffix(path, s) {
 			return true
@@ -132,9 +145,44 @@ func localizeRPCResponse(resp *http.Response) error {
 	if err != nil {
 		return err
 	}
-	out := LocalizeRPCResponse(resp.Request.URL.Path, raw)
+	var out []byte
+	if ct := resp.Header.Get("Content-Type"); strings.Contains(ct, "connect+") || strings.Contains(ct, "grpc") {
+		out = localizeConnectEnvelopes(resp.Request.URL.Path, raw)
+	} else {
+		out = LocalizeRPCResponse(resp.Request.URL.Path, raw)
+	}
 	resp.Body = io.NopCloser(bytes.NewReader(out))
 	resp.ContentLength = int64(len(out))
 	resp.Header.Set("Content-Length", strconv.Itoa(len(out)))
 	return nil
+}
+
+// localizeConnectEnvelopes translates an enveloped body (Connect streaming / grpc-web, e.g.
+// application/grpc-web+json):
+// a sequence of frames [flags:1][length:4 big-endian][payload]. Each payload is rewritten
+// and its length prefix recomputed; a malformed body is returned untouched.
+func localizeConnectEnvelopes(path string, body []byte) []byte {
+	var out []byte
+	for pos := 0; pos < len(body); {
+		if len(body)-pos < 5 {
+			return body
+		}
+		n := int(binary.BigEndian.Uint32(body[pos+1 : pos+5]))
+		if n < 0 || pos+5+n > len(body) {
+			return body
+		}
+		payload := body[pos+5 : pos+5+n]
+		// only plain data frames (flags 0); compressed frames and the grpc-web/Connect trailer
+		// frame (flag 0x80 / 0x02) are passed through
+		if body[pos] == 0 {
+			payload = LocalizeRPCResponse(path, payload)
+		}
+		var hdr [5]byte
+		hdr[0] = body[pos]
+		binary.BigEndian.PutUint32(hdr[1:], uint32(len(payload)))
+		out = append(out, hdr[:]...)
+		out = append(out, payload...)
+		pos += 5 + n
+	}
+	return out
 }

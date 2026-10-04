@@ -279,6 +279,9 @@ func LocalizeMainJS(data []byte) []byte {
 		data = reDisposeGC.ReplaceAll(data, []byte("${1}0${2}"))
 	}
 
+	if l10nDisabled("bundle") {
+		return data
+	}
 	// Patches match raw upstream text, so they run before the literal pass.
 	data = applyL10nPatches(data)
 	return translateStringLiterals(data)
