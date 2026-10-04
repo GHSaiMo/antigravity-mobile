@@ -129,3 +129,36 @@ const desktopRPCMuxJS = `
   };
 })();
 `
+
+// desktopThemePresetFixJS normalises the theme preset names the workbench stores in localStorage.
+// The gateway localises preset names inside main.js ("Default Dark" -> "深邃炭黑", ...), so a value
+// saved before localisation (or any unknown value) makes the Appearance settings look up an
+// undefined preset and the whole React tree unmounts (blank page after opening system settings).
+//
+// NOTE: embedded in a Go raw string elsewhere; no backticks allowed.
+const desktopThemePresetFixJS = `
+(() => {
+  const LEGACY = {
+    "Default Light": "经典浅白", "Default Dark": "深邃炭黑",
+    "One Light": "One Light 亮色", "One Dark Pro": "One Dark Pro 深色",
+    "Tokyo Night": "Tokyo Night 东京之夜",
+    "Solarized Light": "Solarized 浅色", "Solarized Dark": "Solarized 深色"
+  };
+  const VALID = {
+    "theme-preset-light": ["经典浅白", "Catppuccin", "One Light 亮色", "Solarized 浅色"],
+    "theme-preset-dark": ["深邃炭黑", "Catppuccin", "Dracula", "Monokai", "One Dark Pro 深色", "Tokyo Night 东京之夜", "Solarized 深色", "Vesper"]
+  };
+  try {
+    const proto = Storage.prototype, orig = proto.getItem;
+    proto.getItem = function (key) {
+      const v = orig.call(this, key);
+      if (this === window.localStorage && v !== null && VALID[key]) {
+        const fixed = LEGACY[v] || v;
+        if (VALID[key].indexOf(fixed) === -1) return null;
+        return fixed;
+      }
+      return v;
+    };
+  } catch (_) {}
+})();
+`

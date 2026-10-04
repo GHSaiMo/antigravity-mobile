@@ -467,7 +467,7 @@ func (p *Proxy) HandleDesktopIndex(w http.ResponseWriter, r *http.Request) {
         };
       })();
     </script>
-    <script>` + desktopRPCMuxJS + `</script>`
+    <script>` + desktopThemePresetFixJS + desktopRPCMuxJS + `</script>`
 	reFavicon := regexp.MustCompile(`(?s)<link\s+(?:[^"'<>]|"[^"]*"|'[^']*')*rel=["'](?:shortcut\s+)?icon["'](?:[^"'<>]|"[^"]*"|'[^']*')*/?\s*>`)
 	if reFavicon.MatchString(htmlStr) {
 		htmlStr = reFavicon.ReplaceAllString(htmlStr, multigravityIconsMeta)
