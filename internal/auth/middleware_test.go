@@ -605,3 +605,65 @@ func TestRequestAuthorized(t *testing.T) {
 		t.Error("TrustLAN must not apply to tunnelled requests")
 	}
 }
+
+func TestHandlePair_DeviceKeyDedupeAndCookieSecure(t *testing.T) {
+	t.Setenv("MULTIGRAVITY_ADMIN_TOKEN", "")
+	store, err := NewAuthStore(filepath.Join(t.TempDir(), "auth_store.json"))
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	pm := NewPairingManager()
+	// ssl=true mimics a gateway whose primary endpoint is the HTTPS tunnel.
+	h := NewAuthHandler(store, pm, "mac.local", 58900, true)
+
+	pair := func(key string, mutate func(*http.Request)) (PairResponse, *http.Response) {
+		code, err := pm.GenerateSession(5 * time.Minute)
+		if err != nil {
+			t.Fatalf("session: %v", err)
+		}
+		body, _ := json.Marshal(PairRequest{PairingCode: code.Code, DeviceName: "Web Browser (Desktop)", Platform: "web", DeviceKey: key})
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/pair", bytes.NewReader(body))
+		r.RemoteAddr = "192.168.50.9:5555"
+		if mutate != nil {
+			mutate(r)
+		}
+		rr := httptest.NewRecorder()
+		h.HandlePair(rr, r)
+		res := rr.Result()
+		var pr PairResponse
+		_ = json.NewDecoder(res.Body).Decode(&pr)
+		return pr, res
+	}
+
+	key := "0123456789abcdef-test-key"
+	first, res := pair(key, nil)
+	for _, c := range res.Cookies() {
+		if c.Name == DeviceCookieName && c.Secure {
+			t.Error("cookie must not be Secure for plain-HTTP LAN requests")
+		}
+	}
+	second, _ := pair(key, nil)
+	if first.DeviceID == "" || first.DeviceID != second.DeviceID {
+		t.Errorf("re-pair with same key must keep device id: %q vs %q", first.DeviceID, second.DeviceID)
+	}
+	if n := len(store.ListDevices()); n != 1 {
+		t.Errorf("expected 1 device, got %d", n)
+	}
+	if _, ok := store.ValidateToken(first.DeviceToken); ok {
+		t.Error("old token must be revoked after re-pair")
+	}
+	if _, ok := store.ValidateToken(second.DeviceToken); !ok {
+		t.Error("new token must be valid")
+	}
+
+	_, res = pair("", func(r *http.Request) { r.Header.Set("X-Forwarded-Proto", "https") })
+	secure := false
+	for _, c := range res.Cookies() {
+		if c.Name == DeviceCookieName {
+			secure = c.Secure
+		}
+	}
+	if !secure {
+		t.Error("cookie must be Secure when the request came over HTTPS")
+	}
+}

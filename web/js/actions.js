@@ -808,6 +808,20 @@ function parsePairingInput(raw) {
   return raw;
 }
 
+function getDeviceKey() {
+  try {
+    let k = localStorage.getItem("agy_device_key");
+    if (!k) {
+      k = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2));
+      if (k.length < 16) k += "0000000000000000";
+      localStorage.setItem("agy_device_key", k);
+    }
+    return k;
+  } catch (_) {
+    return "";
+  }
+}
+
 async function pairWithCode(code) {
   const resp = await originalFetch("/api/v1/auth/pair", {
     method: "POST",
@@ -815,7 +829,8 @@ async function pairWithCode(code) {
     body: JSON.stringify({
       pairing_code: code,
       device_name: `Web Browser (${navigator.userAgent.includes("iPhone") ? "iPhone Safari" : "Desktop/PWA"})`,
-      platform: "pwa"
+      platform: "pwa",
+      device_key: getDeviceKey()
     })
   });
 
@@ -919,7 +934,9 @@ function clearWebCache() {
   try {
     const paired = localStorage.getItem("agy_paired");
     const deviceId = localStorage.getItem("agy_device_id");
+    const deviceKey = localStorage.getItem("agy_device_key");
     localStorage.clear();
+    if (deviceKey) localStorage.setItem("agy_device_key", deviceKey);
     if (paired) localStorage.setItem("agy_paired", paired);
     if (deviceId) localStorage.setItem("agy_device_id", deviceId);
   } catch (_) {}

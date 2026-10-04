@@ -19,6 +19,7 @@ type PairRequest struct {
 	PairingCode string `json:"pairing_code"`
 	DeviceName  string `json:"device_name"`
 	Platform    string `json:"platform"`
+	DeviceKey   string `json:"device_key,omitempty"`
 }
 
 // EndpointInfo represents an accessible network endpoint of the gateway.
@@ -266,6 +267,16 @@ func (h *AuthHandler) isAuthenticated(r *http.Request) bool {
 	return ok && device != nil
 }
 
+// requestIsHTTPS reports whether the client reached us over HTTPS (directly or via a TLS-terminating
+// proxy/tunnel). The Secure cookie flag must follow the request, not the gateway's primary endpoint:
+// browsers silently drop Secure cookies received over plain-HTTP LAN access.
+func requestIsHTTPS(r *http.Request) bool {
+	if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+		return true
+	}
+	return strings.Contains(strings.ToLower(r.Header.Get("CF-Visitor")), `"scheme":"https"`)
+}
+
 // RequestAuthorized reports whether r would pass AuthMiddleware on a protected route:
 // genuine localhost, trusted LAN (when enabled), the admin token, or a valid paired-device token.
 // It lets whitelisted HTML entry points decide between serving the app and a pairing page.
@@ -358,14 +369,25 @@ func (h *AuthHandler) HandlePair(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now()
 	cleanIP := ExtractClientIP(r)
+	deviceKey := strings.TrimSpace(req.DeviceKey)
+	if len(deviceKey) < 16 || len(deviceKey) > 128 {
+		deviceKey = ""
+	}
+	createdAt := now
+	// Same physical client pairing again: keep its identity and rotate the credential.
+	if existing, ok := h.store.FindByDeviceKey(deviceKey); ok {
+		deviceID = existing.DeviceID
+		createdAt = existing.CreatedAt
+	}
 	device := PairedDevice{
 		DeviceID:   deviceID,
 		DeviceName: deviceName,
 		Platform:   platform,
 		TokenHash:  HashToken(deviceToken),
-		CreatedAt:  now,
+		CreatedAt:  createdAt,
 		LastSeenAt: now,
 		LastSeenIP: cleanIP,
+		DeviceKey:  deviceKey,
 	}
 
 	if err := h.store.AddDevice(device); err != nil {
@@ -375,7 +397,7 @@ func (h *AuthHandler) HandlePair(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	isSSL := h.ssl || r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+	isSSL := requestIsHTTPS(r)
 	http.SetCookie(w, &http.Cookie{
 		Name:     DeviceCookieName,
 		Value:    deviceToken,
@@ -468,7 +490,7 @@ func (h *AuthHandler) HandleUnpair(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Clear session cookie if set
-	isSSL := h.ssl || r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+	isSSL := requestIsHTTPS(r)
 	http.SetCookie(w, &http.Cookie{
 		Name:     DeviceCookieName,
 		Value:    "",
