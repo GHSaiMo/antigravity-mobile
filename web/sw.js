@@ -1,7 +1,13 @@
-const CACHE_NAME = "antigravity-mobile-v11";
+const CACHE_NAME = "antigravity-mobile-v12";
 const ASSETS = [
   "/style.css",
-  "/app.js",
+  "/js/core.js",
+  "/js/nav.js",
+  "/js/chat.js",
+  "/js/actions.js",
+  "/js/media.js",
+  "/js/init.js",
+  "/js/cockpit.js",
   "/manifest.json",
   "/mermaid.min.js",
   "/icons/icon.svg",

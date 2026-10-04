@@ -155,7 +155,7 @@ func TestUnauthorizedAPIRejected(t *testing.T) {
 func TestStaticWebAssetsAccessible(t *testing.T) {
 	router := setupTestRouter(t)
 
-	for _, p := range []string{"/", "/app.js", "/style.css", "/manifest.json", "/favicon.ico"} {
+	for _, p := range []string{"/", "/js/core.js", "/js/cockpit.js", "/style.css", "/manifest.json", "/favicon.ico"} {
 		req := httptest.NewRequest(http.MethodGet, p, nil)
 		rr := httptest.NewRecorder()
 		router.ServeHTTP(rr, req)
