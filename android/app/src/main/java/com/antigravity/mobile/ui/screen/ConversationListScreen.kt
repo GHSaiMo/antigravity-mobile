@@ -890,7 +890,7 @@ fun ConversationCard(
                     color = colors.textPrimary,
                     fontSize = 15.5.sp,
                     fontWeight = FontWeight.SemiBold,
-                    maxLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f).padding(end = 8.dp)
                 )
