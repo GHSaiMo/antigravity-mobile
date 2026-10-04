@@ -26,6 +26,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -55,14 +57,16 @@ fun NewConversationSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         sheetMaxWidth = Dp.Unspecified,
-        containerColor = colors.surface,
+        containerColor = Color.Transparent,
+        shape = RectangleShape,
+        tonalElevation = 0.dp,
         dragHandle = null,
-        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
         modifier = modifier
             .fillMaxWidth()
             .fillMaxHeight()
     ) {
+        TallSheetBody(containerColor = colors.surface, onDismiss = onDismiss) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -359,5 +363,6 @@ fun NewConversationSheet(
                 }
             }
         }
+            }
     }
 }

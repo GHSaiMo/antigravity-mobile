@@ -29,6 +29,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -79,23 +80,18 @@ fun MarkdownViewerSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         sheetMaxWidth = Dp.Unspecified,
-        containerColor = colors.background,
-        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-        dragHandle = {
-            Box(
-                modifier = Modifier
-                    .padding(top = 10.dp, bottom = 6.dp)
-                    .width(36.dp)
-                    .height(5.dp)
-                    .clip(CircleShape)
-                    .background(colors.textMuted.copy(alpha = 0.35f))
-            )
-        },
+        containerColor = Color.Transparent,
+        shape = RectangleShape,
+        tonalElevation = 0.dp,
+        dragHandle = null,
         contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
         modifier = modifier
             .fillMaxWidth()
-            .fillMaxHeight(0.94f)
+            .fillMaxHeight()
     ) {
+        TallSheetBody(containerColor = colors.background, onDismiss = onDismiss) {
+            SheetGrabHandle(colors.textMuted.copy(alpha = 0.35f))
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -279,6 +275,7 @@ fun MarkdownViewerSheet(
                 }
             }
         }
+            }
     }
 }
 
