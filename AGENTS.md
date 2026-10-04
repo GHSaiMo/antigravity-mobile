@@ -74,8 +74,8 @@ scripts/test-on-nas.sh -run TestEnsureAntigravityStateDBs -v ./internal/cockpit
 
 - **通过标准**：脚本末尾输出 `✅ Linux 验证通过`，退出码为 `0`。
 - **同步内容**：脚本同步的是本地工作区（含未提交改动），不含 `android/`、`ios/` 等与 Go 无关的目录，因此可以在 `git commit` 之前运行。
-- **环境说明**：脚本通过 NAS 上的 Go 模块代理（默认 `http://127.0.0.1:10001`，容器 `dev-goproxy`）下载与 `go.mod` 版本一致的 Go 工具链和依赖，缓存在 NAS 的 `/tmp/mgy-ci`；测试在一次性容器里以普通用户 + 临时 HOME 运行，不会改动 NAS 上的其他服务。可用环境变量覆盖：`NAS_HOST`、`NAS_WORKDIR`、`NAS_GOPROXY`、`NAS_IMAGE`、`NAS_TOOLCHAIN_IMAGE`（详见脚本头部注释）。
-- **已知局限**：该容器不是 GitHub runner 的完整镜像（例如没有 `lsof`、`sqlite3` 命令行），涉及进程/端口发现、外部命令的测试，在真实 CI 上仍可能走不同分支。**Linux 验证通过不等于 CI 一定通过**，推送后仍应核对 CI 结果。
+- **环境说明**：脚本通过 NAS 上的 Go 模块代理（默认 `http://127.0.0.1:10001`，容器 `dev-goproxy`）下载与 `go.mod` 版本一致的 Go 工具链和依赖，缓存在 NAS 的 `/tmp/mgy-ci`。测试在一次性容器里以普通用户 + 临时 HOME 运行，并把 NAS 宿主机（Debian 12）的 `/usr`、`/lib`、`/bin` 以**只读**方式挂入，因此带有 `sqlite3`、`lsof`、`python3`、`gcc`、`ss`，也启用 cgo，更接近 GitHub 的 ubuntu runner；不会写入宿主机系统目录，也不影响 NAS 上的其他服务。可用环境变量覆盖：`NAS_HOST`、`NAS_WORKDIR`、`NAS_GOPROXY`、`NAS_IMAGE`、`NAS_CGO`（详见脚本头部注释）。
+- **已知局限**：该环境不是 GitHub runner 的完整镜像（发行版、系统库版本、预装软件仍有差异），**Linux 验证通过不等于 CI 一定通过**，推送后仍应核对 CI 结果。曾出现过的教训：依赖外部命令的测试（如用 `sqlite3` 的用例）在缺少该命令的环境里会被 `t.Skip`，从而漏掉只在 CI 上才暴露的失败；因此验证环境必须保证这些命令存在，且不要让测试在 CI 上悄悄被跳过。
 - **严禁行为**：
   - 严禁在脚本无法执行（例如 `ssh nas` 不通，脚本会以退出码 `3` 提示）时声称“Linux 验证已通过”；此时必须明确告知用户该项未验证。
   - 严禁用 `t.Skip`、删除用例或放宽断言来“绕过”Linux 上的失败；应让测试按平台取路径或按能力跳过，并说明理由。

@@ -93,8 +93,15 @@ func TestClearStaleAntigravityIdentity(t *testing.T) {
 	t.Setenv("HOME", tmp)
 	t.Setenv("USERPROFILE", tmp)
 	t.Setenv("APPDATA", filepath.Join(tmp, "AppData", "Roaming"))
+	t.Setenv("XDG_CONFIG_HOME", "")
 
-	dbPath := filepath.Join(tmp, "Library", "Application Support", "Antigravity", "User", "globalStorage", "state.vscdb")
+	// Seed the first state.vscdb location the code under test will look at. The location is
+	// platform-specific (macOS: Library/Application Support, Linux: ~/.config), so ask for it.
+	paths := antigravityStateDBPaths()
+	if len(paths) == 0 {
+		t.Fatal("expected at least one state.vscdb path")
+	}
+	dbPath := paths[0]
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
 		t.Fatal(err)
 	}
