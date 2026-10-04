@@ -1,9 +1,9 @@
 package cockpit
 
 import (
+	"log/slog"
 	"context"
 	"fmt"
-	"log"
 	"runtime"
 	"sync"
 	"time"
@@ -143,18 +143,18 @@ func StartQuotaAutoRefresher(ctx context.Context, defaultInterval time.Duration,
 			}()
 
 			for round := 1; round <= 2; round++ {
-				log.Printf("[Cockpit] ⚠️ Cockpit query error: %v. Attempting auto-launch Cockpit Tools app (Round %d/2)...", queryErr, round)
+				slog.Warn(fmt.Sprintf("[Cockpit] ⚠️ Cockpit query error: %v. Attempting auto-launch Cockpit Tools app (Round %d/2)...", queryErr, round))
 
 				if launchErr := LaunchCockpitApp(); launchErr != nil {
-					log.Printf("[Cockpit] LaunchCockpitApp (Round %d/2) error: %v", round, launchErr)
+					slog.Warn(fmt.Sprintf("[Cockpit] LaunchCockpitApp (Round %d/2) error", round), "err", launchErr)
 				} else {
-					log.Printf("[Cockpit] 🚀 Cockpit Tools app launch signal sent")
+					slog.Info("[Cockpit] 🚀 Cockpit Tools app launch signal sent")
 				}
 
-				log.Printf("[Cockpit] Waiting %v for Cockpit Tools to initialize (Round %d/2)...", appStartupWait, round)
+				slog.Info(fmt.Sprintf("[Cockpit] Waiting %v for Cockpit Tools to initialize (Round %d/2)...", appStartupWait, round))
 				select {
 				case <-ctx.Done():
-					log.Println("[Cockpit] Auto refresher cancelled during self-healing wait")
+					slog.Info("[Cockpit] Auto refresher cancelled during self-healing wait")
 					return
 				case <-time.After(appStartupWait):
 				}
@@ -165,7 +165,7 @@ func StartQuotaAutoRefresher(ctx context.Context, defaultInterval time.Duration,
 					activePort = cfg.ReportPort
 				}
 
-				log.Printf("[Cockpit] Probing Cockpit Tools port %d after Round %d launch...", activePort, round)
+				slog.Info(fmt.Sprintf("[Cockpit] Probing Cockpit Tools port %d after Round %d launch...", activePort, round))
 				if !IsCockpitListening(activePort, 3*time.Second) {
 					queryErr = fmt.Errorf("port %d not listening", activePort)
 				} else {
@@ -173,17 +173,17 @@ func StartQuotaAutoRefresher(ctx context.Context, defaultInterval time.Duration,
 				}
 
 				if queryErr == nil {
-					log.Printf("[Cockpit] ✅ Cockpit Tools recovered and quota refreshed successfully on Round %d!", round)
+					slog.Info(fmt.Sprintf("[Cockpit] ✅ Cockpit Tools recovered and quota refreshed successfully on Round %d!", round))
 					schedulerMutex.Lock()
 					backoffUntil = time.Time{}
 					schedulerMutex.Unlock()
 					return
 				}
-				log.Printf("[Cockpit] Round %d re-probe failed: %v", round, queryErr)
+				slog.Warn(fmt.Sprintf("[Cockpit] Round %d re-probe failed", round), "err", queryErr)
 			}
 
 			// Both rounds failed: notify via Bark and enter backoff cooldown
-			log.Printf("[Cockpit] ❌ Cockpit Tools failed to recover after 2 launch rounds: %v", queryErr)
+			slog.Error("[Cockpit] ❌ Cockpit Tools failed to recover after 2 launch rounds", "err", queryErr)
 			if alertCallback != nil {
 				alertCallback(
 					"⚠️ 座舱助手未能启动",
@@ -194,7 +194,7 @@ func StartQuotaAutoRefresher(ctx context.Context, defaultInterval time.Duration,
 			schedulerMutex.Lock()
 			backoffUntil = time.Now().Add(targetInterval)
 			schedulerMutex.Unlock()
-			log.Printf("[Cockpit] Entering %v cooldown before next auto-refresh attempt to prevent log flooding", targetInterval)
+			slog.Info(fmt.Sprintf("[Cockpit] Entering %v cooldown before next auto-refresh attempt to prevent log flooding", targetInterval))
 		}
 
 		// Initial check on startup
@@ -207,7 +207,7 @@ func StartQuotaAutoRefresher(ctx context.Context, defaultInterval time.Duration,
 		for {
 			select {
 			case <-ctx.Done():
-				log.Println("[Cockpit] Auto refresher stopped")
+				slog.Info("[Cockpit] Auto refresher stopped")
 				return
 			case <-heartbeatTicker.C:
 				checkAndRefresh()

@@ -1,12 +1,12 @@
 package notifier
 
 import (
+	"log/slog"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -149,7 +149,7 @@ func (f *FCMClient) Send(ctx context.Context, payload BarkPayload) error {
 				return ctx.Err()
 			case <-time.After(1 * time.Second):
 			}
-			log.Printf("[FCM] 🔄 Retrying notification send (attempt %d)...", attempt+1)
+			slog.Info(fmt.Sprintf("[FCM] 🔄 Retrying notification send (attempt %d)...", attempt + 1))
 		}
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(bodyBytes))
@@ -164,7 +164,7 @@ func (f *FCMClient) Send(ctx context.Context, payload BarkPayload) error {
 		resp, err := f.client.Do(req)
 		if err != nil {
 			lastErr = err
-			log.Printf("[FCM] ❌ Failed to send notification (attempt %d): %v", attempt+1, err)
+			slog.Error(fmt.Sprintf("[FCM] ❌ Failed to send notification (attempt %d)", attempt + 1), "err", err)
 			continue
 		}
 
@@ -173,11 +173,11 @@ func (f *FCMClient) Send(ctx context.Context, payload BarkPayload) error {
 
 		if resp.StatusCode != http.StatusOK {
 			lastErr = fmt.Errorf("fcm server error %d: %s", resp.StatusCode, string(respBody))
-			log.Printf("[FCM] ⚠️ Server returned status %d: %s", resp.StatusCode, string(respBody))
+			slog.Warn(fmt.Sprintf("[FCM] ⚠️ Server returned status %d: %s", resp.StatusCode, string(respBody)))
 			continue
 		}
 
-		log.Printf("[FCM] 🚀 推送成功: %s", payload.Title)
+		slog.Info(fmt.Sprintf("[FCM] 🚀 推送成功: %s", payload.Title))
 		return nil
 	}
 

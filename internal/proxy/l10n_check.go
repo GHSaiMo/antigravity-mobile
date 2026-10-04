@@ -2,7 +2,8 @@ package proxy
 
 import (
 	"bytes"
-	"log"
+	"fmt"
+	"log/slog"
 )
 
 // localizeMainJSChecked runs LocalizeMainJS and warns when it changed nothing.
@@ -11,7 +12,7 @@ import (
 func localizeMainJSChecked(data []byte) []byte {
 	out := LocalizeMainJS(data)
 	if len(data) > 0 && bytes.Equal(out, data) {
-		log.Printf("[L10n] WARNING: no localization rule matched main.js (%d bytes); upstream IDE bundle may have changed and l10n rules need regeneration", len(data))
+		slog.Warn(fmt.Sprintf("[L10n] WARNING: no localization rule matched main.js (%d bytes); upstream IDE bundle may have changed and l10n rules need regeneration", len(data)))
 	}
 	return out
 }

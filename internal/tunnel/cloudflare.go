@@ -1,6 +1,7 @@
 package tunnel
 
 import (
+	"log/slog"
 	"archive/tar"
 	"bufio"
 	"bytes"
@@ -11,7 +12,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -124,12 +124,12 @@ func (t *CloudflareTunnel) launchProcessLocked(ctx context.Context, binPath stri
 				if trimmed != "" {
 					if strings.Contains(trimmed, "Registered tunnel connection") {
 						readyOnce.Do(func() {
-							log.Println("✅ [Cloudflare] 专属隧道连接就绪")
+							slog.Info("✅ [Cloudflare] 专属隧道连接就绪")
 						})
 					} else if strings.Contains(trimmed, "ERR") || strings.Contains(trimmed, "error") ||
 						strings.Contains(trimmed, "Incorrect Usage") || strings.Contains(trimmed, "flag provided") {
 						if !isBenignCloudflareLog(trimmed) {
-							log.Printf("⚠️  [Cloudflare] %s", trimmed)
+							slog.Warn(fmt.Sprintf("⚠️  [Cloudflare] %s", trimmed))
 						}
 					}
 				}
@@ -167,7 +167,7 @@ func (t *CloudflareTunnel) supervise(ctx context.Context, binPath string) {
 		}
 		t.mu.Unlock()
 
-		log.Printf("⚠️  [Cloudflare] 穿透守护进程退出，将在 3 秒后尝试自动恢复连接...")
+		slog.Warn("⚠️  [Cloudflare] 穿透守护进程退出，将在 3 秒后尝试自动恢复连接...")
 		select {
 		case <-ctx.Done():
 			return
@@ -180,7 +180,7 @@ func (t *CloudflareTunnel) supervise(ctx context.Context, binPath string) {
 			return
 		}
 		if err := t.launchProcessLocked(ctx, binPath); err != nil {
-			log.Printf("⚠️  [Cloudflare] 自动恢复穿透失败: %v", err)
+			slog.Warn("⚠️  [Cloudflare] 自动恢复穿透失败", "err", err)
 		}
 		t.mu.Unlock()
 	}
@@ -232,7 +232,7 @@ func FindCloudflaredBinary() string {
 		if isValidCloudflared(bin) {
 			return bin
 		}
-		log.Printf("⚠️  系统路径中的 cloudflared 损坏或无效 (%s)，将尝试使用本地专用版本...", bin)
+		slog.Warn(fmt.Sprintf("⚠️  系统路径中的 cloudflared 损坏或无效 (%s)，将尝试使用本地专用版本...", bin))
 	}
 	binDir := filepath.Join(config.GetDataDir(), "bin")
 	binName := "cloudflared"
@@ -262,7 +262,7 @@ func EnsureCloudflaredBinary(ctx context.Context) (string, error) {
 
 	// 3. Needs download
 	_ = os.MkdirAll(binDir, 0755)
-	log.Printf("⏬ 正在拉取 Cloudflare 穿透引擎二进制文件 (~65MB)...")
+	slog.Info("⏬ 正在拉取 Cloudflare 穿透引擎二进制文件 (~65MB)...")
 
 	downloadURLs := getCloudflaredDownloadURLs()
 	if len(downloadURLs) == 0 {
@@ -273,10 +273,10 @@ func EnsureCloudflaredBinary(ctx context.Context) (string, error) {
 	for _, rawURL := range downloadURLs {
 		downloadErr = downloadAndInstallBinary(ctx, rawURL, targetPath)
 		if downloadErr == nil {
-			log.Printf("✅ Cloudflare 穿透引擎安装成功: %s", targetPath)
+			slog.Info(fmt.Sprintf("✅ Cloudflare 穿透引擎安装成功: %s", targetPath))
 			return targetPath, nil
 		}
-		log.Printf("⚠️  下载源 %s 失败: %v, 尝试备用源...", rawURL, downloadErr)
+		slog.Warn(fmt.Sprintf("⚠️  下载源 %s 失败: %v, 尝试备用源...", rawURL, downloadErr))
 	}
 
 	return "", fmt.Errorf("all download mirrors failed: %w", downloadErr)
@@ -361,7 +361,7 @@ func createDownloadHTTPClient(downloadURL string) *http.Client {
 	if isOfficialGitHub {
 		// 官方源：尝试使用环境变量或本地探测到的代理
 		if proxyURL := detectLocalProxy(); proxyURL != nil {
-			log.Printf("⚡ 官方 GitHub 源将使用代理加速连接: %s", proxyURL.String())
+			slog.Info(fmt.Sprintf("⚡ 官方 GitHub 源将使用代理加速连接: %s", proxyURL.String()))
 			transport.Proxy = http.ProxyURL(proxyURL)
 		} else {
 			transport.Proxy = http.ProxyFromEnvironment

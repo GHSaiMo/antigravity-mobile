@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -186,7 +187,7 @@ func runGatewayServer(args []string) {
 
 		binPath, err := tunnel.EnsureCloudflaredBinary(cfCtx)
 		if err != nil {
-			log.Printf("⚠️  Cloudflare 穿透引擎准备失败: %v", err)
+			slog.Warn("⚠️  Cloudflare 穿透引擎准备失败", "err", err)
 		} else {
 			var cfRes *tunnel.CFTunnelResult
 			if cfCfg.Token != "" {
@@ -201,11 +202,11 @@ func runGatewayServer(args []string) {
 			}
 
 			if err != nil {
-				log.Printf("⚠️  Cloudflare 隧道注册失败: %v", err)
+				slog.Warn("⚠️  Cloudflare 隧道注册失败", "err", err)
 			} else if cfRes != nil {
 				cfTunnel = tunnel.NewCloudflareTunnel(cfRes, &cfCfg)
 				if err := cfTunnel.Start(cfCtx, binPath); err != nil {
-					log.Printf("⚠️  启动 cloudflared 失败: %v", err)
+					slog.Warn("⚠️  启动 cloudflared 失败", "err", err)
 				} else {
 					defer cfTunnel.Stop()
 					authHandler.SetCloudflareURL(cfRes.URL)
@@ -285,7 +286,7 @@ func runGatewayServer(args []string) {
 
 	// Align Cockpit configuration to prevent switch failures (APP_PATH_NOT_FOUND)
 	if err := cockpit.EnsureCockpitAntigravityConfig(); err != nil {
-		log.Printf("[Cockpit] Note: EnsureCockpitAntigravityConfig: %v", err)
+		slog.Info("[Cockpit] Note: EnsureCockpitAntigravityConfig", "err", err)
 	}
 
 	cockpit.StartQuotaAutoRefresher(watcherCtx, 10*time.Minute, cockpitAlertFn)
@@ -404,7 +405,7 @@ func runGatewayServer(args []string) {
 		if initialSession, err := pairingMgr.GenerateSession(5 * time.Minute); err == nil {
 			auth.PrintPairingQRCode(qrHost, qrPort, initialSession.Code, cfTunnel != nil, extraHosts...)
 		} else {
-			log.Printf("⚠️  无法生成初始配对二维码: %v", err)
+			slog.Warn("⚠️  无法生成初始配对二维码", "err", err)
 		}
 	} else if deviceCount > 0 {
 		fmt.Println("  💡 提示: 执行 `mgy pair` 可随时申请新设备配对二维码。")
@@ -412,7 +413,7 @@ func runGatewayServer(args []string) {
 	}
 
 	<-stopCh
-	log.Println("🛑 网关正在安全停止...")
+	slog.Info("🛑 网关正在安全停止...")
 
 	// 1. Stop background watchers and inspector polling first to prevent new requests
 	cancelWatcher()
@@ -429,9 +430,9 @@ func runGatewayServer(args []string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := server.Shutdown(ctx); err != nil {
-		log.Printf("Server shutdown error: %v", err)
+		slog.Warn("Server shutdown error", "err", err)
 	}
-	log.Println("✅ 网关已完全退出。")
+	slog.Info("✅ 网关已完全退出。")
 }
 
 func runVersionCmd() {
@@ -725,7 +726,7 @@ func buildRouter(
 			p.SetNotificationSink(newNotif)
 		}
 
-		log.Printf("[PushToken] 📱 Registered %s push token: %s", req.Platform, config.RedactFCMKey(pushToken))
+		slog.Info(fmt.Sprintf("[PushToken] 📱 Registered %s push token: %s", req.Platform, config.RedactFCMKey(pushToken)))
 		writeJSON(w, http.StatusOK, map[string]string{
 			"status":   "ok",
 			"platform": req.Platform,
@@ -738,22 +739,22 @@ func buildRouter(
 		liveEmail, _, _ := p.GetActiveUserStatus()
 		quotas, err := cockpit.GetQuotas(liveEmail)
 		if err != nil {
-			log.Printf("[Cockpit] GetQuotas failed: %v", err)
+			slog.Warn("[Cockpit] GetQuotas failed", "err", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
 		writeJSON(w, http.StatusOK, quotas)
 	})
 	rootMux.HandleFunc("POST /api/v1/cockpit/refresh", func(w http.ResponseWriter, r *http.Request) {
-		log.Println("[Cockpit] Triggering quota refresh...")
+		slog.Info("[Cockpit] Triggering quota refresh...")
 		liveEmail, _, _ := p.GetActiveUserStatus()
 		quotas, err := cockpit.RefreshQuotas(liveEmail)
 		if err != nil {
-			log.Printf("[Cockpit] RefreshQuotas failed: %v", err)
+			slog.Warn("[Cockpit] RefreshQuotas failed", "err", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
-		log.Println("[Cockpit] Quota refresh completed successfully")
+		slog.Info("[Cockpit] Quota refresh completed successfully")
 		writeJSON(w, http.StatusOK, quotas)
 	})
 	rootMux.HandleFunc("POST /api/v1/cockpit/switch", func(w http.ResponseWriter, r *http.Request) {
@@ -765,13 +766,13 @@ func buildRouter(
 			return
 		}
 		targetID := strings.TrimSpace(req.AccountID)
-		log.Printf("[Cockpit] Switching account to: %s (quit Antigravity first, then Cockpit inject+relaunch)", targetID)
+		slog.Info(fmt.Sprintf("[Cockpit] Switching account to: %s (quit Antigravity first, then Cockpit inject+relaunch)", targetID))
 		if err := cockpit.SwitchAccount(targetID); err != nil {
-			log.Printf("[Cockpit] SwitchAccount failed: %v", err)
+			slog.Warn("[Cockpit] SwitchAccount failed", "err", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
-		log.Printf("[Cockpit] Account switched successfully to: %s", targetID)
+		slog.Info(fmt.Sprintf("[Cockpit] Account switched successfully to: %s", targetID))
 		writeJSON(w, http.StatusOK, map[string]any{
 			"status":     "ok",
 			"message":    "account switched successfully",
@@ -908,7 +909,7 @@ func buildRouter(
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	data, err := json.Marshal(v)
 	if err != nil {
-		log.Printf("[HTTP] Failed to encode JSON response: %v", err)
+		slog.Warn("[HTTP] Failed to encode JSON response", "err", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

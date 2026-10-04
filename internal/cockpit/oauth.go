@@ -1,10 +1,10 @@
 package cockpit
 
 import (
+	"log/slog"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -64,7 +64,7 @@ func EnsureFreshToken(token *CockpitTokenData) (*CockpitTokenData, bool, error) 
 		return token, false, fmt.Errorf("missing refresh token to refresh access token")
 	}
 
-	log.Printf("[Cockpit] Access token expired or expiring soon (expiry: %d, now: %d). Refreshing with Google OAuth...", token.ExpiryTimestamp, now)
+	slog.Info(fmt.Sprintf("[Cockpit] Access token expired or expiring soon (expiry: %d, now: %d). Refreshing with Google OAuth...", token.ExpiryTimestamp, now))
 	resp, err := RefreshGoogleOAuthToken(token.RefreshToken)
 	if err != nil {
 		return token, false, fmt.Errorf("refresh token error: %w", err)
@@ -86,7 +86,7 @@ func EnsureFreshToken(token *CockpitTokenData) (*CockpitTokenData, bool, error) 
 		updated.TokenType = resp.TokenType
 	}
 
-	log.Printf("[Cockpit] Token successfully refreshed, valid until %s", time.Unix(updated.ExpiryTimestamp, 0).Format(time.RFC3339))
+	slog.Info(fmt.Sprintf("[Cockpit] Token successfully refreshed, valid until %s", time.Unix(updated.ExpiryTimestamp, 0).Format(time.RFC3339)))
 	return &updated, true, nil
 }
 

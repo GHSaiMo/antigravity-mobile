@@ -1,10 +1,11 @@
 package proxy
 
 import (
+	"fmt"
+	"log/slog"
 	"context"
 	"encoding/json"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -427,7 +428,7 @@ func (p *Proxy) StartDesktopFocusWatcher(ctx context.Context) {
 func (p *Proxy) startDesktopFocusWatcherWithInterval(ctx context.Context, interval time.Duration) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		log.Printf("[Cursor] Cannot determine home directory for desktop watcher: %v", err)
+		slog.Info("[Cursor] Cannot determine home directory for desktop watcher", "err", err)
 		return
 	}
 	annDir := filepath.Join(home, ".gemini", "antigravity", "annotations")
@@ -496,7 +497,7 @@ func (p *Proxy) startDesktopFocusWatcherWithInterval(ctx context.Context, interv
 				p.desktopTitle = title
 				p.desktopFocusedAt = vTime
 				if verboseRPC {
-					log.Printf("[Cursor] Desktop focus migrated to %s (%s) at %v", cid, title, vTime)
+					slog.Info(fmt.Sprintf("[Cursor] Desktop focus migrated to %s (%s) at %v", cid, title, vTime))
 				}
 			}
 			p.cursorMu.Unlock()

@@ -1,12 +1,12 @@
 package cockpit
 
 import (
+	"log/slog"
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -70,14 +70,14 @@ func googleAccountsPath() string {
 func applyJetskiOAuthAndRelaunch(accountID string) error {
 	tok, err := fetchAccountOAuth(accountID)
 	if err != nil {
-		log.Printf("[Cockpit] cockpit token fetch failed (%v); falling back to vscdb", err)
+		slog.Warn(fmt.Sprintf("[Cockpit] cockpit token fetch failed (%v); falling back to vscdb", err))
 		tok, err = loadOAuthFromVscdb()
 	}
 	if err != nil {
 		return fmt.Errorf("no oauth for %s: %w", accountID, err)
 	}
 	if err := writeJetskiOAuthFile(tok); err != nil {
-		log.Printf("[Cockpit] jetski oauth write failed: %v", err)
+		slog.Warn("[Cockpit] jetski oauth write failed", "err", err)
 	}
 	if tok.Email != "" {
 		syncGeminiGoogleAccounts(tok.Email)
@@ -90,9 +90,9 @@ func applyJetskiOAuthAndRelaunch(accountID string) error {
 	if want == "" {
 		want = tok.Email
 	}
-	log.Printf("[Cockpit] wrote language-server oauth for %s; relaunching Antigravity.app with proxy", want)
+	slog.Info(fmt.Sprintf("[Cockpit] wrote language-server oauth for %s; relaunching Antigravity.app with proxy", want))
 	if err := quitRunningAntigravity(); err != nil {
-		log.Printf("[Cockpit] quit before proxy relaunch: %v", err)
+		slog.Info("[Cockpit] quit before proxy relaunch", "err", err)
 	}
 	time.Sleep(800 * time.Millisecond)
 	if err := launchAntigravityWithCockpitProxy(); err != nil {
@@ -100,13 +100,13 @@ func applyJetskiOAuthAndRelaunch(accountID string) error {
 	}
 	live, err := waitLiveUserEmail(30 * time.Second)
 	if err != nil {
-		log.Printf("[Cockpit] GetUserStatus after keychain relaunch: %v", err)
+		slog.Info("[Cockpit] GetUserStatus after keychain relaunch", "err", err)
 		return nil
 	}
 	if want != "" && !strings.EqualFold(strings.TrimSpace(live), want) {
 		return fmt.Errorf("Antigravity still signed in as %s, expected %s", live, want)
 	}
-	log.Printf("[Cockpit] live Language Server is %s", live)
+	slog.Info(fmt.Sprintf("[Cockpit] live Language Server is %s", live))
 	return nil
 }
 
@@ -132,7 +132,7 @@ func writeGeminiKeychainOAuth(tok *parsedOAuth) error {
 		if err != nil {
 			return fmt.Errorf("cmdkey write: %w (%s)", err, strings.TrimSpace(string(out)))
 		}
-		log.Printf("[Cockpit] updated Windows Credential Manager gemini/antigravity for %s", tok.Email)
+		slog.Info(fmt.Sprintf("[Cockpit] updated Windows Credential Manager gemini/antigravity for %s", tok.Email))
 		return nil
 	}
 
@@ -142,7 +142,7 @@ func writeGeminiKeychainOAuth(tok *parsedOAuth) error {
 		if err != nil {
 			return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
 		}
-		log.Printf("[Cockpit] updated keychain gemini/antigravity for %s", tok.Email)
+		slog.Info(fmt.Sprintf("[Cockpit] updated keychain gemini/antigravity for %s", tok.Email))
 		return nil
 	}
 
@@ -153,7 +153,7 @@ func writeGeminiKeychainOAuth(tok *parsedOAuth) error {
 		cmd := exec.Command("secret-tool", "store", "--label=antigravity", "service", "gemini", "account", "antigravity")
 		cmd.Stdin = strings.NewReader(secret)
 		_ = cmd.Run()
-		log.Printf("[Cockpit] updated secret-tool gemini/antigravity for %s", tok.Email)
+		slog.Info(fmt.Sprintf("[Cockpit] updated secret-tool gemini/antigravity for %s", tok.Email))
 	}
 	return nil
 }
@@ -177,7 +177,7 @@ func launchAntigravityWithCockpitProxy() error {
 	if cfg, err := getCockpitConfig(); err == nil && cfg.GlobalProxyEnabled && strings.TrimSpace(cfg.GlobalProxyURL) != "" {
 		p := strings.TrimSpace(cfg.GlobalProxyURL)
 		if !isSafeProxyURL(p) {
-			log.Printf("[Cockpit] ⚠️ rejected unsafe GlobalProxyURL %q; launching without proxy", p)
+			slog.Warn(fmt.Sprintf("[Cockpit] ⚠️ rejected unsafe GlobalProxyURL %q; launching without proxy", p))
 		} else {
 			proxy = p
 			noProxy = strings.TrimSpace(cfg.GlobalProxyNoProxy)
@@ -226,27 +226,27 @@ func launchAntigravityWithCockpitProxy() error {
 				cmd.Env = append(cmd.Env, key+"="+proxy)
 			}
 			cmd.Env = append(cmd.Env, "no_proxy="+noProxy, "NO_PROXY="+noProxy)
-			log.Printf("[Cockpit] launching Antigravity.exe with proxy %s", proxy)
+			slog.Info(fmt.Sprintf("[Cockpit] launching Antigravity.exe with proxy %s", proxy))
 		} else {
-			log.Printf("[Cockpit] launching Antigravity.exe without global proxy")
+			slog.Info("[Cockpit] launching Antigravity.exe without global proxy")
 		}
 		return cmd.Start()
 	}
 
 	if runtime.GOOS == "linux" {
 		if exec.Command("systemctl", "--user", "cat", "antigravity-ls.service").Run() == nil {
-			log.Printf("[Cockpit] starting systemd service antigravity-ls")
+			slog.Info("[Cockpit] starting systemd service antigravity-ls")
 			if err := exec.Command("systemctl", "--user", "start", "antigravity-ls").Run(); err != nil {
 				return fmt.Errorf("start antigravity-ls: %w", err)
 			}
 			return nil
 		}
 		if lsPath, err := exec.LookPath("language_server"); err == nil {
-			log.Printf("[Cockpit] launching standalone language_server")
+			slog.Info("[Cockpit] launching standalone language_server")
 			cmd := exec.Command(lsPath, "--standalone", "--headless", "--persistent_mode", "--http_server_port=50005")
 			return cmd.Start()
 		}
-		log.Println("[Cockpit] no language_server or antigravity-ls service found on Linux")
+		slog.Info("[Cockpit] no language_server or antigravity-ls service found on Linux")
 		return nil
 	}
 
@@ -256,9 +256,9 @@ func launchAntigravityWithCockpitProxy() error {
 			args = append(args, "--env", key+"="+proxy)
 		}
 		args = append(args, "--env", "no_proxy="+noProxy, "--env", "NO_PROXY="+noProxy)
-		log.Printf("[Cockpit] launching Antigravity.app with proxy %s", proxy)
+		slog.Info(fmt.Sprintf("[Cockpit] launching Antigravity.app with proxy %s", proxy))
 	} else {
-		log.Printf("[Cockpit] launching Antigravity.app without global proxy")
+		slog.Info("[Cockpit] launching Antigravity.app without global proxy")
 	}
 	cmd := exec.Command("open", args...)
 	out, err := cmd.CombinedOutput()
@@ -477,7 +477,7 @@ func writeJetskiOAuthFile(tok *parsedOAuth) error {
 	if err := os.Rename(tmp, path); err != nil {
 		return err
 	}
-	log.Printf("[Cockpit] wrote jetski-standalone-oauth-token for %s", tok.Email)
+	slog.Info(fmt.Sprintf("[Cockpit] wrote jetski-standalone-oauth-token for %s", tok.Email))
 	return nil
 }
 

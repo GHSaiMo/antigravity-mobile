@@ -1,8 +1,8 @@
 package cockpit
 
 import (
+	"log/slog"
 	"fmt"
-	"log"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -100,20 +100,20 @@ func quitAppDarwin(name string) error {
 // "Application Support/Antigravity" instance.
 func quitRunningAntigravity() error {
 	if !antigravityStillRunning() {
-		log.Printf("[Cockpit] Antigravity is not running; skip pre-switch quit")
+		slog.Info("[Cockpit] Antigravity is not running; skip pre-switch quit")
 		return nil
 	}
 
-	log.Printf("[Cockpit] Quitting Antigravity before account switch")
+	slog.Info("[Cockpit] Quitting Antigravity before account switch")
 	if runtime.GOOS == "windows" {
 		// 1. Graceful close on Windows (sends WM_CLOSE)
 		_ = exec.Command("taskkill", "/IM", "Antigravity.exe").Run()
 		if waitUntilAntigravityExited(6 * time.Second) {
-			log.Printf("[Cockpit] Antigravity quit cleanly on Windows")
+			slog.Info("[Cockpit] Antigravity quit cleanly on Windows")
 			return nil
 		}
 
-		log.Printf("[Cockpit] Antigravity still running; force killing tree on Windows")
+		slog.Info("[Cockpit] Antigravity still running; force killing tree on Windows")
 		_ = exec.Command("taskkill", "/F", "/IM", "Antigravity.exe", "/T").Run()
 		_ = exec.Command("taskkill", "/F", "/IM", "language_server.exe", "/T").Run()
 		if waitUntilAntigravityExited(3 * time.Second) {
@@ -129,7 +129,7 @@ func quitRunningAntigravity() error {
 			_ = exec.Command("pkill", "-f", "language_server").Run()
 		}
 		if waitUntilAntigravityExited(5 * time.Second) {
-			log.Printf("[Cockpit] Antigravity stopped cleanly on Linux")
+			slog.Info("[Cockpit] Antigravity stopped cleanly on Linux")
 			return nil
 		}
 		_ = exec.Command("pkill", "-9", "-f", "language_server").Run()
@@ -142,17 +142,17 @@ func quitRunningAntigravity() error {
 		}
 	}
 	if waitUntilAntigravityExited(8 * time.Second) {
-		log.Printf("[Cockpit] Antigravity quit cleanly")
+		slog.Info("[Cockpit] Antigravity quit cleanly")
 		return nil
 	}
 
-	log.Printf("[Cockpit] Antigravity still running; sending SIGTERM")
+	slog.Info("[Cockpit] Antigravity still running; sending SIGTERM")
 	signalAntigravity(syscall.SIGTERM)
 	if waitUntilAntigravityExited(4 * time.Second) {
 		return nil
 	}
 
-	log.Printf("[Cockpit] Antigravity still running; sending SIGKILL")
+	slog.Info("[Cockpit] Antigravity still running; sending SIGKILL")
 	signalAntigravity(syscall.SIGKILL)
 	if waitUntilAntigravityExited(3 * time.Second) {
 		return nil

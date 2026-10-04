@@ -1,11 +1,11 @@
 package cockpit
 
 import (
+	"log/slog"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -259,8 +259,7 @@ func ResolveActiveReportPort(token string, configuredPort int) (int, error) {
 		ports := GetListeningPortsForPID(pid)
 		for _, port := range ports {
 			if VerifyReportPort(port, token, 400*time.Millisecond) {
-				log.Printf("[Cockpit] 🎯 Auto-detected active Report port via process (PID %d): %d (configured was %d)",
-					pid, port, configuredPort)
+				slog.Info(fmt.Sprintf("[Cockpit] 🎯 Auto-detected active Report port via process (PID %d): %d (configured was %d)", pid, port, configuredPort))
 				updateReportCache(port)
 				return port, nil
 			}
@@ -271,8 +270,7 @@ func ResolveActiveReportPort(token string, configuredPort int) (int, error) {
 	candidates := candidateReportPorts(configuredPort)
 	for _, port := range candidates {
 		if VerifyReportPort(port, token, 250*time.Millisecond) {
-			log.Printf("[Cockpit] 🎯 Auto-detected active Report port via candidate scan: %d (configured was %d)",
-				port, configuredPort)
+			slog.Info(fmt.Sprintf("[Cockpit] 🎯 Auto-detected active Report port via candidate scan: %d (configured was %d)", port, configuredPort))
 			updateReportCache(port)
 			return port, nil
 		}
@@ -317,8 +315,7 @@ func ResolveActiveWsPort() (int, string, error) {
 		ports := GetListeningPortsForPID(pid)
 		for _, port := range ports {
 			if VerifyWsPort(port, 400*time.Millisecond) {
-				log.Printf("[Cockpit] 🎯 Auto-detected active WebSocket port via process (PID %d): %d (server.json was %d)",
-					pid, port, serverJsonPort)
+				slog.Info(fmt.Sprintf("[Cockpit] 🎯 Auto-detected active WebSocket port via process (PID %d): %d (server.json was %d)", pid, port, serverJsonPort))
 				updateWsCache(port)
 				return port, authToken, nil
 			}
@@ -345,7 +342,7 @@ func ResolveActiveWsPort() (int, string, error) {
 	candidates := candidateWsPorts(configuredWsPort, serverJsonPort)
 	for _, port := range candidates {
 		if VerifyWsPort(port, 250*time.Millisecond) {
-			log.Printf("[Cockpit] 🎯 Auto-detected active WebSocket port via candidate scan: %d", port)
+			slog.Info(fmt.Sprintf("[Cockpit] 🎯 Auto-detected active WebSocket port via candidate scan: %d", port))
 			updateWsCache(port)
 			return port, authToken, nil
 		}

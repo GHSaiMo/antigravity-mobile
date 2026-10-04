@@ -1,12 +1,12 @@
 package cockpit
 
 import (
+	"log/slog"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -137,7 +137,7 @@ func FetchRemoteQuotaForAccount(detail *CockpitAccountDetail) error {
 		return fmt.Errorf("rename cache file: %w", err)
 	}
 
-	log.Printf("[Cockpit] Direct remote quota updated for %s", detail.Email)
+	slog.Info(fmt.Sprintf("[Cockpit] Direct remote quota updated for %s", detail.Email))
 	return nil
 }
 
@@ -157,7 +157,7 @@ func FetchAllRemoteQuotas() error {
 		go func(a *CockpitAccountDetail) {
 			defer wg.Done()
 			if err := FetchRemoteQuotaForAccount(a); err != nil {
-				log.Printf("[Cockpit] Direct remote quota error for %s: %v", a.Email, err)
+				slog.Warn(fmt.Sprintf("[Cockpit] Direct remote quota error for %s", a.Email), "err", err)
 			}
 		}(acc)
 	}

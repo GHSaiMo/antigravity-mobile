@@ -1,10 +1,10 @@
 package cockpit
 
 import (
+	"log/slog"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -84,9 +84,9 @@ func ensureAntigravityStateDBs() {
 		if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 			const initSQL = "CREATE TABLE IF NOT EXISTS ItemTable (key TEXT PRIMARY KEY, value TEXT);"
 			if err := execSQLite(dbPath, initSQL); err != nil {
-				log.Printf("[Cockpit] failed to initialize state.vscdb at %s: %v", dbPath, err)
+				slog.Warn(fmt.Sprintf("[Cockpit] failed to initialize state.vscdb at %s", dbPath), "err", err)
 			} else {
-				log.Printf("[Cockpit] initialized state.vscdb at %s", dbPath)
+				slog.Info(fmt.Sprintf("[Cockpit] initialized state.vscdb at %s", dbPath))
 			}
 		}
 	}
@@ -113,7 +113,7 @@ func clearStaleAntigravityIdentity() {
 	inList := make([]string, 0, len(antigravityIdentityKeys))
 	for _, key := range antigravityIdentityKeys {
 		if err := validateSQLiteKey(key); err != nil {
-			log.Printf("[Cockpit] skipping invalid key %q: %v", key, err)
+			slog.Info(fmt.Sprintf("[Cockpit] skipping invalid key %q", key), "err", err)
 			continue
 		}
 		inList = append(inList, sqliteQuote(key))
@@ -128,10 +128,10 @@ func clearStaleAntigravityIdentity() {
 			continue
 		}
 		if err := execSQLite(dbPath, sql); err != nil {
-			log.Printf("[Cockpit] failed to clear identity keys in %s: %v", dbPath, err)
+			slog.Warn(fmt.Sprintf("[Cockpit] failed to clear identity keys in %s", dbPath), "err", err)
 			continue
 		}
-		log.Printf("[Cockpit] cleared stale Antigravity identity keys in %s", dbPath)
+		slog.Info(fmt.Sprintf("[Cockpit] cleared stale Antigravity identity keys in %s", dbPath))
 	}
 }
 
@@ -199,7 +199,7 @@ func syncLegacyBindAccount(accountID string) {
 	if raw, err := os.ReadFile(path); err == nil {
 		fileExists = true
 		if err := json.Unmarshal(raw, &doc); err != nil {
-			log.Printf("[Cockpit] failed to parse %s: %v", path, err)
+			slog.Warn(fmt.Sprintf("[Cockpit] failed to parse %s", path), "err", err)
 			return
 		}
 	}
@@ -227,14 +227,14 @@ func syncLegacyBindAccount(accountID string) {
 	}
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, append(out, '\n'), 0644); err != nil {
-		log.Printf("[Cockpit] failed to write %s: %v", tmp, err)
+		slog.Warn(fmt.Sprintf("[Cockpit] failed to write %s", tmp), "err", err)
 		return
 	}
 	if err := os.Rename(tmp, path); err != nil {
-		log.Printf("[Cockpit] failed to replace %s: %v", path, err)
+		slog.Warn(fmt.Sprintf("[Cockpit] failed to replace %s", path), "err", err)
 		return
 	}
-	log.Printf("[Cockpit] synced antigravity_legacy_instances bindAccountId %s -> %s", prev, accountID)
+	slog.Info(fmt.Sprintf("[Cockpit] synced antigravity_legacy_instances bindAccountId %s -> %s", prev, accountID))
 }
 
 // wait is kept tiny so tests can override if needed.
@@ -311,7 +311,7 @@ func InjectAccountToAntigravityStateDB(acc *CockpitAccountDetail) error {
 
 		sql := fmt.Sprintf("INSERT OR REPLACE INTO ItemTable (key, value) VALUES ('antigravityUnifiedStateSync.oauthToken', %s);", sqliteQuote(topicB64))
 		if err := execSQLite(dbPath, sql); err != nil {
-			log.Printf("[Cockpit] failed to write unified oauthToken to %s: %v", dbPath, err)
+			slog.Warn(fmt.Sprintf("[Cockpit] failed to write unified oauthToken to %s", dbPath), "err", err)
 		}
 
 		// Inject minimal userStatus if missing
@@ -326,7 +326,7 @@ func InjectAccountToAntigravityStateDB(acc *CockpitAccountDetail) error {
 
 		// Inject Onboarding flag
 		_ = execSQLite(dbPath, "INSERT OR REPLACE INTO ItemTable (key, value) VALUES ('antigravityOnboarding', 'true');")
-		log.Printf("[Cockpit] Injected account %s tokens into %s", acc.Email, dbPath)
+		slog.Info(fmt.Sprintf("[Cockpit] Injected account %s tokens into %s", acc.Email, dbPath))
 	}
 	return nil
 }
