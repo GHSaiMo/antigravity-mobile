@@ -70,6 +70,26 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
+import com.antigravity.mobile.ui.viewmodel.addImagesFromUris
+import com.antigravity.mobile.ui.viewmodel.cancelExecution
+import com.antigravity.mobile.ui.viewmodel.confirmUndo
+import com.antigravity.mobile.ui.viewmodel.deleteQueuedMessage
+import com.antigravity.mobile.ui.viewmodel.downloadAndPreviewDocument
+import com.antigravity.mobile.ui.viewmodel.editQueuedMessage
+import com.antigravity.mobile.ui.viewmodel.initSession
+import com.antigravity.mobile.ui.viewmodel.loadOlderMessages
+import com.antigravity.mobile.ui.viewmodel.openAttachmentImageViewer
+import com.antigravity.mobile.ui.viewmodel.openMarkdownViewer
+import com.antigravity.mobile.ui.viewmodel.proceedArtifact
+import com.antigravity.mobile.ui.viewmodel.refresh
+import com.antigravity.mobile.ui.viewmodel.removeImage
+import com.antigravity.mobile.ui.viewmodel.requestUndo
+import com.antigravity.mobile.ui.viewmodel.retryLoadMessages
+import com.antigravity.mobile.ui.viewmodel.saveDraftFor
+import com.antigravity.mobile.ui.viewmodel.sendQueuedMessageNow
+import com.antigravity.mobile.ui.viewmodel.skipInteraction
+import com.antigravity.mobile.ui.viewmodel.stopTask
+import com.antigravity.mobile.ui.viewmodel.submitInteraction
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
