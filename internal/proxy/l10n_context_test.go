@@ -132,3 +132,30 @@ func TestLocalizeRealBundle(t *testing.T) {
 		}
 	}
 }
+
+func TestLocalizeRPCResponse(t *testing.T) {
+	in := []byte(`{"response":{"groups":[{"displayName":"Gemini Models", "description":"Models within this group: Gemini Flash, Gemini Pro", "buckets":[{"displayName":"Weekly Limit Remaining", "description":"You have used some of your weekly limit, it will fully refresh in 3 days, 17 hours.", "window":"weekly"},{"displayName":"Five Hour Limit Remaining","description":"You have used some of your 5-hour limit, it will fully refresh in 4 hours."}]}]},"label":"Gemini 3.1 Pro (High)","tagTitle":"Notice","tagDescription":"Sonnet 5.5 is now available on paid Pro and Ultra plans. Third-party model access will no longer be available on your current plan starting on November 2, 2026.","upgradeSubscriptionText":"You can upgrade to a Google AI Ultra plan to receive higher rate limits."}`)
+	out := string(LocalizeRPCResponse("/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary", in))
+	for _, want := range []string{
+		`"displayName":"Gemini 模型群"`, `"每周剩余额度"`, `"5小时剩余额度"`, `将在 3 天 17 小时后完全刷新`, `将在 4 小时后完全刷新`,
+		`"tagTitle":"提示"`, `自 2026 年 11 月 2 日起`, `升级到 Google AI Ultra 套餐`, `该分组包含的模型：Gemini Flash, Gemini Pro`,
+		`"label":"Gemini 3.1 Pro (High)"`, // model labels are identifiers: untouched
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("want %s in %s", want, out)
+		}
+	}
+	if got := LocalizeRPCResponse("/x/GetCascadeTrajectory", in); string(got) != string(in) {
+		t.Error("non-allowlisted RPC must not be rewritten")
+	}
+}
+
+func TestSettingsNavAndQuotaPatches(t *testing.T) {
+	in := `const r6a=new Map(i6a.filter(a=>a.label!==void 0).map(a=>[a.screen,a.label]));function s6a(a){return r6a.get(a)??a};x=` + "`Resets in ${e}d`"
+	out := string(LocalizeMainJS([]byte(in)))
+	for _, want := range []string{`r6a.get(a)??{Account:"账户与计划"`, `[a]??a}`, "`距重置 ${e}d`"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("want %q in %q", want, out)
+		}
+	}
+}

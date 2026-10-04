@@ -334,6 +334,13 @@ func (p *Proxy) updateUpstream(info inspector.InstanceInfo) {
 				(strings.HasSuffix(path, "/ReadDir") || strings.HasSuffix(path, "/StatUri") ||
 					strings.HasSuffix(path, "/GetFileDetails") || strings.HasSuffix(path, "/FindFiles"))
 
+			if resp.StatusCode == http.StatusOK && isL10nRPCPath(path) &&
+				strings.Contains(resp.Header.Get("Content-Type"), "json") {
+				if err := localizeRPCResponse(resp); err != nil {
+					return err
+				}
+			}
+
 			if needsModification {
 				if resp.Header.Get("Content-Encoding") == "gzip" {
 					gzReader, err := GetGzipReader(resp.Body)

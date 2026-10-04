@@ -109,18 +109,29 @@ var l10nExactPatches = []staticReplacement{
 	{old: []byte(`files:["file","files"],folders:["folder","folders"],edits:["file","files"],searches:["search","searches"],terminal:["command","commands"],tasks:["task","tasks"],web:["page","pages"],browser:["browser","browsers"],images:["image","images"],actions:["action","actions"],artifacts:["artifact","artifacts"]`),
 		new: []byte(`files:["个文件","个文件"],folders:["个文件夹","个文件夹"],edits:["个文件","个文件"],searches:["次搜索","次搜索"],terminal:["条命令","条命令"],tasks:["个任务","个任务"],web:["个网页","个网页"],browser:["个浏览器","个浏览器"],images:["张图片","张图片"],actions:["个操作","个操作"],artifacts:["个产物","个产物"]`)},
 	{old: []byte(`===1?"command":"commands"`), new: []byte(`===1?"条命令":"条命令"`)},
+	// reasoning-effort suffix next to model names ("Gemini 3.8 Flash High")
+	{old: []byte(`{low:"Low",medium:"Medium",high:"High",max:"Max"}`), new: []byte(`{low:"低",medium:"中",high:"高",max:"极高"}`)},
+	// conversation width toggle group
+	{old: []byte(`return"Narrow";case 3:return"Wide";default:return"Default"`), new: []byte(`return"窄";case 3:return"宽";default:return"默认"`)},
+	// quota reset countdown: "Resets in 3d 17h"
+	{old: []byte("`Resets in ${"), new: []byte("`距重置 ${")},
 }
+
+const l10nSettingsNav = `{Account:"账户与计划",General:"常规偏好",Appearance:"外观主题",Skin:"产品皮肤",Editor:"编辑器设置",Tab:"Tab 智能补全",Notifications:"消息与通知",Customizations:"扩展与技能",App:"客户端偏好",Shortcuts:"键盘快捷键",Models:"模型与配额",Developer:"开发者调试",Browser:"浏览器设置"}`
 
 var l10nPatches = []l10nPatch{
 	// relative times: date-fns formatDistance suffixes ("3 hours ago" / "in 3 hours")
 	rx(`" ago"`, `"in "\+(\w+):(\w+)\+" ago"`, `${1}+"后":${2}+"前"`),
 	// "Explored 3 files, ran 1 command"
 	rx(`"Running":"running"`, `(\w+)=(\w+)\?(\w+)\?"Running":"running":(\w+)\?"Ran":"ran"`, `${1}=${2}?${3}?"正在运行":"正在运行":${4}?"已运行":"已运行"`),
+	// settings navigation shows the screen id when it has no label (General, Appearance, ...)
+	rx(`.label]));function `, `(\.map\(\w+=>\[\w+\.screen,\w+\.label\]\)\);function \w+\((\w+)\)\{return )(\w+)\.get\((\w+)\)\?\?(\w+)\}`, `${1}${3}.get(${4})??`+l10nSettingsNav+`[${4}]??${5}}`),
 	// "${n} files changed"
 	rx(`"file":"files"} changed`, `(\$\{\w+\}) \$\{\w+===1\?"file":"files"\} changed`, `${1} 个文件已更改`),
 	// "Thinking for 5s" (JSX children)
 	rx(`"Thinking for "`, `"Thinking for ",(Math\.max\(1,\w+\)),"s"`, `"思考 ",${1},"秒"`),
 
+	tpl("When toggled on, {} will use your AI credits to fulfill model requests once you're out of model quota. {} will always use your model quota first before using AI credits.", "开启后，当模型配额用尽时，{1} 将使用您的 AI 点数来满足模型请求；{2} 始终会优先使用模型配额，之后才使用 AI 点数。"),
 	tpl("Thought for {}s", "已思考 {1} 秒"),
 	tpl("Worked for {}", "已工作 {1}"),
 	tpl("See {} more", "查看另外 {1} 项"),
