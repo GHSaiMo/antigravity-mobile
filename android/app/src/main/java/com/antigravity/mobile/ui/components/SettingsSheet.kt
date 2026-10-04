@@ -33,6 +33,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -70,14 +71,16 @@ fun SettingsSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         sheetMaxWidth = Dp.Unspecified,
-        containerColor = colors.background,
+        containerColor = Color.Transparent,
+        shape = RectangleShape,
+        tonalElevation = 0.dp,
         dragHandle = null,
-        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
         modifier = modifier
             .fillMaxWidth()
-            .fillMaxHeight(0.94f)
+            .fillMaxHeight()
     ) {
+        TallSheetBody(containerColor = colors.background, onDismiss = onDismiss) {
         BackHandler {
             onDismiss()
         }
@@ -136,6 +139,7 @@ fun SettingsSheet(
                 )
             }
         }
+            }
     }
 
     if (showUnpairAlert) {
