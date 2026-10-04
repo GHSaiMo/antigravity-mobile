@@ -23,6 +23,7 @@ import (
 	"antigravity-mobile/internal/config"
 	"antigravity-mobile/internal/inspector"
 	"antigravity-mobile/internal/localtls"
+	"antigravity-mobile/internal/logx"
 	"antigravity-mobile/internal/netutil"
 	"antigravity-mobile/internal/notifier"
 	"antigravity-mobile/internal/proxy"
@@ -36,6 +37,7 @@ var Version = "1.0.5"
 func main() {
 	// 0. Initialize console output synchronization so concurrent logs don't tear terminal output
 	auth.InitConsoleSync()
+	logx.Init(log.Writer())
 
 	// 0.1. Load .env configuration
 	config.LoadDotEnv()

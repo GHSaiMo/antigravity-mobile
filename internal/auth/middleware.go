@@ -249,7 +249,7 @@ func AuthMiddlewareWithPolicy(store *AuthStore, next http.Handler, policy AuthPo
 		if !ok || device == nil {
 			token := ExtractToken(r)
 			if token == "" {
-				log.Printf("[AUDIT:AUTH_FAILURE] reason=missing_token ip=%s path=%s", ExtractClientIP(r), r.URL.Path)
+				auditWarn("AUTH_FAILURE", "reason", "missing_token", "ip", ExtractClientIP(r), "path", r.URL.Path)
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusUnauthorized)
 				json.NewEncoder(w).Encode(map[string]string{
@@ -274,7 +274,7 @@ func AuthMiddlewareWithPolicy(store *AuthStore, next http.Handler, policy AuthPo
 		}
 
 		if !ok || device == nil {
-			log.Printf("[AUDIT:AUTH_FAILURE] reason=invalid_or_revoked_token ip=%s path=%s", ExtractClientIP(r), r.URL.Path)
+			auditWarn("AUTH_FAILURE", "reason", "invalid_or_revoked_token", "ip", ExtractClientIP(r), "path", r.URL.Path)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			json.NewEncoder(w).Encode(map[string]string{

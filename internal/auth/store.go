@@ -337,7 +337,7 @@ func (s *AuthStore) ValidateToken(rawToken string) (*PairedDevice, bool) {
 	// S8: Transparent in-place migration — upgrade legacy unsalted hash to modern salted hash.
 	// The next call to ValidateToken will find the salted hash directly, removing the legacy path.
 	if isLegacy && hash != "" {
-		log.Printf("[AUDIT:TOKEN_MIGRATION] device_id=%s legacy unsalted hash upgraded to salted hash", deviceID)
+		auditInfo("TOKEN_MIGRATION", "device_id", deviceID, "detail", "legacy unsalted hash upgraded to salted hash")
 		go func() {
 			s.mu.Lock()
 			defer s.mu.Unlock()

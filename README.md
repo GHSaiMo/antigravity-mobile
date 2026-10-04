@@ -273,6 +273,8 @@ Multigravity 采用**全局目录优先，无缝兼容老项目**的配置架构
 | `MULTIGRAVITY_HOST` | `""` (双栈全网卡) | 监听地址，设为 `127.0.0.1` 则仅限本机回环访问 |
 | `DDNS_HOST` | 留空 | 自定义公网域名（可选） |
 | `CF_TUNNEL_ENABLED` | `1` | 是否启用 Cloudflare 自动公网穿透通道 (`1` 开启, `0` 关闭) |
+| `MULTIGRAVITY_LOG_LEVEL` | `info` | 日志级别：`debug` / `info` / `warn` / `error`（设置任一 `MULTIGRAVITY_VERBOSE*` 等价于 `debug`） |
+| `MULTIGRAVITY_LOG_FORMAT` | `text` | 日志格式：`text`（终端友好）或 `json`（结构化，便于采集与检索） |
 | `CF_WORKER_URL` | `https://mgy-tunnel.multigravity.workers.dev` | Cloudflare Worker 隧道调度服务器地址 |
 | `CF_TUNNEL_TOKEN` | 留空 | 自定义固定 Cloudflare Tunnel Token（可选） |
 | `BARK_URL` | 留空 | iOS Bark 推送链接（如 `https://api.day.app/YOUR_DEVICE_KEY`） |
