@@ -453,6 +453,9 @@ fun ChatScreen(
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
+        // Bottom insets are applied inside the input surface so its background reaches the screen
+        // bottom (no empty strip above the gesture bar).
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
                 title = {
@@ -688,7 +691,9 @@ fun ChatScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
                 ) {
                     HorizontalDivider(
                         color = colors.separator.copy(alpha = 0.5f),

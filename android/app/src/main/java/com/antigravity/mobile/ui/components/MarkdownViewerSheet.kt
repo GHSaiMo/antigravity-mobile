@@ -95,9 +95,7 @@ fun MarkdownViewerSheet(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .navigationBarsPadding()
                 .padding(horizontal = 20.dp)
-                .padding(bottom = 24.dp)
         ) {
             // Top Navigation Bar (Apple Native Component Layout)
             Row(
@@ -211,6 +209,9 @@ fun MarkdownViewerSheet(
                         urlResolver = urlResolver,
                         onImageClick = onImageClick
                     )
+
+                    // Scrolls to the sheet's bottom edge; this keeps the last line clear of the gesture bar.
+                    Spacer(modifier = Modifier.navigationBarsPadding().height(24.dp))
                 }
             }
 
@@ -220,6 +221,8 @@ fun MarkdownViewerSheet(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 10.dp)
+                        .navigationBarsPadding()
+                        .padding(bottom = 16.dp)
                 ) {
                     HorizontalDivider(
                         color = colors.separator.copy(alpha = 0.5f),

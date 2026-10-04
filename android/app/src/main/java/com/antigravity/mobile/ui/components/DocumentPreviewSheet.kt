@@ -114,7 +114,6 @@ fun DocumentPreviewSheet(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .navigationBarsPadding()
         ) {
             // Top Navigation Bar (Apple Native Component Layout)
             Row(
@@ -688,7 +687,10 @@ private fun PptxDocumentViewer(file: File, colors: AppColors) {
     } else {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
+            contentPadding = PaddingValues(
+                start = 16.dp, top = 16.dp, end = 16.dp,
+                bottom = 16.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+            ),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             itemsIndexed(slides) { _, slide ->
@@ -924,7 +926,10 @@ private fun PdfDocumentViewer(file: File, colors: AppColors) {
     } else {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
+            contentPadding = PaddingValues(
+                start = 16.dp, top = 16.dp, end = 16.dp,
+                bottom = 16.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+            ),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             itemsIndexed(pages) { index, bitmap ->
@@ -970,6 +975,7 @@ private fun TextDocumentViewer(file: File, colors: AppColors) {
                 .verticalScroll(rememberScrollState())
                 .horizontalScroll(rememberScrollState())
                 .padding(16.dp)
+                .navigationBarsPadding()
         ) {
             Text(
                 text = content,
