@@ -57,19 +57,29 @@ fun OnboardingGuideView(
     val coroutineScope = rememberCoroutineScope()
 
     val macInstallCommand = "curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.sh | bash"
+    val linuxInstallCommand = "curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.sh | bash"
     val winInstallCommand = "irm https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.ps1 | iex"
     val runCommand = "mgy"
 
     var isMacCopied by remember { mutableStateOf(false) }
+    var isLinuxCopied by remember { mutableStateOf(false) }
     var isWinCopied by remember { mutableStateOf(false) }
 
-    val copyCommand: (String, Boolean) -> Unit = { command, isMac ->
+    val copyCommand: (String, String) -> Unit = { command, target ->
         clipboardManager.setText(AnnotatedString(command))
         haptic.success()
-        if (isMac) isMacCopied = true else isWinCopied = true
+        when (target) {
+            "mac" -> isMacCopied = true
+            "linux" -> isLinuxCopied = true
+            "win" -> isWinCopied = true
+        }
         coroutineScope.launch {
             delay(2000L)
-            if (isMac) isMacCopied = false else isWinCopied = false
+            when (target) {
+                "mac" -> isMacCopied = false
+                "linux" -> isLinuxCopied = false
+                "win" -> isWinCopied = false
+            }
         }
     }
 
@@ -163,7 +173,7 @@ fun OnboardingGuideView(
                 }
 
                 Text(
-                    text = "手机端需配合运行在 Mac 或 Windows 电脑上的本地网关协同工作，嗅探后台实例打通直连。",
+                    text = "手机端需配合运行在 Mac、Linux 或 Windows 电脑上的本地网关协同工作，嗅探后台实例打通直连。",
                     fontSize = 12.sp,
                     color = colors.textSecondary,
                     lineHeight = 16.sp
@@ -220,7 +230,7 @@ fun OnboardingGuideView(
                                         if (isMacCopied) colors.accentGreen.copy(alpha = 0.15f)
                                         else colors.accentBlue.copy(alpha = 0.12f)
                                     )
-                                    .clickable(onClick = { copyCommand(macInstallCommand, true) }),
+                                    .clickable(onClick = { copyCommand(macInstallCommand, "mac") }),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Row(
@@ -250,7 +260,7 @@ fun OnboardingGuideView(
                                 .clip(RoundedCornerShape(5.dp))
                                 .background(colors.surface)
                                 .border(0.6.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(5.dp))
-                                .clickable(onClick = { copyCommand(macInstallCommand, true) })
+                                .clickable(onClick = { copyCommand(macInstallCommand, "mac") })
                                 .padding(horizontal = 8.dp, vertical = 4.5.dp)
                         ) {
                             Row(
@@ -261,6 +271,98 @@ fun OnboardingGuideView(
                             ) {
                                 Text(
                                     text = macInstallCommand,
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = colors.textPrimary,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                        }
+                    }
+
+                    // Linux
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(22.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                modifier = Modifier.weight(1f, fill = false)
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_linux_logo),
+                                    contentDescription = null,
+                                    tint = colors.textSecondary,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Text(
+                                    text = "Linux (Ubuntu / Debian / CentOS)",
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = colors.textPrimary,
+                                    maxLines = 1
+                                )
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .width(66.dp)
+                                    .height(22.dp)
+                                    .clip(RoundedCornerShape(5.dp))
+                                    .background(
+                                        if (isLinuxCopied) colors.accentGreen.copy(alpha = 0.15f)
+                                        else colors.accentBlue.copy(alpha = 0.12f)
+                                    )
+                                    .clickable(onClick = { copyCommand(linuxInstallCommand, "linux") }),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(3.5.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (isLinuxCopied) Icons.Default.Check else Icons.Default.ContentCopy,
+                                        contentDescription = null,
+                                        tint = if (isLinuxCopied) colors.accentGreen else colors.accentBlue,
+                                        modifier = Modifier.size(11.dp)
+                                    )
+                                    Text(
+                                        text = if (isLinuxCopied) "已复制" else "一键复制",
+                                        fontSize = 10.5.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = if (isLinuxCopied) colors.accentGreen else colors.accentBlue
+                                    )
+                                }
+                            }
+                        }
+
+                        // Horizontal scrollable single-line code block for Linux
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(5.dp))
+                                .background(colors.surface)
+                                .border(0.6.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(5.dp))
+                                .clickable(onClick = { copyCommand(linuxInstallCommand, "linux") })
+                                .padding(horizontal = 8.dp, vertical = 4.5.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = linuxInstallCommand,
                                     fontSize = 11.sp,
                                     fontFamily = FontFamily.Monospace,
                                     color = colors.textPrimary,
@@ -312,7 +414,7 @@ fun OnboardingGuideView(
                                         if (isWinCopied) colors.accentGreen.copy(alpha = 0.15f)
                                         else colors.accentBlue.copy(alpha = 0.12f)
                                     )
-                                    .clickable(onClick = { copyCommand(winInstallCommand, false) }),
+                                    .clickable(onClick = { copyCommand(winInstallCommand, "win") }),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Row(
@@ -342,7 +444,7 @@ fun OnboardingGuideView(
                                 .clip(RoundedCornerShape(5.dp))
                                 .background(colors.surface)
                                 .border(0.6.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(5.dp))
-                                .clickable(onClick = { copyCommand(winInstallCommand, false) })
+                                .clickable(onClick = { copyCommand(winInstallCommand, "win") })
                                 .padding(horizontal = 8.dp, vertical = 4.5.dp)
                         ) {
                             Row(

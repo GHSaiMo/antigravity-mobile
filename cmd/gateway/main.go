@@ -846,6 +846,15 @@ func buildRouter(
 	})
 	rootMux.HandleFunc("GET /pwa", webHandler.ServeHTTP)
 
+	// Proactively redirect /onboarding to root to prevent web clients getting trapped
+	rootMux.HandleFunc("GET /onboarding", func(w http.ResponseWriter, r *http.Request) {
+		redirectURL := r.URL.Query().Get("redirect")
+		if redirectURL == "" || redirectURL == "/onboarding" || strings.HasPrefix(redirectURL, "/onboarding") {
+			redirectURL = "/"
+		}
+		http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
+	})
+
 	// Adaptive Web frontend:
 	// - PC / Computers (Mac, Windows, Linux) -> Desktop Workbench
 	// - iPhone or Tablet (iPad, Android, Mobile) -> Mobile PWA

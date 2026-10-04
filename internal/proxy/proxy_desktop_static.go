@@ -414,6 +414,40 @@ func (p *Proxy) HandleDesktopIndex(w http.ResponseWriter, r *http.Request) {
       if (navigator.maxTouchPoints > 1 && !/Windows|Linux/.test(navigator.userAgent) && !location.search.includes("view=")) {
         location.replace("/?view=pwa");
       }
+      // Proactively prevent trapping on /onboarding?login=true
+      if (location.pathname === "/onboarding") {
+        const q = new URLSearchParams(location.search);
+        const target = q.get("redirect") || "/";
+        location.replace(target.startsWith("/onboarding") ? "/" : target);
+      }
+      (() => {
+        const origPush = history.pushState.bind(history);
+        const origReplace = history.replaceState.bind(history);
+        history.pushState = function(state, unused, url) {
+          if (typeof url === "string" && url.includes("/onboarding")) {
+            try {
+              const u = new URL(url, location.origin);
+              const target = u.searchParams.get("redirect") || "/";
+              return origPush(state, unused, target.startsWith("/onboarding") ? "/" : target);
+            } catch (_) {
+              return origPush(state, unused, "/");
+            }
+          }
+          return origPush(state, unused, url);
+        };
+        history.replaceState = function(state, unused, url) {
+          if (typeof url === "string" && url.includes("/onboarding")) {
+            try {
+              const u = new URL(url, location.origin);
+              const target = u.searchParams.get("redirect") || "/";
+              return origReplace(state, unused, target.startsWith("/onboarding") ? "/" : target);
+            } catch (_) {
+              return origReplace(state, unused, "/");
+            }
+          }
+          return origReplace(state, unused, url);
+        };
+      })();
       // Telemetry & external font network fast-stub (eliminates 15-30s browser network queue hangs in restricted environments)
       (() => {
         const blocked = ['play.google.com', 'fonts.googleapis.com', 'fonts.gstatic.com'];
