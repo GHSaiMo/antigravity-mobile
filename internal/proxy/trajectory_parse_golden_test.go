@@ -190,6 +190,7 @@ func goldenScenarios() []goldenScenario {
 				mustWrite(t, filepath.Join(h, "brain", "approved.md.metadata.json"), `{"requestFeedback":true}`)
 			}},
 		{name: "proceed_approved_via_text_suppresses_disk_feedback", json: gTraj("g-proceed-approved-text", statusIdle, "",
+			gUser("go"),
 			gUser("Comments on artifact URI: file://"+home+"/brain/approved2.md\nThe user has approved this document"),
 			gArtifact("file://"+home+"/brain/approved2.md", false, true)),
 			setup: func(t *testing.T, h string) {
