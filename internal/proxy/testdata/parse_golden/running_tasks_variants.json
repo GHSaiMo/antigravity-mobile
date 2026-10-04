@@ -1,0 +1,85 @@
+{
+  "details": {
+    "cascadeId": "g-tasks",
+    "title": "go",
+    "status": "CASCADE_RUN_STATUS_RUNNING",
+    "hasError": false,
+    "duration": "0秒",
+    "totalSteps": 7,
+    "totalTools": 6,
+    "workspaceUri": "",
+    "steps": null,
+    "allMessages": [
+      {
+        "id": "step-0",
+        "type": "user",
+        "role": "user",
+        "text": "go",
+        "content": "go",
+        "stepIndex": 0
+      },
+      {
+        "id": "tools-1",
+        "type": "tools",
+        "role": "tools",
+        "text": "已思考并执行 6 项操作",
+        "content": "已思考并执行 6 项操作",
+        "toolCount": 6,
+        "toolNames": [
+          "run_command",
+          "run_command",
+          "run_command",
+          "browser_subagent",
+          "Waiting on build",
+          "run_command"
+        ]
+      }
+    ],
+    "queuedMessages": [],
+    "runningTasks": [
+      {
+        "id": "bg-1",
+        "stepIndex": 1,
+        "toolName": "run_command",
+        "commandLine": "npm run dev",
+        "toolSummary": "dev server",
+        "logUri": "file:///logs/1",
+        "startedAt": "2026-01-01T00:00:00Z"
+      },
+      {
+        "id": "task-2",
+        "stepIndex": 2,
+        "toolName": "run_command",
+        "commandLine": "go test ./..."
+      },
+      {
+        "id": "task-3",
+        "stepIndex": 3,
+        "toolName": "run_command",
+        "commandLine": "make build"
+      },
+      {
+        "id": "task-4",
+        "stepIndex": 4,
+        "toolName": "browser_subagent",
+        "commandLine": "{\"url\":\"x\"}"
+      },
+      {
+        "id": "task-42",
+        "stepIndex": 42,
+        "toolName": "run_command",
+        "commandLine": "Waiting on build",
+        "toolAction": "Waiting on build"
+      },
+      {
+        "id": "task-6",
+        "stepIndex": 6,
+        "toolName": "run_command",
+        "commandLine": ""
+      }
+    ],
+    "canProceed": false
+  },
+  "cachedTitle": "go",
+  "lastKnownConfig": ""
+}

@@ -1,0 +1,17 @@
+{
+  "details": {
+    "cascadeId": "g-empty",
+    "status": "CASCADE_RUN_STATUS_IDLE",
+    "hasError": false,
+    "duration": "0秒",
+    "totalSteps": 0,
+    "totalTools": 0,
+    "workspaceUri": "",
+    "steps": null,
+    "allMessages": null,
+    "queuedMessages": [],
+    "canProceed": false
+  },
+  "cachedTitle": "",
+  "lastKnownConfig": ""
+}

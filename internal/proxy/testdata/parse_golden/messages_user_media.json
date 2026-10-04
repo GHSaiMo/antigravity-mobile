@@ -1,0 +1,66 @@
+{
+  "details": {
+    "cascadeId": "g-messages-media",
+    "title": "look",
+    "status": "CASCADE_RUN_STATUS_IDLE",
+    "hasError": false,
+    "duration": "0秒",
+    "totalSteps": 7,
+    "totalTools": 0,
+    "workspaceUri": "",
+    "steps": null,
+    "allMessages": [
+      {
+        "id": "step-0",
+        "type": "user",
+        "role": "user",
+        "text": "look",
+        "content": "look",
+        "stepIndex": 0,
+        "media": [
+          "thumb1",
+          "inline2",
+          "b64a"
+        ],
+        "imageUrls": [
+          "/x/orig1.png"
+        ]
+      },
+      {
+        "id": "step-1",
+        "type": "user",
+        "role": "user",
+        "text": "from items",
+        "content": "from items",
+        "stepIndex": 1
+      },
+      {
+        "id": "step-2",
+        "type": "user",
+        "role": "user",
+        "text": "see MEDIA: /tmp/pic.png and ![i](https://e.com/i.jpg)",
+        "content": "see MEDIA: /tmp/pic.png and ![i](https://e.com/i.jpg)",
+        "stepIndex": 2,
+        "imageUrls": [
+          "/tmp/pic.png",
+          "https://e.com/i.jpg"
+        ]
+      },
+      {
+        "id": "step-4",
+        "type": "user",
+        "role": "user",
+        "text": "Comments on artifact URI: file:///a/plan.md\nThe user has approved this document",
+        "content": "Comments on artifact URI: file:///a/plan.md\nThe user has approved this document",
+        "stepIndex": 4,
+        "media": [
+          "keepme"
+        ]
+      }
+    ],
+    "queuedMessages": [],
+    "canProceed": false
+  },
+  "cachedTitle": "look",
+  "lastKnownConfig": ""
+}

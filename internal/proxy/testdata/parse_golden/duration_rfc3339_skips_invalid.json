@@ -1,0 +1,51 @@
+{
+  "details": {
+    "cascadeId": "g-duration-mixed",
+    "title": "a",
+    "status": "CASCADE_RUN_STATUS_IDLE",
+    "hasError": false,
+    "duration": "45秒",
+    "totalSteps": 4,
+    "totalTools": 0,
+    "workspaceUri": "",
+    "steps": null,
+    "allMessages": [
+      {
+        "id": "step-0",
+        "type": "user",
+        "role": "user",
+        "text": "a",
+        "content": "a",
+        "stepIndex": 0
+      },
+      {
+        "id": "step-1",
+        "type": "agent",
+        "role": "assistant",
+        "text": "b",
+        "content": "b",
+        "stepIndex": 1
+      },
+      {
+        "id": "step-2",
+        "type": "agent",
+        "role": "assistant",
+        "text": "c",
+        "content": "c",
+        "stepIndex": 2
+      },
+      {
+        "id": "step-3",
+        "type": "agent",
+        "role": "assistant",
+        "text": "d",
+        "content": "d",
+        "stepIndex": 3
+      }
+    ],
+    "queuedMessages": [],
+    "canProceed": false
+  },
+  "cachedTitle": "a",
+  "lastKnownConfig": ""
+}

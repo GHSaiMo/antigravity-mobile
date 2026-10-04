@@ -1,0 +1,27 @@
+{
+  "details": {
+    "cascadeId": "g-title-ann",
+    "title": "From Annotation",
+    "status": "CASCADE_RUN_STATUS_IDLE",
+    "hasError": false,
+    "duration": "0秒",
+    "totalSteps": 1,
+    "totalTools": 0,
+    "workspaceUri": "file:///ws/one",
+    "steps": null,
+    "allMessages": [
+      {
+        "id": "step-0",
+        "type": "user",
+        "role": "user",
+        "text": "prompt",
+        "content": "prompt",
+        "stepIndex": 0
+      }
+    ],
+    "queuedMessages": [],
+    "canProceed": false
+  },
+  "cachedTitle": "From Annotation",
+  "lastKnownConfig": ""
+}

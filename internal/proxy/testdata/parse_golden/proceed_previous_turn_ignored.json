@@ -1,0 +1,54 @@
+{
+  "details": {
+    "cascadeId": "g-proceed-prev",
+    "title": "one",
+    "status": "CASCADE_RUN_STATUS_IDLE",
+    "hasError": false,
+    "duration": "0秒",
+    "totalSteps": 4,
+    "totalTools": 1,
+    "workspaceUri": "",
+    "steps": null,
+    "allMessages": [
+      {
+        "id": "step-0",
+        "type": "user",
+        "role": "user",
+        "text": "one",
+        "content": "one",
+        "stepIndex": 0
+      },
+      {
+        "id": "tools-1",
+        "type": "tools",
+        "role": "tools",
+        "text": "已思考并执行 1 项操作",
+        "content": "已思考并执行 1 项操作",
+        "toolCount": 1,
+        "toolNames": [
+          "code_action"
+        ]
+      },
+      {
+        "id": "step-2",
+        "type": "user",
+        "role": "user",
+        "text": "two",
+        "content": "two",
+        "stepIndex": 2
+      },
+      {
+        "id": "step-3",
+        "type": "agent",
+        "role": "assistant",
+        "text": "ok",
+        "content": "ok",
+        "stepIndex": 3
+      }
+    ],
+    "queuedMessages": [],
+    "canProceed": false
+  },
+  "cachedTitle": "one",
+  "lastKnownConfig": ""
+}
