@@ -832,11 +832,18 @@ func buildRouter(
 	rootMux.HandleFunc("GET /compiled_tailwind.css", p.HandleDesktopStatic)
 	rootMux.HandleFunc("GET /prism_bundle.js", p.HandleDesktopStatic)
 	rootMux.HandleFunc("GET /diff_worker.js", p.HandleDesktopStatic)
+	rootMux.HandleFunc("GET /audio_processor.js", p.HandleDesktopStatic)
 	rootMux.HandleFunc("GET /icon.png", p.HandleDesktopStatic)
 	rootMux.Handle("/symbols-icons/", http.HandlerFunc(p.HandleDesktopStatic))
 
 	// Dedicated direct endpoints for Desktop and PWA
-	rootMux.HandleFunc("GET /desktop", p.HandleDesktopIndex)
+	rootMux.HandleFunc("GET /desktop", func(w http.ResponseWriter, r *http.Request) {
+		if !authHandler.RequestAuthorized(r) {
+			serveDesktopPairingPage(w)
+			return
+		}
+		p.HandleDesktopIndex(w, r)
+	})
 	rootMux.HandleFunc("GET /pwa", webHandler.ServeHTTP)
 
 	// Adaptive Web frontend:
@@ -884,6 +891,10 @@ func buildRouter(
 		}
 
 		if viewMode == "desktop" {
+			if !authHandler.RequestAuthorized(r) {
+				serveDesktopPairingPage(w)
+				return
+			}
 			p.HandleDesktopIndex(w, r)
 			return
 		}

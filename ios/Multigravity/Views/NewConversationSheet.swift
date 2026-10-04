@@ -9,6 +9,8 @@ public struct NewConversationSheet: View {
     @State private var projects: [ProjectItem]
     @State private var isLoading: Bool
     @State private var errorMessage: String? = nil
+    @State private var editingAliasProject: ProjectItem? = nil
+    @State private var aliasInputText: String = ""
     
     public init(
         onSelectProject: ((ProjectItem) -> Void)? = nil,
@@ -93,6 +95,21 @@ public struct NewConversationSheet: View {
         .task {
             await refreshProjectsInBackground()
         }
+        .alert("设置工作区备注", isPresented: Binding(
+            get: { editingAliasProject != nil },
+            set: { if !$0 { editingAliasProject = nil } }
+        )) {
+            TextField("输入中文备注（留空恢复默认）", text: $aliasInputText)
+            Button("取消", role: .cancel) { editingAliasProject = nil }
+            Button("保存") {
+                if let project = editingAliasProject {
+                    saveAlias(aliasInputText, for: project)
+                }
+                editingAliasProject = nil
+            }
+        } message: {
+            Text("原文件夹：\(editingAliasProject?.name ?? "")")
+        }
     }
     
     private var chatCard: some View {
@@ -153,10 +170,7 @@ public struct NewConversationSheet: View {
     }
     
     private func projectCard(for project: ProjectItem) -> some View {
-        Button {
-            selectProject(for: project)
-        } label: {
-            HStack(spacing: 14) {
+        HStack(spacing: 14) {
                 ZStack {
                     Circle()
                         .fill(Color.accentColor.opacity(0.12))
@@ -168,7 +182,7 @@ public struct NewConversationSheet: View {
                 
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
-                        Text(project.name)
+                        Text(project.displayName)
                             .font(.system(size: 15.5, weight: .semibold))
                             .foregroundColor(.primary)
                             .lineLimit(1)
@@ -188,7 +202,7 @@ public struct NewConversationSheet: View {
                         }
                     }
                     
-                    Text(project.path)
+                    Text(project.hasCustomAlias ? "\(project.name) · \(project.path)" : project.path)
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundColor(.secondary)
                         .lineLimit(1)
@@ -204,8 +218,41 @@ public struct NewConversationSheet: View {
             .padding(.vertical, 12)
             .background(Color(uiColor: .secondarySystemBackground))
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .onTapGesture {
+                selectProject(for: project)
+            }
+            .onLongPressGesture(minimumDuration: 0.5) {
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                aliasInputText = project.alias ?? ""
+                editingAliasProject = project
+            }
+    }
+    
+    private func saveAlias(_ text: String, for project: ProjectItem) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let newAlias: String? = trimmed.isEmpty ? nil : trimmed
+        let targetPath = project.path.isEmpty ? project.uri : project.path
+        
+        // Optimistic local update + cache
+        projects = projects.map { item in
+            var copy = item
+            let itemPath = item.path.isEmpty ? item.uri : item.path
+            if itemPath == targetPath || item.id == project.id {
+                copy.alias = newAlias
+            }
+            return copy
         }
-        .buttonStyle(.plain)
+        ProjectCacheManager.shared.saveProjects(projects)
+        
+        guard let url = AppSettings.shared.gatewayURL else { return }
+        Task {
+            do {
+                try await APIClient.shared.updateProjectAlias(path: targetPath, alias: trimmed, baseURL: url)
+            } catch {
+                errorMessage = "同步工作区备注失败: \(error.localizedDescription)"
+            }
+        }
     }
     
     private func selectProject(for project: ProjectItem) {

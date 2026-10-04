@@ -7,6 +7,7 @@ public struct ProjectItem: Identifiable, Hashable, Codable, Sendable {
     }
     public let rawId: String?
     public let name: String
+    public var alias: String?
     public let uri: String
     public let path: String
     public let isWorkspace: Bool
@@ -15,12 +16,13 @@ public struct ProjectItem: Identifiable, Hashable, Codable, Sendable {
     
     enum CodingKeys: String, CodingKey {
         case rawId = "id"
-        case name, uri, path, isWorkspace, sessionCount, lastActive
+        case name, alias, uri, path, isWorkspace, sessionCount, lastActive
     }
     
     public init(
         rawId: String? = nil,
         name: String,
+        alias: String? = nil,
         uri: String,
         path: String,
         isWorkspace: Bool,
@@ -29,11 +31,22 @@ public struct ProjectItem: Identifiable, Hashable, Codable, Sendable {
     ) {
         self.rawId = rawId
         self.name = name
+        self.alias = alias
         self.uri = uri
         self.path = path
         self.isWorkspace = isWorkspace
         self.sessionCount = sessionCount
         self.lastActive = lastActive
+    }
+    
+    public var displayName: String {
+        if let alias, !alias.trimmingCharacters(in: .whitespaces).isEmpty { return alias }
+        return name
+    }
+    
+    public var hasCustomAlias: Bool {
+        guard let alias, !alias.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
+        return alias != name
     }
     
     public var relativeTimeString: String {

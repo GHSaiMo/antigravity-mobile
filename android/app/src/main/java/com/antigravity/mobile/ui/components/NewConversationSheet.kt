@@ -67,8 +67,6 @@ fun NewConversationSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .fillMaxHeight()
-                .navigationBarsPadding()
-                .padding(bottom = 16.dp)
         ) {
             // Floating grab handle hinting pull-down dismissal (matching iOS Capsule 38x5)
             Box(
@@ -157,7 +155,14 @@ fun NewConversationSheet(
                     .fillMaxWidth()
                     .weight(1f),
                 verticalArrangement = Arrangement.spacedBy(9.dp),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp)
+                contentPadding = PaddingValues(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = 4.dp,
+                    // Bottom inset lives inside the scrolling area so the list reaches the sheet edge
+                    // (also in landscape) while the last card still clears the navigation bar.
+                    bottom = 24.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+                )
             ) {
                 // Pure Chat Card
                 item(key = "chat_pure") {
