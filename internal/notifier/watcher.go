@@ -1,9 +1,9 @@
 package notifier
 
 import (
+	"log/slog"
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 	"time"
@@ -57,7 +57,7 @@ func (w *Watcher) run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("[Watcher] Session watcher stopped")
+			slog.Info("[Watcher] Session watcher stopped")
 			return
 		case <-cleanupTicker.C:
 			w.notifier.Dedup().Cleanup(4 * time.Hour)
@@ -154,12 +154,12 @@ func (w *Watcher) scanOnce() int {
 			if err != nil || details == nil {
 				prev.fetchRetryCount++
 				if prev.fetchRetryCount <= 3 {
-					log.Printf("[Watcher] ⚠️ Session %s status transitioned from RUNNING to %s, but FetchTrajectoryDetails failed (retry %d/3): %v", id, status, prev.fetchRetryCount, err)
+					slog.Warn(fmt.Sprintf("[Watcher] ⚠️ Session %s status transitioned from RUNNING to %s, but FetchTrajectoryDetails failed (retry %d/3)", id, status, prev.fetchRetryCount), "err", err)
 					runningCount++
 					// Do not advance prev.lastStatus yet so we retry on the next tick!
 					continue
 				}
-				log.Printf("[Watcher] ⚠️ Session %s transition retries exhausted, notifying based on summary status", id)
+				slog.Warn(fmt.Sprintf("[Watcher] ⚠️ Session %s transition retries exhausted, notifying based on summary status", id))
 				if steps > 0 {
 					_ = w.notifier.NotifyCompleted(id, title, steps)
 				}
@@ -190,7 +190,7 @@ func (w *Watcher) scanOnce() int {
 				inProgress, _ := IsCascadeInProgress(details, hasSubagent)
 				if !inProgress {
 					prev.waitingForBackground = false
-					log.Printf("[Watcher] ✅ 会话 %s 后台任务已完成", shortID(id))
+					slog.Info(fmt.Sprintf("[Watcher] ✅ 会话 %s 后台任务已完成", shortID(id)))
 					if details.PendingInteraction != nil {
 						_ = w.notifier.NotifyAction(id, details.Title, details.PendingInteraction)
 					} else if details.CanProceed {

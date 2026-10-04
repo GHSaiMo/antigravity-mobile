@@ -1,11 +1,11 @@
 package inspector
 
 import (
+	"log/slog"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -222,7 +222,7 @@ func (i *Inspector) markUnhealthy() {
 	defer i.mu.Unlock()
 	if i.current != nil && i.current.IsHealthy {
 		i.current.IsHealthy = false
-		log.Println("[Inspector] ⚠️  Antigravity 实例已断开")
+		slog.Warn("[Inspector] ⚠️  Antigravity 实例已断开")
 	}
 }
 
@@ -237,7 +237,7 @@ func (i *Inspector) update(newInfo *InstanceInfo) {
 		i.current.CSRFToken != newInfo.CSRFToken ||
 		!i.current.IsHealthy {
 		if i.current != nil {
-			log.Printf("[Inspector] ✅ 已连接 Antigravity 实例 (PID %d, 端口 %d)", newInfo.PID, newInfo.Port)
+			slog.Info(fmt.Sprintf("[Inspector] ✅ 已连接 Antigravity 实例 (PID %d, 端口 %d)", newInfo.PID, newInfo.Port))
 		}
 		notify = true
 		listeners = append([]func(InstanceInfo){}, i.listeners...)

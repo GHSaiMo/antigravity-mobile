@@ -1,12 +1,12 @@
 package auth
 
 import (
+	"log/slog"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -104,7 +104,7 @@ func loadOrCreateAuthSalt(storePath string) string {
 	// S7: if rand.Read fails we must not fall back to a predictable value — log and return
 	// an empty string so callers can detect the failure and abort rather than use a weak salt.
 	if _, err := rand.Read(raw); err != nil {
-		log.Printf("❌ [AuthStore] crypto/rand.Read failed to generate salt: %v", err)
+		slog.Error("❌ [AuthStore] crypto/rand.Read failed to generate salt", "err", err)
 		return ""
 	}
 	s := hex.EncodeToString(raw)
@@ -176,7 +176,7 @@ func NewAuthStore(filePath string) (*AuthStore, error) {
 	}
 
 	if err := os.Chmod(resolved, 0600); err != nil && !os.IsNotExist(err) {
-		log.Printf("⚠️  [AuthStore] failed to set 0600 permissions on %s: %v", resolved, err)
+		slog.Warn(fmt.Sprintf("⚠️  [AuthStore] failed to set 0600 permissions on %s", resolved), "err", err)
 	}
 
 	// P5: single background worker drains lastSeenCh so the hot auth middleware path

@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"log/slog"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -8,7 +9,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -1010,7 +1010,7 @@ func (p *Proxy) FilterQueuedMessagesAgainstTrajectory(cascadeID string, queued [
 		}
 
 		if isEntered {
-			log.Printf("[Proxy] Queued message %s (%q) has already entered conversation as %s; dropping from queue", qm.ID, qm.Text, matchedID)
+			slog.Info(fmt.Sprintf("[Proxy] Queued message %s (%q) has already entered conversation as %s; dropping from queue", qm.ID, qm.Text, matchedID))
 			RecordDeletedMessage(cascadeID, qm.ID)
 			RemovePendingMessageFromCache(cascadeID, qm.ID)
 			EvictMatchingPendingMessagesFromCache(cascadeID, qm.ID, qm.Text)

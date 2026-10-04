@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"fmt"
-	"log"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -150,15 +149,15 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 
 	clientConn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("[Stream] WS upgrade failed: %v", err)
+		slog.Warn("[Stream] WS upgrade failed", "err", err)
 		return
 	}
 	defer clientConn.Close()
 	defer p.trackWSConn(clientConn)()
 
 	if verboseRPC {
-		log.Printf("[Stream] WS client connected: cascadeId=%s remote=%s client=%s format=%s", cascadeID, r.RemoteAddr, clientType, format)
-		defer log.Printf("[Stream] WS client disconnected: cascadeId=%s remote=%s", cascadeID, r.RemoteAddr)
+		slog.Info("[Stream] WS client connected", "cascadeId", cascadeID, "remote", r.RemoteAddr, "client", clientType, "format", format)
+		defer slog.Info("[Stream] WS client disconnected", "cascadeId", cascadeID, "remote", r.RemoteAddr)
 	}
 
 	cur := p.insp.Current()

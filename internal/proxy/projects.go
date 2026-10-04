@@ -1,12 +1,12 @@
 package proxy
 
 import (
+	"log/slog"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -1037,7 +1037,7 @@ func loadWorkspaceAliases() map[string]string {
 
 	var store WorkspaceAliasesStore
 	if err := json.Unmarshal(data, &store); err != nil {
-		log.Printf("[Projects] Warning: failed to parse workspace aliases from %s: %v", filePath, err)
+		slog.Warn(fmt.Sprintf("[Projects] Warning: failed to parse workspace aliases from %s", filePath), "err", err)
 		return make(map[string]string)
 	}
 
@@ -1131,7 +1131,7 @@ func (p *Proxy) HandleProjectAlias(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := saveWorkspaceAlias(targetPath, req.Alias); err != nil {
-		log.Printf("[Proxy] Failed to save workspace alias for %s: %v", targetPath, err)
+		slog.Warn(fmt.Sprintf("[Proxy] Failed to save workspace alias for %s", targetPath), "err", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -1173,7 +1173,7 @@ func (p *Proxy) HandleCreateCascade(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if origin != "" && !IsAllowedOrigin(origin, r.Host) {
-		log.Printf("[Proxy] Rejected CreateCascade from untrusted origin: %s (host: %s)", origin, r.Host)
+		slog.Warn(fmt.Sprintf("[Proxy] Rejected CreateCascade from untrusted origin: %s (host: %s)", origin, r.Host))
 		http.Error(w, "Forbidden: untrusted origin", http.StatusForbidden)
 		return
 	}
@@ -1206,7 +1206,7 @@ func (p *Proxy) HandleCreateCascade(w http.ResponseWriter, r *http.Request) {
 	}
 	if clientMsgID != "" {
 		if cachedID := p.getCascadeDedup(clientMsgID, 60*time.Second); cachedID != "" {
-			log.Printf("[Proxy] Deduplicated repeat CreateCascade via clientMsgID %s -> cascade %s", clientMsgID, cachedID)
+			slog.Info(fmt.Sprintf("[Proxy] Deduplicated repeat CreateCascade via clientMsgID %s -> cascade %s", clientMsgID, cachedID))
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(CreateCascadeResponse{
 				CascadeID: cachedID,
@@ -1311,7 +1311,7 @@ func (p *Proxy) HandleCreateCascade(w http.ResponseWriter, r *http.Request) {
 	if clientMsgID != "" {
 		p.setCascadeDedup(clientMsgID, cascadeID)
 	}
-	log.Printf("[Proxy] ✨ 新建会话: %s", shortCascadeID(cascadeID))
+	slog.Info(fmt.Sprintf("[Proxy] ✨ 新建会话: %s", shortCascadeID(cascadeID)))
 
 	// Update lastUserViewTime annotation upstream so desktop client recognizes it immediately
 	annPayload := map[string]interface{}{
@@ -1375,10 +1375,10 @@ func (p *Proxy) HandleCreateCascade(w http.ResponseWriter, r *http.Request) {
 				msgResp.Body.Close()
 				ClearTrajectoryCache(cascadeID)
 				if verboseRPC {
-					log.Printf("[Proxy] Dispatched initial prompt to cascade %s", shortCascadeID(cascadeID))
+					slog.Info(fmt.Sprintf("[Proxy] Dispatched initial prompt to cascade %s", shortCascadeID(cascadeID)))
 				}
 			} else {
-				log.Printf("⚠️  [Proxy] Warning: failed to dispatch initial prompt: %v", err)
+				slog.Warn("⚠️  [Proxy] Warning: failed to dispatch initial prompt", "err", err)
 			}
 		}
 	}

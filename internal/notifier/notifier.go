@@ -1,9 +1,9 @@
 package notifier
 
 import (
+	"log/slog"
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 	"time"
@@ -366,7 +366,7 @@ func (n *Notifier) OnTrajectoryUpdate(details *proxy.TrajectoryDetails) {
 		pi := *details.PendingInteraction
 		go func() {
 			if err := n.NotifyAction(cascadeID, title, &pi); err != nil {
-				log.Printf("[Notifier] Async NotifyAction error for cascade %s: %v", cascadeID, err)
+				slog.Warn(fmt.Sprintf("[Notifier] Async NotifyAction error for cascade %s", cascadeID), "err", err)
 			}
 		}()
 		return

@@ -1,13 +1,13 @@
 package cockpit
 
 import (
+	"log/slog"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -598,9 +598,9 @@ func TriggerRefresh(force ...bool) error {
 				isRefreshing = false
 				refreshMutex.Unlock()
 			}()
-			log.Println("[Cockpit] Cockpit config not available; triggering direct native quota fetch...")
+			slog.Info("[Cockpit] Cockpit config not available; triggering direct native quota fetch...")
 			if fErr := FetchAllRemoteQuotas(); fErr != nil {
-				log.Printf("[Cockpit] Direct native quota fetch failed: %v", fErr)
+				slog.Warn("[Cockpit] Direct native quota fetch failed", "err", fErr)
 			} else {
 				InvalidateQuotaCache()
 			}
@@ -624,7 +624,7 @@ func TriggerRefresh(force ...bool) error {
 			}()
 
 			if err := QueryReport(port, token); err != nil {
-				log.Printf("[Cockpit] Report request error: %v; falling back to direct quota fetch", err)
+				slog.Warn(fmt.Sprintf("[Cockpit] Report request error: %v; falling back to direct quota fetch", err))
 				_ = FetchAllRemoteQuotas()
 			} else {
 				InvalidateQuotaCache()
@@ -640,9 +640,9 @@ func TriggerRefresh(force ...bool) error {
 			isRefreshing = false
 			refreshMutex.Unlock()
 		}()
-		log.Println("[Cockpit] Cockpit Tools desktop process not listening; triggering direct native quota fetch...")
+		slog.Info("[Cockpit] Cockpit Tools desktop process not listening; triggering direct native quota fetch...")
 		if err := FetchAllRemoteQuotas(); err != nil {
-			log.Printf("[Cockpit] Direct native quota fetch failed: %v", err)
+			slog.Warn("[Cockpit] Direct native quota fetch failed", "err", err)
 		} else {
 			InvalidateQuotaCache()
 		}
@@ -836,13 +836,13 @@ func EnsureCockpitAntigravityConfig() error {
 		return fmt.Errorf("rename config: %w", err)
 	}
 
-	log.Printf("[Cockpit] Auto-aligned config.json: antigravity_launch_on_switch=false, antigravity_app_path=%q", rawMap["antigravity_app_path"])
+	slog.Info("[Cockpit] Auto-aligned config.json: antigravity_launch_on_switch=false", "antigravity_app_path", rawMap["antigravity_app_path"])
 
 	// 5. If Cockpit Tools process is running, restart it so the in-memory config is reloaded
 	if isCockpitProcessRunning() {
-		log.Println("[Cockpit] Restarting Cockpit Tools to reload updated configuration into memory...")
+		slog.Info("[Cockpit] Restarting Cockpit Tools to reload updated configuration into memory...")
 		if rErr := RestartCockpitApp(); rErr != nil {
-			log.Printf("[Cockpit] Warning: failed to restart Cockpit Tools: %v", rErr)
+			slog.Warn("[Cockpit] Warning: failed to restart Cockpit Tools", "err", rErr)
 		} else {
 			time.Sleep(1 * time.Second)
 		}

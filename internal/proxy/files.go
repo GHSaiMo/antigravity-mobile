@@ -1,10 +1,10 @@
 package proxy
 
 import (
+	"log/slog"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -409,7 +409,7 @@ func (p *Proxy) HandleFileRaw(w http.ResponseWriter, r *http.Request) {
 		filePath = resolved
 	}
 	if !IsSafeFilePath(filePath) {
-		log.Printf("[Files] denied raw download path=%s uri=%q", filePath, uri)
+		slog.Info("[Files] denied raw download", "path", filePath, "uri", uri)
 		http.Error(w, "access to file is restricted", http.StatusForbidden)
 		return
 	}
@@ -421,7 +421,7 @@ func (p *Proxy) HandleFileRaw(w http.ResponseWriter, r *http.Request) {
 	}
 	defer f.Close()
 	if strings.HasSuffix(strings.ToLower(filePath), ".key") && isPrivateKeyFileHeader(f) {
-		log.Printf("[Files] denied raw download of private key header in %s", filePath)
+		slog.Info(fmt.Sprintf("[Files] denied raw download of private key header in %s", filePath))
 		http.Error(w, "access to file is restricted", http.StatusForbidden)
 		return
 	}

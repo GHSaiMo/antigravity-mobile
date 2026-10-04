@@ -10,7 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -311,7 +311,7 @@ func (p *Proxy) updateUpstream(info inspector.InstanceInfo) {
 			// Client disconnected or canceled the request (e.g. page navigation or switching tabs)
 			return
 		}
-		log.Printf("[Proxy] Upstream proxy error for %s %s: %v", req.Method, req.URL.Path, err)
+		slog.Warn(fmt.Sprintf("[Proxy] Upstream proxy error for %s %s", req.Method, req.URL.Path), "err", err)
 		rw.WriteHeader(http.StatusBadGateway)
 	}
 
@@ -369,7 +369,7 @@ func (p *Proxy) updateUpstream(info inspector.InstanceInfo) {
 	p.activePort = port
 	p.activeToken = token
 	if verboseRPC {
-		log.Printf("[Proxy] Updated upstream proxy to 127.0.0.1:%d", port)
+		slog.Info(fmt.Sprintf("[Proxy] Updated upstream proxy to 127.0.0.1:%d", port))
 	}
 
 	// Reset historical sync state and asynchronously sync historical trajectories
@@ -585,7 +585,7 @@ func (p *Proxy) handleCascadeTouch(w http.ResponseWriter, r *http.Request) {
 		ClearPendingMessagesCache(cascadeID)
 		p.notifyStreamTouch(cascadeID)
 		if verboseRPC {
-			log.Printf("[Proxy] Cascade cache invalidated and stream notified via touch API: %s", shortCascadeID(cascadeID))
+			slog.Info(fmt.Sprintf("[Proxy] Cascade cache invalidated and stream notified via touch API: %s", shortCascadeID(cascadeID)))
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -633,7 +633,7 @@ func (p *Proxy) handleRpcProxy(w http.ResponseWriter, r *http.Request) {
 			!strings.HasSuffix(r.URL.Path, "/GetAuthStatus") &&
 			!strings.HasSuffix(r.URL.Path, "/GetAllCascadeTrajectories") &&
 			!strings.HasSuffix(r.URL.Path, "/GetCascadeTrajectory") {
-			log.Printf("[RPC] ⚠️ SLOW: %s in %v", r.URL.Path, dur)
+			slog.Warn(fmt.Sprintf("[RPC] ⚠️ SLOW: %s in %v", r.URL.Path, dur))
 		}
 	}()
 	p.mu.RLock()
@@ -649,14 +649,14 @@ func (p *Proxy) handleRpcProxy(w http.ResponseWriter, r *http.Request) {
 			"code":    "unavailable",
 			"message": "Antigravity language_server is not connected",
 		}); err != nil {
-			log.Printf("[Proxy] handleRpcProxy: failed to encode error response: %v", err)
+			slog.Warn("[Proxy] handleRpcProxy: failed to encode error response", "err", err)
 		}
 		return
 	}
 
 	reqPath := strings.TrimPrefix(r.URL.Path, "/api")
 	if verboseRPC {
-		log.Printf("[Proxy] RPC: %s %s", r.Method, reqPath)
+		slog.Info(fmt.Sprintf("[Proxy] RPC: %s %s", r.Method, reqPath))
 	}
 	if strings.HasSuffix(reqPath, "/SendUserCascadeMessage") && r.Method == http.MethodPost {
 		p.handleSendUserCascadeMessage(w, r, rp, reqPath, port, token)
@@ -962,7 +962,7 @@ func (p *Proxy) handleCancelCascadeInvocation(w http.ResponseWriter, r *http.Req
 		ClearPendingMessagesCache(targetID)
 		p.notifyStreamTouch(targetID)
 		if verboseRPC {
-			log.Printf("[Proxy] CancelCascadeInvocation forwarded and cache invalidated for: %s", shortCascadeID(targetID))
+			slog.Info(fmt.Sprintf("[Proxy] CancelCascadeInvocation forwarded and cache invalidated for: %s", shortCascadeID(targetID)))
 		}
 	}
 }
@@ -1039,7 +1039,7 @@ func (p *Proxy) handleReadProjects(w http.ResponseWriter, r *http.Request, rp ht
 	p.projectsCacheMu.RUnlock()
 
 	if len(cached) > 0 {
-		log.Printf("[Proxy] Upstream ReadProjects returned status %d; serving cached projects list (%d bytes)", rec.statusCode, len(cached))
+		slog.Info(fmt.Sprintf("[Proxy] Upstream ReadProjects returned status %d; serving cached projects list (%d bytes)", rec.statusCode, len(cached)))
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Connect-Protocol-Version", "1")
 		w.Header().Set("Content-Length", strconv.Itoa(len(cached)))
@@ -1139,7 +1139,7 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 	if clientMsgID != "" {
 		dedupKey := "client_msg:" + clientMsgID
 		if p.checkAndRecordMessageDedup(dedupKey, 60*time.Second) {
-			log.Printf("[Proxy] Deduplicated repeat SendUserCascadeMessage via clientMsgID: %s", clientMsgID)
+			slog.Info(fmt.Sprintf("[Proxy] Deduplicated repeat SendUserCascadeMessage via clientMsgID: %s", clientMsgID))
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("Content-Length", "2")
 			w.WriteHeader(http.StatusOK)
@@ -1244,7 +1244,7 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 			strategyKey := fmt.Sprintf("%v", rawMap["deliveryStrategy"])
 			dedupKey := fmt.Sprintf("%s:%s:%x", cascadeID, strategyKey, contentHasher.Sum(nil))
 			if p.checkAndRecordMessageDedup(dedupKey, 15*time.Second) {
-				log.Printf("[Proxy] Deduplicated repeat SendUserCascadeMessage for cascade %s (textLen=%d, hashDedup)", shortCascadeID(cascadeID), contentLen)
+				slog.Info(fmt.Sprintf("[Proxy] Deduplicated repeat SendUserCascadeMessage for cascade %s (textLen=%d, hashDedup)", shortCascadeID(cascadeID), contentLen))
 				w.Header().Set("Content-Type", "application/json")
 				w.Header().Set("Content-Length", "2")
 				w.WriteHeader(http.StatusOK)
@@ -1315,7 +1315,7 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 							configToUse = updatedBytes
 						}
 						if verboseRPC {
-							log.Printf("[Proxy] SendUserCascadeMessage: applied model %s (%s) to cascade %s", targetModel, modelEnum, shortCascadeID(cascadeID))
+							slog.Info(fmt.Sprintf("[Proxy] SendUserCascadeMessage: applied model %s (%s) to cascade %s", targetModel, modelEnum, shortCascadeID(cascadeID)))
 						}
 					}
 					rawMap["cascadeConfig"] = cfgObj
@@ -1332,7 +1332,7 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 					SetCascadeModel(cascadeID, canonicalName, updatedBytes)
 				}
 				if verboseRPC {
-					log.Printf("[Proxy] SendUserCascadeMessage: synthesized cascadeConfig with model %s (%s) for cascade %s", targetModel, modelEnum, shortCascadeID(cascadeID))
+					slog.Info(fmt.Sprintf("[Proxy] SendUserCascadeMessage: synthesized cascadeConfig with model %s (%s) for cascade %s", targetModel, modelEnum, shortCascadeID(cascadeID)))
 				}
 			}
 
@@ -1350,9 +1350,9 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 	}
 
 	if verboseRPC {
-		log.Printf("[Proxy] SendUserCascadeMessage: cascadeId=%s payloadLen=%d", shortCascadeID(cascadeID), len(bodyBytes))
+		slog.Info("[Proxy] SendUserCascadeMessage", "cascadeId", shortCascadeID(cascadeID), "payloadLen", len(bodyBytes))
 	} else {
-		log.Printf("[Proxy] 💬 发送消息 -> 会话 %s", shortCascadeID(cascadeID))
+		slog.Info(fmt.Sprintf("[Proxy] 💬 发送消息 -> 会话 %s", shortCascadeID(cascadeID)))
 	}
 
 	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
@@ -1386,12 +1386,12 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 		w.WriteHeader(rw.statusCode)
 		w.Write(respBody)
 		if verboseRPC {
-			log.Printf("[Proxy] SendUserCascadeMessage upstream success: status=%d bodyLen=%d", rw.statusCode, len(respBody))
+			slog.Info("[Proxy] SendUserCascadeMessage upstream success", "status", rw.statusCode, "bodyLen", len(respBody))
 		}
 	} else {
 		w.WriteHeader(rw.statusCode)
 		w.Write(respBody)
-		log.Printf("⚠️  [Proxy] SendUserCascadeMessage upstream error: status=%d body=%s", rw.statusCode, string(respBody))
+		slog.Warn("⚠️  [Proxy] SendUserCascadeMessage upstream error", "status", rw.statusCode, "body", string(respBody))
 	}
 }
 
@@ -1432,7 +1432,7 @@ func (p *Proxy) handleJetboxWriteState(w http.ResponseWriter, r *http.Request, r
 				}
 			}
 			if verboseRPC {
-				log.Printf("[Proxy] JetboxWriteState: cached active model %s (%s) cascadeId=%s", canonicalName, modelEnum, shortCascadeID(cascadeID))
+				slog.Info(fmt.Sprintf("[Proxy] JetboxWriteState: cached active model %s (%s)", canonicalName, modelEnum), "cascadeId", shortCascadeID(cascadeID))
 			}
 		}
 	}
@@ -1540,7 +1540,7 @@ func (p *Proxy) handleDeleteCascadeTrajectory(w http.ResponseWriter, r *http.Req
 				brainDir := filepath.Join(home, ".gemini", "antigravity", "brain", reqData.CascadeID)
 				_ = os.RemoveAll(brainDir)
 			}
-			log.Printf("[Proxy] 🗑️ 删除会话: %s", shortCascadeID(reqData.CascadeID))
+			slog.Info(fmt.Sprintf("[Proxy] 🗑️ 删除会话: %s", shortCascadeID(reqData.CascadeID)))
 		}
 	} else if rec.statusCode >= 400 {
 		// Upstream explicitly rejected deletion; release the tombstone so the cascade reappears.
@@ -1850,7 +1850,7 @@ func (p *Proxy) HandleCascadeInteraction(w http.ResponseWriter, r *http.Request)
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
-		log.Printf("[Proxy] HandleCascadeUserInteraction error (%d): %s", resp.StatusCode, string(respBody))
+		slog.Warn(fmt.Sprintf("[Proxy] HandleCascadeUserInteraction error (%d): %s", resp.StatusCode, string(respBody)))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(resp.StatusCode)
 		w.Write(respBody)
@@ -1944,7 +1944,7 @@ func (p *Proxy) handleCascadeTaskStop(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := p.CancelCascadeStep(cascadeID, stepIndex, port, token); err != nil {
-		log.Printf("[Proxy] CancelCascadeStep failed (cascade: %s, step: %d): %v", cascadeID, stepIndex, err)
+		slog.Warn(fmt.Sprintf("[Proxy] CancelCascadeStep failed (cascade: %s, step: %d)", cascadeID, stepIndex), "err", err)
 		writeJSONError(w, "cancel step failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -1983,7 +1983,7 @@ func (p *Proxy) HandleCascadeRevertPreview(w http.ResponseWriter, r *http.Reques
 
 	res, err := p.GetRevertPreview(req.CascadeID, req.StepIndex, req.TargetStepIndex, port, token)
 	if err != nil {
-		log.Printf("[Proxy] Revert preview failed for cascade %s (step %d): %v", shortCascadeID(req.CascadeID), req.StepIndex, err)
+		slog.Warn(fmt.Sprintf("[Proxy] Revert preview failed for cascade %s (step %d)", shortCascadeID(req.CascadeID), req.StepIndex), "err", err)
 		writeJSONError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -2023,7 +2023,7 @@ func (p *Proxy) HandleCascadeRevertExecute(w http.ResponseWriter, r *http.Reques
 
 	targetIndex, err := p.ExecuteRevert(req.CascadeID, req.StepIndex, req.TargetStepIndex, req.ConversationOnly, port, token)
 	if err != nil {
-		log.Printf("[Proxy] Revert execute failed for cascade %s (step %d): %v", shortCascadeID(req.CascadeID), req.StepIndex, err)
+		slog.Warn(fmt.Sprintf("[Proxy] Revert execute failed for cascade %s (step %d)", shortCascadeID(req.CascadeID), req.StepIndex), "err", err)
 		writeJSONError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -2442,7 +2442,7 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 	rawMap["trajectorySummaries"], _ = json.Marshal(summaries)
 	respBytes, err := json.Marshal(rawMap)
 	if err != nil {
-		log.Printf("[Proxy] GetAllCascadeTrajectories: failed to encode response: %v", err)
+		slog.Warn("[Proxy] GetAllCascadeTrajectories: failed to encode response", "err", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -2644,7 +2644,7 @@ func (p *Proxy) WarmupDesktopStatic(port int, token string) {
 	desktopStaticCacheMu.Lock()
 	desktopStaticCache["/main.js"] = item
 	desktopStaticCacheMu.Unlock()
-	log.Printf("[Proxy] ⚡ Pre-warmed localized desktop main.js (%d KB gzip)", gzBuf.Len()/1024)
+	slog.Info(fmt.Sprintf("[Proxy] ⚡ Pre-warmed localized desktop main.js (%d KB gzip)", gzBuf.Len() / 1024))
 
 	// Proactively pre-warm GetAuthStatus and GetCascadeNuxes in background so initial desktop load has 0ms latency
 	go func() {
@@ -2666,7 +2666,7 @@ func (p *Proxy) WarmupDesktopStatic(port int, token string) {
 					p.authStatusCacheHeaders = resp.Header.Clone()
 					p.authStatusCachedAt = time.Now()
 					p.authStatusCacheMu.Unlock()
-					log.Printf("[Proxy] ⚡ Pre-warmed GetAuthStatus cache (0ms first load)")
+					slog.Info("[Proxy] ⚡ Pre-warmed GetAuthStatus cache (0ms first load)")
 				}
 			}
 		}
@@ -2689,7 +2689,7 @@ func (p *Proxy) WarmupDesktopStatic(port int, token string) {
 					p.nuxCacheHeaders = resp.Header.Clone()
 					p.nuxCachedAt = time.Now()
 					p.nuxCacheMu.Unlock()
-					log.Printf("[Proxy] ⚡ Pre-warmed GetCascadeNuxes cache (0ms first load)")
+					slog.Info("[Proxy] ⚡ Pre-warmed GetCascadeNuxes cache (0ms first load)")
 				}
 			}
 		}

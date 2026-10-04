@@ -1,8 +1,8 @@
 package cockpit
 
 import (
+	"log/slog"
 	"fmt"
-	"log"
 	"net"
 	"os"
 	"os/exec"
@@ -100,7 +100,7 @@ func defaultLaunchCockpit() error {
 	// Guard: if Cockpit Tools is already running, skip launching to avoid sending
 	// a reopen event that activates the window and steals foreground focus.
 	if cockpitProcessChecker() {
-		log.Println("[Cockpit] Cockpit Tools process is already running; skipping launch to prevent focus stealing")
+		slog.Info("[Cockpit] Cockpit Tools process is already running; skipping launch to prevent focus stealing")
 		return nil
 	}
 

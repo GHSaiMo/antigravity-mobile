@@ -1,12 +1,12 @@
 package notifier
 
 import (
+	"log/slog"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"time"
 
@@ -77,7 +77,7 @@ func (b *BarkClient) Send(ctx context.Context, payload BarkPayload) error {
 				return ctx.Err()
 			case <-time.After(1 * time.Second):
 			}
-			log.Printf("[Bark] 🔄 Retrying notification send (attempt %d)...", attempt+1)
+			slog.Info(fmt.Sprintf("[Bark] 🔄 Retrying notification send (attempt %d)...", attempt + 1))
 		}
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, b.endpoint, bytes.NewReader(bodyBytes))
@@ -89,7 +89,7 @@ func (b *BarkClient) Send(ctx context.Context, payload BarkPayload) error {
 		resp, err := b.client.Do(req)
 		if err != nil {
 			lastErr = err
-			log.Printf("[Bark] ❌ Failed to send notification (attempt %d): %v", attempt+1, err)
+			slog.Error(fmt.Sprintf("[Bark] ❌ Failed to send notification (attempt %d)", attempt + 1), "err", err)
 			continue
 		}
 
@@ -98,11 +98,11 @@ func (b *BarkClient) Send(ctx context.Context, payload BarkPayload) error {
 
 		if resp.StatusCode != http.StatusOK {
 			lastErr = fmt.Errorf("bark server error %d: %s", resp.StatusCode, string(respBody))
-			log.Printf("[Bark] ⚠️ Server returned status %d: %s", resp.StatusCode, string(respBody))
+			slog.Warn(fmt.Sprintf("[Bark] ⚠️ Server returned status %d: %s", resp.StatusCode, string(respBody)))
 			continue
 		}
 
-		log.Printf("[Bark] 🚀 推送成功: %s", payload.Title)
+		slog.Info(fmt.Sprintf("[Bark] 🚀 推送成功: %s", payload.Title))
 		return nil
 	}
 

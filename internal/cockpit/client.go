@@ -1,12 +1,12 @@
 package cockpit
 
 import (
+	"log/slog"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -100,7 +100,7 @@ func GetCockpitServerInfo() (*CockpitServerInfo, error) {
 		}
 		// Port in server.json not listening: attempt auto-resolve
 		if activePort, authToken, rErr := ResolveActiveWsPort(); rErr == nil && activePort > 0 {
-			log.Printf("[Cockpit] Port %d in server.json not responding, auto-switched to active ws_port: %d", rawInfo.WsPort, activePort)
+			slog.Info(fmt.Sprintf("[Cockpit] Port %d in server.json not responding, auto-switched to active ws_port: %d", rawInfo.WsPort, activePort))
 			rawInfo.WsPort = activePort
 			if authToken != "" {
 				rawInfo.AuthToken = authToken
@@ -112,7 +112,7 @@ func GetCockpitServerInfo() (*CockpitServerInfo, error) {
 
 	// server.json missing or invalid: attempt auto-resolve
 	if activePort, authToken, rErr := ResolveActiveWsPort(); rErr == nil && activePort > 0 {
-		log.Printf("[Cockpit] server.json missing/invalid, auto-detected active ws_port: %d", activePort)
+		slog.Info(fmt.Sprintf("[Cockpit] server.json missing/invalid, auto-detected active ws_port: %d", activePort))
 		return &CockpitServerInfo{
 			WsPort:    activePort,
 			AuthToken: authToken,
@@ -137,16 +137,16 @@ func switchAccountDirect(accountID string) (bool, error) {
 		return false, nil
 	}
 
-	log.Printf("[Cockpit] Found local encrypted account for %s (ID: %s). Executing direct native switch...", detail.Email, detail.ID)
+	slog.Info(fmt.Sprintf("[Cockpit] Found local encrypted account for %s (ID: %s). Executing direct native switch...", detail.Email, detail.ID))
 
 	// Ensure token is fresh before injection
 	freshTok, refreshed, rErr := EnsureFreshToken(&detail.Token)
 	if rErr != nil {
-		log.Printf("[Cockpit] Warning: token refresh failed (%v), proceeding with existing token", rErr)
+		slog.Warn(fmt.Sprintf("[Cockpit] Warning: token refresh failed (%v), proceeding with existing token", rErr))
 	} else if refreshed {
 		detail.Token = *freshTok
 		if sErr := SaveAccountDetail(detail); sErr != nil {
-			log.Printf("[Cockpit] Warning: failed to save refreshed account: %v", sErr)
+			slog.Warn("[Cockpit] Warning: failed to save refreshed account", "err", sErr)
 		}
 	}
 
@@ -156,13 +156,13 @@ func switchAccountDirect(accountID string) (bool, error) {
 
 	// Sync Cockpit Tools local state
 	if err := SyncCockpitLocalState(detail.ID, detail.Email); err != nil {
-		log.Printf("[Cockpit] Warning: sync Cockpit local state failed: %v", err)
+		slog.Warn("[Cockpit] Warning: sync Cockpit local state failed", "err", err)
 	}
 	afterProfilePrepare()
 
 	// Inject unified OAuth token into Antigravity SQLite state.vscdb
 	if err := InjectAccountToAntigravityStateDB(detail); err != nil {
-		log.Printf("[Cockpit] Warning: SQLite state.vscdb injection error: %v", err)
+		slog.Warn("[Cockpit] Warning: SQLite state.vscdb injection error", "err", err)
 	}
 
 	// Apply Keychain, Jetski token file, relaunch IDE and verify with Language Server
@@ -171,7 +171,7 @@ func switchAccountDirect(accountID string) (bool, error) {
 		return true, fmt.Errorf("apply language server oauth and relaunch: %w", err)
 	}
 
-	log.Printf("[Cockpit] Direct native switch completed successfully for %s", detail.Email)
+	slog.Info(fmt.Sprintf("[Cockpit] Direct native switch completed successfully for %s", detail.Email))
 	return true, nil
 }
 
@@ -195,7 +195,7 @@ func SwitchAccount(accountID string) (err error) {
 	defer func() {
 		if err != nil && prevBindID != "" && prevBindID != accountID {
 			syncLegacyBindAccount(prevBindID)
-			log.Printf("[Cockpit] SwitchAccount failed; rolled back antigravity_legacy_instances bindAccountId to %s", prevBindID)
+			slog.Warn(fmt.Sprintf("[Cockpit] SwitchAccount failed; rolled back antigravity_legacy_instances bindAccountId to %s", prevBindID))
 		}
 	}()
 
@@ -257,7 +257,7 @@ func SwitchAccount(accountID string) (err error) {
 	if err := conn.WriteMessage(websocket.TextMessage, reqBytes); err != nil {
 		return fmt.Errorf("failed to send switch request: %w", err)
 	}
-	log.Printf("[Cockpit] Sent request.switch_account account_id=%s runtime_target=antigravity", accountID)
+	slog.Info(fmt.Sprintf("[Cockpit] Sent request.switch_account account_id=%s runtime_target=antigravity", accountID))
 
 	// Token refresh + inject + relaunch commonly takes >6s.
 	deadline := time.Now().Add(90 * time.Second)

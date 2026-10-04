@@ -1,12 +1,12 @@
 package proxy
 
 import (
+	"log/slog"
 	"bytes"
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -139,14 +139,14 @@ func CheckWebSocketOrigin(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
 	if origin == "" {
 		if HasBrowserFingerprint(r) {
-			log.Printf("[WS] Rejected WebSocket connection: missing Origin header from browser client (host: %s, UA: %s)", r.Host, r.Header.Get("User-Agent"))
+			slog.Warn(fmt.Sprintf("[WS] Rejected WebSocket connection: missing Origin header from browser client (host: %s, UA: %s)", r.Host, r.Header.Get("User-Agent")))
 			return false
 		}
 		return true
 	}
 	allowed := IsAllowedOrigin(origin, r.Host)
 	if !allowed {
-		log.Printf("[WS] Rejected WebSocket connection from untrusted origin: %s (host: %s)", origin, r.Host)
+		slog.Warn(fmt.Sprintf("[WS] Rejected WebSocket connection from untrusted origin: %s (host: %s)", origin, r.Host))
 	}
 	return allowed
 }
@@ -243,7 +243,7 @@ func (p *Proxy) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Upgrade client connection
 	clientConn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("[WS] Upgrade failed: %v", err)
+		slog.Warn("[WS] Upgrade failed", "err", err)
 		return
 	}
 	defer clientConn.Close()
@@ -265,9 +265,9 @@ func (p *Proxy) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	upstreamConn, resp, err := dialer.Dial(upstreamURL, reqHeader)
 	if err != nil {
-		log.Printf("[WS] Upstream dial failed (%s): %v", upstreamURL, err)
+		slog.Warn(fmt.Sprintf("[WS] Upstream dial failed (%s)", upstreamURL), "err", err)
 		if resp != nil {
-			log.Printf("[WS] Upstream response status: %d", resp.StatusCode)
+			slog.Info(fmt.Sprintf("[WS] Upstream response status: %d", resp.StatusCode))
 		}
 		clientConn.WriteMessage(websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseInternalServerErr, "Upstream connection failed"))
@@ -430,7 +430,7 @@ func (p *Proxy) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 			totalBytes := int64(prefixLen) + streamedBytes
 			closeErr := w.Close()
-			log.Printf("[WS] Streamed large message: %d bytes (%.2f MB) in %v", totalBytes, float64(totalBytes)/(1024*1024), time.Since(streamStart))
+			slog.Info(fmt.Sprintf("[WS] Streamed large message: %d bytes (%.2f MB) in %v", totalBytes, float64(totalBytes) / (1024 * 1024), time.Since(streamStart)))
 			if closeErr != nil || copyErr != nil {
 				break
 			}

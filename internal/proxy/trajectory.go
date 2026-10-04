@@ -1,12 +1,12 @@
 package proxy
 
 import (
+	"log/slog"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -662,7 +662,7 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if verboseRPC {
-		log.Printf("[Proxy] CascadeMessages: cascadeId=%s limit=%d offset=%d", cascadeID, limit, offset)
+		slog.Info("[Proxy] CascadeMessages", "cascadeId", cascadeID, "limit", limit, "offset", offset)
 	}
 
 	p.mu.RLock()
@@ -2077,7 +2077,7 @@ func (p *Proxy) SyncHistoricalTrajectories(port int, token string) error {
 	}
 
 	if verboseRPC {
-		log.Printf("[Proxy] Syncing %d historical trajectories into upstream language_server...", len(candidates))
+		slog.Info(fmt.Sprintf("[Proxy] Syncing %d historical trajectories into upstream language_server...", len(candidates)))
 	}
 
 	concurrency := 2
@@ -2103,7 +2103,7 @@ func (p *Proxy) SyncHistoricalTrajectories(port int, token string) error {
 				if err == nil {
 					successCh <- cid
 				} else if verboseRPC {
-					log.Printf("[Proxy] Failed to load historical trajectory %s: %v", cid, err)
+					slog.Warn(fmt.Sprintf("[Proxy] Failed to load historical trajectory %s", cid), "err", err)
 				}
 			}
 		}()
@@ -2119,7 +2119,7 @@ func (p *Proxy) SyncHistoricalTrajectories(port int, token string) error {
 	defaultTrajCache.loadedCascadesMu.Unlock()
 
 	if verboseRPC {
-		log.Printf("[Proxy] Finished syncing historical trajectories")
+		slog.Info("[Proxy] Finished syncing historical trajectories")
 	}
 	return nil
 }
@@ -2608,8 +2608,7 @@ func (p *Proxy) ExecuteRevert(cascadeID string, messageStepIndex int, targetInde
 	ClearPendingMessagesCache(cascadeID)
 	p.notifyStreamTouch(cascadeID)
 
-	log.Printf("[Proxy] Reverted cascade %s to step %d (message step %d, conversationOnly=%v)",
-		shortCascadeID(cascadeID), targetIndex, messageStepIndex, conversationOnly)
+	slog.Info(fmt.Sprintf("[Proxy] Reverted cascade %s to step %d (message step %d, conversationOnly=%v)", shortCascadeID(cascadeID), targetIndex, messageStepIndex, conversationOnly))
 
 	return targetIndex, nil
 }

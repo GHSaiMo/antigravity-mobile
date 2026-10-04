@@ -1,9 +1,10 @@
 package auth
 
 import (
+	"fmt"
+	"log/slog"
 	"context"
 	"encoding/json"
-	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -64,7 +65,7 @@ func ExtractToken(r *http.Request) string {
 			token = strings.TrimSpace(r.URL.Query().Get("token"))
 		}
 		if token != "" {
-			log.Printf("⚠️  [Auth] 客户端 %s 在 URL Query 传递 Token (建议改用 Header 或 /ws-ticket)", ExtractClientIP(r))
+			slog.Warn(fmt.Sprintf("⚠️  [Auth] 客户端 %s 在 URL Query 传递 Token (建议改用 Header 或 /ws-ticket)", ExtractClientIP(r)))
 			return token
 		}
 	}
@@ -164,10 +165,10 @@ func AuthMiddlewareWithPolicy(store *AuthStore, next http.Handler, policy AuthPo
 	authDisabled := AuthDisabledRequested()
 	effectiveDisabled := authDisabled && !policy.TunnelEnabled && policy.ListenLoopback
 	if authDisabled && !effectiveDisabled {
-		log.Println("⚠️  AUTH_DISABLED ignored: tunnel is enabled or gateway is not loopback-only")
+		slog.Warn("⚠️  AUTH_DISABLED ignored: tunnel is enabled or gateway is not loopback-only")
 	}
 	if effectiveDisabled {
-		log.Println("⚠️⚠️⚠️  WARNING: AUTH_DISABLED is set — authentication is bypassed for LOOPBACK requests only ⚠️⚠️⚠️")
+		slog.Warn("⚠️⚠️⚠️  WARNING: AUTH_DISABLED is set — authentication is bypassed for LOOPBACK requests only ⚠️⚠️⚠️")
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
