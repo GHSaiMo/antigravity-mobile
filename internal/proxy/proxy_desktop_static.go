@@ -295,8 +295,8 @@ func (p *Proxy) HandleDesktopIndex(w http.ResponseWriter, r *http.Request) {
   <title>Multigravity 启动中...</title>
   <link rel="icon" type="image/x-icon" href="/favicon.ico?v=4" />
   <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png?v=4" />
-  <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=3" />
-  <link rel="apple-touch-icon" href="/icons/icon-192.png?v=3" />
+  <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=4" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=4" />
   <style>
     body { background: #131313; color: #e2e8f0; font-family: -apple-system, BlinkMacSystemFont, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
     .spinner { width: 36px; height: 36px; border: 3px solid rgba(255,255,255,0.1); border-top-color: #38bdf8; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 16px; }
@@ -402,8 +402,8 @@ func (p *Proxy) HandleDesktopIndex(w http.ResponseWriter, r *http.Request) {
 	// 7. Icons, metadata, tablet detection, telemetry stub, and O(1) text node interceptor
 	multigravityIconsMeta := `    <link rel="icon" type="image/x-icon" href="/favicon.ico?v=4" />
     <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png?v=4" />
-    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=3" />
-    <link rel="apple-touch-icon" href="/icons/icon-192.png?v=3" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=4" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=4" />
     <link rel="manifest" href="/manifest.json" />
     <meta name="apple-mobile-web-app-title" content="Multigravity" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
