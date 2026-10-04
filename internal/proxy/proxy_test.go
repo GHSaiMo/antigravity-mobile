@@ -1237,9 +1237,3 @@ func TestHandleCascadeTaskStop_CamelAndSnakeCase(t *testing.T) {
 		t.Fatalf("expected 400 for missing cascadeId, got %d", rec4.Code)
 	}
 }
-
-
-
-
-
-
