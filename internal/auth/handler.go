@@ -3,7 +3,6 @@ package auth
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"net/url"
 	"runtime"
@@ -286,7 +285,7 @@ func (h *AuthHandler) HandlePair(w http.ResponseWriter, r *http.Request) {
 	rateKey := RateLimitKeyIP(clientIP)
 	if h.limiter != nil {
 		if !h.limiter.Allow("pair:global", 40, time.Minute) || !h.limiter.Allow("pair:"+rateKey, 8, time.Minute) {
-			log.Printf("[AUDIT:RATE_LIMIT] action=pair ip=%s subnet=%s", clientIP, rateKey)
+			auditWarn("RATE_LIMIT", "action", "pair", "ip", clientIP, "subnet", rateKey)
 			w.Header().Set("Retry-After", "60")
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusTooManyRequests)
@@ -305,7 +304,7 @@ func (h *AuthHandler) HandlePair(w http.ResponseWriter, r *http.Request) {
 
 	// Validate and consume code immediately (prevent replay)
 	if !h.pairingMgr.ValidateAndConsume(req.PairingCode) {
-		log.Printf("[AUDIT:PAIR_FAILURE] reason=invalid_or_expired_code ip=%s", CleanIP(r.RemoteAddr))
+		auditWarn("PAIR_FAILURE", "reason", "invalid_or_expired_code", "ip", CleanIP(r.RemoteAddr))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(map[string]string{"error": "invalid or expired pairing code"})
@@ -394,7 +393,7 @@ func (h *AuthHandler) HandleUnpair(w http.ResponseWriter, r *http.Request) {
 	if h.isAuthorizedAdmin(r) {
 		if targetID != "" {
 			_ = h.store.RemoveDevice(targetID)
-			log.Printf("[AUDIT:UNPAIR_SUCCESS] admin unpair device_id=%s ip=%s", targetID, CleanIP(r.RemoteAddr))
+			auditInfo("UNPAIR_SUCCESS", "by", "admin", "device_id", targetID, "ip", CleanIP(r.RemoteAddr))
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
 			json.NewEncoder(w).Encode(map[string]any{
@@ -407,7 +406,7 @@ func (h *AuthHandler) HandleUnpair(w http.ResponseWriter, r *http.Request) {
 
 	// 2. Device token path
 	if token == "" {
-		log.Printf("[AUDIT:AUTH_FAILURE] action=unpair reason=missing_token ip=%s", CleanIP(r.RemoteAddr))
+		auditWarn("AUTH_FAILURE", "action", "unpair", "reason", "missing_token", "ip", CleanIP(r.RemoteAddr))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized: missing authentication token"})
@@ -416,7 +415,7 @@ func (h *AuthHandler) HandleUnpair(w http.ResponseWriter, r *http.Request) {
 
 	device, ok := h.store.ValidateToken(token)
 	if !ok || device == nil {
-		log.Printf("[AUDIT:AUTH_FAILURE] action=unpair reason=invalid_token ip=%s", CleanIP(r.RemoteAddr))
+		auditWarn("AUTH_FAILURE", "action", "unpair", "reason", "invalid_token", "ip", CleanIP(r.RemoteAddr))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(map[string]string{"error": "invalid or expired token"})
@@ -425,8 +424,8 @@ func (h *AuthHandler) HandleUnpair(w http.ResponseWriter, r *http.Request) {
 
 	// If a specific targetID was provided, ensure it matches caller's deviceID unless caller is admin
 	if targetID != "" && targetID != device.DeviceID && !h.isAuthorizedAdmin(r) {
-		log.Printf("[AUDIT:AUTH_FAILURE] action=unpair reason=forbidden_target_mismatch device_id=%s target=%s ip=%s",
-			device.DeviceID, targetID, CleanIP(r.RemoteAddr))
+		auditWarn("AUTH_FAILURE", "action", "unpair", "reason", "forbidden_target_mismatch",
+			"device_id", device.DeviceID, "target", targetID, "ip", CleanIP(r.RemoteAddr))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
 		json.NewEncoder(w).Encode(map[string]string{"error": "forbidden: cannot unpair another device"})
@@ -435,9 +434,9 @@ func (h *AuthHandler) HandleUnpair(w http.ResponseWriter, r *http.Request) {
 
 	deviceIDToRemove := device.DeviceID
 	if err := h.store.RemoveDevice(deviceIDToRemove); err != nil {
-		log.Printf("[AUDIT:UNPAIR_ERROR] device_id=%s err=%v", deviceIDToRemove, err)
+		auditError("UNPAIR_ERROR", "device_id", deviceIDToRemove, "err", err)
 	} else {
-		log.Printf("[AUDIT:UNPAIR_SUCCESS] device_id=%s ip=%s", deviceIDToRemove, CleanIP(r.RemoteAddr))
+		auditInfo("UNPAIR_SUCCESS", "device_id", deviceIDToRemove, "ip", CleanIP(r.RemoteAddr))
 	}
 
 	// Clear session cookie if set
@@ -463,7 +462,7 @@ func (h *AuthHandler) HandleUnpair(w http.ResponseWriter, r *http.Request) {
 // HandleDevices handles GET /api/v1/devices and DELETE /api/v1/devices/{id}.
 func (h *AuthHandler) HandleDevices(w http.ResponseWriter, r *http.Request) {
 	if !h.isAuthorizedAdmin(r) {
-		log.Printf("[AUDIT:AUTH_FAILURE] action=devices_management ip=%s path=%s", CleanIP(r.RemoteAddr), r.URL.Path)
+		auditWarn("AUTH_FAILURE", "action", "devices_management", "ip", CleanIP(r.RemoteAddr), "path", r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
@@ -538,7 +537,7 @@ func (h *AuthHandler) HandleNewPairingSession(w http.ResponseWriter, r *http.Req
 	clientIP := ExtractClientIP(r)
 	rateKey := RateLimitKeyIP(clientIP)
 	if h.limiter != nil && !h.limiter.Allow("session:"+rateKey, 5, time.Minute) {
-		log.Printf("[AUDIT:RATE_LIMIT] action=session ip=%s subnet=%s", clientIP, rateKey)
+		auditWarn("RATE_LIMIT", "action", "session", "ip", clientIP, "subnet", rateKey)
 		w.Header().Set("Retry-After", "60")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusTooManyRequests)
@@ -547,7 +546,7 @@ func (h *AuthHandler) HandleNewPairingSession(w http.ResponseWriter, r *http.Req
 	}
 
 	if !h.isAuthorizedAdmin(r) {
-		log.Printf("[AUDIT:AUTH_FAILURE] action=create_pairing_session ip=%s", CleanIP(r.RemoteAddr))
+		auditWarn("AUTH_FAILURE", "action", "create_pairing_session", "ip", CleanIP(r.RemoteAddr))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		msg := "unauthorized: administrator token required (see ~/.multigravity/admin_token)"
@@ -666,7 +665,7 @@ func (h *AuthHandler) HandleWSTicket(w http.ResponseWriter, r *http.Request) {
 	clientIP := ExtractClientIP(r)
 	rateKey := RateLimitKeyIP(clientIP)
 	if h.limiter != nil && !h.limiter.Allow("wsticket:"+rateKey, 60, time.Minute) {
-		log.Printf("[AUDIT:RATE_LIMIT] action=wsticket ip=%s subnet=%s", clientIP, rateKey)
+		auditWarn("RATE_LIMIT", "action", "wsticket", "ip", clientIP, "subnet", rateKey)
 		w.Header().Set("Retry-After", "60")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusTooManyRequests)
@@ -702,7 +701,7 @@ func (h *AuthHandler) HandleWSTicket(w http.ResponseWriter, r *http.Request) {
 
 	token := ExtractToken(r)
 	if token == "" {
-		log.Printf("[AUDIT:AUTH_FAILURE] action=issue_wsticket reason=missing_token ip=%s", CleanIP(r.RemoteAddr))
+		auditWarn("AUTH_FAILURE", "action", "issue_wsticket", "reason", "missing_token", "ip", CleanIP(r.RemoteAddr))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized: missing token"})
@@ -711,7 +710,7 @@ func (h *AuthHandler) HandleWSTicket(w http.ResponseWriter, r *http.Request) {
 
 	dev, ok := h.store.ValidateToken(token)
 	if !ok || dev == nil {
-		log.Printf("[AUDIT:AUTH_FAILURE] action=issue_wsticket reason=invalid_token ip=%s", CleanIP(r.RemoteAddr))
+		auditWarn("AUTH_FAILURE", "action", "issue_wsticket", "reason", "invalid_token", "ip", CleanIP(r.RemoteAddr))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized: invalid token"})

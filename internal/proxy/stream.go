@@ -3,6 +3,7 @@ package proxy
 import (
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -237,7 +238,9 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 		}
 		t1 := time.Now()
 		rawResp, err := p.fetchUpstreamTrajectoryWithMaxAge(cascadeID, port, token, maxAge)
-		if time.Since(t1) > 100*time.Millisecond { log.Printf("[Stream Perf] fetchUpstream took %v", time.Since(t1)) }
+		if time.Since(t1) > 100*time.Millisecond {
+			slog.Debug("stream perf: slow fetchUpstream", "cascade_id", cascadeID, "took", time.Since(t1))
+		}
 		if err != nil {
 			if firstPush {
 				// Send empty init payload immediately so client never hangs spinning on load
@@ -271,7 +274,9 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 
 		t2 := time.Now()
 		details := p.ParseTrajectoryDetails(rawResp)
-		if time.Since(t2) > 100*time.Millisecond { log.Printf("[Stream Perf] ParseTrajectoryDetails took %v", time.Since(t2)) }
+		if time.Since(t2) > 100*time.Millisecond {
+			slog.Debug("stream perf: slow ParseTrajectoryDetails", "cascade_id", cascadeID, "took", time.Since(t2))
+		}
 		lastDetails = details
 		if details.Title != "" && details.Title != "未命名会话" {
 			cachedStreamTitle = details.Title
@@ -344,7 +349,7 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			t3 := time.Now()
 			errWrite := writeJSON(payload)
 			if time.Since(t3) > 100*time.Millisecond {
-				log.Printf("[Stream Perf] writeJSON took %v", time.Since(t3))
+				slog.Debug("stream perf: slow writeJSON", "cascade_id", cascadeID, "took", time.Since(t3))
 			}
 			if errWrite != nil {
 				return false
