@@ -161,6 +161,16 @@ func (p *Proxy) WarmupDesktopStatic(port int, token string) {
 	}()
 }
 
+// desktopStaticCacheControl lets browsers keep static assets for a day, except main.js: its
+// content changes whenever the localization dictionaries change, so it is revalidated on every
+// load (a conditional GET answered with 304 + ETag is cheap).
+func desktopStaticCacheControl(path string) string {
+	if path == "/main.js" {
+		return "no-cache"
+	}
+	return "public, max-age=86400, stale-while-revalidate=604800"
+}
+
 // HandleDesktopStatic serves desktop static assets with in-memory caching, pre-compressed gzip,
 // gateway-level zero-runtime-overhead Chinese translation for main.js, and conditional 304 validation.
 func (p *Proxy) HandleDesktopStatic(w http.ResponseWriter, r *http.Request) {
@@ -245,14 +255,14 @@ func (p *Proxy) HandleDesktopStatic(w http.ResponseWriter, r *http.Request) {
 	// 304 Not Modified validation
 	if match := r.Header.Get("If-None-Match"); match != "" && (match == item.etag || match == "*") {
 		w.Header().Set("ETag", item.etag)
-		w.Header().Set("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800")
+		w.Header().Set("Cache-Control", desktopStaticCacheControl(path))
 		w.WriteHeader(http.StatusNotModified)
 		return
 	}
 
 	w.Header().Set("Content-Type", item.contentType)
 	w.Header().Set("ETag", item.etag)
-	w.Header().Set("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800")
+	w.Header().Set("Cache-Control", desktopStaticCacheControl(path))
 	w.Header().Set("Vary", "Accept-Encoding")
 
 	if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") && len(item.gzipBody) > 0 {
