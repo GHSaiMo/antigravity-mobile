@@ -52,6 +52,32 @@ extension APIClient {
         return projects
     }
     
+    /// Set or clear (empty alias) the custom display alias of a workspace.
+    public func updateProjectAlias(path: String, alias: String, baseURL: URL) async throws {
+        let endpoint = baseURL.appendingPathComponent("gateway/projects/alias")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 10
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        struct Payload: Encodable {
+            let path: String
+            let alias: String
+        }
+        request.httpBody = try JSONEncoder().encode(Payload(
+            path: path.trimmingCharacters(in: .whitespacesAndNewlines),
+            alias: alias.trimmingCharacters(in: .whitespacesAndNewlines)
+        ))
+        
+        let (data, response) = try await transport.send(request: request)
+        guard let httpResp = response as? HTTPURLResponse else {
+            throw APIError.networkError("Invalid response type")
+        }
+        guard (200...299).contains(httpResp.statusCode) else {
+            throw APIError.serverError(statusCode: httpResp.statusCode, message: String(data: data, encoding: .utf8) ?? "")
+        }
+    }
+    
     // Create a new cascade and optionally send initial prompt
     public func createCascade(
         workspaceUri: String,

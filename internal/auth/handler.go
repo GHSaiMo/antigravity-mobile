@@ -266,6 +266,34 @@ func (h *AuthHandler) isAuthenticated(r *http.Request) bool {
 	return ok && device != nil
 }
 
+// RequestAuthorized reports whether r would pass AuthMiddleware on a protected route:
+// genuine localhost, trusted LAN (when enabled), the admin token, or a valid paired-device token.
+// It lets whitelisted HTML entry points decide between serving the app and a pairing page.
+func (h *AuthHandler) RequestAuthorized(r *http.Request) bool {
+	if AuthDisabledRequested() && !h.policy.TunnelEnabled && h.policy.ListenLoopback && IsLoopbackAddr(r.RemoteAddr) {
+		return true
+	}
+	if IsCloudflareRequest(r) {
+		return h.hasValidToken(r)
+	}
+	if IsLoopbackAddr(r.RemoteAddr) || (h.policy.TrustLAN && IsPrivateLANAddr(r.RemoteAddr)) {
+		return true
+	}
+	return h.hasValidToken(r)
+}
+
+func (h *AuthHandler) hasValidToken(r *http.Request) bool {
+	token := ExtractToken(r)
+	if token == "" {
+		return false
+	}
+	if adminTok := GetAdminToken(); adminTok != "" && ConstantTimeTokenEquals(token, adminTok) {
+		return true
+	}
+	device, ok := h.store.ValidateToken(token)
+	return ok && device != nil
+}
+
 // HandlePair handles POST /api/v1/auth/pair.
 func (h *AuthHandler) HandlePair(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {

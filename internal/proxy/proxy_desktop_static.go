@@ -23,6 +23,7 @@ func IsDesktopStaticPath(path string) bool {
 		path == "/compiled_tailwind.css" ||
 		path == "/prism_bundle.js" ||
 		path == "/diff_worker.js" ||
+		path == "/audio_processor.js" ||
 		path == "/icon.png" ||
 		strings.HasPrefix(path, "/symbols-icons/")
 }
@@ -465,7 +466,8 @@ func (p *Proxy) HandleDesktopIndex(w http.ResponseWriter, r *http.Request) {
           return origSetAttr.call(this, name, val);
         };
       })();
-    </script>`
+    </script>
+    <script>` + desktopRPCMuxJS + `</script>`
 	reFavicon := regexp.MustCompile(`(?s)<link\s+(?:[^"'<>]|"[^"]*"|'[^']*')*rel=["'](?:shortcut\s+)?icon["'](?:[^"'<>]|"[^"]*"|'[^']*')*/?\s*>`)
 	if reFavicon.MatchString(htmlStr) {
 		htmlStr = reFavicon.ReplaceAllString(htmlStr, multigravityIconsMeta)

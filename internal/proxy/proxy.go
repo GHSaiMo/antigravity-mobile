@@ -435,6 +435,11 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if r.URL.Path == "/gateway/rpc-mux" {
+		p.HandleRPCMux(w, r)
+		return
+	}
+
 	// WebSocket upgrade route
 	if r.URL.Path == "/connect-websocket" {
 		p.HandleWebSocket(w, r)

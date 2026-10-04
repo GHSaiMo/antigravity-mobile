@@ -195,6 +195,8 @@ func TestIsWhitelistedPath(t *testing.T) {
 	}{
 		{"/", true},
 		{"/index.html", true},
+		{"/desktop", true},
+		{"/pwa", true},
 		{"/web/index.html", true},
 		{"/icons/icon.png", true},
 		{"/gateway/status", false},
@@ -549,3 +551,57 @@ func TestMaxBytesMiddleware(t *testing.T) {
 
 
 
+
+func TestRequestAuthorized(t *testing.T) {
+	t.Setenv("MULTIGRAVITY_ADMIN_TOKEN", "")
+	t.Setenv("MULTIGRAVITY_AUTH_DISABLED", "")
+	t.Setenv("AUTH_DISABLED", "")
+	store, err := NewAuthStore(filepath.Join(t.TempDir(), "auth_store.json"))
+	if err != nil {
+		t.Fatalf("failed to create auth store: %v", err)
+	}
+	tok := "tok_requestauthorized_0123456789"
+	if err := store.AddDevice(PairedDevice{DeviceID: "dev-1", DeviceName: "t", Platform: "pwa", TokenHash: HashToken(tok), CreatedAt: time.Now(), LastSeenAt: time.Now()}); err != nil {
+		t.Fatalf("failed to add device: %v", err)
+	}
+	h := NewAuthHandler(store, NewPairingManager(), "mac.local", 58900, false)
+
+	mk := func(remote string, mutate func(*http.Request)) *http.Request {
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r.RemoteAddr = remote
+		if mutate != nil {
+			mutate(r)
+		}
+		return r
+	}
+	cf := func(r *http.Request) { r.Header.Set("CF-Ray", "abc") }
+
+	if !h.RequestAuthorized(mk("127.0.0.1:1000", nil)) {
+		t.Error("loopback must be authorized")
+	}
+	if h.RequestAuthorized(mk("127.0.0.1:1000", cf)) {
+		t.Error("tunnelled request without a token must not be authorized")
+	}
+	if h.RequestAuthorized(mk("192.168.1.20:1000", nil)) {
+		t.Error("LAN without TrustLAN and without token must not be authorized")
+	}
+	if h.RequestAuthorized(mk("8.8.8.8:1000", nil)) {
+		t.Error("public address without token must not be authorized")
+	}
+	withCookie := func(r *http.Request) { r.AddCookie(&http.Cookie{Name: DeviceCookieName, Value: tok}) }
+	if !h.RequestAuthorized(mk("8.8.8.8:1000", withCookie)) {
+		t.Error("paired device cookie must be authorized")
+	}
+	badCookie := func(r *http.Request) { r.AddCookie(&http.Cookie{Name: DeviceCookieName, Value: "nope"}) }
+	if h.RequestAuthorized(mk("8.8.8.8:1000", badCookie)) {
+		t.Error("unknown cookie must not be authorized")
+	}
+
+	h.SetAuthPolicy(AuthPolicy{TrustLAN: true})
+	if !h.RequestAuthorized(mk("192.168.1.20:1000", nil)) {
+		t.Error("LAN must be authorized when TrustLAN is on")
+	}
+	if h.RequestAuthorized(mk("192.168.1.20:1000", cf)) {
+		t.Error("TrustLAN must not apply to tunnelled requests")
+	}
+}
