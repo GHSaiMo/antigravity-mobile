@@ -48,6 +48,17 @@ const desktopPairingHTML = `<!DOCTYPE html>
   var qs = new URLSearchParams(location.search);
   var pre = qs.get("pair_code") || qs.get("code");
   if (pre) { input.value = pre; history.replaceState({}, "", location.pathname + location.hash); }
+  function deviceKey() {
+    try {
+      var k = localStorage.getItem("agy_device_key");
+      if (!k) {
+        k = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2));
+        if (k.length < 16) k += "0000000000000000";
+        localStorage.setItem("agy_device_key", k);
+      }
+      return k;
+    } catch (_) { return ""; }
+  }
   function parse(raw) {
     raw = (raw || "").trim();
     if (raw.indexOf("agy://") === 0) {
@@ -64,7 +75,7 @@ const desktopPairingHTML = `<!DOCTYPE html>
     fetch("/api/v1/auth/pair", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pairing_code: code, device_name: "Web Browser (Desktop)", platform: "web" })
+      body: JSON.stringify({ pairing_code: code, device_name: "Web Browser (Desktop)", platform: "web", device_key: deviceKey() })
     }).then(function (r) {
       return r.json().catch(function () { return {}; }).then(function (d) {
         if (!r.ok) throw new Error(d.error || ("配对失败 (HTTP " + r.status + ")"));

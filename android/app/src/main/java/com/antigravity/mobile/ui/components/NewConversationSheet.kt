@@ -61,7 +61,7 @@ fun NewConversationSheet(
         contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
         modifier = modifier
             .fillMaxWidth()
-            .fillMaxHeight(0.94f)
+            .fillMaxHeight()
     ) {
         Column(
             modifier = Modifier

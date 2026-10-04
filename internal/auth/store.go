@@ -29,6 +29,9 @@ type PairedDevice struct {
 	CreatedAt  time.Time `json:"created_at"`
 	LastSeenAt time.Time `json:"last_seen_at"`
 	LastSeenIP string    `json:"last_seen_ip"`
+	// DeviceKey is a client-generated stable identifier (browser localStorage / app keychain).
+	// Re-pairing with the same key replaces the existing device instead of adding a duplicate.
+	DeviceKey string `json:"device_key,omitempty"`
 }
 
 // lastSeenUpdate is a lightweight event sent to the AuthStore's background worker.
@@ -301,6 +304,21 @@ func (s *AuthStore) AddDevice(dev PairedDevice) error {
 	}
 
 	return s.save()
+}
+
+// FindByDeviceKey returns the paired device registered with the given client device key.
+func (s *AuthStore) FindByDeviceKey(key string) (PairedDevice, bool) {
+	if key == "" {
+		return PairedDevice{}, false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, d := range s.devices {
+		if d.DeviceKey == key {
+			return d, true
+		}
+	}
+	return PairedDevice{}, false
 }
 
 // ValidateToken checks whether rawToken is valid and returns the paired device.
