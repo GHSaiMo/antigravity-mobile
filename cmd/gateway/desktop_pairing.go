@@ -14,7 +14,7 @@ const desktopPairingHTML = `<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Multigravity - 设备配对</title>
-<link rel="icon" type="image/x-icon" href="/favicon.ico?v=3" />
+<link rel="icon" type="image/x-icon" href="/favicon.ico?v=4" />
 <style>
   :root { color-scheme: light dark; --bg:#f5f5f7; --card:#fff; --fg:#1d1d1f; --sub:#6e6e73; --line:#d2d2d7; --accent:#0a84ff; --err:#d70015; }
   @media (prefers-color-scheme: dark) { :root { --bg:#131313; --card:#1e1e20; --fg:#f5f5f7; --sub:#98989f; --line:#38383a; --err:#ff6961; } }
