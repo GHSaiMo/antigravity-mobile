@@ -75,6 +75,7 @@ temp/
 Agent.md
 !docs/*.md
 docs/multiplayer_collaboration_plan.md
+docs/claude_mobile_companion_plan.md
 
 # --- IDE & Editor Settings ---
 .idea/
