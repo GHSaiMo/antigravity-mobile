@@ -254,4 +254,32 @@ func TestDetermineViewMode(t *testing.T) {
 	}
 }
 
+func TestOnboardingRedirect(t *testing.T) {
+	router := setupTestRouter(t)
+
+	// Test 1: Direct /onboarding?login=true redirects to /
+	req := httptest.NewRequest(http.MethodGet, "/onboarding?login=true", nil)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusTemporaryRedirect {
+		t.Fatalf("expected 307 redirect, got %d", rr.Code)
+	}
+	if loc := rr.Header().Get("Location"); loc != "/" {
+		t.Errorf("expected Location '/', got %q", loc)
+	}
+
+	// Test 2: /onboarding with custom redirect parameter
+	req2 := httptest.NewRequest(http.MethodGet, "/onboarding?login=true&redirect=/c/123", nil)
+	rr2 := httptest.NewRecorder()
+	router.ServeHTTP(rr2, req2)
+
+	if rr2.Code != http.StatusTemporaryRedirect {
+		t.Fatalf("expected 307 redirect, got %d", rr2.Code)
+	}
+	if loc := rr2.Header().Get("Location"); loc != "/c/123" {
+		t.Errorf("expected Location '/c/123', got %q", loc)
+	}
+}
+
 

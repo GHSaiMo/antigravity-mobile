@@ -108,8 +108,8 @@ type Proxy struct {
 const nuxCacheTTL = 60 * time.Second
 
 // authStatusCacheTTL is the duration to cache GetAuthStatus responses.
-// Auth state rarely fluctuates within a minute; 60s eliminates recurring 3-6s lags.
-const authStatusCacheTTL = 60 * time.Second
+// Auth state rarely fluctuates within a session; 10 minutes eliminates recurring 3-6s lags.
+const authStatusCacheTTL = 10 * time.Minute
 
 // desktopAssetVersion provides cache-busting versioning for localized desktop assets.
 var desktopAssetVersion = fmt.Sprintf("1.0.5-%d", time.Now().Unix())

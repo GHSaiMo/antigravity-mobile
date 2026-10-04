@@ -1,13 +1,13 @@
 # Multigravity (mgy) 全平台安装、本地测试与卸载运维指南
 
-本文档系统介绍了 **Multigravity (`mgy`)** 服务端在 **macOS / Windows** 环境下的完整生命周期管理，包括**一键安装原理、多场景本地自测方案、纯净卸载流程、配置管理以及常见故障排查**。
+本文档系统介绍了 **Multigravity (`mgy`)** 服务端在 **macOS / Linux / Windows** 环境下的完整生命周期管理，包括**一键安装原理、多场景本地自测方案、纯净卸载流程、配置管理以及常见故障排查**。
 
 ---
 
 ## 目录
 
 1. [一键安装方式与原理](#1-一键安装方式与原理)
-   - [1.1 推荐安装命令 (macOS / Windows)](#11-推荐安装命令)
+   - [1.1 推荐安装命令 (macOS / Linux / Windows)](#11-推荐安装命令)
    - [1.2 安装脚本底层自适应逻辑](#12-安装脚本底层执行逻辑)
 2. [全局配置与数据目录规范](#2-全局配置与数据目录规范)
 3. [本地开发与功能自测方案](#3-本地开发与功能自测方案)
@@ -24,14 +24,14 @@
 
 ---
 
-> 💡 **Release 规范速查**：关于 Release 目标平台白名单（禁止未实测 Linux/Windows ARM64）、Release Notes 纯净度要求与多端自动化构建规范，请参阅专注文档：[`docs/release_preferences_and_workflow.md`](file:///Users/hal9000/Projects/antigravity-mobile/docs/release_preferences_and_workflow.md)。
+> 💡 **Release 规范速查**：关于 Release 目标平台白名单（包含 macOS / Linux / Windows amd64，禁止未实测 Windows ARM64）、Release Notes 纯净度要求与多端自动化构建规范，请参阅专注文档与 GitHub Actions 工作流。
 
 ## 1. 一键安装方式与原理
 
 ### 1.1 推荐安装命令
 
-#### 🍎 macOS / 🪟 Windows (Git Bash) 用户：
-在终端执行以下命令，脚本会自动探测操作系统（Darwin/Windows）与芯片架构（arm64/amd64），极速拉取并安装专属 ~7MB 二进制：
+#### 🍎 macOS / 🐧 Linux / 🪟 Windows (Git Bash) 用户：
+在终端执行以下命令，脚本会自动探测操作系统（Darwin/Linux/Windows）与芯片架构（arm64/amd64/x86_64），极速拉取并安装专属 ~7MB 二进制：
 ```bash
 # 国内网络加速一键安装（免代理、免翻墙，默认推荐）
 curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.sh | bash
@@ -92,14 +92,17 @@ flowchart TD
 
 1. **精准架构匹配**：
    - 自动将 Apple Silicon 识别为 `Apple Silicon (M系列) (arm64)`，Intel Mac 识别为 `amd64`。
+   - 自动识别 Linux 平台的 `x86_64` (amd64) 与 `aarch64` (arm64)，原生支持 Antigravity Daemon Discovery 协议与实例自愈。
+   - 自动识别 Windows 平台的 64 位及 ARM64 仿真环境。
    - 优先下载对应架构的 **~7MB 轻量包**（相比 15MB Universal 包体积缩减 50% 以上），秒级极速解压。
 2. **自适应代理嗅探**：
    - 在未配置终端环境变量的情况下，自动通过 `nc -z` 嗅探本地常见的代理软件监听端口（7890: Clash、10808: V2Ray、6152: Surge、1080 等），一旦探测到立即自动附带 `--proxy` 参数下载。
 3. **安全隔离绕过与代码签名**：
-   - 自动移除 macOS Gatekeeper 隔离属性：`xattr -d com.apple.quarantine ~/.local/bin/mgy`。
-   - 自动进行本地 Ad-hoc 签名：`codesign -s - -f ~/.local/bin/mgy`，彻底避免 macOS 弹出「无法验证开发者」安全拦截。
+   - macOS 环境：自动移除 Gatekeeper 隔离属性 `xattr -d com.apple.quarantine ~/.local/bin/mgy` 并执行本地 Ad-hoc 签名 `codesign -s - -f ~/.local/bin/mgy`，彻底避免弹出「无法验证开发者」安全拦截。
+   - Linux 环境：自动赋予可执行权限 `chmod +x ~/.local/bin/mgy`。
+   - Windows 环境：自动注册至 WindowsApps 目录并写入用户 PATH 环境变量。
 4. **环境免打扰注入与全局即刻可用**：
-   - 安装至用户主目录下的 `~/.local/bin/mgy`，并自动优先软链接至已在系统 `$PATH` 中的目录（如 `/opt/homebrew/bin` 或 `/usr/local/bin`），实现安装完成即在当前终端直接可用（**免手动 `source ~/.zshrc`**）。
+   - 安装至用户主目录下的 `~/.local/bin/mgy`，并自动优先软链接至已在系统 `$PATH` 中的目录（如 `/usr/local/bin` 或 macOS `/opt/homebrew/bin`），实现安装完成即在当前终端直接可用（**免手动 `source ~/.zshrc`**）。
    - 同时在 `~/.zshrc` 与 `~/.zprofile`（或 `~/.bashrc`）中自动持久化追加环境变量，保证任何新开终端、IDE 终端及远程会话持久有效。
 
 ---
@@ -144,8 +147,8 @@ Multigravity 统一遵循行业标准的配置与数据隔离规范，全部数�
    curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.sh | bash
    ```
 3. **预期验收结果**：
-   - 终端正确打印芯片架构，例如：`🖥️ 检测到系统架构: Apple Silicon (M系列) (arm64)`；
-   - 成功从镜像地址下载 `multigravity-darwin-arm64.tar.gz`（约 7.1MB）；
+   - 终端正确打印芯片架构，例如：`🖥️ 检测到系统架构: Apple Silicon (M系列) (arm64)` 或 Linux 环境 `🖥️ 检测到系统架构: Linux x86_64 (amd64)`；
+   - 成功从镜像地址下载对应平台的轻量包（如 `multigravity-darwin-arm64.tar.gz` 或 `multigravity-linux-amd64.tar.gz`，约 7MB）；
    - 执行 `which mgy` 输出 `~/.local/bin/mgy`；
    - 执行 `mgy version` 正确输出版本号（如 `1.0.0`）。
 
@@ -176,7 +179,7 @@ Multigravity 统一遵循行业标准的配置与数据隔离规范，全部数�
 ### 场景三：Cloudflare 隧道与移动端外网验证
 **测试目标**：验证网关自动建立的 Cloudflare 专属安全 HTTPS 穿透通道能否在外网蜂窝移动数据下无缝连通。
 
-1. 在 Mac 上运行 `mgy`（或在已有服务运行时运行 `mgy pair`）：
+1. 在 Mac / Linux / Windows 电脑上运行 `mgy`（或在已有服务运行时运行 `mgy pair`）：
    - 控制台会自动打印专属 HTTPS 域名与配对二维码：
      ```text
      ☁️  Cloudflare 隧道公网就绪: https://xxxx.mgy.jiuge.space
@@ -318,13 +321,14 @@ rm -rf ~/.multigravity
 为了保障生产与公开发布的纯净度与稳定性，项目建立并固化了以下发版准则（详细准则见 [`docs/release_preferences_and_workflow.md`](file:///Users/hal9000/Projects/antigravity-mobile/docs/release_preferences_and_workflow.md)）：
 
 1. **严格限制发布平台（仅限充分实测平台）**：
-   - 官方 Release 仅上架 5 个核心资产：
+   - 官方 Release 上架 6 个核心资产：
      - `Multigravity-v<version>.apk`（Android 客户端，带自签名直接安装）
      - `multigravity-darwin-arm64.tar.gz`（macOS Apple Silicon）
      - `multigravity-darwin-amd64.tar.gz`（macOS Intel）
      - `multigravity-darwin-universal.tar.gz`（macOS 双架构通用胖二进制）
+     - `multigravity-linux-amd64.tar.gz`（Linux x86_64）
      - `multigravity-windows-amd64.zip`（Windows x86_64）
-   - **未经充分测试的 Linux 与 Windows ARM64 严禁进入 Release**。
+   - **未经充分测试的 Windows ARM64 严禁进入 Release**。
 2. **Release Notes 拒绝 Commit 刷屏**：
    - CI 配置禁止自动追加 `generate_release_notes`。
    - 统一采用干净专业、格式优美的 Release 说明（`.github/release_notes.md`）。
@@ -358,17 +362,21 @@ rm -rf ~/.multigravity
   pkill -f mgy
   ```
 
-### Q3: 提示 macOS 安全拦截或 Gatekeeper 弹窗？
-- **原因**：二进制未经过苹果企业开发者证书签名。
-- **解决办法**：安装脚本已自带本地 Ad-hoc 签名。若手动拷贝二进制，可手动执行：
+### Q3: 提示 macOS 安全拦截或 Gatekeeper 弹窗 / Linux 权限不足？
+- **原因**：macOS 二进制未经过苹果企业开发者证书签名；或 Linux 下未赋予执行权限。
+- **解决办法**：安装脚本已自带本地 Ad-hoc 签名与赋权。若手动拷贝二进制，可手动执行：
   ```bash
+  # macOS
   xattr -d com.apple.quarantine ~/.local/bin/mgy
   codesign -s - -f ~/.local/bin/mgy
+
+  # Linux
+  chmod +x ~/.local/bin/mgy
   ```
 
 ### Q4: 手机扫码后提示「网络连接超时」？
 - **排查顺口溜**：
-  1. **同一 Wi-Fi 下**：确认手机与 Mac 处于同一局域网（且路由器未开启 AP 隔离）；
+  1. **同一 Wi-Fi 下**：确认手机与电脑（Mac / Linux / Windows）处于同一局域网（且路由器未开启 AP 隔离）；
   2. **外网 4G/5G 下**：手机关闭 Wi-Fi，检查 Cloudflare 专属隧道域名是否正常就绪与连通；
   3. **无公网穿透时**：建议在 `~/.multigravity/.env` 中配置 FRP 云服务器中继（参考 [HTTPS 域名中继配置指南](docs/https_cloud_relay_guide.md)）。
 

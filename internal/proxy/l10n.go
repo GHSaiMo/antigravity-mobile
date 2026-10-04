@@ -22,6 +22,7 @@ import (
 // escapes (\n, \", …) must be written with the same escapes.
 
 var reDisposeGC = regexp.MustCompile(`(this\._disposeEntry\([a-zA-Z0-9_$]+\)\s*\}\s*,\s*)(?:3E4|30000)(\s*\))`)
+var reOnboardingFeature = regexp.MustCompile(`onboarding:\{feature:\{enabled:!0,screens:\[[^\]]*\]\}`)
 
 // l10nMaxLiteral bounds how far we look for a literal's closing quote.
 const l10nMaxLiteral = 600
@@ -278,6 +279,18 @@ func LocalizeMainJS(data []byte) []byte {
 	} else if reDisposeGC.Match(data) {
 		data = reDisposeGC.ReplaceAll(data, []byte("${1}0${2}"))
 	}
+
+	// Completely disable web onboarding / login redirect trap in main.js.
+	// When accessed via browser, upstream main.js enables onboarding screens [2, 7, 1, 8] or [7]
+	// and checks `q = !p?.length || p.includes(2)`. If transient auth validation latency occurs
+	// or before JetboxSubscribeToState sets agentOnboardingCompleted=2, TanStack router or the
+	// auth listener immediately redirects to `/onboarding?login=true` ("安全声明与数据使用"),
+	// where it gets trapped because `c.login` prevents automatic redirection back to `/`.
+	// Neutralizing `q = !1`, `hasOnboardingScreens: !1`, and disabling onboarding feature flags
+	// prevents any web redirection to /onboarding.
+	data = bytes.ReplaceAll(data, []byte("q=!p?.length||p.includes(2)"), []byte("q=!1"))
+	data = bytes.ReplaceAll(data, []byte("hasOnboardingScreens:f"), []byte("hasOnboardingScreens:!1"))
+	data = reOnboardingFeature.ReplaceAll(data, []byte("onboarding:{feature:{enabled:!1,screens:[]}"))
 
 	if l10nDisabled("bundle") {
 		return data

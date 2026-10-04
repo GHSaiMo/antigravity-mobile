@@ -8,9 +8,11 @@ public struct OnboardingGuideView: View {
     @Environment(\.openURL) private var openURL
     
     private let macInstallCommand = "curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.sh | bash"
+    private let linuxInstallCommand = "curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.sh | bash"
     private let winInstallCommand = "irm https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.ps1 | iex"
     private let runCommand = "mgy"
     @State private var isMacCopied = false
+    @State private var isLinuxCopied = false
     @State private var isWinCopied = false
     
     public init(
@@ -23,21 +25,28 @@ public struct OnboardingGuideView: View {
         self.onEasterEggTap = onEasterEggTap
     }
     
-    private func copyCommand(_ command: String, isMac: Bool) {
+    private func copyCommand(_ command: String, target: String) {
         UIPasteboard.general.string = command
         let generator = UINotificationFeedbackGenerator()
         generator.notificationOccurred(.success)
-        if isMac {
+        switch target {
+        case "mac":
             isMacCopied = true
-        } else {
-            isWinCopied = true
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            if isMac {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                 isMacCopied = false
-            } else {
+            }
+        case "linux":
+            isLinuxCopied = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                isLinuxCopied = false
+            }
+        case "win":
+            isWinCopied = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                 isWinCopied = false
             }
+        default:
+            break
         }
     }
     
@@ -95,7 +104,7 @@ public struct OnboardingGuideView: View {
                                 .foregroundColor(.primary)
                         }
                         
-                        Text("手机端需配合运行在 Mac 或 Windows 电脑上的本地网关协同工作，嗅探后台实例打通直连。")
+                        Text("手机端需配合运行在 Mac、Linux 或 Windows 电脑上的本地网关协同工作，嗅探后台实例打通直连。")
                             .font(.system(size: 12.5))
                             .foregroundColor(.secondary)
                             .lineSpacing(3.5)
@@ -119,7 +128,7 @@ public struct OnboardingGuideView: View {
                                             .minimumScaleFactor(0.85)
                                     }
                                     Spacer()
-                                    Button(action: { copyCommand(macInstallCommand, isMac: true) }) {
+                                    Button(action: { copyCommand(macInstallCommand, target: "mac") }) {
                                         HStack(spacing: 4) {
                                             Image(systemName: isMacCopied ? "checkmark" : "doc.on.doc")
                                                 .font(.system(size: 11, weight: .semibold))
@@ -139,9 +148,64 @@ public struct OnboardingGuideView: View {
                                 }
                                 .frame(height: 24)
                                 
-                                Button(action: { copyCommand(macInstallCommand, isMac: true) }) {
+                                Button(action: { copyCommand(macInstallCommand, target: "mac") }) {
                                     ScrollView(.horizontal, showsIndicators: false) {
                                         Text(macInstallCommand)
+                                            .font(.system(size: 11.5, weight: .regular, design: .monospaced))
+                                            .foregroundColor(.primary)
+                                            .lineLimit(1)
+                                            .padding(.horizontal, 9)
+                                            .padding(.vertical, 8.5)
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                            .fill(Color(uiColor: .tertiarySystemBackground))
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                            .stroke(Color.primary.opacity(0.06), lineWidth: 1)
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            
+                            // Linux
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack {
+                                    HStack(spacing: 5) {
+                                        LinuxLogoView(size: 11.5)
+                                            .frame(width: 12, height: 12)
+                                        Text("Linux (Ubuntu / Debian / CentOS)")
+                                            .font(.system(size: 11.5, weight: .semibold))
+                                            .foregroundColor(.primary)
+                                            .lineLimit(1)
+                                            .minimumScaleFactor(0.85)
+                                    }
+                                    Spacer()
+                                    Button(action: { copyCommand(linuxInstallCommand, target: "linux") }) {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: isLinuxCopied ? "checkmark" : "doc.on.doc")
+                                                .font(.system(size: 11, weight: .semibold))
+                                                .frame(width: 13, height: 13)
+                                            Text(isLinuxCopied ? "已复制" : "一键复制")
+                                                .font(.system(size: 11, weight: .semibold))
+                                        }
+                                        .foregroundColor(isLinuxCopied ? .green : .blue)
+                                        .frame(width: 70, height: 24)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                                .fill(isLinuxCopied ? Color.green.opacity(0.12) : Color.blue.opacity(0.1))
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
+                                    .animation(.easeInOut(duration: 0.2), value: isLinuxCopied)
+                                }
+                                .frame(height: 24)
+                                
+                                Button(action: { copyCommand(linuxInstallCommand, target: "linux") }) {
+                                    ScrollView(.horizontal, showsIndicators: false) {
+                                        Text(linuxInstallCommand)
                                             .font(.system(size: 11.5, weight: .regular, design: .monospaced))
                                             .foregroundColor(.primary)
                                             .lineLimit(1)
@@ -173,7 +237,7 @@ public struct OnboardingGuideView: View {
                                             .lineLimit(1)
                                     }
                                     Spacer()
-                                    Button(action: { copyCommand(winInstallCommand, isMac: false) }) {
+                                    Button(action: { copyCommand(winInstallCommand, target: "win") }) {
                                         HStack(spacing: 4) {
                                             Image(systemName: isWinCopied ? "checkmark" : "doc.on.doc")
                                                 .font(.system(size: 11, weight: .semibold))
@@ -193,7 +257,7 @@ public struct OnboardingGuideView: View {
                                 }
                                 .frame(height: 24)
                                 
-                                Button(action: { copyCommand(winInstallCommand, isMac: false) }) {
+                                Button(action: { copyCommand(winInstallCommand, target: "win") }) {
                                     ScrollView(.horizontal, showsIndicators: false) {
                                         Text(winInstallCommand)
                                             .font(.system(size: 11.5, weight: .regular, design: .monospaced))
@@ -373,5 +437,24 @@ public struct WindowsLogoView: View {
             }
         }
         .frame(width: size, height: size)
+    }
+}
+
+public struct LinuxLogoView: View {
+    public var size: CGFloat
+    public var color: Color?
+    
+    public init(size: CGFloat = 11.5, color: Color? = nil) {
+        self.size = size
+        self.color = color
+    }
+    
+    public var body: some View {
+        Image("LinuxLogo")
+            .renderingMode(.template)
+            .resizable()
+            .aspectRatio(contentMode: .fit)
+            .foregroundColor(color ?? .secondary)
+            .frame(width: size, height: size)
     }
 }

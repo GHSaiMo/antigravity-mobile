@@ -54,3 +54,30 @@ func TestLocalizeMainJS_DisposeGC_DifferentVar(t *testing.T) {
 	}
 }
 
+func TestLocalizeMainJS_DisableOnboarding(t *testing.T) {
+	input := []byte(`const a = "features:{onboarding:{feature:{enabled:!0,screens:[7]}}}"; const b = "onboarding:{feature:{enabled:!0,screens:[2,\n7,1,8]}"; const c = "q=!p?.length||p.includes(2);"; const d = "hasOnboardingScreens:f,";`)
+	output := LocalizeMainJS(input)
+
+	if bytes.Contains(output, []byte(`q=!p?.length||p.includes(2)`)) {
+		t.Errorf("expected q=!p?.length||p.includes(2) to be replaced, got: %s", string(output))
+	}
+	if !bytes.Contains(output, []byte(`q=!1;`)) {
+		t.Errorf("expected q=!1;, got: %s", string(output))
+	}
+	if bytes.Contains(output, []byte(`hasOnboardingScreens:f`)) {
+		t.Errorf("expected hasOnboardingScreens:f to be replaced, got: %s", string(output))
+	}
+	if !bytes.Contains(output, []byte(`hasOnboardingScreens:!1,`)) {
+		t.Errorf("expected hasOnboardingScreens:!1,, got: %s", string(output))
+	}
+	if bytes.Contains(output, []byte(`onboarding:{feature:{enabled:!0,screens:[7]}`)) {
+		t.Errorf("expected onboarding screens:[7] to be disabled, got: %s", string(output))
+	}
+	if bytes.Contains(output, []byte(`onboarding:{feature:{enabled:!0,screens:[2,\n7,1,8]}`)) {
+		t.Errorf("expected onboarding screens:[2,7,1,8] to be disabled, got: %s", string(output))
+	}
+	if !bytes.Contains(output, []byte(`onboarding:{feature:{enabled:!1,screens:[]}`)) {
+		t.Errorf("expected onboarding to have enabled:!1, got: %s", string(output))
+	}
+}
+
