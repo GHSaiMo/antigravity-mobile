@@ -293,8 +293,8 @@ func (p *Proxy) HandleDesktopIndex(w http.ResponseWriter, r *http.Request) {
 <head>
   <meta charset="UTF-8">
   <title>Multigravity 启动中...</title>
-  <link rel="icon" type="image/x-icon" href="/favicon.ico?v=3" />
-  <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png?v=3" />
+  <link rel="icon" type="image/x-icon" href="/favicon.ico?v=4" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png?v=4" />
   <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=3" />
   <link rel="apple-touch-icon" href="/icons/icon-192.png?v=3" />
   <style>
@@ -400,8 +400,8 @@ func (p *Proxy) HandleDesktopIndex(w http.ResponseWriter, r *http.Request) {
 	htmlStr = strings.ReplaceAll(htmlStr, `href="/compiled_tailwind.css"`, fmt.Sprintf(`href="/compiled_tailwind.css?v=%s"`, desktopAssetVersion))
 
 	// 7. Icons, metadata, tablet detection, telemetry stub, and O(1) text node interceptor
-	multigravityIconsMeta := `    <link rel="icon" type="image/x-icon" href="/favicon.ico?v=3" />
-    <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png?v=3" />
+	multigravityIconsMeta := `    <link rel="icon" type="image/x-icon" href="/favicon.ico?v=4" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png?v=4" />
     <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=3" />
     <link rel="apple-touch-icon" href="/icons/icon-192.png?v=3" />
     <link rel="manifest" href="/manifest.json" />
