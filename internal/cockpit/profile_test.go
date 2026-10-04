@@ -155,21 +155,41 @@ func TestSyncLegacyBindAccount(t *testing.T) {
 }
 
 func TestEnsureAntigravityStateDBs(t *testing.T) {
+	// execSQLite shells out to sqlite3 or python; skip on machines that have neither.
+	hasSQLite := false
+	for _, bin := range []string{"sqlite3", "python", "python3"} {
+		if _, err := exec.LookPath(bin); err == nil {
+			hasSQLite = true
+			break
+		}
+	}
+	if !hasSQLite {
+		t.Skip("neither sqlite3 nor python available")
+	}
+
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
 	t.Setenv("USERPROFILE", tmp)
 	t.Setenv("APPDATA", filepath.Join(tmp, "AppData", "Roaming"))
+	t.Setenv("XDG_CONFIG_HOME", "")
 
-	// Create a base Antigravity dir
-	agDir := filepath.Join(tmp, "Library", "Application Support", "Antigravity")
-	_ = os.MkdirAll(agDir, 0755)
+	// On macOS the IDE symlink is only created next to an existing Antigravity dir.
+	macAgDir := filepath.Join(tmp, "Library", "Application Support", "Antigravity")
+	if runtime.GOOS == "darwin" {
+		_ = os.MkdirAll(macAgDir, 0755)
+	}
 
 	ensureAntigravityStateDBs()
 
-	// Verify state.vscdb is created in Antigravity
-	dbPath := filepath.Join(agDir, "User", "globalStorage", "state.vscdb")
-	if _, err := os.Stat(dbPath); err != nil {
-		t.Fatalf("expected state.vscdb to be created at %s, got: %v", dbPath, err)
+	// Every platform-specific state.vscdb location must have been initialized.
+	paths := antigravityStateDBPaths()
+	if len(paths) == 0 {
+		t.Fatal("expected at least one state.vscdb path")
+	}
+	for _, dbPath := range paths {
+		if _, err := os.Stat(dbPath); err != nil {
+			t.Fatalf("expected state.vscdb to be created at %s, got: %v", dbPath, err)
+		}
 	}
 
 	// On macOS, verify Antigravity IDE symlink or dir is created
@@ -180,4 +200,3 @@ func TestEnsureAntigravityStateDBs(t *testing.T) {
 		}
 	}
 }
-
