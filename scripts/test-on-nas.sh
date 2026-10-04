@@ -14,19 +14,22 @@
 #   NAS_HOST         SSH 主机别名                       默认 nas
 #   NAS_WORKDIR      NAS 上的工作目录（代码/工具链/缓存）  默认 /tmp/mgy-ci
 #   NAS_GOPROXY      NAS 上可访问的 Go 模块代理           默认 http://127.0.0.1:10001
-#   NAS_IMAGE        运行测试的镜像（需带 python 或 sqlite3）默认 muccg/devpi:latest
-#   NAS_TOOLCHAIN_IMAGE  解压工具链用的镜像（需 busybox unzip） 默认 alpine:latest
+#   NAS_IMAGE        容器基础镜像（只提供根文件系统骨架）  默认 alpine:latest
+#   NAS_CGO          是否启用 cgo（CI 默认启用，需 NAS 宿主机有 gcc） 默认 1
 #
 # 工作方式：Go 工具链通过 NAS_GOPROXY 以 golang.org/toolchain 模块下载并缓存（版本取自 go.mod），
 # 依赖同样走该代理；测试在一次性容器里以普通用户（uid 1001）+ 临时 HOME 运行，用完即删。
+# 容器把 NAS 宿主机（Debian）的 /usr、/lib、/bin 等以只读方式挂入，因此拥有与 ubuntu runner 相近的
+# 用户态（sqlite3、lsof、python3、gcc、ss 等）——这些工具缺失时，依赖它们的测试会被 t.Skip，
+# 从而漏掉只在 CI 上才暴露的失败。容器内不会写入宿主机的系统目录。
 # 同步的是本地工作区（含未提交改动），不含 android/ ios/ images/ 等与 Go 无关的目录。
 set -euo pipefail
 
 NAS_HOST="${NAS_HOST:-nas}"
 NAS_WORKDIR="${NAS_WORKDIR:-/tmp/mgy-ci}"
 NAS_GOPROXY="${NAS_GOPROXY:-http://127.0.0.1:10001}"
-NAS_IMAGE="${NAS_IMAGE:-muccg/devpi:latest}"
-NAS_TOOLCHAIN_IMAGE="${NAS_TOOLCHAIN_IMAGE:-alpine:latest}"
+NAS_IMAGE="${NAS_IMAGE:-alpine:latest}"
+NAS_CGO="${NAS_CGO:-1}"
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "${PROJECT_DIR}"
@@ -61,7 +64,7 @@ for i in 1 2 3 4 5 6; do
 done
 [ "\$ok" = "1" ] || { echo "❌ 无法从 ${NAS_GOPROXY} 下载 Go 工具链" >&2; exit 4; }
 rm -rf toolchain && mkdir toolchain
-docker run --rm -v '${NAS_WORKDIR}:/work' '${NAS_TOOLCHAIN_IMAGE}' unzip -q /work/go-toolchain.zip -d /work/toolchain
+docker run --rm -v '${NAS_WORKDIR}:/work' '${NAS_IMAGE}' unzip -q /work/go-toolchain.zip -d /work/toolchain
 rm -f go-toolchain.zip
 chmod -R a+rX toolchain
 test -x '${TOOLCHAIN_DIR}/bin/go'
@@ -89,13 +92,14 @@ QUOTED_ARGS="$(printf '%q ' "${GO_TEST_ARGS[@]}")"
 
 set +e
 "${SSH[@]}" "docker run --rm --network host -u 1001:1001 \
+  -v /usr:/usr:ro -v /lib:/lib:ro -v /lib64:/lib64:ro -v /bin:/bin:ro -v /sbin:/sbin:ro \
   -e HOME=/home/runner -e CI=true \
   -e GOROOT='/work/toolchain/golang.org/toolchain@${TOOLCHAIN_MOD}' \
-  -e GOTOOLCHAIN=local -e GOPROXY='${NAS_GOPROXY}' -e GOSUMDB=off -e GOFLAGS=-mod=mod -e CGO_ENABLED=0 \
+  -e GOTOOLCHAIN=local -e GOPROXY='${NAS_GOPROXY}' -e GOSUMDB=off -e GOFLAGS=-mod=mod -e CGO_ENABLED='${NAS_CGO}' \
   -e GOCACHE=/work/cache -e GOPATH=/work/gopath \
   --tmpfs /home/runner:rw,exec,uid=1001,gid=1001,mode=0755 \
   -v '${NAS_WORKDIR}:/work' -w /work/repo \
-  --entrypoint sh '${NAS_IMAGE}' -c 'export PATH=\$GOROOT/bin:\$PATH; \
+  --entrypoint /bin/bash '${NAS_IMAGE}' -c 'export PATH=\$GOROOT/bin:\$PATH; \
     go version && echo --- go vet && go vet ./... && echo --- go build && go build ./... \
     && echo --- go test && go test -count=1 ${QUOTED_ARGS//\'/\'\\\'\'}'"
 RC=$?
