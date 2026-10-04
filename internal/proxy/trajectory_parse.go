@@ -451,19 +451,9 @@ func detectProceed(rawResp *upstreamTrajectoryResp, steps []TrajectoryStep, last
 									planMetaPath := filepath.Join(home, ".gemini/antigravity/brain", rawResp.Trajectory.CascadeID, "implementation_plan.md.metadata.json")
 									if readMetadataRequestFeedback(planMetaPath) {
 										reqFeedback = true
-										if uri == "" {
-											planAbs := filepath.Join(home, ".gemini", "antigravity", "brain", rawResp.Trajectory.CascadeID, "implementation_plan.md")
-											uri = normalizeURI("file:///" + filepath.ToSlash(planAbs))
-										}
 									}
 								}
 							}
-						}
-
-						// If the artifact was already approved and this step did NOT explicitly request feedback via ArtifactMetadata,
-						// do not trigger Proceed.
-						if isApproved && (ca.ArtifactMetadata == nil || !ca.ArtifactMetadata.RequestFeedback) {
-							reqFeedback = false
 						}
 					}
 
