@@ -41,6 +41,7 @@ import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import java.net.URLDecoder
 import java.net.URLEncoder
+import com.antigravity.mobile.ui.viewmodel.prepareSession
 
 class MainActivity : ComponentActivity() {
 
