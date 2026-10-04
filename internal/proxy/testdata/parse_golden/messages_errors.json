@@ -1,0 +1,42 @@
+{
+  "details": {
+    "cascadeId": "g-messages-errors",
+    "title": "go",
+    "status": "CASCADE_RUN_STATUS_ERROR",
+    "hasError": true,
+    "errorMessage": "legacy error",
+    "duration": "0秒",
+    "totalSteps": 5,
+    "totalTools": 0,
+    "workspaceUri": "",
+    "steps": null,
+    "allMessages": [
+      {
+        "id": "step-0",
+        "type": "user",
+        "role": "user",
+        "text": "go",
+        "content": "go",
+        "stepIndex": 0
+      },
+      {
+        "id": "step-2",
+        "type": "error",
+        "role": "error",
+        "text": "fatal boom",
+        "content": "fatal boom"
+      },
+      {
+        "id": "step-4",
+        "type": "error",
+        "role": "error",
+        "text": "legacy error",
+        "content": "legacy error"
+      }
+    ],
+    "queuedMessages": [],
+    "canProceed": false
+  },
+  "cachedTitle": "go",
+  "lastKnownConfig": ""
+}

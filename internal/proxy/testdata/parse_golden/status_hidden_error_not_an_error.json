@@ -1,0 +1,27 @@
+{
+  "details": {
+    "cascadeId": "g-status-hidden",
+    "title": "go",
+    "status": "CASCADE_RUN_STATUS_IDLE",
+    "hasError": false,
+    "duration": "0秒",
+    "totalSteps": 2,
+    "totalTools": 0,
+    "workspaceUri": "",
+    "steps": null,
+    "allMessages": [
+      {
+        "id": "step-0",
+        "type": "user",
+        "role": "user",
+        "text": "go",
+        "content": "go",
+        "stepIndex": 0
+      }
+    ],
+    "queuedMessages": [],
+    "canProceed": false
+  },
+  "cachedTitle": "go",
+  "lastKnownConfig": ""
+}

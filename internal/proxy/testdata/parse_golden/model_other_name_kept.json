@@ -1,0 +1,35 @@
+{
+  "details": {
+    "cascadeId": "g-model-other",
+    "title": "x",
+    "status": "CASCADE_RUN_STATUS_IDLE",
+    "hasError": false,
+    "duration": "0秒",
+    "totalSteps": 1,
+    "totalTools": 0,
+    "workspaceUri": "",
+    "steps": null,
+    "allMessages": [
+      {
+        "id": "step-0",
+        "type": "user",
+        "role": "user",
+        "text": "x",
+        "content": "x",
+        "stepIndex": 0
+      }
+    ],
+    "queuedMessages": [],
+    "activeModel": "mystery-model",
+    "modelDisplayName": "mystery-model",
+    "cascadeConfig": {
+      "plannerConfig": {
+        "modelName": "mystery-model"
+      }
+    },
+    "cascadeConfigRaw": "{\"plannerConfig\":{\"modelName\":\"mystery-model\"}}",
+    "canProceed": false
+  },
+  "cachedTitle": "x",
+  "lastKnownConfig": "{\"plannerConfig\":{\"modelName\":\"mystery-model\"}}"
+}

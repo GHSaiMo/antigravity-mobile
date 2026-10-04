@@ -1,0 +1,33 @@
+{
+  "details": {
+    "cascadeId": "g-queued",
+    "status": "CASCADE_RUN_STATUS_RUNNING",
+    "hasError": false,
+    "duration": "0秒",
+    "totalSteps": 0,
+    "totalTools": 0,
+    "workspaceUri": "",
+    "steps": null,
+    "allMessages": null,
+    "queuedMessages": [
+      {
+        "id": "q1",
+        "text": "visible one",
+        "createdAt": "2026-01-01T00:00:00Z"
+      },
+      {
+        "id": "q4",
+        "text": "task result",
+        "createdAt": "2026-01-02T00:00:00Z"
+      },
+      {
+        "id": "q7",
+        "text": "when idle numeric",
+        "createdAt": "2026-01-01T00:00:00Z"
+      }
+    ],
+    "canProceed": false
+  },
+  "cachedTitle": "",
+  "lastKnownConfig": ""
+}

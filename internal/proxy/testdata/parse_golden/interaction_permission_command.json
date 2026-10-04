@@ -1,0 +1,77 @@
+{
+  "details": {
+    "cascadeId": "g-int-cmd",
+    "title": "go",
+    "status": "CASCADE_RUN_STATUS_RUNNING",
+    "hasError": false,
+    "duration": "0秒",
+    "totalSteps": 2,
+    "totalTools": 1,
+    "workspaceUri": "",
+    "steps": null,
+    "allMessages": [
+      {
+        "id": "step-0",
+        "type": "user",
+        "role": "user",
+        "text": "go",
+        "content": "go",
+        "stepIndex": 0
+      },
+      {
+        "id": "tools-1",
+        "type": "tools",
+        "role": "tools",
+        "text": "已思考并执行 1 项操作",
+        "content": "已思考并执行 1 项操作",
+        "toolCount": 1,
+        "toolNames": [
+          "run_command"
+        ]
+      }
+    ],
+    "queuedMessages": [],
+    "canProceed": false,
+    "pendingInteraction": {
+      "type": "permission",
+      "trajectoryId": "traj-g-int-cmd",
+      "stepIndex": 1,
+      "title": "Allow executing this command?",
+      "target": "rm -rf x",
+      "action": "run_command",
+      "options": [
+        {
+          "id": "1",
+          "text": "Yes, allow this time",
+          "scope": 1
+        },
+        {
+          "id": "2",
+          "text": "Yes, and always allow in this conversation",
+          "scope": 2
+        },
+        {
+          "id": "3",
+          "text": "Yes, and always allow in this project",
+          "scope": 3
+        },
+        {
+          "id": "4",
+          "text": "Yes, and always allow",
+          "scope": 4
+        },
+        {
+          "id": "5",
+          "text": "No",
+          "isDeny": true
+        }
+      ],
+      "defaultOptionId": "1",
+      "hasWriteIn": true,
+      "writeInLabel": "No",
+      "writeInPlaceholder": "(tell the agent what to do instead)"
+    }
+  },
+  "cachedTitle": "go",
+  "lastKnownConfig": ""
+}

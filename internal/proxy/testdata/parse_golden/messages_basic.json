@@ -1,0 +1,81 @@
+{
+  "details": {
+    "cascadeId": "g-messages-basic",
+    "title": "hello",
+    "status": "CASCADE_RUN_STATUS_IDLE",
+    "hasError": false,
+    "duration": "0秒",
+    "totalSteps": 10,
+    "totalTools": 5,
+    "workspaceUri": "",
+    "steps": null,
+    "allMessages": [
+      {
+        "id": "step-0",
+        "type": "user",
+        "role": "user",
+        "text": "hello",
+        "content": "hello",
+        "stepIndex": 0
+      },
+      {
+        "id": "tools-1",
+        "type": "tools",
+        "role": "tools",
+        "text": "已思考并执行 3 项操作",
+        "content": "已思考并执行 3 项操作",
+        "toolCount": 3,
+        "toolNames": [
+          "view_file",
+          "Ran command",
+          "grep_search"
+        ]
+      },
+      {
+        "id": "step-6",
+        "type": "agent",
+        "role": "assistant",
+        "text": "done, see ![shot](https://example.com/a.png)",
+        "content": "done, see ![shot](https://example.com/a.png)",
+        "stepIndex": 6,
+        "imageUrls": [
+          "https://example.com/a.png"
+        ]
+      },
+      {
+        "id": "tools-3",
+        "type": "tools",
+        "role": "tools",
+        "text": "已思考并执行 1 项操作",
+        "content": "已思考并执行 1 项操作",
+        "toolCount": 1,
+        "toolNames": [
+          "list_dir"
+        ]
+      },
+      {
+        "id": "step-8",
+        "type": "user",
+        "role": "user",
+        "text": "thanks",
+        "content": "thanks",
+        "stepIndex": 8
+      },
+      {
+        "id": "tools-5",
+        "type": "tools",
+        "role": "tools",
+        "text": "已思考并执行 1 项操作",
+        "content": "已思考并执行 1 项操作",
+        "toolCount": 1,
+        "toolNames": [
+          "find"
+        ]
+      }
+    ],
+    "queuedMessages": [],
+    "canProceed": false
+  },
+  "cachedTitle": "hello",
+  "lastKnownConfig": ""
+}

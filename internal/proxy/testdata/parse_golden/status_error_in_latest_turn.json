@@ -1,0 +1,43 @@
+{
+  "details": {
+    "cascadeId": "g-status-err",
+    "title": "go",
+    "status": "CASCADE_RUN_STATUS_ERROR",
+    "hasError": true,
+    "errorMessage": "quota exhausted",
+    "duration": "0秒",
+    "totalSteps": 3,
+    "totalTools": 0,
+    "workspaceUri": "",
+    "steps": null,
+    "allMessages": [
+      {
+        "id": "step-0",
+        "type": "user",
+        "role": "user",
+        "text": "go",
+        "content": "go",
+        "stepIndex": 0
+      },
+      {
+        "id": "step-1",
+        "type": "agent",
+        "role": "assistant",
+        "text": "trying",
+        "content": "trying",
+        "stepIndex": 1
+      },
+      {
+        "id": "step-2",
+        "type": "error",
+        "role": "error",
+        "text": "quota exhausted",
+        "content": "quota exhausted"
+      }
+    ],
+    "queuedMessages": [],
+    "canProceed": false
+  },
+  "cachedTitle": "go",
+  "lastKnownConfig": ""
+}

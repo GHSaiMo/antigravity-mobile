@@ -1,0 +1,26 @@
+{
+  "details": {
+    "cascadeId": "g-title-none",
+    "status": "CASCADE_RUN_STATUS_IDLE",
+    "hasError": false,
+    "duration": "0秒",
+    "totalSteps": 1,
+    "totalTools": 0,
+    "workspaceUri": "",
+    "steps": null,
+    "allMessages": [
+      {
+        "id": "step-0",
+        "type": "agent",
+        "role": "assistant",
+        "text": "only agent",
+        "content": "only agent",
+        "stepIndex": 0
+      }
+    ],
+    "queuedMessages": [],
+    "canProceed": false
+  },
+  "cachedTitle": "",
+  "lastKnownConfig": ""
+}

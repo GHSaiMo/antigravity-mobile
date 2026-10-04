@@ -1,0 +1,35 @@
+{
+  "details": {
+    "cascadeId": "g-status-run-err",
+    "title": "go",
+    "status": "CASCADE_RUN_STATUS_ERROR",
+    "hasError": true,
+    "errorMessage": "died",
+    "duration": "0秒",
+    "totalSteps": 2,
+    "totalTools": 0,
+    "workspaceUri": "",
+    "steps": null,
+    "allMessages": [
+      {
+        "id": "step-0",
+        "type": "user",
+        "role": "user",
+        "text": "go",
+        "content": "go",
+        "stepIndex": 0
+      },
+      {
+        "id": "step-1",
+        "type": "error",
+        "role": "error",
+        "text": "died",
+        "content": "died"
+      }
+    ],
+    "queuedMessages": [],
+    "canProceed": false
+  },
+  "cachedTitle": "go",
+  "lastKnownConfig": ""
+}

@@ -1,0 +1,40 @@
+{
+  "details": {
+    "cascadeId": "g-proceed-edit-before",
+    "title": "plan it",
+    "status": "CASCADE_RUN_STATUS_IDLE",
+    "hasError": false,
+    "duration": "0秒",
+    "totalSteps": 3,
+    "totalTools": 2,
+    "workspaceUri": "",
+    "steps": null,
+    "allMessages": [
+      {
+        "id": "step-0",
+        "type": "user",
+        "role": "user",
+        "text": "plan it",
+        "content": "plan it",
+        "stepIndex": 0
+      },
+      {
+        "id": "tools-1",
+        "type": "tools",
+        "role": "tools",
+        "text": "已思考并执行 2 项操作",
+        "content": "已思考并执行 2 项操作",
+        "toolCount": 2,
+        "toolNames": [
+          "code_action",
+          "code_action"
+        ]
+      }
+    ],
+    "queuedMessages": [],
+    "canProceed": true,
+    "proceedArtifactUri": "file:///p/implementation_plan.md"
+  },
+  "cachedTitle": "plan it",
+  "lastKnownConfig": ""
+}

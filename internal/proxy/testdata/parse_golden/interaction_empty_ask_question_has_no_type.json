@@ -1,0 +1,46 @@
+{
+  "details": {
+    "cascadeId": "g-int-empty",
+    "title": "go",
+    "status": "CASCADE_RUN_STATUS_RUNNING",
+    "hasError": false,
+    "duration": "0秒",
+    "totalSteps": 2,
+    "totalTools": 1,
+    "workspaceUri": "",
+    "steps": null,
+    "allMessages": [
+      {
+        "id": "step-0",
+        "type": "user",
+        "role": "user",
+        "text": "go",
+        "content": "go",
+        "stepIndex": 0
+      },
+      {
+        "id": "tools-1",
+        "type": "tools",
+        "role": "tools",
+        "text": "已思考并执行 1 项操作",
+        "content": "已思考并执行 1 项操作",
+        "toolCount": 1,
+        "toolNames": [
+          "run_command"
+        ]
+      }
+    ],
+    "queuedMessages": [],
+    "canProceed": false,
+    "pendingInteraction": {
+      "type": "",
+      "trajectoryId": "traj-g-int-empty",
+      "stepIndex": 1,
+      "title": "",
+      "options": null,
+      "hasWriteIn": false
+    }
+  },
+  "cachedTitle": "go",
+  "lastKnownConfig": ""
+}

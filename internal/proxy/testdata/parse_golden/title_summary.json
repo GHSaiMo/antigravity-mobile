@@ -1,0 +1,27 @@
+{
+  "details": {
+    "cascadeId": "g-title-sum",
+    "title": "Summary Title",
+    "status": "CASCADE_RUN_STATUS_IDLE",
+    "hasError": false,
+    "duration": "0秒",
+    "totalSteps": 1,
+    "totalTools": 0,
+    "workspaceUri": "",
+    "steps": null,
+    "allMessages": [
+      {
+        "id": "step-0",
+        "type": "user",
+        "role": "user",
+        "text": "prompt",
+        "content": "prompt",
+        "stepIndex": 0
+      }
+    ],
+    "queuedMessages": [],
+    "canProceed": false
+  },
+  "cachedTitle": "Summary Title",
+  "lastKnownConfig": ""
+}

@@ -1,0 +1,35 @@
+{
+  "details": {
+    "cascadeId": "g-model-recorded-name",
+    "title": "x",
+    "status": "CASCADE_RUN_STATUS_IDLE",
+    "hasError": false,
+    "duration": "0秒",
+    "totalSteps": 1,
+    "totalTools": 0,
+    "workspaceUri": "",
+    "steps": null,
+    "allMessages": [
+      {
+        "id": "step-0",
+        "type": "user",
+        "role": "user",
+        "text": "x",
+        "content": "x",
+        "stepIndex": 0
+      }
+    ],
+    "queuedMessages": [],
+    "activeModel": "gpt-recorded",
+    "modelDisplayName": "GPT",
+    "cascadeConfig": {
+      "plannerConfig": {
+        "modelName": "gemini-from-upstream"
+      }
+    },
+    "cascadeConfigRaw": "{\"plannerConfig\":{\"modelName\":\"gemini-from-upstream\"}}",
+    "canProceed": false
+  },
+  "cachedTitle": "x",
+  "lastKnownConfig": "{\"plannerConfig\":{\"modelName\":\"gemini-from-upstream\"}}"
+}

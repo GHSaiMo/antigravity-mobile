@@ -1,0 +1,53 @@
+{
+  "details": {
+    "cascadeId": "g-int-latest",
+    "status": "CASCADE_RUN_STATUS_RUNNING",
+    "hasError": false,
+    "duration": "0秒",
+    "totalSteps": 2,
+    "totalTools": 2,
+    "workspaceUri": "",
+    "steps": null,
+    "allMessages": [
+      {
+        "id": "tools-0",
+        "type": "tools",
+        "role": "tools",
+        "text": "已思考并执行 2 项操作",
+        "content": "已思考并执行 2 项操作",
+        "toolCount": 2,
+        "toolNames": [
+          "run_command",
+          "run_command"
+        ]
+      }
+    ],
+    "queuedMessages": [],
+    "canProceed": false,
+    "pendingInteraction": {
+      "type": "run_command",
+      "trajectoryId": "traj-g-int-latest",
+      "stepIndex": 1,
+      "title": "Confirm command execution",
+      "target": "second",
+      "options": [
+        {
+          "id": "1",
+          "text": "Yes, run command",
+          "scope": 1
+        },
+        {
+          "id": "2",
+          "text": "No",
+          "isDeny": true
+        }
+      ],
+      "defaultOptionId": "1",
+      "hasWriteIn": true,
+      "writeInLabel": "No",
+      "writeInPlaceholder": "(tell the agent what to do instead)"
+    }
+  },
+  "cachedTitle": "",
+  "lastKnownConfig": ""
+}
