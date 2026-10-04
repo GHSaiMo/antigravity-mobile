@@ -562,18 +562,27 @@ func (p *Proxy) handleUpdateConversationAnnotations(w http.ResponseWriter, r *ht
 
 	var payload struct {
 		CascadeIDs  []string `json:"cascadeIds"`
+		CascadeID   string   `json:"cascadeId"`
 		Annotations struct {
-			Title string `json:"title"`
+			Title            string `json:"title"`
+			MarkedAsUnread   *bool  `json:"markedAsUnread,omitempty"`
+			LastUserViewTime string `json:"lastUserViewTime,omitempty"`
 		} `json:"annotations"`
+		MergeAnnotations *bool `json:"mergeAnnotations,omitempty"`
 	}
 	if err := json.Unmarshal(bodyBytes, &payload); err == nil {
+		allIDs := payload.CascadeIDs
+		if len(allIDs) == 0 && payload.CascadeID != "" {
+			allIDs = []string{payload.CascadeID}
+		}
+
 		var activeIDs []string
-		for _, cid := range payload.CascadeIDs {
+		for _, cid := range allIDs {
 			if !IsDeletedCascade(cid) {
 				activeIDs = append(activeIDs, cid)
 			}
 		}
-		if len(activeIDs) == 0 && len(payload.CascadeIDs) > 0 {
+		if len(activeIDs) == 0 && len(allIDs) > 0 {
 			// All requested cascades are deleted tombstones; absorb without reviving upstream
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
@@ -592,6 +601,17 @@ func (p *Proxy) handleUpdateConversationAnnotations(w http.ResponseWriter, r *ht
 			}
 			defaultTrajCache.cascadeTitlesMu.Unlock()
 		}
+
+		// Backward compatibility: normalize legacy SetCascadeTrajectoryMetadata for upstream
+		if strings.HasSuffix(reqPath, "/SetCascadeTrajectoryMetadata") {
+			reqPath = strings.Replace(reqPath, "SetCascadeTrajectoryMetadata", "UpdateConversationAnnotations", 1)
+			normalizedBody, _ := json.Marshal(map[string]interface{}{
+				"cascadeIds":       allIDs,
+				"annotations":      payload.Annotations,
+				"mergeAnnotations": true,
+			})
+			bodyBytes = normalizedBody
+		}
 	}
 
 	p.SuppressDesktopFocus(AntiReflectionDuration)
@@ -599,6 +619,7 @@ func (p *Proxy) handleUpdateConversationAnnotations(w http.ResponseWriter, r *ht
 	fwdReq := r.Clone(r.Context())
 	fwdReq.URL.Path = reqPath
 	fwdReq.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+	fwdReq.ContentLength = int64(len(bodyBytes))
 	rp.ServeHTTP(w, fwdReq)
 }
 
