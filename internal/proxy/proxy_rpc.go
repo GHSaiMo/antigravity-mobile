@@ -85,7 +85,7 @@ func (p *Proxy) handleRpcProxy(w http.ResponseWriter, r *http.Request) {
 		p.handleGetCascadeTrajectoryRPC(w, r, port, token)
 		return
 	}
-	if strings.HasSuffix(reqPath, "/UpdateConversationAnnotations") && r.Method == http.MethodPost {
+	if (strings.HasSuffix(reqPath, "/UpdateConversationAnnotations") || strings.HasSuffix(reqPath, "/SetCascadeTrajectoryMetadata")) && r.Method == http.MethodPost {
 		p.handleUpdateConversationAnnotations(w, r, rp, reqPath)
 		return
 	}

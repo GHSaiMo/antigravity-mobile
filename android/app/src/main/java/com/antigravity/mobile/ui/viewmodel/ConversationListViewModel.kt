@@ -455,18 +455,36 @@ class ConversationListViewModel(
 
     fun renameConversation(cascadeId: String, newTitle: String) {
         val trimmed = newTitle.trim()
-        if (trimmed.isNotBlank()) {
-            cacheManager?.updateSessionTitle(cascadeId, trimmed)
-            rawConversations = rawConversations.map { item ->
-                if (item.id == cascadeId) item.copy(title = trimmed) else item
-            }
-            persistConversationsToCache(rawConversations)
-            applyFilter()
-        }
+        if (trimmed.isBlank()) return
 
+        val originalItem = rawConversations.find { it.id == cascadeId }
+        val originalTitle = originalItem?.title ?: ""
+        if (trimmed == originalTitle) return
+
+        // 1. Optimistic UI and local cache update
+        cacheManager?.updateSessionTitle(cascadeId, trimmed)
+        rawConversations = rawConversations.map { item ->
+            if (item.id == cascadeId) item.copy(title = trimmed) else item
+        }
+        persistConversationsToCache(rawConversations)
+        applyFilter()
+        liveActivityManager?.syncWithConversations(rawConversations)
+
+        // 2. Upstream remote synchronization
         viewModelScope.launch {
-            apiClient.renameConversation(cascadeId, newTitle).onSuccess {
+            apiClient.renameConversation(cascadeId, trimmed).onSuccess {
                 loadConversations()
+            }.onFailure { err ->
+                Log.e("ConvListVM", "Failed to rename conversation $cascadeId: ${err.message}")
+                if (originalItem != null) {
+                    cacheManager?.updateSessionTitle(cascadeId, originalTitle)
+                    rawConversations = rawConversations.map { item ->
+                        if (item.id == cascadeId) item.copy(title = originalTitle) else item
+                    }
+                    persistConversationsToCache(rawConversations)
+                    applyFilter()
+                    liveActivityManager?.syncWithConversations(rawConversations)
+                }
             }
         }
     }
