@@ -160,9 +160,9 @@ public struct SettingsSheet: View {
         .task {
             await connectionManager.probeEndpoints()
         }
-        .alert("确定解除设备配对？", isPresented: $showUnpairAlert) {
+        .alert(settings.isDemoMode ? "确定退出演示模式？" : "确定解除设备配对？", isPresented: $showUnpairAlert) {
             Button("取消", role: .cancel) {}
-            Button("解除配对", role: .destructive) {
+            Button(settings.isDemoMode ? "退出演示" : "解除配对", role: .destructive) {
                 let currentURL = settings.serverURL
                 let currentCandidates = settings.candidateEndpoints.compactMap { URL(string: $0.urlString) }
                 let currentToken = settings.deviceToken
@@ -184,7 +184,9 @@ public struct SettingsSheet: View {
                 dismiss()
             }
         } message: {
-            Text("解除配对将通知网关清理此设备绑定，并清除本地访问令牌与网关配置。")
+            Text(settings.isDemoMode
+                 ? "将退出演示模式并回到欢迎页，演示数据会被清除。"
+                 : "解除配对将通知网关清理此设备绑定，并清除本地访问令牌与网关配置。")
         }
         .alert("确定清空本地缓存？", isPresented: $showClearCacheAlert) {
             Button("取消", role: .cancel) {}

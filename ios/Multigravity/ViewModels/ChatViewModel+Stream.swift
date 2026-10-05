@@ -393,6 +393,11 @@ extension ChatViewModel {
     
     public func connectStream(force: Bool = false) {
         guard !cascadeId.isEmpty, let url = settings.serverURL else { return }
+        if DemoGateway.isEnabled {
+            // The demo gateway has no WebSocket; poll over HTTP instead.
+            startPollingFallback()
+            return
+        }
         streamClient.connect(baseURL: url, cascadeId: cascadeId, force: force)
     }
     
