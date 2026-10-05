@@ -117,7 +117,10 @@ extension ChatView {
                     }
                 }
                 .padding(.horizontal, 16)
-                .padding(.top, 8)
+                // The chips' 1pt borders are drawn half outside their frame; without vertical
+                // padding the horizontal ScrollView clips the bottom (and top) edge.
+                .padding(.vertical, 2)
+                .padding(.top, 6)
             }
             .animation(.easeInOut(duration: 0.2), value: viewModel.isLatestMessageError)
             .animation(.easeInOut(duration: 0.2), value: viewModel.canProceed)

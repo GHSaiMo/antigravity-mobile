@@ -207,15 +207,6 @@ fun ChatScreen(
 
 
 
-    // Photo picker launcher
-    val photoPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetMultipleContents()
-    ) { uris ->
-        if (uris.isNotEmpty()) {
-            viewModel.addImagesFromUris(context, uris)
-        }
-    }
-
     // "+" panel state, system file picker (SAF) and camera capture
     var showAttachmentSheet by remember { mutableStateOf(false) }
     val filePickerLauncher = rememberLauncherForActivityResult(
@@ -1009,10 +1000,6 @@ fun ChatScreen(
                 } else {
                     cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
                 }
-            },
-            onOpenAlbum = {
-                showAttachmentSheet = false
-                photoPickerLauncher.launch("image/*")
             },
             onPickFiles = { filePickerLauncher.launch(arrayOf("*/*")) }
         )

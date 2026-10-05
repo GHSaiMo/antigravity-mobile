@@ -15,8 +15,14 @@ final class DemoURLProtocol: URLProtocol, @unchecked Sendable {
     override func startLoading() {
         let request = self.request
         // Uploads are delivered as a body stream; give them a short delay so progress UI is visible.
-        let isUpload = request.url?.path == "/api/v1/attachments"
-        let delay: TimeInterval = isUpload ? 0.8 : 0.05
+        let path = request.url?.path ?? ""
+        let delay: TimeInterval
+        switch path {
+        case "/api/v1/attachments": delay = 0.8
+        case "/api/v1/cockpit/refresh": delay = 1.0
+        case "/api/v1/cockpit/switch": delay = 1.5
+        default: delay = 0.05
+        }
         let body = Self.readBody(request)
         DispatchQueue.global().asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self else { return }
@@ -117,8 +123,14 @@ enum DemoRouter {
                 return json(["error": "not_found"], status: 404)
             }
             return json(payload)
-        case "/api/v1/cockpit/quotas", "/api/v1/cockpit/refresh":
+        case "/api/v1/cockpit/quotas":
             return json(gw.quotasPayload())
+        case "/api/v1/cockpit/refresh":
+            gw.refreshQuotas()
+            return json(gw.quotasPayload())
+        case "/api/v1/cockpit/switch":
+            if let id = parse(body)["account_id"] as? String { gw.switchQuotaAccount(id: id) }
+            return json(["status": "ok"])
         case "/api/v1/version":
             return json(["app_name": "Multigravity Demo", "os": "darwin", "version": "demo"])
         case "/api/v1/attachments":

@@ -11,7 +11,6 @@ import android.provider.MediaStore
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -37,7 +36,6 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.PhotoLibrary
@@ -141,7 +139,6 @@ fun AttachmentPickerSheet(
     onDismiss: () -> Unit,
     onPhotosPicked: (List<Uri>) -> Unit,
     onOpenCamera: () -> Unit,
-    onOpenAlbum: () -> Unit,
     onPickFiles: () -> Unit
 ) {
     val colors = AntigravityTheme.colors
@@ -180,50 +177,36 @@ fun AttachmentPickerSheet(
             .fillMaxWidth()
             .fillMaxHeight()
     ) {
-        TallSheetBody(containerColor = colors.background, onDismiss = onDismiss) {
+        TallSheetBody(containerColor = colors.surface, onDismiss = onDismiss) {
             BackHandler { onDismiss() }
 
-            SheetGrabHandle(color = colors.textMuted.copy(alpha = 0.35f))
-
-            // Header: 取消 | 最近项目 | 进入相册 >
+            // Grab handle + title: same layout as the "新建会话" sheet
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .padding(top = 10.dp, bottom = 18.dp),
+                contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = "取消",
-                    color = colors.accentIndigo,
-                    fontSize = 16.sp,
+                Box(
                     modifier = Modifier
-                        .align(Alignment.CenterStart)
-                        .clickable { onDismiss() }
-                        .padding(vertical = 6.dp)
+                        .size(width = 38.dp, height = 5.dp)
+                        .clip(CircleShape)
+                        .background(colors.textMuted.copy(alpha = 0.35f))
                 )
-                Text(
-                    text = "最近项目",
-                    color = colors.textPrimary,
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.align(Alignment.Center)
-                )
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.CenterEnd)
-                        .clickable { onOpenAlbum() }
-                        .padding(vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(text = "进入相册", color = colors.accentIndigo, fontSize = 16.sp)
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = null,
-                        tint = colors.accentIndigo,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
             }
+
+            Text(
+                text = "最近项目",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = colors.textPrimary,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp)
+            )
+
+            HorizontalDivider(thickness = 0.5.dp, color = colors.border)
 
             // Photo grid: camera tile first, then recent photos.
             Box(modifier = Modifier.weight(1f)) {
@@ -234,6 +217,31 @@ fun AttachmentPickerSheet(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
+                    item(key = "files") {
+                        TileFrame(
+                            modifier = Modifier
+                                .background(colors.surfaceVariant)
+                                .clickable {
+                                    haptic.light()
+                                    onPickFiles()
+                                }
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxSize(),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AttachFile,
+                                    contentDescription = "文件",
+                                    tint = colors.textPrimary,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text("文件", color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                            }
+                        }
+                    }
                     item(key = "camera") {
                         TileFrame(
                             modifier = Modifier
@@ -330,58 +338,30 @@ fun AttachmentPickerSheet(
                 }
             }
 
-            HorizontalDivider(thickness = 0.5.dp, color = colors.border)
-
-            // Pinned footer: confirm button (when photos are selected) + "添加文件" row.
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(colors.background)
-                    .navigationBarsPadding()
-            ) {
-                if (selected.isNotEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 10.dp)
-                            .height(44.dp)
-                            .clip(RoundedCornerShape(22.dp))
-                            .background(colors.accentIndigo)
-                            .clickable {
-                                haptic.medium()
-                                onPhotosPicked(selected.toList())
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            "添加 (${selected.size})",
-                            color = Color.White,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                }
-                Row(
+            // Confirm button, shown only once photos are selected.
+            if (selected.isNotEmpty()) {
+                HorizontalDivider(thickness = 0.5.dp, color = colors.border)
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .background(colors.surface)
+                        .navigationBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                        .height(44.dp)
+                        .clip(RoundedCornerShape(22.dp))
+                        .background(colors.accentIndigo)
                         .clickable {
-                            haptic.light()
-                            onPickFiles()
-                        }
-                        .padding(horizontal = 20.dp, vertical = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                            haptic.medium()
+                            onPhotosPicked(selected.toList())
+                        },
+                    contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.AttachFile,
-                        contentDescription = null,
-                        tint = colors.textPrimary,
-                        modifier = Modifier.size(26.dp)
+                    Text(
+                        "添加 (${selected.size})",
+                        color = Color.White,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold
                     )
-                    Spacer(Modifier.width(18.dp))
-                    Column {
-                        Text("添加文件", color = colors.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-                        Text("办公文档、压缩包、代码，最大 50MB", color = colors.textMuted, fontSize = 13.sp)
-                    }
                 }
             }
         }
