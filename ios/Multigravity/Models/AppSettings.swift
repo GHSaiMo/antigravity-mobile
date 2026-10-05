@@ -356,6 +356,7 @@ public final class AppSettings {
         DemoGateway.shared.reset()
         DemoGateway.isEnabled = true
         URLProtocol.registerClass(DemoURLProtocol.self)
+        DemoGateway.seedDrafts()
         UserDefaults.standard.set(true, forKey: demoModeKey)
         self.isDemoMode = true
         self.isPaired = true
