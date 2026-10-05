@@ -17,6 +17,7 @@ public struct ChatView: View {
     @State var showCameraUnavailableAlert = false
     @State var showCameraPermissionAlert = false
     @State var previewDraftGallery: ImageGalleryData? = nil
+    @State var showAttachmentSheet = false
     let shouldAutoFocus: Bool
     let initialConversation: ConversationItem?
     let initialIsUnread: Bool
@@ -170,6 +171,28 @@ public struct ChatView: View {
         .environment(\.openURL, OpenURLAction { url in
             handleURLTap(url)
         })
+        .sheet(isPresented: $showAttachmentSheet) {
+            AttachmentPickerSheet(
+                remainingImageSlots: max(0, 5 - viewModel.selectedImageData.count),
+                onPhotosPicked: { assets in handlePickedAssets(assets) },
+                onOpenCamera: {
+                    // Wait for the sheet to finish dismissing before presenting the camera.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { handleCameraAction() }
+                },
+                onOpenAlbum: {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { openPhotoLibraryWithCamera() }
+                },
+                onFilesPicked: { urls in viewModel.addFiles(from: urls) }
+            )
+        }
+        .alert("无法添加文件", isPresented: Binding(
+            get: { viewModel.attachmentNotice != nil },
+            set: { if !$0 { viewModel.attachmentNotice = nil } }
+        )) {
+            Button("好", role: .cancel) {}
+        } message: {
+            Text(viewModel.attachmentNotice ?? "")
+        }
         .sheet(item: $viewModel.viewingMarkdownFile, onDismiss: {
             viewModel.closeMarkdownViewer()
         }) { (item: MarkdownFileViewerData) in

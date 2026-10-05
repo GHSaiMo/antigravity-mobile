@@ -10,6 +10,7 @@ extension APIClient {
         deliveryStrategy: Int? = nil,
         cascadeConfigRaw: String? = nil,
         clientMessageId: String? = nil,
+        attachmentIds: [String]? = nil,
         baseURL: URL
     ) async throws {
         let imagePayloads = images?.map { ImageDataPayload(base64Data: $0.base64EncodedString(), mimeType: "image/jpeg") }
@@ -21,7 +22,8 @@ extension APIClient {
             images: imagePayloads,
             media: mediaPayloads,
             deliveryStrategy: deliveryStrategy,
-            cascadeConfigRaw: cascadeConfigRaw
+            cascadeConfigRaw: cascadeConfigRaw,
+            attachments: attachmentIds?.isEmpty == false ? attachmentIds?.map { AttachmentRef(id: $0) } : nil
         )
         var headers: [String: String] = [:]
         if let cmid = clientMessageId, !cmid.isEmpty {

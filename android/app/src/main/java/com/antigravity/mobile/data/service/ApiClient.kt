@@ -18,6 +18,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
+import okio.source
 import java.io.File
 import java.io.IOException
 import java.net.URLDecoder
@@ -497,7 +498,8 @@ class ApiClient(
         model: String? = null,
         images: List<Pair<ByteArray, String>> = emptyList(),
         deliveryStrategy: Int? = null,
-        clientMessageId: String? = null
+        clientMessageId: String? = null,
+        attachmentIds: List<String> = emptyList()
     ): Result<Unit> = withContext(Dispatchers.IO) {
         val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
         val url = "$baseUrl/api/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage"
@@ -529,6 +531,11 @@ class ApiClient(
                 }
             } else {
                 put("media", JsonArray(emptyList()))
+            }
+            if (attachmentIds.isNotEmpty()) {
+                putJsonArray("attachments") {
+                    attachmentIds.forEach { id -> addJsonObject { put("id", id) } }
+                }
             }
             deliveryStrategy?.let { put("deliveryStrategy", it) }
             model?.let { put("model", it) }
@@ -1060,6 +1067,59 @@ class ApiClient(
             }
         } catch (e: Exception) {
             Log.w("ApiClient", "getWsTicket error: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Uploads a local file to the gateway (POST /api/v1/attachments) as a raw streamed body.
+     * [onProgress] receives 0f..1f as bytes are written.
+     */
+    suspend fun uploadAttachment(
+        file: File,
+        displayName: String,
+        onProgress: (Float) -> Unit = {}
+    ): Result<UploadedAttachment> = withContext(Dispatchers.IO) {
+        val baseUrl = currentBaseUrl?.trim()?.trimEnd('/')
+            ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        try {
+            val total = file.length()
+            val body = object : okhttp3.RequestBody() {
+                override fun contentType() = "application/octet-stream".toMediaType()
+                override fun contentLength() = total
+                override fun writeTo(sink: okio.BufferedSink) {
+                    file.source().use { source ->
+                        var written = 0L
+                        val buf = okio.Buffer()
+                        while (true) {
+                            val n = source.read(buf, 64 * 1024L)
+                            if (n == -1L) break
+                            sink.write(buf, n)
+                            written += n
+                            if (total > 0) onProgress((written.toFloat() / total).coerceIn(0f, 1f))
+                        }
+                    }
+                }
+            }
+            val request = buildAuthorizedRequest("$baseUrl/api/v1/attachments")
+                .header("X-File-Name", android.net.Uri.encode(displayName))
+                .post(body)
+                .build()
+            val uploadClient = client.newBuilder()
+                .writeTimeout(120, TimeUnit.SECONDS)
+                .readTimeout(120, TimeUnit.SECONDS)
+                .build()
+            uploadClient.newCall(request).await().use { response ->
+                val respStr = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    val msg = runCatching {
+                        json.parseToJsonElement(respStr).jsonObject["message"]?.jsonPrimitive?.content
+                    }.getOrNull() ?: "HTTP ${response.code}"
+                    return@withContext Result.failure(RuntimeException(msg))
+                }
+                Result.success(json.decodeFromString<UploadedAttachment>(respStr))
+            }
+        } catch (e: Exception) {
             Result.failure(e)
         }
     }

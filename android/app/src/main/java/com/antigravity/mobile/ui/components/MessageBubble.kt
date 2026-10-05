@@ -43,6 +43,8 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.ui.text.style.TextOverflow
+import com.antigravity.mobile.data.service.AttachmentRules
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -227,7 +229,48 @@ fun MessageBubble(
                 }
             }
 
-            if (displayText.isNotBlank()) {
+            // Files the user attached: the gateway appends an attachment block to the message text.
+            val (userBodyText, attachedFiles) = remember(displayText) { AttachmentRules.parseBlock(displayText) }
+            if (attachedFiles.isNotEmpty()) {
+                Column(
+                    modifier = Modifier.padding(bottom = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalAlignment = Alignment.End
+                ) {
+                    attachedFiles.forEach { f ->
+                        Row(
+                            modifier = Modifier
+                                .widthIn(max = 280.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(colors.surface)
+                                .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
+                                .clickable { onPlanClick?.invoke(f.path, f.name) }
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            FileTypeBadge(f.name, 36.dp)
+                            Column {
+                                Text(
+                                    text = f.name,
+                                    color = colors.textPrimary,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "${f.ext.uppercase()} · ${f.sizeLabel}",
+                                    color = colors.textMuted,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (userBodyText.isNotBlank()) {
                 var showContextMenu by remember { mutableStateOf(false) }
 
                 // User Bubble: Apple Indigo, white text, 18.dp continuous corner radius
@@ -249,7 +292,7 @@ fun MessageBubble(
                         .padding(horizontal = 14.dp, vertical = 10.dp)
                 ) {
                     Text(
-                        text = displayText,
+                        text = userBodyText,
                         color = colors.userBubbleText,
                         fontSize = 15.5.sp,
                         lineHeight = 21.sp

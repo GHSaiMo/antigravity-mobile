@@ -230,6 +230,7 @@ func runGatewayServer(args []string) {
 	// 4. Initialize Push Notification & Background Watcher
 	notifCfg := config.GetNotificationConfig()
 	watcherCtx, cancelWatcher := context.WithCancel(context.Background())
+	proxy.StartInboxJanitor(watcherCtx.Done())
 	defer cancelWatcher()
 
 	// Start desktop focus watcher (annotations filesystem poller)
@@ -783,6 +784,8 @@ func buildRouter(
 	// File / Artifact reading endpoint
 	rootMux.HandleFunc("GET /api/v1/files/content", p.HandleFileContent)
 	rootMux.HandleFunc("GET /api/v1/files/raw", p.HandleFileRaw)
+	// Chat file attachments (documents, archives, source files) uploaded from mobile clients
+	rootMux.HandleFunc("POST /api/v1/attachments", p.HandleAttachmentUpload)
 
 	// Proxy routes: APIs, WebSocket, Artifacts, Gateway status
 	rootMux.Handle("/api/", web.GzipHandler(p))

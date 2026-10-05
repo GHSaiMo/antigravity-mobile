@@ -76,6 +76,11 @@ public final class ChatViewModel {
     
     public var messages: [ChatMessage] = []
     public var selectedImageData: [Data] = []
+    /// Non-image attachments (documents, archives, source files) of the current draft.
+    public var selectedFiles: [DraftFile] = []
+    /// One-shot message about rejected / failed attachments, shown as an alert by the view.
+    public var attachmentNotice: String?
+    @ObservationIgnored var fileUploadTasks: [String: Task<Void, Never>] = [:]
     public var inputText: String = "" {
         didSet {
             guard !isInitializing else { return }
@@ -197,6 +202,7 @@ public final class ChatViewModel {
         if !cachedImages.isEmpty && self.selectedImageData.isEmpty {
             self.selectedImageData = cachedImages
         }
+        restoreDraftFiles()
         let cachedDraft = cacheManager.getDraft(for: key)
         let resolvedDraft = !cachedDraft.isEmpty ? cachedDraft : (draftSession?.draftText ?? "")
         if !resolvedDraft.isEmpty && self.inputText.isEmpty {

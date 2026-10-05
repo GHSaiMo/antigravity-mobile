@@ -8,9 +8,10 @@ extension ChatView {
             // Quick action chips at top of input box (➕ and Model Switch placed in front of Commit and Push)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    // 1. Add Image ➕ Button (Directly opens Photo Library with Camera at index 0)
+                    // 1. Add ➕ Button (opens the attachment panel: camera, recent photos, add file)
                     Button {
-                        openPhotoLibraryWithCamera()
+                        isInputFocused = false
+                        showAttachmentSheet = true
                     } label: {
                         Image(systemName: "plus")
                             .font(.system(size: 13, weight: .semibold))
@@ -168,6 +169,24 @@ extension ChatView {
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
             
+            // File chips strip (documents / archives / source files)
+            if !viewModel.selectedFiles.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(viewModel.selectedFiles) { file in
+                            DraftFileChipView(
+                                file: file,
+                                onRemove: { viewModel.removeFile(file.id) },
+                                onRetry: { viewModel.retryFileUpload(file.id) }
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 2)
+                }
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+            
             // Input field and send/stop button
             HStack(alignment: .bottom, spacing: 10) {
                 TextField("", text: $viewModel.inputText, prompt: Text(viewModel.isActivelyRunning ? "向队列添加指令..." : "发送对 Agent 的指令..."), axis: .vertical)
@@ -235,7 +254,11 @@ extension ChatView {
     }
     
     var isSendDisabled: Bool {
-        viewModel.isSending || (viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && viewModel.selectedImageData.isEmpty)
+        viewModel.isSending
+            || viewModel.selectedFiles.contains(where: { !$0.isUploaded })
+            || (viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && viewModel.selectedImageData.isEmpty
+                && viewModel.selectedFiles.isEmpty)
     }
     
 }

@@ -260,11 +260,17 @@ extension ChatViewModel {
     
     @discardableResult
     @MainActor
-    public func sendMessage(text customText: String? = nil, images: [Data]? = nil) async -> Bool {
+    public func sendMessage(text customText: String? = nil, images: [Data]? = nil, files: [DraftFile]? = nil) async -> Bool {
         guard !isSending else { return false }
         let text = (customText ?? inputText).trimmingCharacters(in: .whitespacesAndNewlines)
         let hasImages = (images != nil && !images!.isEmpty)
-        guard (!text.isEmpty || hasImages), let url = settings.serverURL else { return false }
+        let sendFiles = files ?? []
+        let hasFiles = !sendFiles.isEmpty
+        guard (!text.isEmpty || hasImages || hasFiles), let url = settings.serverURL else { return false }
+        // The gateway appends the attachment block to the text; mirror it locally so optimistic
+        // bubbles and queued items match what the server will echo back.
+        let displayText = AttachmentRules.appendBlock(to: text, files: sendFiles)
+        let attachmentIds = sendFiles.compactMap(\.attachmentId)
         
         hasUserManuallySelectedModel = true
         updateCascadeConfigRawModel(activeModelEnum, modelName: activeModel)
@@ -275,19 +281,19 @@ extension ChatViewModel {
         // If agent is currently running and session already exists, queue follow-up message!
         if (self.isRunning || self.isAwaitingResponse) && !self.cascadeId.isEmpty {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-            if !text.isEmpty {
-                self.deletedQueueItemTombstones.removeAll(where: { $0.text == text })
+            if !displayText.isEmpty {
+                self.deletedQueueItemTombstones.removeAll(where: { $0.text == displayText })
             }
             let mediaBase64 = images?.map { $0.base64EncodedString() }
             let queueItem = QueuedMessageItem(
                 id: "queue-\(UUID().uuidString)",
-                text: text,
+                text: displayText,
                 media: mediaBase64
             )
             let lastUserMsgId = self.messages.last(where: { $0.isUser })?.id
             self.pendingOptimisticQueueItems.append(PendingOptimisticQueueItem(
                 id: queueItem.id,
-                text: text,
+                text: displayText,
                 media: mediaBase64,
                 imageUrls: nil,
                 createdAt: Date(),
@@ -335,6 +341,7 @@ extension ChatViewModel {
                         deliveryStrategy: 2,
                         cascadeConfigRaw: self.cascadeConfigRaw,
                         clientMessageId: queueClientMsgId,
+                        attachmentIds: attachmentIds,
                         baseURL: url
                     )
                 } catch {
@@ -358,7 +365,7 @@ extension ChatViewModel {
         // Optimistic update with unique client message id
         let clientMessageId = UUID().uuidString
         let optId = "optimistic-\(clientMessageId)"
-        messages.append(ChatMessage(id: optId, sender: .user, content: text, imageDataList: images ?? []))
+        messages.append(ChatMessage(id: optId, sender: .user, content: displayText, imageDataList: images ?? []))
         triggerScrollToBottom()
         self.pendingOptimisticMessageId = optId
         self.isAwaitingResponse = true
@@ -388,7 +395,7 @@ extension ChatViewModel {
                 let isPure = project.isPureChat
                 let pid = isPure ? "outside-of-project" : (project.rawId ?? (project.id != project.uri ? project.id : nil))
                 let wsUri = isPure ? "" : project.uri
-                let initialPrompt = (images == nil || images!.isEmpty) ? text : ""
+                let initialPrompt = (images == nil || images!.isEmpty) && !hasFiles ? text : ""
                 let newCascadeId = try await apiClient.createCascade(
                     workspaceUri: wsUri,
                     prompt: initialPrompt,
@@ -411,6 +418,7 @@ extension ChatViewModel {
                     self.cacheManager.deleteLocalDraftSession(id: key)
                     self.cacheManager.clearDraft(key: key)
                     self.cacheManager.clearDraftImages(key: key)
+                    DraftFileStore.shared.clear(key: key)
                     NotificationCenter.default.post(name: .conversationDraftDeleted, object: key)
                 }
                 
@@ -444,14 +452,15 @@ extension ChatViewModel {
                     startPollingFallback()
                 }
                 
-                if let imgs = images, !imgs.isEmpty {
+                if (images?.isEmpty == false) || hasFiles {
                     try await apiClient.sendMessage(
                         cascadeId: newCascadeId,
                         text: text,
                         model: activeModelEnum,
-                        images: imgs,
+                        images: images,
                         cascadeConfigRaw: cascadeConfigRaw,
                         clientMessageId: UUID().uuidString,
+                        attachmentIds: attachmentIds,
                         baseURL: url
                     )
                 }
@@ -468,12 +477,14 @@ extension ChatViewModel {
                     images: images,
                     cascadeConfigRaw: cascadeConfigRaw,
                     clientMessageId: clientMessageId,
+                    attachmentIds: attachmentIds,
                     baseURL: url
                 )
                 // Allow upstream 250ms to register task and update state before first eager sync
                 try? await Task.sleep(nanoseconds: 250_000_000)
                 await self.loadMessages(isBackgroundPoll: true)
                 self.cacheManager.clearDraftImages(key: cascadeId)
+                DraftFileStore.shared.clear(key: cascadeId)
             }
             return true
         } catch {

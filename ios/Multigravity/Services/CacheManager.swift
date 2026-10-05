@@ -599,7 +599,7 @@ public final class CacheManager: @unchecked Sendable {
     }
     
     public func hasDraft(for key: String) -> Bool {
-        return !getDraft(for: key).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || hasDraftImages(for: key)
+        return !getDraft(for: key).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || hasDraftImages(for: key) || DraftFileStore.shared.hasFiles(for: key)
     }
     
     public func saveDraft(key: String, text: String) {
@@ -681,6 +681,7 @@ public final class CacheManager: @unchecked Sendable {
         lock.unlock()
         
         clearDraftImages(key: key)
+        DraftFileStore.shared.clear(key: key)
         
         if hadValue {
             DispatchQueue.main.async {
@@ -939,6 +940,7 @@ public final class CacheManager: @unchecked Sendable {
     }
     
     public func deleteLocalDraftSession(id: String) {
+        DraftFileStore.shared.clear(key: id)
         lock.lock()
         ensureLocalDraftSessionsLoaded()
         memLocalDraftSessions?.removeValue(forKey: id)

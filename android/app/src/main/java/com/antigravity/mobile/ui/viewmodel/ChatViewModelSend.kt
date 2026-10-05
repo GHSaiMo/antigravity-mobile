@@ -8,6 +8,7 @@ import android.util.Base64
 import android.util.Log
 import androidx.lifecycle.viewModelScope
 import com.antigravity.mobile.data.model.*
+import com.antigravity.mobile.data.service.AttachmentRules
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
@@ -190,16 +191,21 @@ internal fun ChatViewModel.saveDraftFor(targetCid: String, text: String, imageBy
 internal fun ChatViewModel.sendMessage(
     text: String,
     attachments: List<AttachmentImage> = emptyList(),
-    forceImmediate: Boolean = false
+    forceImmediate: Boolean = false,
+    files: List<AttachmentFile> = emptyList()
 ) {
     val cascadeId = _uiState.value.cascadeId
+    // The gateway appends the attachment block to the text; mirror it locally so optimistic
+    // bubbles and queued items match what the server will echo back.
+    val displayText = AttachmentRules.appendBlock(text, files)
+    val attachmentIds = files.mapNotNull { it.attachmentId }
     val model = _uiState.value.activeModel
 
     val isRunningOrAwaiting = _uiState.value.isRunning || _uiState.value.isAwaitingResponse
     val canQueue = !forceImmediate && isRunningOrAwaiting && cascadeId.isNotBlank() && !cascadeId.startsWith("local_draft_")
 
     if (canQueue) {
-        val trimmed = text.trim()
+        val trimmed = displayText.trim()
         if (trimmed.isNotEmpty()) {
             val norm = normalizeForComparison(trimmed)
             deletedQueueTombstones.removeAll { normalizeForComparison(it.text) == norm }
@@ -210,14 +216,14 @@ internal fun ChatViewModel.sendMessage(
 
         val queueItem = QueuedMessageItem(
             id = "queue-${UUID.randomUUID()}",
-            text = text,
+            text = displayText,
             media = mediaBase64
         )
         val lastUserMsgId = _uiState.value.messages.lastOrNull { it.isUser }?.id
         pendingOptimisticQueueItems.add(
             PendingOptimisticQueueItem(
                 id = queueItem.id,
-                text = text,
+                text = displayText,
                 media = mediaBase64,
                 imageUrls = null,
                 createdAt = System.currentTimeMillis(),
@@ -241,7 +247,8 @@ internal fun ChatViewModel.sendMessage(
                     model = model,
                     images = imagePayloads,
                     deliveryStrategy = 2,
-                    clientMessageId = queueClientMsgId
+                    clientMessageId = queueClientMsgId,
+                    attachmentIds = attachmentIds
                 )
             } catch (e: Exception) {
                 Log.w("ChatViewModel", "Failed to deliver queued message upstream", e)
@@ -259,8 +266,8 @@ internal fun ChatViewModel.sendMessage(
         id = optId,
         type = "user",
         role = "user",
-        text = text,
-        content = text,
+        text = displayText,
+        content = displayText,
         imageDataList = imageBytesList
     )
     _uiState.value = _uiState.value.copy(
@@ -279,7 +286,7 @@ internal fun ChatViewModel.sendMessage(
         val isPure = project.isPureChat
         val pid = if (isPure) "outside-of-project" else (project.rawId ?: (if (project.id != project.uri) project.id else null))
         val wsUri = if (isPure) "" else project.uri
-        val initialPrompt = if (attachments.isEmpty()) text else ""
+        val initialPrompt = if (attachments.isEmpty() && files.isEmpty()) text else ""
 
         viewModelScope.launch {
             val createRes = apiClient.createCascade(
@@ -295,6 +302,7 @@ internal fun ChatViewModel.sendMessage(
                     p.deleteLocalDraftSession(oldDraftId)
                     p.clearDraftText(oldDraftId)
                     p.clearDraftImages(oldDraftId)
+                    p.clearDraftFiles(oldDraftId)
                     p.clearDraftText(newCascadeId)
                     p.clearDraftImages(newCascadeId)
                 }
@@ -335,9 +343,12 @@ internal fun ChatViewModel.sendMessage(
                 wsClient.connect(newCascadeId)
                 ensureWebSocketObserving()
 
-                if (attachments.isNotEmpty()) {
+                if (attachments.isNotEmpty() || files.isNotEmpty()) {
                     val imagePayloads = attachments.map { Pair(it.byteArray, it.mimeType) }
-                    val sendResult = apiClient.sendMessage(newCascadeId, text, model, imagePayloads)
+                    val sendResult = apiClient.sendMessage(
+                        newCascadeId, text, model, imagePayloads,
+                        attachmentIds = attachmentIds
+                    )
                     sendResult.onFailure { err ->
                         _uiState.value = _uiState.value.copy(
                             errorMessage = "发送失败: ${err.message}",
@@ -415,7 +426,8 @@ internal fun ChatViewModel.sendMessage(
             model = model,
             images = imagePayloads,
             deliveryStrategy = deliveryStrategy,
-            clientMessageId = optId
+            clientMessageId = optId,
+            attachmentIds = attachmentIds
         )
         result.onFailure { err ->
             _uiState.value = _uiState.value.copy(

@@ -325,8 +325,9 @@ public struct SendUserCascadeMessageRequest: Codable, Sendable {
     public let cascadeConfigRaw: String?
     public let artifactComments: [ArtifactCommentPayload]?
     public let deliveryStrategy: Int?
+    public let attachments: [AttachmentRef]?
     
-    public init(cascadeId: String, text: String, model: String? = nil, images: [ImageDataPayload]? = nil, media: [MediaDataPayload]? = nil, deliveryStrategy: Int? = nil, cascadeConfigRaw: String? = nil) {
+    public init(cascadeId: String, text: String, model: String? = nil, images: [ImageDataPayload]? = nil, media: [MediaDataPayload]? = nil, deliveryStrategy: Int? = nil, cascadeConfigRaw: String? = nil, attachments: [AttachmentRef]? = nil) {
         self.cascadeId = cascadeId
         self.model = model
         self.items = text.isEmpty ? [] : [TextItem(text: text)]
@@ -335,6 +336,7 @@ public struct SendUserCascadeMessageRequest: Codable, Sendable {
         self.cascadeConfigRaw = cascadeConfigRaw
         self.artifactComments = nil
         self.deliveryStrategy = deliveryStrategy
+        self.attachments = attachments
     }
     
     public init(cascadeId: String, items: [TextItem] = [], model: String? = nil, images: [ImageDataPayload]? = nil, media: [MediaDataPayload]? = nil, deliveryStrategy: Int? = nil, cascadeConfigRaw: String? = nil, artifactComments: [ArtifactCommentPayload]? = nil) {
@@ -346,6 +348,7 @@ public struct SendUserCascadeMessageRequest: Codable, Sendable {
         self.cascadeConfigRaw = cascadeConfigRaw
         self.artifactComments = artifactComments
         self.deliveryStrategy = deliveryStrategy
+        self.attachments = nil
     }
 }
 

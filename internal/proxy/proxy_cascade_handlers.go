@@ -138,6 +138,14 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 			return
 		}
 
+		// Uploaded file attachments: replace the "attachments" id list with a path block in the text.
+		attachmentsApplied, attErr := applyAttachmentsToMessage(rawMap)
+		if attErr != nil {
+			slog.Warn("[Proxy] SendUserCascadeMessage attachment resolution failed", "err", attErr)
+			writeAttachmentError(w, http.StatusBadRequest, "invalid_attachments", attErr.Error())
+			return
+		}
+
 		// Short-window idempotency check: prevent duplicate triggers within 15 seconds
 		// PERF: use streaming hasher to avoid full string copy for sha256
 		contentHasher := sha256.New()
@@ -216,7 +224,7 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 		_, hasModel := rawMap["model"]
 		_, hasCfgRaw := rawMap["cascadeConfigRaw"]
 		_, hasText := rawMap["text"]
-		needsModification := targetModel != "" || hasModel || hasCfgRaw || hasText
+		needsModification := targetModel != "" || hasModel || hasCfgRaw || hasText || attachmentsApplied
 
 		if !needsModification {
 			// No changes required — forward original bytes as-is.
