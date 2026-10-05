@@ -8,6 +8,7 @@ extension APIClient {
             clean = String(clean.dropFirst(6)).trimmingCharacters(in: .whitespaces)
         }
         clean = clean.trimmingCharacters(in: CharacterSet(charactersIn: "`\"'()[]<>"))
+        if clean.hasPrefix("data:image/") { return clean }
         
         let token = KeychainHelper.shared.read(key: .deviceToken) ?? AppSettings.shared.deviceToken ?? ""
         

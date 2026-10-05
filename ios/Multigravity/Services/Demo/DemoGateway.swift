@@ -42,6 +42,16 @@ final class DemoGateway: @unchecked Sendable {
         var messages: [[String: Any]]
         var pending: Pending?
         var unread = false
+        // Static states used to showcase every kind of status in the demo list / chat.
+        var forcedStatus: String? = nil           // e.g. "CASCADE_RUN_STATUS_RUNNING"
+        var needsInput = false
+        var hasError = false
+        var errorMessage: String? = nil
+        var pendingInteraction: [String: Any]? = nil
+        var canProceed = false
+        var proceedUri: String? = nil
+        var runningTasks: [[String: Any]] = []
+        var queued: [[String: Any]] = []
     }
     
     struct Pending {
@@ -50,18 +60,20 @@ final class DemoGateway: @unchecked Sendable {
         let fileNames: [String]
         let imageCount: Int
         var toolAdded = false
+        /// Scripted reply; when nil a generic demo reply is generated.
+        var reply: String? = nil
     }
     
-    private struct StoredFile {
+    struct StoredFile {
         let id: String
         let name: String
         let data: Data
         let path: String
     }
     
-    private let lock = NSRecursiveLock()
-    private var conversations: [String: Conversation] = [:]
-    private var files: [String: StoredFile] = [:]      // keyed by path
+    let lock = NSRecursiveLock()
+    var conversations: [String: Conversation] = [:]
+    var files: [String: StoredFile] = [:]      // keyed by path
     private var counter = 0
     
     /// Simulated Cockpit Tools quota accounts. Percentages are 0...100; reset offsets are seconds from "now".
@@ -82,7 +94,8 @@ final class DemoGateway: @unchecked Sendable {
     
     let projects: [Project] = [
         Project(id: "demo-project-sales", name: "销售分析", uri: "file:///Users/demo/Projects/sales-analysis"),
-        Project(id: "demo-project-web", name: "官网前端", uri: "file:///Users/demo/Projects/website")
+        Project(id: "demo-project-web", name: "官网前端", uri: "file:///Users/demo/Projects/website"),
+        Project(id: "demo-project-api", name: "后端服务", uri: "file:///Users/demo/Projects/backend")
     ]
     
     private init() { reset() }
@@ -108,88 +121,12 @@ final class DemoGateway: @unchecked Sendable {
         currentQuotaId = "demo-acc-1"
         quotaUpdatedAt = Int64(Date().timeIntervalSince1970 * 1000)
         
-        let now = Date()
-        let csvPath = seedFile(name: "销售数据.csv", text: "月份,销售额(万元),环比\n7月,128,+3.2%\n8月,141,+10.2%\n9月,156,+10.6%\n")
-        let mdPath = seedFile(name: "会议纪要.md", text: "# 周会纪要\n\n## 结论\n\n- 9 月销售额 **156 万元**，环比增长 10.6%\n- 华东区贡献最高，华南区需要补强\n\n## 待办\n\n1. 整理季度报告初稿\n2. 与市场部确认十月活动预算\n")
-        
-        var c1 = Conversation(
-            id: "demo-0001-sales-report", title: "整理季度销售报告", project: projects[0],
-            createdAt: now.addingTimeInterval(-3600), lastModified: now.addingTimeInterval(-600), messages: []
-        )
-        c1.messages = [
-            userMsg(0, "帮我根据附件整理一下三季度的销售情况，给出结论和建议。", fileLines: [
-                fileLine(path: csvPath, name: "销售数据.csv", size: fileSize(csvPath)),
-                fileLine(path: mdPath, name: "会议纪要.md", size: fileSize(mdPath))
-            ]),
-            toolMsg(1, count: 2, names: ["读取文件", "分析数据"]),
-            agentMsg(2, """
-            ## 三季度销售概览
-
-            | 月份 | 销售额（万元） | 环比 |
-            | --- | --- | --- |
-            | 7 月 | 128 | +3.2% |
-            | 8 月 | 141 | +10.2% |
-            | 9 月 | 156 | **+10.6%** |
-
-            **结论**
-
-            - 季度累计 **425 万元**，三个月持续增长
-            - 华东区贡献最高，华南区增速偏低
-
-            **建议**
-
-            1. 把华东区的打法复制到华南
-            2. 十月活动预算尽快确认，避免错过旺季
-
-            > 这是演示模式生成的示例内容。
-            """)
-        ]
-        conversations[c1.id] = c1
-        
-        var c2 = Conversation(
-            id: "demo-0002-login-style", title: "修复登录页样式问题", project: projects[1],
-            createdAt: now.addingTimeInterval(-7200), lastModified: now.addingTimeInterval(-1800), messages: []
-        )
-        c2.messages = [
-            userMsg(0, "登录按钮在小屏幕上被挤出了容器，帮我看看。", fileLines: []),
-            toolMsg(1, count: 3, names: ["搜索代码", "读取文件", "编辑文件"]),
-            agentMsg(2, """
-            已定位问题：`.login-card` 使用了固定宽度，小屏会溢出。
-
-            ```css
-            .login-card {
-              width: min(420px, 100% - 32px);
-              margin-inline: auto;
-            }
-            ```
-
-            修改后在 320px 宽度下按钮完整显示。
-            """)
-        ]
-        conversations[c2.id] = c2
-        
-        var c3 = Conversation(
-            id: "demo-0003-chat", title: "旅行计划建议", project: nil,
-            createdAt: now.addingTimeInterval(-86400), lastModified: now.addingTimeInterval(-43200), messages: []
-        )
-        c3.messages = [
-            userMsg(0, "十月想去杭州玩三天，帮我排个轻松的行程。", fileLines: []),
-            agentMsg(1, """
-            **第一天**：西湖慢走（断桥 → 白堤 → 平湖秋月），傍晚去河坊街
-
-            **第二天**：灵隐寺 + 法喜寺，下午喝茶放空
-
-            **第三天**：龙井村采茶体验，返程前逛一逛西溪湿地
-
-            需要我按预算再细化吗？
-            """)
-        ]
-        conversations[c3.id] = c3
+        seedAll(now: Date())
     }
     
     // MARK: - Message builders
     
-    private func iso(_ date: Date) -> String {
+    func iso(_ date: Date) -> String {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return f.string(from: date)
@@ -216,7 +153,7 @@ final class DemoGateway: @unchecked Sendable {
     
     // MARK: - Files
     
-    private func seedFile(name: String, text: String) -> String {
+    func seedFile(name: String, text: String) -> String {
         let data = Data(text.utf8)
         let id = Self.fileID(for: data)
         let path = "\(Self.inboxPath)/\(id)-\(name)"
@@ -224,9 +161,9 @@ final class DemoGateway: @unchecked Sendable {
         return path
     }
     
-    private func fileSize(_ path: String) -> Int64 { Int64(files[path]?.data.count ?? 0) }
+    func fileSize(_ path: String) -> Int64 { Int64(files[path]?.data.count ?? 0) }
     
-    private func fileLine(path: String, name: String, size: Int64) -> String {
+    func fileLine(path: String, name: String, size: Int64) -> String {
         let ext = (name as NSString).pathExtension.lowercased()
         return "- \(path) (\(ext), \(Self.humanSize(size)))"
     }
@@ -305,7 +242,9 @@ final class DemoGateway: @unchecked Sendable {
         }
         if elapsed >= 3.0 {
             var reply: String
-            if !p.fileNames.isEmpty {
+            if let scripted = p.reply {
+                reply = scripted
+            } else if !p.fileNames.isEmpty {
                 reply = "我已收到 \(p.fileNames.count) 个附件：\n\n" + p.fileNames.map { "- `\($0)`" }.joined(separator: "\n")
                     + "\n\n演示模式不会真正读取文件内容。连接到你电脑上的网关后，我会直接读取这些文件并按你的要求处理。"
             } else if p.imageCount > 0 {
@@ -322,7 +261,10 @@ final class DemoGateway: @unchecked Sendable {
     }
     
     func status(of conv: Conversation) -> String {
-        conv.pending != nil ? "CASCADE_RUN_STATUS_RUNNING" : "CASCADE_RUN_STATUS_IDLE"
+        if conv.pending != nil { return "CASCADE_RUN_STATUS_RUNNING" }
+        if let forced = conv.forcedStatus { return forced }
+        if conv.hasError { return "CASCADE_RUN_STATUS_ERROR" }
+        return "CASCADE_RUN_STATUS_IDLE"
     }
     
     func trajectorySummaries() -> [String: Any] {
@@ -347,7 +289,9 @@ final class DemoGateway: @unchecked Sendable {
                 "summary": c.title,
                 "trajectoryId": id,
                 "trajectoryMetadata": meta,
-                "trajectoryType": "CORTEX_TRAJECTORY_TYPE_CASCADE"
+                "trajectoryType": "CORTEX_TRAJECTORY_TYPE_CASCADE",
+                "needsInput": c.needsInput,
+                "hasError": c.hasError
             ]
             if !workspaces.isEmpty { s["workspaces"] = workspaces }
             out[id] = s
@@ -360,14 +304,21 @@ final class DemoGateway: @unchecked Sendable {
         settle(cascadeId)
         guard let c = conversations[cascadeId] else { return nil }
         let toolCount = c.messages.filter { ($0["type"] as? String) == "tools" }.count
-        return [
+        var payload: [String: Any] = [
             "cascadeId": c.id, "title": c.title, "status": status(of: c), "hasError": false,
             "duration": "12秒", "totalSteps": c.messages.count, "totalTools": toolCount,
             "totalMessages": c.messages.count, "hasMore": false, "nextOffset": 0,
-            "messages": c.messages, "queuedMessages": [], "runningTasks": [],
+            "messages": c.messages, "queuedMessages": c.queued, "runningTasks": c.runningTasks,
             "activeModel": "gemini-3.8-flash-high", "modelDisplayName": "Gemini",
-            "canProceed": false
+            "canProceed": c.canProceed
         ]
+        if let uri = c.proceedUri, c.canProceed { payload["proceedArtifactUri"] = uri }
+        if let pi = c.pendingInteraction { payload["pendingInteraction"] = pi }
+        if c.hasError {
+            payload["hasError"] = true
+            payload["errorMessage"] = c.errorMessage ?? "Agent execution terminated due to error."
+        }
+        return payload
     }
     
     func createConversation(project: Project?, prompt: String) -> String {
@@ -408,9 +359,58 @@ final class DemoGateway: @unchecked Sendable {
             let path = line.dropFirst(2).components(separatedBy: " (").first ?? ""
             return files[path]?.name ?? path
         }
+        // Approving a plan ("Proceed") arrives as an artifact comment without text.
+        if let comments = body["artifactComments"] as? [[String: Any]], !comments.isEmpty, c.canProceed {
+            c.canProceed = false
+            c.proceedUri = nil
+            c.messages.append(toolMsg(c.messages.count, count: 3, names: ["拆分任务", "编辑文件", "运行测试"]))
+            var proceedPending = Pending(startedAt: Date(), userText: "已批准实施方案", fileNames: [], imageCount: 0)
+            proceedPending.reply = """
+            已按方案完成首页改版：
+
+            - ✅ 抽出 `Hero`、`CaseStudies`、`Pricing` 三个组件
+            - ✅ 首屏只保留「免费试用」主按钮
+            - ✅ 客户案例上移到第二屏
+            - ✅ 价格区块改为三档对比卡片
+            - ✅ 接入转化埋点（`home_cta_click`）
+
+            测试全部通过，改动已提交到 `feat/home-redesign` 分支。
+            """
+            c.pending = proceedPending
+            c.lastModified = Date()
+            conversations[cid] = c
+            return nil
+        }
         if text.isEmpty && lines.isEmpty && media.isEmpty { return nil }
+        // A message sent while the agent is (statically) running is queued, like the real app.
+        if c.forcedStatus != nil, (body["deliveryStrategy"] as? Int) == 2 {
+            c.queued.append(["id": "queue-\(UUID().uuidString)", "text": text, "createdAt": iso(Date())])
+            conversations[cid] = c
+            return nil
+        }
+        // Sending (e.g. "Continue" after an error) resets the static states.
+        c.hasError = false
+        c.errorMessage = nil
+        c.forcedStatus = nil
+        c.needsInput = false
+        c.pendingInteraction = nil
+        c.runningTasks = []
+        c.messages = c.messages.filter { ($0["type"] as? String) != "error" }
         c.messages.append(userMsg(c.messages.count, text, fileLines: lines, media: media))
-        c.pending = Pending(startedAt: Date(), userText: text, fileNames: names, imageCount: media.count)
+        var pending = Pending(startedAt: Date(), userText: text, fileNames: names, imageCount: media.count)
+        if text == "Continue" {
+            pending.reply = """
+            已恢复。根据日志，500 来自 `session_store` 的连接池耗尽：高峰期登录请求并发超过了连接池上限（20）。
+
+            ```diff
+            - pool = create_pool(max_size=20)
+            + pool = create_pool(max_size=100, acquire_timeout=3)
+            ```
+
+            我已调大连接池并加上获取超时，超时会返回 503 而不是挂起。建议上线后观察 `pool_wait_ms` 指标。
+            """
+        }
+        c.pending = pending
         c.lastModified = Date()
         conversations[cid] = c
         return nil
@@ -434,6 +434,56 @@ final class DemoGateway: @unchecked Sendable {
     func cancel(id: String) {
         lock.lock(); defer { lock.unlock() }
         conversations[id]?.pending = nil
+        conversations[id]?.forcedStatus = nil
+        conversations[id]?.runningTasks = []
+    }
+    
+    /// Handles POST /gateway/cascade/interaction (answer / approve / deny a pending request).
+    /// `answers` carries the per-question selections of a multi-question prompt.
+    func submitInteraction(cascadeId: String, optionId: String, answers: [[String: Any]]) {
+        lock.lock(); defer { lock.unlock() }
+        guard var c = conversations[cascadeId], let pi = c.pendingInteraction else { return }
+        c.pendingInteraction = nil
+        c.needsInput = false
+        c.forcedStatus = nil
+        var reply: String
+        if let questions = pi["questions"] as? [[String: Any]], !answers.isEmpty {
+            var lines: [String] = []
+            for (i, q) in questions.enumerated() {
+                let title = (q["question"] as? String) ?? "问题 \(i + 1)"
+                let opts = (q["options"] as? [[String: Any]]) ?? []
+                let ans = answers.first { ($0["questionIndex"] as? Int) == i }
+                let ids = (ans?["selectedOptionIds"] as? [String]) ?? []
+                var picked = ids.compactMap { id in opts.first { ($0["id"] as? String) == id }?["text"] as? String }
+                if let w = ans?["writeInResponse"] as? String, !w.isEmpty { picked.append("「\(w)」") }
+                if (ans?["skipped"] as? Bool) == true || picked.isEmpty { picked = ["（跳过）"] }
+                lines.append("- **\(title)**：\(picked.joined(separator: "、"))")
+            }
+            reply = "已按你的选择执行：\n\n" + lines.joined(separator: "\n")
+                + "\n\n```\nCREATE INDEX\nTime: 1243.512 ms (00:01.244)\n```\n\n索引 `idx_orders_user_id` 已创建，查询计划已切换为 Index Scan。"
+            c.messages.append(toolMsg(c.messages.count, count: 2, names: ["运行迁移", "验证查询计划"]))
+        } else {
+            let denied = (optionId == "2" || optionId == "5")
+            reply = denied ? "好的，已取消，不会执行该命令。" : "命令已执行成功。"
+            c.messages.append(toolMsg(c.messages.count, count: 1, names: [denied ? "已拒绝命令" : "运行命令"]))
+        }
+        var pending = Pending(startedAt: Date(), userText: "", fileNames: [], imageCount: 0)
+        pending.reply = reply
+        c.pending = pending
+        c.lastModified = Date()
+        conversations[cascadeId] = c
+    }
+    
+    /// Removes a queued follow-up message (DeleteAgentMessage).
+    func deleteQueued(cascadeId: String, messageId: String) {
+        lock.lock(); defer { lock.unlock() }
+        conversations[cascadeId]?.queued.removeAll { ($0["id"] as? String) == messageId }
+    }
+    
+    /// Stops a running background task card.
+    func stopTask(cascadeId: String) {
+        lock.lock(); defer { lock.unlock() }
+        conversations[cascadeId]?.runningTasks = []
     }
     
     func projectsPayload() -> [[String: Any]] {

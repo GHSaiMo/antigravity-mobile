@@ -98,6 +98,11 @@ enum DemoRouter {
                 if let title = ann["title"] as? String { gw.rename(ids: ids, title: title) }
                 if ann["markedAsUnread"] as? Bool == false { gw.markRead(ids: ids) }
                 return json([:])
+            case "DeleteAgentMessage":
+                if let cid = req["recipient"] as? String, let mid = req["messageId"] as? String {
+                    gw.deleteQueued(cascadeId: cid, messageId: mid)
+                }
+                return json([:])
             case "DeleteCascadeTrajectory":
                 if let id = req["cascadeId"] as? String { gw.delete(id: id) }
                 return json([:])
@@ -114,6 +119,17 @@ enum DemoRouter {
             return json(["status": "connected", "os": "darwin", "platform": "darwin"])
         case "/gateway/projects":
             return json(gw.projectsPayload())
+        case "/gateway/cascade/interaction":
+            let req = parse(body)
+            gw.submitInteraction(
+                cascadeId: req["cascadeId"] as? String ?? "",
+                optionId: req["optionId"] as? String ?? "",
+                answers: req["questionResponses"] as? [[String: Any]] ?? []
+            )
+            return json([:])
+        case "/gateway/cascade/task/stop":
+            gw.stopTask(cascadeId: parse(body)["cascadeId"] as? String ?? "")
+            return json([:])
         case "/gateway/cascade/new":
             let req = parse(body)
             let project = gw.project(forURI: req["workspaceUri"] as? String ?? "", id: req["projectId"] as? String)

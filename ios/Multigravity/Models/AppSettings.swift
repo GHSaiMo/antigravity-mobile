@@ -355,6 +355,7 @@ public final class AppSettings {
     public func enterDemoMode() {
         DemoGateway.shared.reset()
         DemoGateway.isEnabled = true
+        URLProtocol.registerClass(DemoURLProtocol.self)
         UserDefaults.standard.set(true, forKey: demoModeKey)
         self.isDemoMode = true
         self.isPaired = true
@@ -438,6 +439,7 @@ public final class AppSettings {
         let demo = UserDefaults.standard.bool(forKey: demoModeKey)
         self.isDemoMode = demo
         DemoGateway.isEnabled = demo
+        if demo { URLProtocol.registerClass(DemoURLProtocol.self) }
         let token = KeychainHelper.shared.read(key: .deviceToken)
         self.isPaired = demo || (token != nil && !token!.isEmpty)
         
