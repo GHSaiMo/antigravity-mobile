@@ -6,6 +6,8 @@ public struct ChatView: View {
     @Environment(\.dismiss) var dismiss
     @Environment(\.scenePhase) var scenePhase
     @State var viewModel: ChatViewModel
+    @Environment(\.isSplitDetail) var isSplitDetail
+    @Environment(\.horizontalSizeClass) var horizontalSizeClass
     @FocusState var isInputFocused: Bool
     @State var hasInitiallyAligned = false
     @State var hasUserInteracted = false
@@ -95,18 +97,22 @@ public struct ChatView: View {
             contentArea
             errorBanner
             floatingCards
+                .readableChatWidth(horizontalSizeClass == .regular)
             inputBar
         }
         .navigationTitle(viewModel.currentTitle)
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button(action: {
-                    dismiss()
-                }) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 16, weight: .semibold))
+            // In the iPad split view the detail column has no back navigation.
+            if !isSplitDetail {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(action: {
+                        dismiss()
+                    }) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 16, weight: .semibold))
+                    }
                 }
             }
         }
@@ -272,6 +278,38 @@ public struct ChatView: View {
             Button("取消", role: .cancel) {}
         } message: {
             Text("请在系统设置中允许 Multigravity 访问相机以拍照。")
+        }
+    }
+}
+
+
+// MARK: - iPad split view support
+
+private struct SplitDetailKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// True when the chat is shown in the detail column of the iPad split view.
+    var isSplitDetail: Bool {
+        get { self[SplitDetailKey.self] }
+        set { self[SplitDetailKey.self] = newValue }
+    }
+}
+
+/// Maximum width of chat content on wide screens (keeps lines readable, like Messages / Notes on iPad).
+let chatReadableMaxWidth: CGFloat = 820
+
+extension View {
+    /// Caps the content at the readable chat width and centers it (no-op on compact widths).
+    @ViewBuilder
+    func readableChatWidth(_ enabled: Bool) -> some View {
+        if enabled {
+            self
+                .frame(maxWidth: chatReadableMaxWidth)
+                .frame(maxWidth: .infinity)
+        } else {
+            self
         }
     }
 }

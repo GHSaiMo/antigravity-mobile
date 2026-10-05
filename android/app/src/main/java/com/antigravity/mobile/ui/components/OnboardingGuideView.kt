@@ -124,7 +124,7 @@ fun OnboardingGuideView(
             )
 
             Text(
-                text = "Multigravity 智能体全栈移动伴侣\n随时随地监控思考流、下发指令与决策",
+                text = "Google Antigravity 移动伴侣\n随时随地下发指令与决策",
                 fontSize = 12.5.sp,
                 color = colors.textSecondary,
                 textAlign = TextAlign.Center,

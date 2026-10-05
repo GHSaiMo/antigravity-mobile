@@ -238,6 +238,7 @@ extension ChatView {
                     }
                     .disabled(isSendDisabled)
                     .buttonStyle(.plain)
+                    .keyboardShortcut(.return, modifiers: .command)
                     .transition(.scale.combined(with: .opacity))
                 }
             }
@@ -245,6 +246,7 @@ extension ChatView {
             .padding(.bottom, 12)
             .animation(.easeInOut(duration: 0.2), value: viewModel.isActivelyRunning)
         }
+        .readableChatWidth(horizontalSizeClass == .regular)
         .background(Color(uiColor: .systemBackground))
         .overlay(
             Divider(), alignment: .top

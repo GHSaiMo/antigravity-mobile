@@ -121,7 +121,7 @@
 
 目的：App Store / Google Play 审核员没有桌面网关，需要一个无需配对即可体验全部功能的入口；开发时也可在模拟器里直接验证 UI，不依赖真实网关。
 
-- 入口：欢迎页「没有电脑？体验演示模式」；设置页里的「解除配对」在演示模式下变为「退出演示」。
+- 入口：欢迎页「没有安装网关？体验演示模式」；设置页里的「解除配对」在演示模式下变为「退出演示」。
 - iOS 实现：`Services/Demo/DemoGateway.swift`（内存数据、脚本化回复、模拟上传存储）+ `DemoURLProtocol.swift`（拦截发往 `127.0.0.1:9` 的请求）。`AppSettings.isDemoMode` 为真时 `serverURL` 指向该地址，`isPaired` 视为已配对；WebSocket 改为 HTTP 轮询；文件下载（后台 session 不走 URLProtocol）在 `APIClient.downloadFile` 里直连演示网关。
 - 演示数据：3 个会话（含带附件卡片的消息）、2 个项目、额度；发送消息后先显示运行中 + 工具步骤，约 3 秒后给出示例回复；上传校验沿用 `AttachmentRules`。
 - 待办：Android 端同样实现（OkHttp Interceptor 拦截演示地址）；提审时在 App Review Notes 写明「欢迎页点击『体验演示模式』即可体验，无需账号」。

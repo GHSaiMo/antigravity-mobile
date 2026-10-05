@@ -2,6 +2,8 @@ import SwiftUI
 
 public struct ConversationListView: View {
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var settings = AppSettings.shared
     @State private var viewModel = ConversationListViewModel()
     @State private var showSettings = false
@@ -72,45 +74,16 @@ public struct ConversationListView: View {
                     },
                     onEasterEggTap: handleEasterEggTap
                 )
+                // Keep the welcome page readable on wide iPad screens.
+                .frame(maxWidth: 640)
+                .frame(maxWidth: .infinity)
+            } else if usesSplitLayout {
+                splitLayout
             } else {
                 NavigationStack(path: $navigationPath) {
-                    pairedContentView
-                        .navigationTitle("Multigravity")
-                        .searchable(text: $viewModel.searchQuery, prompt: "搜索会话或工作区...")
-                        .toolbar {
-                            ToolbarItem(placement: .topBarLeading) {
-                                Button(action: { showSettings = true }) {
-                                    Image(systemName: "gearshape")
-                                }
-                            }
-                            ToolbarItem(placement: .topBarTrailing) {
-                                Button(action: { showNewConversation = true }) {
-                                    Image(systemName: "plus")
-                                        .font(.system(size: 16, weight: .semibold))
-                                }
-                            }
-                        }
-                        .background(NavigationBarTapHelper(onTap: handleEasterEggTap))
+                    listWithChrome
                         .navigationDestination(for: ConversationItem.self) { item in
-                            ChatView(conversation: item, isNewConversation: item.isDraft || item.stepCount == 0)
-                                .id(item.id)
-                                .onAppear {
-                                    guard !item.isDraft else { return }
-                                    if let url = AppSettings.shared.gatewayURL {
-                                        APIClient.shared.notifySessionFocus(cascadeId: item.id, baseURL: url)
-                                    }
-                                    Task {
-                                        if let url = AppSettings.shared.gatewayURL {
-                                            await APIClient.shared.markConversationAsRead(cascadeId: item.id, baseURL: url)
-                                        } else {
-                                            CacheManager.shared.markConversationAsRead(cascadeId: item.id)
-                                        }
-                                    }
-                                }
-                                .onDisappear {
-                                    draftsVersion += 1
-                                    viewModel.reloadFromCache()
-                                }
+                            chatDestination(for: item)
                         }
                 }
             }
@@ -137,7 +110,7 @@ public struct ConversationListView: View {
         .sheet(isPresented: $showNewConversation, onDismiss: {
             if let item = pendingCreatedConversation {
                 pendingCreatedConversation = nil
-                navigationPath.append(item)
+                openConversation(item)
             }
         }) {
             NewConversationSheet(onSelectProject: { project in
@@ -248,6 +221,94 @@ public struct ConversationListView: View {
         .onOpenURL { url in
             handleDeepLink(url)
         }
+    }
+    
+    // MARK: - Layout (iPhone stack / iPad split)
+    
+    /// Regular width (iPad full screen, large Stage Manager windows) gets the two-column layout;
+    /// iPhone and compact iPad windows (Slide Over, narrow Split View) keep the push navigation.
+    private var usesSplitLayout: Bool { horizontalSizeClass == .regular }
+    
+    private var selectedConversationID: String? { navigationPath.last?.id }
+    
+    /// Opens a conversation: replaces the detail on iPad, pushes on iPhone.
+    private func openConversation(_ item: ConversationItem) {
+        if usesSplitLayout {
+            navigationPath = [item]
+        } else {
+            navigationPath.append(item)
+        }
+    }
+    
+    /// The conversation list with its navigation chrome (title, search, toolbar).
+    private var listWithChrome: some View {
+        pairedContentView
+            .navigationTitle("Multigravity")
+            .searchable(text: $viewModel.searchQuery, prompt: "搜索会话或工作区...")
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(action: { showSettings = true }) {
+                        Image(systemName: "gearshape")
+                    }
+                    .keyboardShortcut(",", modifiers: .command)
+                    .help("设置")
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(action: { showNewConversation = true }) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 16, weight: .semibold))
+                    }
+                    .keyboardShortcut("n", modifiers: .command)
+                    .help("新建会话")
+                }
+            }
+            .background(NavigationBarTapHelper(onTap: handleEasterEggTap))
+    }
+    
+    private var splitLayout: some View {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            listWithChrome
+                .navigationSplitViewColumnWidth(min: 340, ideal: 390, max: 480)
+        } detail: {
+            if let item = navigationPath.last {
+                chatDestination(for: item)
+                    .id(item.id)
+            } else {
+                ContentUnavailableView {
+                    Label("选择一个会话", systemImage: "bubble.left.and.text.bubble.right")
+                } description: {
+                    Text("从左侧选择会话查看，或新建一个会话")
+                } actions: {
+                    Button("新建会话") { showNewConversation = true }
+                        .buttonStyle(.borderedProminent)
+                }
+            }
+        }
+        .navigationSplitViewStyle(.balanced)
+    }
+    
+    @ViewBuilder
+    private func chatDestination(for item: ConversationItem) -> some View {
+        ChatView(conversation: item, isNewConversation: item.isDraft || item.stepCount == 0)
+            .id(item.id)
+            .environment(\.isSplitDetail, usesSplitLayout)
+            .onAppear {
+                guard !item.isDraft else { return }
+                if let url = AppSettings.shared.gatewayURL {
+                    APIClient.shared.notifySessionFocus(cascadeId: item.id, baseURL: url)
+                }
+                Task {
+                    if let url = AppSettings.shared.gatewayURL {
+                        await APIClient.shared.markConversationAsRead(cascadeId: item.id, baseURL: url)
+                    } else {
+                        CacheManager.shared.markConversationAsRead(cascadeId: item.id)
+                    }
+                }
+            }
+            .onDisappear {
+                draftsVersion += 1
+                viewModel.reloadFromCache()
+            }
     }
     
     @ViewBuilder
@@ -394,15 +455,21 @@ public struct ConversationListView: View {
                 conversationCard(for: item)
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        navigationPath.append(item)
+                        openConversation(item)
                     }
-                    .onLongPressGesture(minimumDuration: 0.45) {
-                        guard !item.isDraft else { return }
-                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                        conversationToRename = item
-                        renameText = item.title
-                        showRenameAlert = true
-                    }
+                    .modifier(RowActions(
+                        isSplit: usesSplitLayout,
+                        item: item,
+                        onRename: {
+                            conversationToRename = item
+                            renameText = item.title
+                            showRenameAlert = true
+                        },
+                        onDelete: {
+                            conversationToDelete = item
+                            showDeleteConfirm = true
+                        }
+                    ))
                     .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
@@ -435,6 +502,7 @@ public struct ConversationListView: View {
                             showDeleteConfirm = false
                             let target = conversationToDelete ?? item
                             conversationToDelete = nil
+                            if navigationPath.last?.id == target.id { navigationPath = [] }
                             Task {
                                 await viewModel.deleteConversation(item: target)
                             }
@@ -683,6 +751,16 @@ public struct ConversationListView: View {
         .padding(14)
         .background(Color(uiColor: .secondarySystemBackground))
         .cornerRadius(14)
+        .overlay {
+            if usesSplitLayout && selectedConversationID == item.id {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color.accentColor.opacity(0.10))
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(Color.accentColor.opacity(0.55), lineWidth: 1.5)
+            }
+        }
+        .contentShape(.hoverEffect, RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .hoverEffect(.highlight)
     }
     
     private static let trashActionImage: UIImage = {
@@ -907,3 +985,37 @@ private struct NavigationBarTapHelper: UIViewRepresentable {
 }
 
 
+
+
+/// Row interactions: iPad (pointer / long press) gets a context menu, iPhone keeps long-press to rename.
+private struct RowActions: ViewModifier {
+    let isSplit: Bool
+    let item: ConversationItem
+    let onRename: () -> Void
+    let onDelete: () -> Void
+    
+    func body(content: Content) -> some View {
+        if isSplit {
+            content.contextMenu {
+                if !item.isDraft {
+                    Button {
+                        onRename()
+                    } label: {
+                        Label("重命名", systemImage: "pencil")
+                    }
+                }
+                Button(role: .destructive) {
+                    onDelete()
+                } label: {
+                    Label("删除", systemImage: "trash")
+                }
+            }
+        } else {
+            content.onLongPressGesture(minimumDuration: 0.45) {
+                guard !item.isDraft else { return }
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                onRename()
+            }
+        }
+    }
+}

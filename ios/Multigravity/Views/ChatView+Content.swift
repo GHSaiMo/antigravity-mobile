@@ -73,7 +73,8 @@ extension ChatView {
     func messagesScrollView(proxy: ScrollViewProxy, viewportWidth: CGFloat, viewportHeight: CGFloat) -> some View {
         ScrollView(.vertical, showsIndicators: true) {
             messagesList(proxy: proxy)
-                .frame(width: viewportWidth)
+                .frame(width: horizontalSizeClass == .regular ? min(viewportWidth, chatReadableMaxWidth) : viewportWidth)
+                .frame(maxWidth: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .coordinateSpace(name: "ChatScrollViewSpace")
