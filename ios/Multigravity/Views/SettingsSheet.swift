@@ -17,7 +17,7 @@ public struct SettingsSheet: View {
                 // MARK: - 1. 设备配对与鉴权
                 Section(
                     header: Text("设备配对"),
-                    footer: Text("管理当前设备与 \(settings.gatewayPlatformDisplayName)的配对状态。")
+                    footer: Text(settings.isDemoMode ? "当前为演示模式，数据均为模拟，不会连接任何电脑。" : "管理当前设备与 \(settings.gatewayPlatformDisplayName)的配对状态。")
                 ) {
                     HStack {
                         Text("配对状态")
@@ -27,7 +27,7 @@ public struct SettingsSheet: View {
                                 Image(systemName: "checkmark.circle.fill")
                                     .foregroundColor(.green)
                                     .font(.system(size: 14))
-                                Text("已配对")
+                                Text(settings.isDemoMode ? "演示模式" : "已配对")
                                     .foregroundColor(.secondary)
                             }
                         } else {
@@ -51,7 +51,7 @@ public struct SettingsSheet: View {
                     Button(role: .destructive, action: {
                         showUnpairAlert = true
                     }) {
-                        Text("解除设备配对")
+                        Text(settings.isDemoMode ? "退出演示模式" : "解除设备配对")
                     }
                 }
                 

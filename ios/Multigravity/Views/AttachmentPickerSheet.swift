@@ -101,7 +101,6 @@ struct AttachmentPickerSheet: View {
     /// Called with the selected photos (in selection order); the sheet dismisses itself first.
     let onPhotosPicked: ([PHAsset]) -> Void
     let onOpenCamera: () -> Void
-    let onOpenAlbum: () -> Void
     let onFilesPicked: ([URL]) -> Void
     
     @Environment(\.dismiss) private var dismiss
@@ -113,28 +112,13 @@ struct AttachmentPickerSheet: View {
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 4)
     
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            ScrollView {
-                if photos.authorization == .limited {
-                    limitedBanner
-                }
-                LazyVGrid(columns: columns, spacing: 6) {
-                    cameraTile
-                    if !photos.hasAccess {
-                        permissionTile
-                    }
-                    ForEach(photos.assets, id: \.localIdentifier) { asset in
-                        photoCell(asset)
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-            }
-            Divider()
-            footer
+        // Same structure as NewConversationSheet (NavigationStack + inline title) so the title
+        // sits at the same distance from the drag indicator.
+        NavigationStack {
+            content
+                .navigationTitle("最近项目")
+                .navigationBarTitleDisplayMode(.inline)
         }
-        .background(Color(uiColor: .systemBackground))
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         .onAppear { photos.start() }
@@ -150,31 +134,32 @@ struct AttachmentPickerSheet: View {
         }
     }
     
-    private var header: some View {
-        ZStack {
-            Text("最近项目")
-                .font(.system(size: 17, weight: .semibold))
-            HStack {
-                Button("取消") { dismiss() }
-                    .font(.system(size: 16))
-                Spacer()
-                Button {
-                    dismiss()
-                    onOpenAlbum()
-                } label: {
-                    HStack(spacing: 2) {
-                        Text("进入相册")
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 13, weight: .semibold))
-                    }
-                    .font(.system(size: 16))
+    private var content: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                if photos.authorization == .limited {
+                    limitedBanner
                 }
+                LazyVGrid(columns: columns, spacing: 6) {
+                    fileTile
+                    cameraTile
+                    if !photos.hasAccess {
+                        permissionTile
+                    }
+                    ForEach(photos.assets, id: \.localIdentifier) { asset in
+                        photoCell(asset)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+            }
+            // The confirm button only shows once photos are selected.
+            if !selected.isEmpty {
+                Divider()
+                footer
             }
         }
-        .tint(.indigo)
-        .padding(.horizontal, 16)
-        .padding(.top, 18)
-        .padding(.bottom, 10)
+        .background(Color(uiColor: .systemBackground))
     }
     
     private var limitedBanner: some View {
@@ -195,6 +180,27 @@ struct AttachmentPickerSheet: View {
         .padding(.top, 4)
     }
     
+    private var fileTile: some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            showFileImporter = true
+        } label: {
+            VStack(spacing: 4) {
+                Image(systemName: "paperclip")
+                    .font(.system(size: 26, weight: .regular))
+                    .frame(height: 32)
+                Text("文件")
+                    .font(.system(size: 13, weight: .medium))
+            }
+            .foregroundColor(.primary)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(uiColor: .secondarySystemBackground))
+            .aspectRatio(1, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+    
     private var cameraTile: some View {
         Button {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -204,6 +210,7 @@ struct AttachmentPickerSheet: View {
             VStack(spacing: 4) {
                 Image(systemName: "camera")
                     .font(.system(size: 26, weight: .regular))
+                    .frame(height: 32)
                 Text("相机")
                     .font(.system(size: 13, weight: .medium))
             }
@@ -275,51 +282,24 @@ struct AttachmentPickerSheet: View {
     }
     
     private var footer: some View {
-        VStack(spacing: 0) {
-            if !selected.isEmpty {
-                Button {
-                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                    let byId = Dictionary(uniqueKeysWithValues: photos.assets.map { ($0.localIdentifier, $0) })
-                    let picked = selected.compactMap { byId[$0] }
-                    dismiss()
-                    onPhotosPicked(picked)
-                } label: {
-                    Text("添加 (\(selected.count))")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 44)
-                        .background(Color.indigo)
-                        .clipShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 16)
-                .padding(.top, 10)
-            }
-            Button {
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                showFileImporter = true
-            } label: {
-                HStack(spacing: 18) {
-                    Image(systemName: "paperclip")
-                        .font(.system(size: 22, weight: .regular))
-                        .frame(width: 26)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("添加文件")
-                            .font(.system(size: 17, weight: .semibold))
-                        Text("办公文档、压缩包、代码，最大 50MB")
-                            .font(.system(size: 13))
-                            .foregroundColor(.secondary)
-                    }
-                    Spacer()
-                }
-                .foregroundColor(.primary)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 16)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
+        Button {
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            let byId = Dictionary(uniqueKeysWithValues: photos.assets.map { ($0.localIdentifier, $0) })
+            let picked = selected.compactMap { byId[$0] }
+            dismiss()
+            onPhotosPicked(picked)
+        } label: {
+            Text("添加 (\(selected.count))")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 44)
+                .background(Color.indigo)
+                .clipShape(Capsule())
         }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
         .background(Color(uiColor: .systemBackground))
     }
     

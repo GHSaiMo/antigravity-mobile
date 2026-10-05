@@ -64,6 +64,22 @@ final class DemoGateway: @unchecked Sendable {
     private var files: [String: StoredFile] = [:]      // keyed by path
     private var counter = 0
     
+    /// Simulated Cockpit Tools quota accounts. Percentages are 0...100; reset offsets are seconds from "now".
+    struct QuotaAccount {
+        let id: String
+        let email: String
+        let name: String
+        var claude5h: Double
+        var claudeWeekly: Double
+        var gemini5h: Double
+        var geminiWeekly: Double
+        let reset5h: TimeInterval
+        let resetWeekly: TimeInterval
+    }
+    private var quotaAccounts: [QuotaAccount] = []
+    private var currentQuotaId = ""
+    private var quotaUpdatedAt: Int64 = 0
+    
     let projects: [Project] = [
         Project(id: "demo-project-sales", name: "销售分析", uri: "file:///Users/demo/Projects/sales-analysis"),
         Project(id: "demo-project-web", name: "官网前端", uri: "file:///Users/demo/Projects/website")
@@ -78,6 +94,19 @@ final class DemoGateway: @unchecked Sendable {
         conversations = [:]
         files = [:]
         counter = 0
+        quotaAccounts = [
+            QuotaAccount(id: "demo-acc-1", email: "alice@multigravity.app", name: "Alice（演示）",
+                         claude5h: 100, claudeWeekly: 96, gemini5h: 88, geminiWeekly: 64,
+                         reset5h: 4 * 3600 + 12 * 60, resetWeekly: 5 * 86400 + 2 * 3600),
+            QuotaAccount(id: "demo-acc-2", email: "bob@multigravity.app", name: "Bob（演示）",
+                         claude5h: 12, claudeWeekly: 41, gemini5h: 55, geminiWeekly: 23,
+                         reset5h: 1 * 3600 + 5 * 60, resetWeekly: 2 * 86400 + 20 * 3600),
+            QuotaAccount(id: "demo-acc-3", email: "carol@multigravity.app", name: "",
+                         claude5h: 78, claudeWeekly: 9, gemini5h: 100, geminiWeekly: 100,
+                         reset5h: 3 * 3600 + 40 * 60, resetWeekly: 6 * 86400 + 11 * 3600)
+        ]
+        currentQuotaId = "demo-acc-1"
+        quotaUpdatedAt = Int64(Date().timeIntervalSince1970 * 1000)
         
         let now = Date()
         let csvPath = seedFile(name: "销售数据.csv", text: "月份,销售额(万元),环比\n7月,128,+3.2%\n8月,141,+10.2%\n9月,156,+10.6%\n")
@@ -418,17 +447,55 @@ final class DemoGateway: @unchecked Sendable {
         }
     }
     
+    private static func friendly(_ seconds: TimeInterval) -> String {
+        let total = Int(seconds)
+        let d = total / 86400, h = (total % 86400) / 3600, m = (total % 3600) / 60
+        if d > 0 { return "\(d)d \(h)h" }
+        if h > 0 { return "\(h)h \(m)m" }
+        return "\(m)m"
+    }
+    
     func quotasPayload() -> [String: Any] {
-        func window(_ pct: Double, _ friendly: String) -> [String: Any] {
+        lock.lock(); defer { lock.unlock() }
+        func bucket(_ pct: Double, _ reset: TimeInterval) -> [String: Any] {
             ["remaining_fraction": pct / 100, "remaining_percent": pct,
-             "reset_time": iso(Date().addingTimeInterval(14400)), "reset_friendly": friendly]
+             "reset_time": iso(Date().addingTimeInterval(reset)), "reset_friendly": Self.friendly(reset)]
         }
-        let account: [String: Any] = [
-            "id": "demo-account", "email": "demo@multigravity.app", "name": "演示账号", "is_current": true,
-            "claude_5h": window(100, "4h 12m"), "claude_weekly": window(96, "5d 2h"),
-            "gemini_5h": window(88, "2h 40m"), "gemini_weekly": window(64, "2d 20h"),
-            "updated_at": Int(Date().timeIntervalSince1970 * 1000)
-        ]
-        return ["current_account": account, "accounts": [account]]
+        func account(_ a: QuotaAccount) -> [String: Any] {
+            ["id": a.id, "email": a.email, "name": a.name, "is_current": a.id == currentQuotaId,
+             "claude_5h": bucket(a.claude5h, a.reset5h), "claude_weekly": bucket(a.claudeWeekly, a.resetWeekly),
+             "gemini_5h": bucket(a.gemini5h, a.reset5h), "gemini_weekly": bucket(a.geminiWeekly, a.resetWeekly),
+             "updated_at": quotaUpdatedAt]
+        }
+        let all = quotaAccounts.map(account)
+        let current = quotaAccounts.first { $0.id == currentQuotaId }.map(account) ?? all.first as Any
+        return ["current_account": current, "accounts": all, "updated_at": quotaUpdatedAt]
+    }
+    
+    /// Simulates POST /api/v1/cockpit/switch.
+    func switchQuotaAccount(id: String) {
+        lock.lock(); defer { lock.unlock() }
+        if quotaAccounts.contains(where: { $0.id == id }) { currentQuotaId = id }
+        quotaUpdatedAt = Int64(Date().timeIntervalSince1970 * 1000)
+    }
+    
+    /// Simulates POST /api/v1/cockpit/refresh: new timestamp and slightly different numbers.
+    func refreshQuotas() {
+        lock.lock(); defer { lock.unlock() }
+        func jitter(_ v: Double) -> Double { max(0, min(100, (v + Double.random(in: -3...1)).rounded(toPlaces: 1))) }
+        quotaAccounts = quotaAccounts.map { a in
+            var b = a
+            b.claude5h = jitter(a.claude5h); b.claudeWeekly = jitter(a.claudeWeekly)
+            b.gemini5h = jitter(a.gemini5h); b.geminiWeekly = jitter(a.geminiWeekly)
+            return b
+        }
+        quotaUpdatedAt = Int64(Date().timeIntervalSince1970 * 1000)
+    }
+}
+
+private extension Double {
+    func rounded(toPlaces places: Int) -> Double {
+        let f = pow(10, Double(places))
+        return (self * f).rounded() / f
     }
 }

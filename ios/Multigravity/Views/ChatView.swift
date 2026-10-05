@@ -179,9 +179,6 @@ public struct ChatView: View {
                     // Wait for the sheet to finish dismissing before presenting the camera.
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { handleCameraAction() }
                 },
-                onOpenAlbum: {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { openPhotoLibraryWithCamera() }
-                },
                 onFilesPicked: { urls in viewModel.addFiles(from: urls) }
             )
         }
