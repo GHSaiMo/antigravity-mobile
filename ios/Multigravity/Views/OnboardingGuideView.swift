@@ -73,7 +73,7 @@ public struct OnboardingGuideView: View {
                                 onEasterEggTap?()
                             }
                         
-                        Text("Google Antigravity 移动伴侣\n随时随地下发指令与决策")
+                        Text("Google Antigravity 移动伴侣\n随时随地监控任务状态、下发指令")
                             .font(.system(size: 13.5))
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
@@ -98,7 +98,7 @@ public struct OnboardingGuideView: View {
                                 .foregroundColor(.primary)
                         }
                         
-                        Text("手机端需配合运行在 Mac、Linux 或 Windows 电脑上的本地网关协同工作，嗅探后台实例打通直连。")
+                        Text("手机端需配合运行在 Mac、Linux 或 Windows 电脑上的本地网关协同工作，嗅探后台 Google Antigravity 实例打通直连。")
                             .font(.system(size: 12.5))
                             .foregroundColor(.secondary)
                             .lineSpacing(3.5)
