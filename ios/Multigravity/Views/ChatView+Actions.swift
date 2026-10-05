@@ -1,6 +1,7 @@
 import SwiftUI
 import PhotosUI
 import AVFoundation
+import Photos
 
 extension ChatView {
     func handleCancel() {
@@ -14,15 +15,33 @@ extension ChatView {
         guard !viewModel.isSending else { return }
         let text = viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         let images = viewModel.selectedImageData
-        guard !text.isEmpty || !images.isEmpty else { return }
+        let files = viewModel.selectedFiles
+        guard !text.isEmpty || !images.isEmpty || !files.isEmpty else { return }
+        // Files are uploaded in the background; wait until they have all reached the gateway.
+        guard files.allSatisfy({ $0.isUploaded }) else { return }
         hasUserInteracted = false
         viewModel.inputText = ""
         viewModel.selectedImageData = []
+        viewModel.selectedFiles = []
         Task {
-            let success = await viewModel.sendMessage(text: text, images: images)
-            if !success && !images.isEmpty {
-                viewModel.selectedImageData = images
+            let success = await viewModel.sendMessage(text: text, images: images, files: files)
+            if !success {
+                if !images.isEmpty { viewModel.selectedImageData = images }
+                if !files.isEmpty {
+                    viewModel.selectedFiles = files
+                    viewModel.persistDraftFiles()
+                }
             }
+        }
+    }
+    
+    /// Converts the photos picked in the "+" panel and adds them to the draft.
+    func handlePickedAssets(_ assets: [PHAsset]) {
+        Task {
+            let images = await PhotoAssetLoader.loadImages(assets)
+            let compressed = images.compactMap { compressAndResizeImage($0) }
+            guard !compressed.isEmpty else { return }
+            viewModel.appendDraftImages(compressed)
         }
     }
     

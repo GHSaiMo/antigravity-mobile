@@ -46,7 +46,8 @@ internal fun ChatViewModel.currentConversationItem(): ConversationItem? {
     if (state.cascadeId.startsWith("local_draft_")) {
         val draft = prefs?.getLocalDraftSession(state.cascadeId)
         val draftText = prefs?.getDraftText(state.cascadeId).orEmpty().ifBlank { _inputText.value }
-        val hasImages = prefs?.hasDraftImages(state.cascadeId) == true || state.selectedImages.isNotEmpty()
+        val hasImages = prefs?.hasDraftImages(state.cascadeId) == true || state.selectedImages.isNotEmpty() ||
+            prefs?.hasDraftFiles(state.cascadeId) == true || state.selectedFiles.isNotEmpty()
         if (draftText.isBlank() && !hasImages) return null
         val sessionToUse = draft ?: currentDraftProject?.let {
             LocalDraftSession(id = state.cascadeId, project = it, draftText = draftText)
@@ -327,6 +328,8 @@ internal fun ChatViewModel.initSession(
             isLoading = if (_uiState.value.messages.isEmpty() && !isNewConversation && !isDraft) true else false
         )
     }
+
+    restoreDraftFiles(cascadeId)
 
     // Restore draft if available
     prefs?.let { p ->

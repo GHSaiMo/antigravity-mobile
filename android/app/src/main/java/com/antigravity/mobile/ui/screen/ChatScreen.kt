@@ -83,6 +83,12 @@ import com.antigravity.mobile.ui.viewmodel.openMarkdownViewer
 import com.antigravity.mobile.ui.viewmodel.proceedArtifact
 import com.antigravity.mobile.ui.viewmodel.refresh
 import com.antigravity.mobile.ui.viewmodel.removeImage
+import com.antigravity.mobile.ui.viewmodel.removeFile
+import com.antigravity.mobile.ui.viewmodel.retryFileUpload
+import com.antigravity.mobile.ui.viewmodel.addAttachmentsFromUris
+import com.antigravity.mobile.ui.viewmodel.consumeAttachmentNotice
+import com.antigravity.mobile.ui.components.AttachmentPickerSheet
+import com.antigravity.mobile.ui.components.AttachmentFileChip
 import com.antigravity.mobile.ui.viewmodel.requestUndo
 import com.antigravity.mobile.ui.viewmodel.retryLoadMessages
 import com.antigravity.mobile.ui.viewmodel.saveDraftFor
@@ -207,6 +213,52 @@ fun ChatScreen(
     ) { uris ->
         if (uris.isNotEmpty()) {
             viewModel.addImagesFromUris(context, uris)
+        }
+    }
+
+    // "+" panel state, system file picker (SAF) and camera capture
+    var showAttachmentSheet by remember { mutableStateOf(false) }
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            showAttachmentSheet = false
+            viewModel.addAttachmentsFromUris(context, uris)
+        }
+    }
+    var pendingCameraUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        val captured = pendingCameraUri
+        pendingCameraUri = null
+        if (success && captured != null) {
+            showAttachmentSheet = false
+            viewModel.addImagesFromUris(context, listOf(captured))
+        }
+    }
+    val launchCamera: () -> Unit = {
+        try {
+            val dir = java.io.File(context.cacheDir, "camera").apply { mkdirs() }
+            val photo = java.io.File(dir, "capture_${System.currentTimeMillis()}.jpg")
+            val uri = androidx.core.content.FileProvider.getUriForFile(
+                context, "${context.packageName}.fileprovider", photo
+            )
+            pendingCameraUri = uri
+            cameraLauncher.launch(uri)
+        } catch (e: Exception) {
+            android.widget.Toast.makeText(context, "无法打开相机", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+    // The manifest declares CAMERA, so the system camera intent requires the permission to be granted.
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted -> if (granted) launchCamera() }
+
+    LaunchedEffect(uiState.attachmentNotice) {
+        uiState.attachmentNotice?.let {
+            android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_LONG).show()
+            viewModel.consumeAttachmentNotice()
         }
     }
 
@@ -713,7 +765,7 @@ fun ChatScreen(
                                 onToggleModel = { viewModel.toggleModel() },
                                 onAddImage = {
                                     dismissKeyboard()
-                                    photoPickerLauncher.launch("image/*")
+                                    showAttachmentSheet = true
                                 },
                                 onCommitAndPush = { viewModel.insertCommitAndPush() },
                                 showContinue = uiState.isLatestMessageError,
@@ -791,6 +843,25 @@ fun ChatScreen(
                             }
                         }
 
+                        // Attached file chips (documents / archives / source files)
+                        if (uiState.selectedFiles.isNotEmpty()) {
+                            LazyRow(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 2.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                items(uiState.selectedFiles, key = { it.id }) { file ->
+                                    AttachmentFileChip(
+                                        file = file,
+                                        onRemove = { viewModel.removeFile(file.id) },
+                                        onRetry = { viewModel.retryFileUpload(file.id) }
+                                    )
+                                }
+                            }
+                        }
+
                         // Input Field & iOS Circular Action Button (1:1 iOS Alignment & Style)
                         Row(
                             modifier = Modifier
@@ -820,7 +891,7 @@ fun ChatScreen(
                                 maxLines = 5,
                                 keyboardActions = KeyboardActions(
                                     onSend = {
-                                        if (inputText.isNotBlank() || uiState.selectedImages.isNotEmpty()) {
+                                        if (inputText.isNotBlank() || uiState.selectedImages.isNotEmpty() || uiState.selectedFiles.isNotEmpty()) {
                                             dismissKeyboard()
                                             viewModel.sendCurrentMessage()
                                         }
@@ -852,7 +923,7 @@ fun ChatScreen(
 
                             val isActivelyRunning = uiState.isRunning || uiState.isAwaitingResponse || uiState.runningTasks.isNotEmpty()
                             val isInputBlank = inputText.isBlank()
-                            val hasAttachments = uiState.selectedImages.isNotEmpty()
+                            val hasAttachments = uiState.selectedImages.isNotEmpty() || uiState.selectedFiles.isNotEmpty()
 
                             if (isActivelyRunning && isInputBlank && !hasAttachments) {
                                 // Stop button: 44.dp circle, matches iOS stop button (gray circle with red stop square)
@@ -918,6 +989,33 @@ fun ChatScreen(
                 }
             }
         }
+    }
+
+    // "+" attachment panel (camera, recent photos, add file)
+    if (showAttachmentSheet) {
+        AttachmentPickerSheet(
+            remainingImageSlots = (9 - uiState.selectedImages.size).coerceAtLeast(0),
+            onDismiss = { showAttachmentSheet = false },
+            onPhotosPicked = { uris ->
+                showAttachmentSheet = false
+                viewModel.addImagesFromUris(context, uris)
+            },
+            onOpenCamera = {
+                if (androidx.core.content.ContextCompat.checkSelfPermission(
+                        context, android.Manifest.permission.CAMERA
+                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                ) {
+                    launchCamera()
+                } else {
+                    cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
+                }
+            },
+            onOpenAlbum = {
+                showAttachmentSheet = false
+                photoPickerLauncher.launch("image/*")
+            },
+            onPickFiles = { filePickerLauncher.launch(arrayOf("*/*")) }
+        )
     }
 
     // Markdown File Viewer Sheet

@@ -80,6 +80,8 @@ data class ChatUiState(
     val isRunning: Boolean = false,
     val isAwaitingResponse: Boolean = false,
     val selectedImages: List<AttachmentImage> = emptyList(),
+    val selectedFiles: List<AttachmentFile> = emptyList(),
+    val attachmentNotice: String? = null,
     val canProceed: Boolean = false,
     val proceedArtifactUri: String? = null,
     val pendingInteraction: PendingInteraction? = null,
@@ -183,6 +185,7 @@ class ChatViewModel(
     internal val deletedQueueTombstones = mutableListOf<QueuedMessageTombstone>()
     internal val inFlightDeletingQueueIds = mutableSetOf<String>()
     internal val stoppedTaskKeys = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+    internal val fileUploadJobs = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Job>()
 
     fun onInputTextChanged(text: String) {
         _inputText.value = text
@@ -232,21 +235,32 @@ class ChatViewModel(
     fun sendCurrentMessage() {
         val text = _inputText.value.trim()
         val images = _uiState.value.selectedImages
-        if (text.isEmpty() && images.isEmpty()) return
+        val files = _uiState.value.selectedFiles
+        if (text.isEmpty() && images.isEmpty() && files.isEmpty()) return
+        if (files.any { it.state == UploadState.FAILED }) {
+            _uiState.value = _uiState.value.copy(attachmentNotice = "有文件上传失败，请重试或移除后再发送")
+            return
+        }
+        if (files.any { !it.isUploaded }) {
+            _uiState.value = _uiState.value.copy(attachmentNotice = "文件仍在上传，请稍候")
+            return
+        }
         val cid = _uiState.value.cascadeId
         if (!cid.startsWith("local_draft_")) {
             prefs?.clearDraftText(cid)
             prefs?.clearDraftImages(cid)
+            prefs?.clearDraftFiles(cid)
         }
         _inputText.value = ""
-        _uiState.value = _uiState.value.copy(selectedImages = emptyList())
-        sendMessage(text, images)
+        _uiState.value = _uiState.value.copy(selectedImages = emptyList(), selectedFiles = emptyList())
+        sendMessage(text, images, files = files)
     }
 
     fun deleteLocalDraftSession(cascadeId: String) {
         prefs?.deleteLocalDraftSession(cascadeId)
         prefs?.clearDraftText(cascadeId)
         prefs?.clearDraftImages(cascadeId)
+        prefs?.clearDraftFiles(cascadeId)
         if (_uiState.value.cascadeId == cascadeId) {
             currentDraftProject = null
         }
@@ -257,7 +271,8 @@ class ChatViewModel(
     }
 
     fun handleBack(cascadeId: String, inputText: String) {
-        val hasImages = _uiState.value.selectedImages.isNotEmpty() || (prefs?.hasDraftImages(cascadeId) == true)
+        val hasImages = _uiState.value.selectedImages.isNotEmpty() || _uiState.value.selectedFiles.isNotEmpty() ||
+            (prefs?.hasDraftImages(cascadeId) == true) || (prefs?.hasDraftFiles(cascadeId) == true)
         if (cascadeId.startsWith("local_draft_") && inputText.isBlank() && !hasImages) {
             deleteLocalDraftSession(cascadeId)
         } else {

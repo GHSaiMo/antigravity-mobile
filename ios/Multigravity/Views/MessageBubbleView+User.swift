@@ -28,8 +28,21 @@ extension MessageBubbleView {
                 userMultiImageRow
             }
             
-            if !message.content.isEmpty {
-                Text(message.content)
+            // Files the user attached: the gateway appends an attachment block to the message text.
+            let parsed = AttachmentRules.parseBlock(message.content)
+            if !parsed.files.isEmpty {
+                VStack(alignment: .trailing, spacing: 6) {
+                    ForEach(parsed.files) { file in
+                        MessageFileCardView(file: file) {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            openURL(URL(fileURLWithPath: file.path))
+                        }
+                    }
+                }
+            }
+            
+            if !parsed.body.isEmpty {
+                Text(parsed.body)
                     .font(.system(size: 15.5))
                     .foregroundColor(.white)
                     .padding(.horizontal, 14)

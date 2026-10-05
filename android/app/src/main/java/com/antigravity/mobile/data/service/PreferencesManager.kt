@@ -356,7 +356,53 @@ class PreferencesManager(context: Context) {
 
     fun hasDraft(cascadeId: String): Boolean {
         if (cascadeId.isBlank()) return false
-        return getDraftText(cascadeId).isNotBlank() || hasDraftImages(cascadeId)
+        return getDraftText(cascadeId).isNotBlank() || hasDraftImages(cascadeId) || hasDraftFiles(cascadeId)
+    }
+
+    // MARK: - Draft file attachments (documents / archives / source files)
+    private fun draftFilesKey(cascadeId: String) = "draft_files_" + cascadeId.replace('/', '_').replace(':', '_')
+
+    /** App-private directory holding local copies of files attached to a draft. */
+    fun draftFilesDir(cascadeId: String): java.io.File {
+        val safeKey = cascadeId.replace('/', '_').replace(':', '_')
+        return java.io.File(appContext.filesDir, "draft_files/$safeKey").apply { mkdirs() }
+    }
+
+    fun saveDraftFiles(cascadeId: String, files: List<com.antigravity.mobile.data.model.AttachmentFile>) {
+        if (cascadeId.isBlank()) return
+        try {
+            if (files.isEmpty()) {
+                prefs.edit().remove(draftFilesKey(cascadeId)).apply()
+            } else {
+                prefs.edit().putString(
+                    draftFilesKey(cascadeId),
+                    JsonConfig.instance.encodeToString(files)
+                ).apply()
+            }
+        } catch (_: Exception) {}
+    }
+
+    fun loadDraftFiles(cascadeId: String): List<com.antigravity.mobile.data.model.AttachmentFile> {
+        if (cascadeId.isBlank()) return emptyList()
+        return try {
+            val raw = prefs.getString(draftFilesKey(cascadeId), null) ?: return emptyList()
+            JsonConfig.instance.decodeFromString<List<com.antigravity.mobile.data.model.AttachmentFile>>(raw)
+                .filter { java.io.File(it.localPath).exists() }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    fun hasDraftFiles(cascadeId: String): Boolean = loadDraftFiles(cascadeId).isNotEmpty()
+
+    /** Removes the persisted metadata and the local copies of a draft's files. */
+    fun clearDraftFiles(cascadeId: String) {
+        if (cascadeId.isBlank()) return
+        try {
+            prefs.edit().remove(draftFilesKey(cascadeId)).apply()
+            val safeKey = cascadeId.replace('/', '_').replace(':', '_')
+            java.io.File(appContext.filesDir, "draft_files/$safeKey").deleteRecursively()
+        } catch (_: Exception) {}
     }
 
     fun saveDraftImages(cascadeId: String, images: List<ByteArray>) {
