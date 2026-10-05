@@ -73,7 +73,7 @@ public struct OnboardingGuideView: View {
                                 onEasterEggTap?()
                             }
                         
-                        Text("Multigravity 智能体全栈移动伴侣\n随时随地监控思考流、下发指令与决策")
+                        Text("Google Antigravity 移动伴侣\n随时随地下发指令与决策")
                             .font(.system(size: 13.5))
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
@@ -346,7 +346,7 @@ public struct OnboardingGuideView: View {
                             HStack(spacing: 6) {
                                 Image(systemName: "play.circle")
                                     .font(.system(size: 14))
-                                Text("没有电脑？体验演示模式")
+                                Text("没有安装网关？体验演示模式")
                                     .font(.system(size: 13.5, weight: .semibold))
                             }
                             .foregroundColor(.indigo)
