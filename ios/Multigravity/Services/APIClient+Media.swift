@@ -113,6 +113,20 @@ extension APIClient {
         baseURL: URL,
         onProgress: (@Sendable (Double, Int64, Int64) -> Void)? = nil
     ) async throws -> (localURL: URL, fileName: String) {
+        // Demo mode: serve files from the built-in demo gateway (background sessions bypass URLProtocol).
+        if DemoGateway.isEnabled {
+            var path = uri
+            if let comps = URLComponents(string: uri), let p = comps.queryItems?.first(where: { $0.name == "uri" })?.value { path = p }
+            guard let file = DemoGateway.shared.fileData(forPath: path) else {
+                throw APIError.serverError(statusCode: 404, message: "file not found")
+            }
+            let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            try file.data.write(to: tmp)
+            onProgress?(1, Int64(file.data.count), Int64(file.data.count))
+            let cached = try DocumentCacheManager.shared.saveToCache(from: tmp, for: uri, fileName: file.name)
+            return (cached, file.name)
+        }
+        
         // Fast-path: Check persistent local cache first
         let initialFileName: String = {
             if let comps = URLComponents(string: uri),

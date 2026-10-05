@@ -38,6 +38,7 @@ public final class NetworkTransport: Sendable {
         config.httpShouldSetCookies = false
         config.httpCookieAcceptPolicy = .never
         config.httpCookieStorage = nil
+        config.protocolClasses = [DemoURLProtocol.self] + (config.protocolClasses ?? [])
         self.fallbackSession = URLSession(configuration: config, delegate: nil, delegateQueue: nil)
     }
     

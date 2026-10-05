@@ -31,6 +31,7 @@ public final class AppSettings {
     private let activeModelKey = "antigravity.active_model"
     private let autoApprovePermissionsKey = "antigravity.auto_approve_permissions"
     private let gatewayPlatformKey = "antigravity.gateway_platform"
+    private let demoModeKey = "antigravity.demo_mode"
     
     public var gatewayPlatform: String? {
         didSet {
@@ -273,6 +274,7 @@ public final class AppSettings {
     }
     
     public var serverURL: URL? {
+        if isDemoMode { return DemoGateway.baseURL }
         let isCell = NetworkStatus.shared.isCellular || !NetworkStatus.shared.isWifi
         
         if isCell {
@@ -346,9 +348,21 @@ public final class AppSettings {
     
     public private(set) var isPaired: Bool
     
+    /// Demo mode: the app talks to the built-in `DemoGateway` instead of a real gateway
+    /// (used for App Review and for trying the app without a desktop).
+    public private(set) var isDemoMode: Bool = false
+    
+    public func enterDemoMode() {
+        DemoGateway.shared.reset()
+        DemoGateway.isEnabled = true
+        UserDefaults.standard.set(true, forKey: demoModeKey)
+        self.isDemoMode = true
+        self.isPaired = true
+    }
+    
     public func refreshPairedState() {
         let token = KeychainHelper.shared.read(key: .deviceToken)
-        self.isPaired = (token != nil && !token!.isEmpty)
+        self.isPaired = isDemoMode || (token != nil && !token!.isEmpty)
     }
     
     public func updateEndpoints(
@@ -359,7 +373,7 @@ public final class AppSettings {
         primaryCloud: String? = nil
     ) {
         let token = KeychainHelper.shared.read(key: .deviceToken)
-        self.isPaired = (token != nil && !token!.isEmpty)
+        self.isPaired = isDemoMode || (token != nil && !token!.isEmpty)
         if let lan = lan, !lan.isEmpty {
             self.lanServerURL = lan
         }
@@ -391,6 +405,9 @@ public final class AppSettings {
     
     public func unpair() {
         KeychainHelper.shared.clearAll()
+        DemoGateway.isEnabled = false
+        UserDefaults.standard.removeObject(forKey: demoModeKey)
+        self.isDemoMode = false
         self.isPaired = false
         self.rawServerURL = ""
         self.primaryCloudURL = nil
@@ -418,8 +435,11 @@ public final class AppSettings {
         UserDefaults.standard.removeObject(forKey: "antigravity.cf_access_client_secret")
         UserDefaults.standard.removeObject(forKey: "antigravity.ipv6_server_url")
         
+        let demo = UserDefaults.standard.bool(forKey: demoModeKey)
+        self.isDemoMode = demo
+        DemoGateway.isEnabled = demo
         let token = KeychainHelper.shared.read(key: .deviceToken)
-        self.isPaired = (token != nil && !token!.isEmpty)
+        self.isPaired = demo || (token != nil && !token!.isEmpty)
         
         let savedURL = UserDefaults.standard.string(forKey: serverURLKey) ?? "http://127.0.0.1:58900"
         let savedCloud = UserDefaults.standard.string(forKey: primaryCloudURLKey)

@@ -60,6 +60,16 @@ public struct ConversationListView: View {
                 OnboardingGuideView(
                     onScanTapped: { showQRScanner = true },
                     onManualInputTapped: { showManualInput = true },
+                    onDemoTapped: {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        settings.enterDemoMode()
+                        // onAppear already ran for the onboarding page; load the demo data now.
+                        viewModel.startAutoRefresh()
+                        Task {
+                            await viewModel.fetchConversations()
+                            await ProjectCacheManager.shared.fetchAndCacheProjects()
+                        }
+                    },
                     onEasterEggTap: handleEasterEggTap
                 )
             } else {

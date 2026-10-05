@@ -33,6 +33,7 @@ extension APIClient {
             config.timeoutIntervalForRequest = 120
             config.timeoutIntervalForResource = 600
             config.httpShouldSetCookies = false
+            config.protocolClasses = [DemoURLProtocol.self] + (config.protocolClasses ?? [])
             let delegate = UploadProgressDelegate(onProgress: onProgress)
             let session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
             defer { session.finishTasksAndInvalidate() }

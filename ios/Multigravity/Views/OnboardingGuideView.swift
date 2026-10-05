@@ -3,6 +3,7 @@ import SwiftUI
 public struct OnboardingGuideView: View {
     public var onScanTapped: () -> Void
     public var onManualInputTapped: () -> Void
+    public var onDemoTapped: (() -> Void)?
     public var onEasterEggTap: (() -> Void)?
     
     @Environment(\.openURL) private var openURL
@@ -16,10 +17,12 @@ public struct OnboardingGuideView: View {
     public init(
         onScanTapped: @escaping () -> Void,
         onManualInputTapped: @escaping () -> Void,
+        onDemoTapped: (() -> Void)? = nil,
         onEasterEggTap: (() -> Void)? = nil
     ) {
         self.onScanTapped = onScanTapped
         self.onManualInputTapped = onManualInputTapped
+        self.onDemoTapped = onDemoTapped
         self.onEasterEggTap = onEasterEggTap
     }
     
@@ -336,6 +339,24 @@ public struct OnboardingGuideView: View {
                         .padding(.horizontal, 12)
                     }
                     .padding(.top, 2)
+                    
+                    // Demo mode: explore the app without a desktop gateway (also used by App Review)
+                    if let onDemoTapped {
+                        Button(action: onDemoTapped) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "play.circle")
+                                    .font(.system(size: 14))
+                                Text("没有电脑？体验演示模式")
+                                    .font(.system(size: 13.5, weight: .semibold))
+                            }
+                            .foregroundColor(.indigo)
+                            .padding(.vertical, 8)
+                            .padding(.horizontal, 14)
+                            .background(Color.indigo.opacity(0.1))
+                            .clipShape(Capsule())
+                        }
+                        .accessibilityIdentifier("demoModeButton")
+                    }
                 }
                 .padding(.top, 16)
                 .padding(.bottom, 24)
