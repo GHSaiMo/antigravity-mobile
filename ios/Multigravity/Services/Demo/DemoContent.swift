@@ -367,3 +367,32 @@ enum DemoAssets {
         }
     }
 }
+
+
+// MARK: - Demo drafts (DRAFT tag in the conversation list)
+
+extension DemoGateway {
+    static let localDraftId = "local_draft_demo_0001"
+    static let draftedConversationId = "demo-0007-python"
+    
+    /// Seeds unsent drafts so the list shows the DRAFT tag:
+    /// 1. a brand-new local draft (not yet sent, belongs to a project), and
+    /// 2. an unsent follow-up typed into an existing conversation.
+    static func seedDrafts() {
+        let cache = CacheManager.shared
+        let project = ProjectItem(
+            rawId: "demo-project-web", name: "官网前端", uri: "file:///Users/demo/Projects/website",
+            path: "/Users/demo/Projects/website", isWorkspace: false, sessionCount: 3, lastActive: Date()
+        )
+        let text = "给首页的价格卡片补一个移动端横向滚动的样式，并加上埋点"
+        let session = LocalDraftSession(
+            id: localDraftId, project: project, draftText: text,
+            createdAt: Date().addingTimeInterval(-300), updatedAt: Date().addingTimeInterval(-240)
+        )
+        cache.deleteLocalDraftSession(id: localDraftId)
+        cache.saveLocalDraftSession(session)
+        cache.saveDraft(key: localDraftId, text: text)
+        
+        cache.saveDraft(key: draftedConversationId, text: "再对比一下 pandas 和 polars 的耗时，并给出内存占用")
+    }
+}
