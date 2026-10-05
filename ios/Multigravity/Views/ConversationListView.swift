@@ -265,15 +265,92 @@ public struct ConversationListView: View {
             .background(NavigationBarTapHelper(onTap: handleEasterEggTap))
     }
     
+    /// iPad sidebar: the system sidebar forces an inline title and a top search field, so it gets a
+    /// custom header (large leading title + actions, like iPhone) and a search field at the bottom.
+    private var sidebarWithChrome: some View {
+        pairedContentView
+            .toolbar(.hidden, for: .navigationBar)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(spacing: 10) {
+                        sidebarCircleButton("gearshape", label: "设置") { showSettings = true }
+                            .keyboardShortcut(",", modifiers: .command)
+                        Spacer()
+                        sidebarCircleButton("plus", label: "新建会话") { showNewConversation = true }
+                            .keyboardShortcut("n", modifiers: .command)
+                        sidebarCircleButton("sidebar.left", label: "收起侧栏") {
+                            withAnimation { columnVisibility = .detailOnly }
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 0)
+                    
+                    // Large leading title; tapping it 10 times opens the easter egg (same as iPhone).
+                    Text("Multigravity")
+                        .font(.system(size: 34, weight: .bold))
+                        .foregroundColor(.primary)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 10)
+                        .padding(.bottom, 6)
+                        .contentShape(Rectangle())
+                        .onTapGesture { handleEasterEggTap() }
+                }
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                sidebarSearchField
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 10)
+            }
+    }
+    
+    private func sidebarCircleButton(_ systemName: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(Color.indigo)   // same tint as the iPhone toolbar buttons
+                .frame(width: 44, height: 44)
+                .modifier(SidebarGlassCircle())
+        }
+        .buttonStyle(.plain)
+        .hoverEffect(.highlight)
+        .accessibilityLabel(label)
+    }
+    
+    private var sidebarSearchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .foregroundColor(.secondary)
+            TextField("搜索会话或工作区...", text: $viewModel.searchQuery)
+                .textFieldStyle(.plain)
+                .submitLabel(.search)
+                .autocorrectionDisabled()
+            if !viewModel.searchQuery.isEmpty {
+                Button {
+                    viewModel.searchQuery = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 44)
+        .background(.regularMaterial, in: Capsule())
+        .overlay(Capsule().stroke(Color.secondary.opacity(0.15), lineWidth: 0.5))
+    }
+    
     private var splitLayout: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            listWithChrome
+            sidebarWithChrome
+                .toolbar(removing: .sidebarToggle)
                 .navigationSplitViewColumnWidth(min: 340, ideal: 390, max: 480)
         } detail: {
-            if let item = navigationPath.last {
+            Group {
+              if let item = navigationPath.last {
                 chatDestination(for: item)
                     .id(item.id)
-            } else {
+              } else {
                 ContentUnavailableView {
                     Label("选择一个会话", systemImage: "bubble.left.and.text.bubble.right")
                 } description: {
@@ -282,9 +359,28 @@ public struct ConversationListView: View {
                     Button("新建会话") { showNewConversation = true }
                         .buttonStyle(.borderedProminent)
                 }
+              }
+            }
+            // The system sidebar toggle is gray; replace it with one that matches the sidebar header
+            // (indigo, same icon and size), shown only while the sidebar is collapsed.
+            .toolbar(removing: .sidebarToggle)
+            .toolbar {
+                if columnVisibility == .detailOnly {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button {
+                            withAnimation { columnVisibility = .all }
+                        } label: {
+                            Image(systemName: "sidebar.left")
+                                .font(.system(size: 17, weight: .semibold))
+                                .foregroundStyle(Color.indigo)
+                        }
+                        .accessibilityLabel("展开侧栏")
+                    }
+                }
             }
         }
         .navigationSplitViewStyle(.balanced)
+        .background(HideSplitDisplayModeButton())
     }
     
     @ViewBuilder
@@ -1016,6 +1112,61 @@ private struct RowActions: ViewModifier {
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                 onRename()
             }
+        }
+    }
+}
+
+
+/// Circular button background matching the system toolbar buttons used on iPhone
+/// (Liquid Glass on iOS 26+, material elsewhere).
+private struct SidebarGlassCircle: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.glassEffect(.regular.interactive(), in: Circle())
+        } else {
+            content
+                .background(.regularMaterial, in: Circle())
+                .overlay(Circle().stroke(Color.secondary.opacity(0.15), lineWidth: 0.5))
+        }
+    }
+}
+
+
+/// Hides the UIKit split view controller's built-in sidebar toggle (gray, differently sized) so the
+/// app's own indigo toggle is the only one, in the sidebar header and in the detail toolbar.
+private struct HideSplitDisplayModeButton: UIViewControllerRepresentable {
+    func makeUIViewController(context: Context) -> Hook { Hook() }
+    func updateUIViewController(_ uiViewController: Hook, context: Context) { uiViewController.apply() }
+    
+    final class Hook: UIViewController {
+        override func didMove(toParent parent: UIViewController?) {
+            super.didMove(toParent: parent)
+            apply()
+        }
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            apply()
+        }
+        func apply() {
+            DispatchQueue.main.async { [weak self] in
+                var vc: UIViewController? = self
+                while let current = vc {
+                    if let split = current as? UISplitViewController {
+                        split.displayModeButtonVisibility = .never
+                        return
+                    }
+                    vc = current.parent
+                }
+                // The hook may sit beside (not inside) the split controller; search from the window root.
+                if let root = self?.view.window?.rootViewController {
+                    Self.hide(in: root)
+                }
+            }
+        }
+        private static func hide(in vc: UIViewController) {
+            if let split = vc as? UISplitViewController { split.displayModeButtonVisibility = .never }
+            for child in vc.children { hide(in: child) }
+            if let presented = vc.presentedViewController { hide(in: presented) }
         }
     }
 }

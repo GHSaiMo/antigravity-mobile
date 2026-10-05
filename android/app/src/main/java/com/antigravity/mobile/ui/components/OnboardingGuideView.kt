@@ -124,7 +124,7 @@ fun OnboardingGuideView(
             )
 
             Text(
-                text = "Google Antigravity 移动伴侣\n随时随地下发指令与决策",
+                text = "Google Antigravity 移动伴侣\n随时随地监控任务状态、下发指令",
                 fontSize = 12.5.sp,
                 color = colors.textSecondary,
                 textAlign = TextAlign.Center,
@@ -171,7 +171,7 @@ fun OnboardingGuideView(
                 }
 
                 Text(
-                    text = "手机端需配合运行在 Mac、Linux 或 Windows 电脑上的本地网关协同工作，嗅探后台实例打通直连。",
+                    text = "手机端需配合运行在 Mac、Linux 或 Windows 电脑上的本地网关协同工作，嗅探后台 Google Antigravity 实例打通直连。",
                     fontSize = 12.sp,
                     color = colors.textSecondary,
                     lineHeight = 16.sp
