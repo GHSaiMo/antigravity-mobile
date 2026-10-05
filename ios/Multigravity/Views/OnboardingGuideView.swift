@@ -2,7 +2,7 @@ import SwiftUI
 
 public struct OnboardingGuideView: View {
     public var onScanTapped: () -> Void
-    public var onManualInputTapped: () -> Void
+    public var onManualInputTapped: (() -> Void)?
     public var onDemoTapped: (() -> Void)?
     public var onEasterEggTap: (() -> Void)?
     
@@ -16,7 +16,7 @@ public struct OnboardingGuideView: View {
     
     public init(
         onScanTapped: @escaping () -> Void,
-        onManualInputTapped: @escaping () -> Void,
+        onManualInputTapped: (() -> Void)? = nil,
         onDemoTapped: (() -> Void)? = nil,
         onEasterEggTap: (() -> Void)? = nil
     ) {
@@ -325,20 +325,6 @@ public struct OnboardingGuideView: View {
                     .background(Color(uiColor: .secondarySystemBackground))
                     .cornerRadius(16)
                     .padding(.horizontal, 18)
-                    
-                    // Secondary action: Manual Input
-                    Button(action: onManualInputTapped) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "keyboard")
-                                .font(.system(size: 13.5))
-                            Text("高级选项：手动输入网址或配对码")
-                                .font(.system(size: 13, weight: .medium))
-                        }
-                        .foregroundColor(.secondary)
-                        .padding(.vertical, 6)
-                        .padding(.horizontal, 12)
-                    }
-                    .padding(.top, 2)
                     
                     // Demo mode: explore the app without a desktop gateway (also used by App Review)
                     if let onDemoTapped {
