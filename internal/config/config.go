@@ -276,7 +276,7 @@ type CloudflareConfig struct {
 	WorkerURL     string
 	InviteCode    string
 	Token         string // manual token override if desired
-	EdgeIPVersion string // "auto", "4"
+	EdgeIPVersion string // "auto", "4", "6"
 	Protocol      string // "quic", "http2"
 	Region        string // optional region code
 	DNSResolvers  string // optional custom DNS resolvers, e.g. "223.5.5.5:53,119.29.29.29:53"
@@ -305,8 +305,8 @@ func GetCloudflareConfig() CloudflareConfig {
 	if edgeIPVersion == "" {
 		edgeIPVersion = strings.TrimSpace(os.Getenv("TUNNEL_EDGE_IP_VERSION"))
 	}
-	if edgeIPVersion == "" || edgeIPVersion == "6" {
-		edgeIPVersion = "4" // 统一使用 IPv4
+	if edgeIPVersion == "" {
+		edgeIPVersion = "auto" // 默认双栈自适应 (auto)，有 IPv6 时优先/直连干净节点，避免纯 IPv4 遭遇国内 DNS 投毒
 	}
 
 	protocol := strings.TrimSpace(os.Getenv("CF_PROTOCOL"))
@@ -326,10 +326,7 @@ func GetCloudflareConfig() CloudflareConfig {
 	if dnsResolvers == "" {
 		dnsResolvers = strings.TrimSpace(os.Getenv("TUNNEL_DNS_RESOLVER_ADDRS"))
 	}
-	if dnsResolvers == "" {
-		// 默认优先国内高可用公共 DNS，避免本地运营商下发的失效 DNS 引发解析超时
-		dnsResolvers = "223.5.5.5:53,119.29.29.29:53"
-	}
+	// 默认不强制注入境内公共 DNS，避免境内明文 UDP 递归解析 *.argotunnel.com 命中 GFW 假 IP 污染
 
 	enabled := true
 	if v := os.Getenv("CF_TUNNEL_ENABLED"); v != "" {

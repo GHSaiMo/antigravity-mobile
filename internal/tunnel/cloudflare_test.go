@@ -143,6 +143,27 @@ func TestBuildTunnelArgs(t *testing.T) {
 			t.Errorf("expected no --dns-resolver-addrs when disabled with 'system'")
 		}
 	}
+
+	// 3. Default auto config without custom DNS resolvers
+	cfgDefault := &config.CloudflareConfig{
+		EdgeIPVersion: "auto",
+		Protocol:      "http2",
+	}
+	argsDefault := buildTunnelArgs(cfgDefault)
+	expectedDefault := []string{
+		"tunnel",
+		"--edge-ip-version", "auto",
+		"run",
+		"--protocol", "http2",
+	}
+	if len(argsDefault) != len(expectedDefault) {
+		t.Fatalf("expected %d args, got %d: %v", len(expectedDefault), len(argsDefault), argsDefault)
+	}
+	for i := range expectedDefault {
+		if argsDefault[i] != expectedDefault[i] {
+			t.Errorf("arg[%d]: expected %q, got %q", i, expectedDefault[i], argsDefault[i])
+		}
+	}
 }
 
 func TestIsBenignCloudflareLog(t *testing.T) {

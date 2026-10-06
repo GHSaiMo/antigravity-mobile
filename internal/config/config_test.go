@@ -121,8 +121,8 @@ func TestGetCloudflareConfig(t *testing.T) {
 	t.Setenv("TUNNEL_DNS_RESOLVER_ADDRS", "")
 
 	cfg := GetCloudflareConfig()
-	if cfg.EdgeIPVersion != "4" {
-		t.Errorf("expected default EdgeIPVersion = 4, got %s", cfg.EdgeIPVersion)
+	if cfg.EdgeIPVersion != "auto" {
+		t.Errorf("expected default EdgeIPVersion = auto, got %s", cfg.EdgeIPVersion)
 	}
 	if cfg.Protocol != "http2" {
 		t.Errorf("expected default Protocol = http2, got %s", cfg.Protocol)
@@ -130,8 +130,8 @@ func TestGetCloudflareConfig(t *testing.T) {
 	if !cfg.Enabled {
 		t.Errorf("expected default Enabled = true")
 	}
-	if cfg.DNSResolvers != "223.5.5.5:53,119.29.29.29:53" {
-		t.Errorf("expected default DNSResolvers = 223.5.5.5:53,119.29.29.29:53, got %s", cfg.DNSResolvers)
+	if cfg.DNSResolvers != "" {
+		t.Errorf("expected default DNSResolvers = '', got %s", cfg.DNSResolvers)
 	}
 
 	// 2. Test overrides
