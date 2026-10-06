@@ -198,7 +198,7 @@ public final class ChatViewModel {
         
         Task.detached(priority: .userInitiated) { [weak self, key, currentDraftSession] in
             guard let self else { return }
-            var cachedImages = CacheManager.shared.getDraftImages(for: key)
+            var cachedImages = await CacheManager.shared.getDraftImagesAsync(for: key)
             if cachedImages.isEmpty, let dSession = currentDraftSession, !dSession.draftImages.isEmpty {
                 cachedImages = dSession.draftImages
                 CacheManager.shared.saveDraftImages(key: key, images: cachedImages)

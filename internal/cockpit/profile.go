@@ -309,23 +309,24 @@ func InjectAccountToAntigravityStateDB(acc *CockpitAccountDetail) error {
 		topic = append(topic, entry...)
 		topicB64 := base64.StdEncoding.EncodeToString(topic)
 
-		sql := fmt.Sprintf("INSERT OR REPLACE INTO ItemTable (key, value) VALUES ('antigravityUnifiedStateSync.oauthToken', %s);", sqliteQuote(topicB64))
-		if err := execSQLite(dbPath, sql); err != nil {
-			slog.Warn(fmt.Sprintf("[Cockpit] failed to write unified oauthToken to %s", dbPath), "err", err)
-		}
-
 		// Inject minimal userStatus if missing
 		userStatusCount, _ := querySQLite(dbPath, "SELECT COUNT(*) FROM ItemTable WHERE key = 'antigravityUnifiedStateSync.userStatus';")
+
+		var batchSQL strings.Builder
+		batchSQL.WriteString("BEGIN TRANSACTION;\n")
+		fmt.Fprintf(&batchSQL, "INSERT OR REPLACE INTO ItemTable (key, value) VALUES ('antigravityUnifiedStateSync.oauthToken', %s);\n", sqliteQuote(topicB64))
 		if userStatusCount == "0" || userStatusCount == "" {
 			minPayload := CreateMinimalUserStatusPayload(acc.Email)
 			userTopic := CreateUnifiedTopicEntry("userStatusSentinelKey", minPayload)
 			userTopicB64 := base64.StdEncoding.EncodeToString(userTopic)
-			uSQL := fmt.Sprintf("INSERT OR REPLACE INTO ItemTable (key, value) VALUES ('antigravityUnifiedStateSync.userStatus', %s);", sqliteQuote(userTopicB64))
-			_ = execSQLite(dbPath, uSQL)
+			fmt.Fprintf(&batchSQL, "INSERT OR REPLACE INTO ItemTable (key, value) VALUES ('antigravityUnifiedStateSync.userStatus', %s);\n", sqliteQuote(userTopicB64))
 		}
+		batchSQL.WriteString("INSERT OR REPLACE INTO ItemTable (key, value) VALUES ('antigravityOnboarding', 'true');\n")
+		batchSQL.WriteString("COMMIT;\n")
 
-		// Inject Onboarding flag
-		_ = execSQLite(dbPath, "INSERT OR REPLACE INTO ItemTable (key, value) VALUES ('antigravityOnboarding', 'true');")
+		if err := execSQLite(dbPath, batchSQL.String()); err != nil {
+			slog.Warn(fmt.Sprintf("[Cockpit] failed to write unified tokens to %s", dbPath), "err", err)
+		}
 		slog.Info(fmt.Sprintf("[Cockpit] Injected account %s tokens into %s", acc.Email, dbPath))
 	}
 	return nil

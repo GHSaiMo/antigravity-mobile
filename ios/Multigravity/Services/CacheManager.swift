@@ -93,38 +93,63 @@ public final class CacheManager: @unchecked Sendable {
         memTouchDates[cascadeId] = date
         UserDefaults.standard.set(date, forKey: "ag_touch_\(cascadeId)")
         
-        var items = memConversations ?? []
-        if items.isEmpty {
-            let fileURL = cacheDir.appendingPathComponent("conversations.json")
-            if let data = try? Data(contentsOf: fileURL),
-               let loaded = try? Self.decoder.decode([ConversationItem].self, from: data) {
-                items = loaded
+        if var items = memConversations, !items.isEmpty {
+            if let idx = items.firstIndex(where: { $0.id == cascadeId }) {
+                let old = items.remove(at: idx)
+                let updated = ConversationItem(
+                    id: old.id,
+                    title: old.title,
+                    status: old.status,
+                    stepCount: old.stepCount,
+                    workspaceName: old.workspaceName,
+                    lastModified: date,
+                    isSubagent: old.isSubagent,
+                    isUnread: false,
+                    draftProject: old.draftProject
+                )
+                items.insert(updated, at: 0)
+                memConversations = items
+                if let data = try? Self.encoder.encode(items) {
+                    let fileURL = cacheDir.appendingPathComponent("conversations.json")
+                    ioQueue.async {
+                        try? data.write(to: fileURL, options: .atomic)
+                    }
+                }
             }
+            lock.unlock()
+            return
         }
+        lock.unlock()
         
-        if let idx = items.firstIndex(where: { $0.id == cascadeId }) {
-            let old = items.remove(at: idx)
-            let updated = ConversationItem(
-                id: old.id,
-                title: old.title,
-                status: old.status,
-                stepCount: old.stepCount,
-                workspaceName: old.workspaceName,
-                lastModified: date,
-                isSubagent: old.isSubagent,
-                isUnread: false,
-                draftProject: old.draftProject
-            )
-            items.insert(updated, at: 0)
-            memConversations = items
-            if let data = try? Self.encoder.encode(items) {
-                let fileURL = cacheDir.appendingPathComponent("conversations.json")
-                ioQueue.async {
-                    try? data.write(to: fileURL, options: .atomic)
+        ioQueue.async { [weak self] in
+            guard let self = self else { return }
+            let fileURL = self.cacheDir.appendingPathComponent("conversations.json")
+            guard let data = try? Data(contentsOf: fileURL),
+                  var items = try? Self.decoder.decode([ConversationItem].self, from: data) else {
+                return
+            }
+            if let idx = items.firstIndex(where: { $0.id == cascadeId }) {
+                let old = items.remove(at: idx)
+                let updated = ConversationItem(
+                    id: old.id,
+                    title: old.title,
+                    status: old.status,
+                    stepCount: old.stepCount,
+                    workspaceName: old.workspaceName,
+                    lastModified: date,
+                    isSubagent: old.isSubagent,
+                    isUnread: false,
+                    draftProject: old.draftProject
+                )
+                items.insert(updated, at: 0)
+                self.lock.lock()
+                self.memConversations = items
+                self.lock.unlock()
+                if let out = try? Self.encoder.encode(items) {
+                    try? out.write(to: fileURL, options: .atomic)
                 }
             }
         }
-        lock.unlock()
     }
     
     public func getTouchDate(for cascadeId: String) -> Date? {
@@ -348,7 +373,22 @@ public final class CacheManager: @unchecked Sendable {
     }
     
     public func loadConversationsAsync() async -> [ConversationItem] {
-        return loadConversations()
+        lock.lock()
+        if let mem = memConversations {
+            lock.unlock()
+            return mem
+        }
+        lock.unlock()
+        return await withCheckedContinuation { continuation in
+            ioQueue.async { [weak self] in
+                guard let self = self else {
+                    continuation.resume(returning: [])
+                    return
+                }
+                let items = self.loadConversations()
+                continuation.resume(returning: items)
+            }
+        }
     }
     
     public func updateConversationTitle(cascadeId: String, newTitle: String) {
@@ -536,10 +576,22 @@ public final class CacheManager: @unchecked Sendable {
     }
     
     public func loadSessionAsync(for cascadeId: String) async -> CachedChatSession? {
-        if let mem = lock.withLock({ memSessions[cascadeId] }) {
+        lock.lock()
+        if let mem = memSessions[cascadeId] {
+            lock.unlock()
             return mem
         }
-        return loadSession(for: cascadeId)
+        lock.unlock()
+        return await withCheckedContinuation { continuation in
+            ioQueue.async { [weak self] in
+                guard let self = self else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                let session = self.loadSession(for: cascadeId)
+                continuation.resume(returning: session)
+            }
+        }
     }
     
     public func prewarmSessions(for cascadeIds: [String]) {
@@ -788,6 +840,25 @@ public final class CacheManager: @unchecked Sendable {
         }
         lock.unlock()
         return loaded
+    }
+    
+    public func getDraftImagesAsync(for key: String) async -> [Data] {
+        lock.lock()
+        if let mem = memDraftImages[key] {
+            lock.unlock()
+            return mem
+        }
+        lock.unlock()
+        return await withCheckedContinuation { continuation in
+            ioQueue.async { [weak self] in
+                guard let self = self else {
+                    continuation.resume(returning: [])
+                    return
+                }
+                let images = self.getDraftImages(for: key)
+                continuation.resume(returning: images)
+            }
+        }
     }
     
     public func hasDraftImages(for key: String) -> Bool {

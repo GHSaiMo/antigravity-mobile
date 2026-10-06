@@ -913,7 +913,7 @@ function generateItemHtml(item, isRunning, isLastItem) {
     return `
       <div class="bubble markdown-body">
         ${thoughtHtml}
-        <div>${bodyHtml}</div>
+        <div class="agent-message-body">${bodyHtml}</div>
       </div>
     `;
   }
@@ -1119,13 +1119,43 @@ function renderMessages(steps, isRunning = false) {
       let existingEl = document.getElementById(item.id);
       if (existingEl) {
         if (existingEl.getAttribute("data-fp") !== fp) {
-          const wasOpen = existingEl.querySelector("details")?.open;
           existingEl.setAttribute("data-fp", fp);
           existingEl.className = rowClass;
-          existingEl.innerHTML = generateItemHtml(item, isRunning, isLastItem);
-          if (wasOpen) {
-            const newDetails = existingEl.querySelector("details");
-            if (newDetails) newDetails.open = true;
+
+          // Optimization for agent streaming updates: in-place DOM patch
+          const bubble = existingEl.querySelector(".bubble.markdown-body");
+          const bodyEl = existingEl.querySelector(".agent-message-body");
+          if (item.type === "agent" && bubble && bodyEl) {
+            let thoughtDetails = bubble.querySelector(".thought-box");
+            if (item.thinking) {
+              if (thoughtDetails) {
+                const summary = thoughtDetails.querySelector("summary");
+                const content = thoughtDetails.querySelector(".thought-content");
+                if (summary) summary.textContent = `🧠 Agent 思考过程 (${item.thinking.length} 字符)`;
+                if (content && content.textContent !== item.thinking) content.textContent = item.thinking;
+              } else {
+                const temp = document.createElement("div");
+                temp.innerHTML = `
+                  <details class="thought-box">
+                    <summary>🧠 Agent 思考过程 (${item.thinking.length} 字符)</summary>
+                    <div class="thought-content">${escapeHtml(item.thinking)}</div>
+                  </details>
+                `;
+                bubble.insertBefore(temp.firstElementChild, bodyEl);
+              }
+            } else if (thoughtDetails) {
+              thoughtDetails.remove();
+            }
+
+            const bodyHtml = item.text ? getCachedMarkdown(item.text) : '<span style="color:var(--text-muted);">执行中...</span>';
+            bodyEl.innerHTML = bodyHtml;
+          } else {
+            const wasOpen = existingEl.querySelector("details")?.open;
+            existingEl.innerHTML = generateItemHtml(item, isRunning, isLastItem);
+            if (wasOpen) {
+              const newDetails = existingEl.querySelector("details");
+              if (newDetails) newDetails.open = true;
+            }
           }
           hasDOMChanges = true;
         }
