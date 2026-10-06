@@ -190,7 +190,7 @@ func (p *Proxy) GetProjects() ([]ProjectItem, error) {
 		}
 	}
 
-	var result []ProjectItem
+	result := make([]ProjectItem, 0, len(projectMap))
 	for _, prj := range projectMap {
 		result = append(result, *prj)
 	}

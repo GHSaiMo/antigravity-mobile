@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -83,7 +84,7 @@ type geminiProjectConfigFile struct {
 
 // fetchProjectsFromGeminiConfig reads Antigravity 2.0 project JSON configs from ~/.gemini/config/projects/.
 func fetchProjectsFromGeminiConfig() []ProjectItem {
-	var items []ProjectItem
+	items := make([]ProjectItem, 0, 16)
 	seenIDs := make(map[string]bool)
 	seenURIs := make(map[string]bool)
 
@@ -421,7 +422,7 @@ func getAntigravityWorkspaceStoragePaths() []string {
 // fetchProjectsFromWorkspaceStorage reads all workspace.json files from User/workspaceStorage.
 // This is pure JSON on disk without requiring SQLite or Python.
 func fetchProjectsFromWorkspaceStorage() []ProjectItem {
-	var items []ProjectItem
+	items := make([]ProjectItem, 0, 16)
 	seenRoots := make(map[string]bool)
 	seenURIs := make(map[string]bool)
 
@@ -534,18 +535,36 @@ func getAntigravityStateDBPaths() []string {
 	return paths
 }
 
+var (
+	cachedStateDBMu    sync.RWMutex
+	cachedStateDBPath  string
+	cachedStateDBMTime time.Time
+	cachedStateDBItems []ProjectItem
+)
+
 // fetchProjectsFromStateDB queries recentlyOpenedPathsList from Antigravity's state.vscdb.
 func fetchProjectsFromStateDB() []ProjectItem {
 	var dbPath string
+	var dbFi os.FileInfo
 	for _, p := range getAntigravityStateDBPaths() {
-		if _, err := os.Stat(p); err == nil {
+		if fi, err := os.Stat(p); err == nil {
 			dbPath = p
+			dbFi = fi
 			break
 		}
 	}
-	if dbPath == "" {
+	if dbPath == "" || dbFi == nil {
 		return nil
 	}
+
+	cachedStateDBMu.RLock()
+	if cachedStateDBPath == dbPath && cachedStateDBMTime.Equal(dbFi.ModTime()) && cachedStateDBItems != nil {
+		items := make([]ProjectItem, len(cachedStateDBItems))
+		copy(items, cachedStateDBItems)
+		cachedStateDBMu.RUnlock()
+		return items
+	}
+	cachedStateDBMu.RUnlock()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
@@ -591,7 +610,7 @@ func fetchProjectsFromStateDB() []ProjectItem {
 		return nil
 	}
 
-	var items []ProjectItem
+	items := make([]ProjectItem, 0, len(hist.Entries))
 	for _, entry := range hist.Entries {
 		rawURI := ""
 		isWorkspace := false
@@ -635,6 +654,13 @@ func fetchProjectsFromStateDB() []ProjectItem {
 			IsWorkspace: isWorkspace,
 		})
 	}
+
+	cachedStateDBMu.Lock()
+	cachedStateDBPath = dbPath
+	cachedStateDBMTime = dbFi.ModTime()
+	cachedStateDBItems = make([]ProjectItem, len(items))
+	copy(cachedStateDBItems, items)
+	cachedStateDBMu.Unlock()
 
 	return items
 }

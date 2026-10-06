@@ -310,21 +310,23 @@ html, body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  will-change: transform, opacity;
+}
+
+.view.is-swiping {
+  will-change: transform;
 }
 
 #view-conversations {
   transform: translateX(0);
   opacity: 1;
   pointer-events: auto;
-  transition: transform 0.32s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.32s cubic-bezier(0.32, 0.72, 0, 1), filter 0.32s ease;
+  transition: transform 0.32s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.32s cubic-bezier(0.32, 0.72, 0, 1);
   z-index: 10;
 }
 
 #view-conversations.pushed-left {
   transform: translateX(-28%);
   opacity: 0.85;
-  filter: brightness(0.85);
   pointer-events: none;
 }
 

@@ -1203,7 +1203,9 @@ function renderMessages(steps, isRunning = false) {
   }
 
   // Render any new mermaid diagram blocks in messages stream
-  renderAllMermaidDiagrams(streamEl);
+  if (hasDOMChanges) {
+    renderAllMermaidDiagrams(streamEl);
+  }
 }
 
 // --- Running Background Tasks Manager (Desktop Antigravity Parity) ---

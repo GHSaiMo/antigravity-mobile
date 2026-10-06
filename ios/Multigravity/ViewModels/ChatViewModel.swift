@@ -194,19 +194,29 @@ public final class ChatViewModel {
     public func restoreDraftsIfNeeded() {
         let key = draftKey
         guard !key.isEmpty else { return }
-        var cachedImages = cacheManager.getDraftImages(for: key)
-        if cachedImages.isEmpty, let dSession = draftSession, !dSession.draftImages.isEmpty {
-            cachedImages = dSession.draftImages
-            cacheManager.saveDraftImages(key: key, images: cachedImages)
-        }
-        if !cachedImages.isEmpty && self.selectedImageData.isEmpty {
-            self.selectedImageData = cachedImages
-        }
-        restoreDraftFiles()
-        let cachedDraft = cacheManager.getDraft(for: key)
-        let resolvedDraft = !cachedDraft.isEmpty ? cachedDraft : (draftSession?.draftText ?? "")
-        if !resolvedDraft.isEmpty && self.inputText.isEmpty {
-            self.inputText = resolvedDraft
+        let currentDraftSession = self.draftSession
+        
+        Task.detached(priority: .userInitiated) { [weak self, key, currentDraftSession] in
+            guard let self else { return }
+            var cachedImages = CacheManager.shared.getDraftImages(for: key)
+            if cachedImages.isEmpty, let dSession = currentDraftSession, !dSession.draftImages.isEmpty {
+                cachedImages = dSession.draftImages
+                CacheManager.shared.saveDraftImages(key: key, images: cachedImages)
+            }
+            let cachedDraft = CacheManager.shared.getDraft(for: key)
+            let resolvedDraft = !cachedDraft.isEmpty ? cachedDraft : (currentDraftSession?.draftText ?? "")
+            
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                guard self.draftKey == key else { return }
+                if !cachedImages.isEmpty && self.selectedImageData.isEmpty {
+                    self.selectedImageData = cachedImages
+                }
+                self.restoreDraftFiles()
+                if !resolvedDraft.isEmpty && self.inputText.isEmpty {
+                    self.inputText = resolvedDraft
+                }
+            }
         }
     }
     

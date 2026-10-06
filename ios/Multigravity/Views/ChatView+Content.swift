@@ -203,7 +203,7 @@ extension ChatView {
     
     @ViewBuilder
     func messagesList(proxy: ScrollViewProxy) -> some View {
-        VStack(spacing: 8) {
+        LazyVStack(spacing: 8) {
             if viewModel.hasMore && !viewModel.messages.contains(where: { $0.id == "step-0" || $0.effectiveStepIndex == 0 }) {
                 loadOlderMessagesButton(proxy: proxy)
             }
