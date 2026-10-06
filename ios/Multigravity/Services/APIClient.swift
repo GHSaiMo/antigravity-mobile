@@ -21,6 +21,9 @@ public final class APIClient: Sendable {
         return !remote.isEmpty && remote == local
     }
     
+    public static let sharedDecoder = JSONDecoder()
+    public static let sharedEncoder = JSONEncoder()
+
     // Core ConnectRPC POST request
     public func rpc<Req: Encodable, Resp: Decodable>(
         method: String,
@@ -38,7 +41,7 @@ public final class APIClient: Sendable {
                 request.setValue(v, forHTTPHeaderField: k)
             }
         }
-        request.httpBody = try JSONEncoder().encode(body)
+        request.httpBody = try Self.sharedEncoder.encode(body)
         request.timeoutInterval = 15.0
         
         let data: Data
@@ -72,7 +75,7 @@ public final class APIClient: Sendable {
         }
         
         do {
-            return try JSONDecoder().decode(Resp.self, from: data)
+            return try Self.sharedDecoder.decode(Resp.self, from: data)
         } catch {
             throw APIError.decodingError(error.localizedDescription)
         }

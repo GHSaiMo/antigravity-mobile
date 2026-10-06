@@ -519,6 +519,17 @@ func waitLiveUserEmail(d time.Duration) (string, error) {
 	return "", lastErr
 }
 
+var liveUserHTTPClient = &http.Client{
+	Timeout: 2 * time.Second,
+	Transport: &http.Transport{
+		TLSClientConfig:     localtls.ClientConfig(),
+		DialTLSContext:      localtls.DialTLSContext,
+		MaxIdleConns:        10,
+		MaxIdleConnsPerHost: 5,
+		IdleConnTimeout:     30 * time.Second,
+	},
+}
+
 func liveUserEmail() (string, error) {
 	port, csrf, err := lookupLanguageServer()
 	if err != nil {
@@ -534,14 +545,7 @@ func liveUserEmail() (string, error) {
 	if csrf != "" {
 		req.Header.Set("x-codeium-csrf-token", csrf)
 	}
-	client := &http.Client{
-		Timeout: 2 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: localtls.ClientConfig(),
-			DialTLSContext:  localtls.DialTLSContext,
-		},
-	}
-	resp, err := client.Do(req)
+	resp, err := liveUserHTTPClient.Do(req)
 	if err != nil {
 		return "", err
 	}

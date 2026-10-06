@@ -101,7 +101,7 @@ extension ChatViewModel {
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { break }
-                let interval: UInt64 = (self.isRunning || self.isAwaitingResponse) ? 1_200_000_000 : 2_500_000_000
+                let interval: UInt64 = (self.isRunning || self.isAwaitingResponse) ? 2_500_000_000 : 6_000_000_000
                 try? await Task.sleep(nanoseconds: interval)
                 guard !Task.isCancelled else { break }
                 await self.loadMessages(isBackgroundPoll: true)

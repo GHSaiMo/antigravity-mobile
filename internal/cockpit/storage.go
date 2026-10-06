@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -58,8 +59,30 @@ type CockpitAccountDetail struct {
 	Quota     any              `json:"quota,omitempty"`
 }
 
-// GetStorageKey reads the 32-byte AES-256 key from secure-account-storage.key.
+var (
+	cachedStorageKey   []byte
+	cachedStorageKeyMu sync.RWMutex
+)
+
+// GetStorageKey reads the 32-byte AES-256 key from secure-account-storage.key, caching it in memory.
 func GetStorageKey() ([]byte, error) {
+	cachedStorageKeyMu.RLock()
+	if len(cachedStorageKey) == 32 {
+		k := make([]byte, 32)
+		copy(k, cachedStorageKey)
+		cachedStorageKeyMu.RUnlock()
+		return k, nil
+	}
+	cachedStorageKeyMu.RUnlock()
+
+	cachedStorageKeyMu.Lock()
+	defer cachedStorageKeyMu.Unlock()
+	if len(cachedStorageKey) == 32 {
+		k := make([]byte, 32)
+		copy(k, cachedStorageKey)
+		return k, nil
+	}
+
 	dataDir, err := GetCockpitDataDir()
 	if err != nil {
 		return nil, err
@@ -76,7 +99,10 @@ func GetStorageKey() ([]byte, error) {
 	if len(keyBytes) != 32 {
 		return nil, fmt.Errorf("invalid storage key length: %d (expected 32)", len(keyBytes))
 	}
-	return keyBytes, nil
+	cachedStorageKey = keyBytes
+	k := make([]byte, 32)
+	copy(k, cachedStorageKey)
+	return k, nil
 }
 
 // ResolveAccountID takes an account ID or email and returns the canonical account UUID.
@@ -255,7 +281,7 @@ func ListAccountsFromStorage() ([]*CockpitAccountDetail, error) {
 		return nil, err
 	}
 
-	var results []*CockpitAccountDetail
+	results := make([]*CockpitAccountDetail, 0, len(idx.Accounts))
 	for _, a := range idx.Accounts {
 		detail, err := DecryptAccountDetail(a.ID)
 		if err != nil {

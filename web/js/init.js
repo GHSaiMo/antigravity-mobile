@@ -62,7 +62,7 @@ function initApp() {
       checkGatewayStatus();
       if (activeCascadeId) {
         if (!activeWs || activeWs.readyState !== WebSocket.OPEN) {
-          loadChat(activeCascadeId, true);
+          connectStreamWs(activeCascadeId);
         }
       }
       if (typeof fetchCockpitQuotas === "function") {
@@ -329,20 +329,18 @@ function initApp() {
     });
   }
 
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible" && activeCascadeId) {
-      if (!activeWs || activeWs.readyState !== WebSocket.OPEN) {
-        connectStreamWs(activeCascadeId);
-      }
-    }
-    if (document.visibilityState === "visible" && typeof fetchCockpitQuotas === "function") {
-      fetchCockpitQuotas();
-    }
-  });
-
   renderRoute();
   initQuotaModule();
   initMarkdownViewer();
+
+  // Handle PWA shortcut action query params e.g. /?action=new
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get("action") === "new") {
+    window.history.replaceState({}, document.title, window.location.pathname + window.location.hash);
+    setTimeout(() => {
+      openNewSheet();
+    }, 150);
+  }
 }
 
 if (document.readyState === "loading") {

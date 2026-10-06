@@ -15,7 +15,8 @@ extension ChatViewModel {
         self.isLoadingRevertPreview = true
         self.showConfirmUndoSheet = true
         
-        Task { @MainActor in
+        Task { @MainActor [weak self] in
+            guard let self else { return }
             var targetMsg = message
             var stepIndex = targetMsg.effectiveStepIndex ?? self.extractStepIndex(from: targetMsg.id)
             
@@ -77,7 +78,8 @@ extension ChatViewModel {
         let isFirstUserMessage = (stepIndex <= 0) || (message.id == self.messages.first(where: { $0.isUser })?.id)
         isReverting = true
         
-        Task { @MainActor in
+        Task { @MainActor [weak self] in
+            guard let self else { return }
             do {
                 try await apiClient.executeRevert(cascadeId: self.cascadeId, stepIndex: stepIndex, conversationOnly: false, baseURL: url)
                 

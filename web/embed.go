@@ -92,7 +92,7 @@ func Handler() http.Handler {
 		f, err := staticFiles.Open(path)
 		if err == nil {
 			f.Close()
-			setCacheHeaders(w, path)
+			setCacheHeaders(w, r, path)
 			fileServer.ServeHTTP(w, r)
 			return
 		}
@@ -105,7 +105,7 @@ func Handler() http.Handler {
 		if !isStaticAsset {
 			// SPA route fallback to index.html
 			r.URL.Path = "/"
-			setCacheHeaders(w, "index.html")
+			setCacheHeaders(w, r, "index.html")
 			fileServer.ServeHTTP(w, r)
 			return
 		}
@@ -146,21 +146,27 @@ func GzipHandler(next http.Handler) http.Handler {
 	})
 }
 
-func setCacheHeaders(w http.ResponseWriter, path string) {
-	// Service worker, HTML shell, core js/ scripts and style.css must not be cached aggressively
-	if path == "sw.js" || path == "index.html" || strings.HasPrefix(path, "js/") || path == "style.css" || path == "" {
+func setCacheHeaders(w http.ResponseWriter, r *http.Request, path string) {
+	// Service worker, HTML shell must always revalidate
+	if path == "sw.js" || path == "index.html" || path == "" {
 		w.Header().Set("Cache-Control", "no-cache, must-revalidate")
 		return
 	}
 
-	// Large immutable assets like mermaid.min.js or icons can be cached
+	// Assets requested with explicit cache-busting version parameter (?v=...) can be cached immutably
+	if r != nil && r.URL.Query().Get("v") != "" {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		return
+	}
+
+	// Large immutable assets like mermaid.min.js or icons can be cached for a week
 	if path == "mermaid.min.js" || strings.HasPrefix(path, "icons/") {
 		w.Header().Set("Cache-Control", "public, max-age=604800") // 7 days
 		return
 	}
 
-	// General CSS/JS: cache with validation
-	w.Header().Set("Cache-Control", "public, max-age=86400") // 1 day
+	// General CSS/JS: default to short revalidation window
+	w.Header().Set("Cache-Control", "no-cache, must-revalidate")
 }
 
 // GetFS returns the underlying embedded filesystem.
