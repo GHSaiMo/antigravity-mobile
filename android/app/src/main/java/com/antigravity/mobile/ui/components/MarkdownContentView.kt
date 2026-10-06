@@ -42,14 +42,12 @@ fun MarkdownContentView(
                 }
 
                 is MarkdownBlock.Heading -> {
-                    SelectableTextRegion {
                     HeadingBlockView(
                         level = block.level,
                         text = block.text,
                         colors = colors,
                         onPlanClick = onPlanClick
                     )
-                    }
                 }
 
                 is MarkdownBlock.Divider -> {
@@ -88,34 +86,28 @@ fun MarkdownContentView(
                 }
 
                 is MarkdownBlock.BulletList -> {
-                    SelectableTextRegion {
                     BulletListBlockView(
                         items = block.items,
                         colors = colors,
                         onPlanClick = onPlanClick
                     )
-                    }
                 }
 
                 is MarkdownBlock.OrderedList -> {
-                    SelectableTextRegion {
                     OrderedListBlockView(
                         startIndex = block.startIndex,
                         items = block.items,
                         colors = colors,
                         onPlanClick = onPlanClick
                     )
-                    }
                 }
 
                 is MarkdownBlock.Paragraph -> {
-                    SelectableTextRegion {
                     ParagraphBlockView(
                         text = block.text,
                         colors = colors,
                         onPlanClick = onPlanClick
                     )
-                    }
                 }
 
                 is MarkdownBlock.Image -> {

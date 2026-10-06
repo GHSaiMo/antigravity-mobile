@@ -36,15 +36,7 @@ import com.antigravity.mobile.ui.theme.AntigravityTheme
 
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
@@ -350,8 +342,6 @@ fun MessageBubble(
             }
         } else {
             if (displayText.isNotBlank()) {
-                val registry = remember { TextRegionRegistry() }
-                var bubbleOrigin by remember { mutableStateOf(Offset.Zero) }
                 // Agent Bubble: Card background, textPrimary, 18.dp radius with subtle soft shadow
                 Box(
                     modifier = Modifier
@@ -365,27 +355,14 @@ fun MessageBubble(
                         .clip(RoundedCornerShape(18.dp))
                         .background(colors.agentBubbleBg)
                         .border(0.5.dp, colors.border, RoundedCornerShape(18.dp))
-                        .onGloballyPositioned { bubbleOrigin = it.boundsInRoot().topLeft }
-                        // Long-press on blank area (outside any selectable text block) copies the whole message.
-                        .pointerInput(displayText) {
-                            awaitEachGesture {
-                                val down = awaitFirstDown(requireUnconsumed = false)
-                                if (registry.containsRoot(down.position + bubbleOrigin)) return@awaitEachGesture
-                                if (awaitLongPressOrCancellation(down.id) != null) {
-                                    copyAll(MarkdownPlainText.convert(displayText))
-                                }
-                            }
-                        }
                         .padding(horizontal = 14.dp, vertical = 12.dp)
                 ) {
-                    CompositionLocalProvider(LocalTextRegions provides registry) {
-                        MarkdownContentView(
-                            content = displayText,
-                            onPlanClick = onPlanClick,
-                            urlResolver = urlResolver,
-                            onImageClick = { url -> onImageClick?.invoke(url, null) }
-                        )
-                    }
+                    MarkdownContentView(
+                        content = displayText,
+                        onPlanClick = onPlanClick,
+                        urlResolver = urlResolver,
+                        onImageClick = { url -> onImageClick?.invoke(url, null) }
+                    )
                 }
             }
         }
