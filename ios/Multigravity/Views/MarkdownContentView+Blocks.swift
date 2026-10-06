@@ -135,7 +135,6 @@ extension MarkdownContentView {
                                                 .frame(width: 0.5)
                                         }
                                     }
-                                    .textSelection(.enabled)
                             }
                         }
                         

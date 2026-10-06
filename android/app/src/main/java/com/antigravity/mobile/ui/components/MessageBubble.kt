@@ -36,10 +36,20 @@ import com.antigravity.mobile.ui.theme.AntigravityTheme
 
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.platform.LocalContext
+import android.widget.Toast
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.SelectAll
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import android.graphics.Bitmap
@@ -101,8 +111,12 @@ fun MessageBubble(
 
     val isUser = message.isUser
     val clipboard = LocalClipboardManager.current
-    var selectableText by remember { mutableStateOf<String?>(null) }
-    selectableText?.let { SelectableTextDialog(text = it, onDismiss = { selectableText = null }) }
+    val haptic = LocalHapticFeedback.current
+    fun copyAll(text: String) {
+        clipboard.setText(AnnotatedString(text))
+        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
+    }
 
     Column(
         modifier = modifier
@@ -314,15 +328,7 @@ fun MessageBubble(
                             leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = "复制") },
                             onClick = {
                                 showContextMenu = false
-                                clipboard.setText(AnnotatedString(userBodyText))
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("选择文字") },
-                            leadingIcon = { Icon(Icons.Default.SelectAll, contentDescription = "选择文字") },
-                            onClick = {
-                                showContextMenu = false
-                                selectableText = userBodyText
+                                copyAll(userBodyText)
                             }
                         )
                         DropdownMenuItem(
@@ -343,7 +349,8 @@ fun MessageBubble(
             }
         } else {
             if (displayText.isNotBlank()) {
-                var showAgentMenu by remember { mutableStateOf(false) }
+                val registry = remember { TextRegionRegistry() }
+                var bubbleOrigin by remember { mutableStateOf(Offset.Zero) }
                 // Agent Bubble: Card background, textPrimary, 18.dp radius with subtle soft shadow
                 Box(
                     modifier = Modifier
@@ -357,38 +364,25 @@ fun MessageBubble(
                         .clip(RoundedCornerShape(18.dp))
                         .background(colors.agentBubbleBg)
                         .border(0.5.dp, colors.border, RoundedCornerShape(18.dp))
-                        .combinedClickable(
-                            onClick = {},
-                            onLongClick = { showAgentMenu = true }
-                        )
+                        .onGloballyPositioned { bubbleOrigin = it.boundsInRoot().topLeft }
+                        // Long-press on blank area (outside any selectable text block) copies the whole message.
+                        .pointerInput(displayText) {
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                if (registry.containsRoot(down.position + bubbleOrigin)) return@awaitEachGesture
+                                if (awaitLongPressOrCancellation(down.id) != null) {
+                                    copyAll(MarkdownPlainText.convert(displayText))
+                                }
+                            }
+                        }
                         .padding(horizontal = 14.dp, vertical = 12.dp)
                 ) {
-                    MarkdownContentView(
-                        content = displayText,
-                        onPlanClick = onPlanClick,
-                        urlResolver = urlResolver,
-                        onImageClick = { url -> onImageClick?.invoke(url, null) }
-                    )
-
-                    DropdownMenu(
-                        expanded = showAgentMenu,
-                        onDismissRequest = { showAgentMenu = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("复制") },
-                            leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = "复制") },
-                            onClick = {
-                                showAgentMenu = false
-                                clipboard.setText(AnnotatedString(MarkdownPlainText.convert(displayText)))
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("选择文字") },
-                            leadingIcon = { Icon(Icons.Default.SelectAll, contentDescription = "选择文字") },
-                            onClick = {
-                                showAgentMenu = false
-                                selectableText = MarkdownPlainText.convert(displayText)
-                            }
+                    CompositionLocalProvider(LocalTextRegions provides registry) {
+                        MarkdownContentView(
+                            content = displayText,
+                            onPlanClick = onPlanClick,
+                            urlResolver = urlResolver,
+                            onImageClick = { url -> onImageClick?.invoke(url, null) }
                         )
                     }
                 }

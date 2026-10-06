@@ -42,20 +42,11 @@ extension MessageBubbleView {
         .padding(.vertical, 12)
         .background(Color(uiColor: .secondarySystemBackground))
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .contextMenu {
-            if !message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Button {
-                    UIPasteboard.general.string = MarkdownPlainText.convert(message.content)
-                } label: {
-                    Label("复制", systemImage: "doc.on.doc")
-                }
-                Button {
-                    selectableText = SelectableTextItem(text: MarkdownPlainText.convert(message.content))
-                } label: {
-                    Label("选择文字", systemImage: "selection.pin.in.out")
-                }
-            }
+        // Long-press on the bubble's blank area copies the whole message; long-pressing a text
+        // run is handled by the text's own selection (single block, never across blocks).
+        .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .onLongPressGesture(minimumDuration: 0.5) {
+            copyWholeText(MarkdownPlainText.convert(message.content))
         }
     }
     
