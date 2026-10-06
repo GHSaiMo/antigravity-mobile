@@ -1,21 +1,21 @@
 package com.antigravity.mobile.ui.components
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalTextToolbar
+import androidx.compose.ui.platform.TextToolbar
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.service.MathSymbolProcessor
-import com.antigravity.mobile.ui.theme.AntigravityTheme
 
 /**
  * Converts Markdown into the text the user actually sees on screen: inline markers
@@ -64,34 +64,57 @@ object MarkdownPlainText {
         }
 }
 
-/** Dialog showing markdown-stripped text in a SelectionContainer for free-range selection and copy. */
+/** Tracks the on-screen bounds of selectable text blocks so a bubble can tell "blank area" from "text". */
+class TextRegionRegistry {
+    val regions = HashMap<Any, Rect>()
+    fun containsRoot(p: androidx.compose.ui.geometry.Offset) = regions.values.any { it.contains(p) }
+}
+
+val LocalTextRegions = compositionLocalOf<TextRegionRegistry?> { null }
+
+/** Each text block gets its own SelectionContainer so a selection can never span several blocks. */
 @Composable
-fun SelectableTextDialog(text: String, onDismiss: () -> Unit) {
-    val colors = AntigravityTheme.colors
+internal fun SelectableTextRegion(content: @Composable () -> Unit) {
+    val registry = LocalTextRegions.current
+    val key = remember { Any() }
+    DisposableEffect(registry) { onDispose { registry?.regions?.remove(key) } }
+    SelectionContainer(
+        modifier = Modifier.onGloballyPositioned { registry?.regions?.put(key, it.boundsInRoot()) }
+    ) { content() }
+}
+
+/**
+ * Wraps the system selection toolbar so that copying a selection drops the inline file-icon
+ * placeholders (a space + thin space) that the rich text renderer inserts.
+ */
+@Composable
+internal fun WithCleanCopyToolbar(content: @Composable () -> Unit) {
+    val base = LocalTextToolbar.current
     val clipboard = LocalClipboardManager.current
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("选择文字") },
-        text = {
-            SelectionContainer {
-                Text(
-                    text = text,
-                    color = colors.textPrimary,
-                    fontSize = 15.sp,
-                    lineHeight = 22.sp,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 420.dp)
-                        .verticalScroll(rememberScrollState())
+    val toolbar = remember(base, clipboard) {
+        object : TextToolbar by base {
+            override fun showMenu(
+                rect: Rect,
+                onCopyRequested: (() -> Unit)?,
+                onPasteRequested: (() -> Unit)?,
+                onCutRequested: (() -> Unit)?,
+                onSelectAllRequested: (() -> Unit)?
+            ) {
+                base.showMenu(
+                    rect,
+                    onCopyRequested?.let { copy ->
+                        {
+                            copy()
+                            clipboard.getText()?.text?.let { raw ->
+                                val cleaned = raw.replace(" \u2009", "").replace("\u2009", "")
+                                if (cleaned != raw) clipboard.setText(AnnotatedString(cleaned))
+                            }
+                        }
+                    },
+                    onPasteRequested, onCutRequested, onSelectAllRequested
                 )
             }
-        },
-        confirmButton = {
-            TextButton(onClick = {
-                clipboard.setText(AnnotatedString(text))
-                onDismiss()
-            }) { Text("复制全部") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("完成") } }
-    )
+        }
+    }
+    CompositionLocalProvider(LocalTextToolbar provides toolbar) { content() }
 }

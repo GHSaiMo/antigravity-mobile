@@ -23,6 +23,7 @@ fun MarkdownContentView(
     val blocks = remember(content) { MarkdownParser.parse(content) }
     val colors = AntigravityTheme.colors
 
+    WithCleanCopyToolbar {
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -38,12 +39,14 @@ fun MarkdownContentView(
                 }
 
                 is MarkdownBlock.Heading -> {
+                    SelectableTextRegion {
                     HeadingBlockView(
                         level = block.level,
                         text = block.text,
                         colors = colors,
                         onPlanClick = onPlanClick
                     )
+                    }
                 }
 
                 is MarkdownBlock.Divider -> {
@@ -80,28 +83,34 @@ fun MarkdownContentView(
                 }
 
                 is MarkdownBlock.BulletList -> {
+                    SelectableTextRegion {
                     BulletListBlockView(
                         items = block.items,
                         colors = colors,
                         onPlanClick = onPlanClick
                     )
+                    }
                 }
 
                 is MarkdownBlock.OrderedList -> {
+                    SelectableTextRegion {
                     OrderedListBlockView(
                         startIndex = block.startIndex,
                         items = block.items,
                         colors = colors,
                         onPlanClick = onPlanClick
                     )
+                    }
                 }
 
                 is MarkdownBlock.Paragraph -> {
+                    SelectableTextRegion {
                     ParagraphBlockView(
                         text = block.text,
                         colors = colors,
                         onPlanClick = onPlanClick
                     )
+                    }
                 }
 
                 is MarkdownBlock.Image -> {
@@ -115,5 +124,6 @@ fun MarkdownContentView(
                 }
             }
         }
+    }
     }
 }

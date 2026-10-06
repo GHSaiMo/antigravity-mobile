@@ -55,14 +55,9 @@ extension MessageBubbleView {
         .contextMenu {
             if !parsed.body.isEmpty {
                 Button {
-                    UIPasteboard.general.string = parsed.body
+                    copyWholeText(parsed.body)
                 } label: {
                     Label("复制", systemImage: "doc.on.doc")
-                }
-                Button {
-                    selectableText = SelectableTextItem(text: parsed.body)
-                } label: {
-                    Label("选择文字", systemImage: "selection.pin.in.out")
                 }
             }
             Button(role: .destructive) {
