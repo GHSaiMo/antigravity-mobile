@@ -283,7 +283,7 @@ function renderImagePreviews() {
   bar.classList.remove("hidden");
   bar.innerHTML = pendingImages.map(img => `
     <div class="image-preview-item" data-id="${img.id}">
-      <img src="${img.dataUrl}" alt="${escapeHtml(img.name || '图片')}" />
+      <img src="${img.previewUrl || img.dataUrl || ''}" alt="${escapeHtml(img.name || '图片')}" />
       <button class="image-preview-remove" type="button" aria-label="删除图片" onclick="removePendingImage('${img.id}')">✕</button>
     </div>
   `).join("");
@@ -291,6 +291,10 @@ function renderImagePreviews() {
 }
 
 function removePendingImage(id) {
+  const img = pendingImages.find(i => i.id === id);
+  if (img && img.previewUrl) {
+    try { URL.revokeObjectURL(img.previewUrl); } catch (_) {}
+  }
   pendingImages = pendingImages.filter(img => img.id !== id);
   renderImagePreviews();
 }
@@ -299,8 +303,9 @@ function handleFilesSelected(files) {
   if (!files || !files.length) return;
   for (const file of Array.from(files)) {
     if (!file.type.startsWith("image/")) continue;
-    const reader = new FileReader();
     const id = `img-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const previewUrl = URL.createObjectURL(file);
+    const reader = new FileReader();
     reader.onload = (e) => {
       const dataUrl = e.target.result;
       const base64Data = dataUrl.split(",")[1];
@@ -309,7 +314,7 @@ function handleFilesSelected(files) {
         name: file.name,
         mimeType: file.type || "image/jpeg",
         base64Data,
-        dataUrl
+        previewUrl
       });
       renderImagePreviews();
     };

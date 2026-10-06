@@ -769,10 +769,8 @@ function initEdgeSwipeBack() {
 
       const progress = Math.min(1, clampedX / window.innerWidth);
       const convOffset = -28 + progress * 28;
-      const convBrightness = 0.85 + progress * 0.15;
 
       convView.style.transform = `translateX(${convOffset}%)`;
-      convView.style.filter = `brightness(${convBrightness})`;
     }
   }, { passive: true });
 
@@ -788,10 +786,9 @@ function initEdgeSwipeBack() {
 
     if (dx > window.innerWidth * 0.33 || (velocity > 0.38 && dx > 40)) {
       chatView.style.transition = "transform 0.25s cubic-bezier(0.32, 0.72, 0, 1)";
-      convView.style.transition = "transform 0.25s cubic-bezier(0.32, 0.72, 0, 1), filter 0.25s ease";
+      convView.style.transition = "transform 0.25s cubic-bezier(0.32, 0.72, 0, 1)";
       chatView.style.transform = "translateX(100%)";
       convView.style.transform = "translateX(0)";
-      convView.style.filter = "brightness(1)";
 
       triggerHaptic("light");
 
@@ -800,22 +797,19 @@ function initEdgeSwipeBack() {
         convView.style.transition = "";
         chatView.style.transform = "";
         convView.style.transform = "";
-        convView.style.filter = "";
         navigateTo("#");
       }, 250);
     } else {
       chatView.style.transition = "transform 0.22s cubic-bezier(0.32, 0.72, 0, 1)";
-      convView.style.transition = "transform 0.22s cubic-bezier(0.32, 0.72, 0, 1), filter 0.22s ease";
+      convView.style.transition = "transform 0.22s cubic-bezier(0.32, 0.72, 0, 1)";
       chatView.style.transform = "translateX(0)";
       convView.style.transform = "translateX(-28%)";
-      convView.style.filter = "brightness(0.85)";
 
       setTimeout(() => {
         chatView.style.transition = "";
         convView.style.transition = "";
         chatView.style.transform = "";
         convView.style.transform = "";
-        convView.style.filter = "";
       }, 220);
     }
   });

@@ -45,10 +45,27 @@ function formatRelativeTime(dateStr) {
 }
 
 let fileIconTheme = null;
-fetch("/icons/symbol-icon-theme.json")
-  .then(res => res.json())
-  .then(data => { fileIconTheme = data; })
-  .catch(err => console.warn("Failed to load file icon theme:", err));
+let fileIconThemePromise = null;
+
+function loadFileIconThemeIfNeeded() {
+  if (fileIconTheme || fileIconThemePromise) return fileIconThemePromise;
+  fileIconThemePromise = fetch("/icons/symbol-icon-theme.json")
+    .then(res => res.json())
+    .then(data => { fileIconTheme = data; return data; })
+    .catch(err => {
+      console.warn("Failed to load file icon theme:", err);
+      return null;
+    });
+  return fileIconThemePromise;
+}
+
+if (typeof window !== "undefined") {
+  if ("requestIdleCallback" in window) {
+    window.requestIdleCallback(() => { loadFileIconThemeIfNeeded(); }, { timeout: 3000 });
+  } else {
+    setTimeout(() => { loadFileIconThemeIfNeeded(); }, 1500);
+  }
+}
 
 const fileIconFallback = {
   "go.mod": "go-mod", "go.sum": "go-mod", "package.json": "node",
@@ -66,20 +83,23 @@ function resolveFileIcon(nameOrUrl) {
   if (!nameOrUrl) return null;
   let clean = nameOrUrl.trim().replace(/^file:\/\//, "");
   let filename = clean.split("/").pop().toLowerCase();
-  
+
+  // Fast path: common extensions from synchronous fallback table
+  if (fileIconFallback[filename]) return fileIconFallback[filename];
+  let ext = filename.split(".").pop();
+  if (ext && fileIconFallback[ext]) return fileIconFallback[ext];
+
+  // Secondary path: full icon theme
   if (fileIconTheme) {
     if (fileIconTheme.fileNames && fileIconTheme.fileNames[filename]) {
       return fileIconTheme.fileNames[filename];
     }
-    let ext = filename.split(".").pop();
     if (ext && fileIconTheme.fileExtensions && fileIconTheme.fileExtensions[ext]) {
       return fileIconTheme.fileExtensions[ext];
     }
+  } else {
+    loadFileIconThemeIfNeeded();
   }
-  
-  if (fileIconFallback[filename]) return fileIconFallback[filename];
-  let ext = filename.split(".").pop();
-  if (ext && fileIconFallback[ext]) return fileIconFallback[ext];
   return null;
 }
 

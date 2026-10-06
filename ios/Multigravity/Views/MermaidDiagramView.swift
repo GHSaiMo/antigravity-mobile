@@ -214,8 +214,11 @@ public struct MermaidWebView: UIViewRepresentable {
         Coordinator(self)
     }
     
+    private static let sharedProcessPool = WKProcessPool()
+    
     public func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
+        config.processPool = Self.sharedProcessPool
         let controller = WKUserContentController()
         
         controller.add(context.coordinator, name: "sizeNotifier")
