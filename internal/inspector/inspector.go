@@ -58,8 +58,11 @@ func NewInspector(pollInterval time.Duration) *Inspector {
 	}
 
 	tr := &http.Transport{
-		TLSClientConfig: localtls.ClientConfig(),
-		DialTLSContext:  localtls.DialTLSContext,
+		TLSClientConfig:     localtls.ClientConfig(),
+		DialTLSContext:      localtls.DialTLSContext,
+		MaxIdleConns:        50,
+		MaxIdleConnsPerHost: 20,
+		IdleConnTimeout:     30 * time.Second,
 	}
 
 	return &Inspector{

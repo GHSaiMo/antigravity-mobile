@@ -61,11 +61,15 @@ class ApiClient(
 
     val json = JsonConfig.instance
 
+    val okHttpClient: OkHttpClient
+        get() = client
+
     private val client = OkHttpClient.Builder()
         .dns(CloudflareOptimizedDns)
         .cache(Cache(File(context.cacheDir, "http_cache"), 10L * 1024L * 1024L))
         .addInterceptor(RouteFailoverInterceptor(prefs, connectionManager))
         .addInterceptor(LanCleartextSecurityInterceptor())
+        .retryOnConnectionFailure(true)
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)

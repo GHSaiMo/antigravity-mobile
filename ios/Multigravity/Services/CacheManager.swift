@@ -73,6 +73,8 @@ public final class CacheManager: @unchecked Sendable {
     private let cacheDir: URL
     private let lock = NSRecursiveLock()
     private let ioQueue = DispatchQueue(label: "com.antigravity.mobile.cache.io", qos: .utility)
+    private static let decoder = JSONDecoder()
+    private static let encoder = JSONEncoder()
     
     private var memConversations: [ConversationItem]?
     private var memSessions: [String: CachedChatSession] = [:]
@@ -95,7 +97,7 @@ public final class CacheManager: @unchecked Sendable {
         if items.isEmpty {
             let fileURL = cacheDir.appendingPathComponent("conversations.json")
             if let data = try? Data(contentsOf: fileURL),
-               let loaded = try? JSONDecoder().decode([ConversationItem].self, from: data) {
+               let loaded = try? Self.decoder.decode([ConversationItem].self, from: data) {
                 items = loaded
             }
         }
@@ -115,7 +117,7 @@ public final class CacheManager: @unchecked Sendable {
             )
             items.insert(updated, at: 0)
             memConversations = items
-            if let data = try? JSONEncoder().encode(items) {
+            if let data = try? Self.encoder.encode(items) {
                 let fileURL = cacheDir.appendingPathComponent("conversations.json")
                 ioQueue.async {
                     try? data.write(to: fileURL, options: .atomic)
@@ -294,7 +296,7 @@ public final class CacheManager: @unchecked Sendable {
         memConversations = protected
         lock.unlock()
         
-        guard let data = try? JSONEncoder().encode(protected) else { return }
+        guard let data = try? Self.encoder.encode(protected) else { return }
         let fileURL = cacheDir.appendingPathComponent("conversations.json")
         ioQueue.async {
             try? data.write(to: fileURL, options: .atomic)
@@ -313,7 +315,7 @@ public final class CacheManager: @unchecked Sendable {
         
         let fileURL = cacheDir.appendingPathComponent("conversations.json")
         guard let data = try? Data(contentsOf: fileURL),
-              let items = try? JSONDecoder().decode([ConversationItem].self, from: data) else {
+              let items = try? Self.decoder.decode([ConversationItem].self, from: data) else {
             return []
         }
         
@@ -335,7 +337,7 @@ public final class CacheManager: @unchecked Sendable {
         
         // If legacy subagents/drafts were pruned or titles were healed, rewrite clean data to disk asynchronously
         if hasChanges {
-            if let cleanData = try? JSONEncoder().encode(filtered) {
+            if let cleanData = try? Self.encoder.encode(filtered) {
                 ioQueue.async {
                     try? cleanData.write(to: fileURL, options: .atomic)
                 }
@@ -359,7 +361,7 @@ public final class CacheManager: @unchecked Sendable {
         if items.isEmpty {
             let fileURL = cacheDir.appendingPathComponent("conversations.json")
             if let data = try? Data(contentsOf: fileURL),
-               let loaded = try? JSONDecoder().decode([ConversationItem].self, from: data) {
+               let loaded = try? Self.decoder.decode([ConversationItem].self, from: data) {
                 items = loaded
             }
         }
@@ -369,7 +371,7 @@ public final class CacheManager: @unchecked Sendable {
             if old.title != trimmed {
                 items[idx] = old.withTitle(trimmed)
                 memConversations = items
-                if let data = try? JSONEncoder().encode(items) {
+                if let data = try? Self.encoder.encode(items) {
                     let fileURL = cacheDir.appendingPathComponent("conversations.json")
                     ioQueue.async {
                         try? data.write(to: fileURL, options: .atomic)
@@ -387,7 +389,7 @@ public final class CacheManager: @unchecked Sendable {
         if items.isEmpty {
             let fileURL = cacheDir.appendingPathComponent("conversations.json")
             if let data = try? Data(contentsOf: fileURL),
-               let loaded = try? JSONDecoder().decode([ConversationItem].self, from: data) {
+               let loaded = try? Self.decoder.decode([ConversationItem].self, from: data) {
                 items = loaded
             }
         }
@@ -404,7 +406,7 @@ public final class CacheManager: @unchecked Sendable {
                     lastModified: old.lastModified
                 )
                 memConversations = items
-                if let data = try? JSONEncoder().encode(items) {
+                if let data = try? Self.encoder.encode(items) {
                     let fileURL = cacheDir.appendingPathComponent("conversations.json")
                     ioQueue.async {
                         try? data.write(to: fileURL, options: .atomic)
@@ -423,7 +425,7 @@ public final class CacheManager: @unchecked Sendable {
         if items.isEmpty {
             let fileURL = cacheDir.appendingPathComponent("conversations.json")
             if let data = try? Data(contentsOf: fileURL),
-               let loaded = try? JSONDecoder().decode([ConversationItem].self, from: data) {
+               let loaded = try? Self.decoder.decode([ConversationItem].self, from: data) {
                 items = loaded.filter { !$0.isDraft && !$0.isSubagent }
             }
         }
@@ -435,7 +437,7 @@ public final class CacheManager: @unchecked Sendable {
         memConversations = items
         lock.unlock()
         
-        if let data = try? JSONEncoder().encode(items) {
+        if let data = try? Self.encoder.encode(items) {
             let fileURL = cacheDir.appendingPathComponent("conversations.json")
             ioQueue.async {
                 try? data.write(to: fileURL, options: .atomic)
@@ -456,7 +458,7 @@ public final class CacheManager: @unchecked Sendable {
         if items.isEmpty {
             let fileURL = cacheDir.appendingPathComponent("conversations.json")
             if let data = try? Data(contentsOf: fileURL),
-               let loaded = try? JSONDecoder().decode([ConversationItem].self, from: data) {
+               let loaded = try? Self.decoder.decode([ConversationItem].self, from: data) {
                 items = loaded
             }
         }
@@ -471,7 +473,7 @@ public final class CacheManager: @unchecked Sendable {
         let convFileURL = cacheDir.appendingPathComponent("conversations.json")
         let sessionFileURL = cacheDir.appendingPathComponent("sessions/\(cascadeId).json")
         
-        if let data = try? JSONEncoder().encode(items) {
+        if let data = try? Self.encoder.encode(items) {
             ioQueue.async {
                 try? data.write(to: convFileURL, options: .atomic)
                 try? FileManager.default.removeItem(at: sessionFileURL)
@@ -503,7 +505,7 @@ public final class CacheManager: @unchecked Sendable {
             }
         }
         
-        guard let data = try? JSONEncoder().encode(session) else { return }
+        guard let data = try? Self.encoder.encode(session) else { return }
         let fileURL = cacheDir.appendingPathComponent("sessions/\(session.cascadeId).json")
         ioQueue.async {
             try? data.write(to: fileURL, options: .atomic)
@@ -520,7 +522,7 @@ public final class CacheManager: @unchecked Sendable {
         
         let fileURL = cacheDir.appendingPathComponent("sessions/\(cascadeId).json")
         guard let data = try? Data(contentsOf: fileURL),
-              let session = try? JSONDecoder().decode(CachedChatSession.self, from: data) else {
+              let session = try? Self.decoder.decode(CachedChatSession.self, from: data) else {
             return nil
         }
         
@@ -552,7 +554,7 @@ public final class CacheManager: @unchecked Sendable {
                 
                 let fileURL = self.cacheDir.appendingPathComponent("sessions/\(cid).json")
                 if let data = try? Data(contentsOf: fileURL),
-                   let session = try? JSONDecoder().decode(CachedChatSession.self, from: data) {
+                   let session = try? Self.decoder.decode(CachedChatSession.self, from: data) {
                     self.lock.lock()
                     if self.memSessions.count >= 15 {
                         self.memSessions.remove(at: self.memSessions.startIndex)
@@ -849,7 +851,7 @@ public final class CacheManager: @unchecked Sendable {
         if memLocalDraftSessions != nil { return }
         let fileURL = cacheDir.appendingPathComponent("draft_sessions.json")
         guard let data = try? Data(contentsOf: fileURL),
-              let items = try? JSONDecoder().decode([LocalDraftSession].self, from: data) else {
+              let items = try? Self.decoder.decode([LocalDraftSession].self, from: data) else {
             memLocalDraftSessions = [:]
             return
         }
@@ -863,7 +865,7 @@ public final class CacheManager: @unchecked Sendable {
     private func persistDraftSessionsToDisk() {
         guard let dict = memLocalDraftSessions else { return }
         let list = Array(dict.values)
-        guard let data = try? JSONEncoder().encode(list) else { return }
+        guard let data = try? Self.encoder.encode(list) else { return }
         let fileURL = cacheDir.appendingPathComponent("draft_sessions.json")
         ioQueue.async {
             try? data.write(to: fileURL, options: .atomic)
@@ -957,7 +959,7 @@ public final class CacheManager: @unchecked Sendable {
         }
         lock.unlock()
         
-        if hadConv, let convs = memConversations, let data = try? JSONEncoder().encode(convs) {
+        if hadConv, let convs = memConversations, let data = try? Self.encoder.encode(convs) {
             let fileURL = cacheDir.appendingPathComponent("conversations.json")
             ioQueue.async {
                 try? data.write(to: fileURL, options: .atomic)

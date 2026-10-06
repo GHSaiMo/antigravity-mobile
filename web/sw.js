@@ -1,5 +1,7 @@
-const CACHE_NAME = "antigravity-mobile-v13";
+const CACHE_NAME = "antigravity-mobile-v14";
 const ASSETS = [
+  "/",
+  "/index.html",
   "/style.css",
   "/js/core.js",
   "/js/nav.js",
@@ -9,7 +11,6 @@ const ASSETS = [
   "/js/init.js",
   "/js/cockpit.js",
   "/manifest.json",
-  "/mermaid.min.js",
   "/icons/icon.svg",
   "/icons/icon-192.png",
   "/icons/icon-512.png"
@@ -36,24 +37,46 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
 
-  // Network-only for HTML, APIs, websocket — never persist documents that can steal tokens.
+  // Network-only for APIs, dynamic gateway endpoints, websocket
   if (
     url.pathname.startsWith("/api/") ||
     url.pathname.startsWith("/gateway/") ||
     url.pathname.startsWith("/static/") ||
     url.pathname === "/connect-websocket" ||
-    url.pathname === "/" ||
-    url.pathname === "/index.html" ||
-    event.request.method !== "GET" ||
-    (event.request.mode === "navigate")
+    event.request.method !== "GET"
   ) {
+    return;
+  }
+
+  // Network-first with offline fallback for navigation requests
+  if (event.request.mode === "navigate" || url.pathname === "/" || url.pathname === "/index.html") {
+    event.respondWith(
+      fetch(event.request)
+        .then(async (networkResponse) => {
+          if (networkResponse && networkResponse.ok) {
+            const cache = await caches.open(CACHE_NAME);
+            await cache.put("/index.html", networkResponse.clone());
+          }
+          return networkResponse;
+        })
+        .catch(async () => {
+          const cache = await caches.open(CACHE_NAME);
+          const cached = await cache.match("/index.html", { ignoreSearch: true });
+          if (cached) return cached;
+          return new Response("离线模式：无法连接到网关", {
+            status: 503,
+            headers: { "Content-Type": "text/html; charset=utf-8" }
+          });
+        })
+    );
     return;
   }
 
   // Stale-While-Revalidate strategy for app shell assets
   event.respondWith(
     caches.open(CACHE_NAME).then(async (cache) => {
-      const cachedResponse = await cache.match(event.request);
+      // ignoreSearch: true ensures /js/core.js?v=26 hits cached /js/core.js
+      const cachedResponse = await cache.match(event.request, { ignoreSearch: true });
       const networkFetch = fetch(event.request)
         .then(async (networkResponse) => {
           if (networkResponse && networkResponse.ok) {
@@ -62,7 +85,7 @@ self.addEventListener("fetch", (event) => {
           }
           return networkResponse;
         })
-        .catch(() => cachedResponse || null);
+        .catch(() => cachedResponse || new Response("Asset not found", { status: 504 }));
 
       // Keep the Service Worker alive until cache update finishes
       event.waitUntil(networkFetch.catch(() => {}));

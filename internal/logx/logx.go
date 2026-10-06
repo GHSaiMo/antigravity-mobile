@@ -106,6 +106,7 @@ func (h *compactHandler) Enabled(_ context.Context, l slog.Level) bool {
 
 func (h *compactHandler) Handle(_ context.Context, r slog.Record) error {
 	var sb strings.Builder
+	sb.Grow(128)
 	sb.WriteString(r.Time.Format("15:04:05"))
 	sb.WriteByte(' ')
 	if r.Level != slog.LevelInfo {

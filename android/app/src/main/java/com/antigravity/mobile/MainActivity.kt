@@ -74,9 +74,8 @@ class MainActivity : ComponentActivity() {
         val documentCacheManager = com.antigravity.mobile.data.service.DocumentCacheManager(applicationContext)
         liveActivityManager = com.antigravity.mobile.data.service.LiveActivityNotificationManager(applicationContext, prefs)
 
-        // Initialize Coil SVG and Gateway Auth Header interceptor globally
-        val coilOkHttpClient = okhttp3.OkHttpClient.Builder()
-            .dns(com.antigravity.mobile.data.service.CloudflareOptimizedDns)
+        // Initialize Coil SVG and Gateway Auth Header interceptor globally (sharing core connection pool)
+        val coilOkHttpClient = apiClient.okHttpClient.newBuilder()
             .addInterceptor { chain ->
                 val request = chain.request()
                 val token = prefs.deviceToken
@@ -97,6 +96,17 @@ class MainActivity : ComponentActivity() {
         coil.Coil.setImageLoader(
             coil.ImageLoader.Builder(this)
                 .okHttpClient(coilOkHttpClient)
+                .memoryCache {
+                    coil.memory.MemoryCache.Builder(this)
+                        .maxSizePercent(0.20)
+                        .build()
+                }
+                .diskCache {
+                    coil.disk.DiskCache.Builder()
+                        .directory(cacheDir.resolve("image_cache"))
+                        .maxSizeBytes(100L * 1024L * 1024L)
+                        .build()
+                }
                 .components {
                     add(coil.decode.SvgDecoder.Factory())
                 }

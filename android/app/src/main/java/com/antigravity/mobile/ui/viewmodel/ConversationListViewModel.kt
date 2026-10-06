@@ -152,11 +152,13 @@ class ConversationListViewModel(
     }
 
     private fun persistConversationsToCache(list: List<ConversationItem>) {
-        try {
-            val nonDrafts = list.filter { !it.isDraft && !prefs.isDeletedConversation(it.id) }
-            prefs.cachedConversationsJson = apiClient.json.encodeToString(nonDrafts)
-        } catch (e: Exception) {
-            Log.w("ConvListVM", "Failed to cache conversations: ${e.message}")
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val nonDrafts = list.filter { !it.isDraft && !prefs.isDeletedConversation(it.id) }
+                prefs.cachedConversationsJson = apiClient.json.encodeToString(nonDrafts)
+            } catch (e: Exception) {
+                Log.w("ConvListVM", "Failed to cache conversations: ${e.message}")
+            }
         }
     }
 
