@@ -17,7 +17,8 @@ extension MessageBubbleView {
     }
     
     var userBubble: some View {
-        VStack(alignment: .trailing, spacing: 6) {
+        let parsed = AttachmentRules.parseBlock(message.content)
+        return VStack(alignment: .trailing, spacing: 6) {
             if userAttachmentItems.count == 1, let singleItem = userAttachmentItems.first {
                 if let url = singleItem.url {
                     userAsyncImageBubble(for: url, placeholder: singleItem.image, gallery: userAttachmentItems, index: 0)
@@ -29,7 +30,6 @@ extension MessageBubbleView {
             }
             
             // Files the user attached: the gateway appends an attachment block to the message text.
-            let parsed = AttachmentRules.parseBlock(message.content)
             if !parsed.files.isEmpty {
                 VStack(alignment: .trailing, spacing: 6) {
                     ForEach(parsed.files) { file in
@@ -53,6 +53,18 @@ extension MessageBubbleView {
         }
         .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 18, style: .continuous))
         .contextMenu {
+            if !parsed.body.isEmpty {
+                Button {
+                    UIPasteboard.general.string = parsed.body
+                } label: {
+                    Label("复制", systemImage: "doc.on.doc")
+                }
+                Button {
+                    selectableText = SelectableTextItem(text: parsed.body)
+                } label: {
+                    Label("选择文字", systemImage: "selection.pin.in.out")
+                }
+            }
             Button(role: .destructive) {
                 onUndo?(message)
             } label: {

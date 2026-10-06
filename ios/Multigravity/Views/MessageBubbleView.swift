@@ -9,6 +9,7 @@ public struct MessageBubbleView: View {
     @State var isThinkingExpanded: Bool = false
     
     @State var previewGallery: ImageGalleryData? = nil
+    @State var selectableText: SelectableTextItem? = nil
     
     public init(message: ChatMessage, isActiveToolBatch: Bool = false, onUndo: ((ChatMessage) -> Void)? = nil) {
         self.message = message
@@ -41,6 +42,9 @@ public struct MessageBubbleView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 4)
+        .sheet(item: $selectableText) { item in
+            SelectableTextSheet(text: item.text)
+        }
         .fullScreenCover(item: $previewGallery) { gallery in
             ImageViewerSheet(gallery: gallery)
                 .presentationBackground(.clear)

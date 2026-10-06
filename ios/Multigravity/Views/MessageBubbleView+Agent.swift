@@ -42,6 +42,21 @@ extension MessageBubbleView {
         .padding(.vertical, 12)
         .background(Color(uiColor: .secondarySystemBackground))
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .contextMenu {
+            if !message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Button {
+                    UIPasteboard.general.string = MarkdownPlainText.convert(message.content)
+                } label: {
+                    Label("复制", systemImage: "doc.on.doc")
+                }
+                Button {
+                    selectableText = SelectableTextItem(text: MarkdownPlainText.convert(message.content))
+                } label: {
+                    Label("选择文字", systemImage: "selection.pin.in.out")
+                }
+            }
+        }
     }
     
     /// Image URLs attached to the agent message that are not already rendered
