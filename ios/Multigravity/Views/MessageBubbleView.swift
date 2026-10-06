@@ -53,5 +53,6 @@ extension MessageBubbleView {
     func copyWholeText(_ text: String) {
         UIPasteboard.general.string = text
         UINotificationFeedbackGenerator().notificationOccurred(.success)
+        CopiedHUD.show()
     }
 }

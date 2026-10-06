@@ -36,7 +36,6 @@ import com.antigravity.mobile.ui.theme.AntigravityTheme
 
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.platform.LocalContext
-import android.widget.Toast
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
@@ -112,11 +111,13 @@ fun MessageBubble(
     val isUser = message.isUser
     val clipboard = LocalClipboardManager.current
     val haptic = LocalHapticFeedback.current
+    var copiedHintVisible by remember { mutableStateOf(false) }
     fun copyAll(text: String) {
         clipboard.setText(AnnotatedString(text))
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-        Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
+        copiedHintVisible = true
     }
+    CopiedHint(visible = copiedHintVisible, onHidden = { copiedHintVisible = false })
 
     Column(
         modifier = modifier
