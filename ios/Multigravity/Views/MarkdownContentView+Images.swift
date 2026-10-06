@@ -1,5 +1,102 @@
 import SwiftUI
 
+// MARK: - Markdown Image Memory Cache
+
+public final class MarkdownImageCache: @unchecked Sendable {
+    public static let shared = MarkdownImageCache()
+    private let cache = NSCache<NSURL, UIImage>()
+
+    private init() {
+        cache.countLimit = 150
+        cache.totalCostLimit = 60 * 1024 * 1024 // 60MB
+    }
+
+    public func image(for url: URL) -> UIImage? {
+        cache.object(forKey: url as NSURL)
+    }
+
+    public func insert(_ image: UIImage, for url: URL) {
+        let cost = Int(image.size.width * image.size.height * 4)
+        cache.setObject(image, forKey: url as NSURL, cost: min(cost, 10 * 1024 * 1024))
+    }
+}
+
+// MARK: - Cached Markdown Async Image View
+
+struct CachedMarkdownAsyncImageView: View {
+    let url: URL
+    let alt: String
+    let onTap: (URL) -> Void
+    let onFailure: (String) -> AnyView
+
+    @State private var uiImage: UIImage?
+    @State private var isLoading = false
+    @State private var hasFailed = false
+
+    var body: some View {
+        Group {
+            if let uiImage {
+                Button {
+                    onTap(url)
+                } label: {
+                    Image(uiImage: uiImage)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: .infinity, maxHeight: 280, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(alt.isEmpty ? "图片" : alt)
+            } else if hasFailed {
+                onFailure(alt)
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity, minHeight: 120, maxHeight: 160, alignment: .leading)
+                    .task(id: url) {
+                        await loadImage()
+                    }
+            }
+        }
+        .onAppear {
+            if uiImage == nil && !hasFailed {
+                if let cached = MarkdownImageCache.shared.image(for: url) {
+                    uiImage = cached
+                }
+            }
+        }
+    }
+
+    private func loadImage() async {
+        if let cached = MarkdownImageCache.shared.image(for: url) {
+            uiImage = cached
+            return
+        }
+        if isLoading { return }
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            var request = URLRequest(url: url)
+            request.cachePolicy = .returnCacheDataElseLoad
+            request.timeoutInterval = 15
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
+                hasFailed = true
+                return
+            }
+            if let decoded = UIImage(data: data) {
+                MarkdownImageCache.shared.insert(decoded, for: url)
+                uiImage = decoded
+            } else {
+                hasFailed = true
+            }
+        } catch {
+            if !Task.isCancelled {
+                hasFailed = true
+            }
+        }
+    }
+}
+
 extension MarkdownContentView {
     // MARK: - Embedded Markdown Images
     
@@ -25,28 +122,12 @@ extension MarkdownContentView {
     @ViewBuilder
     func markdownImageView(alt: String, urlString: String) -> some View {
         if let url = resolvedImageURL(from: urlString) {
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .empty:
-                    ProgressView()
-                        .frame(maxWidth: .infinity, minHeight: 120, maxHeight: 160, alignment: .leading)
-                case .success(let image):
-                    Button {
-                        handleImageTap(url: url)
-                    } label: {
-                        image
-                            .resizable()
-                            .scaledToFit()
-                            .frame(maxWidth: .infinity, maxHeight: 280, alignment: .leading)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(alt.isEmpty ? "图片" : alt)
-                case .failure:
-                    markdownImageFailure(alt: alt)
-                @unknown default:
-                    EmptyView()
-                }
-            }
+            CachedMarkdownAsyncImageView(
+                url: url,
+                alt: alt,
+                onTap: { handleImageTap(url: $0) },
+                onFailure: { AnyView(markdownImageFailure(alt: $0)) }
+            )
         } else {
             markdownImageFailure(alt: alt)
         }

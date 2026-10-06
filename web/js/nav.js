@@ -354,208 +354,222 @@ function renderConversationList(summaries) {
   updateAppBadgeFromList(items);
 }
 
-// --- iOS Conversation List Card Interactions (Swipe-to-Delete & Long-Press Rename) ---
+// --- iOS Conversation List Card Interactions (Swipe-to-Delete & Long-Press Rename via Event Delegation) ---
 
-function attachConversationCardInteractions() {
-  const wrappers = document.querySelectorAll(".conv-card-wrapper");
-  wrappers.forEach((wrapper) => {
-    const card = wrapper.querySelector(".conv-card");
-    const deleteBtn = wrapper.querySelector(".conv-card-delete-btn");
-    const id = wrapper.getAttribute("data-id");
-    if (!card) return;
+let convDelegationInitialized = false;
+let activeTouchState = null;
+let touchHandled = false;
 
-    let startX = 0;
-    let startY = 0;
-    let currentX = 0;
-    let currentY = 0;
-    let isDragging = false;
-    let isHorizontal = null;
-    let hasMoved = false;
-    let longPressTimer = null;
-    let hasTriggeredLongPress = false;
-    let touchStartTime = 0;
-    let touchHandled = false;
+function closeCard(card) {
+  if (!card) return;
+  card.style.transform = "translateX(0)";
+  card.classList.remove("swiped", "swiping");
+  card.closest(".conv-card-wrapper")?.classList.remove("swiped", "swiping");
+}
 
-    const closeCard = () => {
-      card.style.transform = "translateX(0)";
-      card.classList.remove("swiped", "swiping");
-      wrapper.classList.remove("swiped", "swiping");
-    };
-
-    const closeOtherCards = () => {
-      document.querySelectorAll(".conv-card.swiped, .conv-card.swiping").forEach((c) => {
-        if (c !== card) {
-          c.style.transform = "translateX(0)";
-          c.classList.remove("swiped", "swiping");
-          c.closest(".conv-card-wrapper")?.classList.remove("swiped", "swiping");
-        }
-      });
-    };
-
-    // Touch event handlers
-    card.addEventListener("touchstart", (e) => {
-      if (e.touches.length > 1) return;
-      startX = e.touches[0].clientX;
-      startY = e.touches[0].clientY;
-      currentX = startX;
-      currentY = startY;
-      isDragging = false;
-      isHorizontal = null;
-      hasMoved = false;
-      hasTriggeredLongPress = false;
-      touchStartTime = Date.now();
-      card.classList.remove("swiping");
-      wrapper.classList.remove("swiping");
-
-      // 450ms long press for Rename (aligns with iOS LongPressGesture)
-      longPressTimer = setTimeout(() => {
-        if (!hasMoved && !isDragging && Math.hypot(currentX - startX, currentY - startY) < 10) {
-          hasTriggeredLongPress = true;
-          triggerHaptic("medium");
-          const title = card.getAttribute("data-title") || "会话";
-          openRenameAlert(id, title);
-        }
-      }, 450);
-    }, { passive: true });
-
-    card.addEventListener("touchmove", (e) => {
-      currentX = e.touches[0].clientX;
-      currentY = e.touches[0].clientY;
-      const dx = currentX - startX;
-      const dy = currentY - startY;
-
-      // Detect movement beyond touch jitter threshold
-      if (!hasMoved && (Math.abs(dx) > 7 || Math.abs(dy) > 7)) {
-        hasMoved = true;
-        clearTimeout(longPressTimer);
-      }
-
-      if (isHorizontal === null && hasMoved) {
-        // Only classify as horizontal swipe if horizontal movement is dominant
-        isHorizontal = Math.abs(dx) > Math.abs(dy) * 1.2;
-        if (!isHorizontal) {
-          clearTimeout(longPressTimer);
-        }
-      }
-
-      if (isHorizontal) {
-        clearTimeout(longPressTimer);
-        closeOtherCards();
-        isDragging = true;
-        card.classList.add("swiping");
-        wrapper.classList.add("swiping");
-
-        const isAlreadySwiped = card.classList.contains("swiped");
-        const baseOffset = isAlreadySwiped ? -80 : 0;
-        let newX = baseOffset + dx;
-
-        // Clamping & rubber-band resistance
-        if (newX > 0) {
-          newX = newX * 0.2;
-        } else if (newX < -80) {
-          newX = -80 + (newX + 80) * 0.25;
-        }
-        card.style.transform = `translateX(${newX}px)`;
-      }
-    }, { passive: true });
-
-    card.addEventListener("touchcancel", () => {
-      clearTimeout(longPressTimer);
-      hasMoved = true;
-      isDragging = false;
-      card.classList.remove("swiping");
-      wrapper.classList.remove("swiping");
-    });
-
-    card.addEventListener("touchend", () => {
-      clearTimeout(longPressTimer);
-      card.classList.remove("swiping");
-      wrapper.classList.remove("swiping");
-
-      if (hasTriggeredLongPress) return;
-
-      if (isDragging && isHorizontal) {
-        const dx = currentX - startX;
-        const isAlreadySwiped = card.classList.contains("swiped");
-        if (isAlreadySwiped) {
-          if (dx > 25) {
-            closeCard();
-          } else {
-            card.style.transform = "translateX(-80px)";
-            card.classList.add("swiped");
-            wrapper.classList.add("swiped");
-          }
-        } else {
-          if (dx < -38) {
-            card.style.transform = "translateX(-80px)";
-            card.classList.add("swiped");
-            wrapper.classList.add("swiped");
-            triggerHaptic("light");
-          } else {
-            closeCard();
-          }
-        }
-        return;
-      }
-
-      // CRITICAL: If user moved their finger (e.g. scrolling the list vertically), NEVER navigate!
-      if (hasMoved) {
-        return;
-      }
-
-      // Ignore if touch was held too long without triggering rename
-      if (Date.now() - touchStartTime > 600) {
-        return;
-      }
-
-      // Mark touch as handled to prevent duplicate click event firing
-      touchHandled = true;
-      setTimeout(() => { touchHandled = false; }, 400);
-
-      // If this card is swiped, tapping it simply closes the swipe
-      if (card.classList.contains("swiped")) {
-        closeCard();
-        return;
-      }
-
-      // If any other card is currently swiped, tapping this card closes all swiped cards
-      const anySwiped = document.querySelectorAll(".conv-card.swiped, .conv-card-wrapper.swiped");
-      if (anySwiped.length > 0) {
-        closeOtherCards();
-        return;
-      }
-
-      // Genuine tap on an idle card: navigate into the conversation
-      closeOtherCards();
-      triggerHaptic("selection");
-      navigateTo(`#c=${id}`);
-    });
-
-    // Fallback click handler for desktop / non-touch navigation
-    card.addEventListener("click", () => {
-      if (touchHandled) return;
-      if (card.classList.contains("swiped")) {
-        closeCard();
-        return;
-      }
-      const anySwiped = document.querySelectorAll(".conv-card.swiped, .conv-card-wrapper.swiped");
-      if (anySwiped.length > 0) {
-        closeOtherCards();
-        return;
-      }
-      closeOtherCards();
-      triggerHaptic("selection");
-      navigateTo(`#c=${id}`);
-    });
-
-    if (deleteBtn) {
-      deleteBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        triggerHaptic("medium");
-        openDeleteActionSheet(id);
-      });
+function closeOtherCards(exceptCard) {
+  document.querySelectorAll(".conv-card.swiped, .conv-card.swiping").forEach((c) => {
+    if (c !== exceptCard) {
+      c.style.transform = "translateX(0)";
+      c.classList.remove("swiped", "swiping");
+      c.closest(".conv-card-wrapper")?.classList.remove("swiped", "swiping");
     }
   });
+}
+
+function initConversationCardDelegation() {
+  const listEl = document.getElementById("conversation-list");
+  if (!listEl || convDelegationInitialized) return;
+  convDelegationInitialized = true;
+
+  listEl.addEventListener("touchstart", (e) => {
+    if (e.touches.length > 1) return;
+    if (e.target.closest(".conv-card-delete-btn")) return;
+    const card = e.target.closest(".conv-card");
+    if (!card) return;
+    const wrapper = card.closest(".conv-card-wrapper");
+    if (!wrapper) return;
+    const id = wrapper.getAttribute("data-id");
+
+    const startX = e.touches[0].clientX;
+    const startY = e.touches[0].clientY;
+
+    card.classList.remove("swiping");
+    wrapper.classList.remove("swiping");
+
+    const longPressTimer = setTimeout(() => {
+      if (activeTouchState && !activeTouchState.hasMoved && !activeTouchState.isDragging &&
+          Math.hypot(activeTouchState.currentX - startX, activeTouchState.currentY - startY) < 10) {
+        activeTouchState.hasTriggeredLongPress = true;
+        triggerHaptic("medium");
+        const title = card.getAttribute("data-title") || "会话";
+        openRenameAlert(id, title);
+      }
+    }, 450);
+
+    activeTouchState = {
+      card,
+      wrapper,
+      id,
+      startX,
+      startY,
+      currentX: startX,
+      currentY: startY,
+      isDragging: false,
+      isHorizontal: null,
+      hasMoved: false,
+      longPressTimer,
+      hasTriggeredLongPress: false,
+      touchStartTime: Date.now()
+    };
+  }, { passive: true });
+
+  listEl.addEventListener("touchmove", (e) => {
+    if (!activeTouchState) return;
+    const { card, wrapper, startX, startY } = activeTouchState;
+    activeTouchState.currentX = e.touches[0].clientX;
+    activeTouchState.currentY = e.touches[0].clientY;
+    const dx = activeTouchState.currentX - startX;
+    const dy = activeTouchState.currentY - startY;
+
+    if (!activeTouchState.hasMoved && (Math.abs(dx) > 7 || Math.abs(dy) > 7)) {
+      activeTouchState.hasMoved = true;
+      clearTimeout(activeTouchState.longPressTimer);
+    }
+
+    if (activeTouchState.isHorizontal === null && activeTouchState.hasMoved) {
+      activeTouchState.isHorizontal = Math.abs(dx) > Math.abs(dy) * 1.2;
+      if (!activeTouchState.isHorizontal) {
+        clearTimeout(activeTouchState.longPressTimer);
+      }
+    }
+
+    if (activeTouchState.isHorizontal) {
+      clearTimeout(activeTouchState.longPressTimer);
+      closeOtherCards(card);
+      activeTouchState.isDragging = true;
+      card.classList.add("swiping");
+      wrapper.classList.add("swiping");
+
+      const isAlreadySwiped = card.classList.contains("swiped");
+      const baseOffset = isAlreadySwiped ? -80 : 0;
+      let newX = baseOffset + dx;
+
+      if (newX > 0) {
+        newX = newX * 0.2;
+      } else if (newX < -80) {
+        newX = -80 + (newX + 80) * 0.25;
+      }
+      card.style.transform = `translateX(${newX}px)`;
+    }
+  }, { passive: true });
+
+  const cancelActiveTouch = () => {
+    if (!activeTouchState) return;
+    clearTimeout(activeTouchState.longPressTimer);
+    activeTouchState.card.classList.remove("swiping");
+    activeTouchState.wrapper.classList.remove("swiping");
+    activeTouchState = null;
+  };
+
+  listEl.addEventListener("touchcancel", cancelActiveTouch);
+
+  listEl.addEventListener("touchend", () => {
+    if (!activeTouchState) return;
+    const { card, wrapper, id, startX, currentX, isDragging, isHorizontal, hasMoved,
+            hasTriggeredLongPress, touchStartTime, longPressTimer } = activeTouchState;
+    clearTimeout(longPressTimer);
+    card.classList.remove("swiping");
+    wrapper.classList.remove("swiping");
+
+    if (hasTriggeredLongPress) {
+      activeTouchState = null;
+      return;
+    }
+
+    if (isDragging && isHorizontal) {
+      const dx = currentX - startX;
+      const isAlreadySwiped = card.classList.contains("swiped");
+      if (isAlreadySwiped) {
+        if (dx > 25) {
+          closeCard(card);
+        } else {
+          card.style.transform = "translateX(-80px)";
+          card.classList.add("swiped");
+          wrapper.classList.add("swiped");
+        }
+      } else {
+        if (dx < -38) {
+          card.style.transform = "translateX(-80px)";
+          card.classList.add("swiped");
+          wrapper.classList.add("swiped");
+          triggerHaptic("light");
+        } else {
+          closeCard(card);
+        }
+      }
+      activeTouchState = null;
+      return;
+    }
+
+    activeTouchState = null;
+
+    if (hasMoved) return;
+    if (Date.now() - touchStartTime > 600) return;
+
+    touchHandled = true;
+    setTimeout(() => { touchHandled = false; }, 400);
+
+    if (card.classList.contains("swiped")) {
+      closeCard(card);
+      return;
+    }
+
+    const anySwiped = document.querySelectorAll(".conv-card.swiped, .conv-card-wrapper.swiped");
+    if (anySwiped.length > 0) {
+      closeOtherCards();
+      return;
+    }
+
+    closeOtherCards();
+    triggerHaptic("selection");
+    navigateTo(`#c=${id}`);
+  });
+
+  listEl.addEventListener("click", (e) => {
+    const deleteBtn = e.target.closest(".conv-card-delete-btn");
+    if (deleteBtn) {
+      e.stopPropagation();
+      triggerHaptic("medium");
+      const id = deleteBtn.getAttribute("data-id") || deleteBtn.closest(".conv-card-wrapper")?.getAttribute("data-id");
+      if (id) openDeleteActionSheet(id);
+      return;
+    }
+
+    if (touchHandled) return;
+    const card = e.target.closest(".conv-card");
+    if (!card) return;
+    const wrapper = card.closest(".conv-card-wrapper");
+    const id = wrapper?.getAttribute("data-id");
+    if (!id) return;
+
+    if (card.classList.contains("swiped")) {
+      closeCard(card);
+      return;
+    }
+    const anySwiped = document.querySelectorAll(".conv-card.swiped, .conv-card-wrapper.swiped");
+    if (anySwiped.length > 0) {
+      closeOtherCards();
+      return;
+    }
+    closeOtherCards();
+    triggerHaptic("selection");
+    navigateTo(`#c=${id}`);
+  });
+}
+
+function attachConversationCardInteractions() {
+  initConversationCardDelegation();
 }
 
 // --- Delete Conversation ActionSheet ---

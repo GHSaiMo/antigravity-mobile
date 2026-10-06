@@ -172,6 +172,46 @@ public final class NetworkTransport: Sendable {
         return !isLocalOrPrivateHost(host)
     }
     
+    // MARK: - Accelerated Connection Pool
+    
+    private actor AcceleratedConnectionPool {
+        static let shared = AcceleratedConnectionPool()
+        
+        struct Entry {
+            let connection: NWConnection
+            let host: String
+            let lastUsed: Date
+        }
+        
+        private var pool: [String: Entry] = [:] // key: "\(ip):\(port)"
+        
+        func acquire(ip: String, host: String, port: NWEndpoint.Port, parameters: NWParameters) -> (NWConnection, Bool) {
+            let key = "\(ip):\(port.rawValue)"
+            if let entry = pool.removeValue(forKey: key) {
+                if entry.connection.state == .ready &&
+                   entry.host == host &&
+                   Date().timeIntervalSince(entry.lastUsed) < 15.0 {
+                    return (entry.connection, true)
+                }
+                entry.connection.cancel()
+            }
+            let conn = NWConnection(host: NWEndpoint.Host(ip), port: port, using: parameters)
+            return (conn, false)
+        }
+        
+        func release(connection: NWConnection, ip: String, host: String, port: NWEndpoint.Port, canReuse: Bool) {
+            let key = "\(ip):\(port.rawValue)"
+            if canReuse && connection.state == .ready {
+                if let existing = pool.removeValue(forKey: key) {
+                    existing.connection.cancel()
+                }
+                pool[key] = Entry(connection: connection, host: host, lastUsed: Date())
+            } else {
+                connection.cancel()
+            }
+        }
+    }
+    
     private func sendCloudflareAcceleratedHTTPS(_ request: URLRequest) async throws -> (Data, URLResponse) {
         guard let url = request.url else {
             throw URLError(.badURL)
@@ -187,14 +227,50 @@ public final class NetworkTransport: Sendable {
         
         let anycastIP = CloudflareAnycastAccelerator.primaryIP
         let port = NWEndpoint.Port(rawValue: UInt16(url.port ?? 443)) ?? .https
-        let connection = NWConnection(host: NWEndpoint.Host(anycastIP), port: port, using: parameters)
-        try await Self.waitUntilReady(connection, timeout: request.timeoutInterval > 0 ? min(request.timeoutInterval, 5) : 5)
-        defer { connection.cancel() }
         
-        let payload = Self.buildHTTP11Request(request, url: url, bareHost: bareHost)
-        try await Self.sendAll(connection, payload)
-        let raw = try await Self.receiveHTTPMessage(connection)
-        return try Self.parseHTTP11Response(raw, url: url)
+        for attempt in 0..<2 {
+            let (connection, isReused) = await AcceleratedConnectionPool.shared.acquire(
+                ip: anycastIP, host: bareHost, port: port, parameters: parameters
+            )
+            
+            if !isReused {
+                do {
+                    try await Self.waitUntilReady(connection, timeout: request.timeoutInterval > 0 ? min(request.timeoutInterval, 5) : 5)
+                } catch {
+                    connection.cancel()
+                    throw error
+                }
+            }
+            
+            let payload = Self.buildHTTP11Request(request, url: url, bareHost: bareHost, keepAlive: true)
+            var canReuse = false
+            do {
+                try await Self.sendAll(connection, payload)
+                let raw = try await Self.receiveHTTPMessage(connection)
+                let (data, response) = try Self.parseHTTP11Response(raw, url: url)
+                
+                if let http = response as? HTTPURLResponse,
+                   let connHeader = http.value(forHTTPHeaderField: "Connection"),
+                   connHeader.lowercased().contains("close") {
+                    canReuse = false
+                } else {
+                    canReuse = true
+                }
+                
+                await AcceleratedConnectionPool.shared.release(
+                    connection: connection, ip: anycastIP, host: bareHost, port: port, canReuse: canReuse
+                )
+                return (data, response)
+            } catch {
+                connection.cancel()
+                if isReused && attempt == 0 {
+                    continue
+                }
+                throw error
+            }
+        }
+        
+        throw URLError(.cannotConnectToHost)
     }
 
     private func sendCleartextHTTP(_ request: URLRequest) async throws -> (Data, URLResponse) {
@@ -257,7 +333,7 @@ public final class NetworkTransport: Sendable {
         }
     }
     
-    private static func buildHTTP11Request(_ request: URLRequest, url: URL, bareHost: String) -> Data {
+    private static func buildHTTP11Request(_ request: URLRequest, url: URL, bareHost: String, keepAlive: Bool = false) -> Data {
         var path = url.path.isEmpty ? "/" : url.path
         if let query = url.query, !query.isEmpty {
             path += "?" + query
@@ -277,7 +353,7 @@ public final class NetworkTransport: Sendable {
         var lines: [String] = [
             "\(method) \(path) HTTP/1.1",
             "Host: \(hostHeader)",
-            "Connection: close"
+            keepAlive ? "Connection: keep-alive" : "Connection: close"
         ]
         if let headers = request.allHTTPHeaderFields {
             for (key, value) in headers {

@@ -16,6 +16,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"antigravity-mobile/internal/localtls"
@@ -296,16 +297,32 @@ func resolveAccountEmail(accountID string) string {
 	return ""
 }
 
+var (
+	cachedOAuthMu    sync.RWMutex
+	cachedOAuthPath  string
+	cachedOAuthMTime time.Time
+	cachedOAuthToken *parsedOAuth
+)
+
 func loadOAuthFromVscdb() (*parsedOAuth, error) {
 	var lastErr error
 	for _, dbPath := range antigravityStateDBPaths() {
-		if _, err := os.Stat(dbPath); err != nil {
+		fi, err := os.Stat(dbPath)
+		if err != nil {
 			continue
 		}
+
+		cachedOAuthMu.RLock()
+		if cachedOAuthPath == dbPath && cachedOAuthMTime.Equal(fi.ModTime()) && cachedOAuthToken != nil {
+			tok := cachedOAuthToken
+			cachedOAuthMu.RUnlock()
+			return tok, nil
+		}
+		cachedOAuthMu.RUnlock()
+
 		const oauthQuerySQL = "SELECT value FROM ItemTable WHERE key = 'antigravityUnifiedStateSync.oauthToken';"
 		cleanDB := filepath.Clean(dbPath)
 		var out []byte
-		var err error
 		if _, lookErr := exec.LookPath("sqlite3"); lookErr == nil {
 			cmd := exec.Command("sqlite3", "-batch", "-noheader", cleanDB, oauthQuerySQL)
 			out, err = cmd.CombinedOutput()
@@ -334,6 +351,13 @@ func loadOAuthFromVscdb() (*parsedOAuth, error) {
 			lastErr = err
 			continue
 		}
+
+		cachedOAuthMu.Lock()
+		cachedOAuthPath = dbPath
+		cachedOAuthMTime = fi.ModTime()
+		cachedOAuthToken = tok
+		cachedOAuthMu.Unlock()
+
 		return tok, nil
 	}
 	if lastErr == nil {
