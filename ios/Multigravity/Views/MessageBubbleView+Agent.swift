@@ -42,12 +42,6 @@ extension MessageBubbleView {
         .padding(.vertical, 12)
         .background(Color(uiColor: .secondarySystemBackground))
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        // Long-press on the bubble's blank area copies the whole message; long-pressing a text
-        // run is handled by the text's own selection (single block, never across blocks).
-        .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .onLongPressGesture(minimumDuration: 0.5) {
-            copyWholeText(MarkdownPlainText.convert(message.content))
-        }
     }
     
     /// Image URLs attached to the agent message that are not already rendered

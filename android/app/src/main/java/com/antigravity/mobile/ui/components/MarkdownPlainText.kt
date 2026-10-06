@@ -19,13 +19,9 @@ import kotlinx.coroutines.delay
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalTextToolbar
 import androidx.compose.ui.platform.TextToolbar
@@ -77,23 +73,6 @@ object MarkdownPlainText {
                 }
             }
         }
-}
-
-/** Tracks the on-screen bounds of selectable text blocks so a bubble can tell "blank area" from "text". */
-class TextRegionRegistry {
-    val regions = HashMap<Any, Rect>()
-    fun containsRoot(p: androidx.compose.ui.geometry.Offset) = regions.values.any { it.contains(p) }
-}
-
-val LocalTextRegions = compositionLocalOf<TextRegionRegistry?> { null }
-
-/** Registers a text block's bounds (so blank-area long-press can be told apart from text). */
-@Composable
-internal fun SelectableTextRegion(content: @Composable () -> Unit) {
-    val registry = LocalTextRegions.current
-    val key = remember { Any() }
-    DisposableEffect(registry) { onDispose { registry?.regions?.remove(key) } }
-    Box(modifier = Modifier.onGloballyPositioned { registry?.regions?.put(key, it.boundsInRoot()) }) { content() }
 }
 
 /**
