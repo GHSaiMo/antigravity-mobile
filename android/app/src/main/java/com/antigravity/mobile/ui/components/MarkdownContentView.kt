@@ -2,6 +2,8 @@ package com.antigravity.mobile.ui.components
 
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.selection.DisableSelection
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -24,6 +26,7 @@ fun MarkdownContentView(
     val colors = AntigravityTheme.colors
 
     WithCleanCopyToolbar {
+    SelectionContainer {
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -73,6 +76,7 @@ fun MarkdownContentView(
                 }
 
                 is MarkdownBlock.Table -> {
+                    DisableSelection {
                     TableBlockView(
                         headers = block.headers,
                         rows = block.rows,
@@ -80,6 +84,7 @@ fun MarkdownContentView(
                         colors = colors,
                         onPlanClick = onPlanClick
                     )
+                    }
                 }
 
                 is MarkdownBlock.BulletList -> {
@@ -124,6 +129,7 @@ fun MarkdownContentView(
                 }
             }
         }
+    }
     }
     }
 }

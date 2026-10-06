@@ -1,6 +1,21 @@
 package com.antigravity.mobile.ui.components
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -72,15 +87,13 @@ class TextRegionRegistry {
 
 val LocalTextRegions = compositionLocalOf<TextRegionRegistry?> { null }
 
-/** Each text block gets its own SelectionContainer so a selection can never span several blocks. */
+/** Registers a text block's bounds (so blank-area long-press can be told apart from text). */
 @Composable
 internal fun SelectableTextRegion(content: @Composable () -> Unit) {
     val registry = LocalTextRegions.current
     val key = remember { Any() }
     DisposableEffect(registry) { onDispose { registry?.regions?.remove(key) } }
-    SelectionContainer(
-        modifier = Modifier.onGloballyPositioned { registry?.regions?.put(key, it.boundsInRoot()) }
-    ) { content() }
+    Box(modifier = Modifier.onGloballyPositioned { registry?.regions?.put(key, it.boundsInRoot()) }) { content() }
 }
 
 /**
@@ -117,4 +130,37 @@ internal fun WithCleanCopyToolbar(content: @Composable () -> Unit) {
         }
     }
     CompositionLocalProvider(LocalTextToolbar provides toolbar) { content() }
+}
+
+/** Lightweight "copied" hint centered on the screen (not on the bubble); auto-dismisses. */
+@Composable
+internal fun CopiedHint(visible: Boolean, onHidden: () -> Unit) {
+    if (!visible) return
+    LaunchedEffect(Unit) {
+        delay(1200)
+        onHidden()
+    }
+    val provider = remember {
+        object : PopupPositionProvider {
+            override fun calculatePosition(
+                anchorBounds: IntRect,
+                windowSize: IntSize,
+                layoutDirection: LayoutDirection,
+                popupContentSize: IntSize
+            ) = IntOffset(
+                (windowSize.width - popupContentSize.width) / 2,
+                (windowSize.height - popupContentSize.height) / 2
+            )
+        }
+    }
+    Popup(popupPositionProvider = provider) {
+        Text(
+            text = "已复制全部文字",
+            color = Color.White,
+            fontSize = 15.sp,
+            modifier = Modifier
+                .background(Color.Black.copy(alpha = 0.78f), RoundedCornerShape(14.dp))
+                .padding(horizontal = 20.dp, vertical = 12.dp)
+        )
+    }
 }

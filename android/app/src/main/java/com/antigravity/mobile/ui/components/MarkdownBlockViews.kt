@@ -140,21 +140,19 @@ internal fun CodeBlockView(
         HorizontalDivider(color = colors.border.copy(alpha = 0.4f), thickness = 0.5.dp)
 
         // Horizontally Scrollable Monospaced Code
-        SelectionContainer {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(12.dp)
-            ) {
-                Text(
-                    text = code.trimEnd(),
-                    color = colors.textPrimary,
-                    fontSize = 12.5.sp,
-                    fontFamily = FontFamily.Monospace,
-                    lineHeight = 18.sp
-                )
-            }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(12.dp)
+        ) {
+            Text(
+                text = code.trimEnd(),
+                color = colors.textPrimary,
+                fontSize = 12.5.sp,
+                fontFamily = FontFamily.Monospace,
+                lineHeight = 18.sp
+            )
         }
     }
 }

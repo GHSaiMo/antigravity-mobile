@@ -44,3 +44,40 @@ public enum MarkdownPlainText {
         return String(attr.characters).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
+
+// MARK: - Centered "copied" HUD
+
+@MainActor
+enum CopiedHUD {
+    private static weak var current: UIView?
+
+    static func show(_ message: String = "已复制全部文字") {
+        guard let window = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .flatMap({ $0.windows })
+            .first(where: { $0.isKeyWindow }) else { return }
+        current?.removeFromSuperview()
+
+        let label = UILabel()
+        label.text = message
+        label.textColor = .white
+        label.font = .systemFont(ofSize: 15, weight: .medium)
+        label.textAlignment = .center
+        label.backgroundColor = UIColor.black.withAlphaComponent(0.78)
+        label.layer.cornerRadius = 14
+        label.clipsToBounds = true
+        label.isUserInteractionEnabled = false
+        label.sizeToFit()
+        label.frame.size = CGSize(width: label.frame.width + 40, height: label.frame.height + 24)
+        label.center = CGPoint(x: window.bounds.midX, y: window.bounds.midY)
+        label.alpha = 0
+        window.addSubview(label)
+        current = label
+
+        UIView.animate(withDuration: 0.15, animations: { label.alpha = 1 }) { _ in
+            UIView.animate(withDuration: 0.25, delay: 1.0, options: [], animations: { label.alpha = 0 }) { _ in
+                label.removeFromSuperview()
+            }
+        }
+    }
+}

@@ -8,7 +8,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.InlineTextContent
-import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.*
@@ -136,10 +135,6 @@ internal fun RichTextRenderer(
 
     var layoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
 
-    val hasLink = remember(renderData.annotatedString) {
-        renderData.annotatedString.getStringAnnotations(tag = "URL", start = 0, end = renderData.annotatedString.length).isNotEmpty()
-    }
-    val richText: @Composable () -> Unit = {
     Text(
         text = renderData.annotatedString,
         modifier = Modifier.pointerInput(renderData.annotatedString) {
@@ -189,9 +184,6 @@ internal fun RichTextRenderer(
         inlineContent = renderData.inlineContent,
         onTextLayout = { layoutResult = it }
     )
-    }
-    // Text containing links / file chips stays a plain tappable link: long-press does not start a selection.
-    if (hasLink) DisableSelection { richText() } else richText()
 }
 
 internal val BACKTICK_BOLD_REGEX = Regex("""`+(\*{2,3})\s*([^\*`\n]+?)\s*\1`+""")
