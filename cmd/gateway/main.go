@@ -33,7 +33,7 @@ import (
 )
 
 // Version represents the Multigravity Gateway release version.
-var Version = "1.0.5"
+var Version = "1.0.6"
 
 func main() {
 	// 0. Initialize console output synchronization so concurrent logs don't tear terminal output

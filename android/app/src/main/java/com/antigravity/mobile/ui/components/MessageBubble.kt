@@ -36,6 +36,10 @@ import com.antigravity.mobile.ui.theme.AntigravityTheme
 
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.SelectAll
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import android.graphics.Bitmap
@@ -96,6 +100,9 @@ fun MessageBubble(
     }
 
     val isUser = message.isUser
+    val clipboard = LocalClipboardManager.current
+    var selectableText by remember { mutableStateOf<String?>(null) }
+    selectableText?.let { SelectableTextDialog(text = it, onDismiss = { selectableText = null }) }
 
     Column(
         modifier = modifier
@@ -303,6 +310,22 @@ fun MessageBubble(
                         onDismissRequest = { showContextMenu = false }
                     ) {
                         DropdownMenuItem(
+                            text = { Text("复制") },
+                            leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = "复制") },
+                            onClick = {
+                                showContextMenu = false
+                                clipboard.setText(AnnotatedString(userBodyText))
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("选择文字") },
+                            leadingIcon = { Icon(Icons.Default.SelectAll, contentDescription = "选择文字") },
+                            onClick = {
+                                showContextMenu = false
+                                selectableText = userBodyText
+                            }
+                        )
+                        DropdownMenuItem(
                             text = { Text("撤回") },
                             leadingIcon = {
                                 Icon(
@@ -320,6 +343,7 @@ fun MessageBubble(
             }
         } else {
             if (displayText.isNotBlank()) {
+                var showAgentMenu by remember { mutableStateOf(false) }
                 // Agent Bubble: Card background, textPrimary, 18.dp radius with subtle soft shadow
                 Box(
                     modifier = Modifier
@@ -333,6 +357,10 @@ fun MessageBubble(
                         .clip(RoundedCornerShape(18.dp))
                         .background(colors.agentBubbleBg)
                         .border(0.5.dp, colors.border, RoundedCornerShape(18.dp))
+                        .combinedClickable(
+                            onClick = {},
+                            onLongClick = { showAgentMenu = true }
+                        )
                         .padding(horizontal = 14.dp, vertical = 12.dp)
                 ) {
                     MarkdownContentView(
@@ -341,6 +369,28 @@ fun MessageBubble(
                         urlResolver = urlResolver,
                         onImageClick = { url -> onImageClick?.invoke(url, null) }
                     )
+
+                    DropdownMenu(
+                        expanded = showAgentMenu,
+                        onDismissRequest = { showAgentMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("复制") },
+                            leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = "复制") },
+                            onClick = {
+                                showAgentMenu = false
+                                clipboard.setText(AnnotatedString(MarkdownPlainText.convert(displayText)))
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("选择文字") },
+                            leadingIcon = { Icon(Icons.Default.SelectAll, contentDescription = "选择文字") },
+                            onClick = {
+                                showAgentMenu = false
+                                selectableText = MarkdownPlainText.convert(displayText)
+                            }
+                        )
+                    }
                 }
             }
         }

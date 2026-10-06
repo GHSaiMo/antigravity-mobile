@@ -112,7 +112,7 @@ const nuxCacheTTL = 60 * time.Second
 const authStatusCacheTTL = 10 * time.Minute
 
 // desktopAssetVersion provides cache-busting versioning for localized desktop assets.
-var desktopAssetVersion = fmt.Sprintf("1.0.5-%d", time.Now().Unix())
+var desktopAssetVersion = fmt.Sprintf("1.0.6-%d", time.Now().Unix())
 
 type cascadeDedupEntry struct {
 	cascadeID string
