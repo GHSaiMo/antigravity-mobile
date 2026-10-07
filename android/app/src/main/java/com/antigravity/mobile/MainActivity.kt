@@ -42,6 +42,22 @@ import com.journeyapps.barcodescanner.ScanOptions
 import java.net.URLDecoder
 import java.net.URLEncoder
 import com.antigravity.mobile.ui.viewmodel.prepareSession
+import com.antigravity.mobile.ui.viewmodel.addAttachmentsFromUris
+import com.antigravity.mobile.data.service.ShareInbox
+import com.antigravity.mobile.data.model.ConversationStatus
+import com.antigravity.mobile.ui.components.ShareTargetSheet
+import androidx.core.content.IntentCompat
+import androidx.lifecycle.lifecycleScope
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.unit.dp
+import android.net.Uri
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
 
@@ -149,6 +165,12 @@ class MainActivity : ComponentActivity() {
         // Handle DeepLink if opened from URL
         handleDeepLink(intent)
 
+        // Files shared from other apps; skipped on recreation so the same intent is not staged twice.
+        if (savedInstanceState == null) {
+            ShareInbox.cleanupStale(applicationContext)
+            handleShareIntent(intent)
+        }
+
         setContent {
             val themeMode by prefs.themeModeFlow.collectAsState()
             AntigravityTheme(themeMode = themeMode) {
@@ -164,6 +186,7 @@ class MainActivity : ComponentActivity() {
 
                 val startDestination = if (prefs.isPaired()) "conversations" else "pair"
 
+                androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize()) {
                 NavHost(
                     navController = navController,
                     startDestination = startDestination,
@@ -293,13 +316,151 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                 }
+                ShareOverlay(navController)
+                }
             }
         }
     }
 
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
-        intent?.let { handleDeepLink(it) }
+        intent?.let {
+            handleDeepLink(it)
+            handleShareIntent(it)
+        }
+    }
+
+    /** Stages files received through SEND / SEND_MULTIPLE / VIEW and opens the destination sheet. */
+    private fun handleShareIntent(intent: Intent?) {
+        intent ?: return
+        val uris = mutableListOf<Uri>()
+        when (intent.action) {
+            Intent.ACTION_SEND ->
+                IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)?.let { uris.add(it) }
+            Intent.ACTION_SEND_MULTIPLE ->
+                IntentCompat.getParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)?.let { uris.addAll(it) }
+            Intent.ACTION_VIEW -> intent.data?.let { uris.add(it) }
+            else -> return
+        }
+        if (uris.isEmpty()) {
+            intent.clipData?.let { clip -> for (i in 0 until clip.itemCount) clip.getItemAt(i).uri?.let { uris.add(it) } }
+        }
+        // Only content:// is accepted; file:// could point into this app's own private storage.
+        val safe = uris.filter { it.scheme == "content" }
+        // Handled: do not re-process this intent on configuration change.
+        setIntent(Intent(this, MainActivity::class.java))
+        if (safe.isEmpty()) {
+            if (intent.action != Intent.ACTION_VIEW) {
+                Toast.makeText(this, "暂只支持接收文件", Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
+        if (!prefs.isPaired()) {
+            Toast.makeText(this, "请先完成配对，再分享文件到 Multigravity", Toast.LENGTH_LONG).show()
+            return
+        }
+        lifecycleScope.launch(Dispatchers.IO) {
+            val staged = ShareInbox.stage(applicationContext, safe)
+            if (staged == 0) withContext(Dispatchers.Main) {
+                Toast.makeText(this@MainActivity, "无法读取分享的文件", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    /** Destination sheet while files are staged; a small pill on the list when the sheet was dismissed. */
+    @androidx.compose.runtime.Composable
+    private fun ShareOverlay(navController: NavHostController) {
+        val files by ShareInbox.files.collectAsState()
+        val sheetVisible by ShareInbox.sheetVisible.collectAsState()
+        val projects by conversationListViewModel.projects.collectAsState()
+        val chatState by chatViewModel.uiState.collectAsState()
+        val backStack by navController.currentBackStackEntryAsState()
+        val route = backStack?.destination?.route
+        if (files.isEmpty() || !prefs.isPaired()) return
+        val inChat = route?.startsWith("chat/") == true
+
+        if (sheetVisible) {
+            ShareTargetSheet(
+                files = files,
+                projects = projects,
+                conversations = conversationListViewModel.allConversations(),
+                currentConversationId = if (inChat) chatState.cascadeId.takeIf { it.isNotBlank() } else null,
+                onRefreshProjects = { conversationListViewModel.loadProjects() },
+                onRemoveFile = { ShareInbox.remove(applicationContext, it) },
+                onSelectProject = { project ->
+                    val draft = conversationListViewModel.createLocalDraftSession(project)
+                    val title = if (project.isPureChat) "新对话" else project.displayName
+                    openChatForShare(draft.id, title, true, ConversationStatus.IDLE, null)
+                },
+                onSelectConversation = { item ->
+                    openChatForShare(item.id, item.displayTitle, false, item.status, item.lastModifiedTime)
+                },
+                onSelectCurrent = {
+                    chatViewModel.addAttachmentsFromUris(this@MainActivity, ShareInbox.deliverableUris(this@MainActivity))
+                    ShareInbox.release()
+                },
+                onDiscard = { ShareInbox.clear(applicationContext) },
+                onDismiss = { ShareInbox.hideSheet() }
+            )
+        } else if (route == "conversations") {
+            androidx.compose.foundation.layout.Box(
+                modifier = androidx.compose.ui.Modifier
+                    .fillMaxSize()
+                    .navigationBarsPadding()
+                    .padding(bottom = 20.dp),
+                contentAlignment = androidx.compose.ui.Alignment.BottomCenter
+            ) {
+                androidx.compose.material3.Surface(
+                    onClick = { ShareInbox.showSheet() },
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
+                    color = androidx.compose.material3.MaterialTheme.colorScheme.primary,
+                    shadowElevation = 6.dp
+                ) {
+                    androidx.compose.material3.Text(
+                        "${files.size} 个文件待投递 · 选择去向",
+                        color = androidx.compose.material3.MaterialTheme.colorScheme.onPrimary,
+                        modifier = androidx.compose.ui.Modifier.padding(horizontal = 18.dp, vertical = 10.dp)
+                    )
+                }
+            }
+        }
+    }
+
+    /** Opens a conversation (leaving any chat that is currently open) and drops the staged files into its input bar. */
+    private fun openChatForShare(
+        cascadeId: String,
+        title: String,
+        isNew: Boolean,
+        status: ConversationStatus,
+        lastModifiedTime: String?
+    ) {
+        val navController = activeNavController ?: return
+        val uris = ShareInbox.deliverableUris(this)
+        if (uris.isEmpty()) return
+        if (navController.currentDestination?.route?.startsWith("chat/") == true) {
+            navController.popBackStack("conversations", false)
+        }
+        conversationListViewModel.notifySessionFocus(cascadeId)
+        chatViewModel.prepareSession(
+            cascadeId = cascadeId,
+            initialTitle = title,
+            isNewConversation = isNew,
+            workspaceName = conversationListViewModel.getWorkspaceName(cascadeId),
+            isUnread = false,
+            conversationStatus = status,
+            draftProject = conversationListViewModel.getDraftProject(cascadeId),
+            lastModifiedTime = lastModifiedTime
+        )
+        conversationListViewModel.markConversationAsRead(cascadeId)
+        val encodedTitle = URLEncoder.encode(title, "UTF-8")
+        try {
+            navController.navigate("chat/$cascadeId/$encodedTitle?isNew=$isNew&isUnread=false&status=${status.name}")
+        } catch (e: Exception) {
+            Log.w("MainActivity", "Failed to open $cascadeId for shared files: ${e.message}")
+            return
+        }
+        chatViewModel.addAttachmentsFromUris(this, uris)
+        ShareInbox.release()
     }
 
     private fun launchScanner() {

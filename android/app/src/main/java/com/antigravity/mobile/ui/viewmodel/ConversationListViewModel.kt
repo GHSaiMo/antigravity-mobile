@@ -541,6 +541,9 @@ class ConversationListViewModel(
         _uiState.value = ConversationListUiState.Success(filtered)
     }
 
+    /** Unfiltered (ignores the search box) list of top-level conversations, for share-target pickers. */
+    fun allConversations(): List<ConversationItem> = rawConversations.filter { !it.isSubagent }
+
     fun getConversation(cascadeId: String): ConversationItem? {
         return rawConversations.find { it.id == cascadeId }
     }

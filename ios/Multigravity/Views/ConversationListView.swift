@@ -13,6 +13,8 @@ public struct ConversationListView: View {
     @State private var pendingCreatedConversation: ConversationItem? = nil
     @State private var showAccountQuota = false
     @State private var navigationPath: [ConversationItem] = []
+    @State private var shareInbox = ShareInbox.shared
+    @State private var pendingShareItem: ConversationItem? = nil
     
     @State private var conversationToDelete: ConversationItem?
     @State private var showDeleteConfirm = false
@@ -31,6 +33,7 @@ public struct ConversationListView: View {
     
     public init() {
         _ = SwipeActionAdjuster.activateOnce
+        ShareInbox.shared.cleanupStale()
     }
     
     private func handleEasterEggTap() {
@@ -218,7 +221,48 @@ public struct ConversationListView: View {
             viewModel.reloadFromCache()
         }
         .onOpenURL { url in
-            handleDeepLink(url)
+            if url.isFileURL {
+                handleSharedFile(url)
+            } else {
+                handleDeepLink(url)
+            }
+        }
+        .sheet(isPresented: $shareInbox.showSheet, onDismiss: {
+            if let item = pendingShareItem {
+                pendingShareItem = nil
+                navigationPath = [item]
+            }
+        }) {
+            ShareTargetSheet(
+                inbox: shareInbox,
+                conversations: viewModel.conversations,
+                currentConversationId: navigationPath.last?.id,
+                onSelectProject: { project in
+                    let session = CacheManager.shared.createLocalDraftSession(project: project)
+                    let item = session.toConversationItem()
+                    pendingShareItem = item
+                    shareInbox.deliver(to: item.id)
+                },
+                onSelectConversation: { item in
+                    // Already open: the chat picks the files up itself; otherwise open it after the sheet closes.
+                    if navigationPath.last?.id != item.id { pendingShareItem = item }
+                    shareInbox.deliver(to: item.id)
+                }
+            )
+        }
+        .overlay(alignment: .bottom) {
+            if !shareInbox.files.isEmpty && !shareInbox.showSheet && navigationPath.isEmpty && settings.isPaired {
+                Button { shareInbox.showSheet = true } label: {
+                    Text("\(shareInbox.files.count) 个文件待投递 · 选择去向")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 10)
+                        .background(Capsule().fill(Color.indigo))
+                        .shadow(radius: 4, y: 2)
+                }
+                .padding(.bottom, 24)
+            }
         }
     }
     
@@ -688,6 +732,16 @@ public struct ConversationListView: View {
     private func confirmPendingPairing() async {
         guard let info = pendingPairing else { return }
         startPairing(info: info)
+    }
+    
+    /// A document handed over by another app ("用其他应用打开" / share sheet "open in").
+    private func handleSharedFile(_ url: URL) {
+        guard settings.isPaired else {
+            try? FileManager.default.removeItem(at: url)
+            pairingErrorMessage = "请先完成配对，再分享文件到 Multigravity"
+            return
+        }
+        shareInbox.receive([url])
     }
     
     private func handleDeepLink(_ url: URL) {

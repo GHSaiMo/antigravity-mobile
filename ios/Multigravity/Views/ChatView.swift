@@ -117,9 +117,13 @@ public struct ChatView: View {
             }
         }
         .background(SwipeBackEnabler())
+        .onChange(of: ShareInbox.shared.deliveryTick) { _, _ in
+            consumeSharedFiles()
+        }
         .onAppear {
             isViewAppeared = true
             viewModel.restoreDraftsIfNeeded()
+            consumeSharedFiles()
             if shouldAutoFocus && viewModel.pendingInteraction == nil {
                 scheduleAutoFocus(delay: 0.45)
             }
