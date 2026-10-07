@@ -280,6 +280,7 @@ type CloudflareConfig struct {
 	Protocol      string // "quic", "http2"
 	Region        string // optional region code
 	DNSResolvers  string // optional custom DNS resolvers, e.g. "223.5.5.5:53,119.29.29.29:53"
+	EdgeProbe     bool   // probe IPv4/IPv6 edge RTT before launch and pin the faster family (only when EdgeIPVersion is auto)
 }
 
 // GetCloudflareConfig extracts Cloudflare Tunnel settings from environment variables.
@@ -337,7 +338,14 @@ func GetCloudflareConfig() CloudflareConfig {
 		enabled = (vLower == "1" || vLower == "true" || vLower == "yes")
 	}
 
+	edgeProbe := true
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("CF_EDGE_PROBE"))) {
+	case "0", "false", "no", "off":
+		edgeProbe = false
+	}
+
 	return CloudflareConfig{
+		EdgeProbe:     edgeProbe,
 		Enabled:       enabled,
 		WorkerURL:     workerURL,
 		InviteCode:    inviteCode,

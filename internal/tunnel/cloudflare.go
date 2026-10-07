@@ -19,6 +19,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -46,6 +47,11 @@ type CloudflareTunnel struct {
 	running  bool
 	stopping bool
 	cancel   context.CancelFunc
+
+	locMu       sync.Mutex
+	locations   map[string]string // connIndex -> edge colo, e.g. "0" -> "lax13"
+	lastKickAt  time.Time
+	probeResult EdgeProbe
 }
 
 // NewCloudflareTunnel creates a supervisor for a Cloudflare Tunnel.
@@ -102,7 +108,24 @@ func (t *CloudflareTunnel) Start(ctx context.Context, binPath string) error {
 }
 
 func (t *CloudflareTunnel) launchProcessLocked(ctx context.Context, binPath string) error {
-	args := buildTunnelArgs(t.cfg)
+	cfg := t.cfg
+	if cfg != nil && cfg.EdgeProbe && cfg.EdgeIPVersion == "auto" {
+		p := ProbeEdge(ctx, nil, nil)
+		t.locMu.Lock()
+		t.probeResult = p
+		t.locMu.Unlock()
+		slog.Info(fmt.Sprintf("🔎 [Cloudflare] 边缘探测: IPv4=%s IPv6=%s -> 选用 %s", fmtRTT(p.V4RTT), fmtRTT(p.V6RTT), p.Chosen))
+		if len(p.Polluted) > 0 {
+			slog.Warn(fmt.Sprintf("⚠️  [Cloudflare] 本机 DNS 解析 argotunnel.com 返回了非 Cloudflare 地址 %v (疑似 DNS 污染)，已自动规避；可设置 CF_DNS_RESOLVERS 指定可信 DNS", p.Polluted))
+		}
+		c := *cfg
+		c.EdgeIPVersion = p.Chosen
+		cfg = &c
+	}
+	t.locMu.Lock()
+	t.locations = map[string]string{}
+	t.locMu.Unlock()
+	args := buildTunnelArgs(cfg)
 
 	cmd := exec.CommandContext(ctx, binPath, args...)
 	// SEC-AUDIT H-3: Pass TUNNEL_TOKEN via environment variable instead of CLI argument
@@ -126,6 +149,11 @@ func (t *CloudflareTunnel) launchProcessLocked(ctx context.Context, binPath stri
 						readyOnce.Do(func() {
 							slog.Info("✅ [Cloudflare] 专属隧道连接就绪")
 						})
+						if idx, colo, ok := parseRegisteredLine(trimmed); ok {
+							t.recordLocation(idx, colo)
+						}
+					} else if ip, ok := parseFailedEdgeIP(trimmed); ok && !IsCloudflareEdgeIP(ip) {
+						t.kickPolluted(cmd, ip)
 					} else if strings.Contains(trimmed, "ERR") || strings.Contains(trimmed, "error") ||
 						strings.Contains(trimmed, "Incorrect Usage") || strings.Contains(trimmed, "flag provided") {
 						if !isBenignCloudflareLog(trimmed) {
@@ -147,6 +175,53 @@ func (t *CloudflareTunnel) launchProcessLocked(ctx context.Context, binPath stri
 	t.cmd = cmd
 	t.running = true
 	return nil
+}
+
+func fmtRTT(d time.Duration) string {
+	if d <= 0 {
+		return "不可达"
+	}
+	return fmt.Sprintf("%dms", d.Milliseconds())
+}
+
+// recordLocation silently remembers which edge colo a tunnel connection landed on
+// (exposed via Locations for diagnostics; intentionally not printed to the console).
+func (t *CloudflareTunnel) recordLocation(idx, colo string) {
+	t.locMu.Lock()
+	defer t.locMu.Unlock()
+	if t.locations == nil {
+		t.locations = map[string]string{}
+	}
+	t.locations[idx] = colo
+}
+
+// Locations returns the distinct edge colos currently serving this tunnel, sorted.
+func (t *CloudflareTunnel) Locations() []string {
+	t.locMu.Lock()
+	defer t.locMu.Unlock()
+	seen := map[string]bool{}
+	var out []string
+	for _, c := range t.locations {
+		if !seen[c] {
+			seen[c] = true
+			out = append(out, c)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// kickPolluted restarts cloudflared (at most once per 5 minutes) after it tried to dial a
+// non-Cloudflare edge address, so the supervisor re-probes and pins a clean IP family.
+func (t *CloudflareTunnel) kickPolluted(cmd *exec.Cmd, ip net.IP) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.stopping || t.cmd != cmd || cmd.Process == nil || time.Since(t.lastKickAt) < 5*time.Minute {
+		return
+	}
+	t.lastKickAt = time.Now()
+	slog.Warn(fmt.Sprintf("⚠️  [Cloudflare] 检测到边缘地址被污染 (%s)，重启隧道并重新选择可用线路", ip))
+	_ = cmd.Process.Kill()
 }
 
 func (t *CloudflareTunnel) supervise(ctx context.Context, binPath string) {
