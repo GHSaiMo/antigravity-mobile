@@ -24,4 +24,15 @@ sealed class MarkdownBlock {
     data class OrderedList(val id: String, val startIndex: Int, val items: List<String>) : MarkdownBlock()
     data class Paragraph(val id: String, val text: String) : MarkdownBlock()
     data class Image(val id: String, val alt: String, val url: String) : MarkdownBlock()
+    data class AgentEmbed(val id: String, val src: String) : MarkdownBlock()
+    data class Carousel(
+        val id: String,
+        val slides: List<MarkdownCarouselSlide>
+    ) : MarkdownBlock()
 }
+
+data class MarkdownCarouselSlide(
+    val id: String,
+    val title: String? = null,
+    val content: String
+)

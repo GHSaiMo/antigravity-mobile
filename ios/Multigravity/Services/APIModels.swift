@@ -116,7 +116,10 @@ public struct PaginatedMessagesResponse: Codable, Sendable {
         public let toolNames: [String]?
         public let media: [String]?
         public let imageUrls: [String]?
+        public let artifacts: [ArtifactItem]?
         public let stepIndex: Int?
+        public let attemptCount: Int?
+        public let maxAttempts: Int?
     }
 }
 

@@ -1200,6 +1200,116 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
   border: none;
 }
 
+/* Agent Embed Card (Generative UI Interactive Card) */
+.agent-embed-card {
+  background-color: var(--ios-tertiary-bg);
+  border: 0.5px solid var(--ios-separator);
+  border-radius: 12px;
+  margin: 12px 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.agent-embed-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 12px;
+  background-color: rgba(255, 255, 255, 0.04);
+  border-bottom: 0.5px solid var(--ios-separator-subtle);
+  gap: 8px;
+}
+
+.agent-embed-title-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.agent-embed-icon {
+  color: var(--ios-blue, #6366f1);
+  flex-shrink: 0;
+}
+
+.agent-embed-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ios-label);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-embed-badge {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 9.5px;
+  font-weight: 700;
+  color: var(--ios-blue, #6366f1);
+  background-color: rgba(99, 102, 241, 0.12);
+  padding: 1.5px 6px;
+  border-radius: 999px;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+
+.agent-embed-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.agent-embed-action-btn {
+  background: none;
+  border: none;
+  color: var(--ios-secondary-label);
+  padding: 4px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+
+.agent-embed-action-btn:hover {
+  background-color: var(--ios-fill);
+  color: var(--ios-label);
+}
+
+.agent-embed-viewport {
+  position: relative;
+  width: 100%;
+  min-height: 180px;
+  background: transparent;
+}
+
+.agent-embed-frame {
+  width: 100%;
+  height: 380px;
+  border: none;
+  background: transparent;
+  display: block;
+}
+
+.agent-embed-card.fullscreen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 99999;
+  margin: 0;
+  border-radius: 0;
+  background: var(--ios-secondary-bg);
+}
+
+.agent-embed-card.fullscreen .agent-embed-frame {
+  height: calc(100vh - 44px);
+}
+
 /* Mermaid Diagram Card (Interactive Diagram / Code Toggle) */
 .mermaid-card {
   background-color: var(--ios-tertiary-bg);
@@ -3750,6 +3860,185 @@ body {
   height: 16px;
   background: rgba(255, 255, 255, 0.2);
   margin: 0 2px;
+}
+
+/* --- Interactive Markdown Photo Carousel --- */
+.carousel-card {
+  margin: 12px 0;
+  border-radius: 12px;
+  background: var(--ios-card-bg, #ffffff);
+  border: 1px solid var(--ios-border, rgba(60, 60, 67, 0.15));
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+}
+
+.carousel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--ios-grouped-bg, rgba(120, 120, 128, 0.08));
+  border-bottom: 1px solid var(--ios-border, rgba(60, 60, 67, 0.12));
+}
+
+.carousel-title-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.carousel-icon {
+  color: var(--ios-blue, #007aff);
+}
+
+.carousel-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ios-label, #1c1c1e);
+}
+
+.carousel-counter-badge {
+  font-size: 11px;
+  font-weight: 700;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--ios-secondary-label, #8e8e93);
+  background: rgba(120, 120, 128, 0.12);
+  padding: 2px 7px;
+  border-radius: 10px;
+}
+
+.carousel-nav-buttons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.carousel-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--ios-label, #1c1c1e);
+  background: var(--ios-card-bg, #ffffff);
+  border: 1px solid var(--ios-border, rgba(60, 60, 67, 0.2));
+  padding: 4px 9px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  user-select: none;
+}
+
+.carousel-nav-btn:hover:not(:disabled) {
+  background: var(--ios-grouped-bg, rgba(120, 120, 128, 0.15));
+  border-color: var(--ios-border, rgba(60, 60, 67, 0.35));
+}
+
+.carousel-nav-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.carousel-viewport {
+  padding: 12px;
+  position: relative;
+}
+
+.carousel-slide-pane {
+  display: none;
+  animation: carouselFadeIn 0.25s ease-out;
+}
+
+.carousel-slide-pane.active {
+  display: block;
+}
+
+@keyframes carouselFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.carousel-dots-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 2px 0 10px 0;
+}
+
+.carousel-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--ios-tertiary-label, rgba(60, 60, 67, 0.25));
+  cursor: pointer;
+  transition: all 0.22s ease;
+}
+
+.carousel-dot.active {
+  width: 18px;
+  background: var(--ios-blue, #007aff);
+}
+
+/* Markdown Artifact Preview Card (一键预览卡片) */
+.message-artifact-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.artifact-preview-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  background: var(--ios-tertiary-bg, rgba(240, 240, 245, 0.75));
+  border: 1px solid var(--ios-separator, rgba(60, 60, 67, 0.18));
+  border-radius: 12px;
+  cursor: pointer;
+  transition: transform 0.12s ease, background 0.15s ease, border-color 0.15s ease;
+  user-select: none;
+}
+
+.artifact-preview-card:hover {
+  background: var(--ios-secondary-bg, rgba(255, 255, 255, 0.95));
+  border-color: var(--ios-blue, #007aff);
+  transform: translateY(-1px);
+}
+
+.artifact-preview-card:active {
+  transform: scale(0.99);
+}
+
+.artifact-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.artifact-card-icon {
+  font-size: 15px;
+  line-height: 1;
+}
+
+.artifact-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ios-label, #1c1c1e);
+}
+
+.artifact-card-summary {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--ios-secondary-label, #8e8e93);
 }
 
 

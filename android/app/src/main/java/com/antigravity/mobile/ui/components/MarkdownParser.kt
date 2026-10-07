@@ -46,21 +46,39 @@ object MarkdownParser {
                 }
             }
 
-            // 1. Fenced Code Block
-            if (trimmed.startsWith("```")) {
-                val lang = trimmed.removePrefix("```").trim()
-                val codeLines = mutableListOf<String>()
-                i++
-                while (i < lines.size) {
-                    if (lines[i].trim().startsWith("```")) {
-                        i++
-                        break
-                    }
-                    codeLines.add(lines[i])
-                    i++
+            // 1. Fenced Code Block or Carousel
+            if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) {
+                val fenceChar = trimmed[0]
+                var fenceCount = 0
+                while (fenceCount < trimmed.length && trimmed[fenceCount] == fenceChar) {
+                    fenceCount++
                 }
-                blocks.add(MarkdownBlock.CodeBlock("block-${blockIdx++}", lang, codeLines.joinToString("\n")))
-                continue
+                if (fenceCount >= 3) {
+                    val fence = fenceChar.toString().repeat(fenceCount)
+                    val info = trimmed.substring(fenceCount).trim()
+                    val codeLines = mutableListOf<String>()
+                    i++
+                    while (i < lines.size) {
+                        val curTrimmed = lines[i].trim()
+                        if (curTrimmed.startsWith(fence)) {
+                            i++
+                            break
+                        }
+                        codeLines.add(lines[i])
+                        i++
+                    }
+
+                    if (info.equals("carousel", ignoreCase = true)) {
+                        val slides = parseCarouselSlides(codeLines, blockIdx)
+                        if (slides.isNotEmpty()) {
+                            blocks.add(MarkdownBlock.Carousel("block-${blockIdx++}", slides))
+                            continue
+                        }
+                    }
+
+                    blocks.add(MarkdownBlock.CodeBlock("block-${blockIdx++}", info, codeLines.joinToString("\n")))
+                    continue
+                }
             }
 
             // 2. Divider
@@ -192,6 +210,14 @@ object MarkdownParser {
                 continue
             }
 
+            // 6b. Standalone agent embed line: <agent-embed src="..."></agent-embed>
+            val standaloneEmbed = parseStandaloneAgentEmbed(trimmed)
+            if (standaloneEmbed != null) {
+                blocks.add(MarkdownBlock.AgentEmbed("block-${blockIdx++}", standaloneEmbed))
+                i++
+                continue
+            }
+
             // 7. Paragraph
             val paraLines = mutableListOf<String>()
             paraLines.add(line)
@@ -208,7 +234,8 @@ object MarkdownParser {
                     nTrimmed.startsWith("* ") ||
                     nTrimmed.startsWith("• ") ||
                     ORDERED_LIST_REGEX.containsMatchIn(nTrimmed) ||
-                    parseStandaloneImage(nTrimmed) != null
+                    parseStandaloneImage(nTrimmed) != null ||
+                    parseStandaloneAgentEmbed(nTrimmed) != null
                 ) {
                     break
                 }
@@ -217,19 +244,39 @@ object MarkdownParser {
             }
             val paraText = paraLines.joinToString("\n")
             val imagesInPara = findImages(paraText)
-            if (imagesInPara.isEmpty()) {
+            val embedsInPara = findAgentEmbeds(paraText)
+
+            if (imagesInPara.isEmpty() && embedsInPara.isEmpty()) {
                 blocks.add(MarkdownBlock.Paragraph("block-${blockIdx++}", paraText))
             } else {
+                val allItems = mutableListOf<ParagraphInlineItem>()
+                imagesInPara.forEach { allItems.add(ParagraphInlineItem.Img(it.alt, it.url, it.range)) }
+                embedsInPara.forEach { allItems.add(ParagraphInlineItem.Embed(it.src, it.range)) }
+                allItems.sortBy { it.range.first }
+
+                // Exclude overlapping ranges
+                val nonOverlapping = mutableListOf<ParagraphInlineItem>()
+                val occupied = mutableListOf<IntRange>()
+                for (item in allItems) {
+                    if (occupied.none { occ -> item.range.first <= occ.last && item.range.last >= occ.first }) {
+                        occupied.add(item.range)
+                        nonOverlapping.add(item)
+                    }
+                }
+
                 var curIdx = 0
-                for (img in imagesInPara) {
-                    if (img.range.first > curIdx) {
-                        val textBefore = paraText.substring(curIdx, img.range.first).trim()
+                for (item in nonOverlapping) {
+                    if (item.range.first > curIdx) {
+                        val textBefore = paraText.substring(curIdx, item.range.first).trim()
                         if (textBefore.isNotEmpty()) {
                             blocks.add(MarkdownBlock.Paragraph("block-${blockIdx++}", textBefore))
                         }
                     }
-                    blocks.add(MarkdownBlock.Image("block-${blockIdx++}", img.alt, img.url))
-                    curIdx = img.range.last + 1
+                    when (item) {
+                        is ParagraphInlineItem.Img -> blocks.add(MarkdownBlock.Image("block-${blockIdx++}", item.alt, item.url))
+                        is ParagraphInlineItem.Embed -> blocks.add(MarkdownBlock.AgentEmbed("block-${blockIdx++}", item.src))
+                    }
+                    curIdx = item.range.last + 1
                 }
                 if (curIdx < paraText.length) {
                     val textAfter = paraText.substring(curIdx).trim()
@@ -297,5 +344,108 @@ object MarkdownParser {
             return Pair(img.alt, img.url)
         }
         return null
+    }
+
+    private val agentEmbedRegex = Regex("""<agent-embed\b[^>]*?\bsrc=["']([^"']+)["'][^>]*>(?:\s*<\/agent-embed>)?""", RegexOption.IGNORE_CASE)
+
+    private data class FoundEmbed(val src: String, val range: IntRange)
+
+    private fun findAgentEmbeds(text: String): List<FoundEmbed> {
+        if (text.isEmpty()) return emptyList()
+        val results = mutableListOf<FoundEmbed>()
+        agentEmbedRegex.findAll(text).forEach { match ->
+            val rawSrc = match.groups[1]?.value.orEmpty()
+            val cleaned = cleanImageURL(rawSrc)
+            if (cleaned.isNotBlank()) {
+                results.add(FoundEmbed(cleaned, match.range))
+            }
+        }
+        return results.sortedBy { it.range.first }
+    }
+
+    private fun parseStandaloneAgentEmbed(trimmed: String): String? {
+        val embeds = findAgentEmbeds(trimmed)
+        if (embeds.size != 1) return null
+        val embed = embeds[0]
+        val before = trimmed.substring(0, embed.range.first).trim()
+        val after = trimmed.substring(embed.range.last + 1).trim()
+        if (before.isEmpty() && after.isEmpty()) {
+            return embed.src
+        }
+        return null
+    }
+
+    private sealed class ParagraphInlineItem(val range: IntRange) {
+        class Img(val alt: String, val url: String, range: IntRange) : ParagraphInlineItem(range)
+        class Embed(val src: String, range: IntRange) : ParagraphInlineItem(range)
+    }
+
+    private fun isSlideSeparatorLine(line: String): Pair<Boolean, String?> {
+        val t = line.trim()
+        if (!t.startsWith("<!--") || !t.endsWith("-->")) return Pair(false, null)
+        val inner = t.removePrefix("<!--").removeSuffix("-->").trim()
+        if (inner.startsWith("slide", ignoreCase = true)) {
+            val remainder = inner.substring(5).trim()
+            if (remainder.isEmpty()) {
+                return Pair(true, null)
+            }
+            if (remainder.startsWith(":") || remainder.startsWith("-")) {
+                val customTitle = remainder.substring(1).trim()
+                return Pair(true, customTitle.ifEmpty { null })
+            }
+            return Pair(true, null)
+        }
+        return Pair(false, null)
+    }
+
+    fun parseCarouselSlides(lines: List<String>, blockIdx: Int): List<MarkdownCarouselSlide> {
+        val rawSlides = mutableListOf<Pair<String?, List<String>>>()
+        var curSlideLines = mutableListOf<String>()
+        var curSlideTitle: String? = null
+
+        for (line in lines) {
+            val sep = isSlideSeparatorLine(line)
+            if (sep.first) {
+                val joined = curSlideLines.joinToString("\n").trim()
+                if (joined.isNotEmpty()) {
+                    rawSlides.add(Pair(curSlideTitle, curSlideLines.toList()))
+                }
+                curSlideLines = mutableListOf()
+                curSlideTitle = sep.second
+            } else {
+                curSlideLines.add(line)
+            }
+        }
+
+        val lastJoined = curSlideLines.joinToString("\n").trim()
+        if (lastJoined.isNotEmpty()) {
+            rawSlides.add(Pair(curSlideTitle, curSlideLines.toList()))
+        }
+
+        if (rawSlides.isEmpty()) return emptyList()
+
+        return rawSlides.mapIndexed { slideIdx, raw ->
+            var slideTitle = raw.first
+            if (slideTitle.isNullOrEmpty()) {
+                for (l in raw.second) {
+                    val st = l.trim()
+                    if (st.startsWith("#")) {
+                        val stripped = st.dropWhile { it == '#' }.trim()
+                        if (stripped.isNotEmpty()) {
+                            slideTitle = stripped
+                            break
+                        }
+                    } else if (st.isNotEmpty()) {
+                        break
+                    }
+                }
+            }
+            val content = raw.second.joinToString("\n").trim()
+            MarkdownCarouselSlide(
+                id = "block-$blockIdx-slide-$slideIdx",
+                title = slideTitle,
+                content = content
+            )
+        }
     }
 }

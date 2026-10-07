@@ -65,7 +65,8 @@ public struct RunningTasksCardView: View {
                     ForEach(items) { item in
                         HStack(alignment: .bottom, spacing: 12) {
                             VStack(alignment: .leading, spacing: 3) {
-                                if let desc = item.toolSummary ?? item.toolAction ?? item.toolName, !desc.isEmpty {
+                                let desc = item.toolSummary ?? item.toolAction ?? ToolLocalization.localizedName(for: item.toolName)
+                                if !desc.isEmpty {
                                     Text(desc)
                                         .font(.system(size: 12, weight: .medium))
                                         .foregroundColor(.primary)

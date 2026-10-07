@@ -38,6 +38,7 @@ extension ChatViewModel {
             }
         }
         
+        let ordered: [ChatMessage]
         if let drop = dropIndex {
             // Segment 1 (0..<drop) was placed at top (latest messages)
             // Segment 2 (drop..<count) was appended at bottom (earliest messages)
@@ -45,11 +46,74 @@ extension ChatViewModel {
             let tail = Array(list[drop...])
             
             // Re-swap: earlier messages should come first
-            let healed = tail + head
-            return healed
+            ordered = tail + head
+        } else {
+            ordered = list
         }
         
-        return list
+        return collapseAttemptErrors(ordered)
+    }
+    
+    /// Collapses consecutive attempt errors into a single error card (e.g. attempt 1..3 -> attempt 3/9 · 已重试 3 次).
+    func collapseAttemptErrors(_ list: [ChatMessage]) -> [ChatMessage] {
+        guard list.count >= 2 else { return list }
+        var result: [ChatMessage] = []
+        
+        for msg in list {
+            if msg.isError, let last = result.last, last.isError {
+                let parsed = APIClient.parseAttemptError(msg.content)
+                let prevParsed = APIClient.parseAttemptError(last.content)
+                
+                // Case 1: Both are attempt-based errors with matching base error
+                if parsed.isAttempt && prevParsed.isAttempt && APIClient.normalizeErrKey(prevParsed.baseError) == APIClient.normalizeErrKey(parsed.baseError) {
+                    let newAttempt = max(parsed.attempt, (last.attemptCount ?? prevParsed.attempt) + 1)
+                    let maxAttempts = parsed.maxAttempts > 0 ? parsed.maxAttempts : (last.maxAttempts ?? 9)
+                    let formatted = "\(parsed.prefix) (attempt \(newAttempt)/\(maxAttempts) · 已重试 \(newAttempt) 次): \(parsed.baseError)"
+                    result[result.count - 1] = ChatMessage(
+                        id: last.id,
+                        sender: .error,
+                        content: formatted,
+                        stepIndex: msg.stepIndex ?? last.stepIndex,
+                        attemptCount: newAttempt,
+                        maxAttempts: maxAttempts
+                    )
+                    continue
+                }
+                
+                // Case 2: Curr is attempt error, but prev was exact same base error without attempt marker yet
+                if parsed.isAttempt && APIClient.normalizeErrKey(last.content) == APIClient.normalizeErrKey(parsed.baseError) {
+                    let newAttempt = max(parsed.attempt, (last.attemptCount ?? 1) + 1)
+                    let maxAttempts = parsed.maxAttempts > 0 ? parsed.maxAttempts : 9
+                    let formatted = "\(parsed.prefix) (attempt \(newAttempt)/\(maxAttempts) · 已重试 \(newAttempt) 次): \(parsed.baseError)"
+                    result[result.count - 1] = ChatMessage(
+                        id: last.id,
+                        sender: .error,
+                        content: formatted,
+                        stepIndex: msg.stepIndex ?? last.stepIndex,
+                        attemptCount: newAttempt,
+                        maxAttempts: maxAttempts
+                    )
+                    continue
+                }
+                
+                // Case 3: Both are non-attempt errors, but have identical normalized content (consecutive duplicate errors)
+                if !parsed.isAttempt && !prevParsed.isAttempt && APIClient.normalizeErrKey(last.content) == APIClient.normalizeErrKey(msg.content) {
+                    let count = (last.attemptCount ?? 1) + 1
+                    let formatted = "\(msg.content) (已重试 \(count) 次)"
+                    result[result.count - 1] = ChatMessage(
+                        id: last.id,
+                        sender: .error,
+                        content: formatted,
+                        stepIndex: msg.stepIndex ?? last.stepIndex,
+                        attemptCount: count,
+                        maxAttempts: nil
+                    )
+                    continue
+                }
+            }
+            result.append(msg)
+        }
+        return result
     }
     
     /// Applies a full trajectory snapshot directly without destructive slicing or reverse appends.

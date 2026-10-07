@@ -576,6 +576,18 @@ function initMarkdownViewer() {
 
   // Delegated click on document for any markdown file links
   document.addEventListener("click", (e) => {
+    const card = e.target.closest(".artifact-preview-card");
+    if (card) {
+      e.preventDefault();
+      e.stopPropagation();
+      const targetUrl = card.getAttribute("data-uri");
+      const targetTitle = card.getAttribute("data-title") || "文档详情";
+      if (targetUrl) {
+        openMarkdownViewer(targetUrl, targetTitle);
+      }
+      return;
+    }
+
     const link = e.target.closest("a");
     if (!link) return;
 

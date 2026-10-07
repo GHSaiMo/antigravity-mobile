@@ -714,12 +714,14 @@ function groupSteps(steps) {
 
       if (resp) {
         flushBatch();
+        const artList = s.artifacts ? [...s.artifacts] : [];
         items.push({
           type: "agent",
           id: `item-agent-${i}`,
           index: i,
           text: p.response,
           thinking: thinking,
+          artifacts: artList,
           step: s
         });
       } else if (thinking) {
@@ -846,7 +848,8 @@ function getItemFingerprint(item, isRunning, isLastItem) {
     const thinkLen = (item.thinking || "").length;
     const textLen = (item.text || "").length;
     const textLast = (item.text || "").slice(-12);
-    return `a:${thinkLen}:${textLen}:${textLast}`;
+    const artKey = (item.artifacts || []).map(a => a.uri).join(",");
+    return `a:${thinkLen}:${textLen}:${textLast}:${artKey}`;
   }
   if (item.type === "tools") {
     const active = (isRunning && isLastItem) ? "1" : "0";
@@ -858,8 +861,60 @@ function getItemFingerprint(item, isRunning, isLastItem) {
   return "";
 }
 
+function formatToolName(name) {
+  if (!name) return "工具操作";
+  const raw = String(name).trim();
+  const lower = raw.toLowerCase();
+  const map = {
+    "run_command": "运行终端命令",
+    "manage_task": "管理后台任务",
+    "schedule": "定时调度",
+    "shell_command": "运行命令",
+    "command": "运行命令",
+    "view_file": "查看文件",
+    "write_to_file": "写入文件",
+    "replace_file_content": "编辑文件",
+    "edit_file": "编辑文件",
+    "create_file": "创建文件",
+    "delete_file": "删除文件",
+    "read_file": "读取文件",
+    "list_dir": "浏览目录",
+    "list_directory": "浏览目录",
+    "search_code": "搜索代码",
+    "grep_search": "搜索代码",
+    "file_search": "搜索文件",
+    "find_by_name": "搜索文件",
+    "search_web": "搜索网络",
+    "read_url_content": "读取网页",
+    "invoke_subagent": "调用子代理",
+    "define_subagent": "定义子代理",
+    "manage_subagents": "管理子代理",
+    "send_message": "发送消息",
+    "browser_subagent": "浏览器代理",
+    "ask_question": "询问用户",
+    "generate_image": "生成图片",
+    "call_mcp_tool": "调用 MCP 工具",
+    "list_resources": "列出 MCP 资源",
+    "read_resource": "读取 MCP 资源",
+    "thinking": "思考中",
+    "tool_call": "工具操作",
+    "action": "操作"
+  };
+  if (map[lower]) return map[lower];
+  if (lower.startsWith("mcp_")) return `MCP: ${raw.slice(4)}`;
+  return raw;
+}
+
 function generateItemHtml(item, isRunning, isLastItem) {
   if (item.type === "error") {
+    const attemptCount = item.attemptCount || 0;
+    const maxAttempts = item.maxAttempts || 0;
+    const badgeText = (attemptCount && maxAttempts)
+      ? `ERROR · 尝试 ${attemptCount}/${maxAttempts}`
+      : (attemptCount > 1 ? `ERROR · 重试 ${attemptCount} 次` : "error");
+    const titleText = (attemptCount > 1)
+      ? `执行遇到错误 (已重试 ${attemptCount} 次)`
+      : "执行遇到错误";
     return `
       <div class="agent-error-card">
         <div class="agent-error-icon">
@@ -871,8 +926,8 @@ function generateItemHtml(item, isRunning, isLastItem) {
         </div>
         <div class="agent-error-body">
           <div class="agent-error-header">
-            <span class="badge badge-error">error</span>
-            <span class="agent-error-title">执行遇到错误</span>
+            <span class="badge badge-error">${escapeHtml(badgeText)}</span>
+            <span class="agent-error-title">${escapeHtml(titleText)}</span>
           </div>
           <div class="agent-error-message">${escapeHtml(item.text)}</div>
         </div>
@@ -909,11 +964,29 @@ function generateItemHtml(item, isRunning, isLastItem) {
         </details>
       `;
     }
-    const bodyHtml = item.text ? getCachedMarkdown(item.text) : '<span style="color:var(--text-muted);">执行中...</span>';
+    let artifactsHtml = "";
+    if (Array.isArray(item.artifacts) && item.artifacts.length > 0) {
+      artifactsHtml = `<div class="message-artifact-cards">` +
+        item.artifacts.map(art => {
+          const title = escapeHtml(art.title || "文档详情");
+          const summary = art.summary ? `<div class="artifact-card-summary">${escapeHtml(art.summary)}</div>` : "";
+          const uriAttr = escapeHtml(art.uri || "");
+          return `
+            <div class="artifact-preview-card" data-uri="${uriAttr}" data-title="${title}">
+              <div class="artifact-card-header">
+                <span class="artifact-card-icon">📄</span>
+                <span class="artifact-card-title">${title}</span>
+              </div>
+              ${summary}
+            </div>
+          `;
+        }).join("") + `</div>`;
+    }
     return `
       <div class="bubble markdown-body">
         ${thoughtHtml}
         <div class="agent-message-body">${bodyHtml}</div>
+        ${artifactsHtml}
       </div>
     `;
   }
@@ -921,7 +994,8 @@ function generateItemHtml(item, isRunning, isLastItem) {
   if (item.type === "tools") {
     const isActive = isRunning && isLastItem;
     const count = item.steps.length;
-    const toolNamesStr = item.toolNames.join(", ") + (item.toolNames.length > 2 ? "..." : "");
+    const localizedNames = [...new Set((item.toolNames || []).map(formatToolName))];
+    const toolNamesStr = localizedNames.join(", ") + (localizedNames.length > 2 ? "..." : "");
 
     if (isActive) {
       return `
@@ -958,7 +1032,7 @@ function generateItemHtml(item, isRunning, isLastItem) {
           <svg class="tool-puzzle-icon" width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
             <path d="M20.5 11H19V7c0-1.1-.9-2-2-2h-4V3.5a2.5 2.5 0 0 0-5 0V5H4c-1.1 0-1.99.9-1.99 2v3.8H3.5c1.49 0 2.7 1.21 2.7 2.7s-1.21 2.7-2.7 2.7H2V20c0 1.1.9 2 2 2h3.8v-1.5c0-1.49 1.21-2.7 2.7-2.7s2.7 1.21 2.7 2.7V22H17c1.1 0 2-.9 2-2v-4h1.5a2.5 2.5 0 0 0 0-5z"></path>
           </svg>
-          <span class="tool-step-name">${escapeHtml(s.name)}</span>
+          <span class="tool-step-name">${escapeHtml(formatToolName(s.name))}</span>
         </div>
       </div>
     `).join("");
@@ -1323,7 +1397,7 @@ const RunningTasksManager = {
     }
 
     listEl.innerHTML = this.tasks.map(task => {
-      const desc = escapeHtml(task.toolSummary || task.toolAction || task.toolName || "后台任务");
+      const desc = escapeHtml(task.toolSummary || task.toolAction || formatToolName(task.toolName) || "后台任务");
       const cmd = escapeHtml(task.commandLine || "运行中...");
       const idEsc = escapeHtml(task.id || "");
       return `

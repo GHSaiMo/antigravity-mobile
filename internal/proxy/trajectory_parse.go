@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -70,10 +71,20 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 // consecutive tool steps collapsed into a single "tools" capsule. It also returns the tool total.
 func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int) {
 	var allMessages []CascadeMessageItem
-	var lastErrorText string
 	pendingTools := 0
 	var toolNames []string
 	totalToolsCount := 0
+
+	var turnArtifacts []ArtifactItem
+	seenArtifactURIs := make(map[string]bool)
+
+	addTurnArtifact := func(art ArtifactItem) {
+		if art.URI == "" || seenArtifactURIs[art.URI] {
+			return
+		}
+		seenArtifactURIs[art.URI] = true
+		turnArtifacts = append(turnArtifacts, art)
+	}
 
 	flushTools := func() {
 		if pendingTools == 0 {
@@ -96,8 +107,15 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 	for idx, s := range steps {
 		stepType := s.Type
 
+		// Extract any artifacts created or edited in this step
+		for _, art := range extractArtifactsFromStep(s) {
+			addTurnArtifact(art)
+		}
+
 		if stepType == "CORTEX_STEP_TYPE_USER_INPUT" {
 			flushTools()
+			turnArtifacts = nil
+			seenArtifactURIs = make(map[string]bool)
 			text := ""
 			if s.UserInput != nil {
 				text = s.UserInput.UserResponse
@@ -181,6 +199,18 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 				// Extract image URLs
 				imgURLs := extractImageURLsFromText(respText)
 
+				// Extract any referenced artifacts in text
+				for _, art := range extractArtifactsFromText(respText) {
+					addTurnArtifact(art)
+				}
+
+				var msgArtifacts []ArtifactItem
+				if len(turnArtifacts) > 0 {
+					msgArtifacts = append([]ArtifactItem(nil), turnArtifacts...)
+					turnArtifacts = nil
+					seenArtifactURIs = make(map[string]bool)
+				}
+
 				stepIdx := idx
 				allMessages = append(allMessages, CascadeMessageItem{
 					ID:        fmt.Sprintf("step-%d", idx),
@@ -190,6 +220,7 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 					Content:   respText,
 					StepIndex: &stepIdx,
 					ImageURLs: imgURLs,
+					Artifacts: msgArtifacts,
 				})
 			}
 		} else if stepType == "CORTEX_STEP_TYPE_ERROR_MESSAGE" {
@@ -197,13 +228,29 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 				continue
 			}
 			flushTools()
-			lastErrorText = extractErrorText(s)
+			rawErrText := extractErrorText(s)
+
+			if len(allMessages) > 0 && allMessages[len(allMessages)-1].Type == "error" {
+				if merged, ok := tryMergeAttemptErrors(allMessages[len(allMessages)-1], rawErrText); ok {
+					allMessages[len(allMessages)-1] = merged
+					continue
+				}
+			}
+
+			parsed := parseAttemptError(rawErrText)
+			formatted := rawErrText
+			if parsed.isAttempt {
+				formatted = formatAttemptError(parsed.prefix, parsed.attempt, parsed.maxAttempts, parsed.baseError)
+			}
+
 			allMessages = append(allMessages, CascadeMessageItem{
-				ID:      fmt.Sprintf("step-%d", idx),
-				Type:    "error",
-				Role:    "error",
-				Text:    lastErrorText,
-				Content: lastErrorText,
+				ID:           fmt.Sprintf("step-%d", idx),
+				Type:         "error",
+				Role:         "error",
+				Text:         formatted,
+				Content:      formatted,
+				AttemptCount: parsed.attempt,
+				MaxAttempts:  parsed.maxAttempts,
 			})
 		} else if strings.HasPrefix(stepType, "CORTEX_STEP_TYPE_") && stepType != "CORTEX_STEP_TYPE_SYSTEM_MESSAGE" && stepType != "CORTEX_STEP_TYPE_ERROR_MESSAGE" {
 			pendingTools++
@@ -215,7 +262,211 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 
 	flushTools()
 
+	// If there are still unconsumed artifacts in this turn, attach them to the last agent message
+	if len(turnArtifacts) > 0 && len(allMessages) > 0 {
+		for i := len(allMessages) - 1; i >= 0; i-- {
+			if allMessages[i].Type == "agent" {
+				existingURIs := make(map[string]bool)
+				for _, ea := range allMessages[i].Artifacts {
+					existingURIs[ea.URI] = true
+				}
+				for _, art := range turnArtifacts {
+					if !existingURIs[art.URI] {
+						allMessages[i].Artifacts = append(allMessages[i].Artifacts, art)
+						existingURIs[art.URI] = true
+					}
+				}
+				break
+			}
+		}
+	}
+
 	return allMessages, totalToolsCount
+}
+
+// formatArtifactTitle formats a markdown file URI into a human-friendly Title Case title.
+func formatArtifactTitle(uri string) string {
+	clean := uri
+	if strings.HasPrefix(clean, "file://") {
+		clean = strings.TrimPrefix(clean, "file://")
+	}
+	base := filepath.Base(clean)
+	ext := filepath.Ext(base)
+	name := strings.TrimSuffix(base, ext)
+
+	// Normalize underscores and hyphens to spaces
+	name = strings.ReplaceAll(name, "_", " ")
+	name = strings.ReplaceAll(name, "-", " ")
+
+	lower := strings.ToLower(name)
+	if lower == "implementation plan" {
+		return "Implementation Plan"
+	} else if lower == "walkthrough" {
+		return "Walkthrough"
+	}
+
+	// Title-case words
+	words := strings.Fields(name)
+	for i, w := range words {
+		if len(w) > 0 {
+			words[i] = strings.ToUpper(w[:1]) + w[1:]
+		}
+	}
+	res := strings.Join(words, " ")
+	if res == "" {
+		return "文档详情"
+	}
+	return res
+}
+
+// extractArtifactsFromStep parses any artifact files created/edited in a trajectory step.
+func extractArtifactsFromStep(s TrajectoryStep) []ArtifactItem {
+	var results []ArtifactItem
+
+	addArtifact := func(uri, summary string, reqFeedback, userFacing bool) {
+		uri = strings.TrimSpace(uri)
+		if uri == "" {
+			return
+		}
+		if !strings.HasPrefix(uri, "file://") && filepath.IsAbs(uri) {
+			uri = "file://" + uri
+		}
+		lower := strings.ToLower(uri)
+		if strings.Contains(lower, "/scratch/") {
+			return
+		}
+
+		isArtifact := strings.HasSuffix(lower, ".md") || strings.HasSuffix(lower, ".markdown") ||
+			strings.Contains(lower, "/brain/") || strings.Contains(lower, ".gemini/antigravity/brain")
+
+		if !isArtifact {
+			return
+		}
+
+		filePath := strings.TrimPrefix(uri, "file://")
+		if summary == "" && filePath != "" {
+			metaPath := filePath + ".metadata.json"
+			if metaBytes, err := os.ReadFile(metaPath); err == nil {
+				var meta ArtifactMetadata
+				if err := json.Unmarshal(metaBytes, &meta); err == nil {
+					summary = strings.TrimSpace(meta.Summary)
+					userFacing = meta.UserFacing
+					reqFeedback = meta.RequestFeedback
+				}
+			}
+		}
+
+		title := formatArtifactTitle(uri)
+		results = append(results, ArtifactItem{
+			URI:             uri,
+			Title:           title,
+			Summary:         summary,
+			RequestFeedback: reqFeedback,
+			UserFacing:      userFacing,
+		})
+	}
+
+	if s.CodeAction != nil {
+		ca := s.CodeAction
+		uri := ""
+		if ca.ActionResult != nil {
+			if ca.ActionResult.Edit != nil && ca.ActionResult.Edit.AbsoluteURI != "" {
+				uri = ca.ActionResult.Edit.AbsoluteURI
+			} else if ca.ActionResult.AbsoluteURI != "" {
+				uri = ca.ActionResult.AbsoluteURI
+			}
+		}
+		if uri == "" && ca.ActionSpec != nil && ca.ActionSpec.CreateFile != nil && ca.ActionSpec.CreateFile.Path != nil {
+			uri = ca.ActionSpec.CreateFile.Path.AbsoluteURI
+		}
+		summary := ""
+		userFacing := true
+		reqFeedback := false
+		if ca.ArtifactMetadata != nil {
+			summary = strings.TrimSpace(ca.ArtifactMetadata.Summary)
+			userFacing = ca.ArtifactMetadata.UserFacing
+			reqFeedback = ca.ArtifactMetadata.RequestFeedback
+		}
+		addArtifact(uri, summary, reqFeedback, userFacing)
+	}
+
+	tcName := ""
+	tcArgs := ""
+	if s.ToolCall != nil {
+		tcName = s.ToolCall.Name
+		tcArgs = s.ToolCall.ArgumentsJson
+	} else if s.Metadata.ToolCall != nil {
+		tcName = s.Metadata.ToolCall.Name
+		tcArgs = s.Metadata.ToolCall.ArgumentsJson
+	}
+
+	if (tcName == "write_to_file" || tcName == "replace_file_content") && tcArgs != "" {
+		var args struct {
+			TargetFile       string `json:"TargetFile"`
+			ArtifactMetadata *struct {
+				Summary         string `json:"Summary"`
+				RequestFeedback bool   `json:"RequestFeedback"`
+				UserFacing      bool   `json:"UserFacing"`
+			} `json:"ArtifactMetadata"`
+		}
+		if err := json.Unmarshal([]byte(tcArgs), &args); err == nil && args.TargetFile != "" {
+			summary := ""
+			userFacing := true
+			reqFeedback := false
+			if args.ArtifactMetadata != nil {
+				summary = strings.TrimSpace(args.ArtifactMetadata.Summary)
+				userFacing = args.ArtifactMetadata.UserFacing
+				reqFeedback = args.ArtifactMetadata.RequestFeedback
+			}
+			addArtifact(args.TargetFile, summary, reqFeedback, userFacing)
+		}
+	}
+
+	return results
+}
+
+var markdownFileLinkRegex = regexp.MustCompile(`(?i)(?:\[([^\]]*)\]\()?((?:file://)?(/[^\s)\]]+\.(?:md|markdown)))\)?`)
+
+// extractArtifactsFromText scans response text for markdown links pointing to markdown artifact files.
+func extractArtifactsFromText(text string) []ArtifactItem {
+	var results []ArtifactItem
+	matches := markdownFileLinkRegex.FindAllStringSubmatch(text, -1)
+	for _, m := range matches {
+		if len(m) < 3 {
+			continue
+		}
+		rawPath := m[2]
+		uri := rawPath
+		if !strings.HasPrefix(uri, "file://") {
+			uri = "file://" + uri
+		}
+		lower := strings.ToLower(uri)
+		if strings.Contains(lower, "/scratch/") {
+			continue
+		}
+		filePath := strings.TrimPrefix(uri, "file://")
+		summary := ""
+		userFacing := true
+		reqFeedback := false
+		metaPath := filePath + ".metadata.json"
+		if metaBytes, err := os.ReadFile(metaPath); err == nil {
+			var meta ArtifactMetadata
+			if err := json.Unmarshal(metaBytes, &meta); err == nil {
+				summary = strings.TrimSpace(meta.Summary)
+				userFacing = meta.UserFacing
+				reqFeedback = meta.RequestFeedback
+			}
+		}
+		title := formatArtifactTitle(uri)
+		results = append(results, ArtifactItem{
+			URI:             uri,
+			Title:           title,
+			Summary:         summary,
+			RequestFeedback: reqFeedback,
+			UserFacing:      userFacing,
+		})
+	}
+	return results
 }
 
 // trajectoryDuration formats the span between the first and last parseable step timestamps.
@@ -677,7 +928,13 @@ func resolveFinalStatus(status string, steps []TrajectoryStep, lastUserInputIdx 
 		if s.Type == "CORTEX_STEP_TYPE_ERROR_MESSAGE" {
 			if isUserVisibleError(s) {
 				latestTurnHasError = true
-				latestTurnErrorText = extractErrorText(s)
+				raw := extractErrorText(s)
+				parsed := parseAttemptError(raw)
+				if parsed.isAttempt {
+					latestTurnErrorText = formatAttemptError(parsed.prefix, parsed.attempt, parsed.maxAttempts, parsed.baseError)
+				} else {
+					latestTurnErrorText = raw
+				}
 			}
 			break
 		} else if s.Type == "CORTEX_STEP_TYPE_PLANNER_RESPONSE" || s.RunCommand != nil || s.CodeAction != nil || s.TaskDetails != nil {

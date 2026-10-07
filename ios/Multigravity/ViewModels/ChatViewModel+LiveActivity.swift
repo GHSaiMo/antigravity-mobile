@@ -17,7 +17,9 @@ extension ChatViewModel {
         
         if shouldBeActive {
             let primaryTask = self.runningTasks.first
-            let taskTitle = primaryTask?.toolSummary ?? primaryTask?.toolAction ?? primaryTask?.toolName
+            let taskTitle: String? = primaryTask.map { task in
+                task.toolSummary ?? task.toolAction ?? ToolLocalization.localizedName(for: task.toolName)
+            }
             let taskCommand = primaryTask?.commandLine
             
             let status: String
@@ -43,7 +45,7 @@ extension ChatViewModel {
             }
             
             let taskSnapshots: [AgentTaskSnapshot] = self.runningTasks.prefix(3).map { task in
-                let title = task.toolSummary ?? task.toolAction ?? task.toolName ?? "后台任务"
+                let title = task.toolSummary ?? task.toolAction ?? ToolLocalization.localizedName(for: task.toolName)
                 let cmd = task.commandLine.trimmingCharacters(in: .whitespacesAndNewlines)
                 return AgentTaskSnapshot(
                     id: task.id,

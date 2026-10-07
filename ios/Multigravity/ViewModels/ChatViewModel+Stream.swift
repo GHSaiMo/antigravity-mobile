@@ -103,15 +103,40 @@ extension ChatViewModel {
                     toolNames: item.toolNames ?? [],
                     imageDataList: imgDataList,
                     imageUrls: resolvedImageUrls,
-                    stepIndex: item.stepIndex ?? (item.id.hasPrefix("step-") ? Int(item.id.dropFirst(5)) : nil)
+                    artifacts: item.artifacts ?? [],
+                    stepIndex: item.stepIndex ?? (item.id.hasPrefix("step-") ? Int(item.id.dropFirst(5)) : nil),
+                    attemptCount: item.attemptCount,
+                    maxAttempts: item.maxAttempts
                 )
             }
+            var mergedParsedMessages: [ChatMessage] = []
+            for msg in parsedMessages {
+                if msg.isError, let last = mergedParsedMessages.last, last.isError {
+                    let parsed = APIClient.parseAttemptError(msg.content)
+                    let prevParsed = APIClient.parseAttemptError(last.content)
+                    if parsed.isAttempt && prevParsed.isAttempt && APIClient.normalizeErrKey(prevParsed.baseError) == APIClient.normalizeErrKey(parsed.baseError) {
+                        let newAttempt = max(parsed.attempt, (last.attemptCount ?? prevParsed.attempt) + 1)
+                        let maxAttempts = parsed.maxAttempts > 0 ? parsed.maxAttempts : (last.maxAttempts ?? 9)
+                        let formatted = "\(parsed.prefix) (attempt \(newAttempt)/\(maxAttempts) · 已重试 \(newAttempt) 次): \(parsed.baseError)"
+                        mergedParsedMessages[mergedParsedMessages.count - 1] = ChatMessage(
+                            id: last.id,
+                            sender: .error,
+                            content: formatted,
+                            stepIndex: last.stepIndex,
+                            attemptCount: newAttempt,
+                            maxAttempts: maxAttempts
+                        )
+                        continue
+                    }
+                }
+                mergedParsedMessages.append(msg)
+            }
             let clientMaxStep = self.messages.compactMap { self.extractStepIndex(from: $0) }.max() ?? -1
-            let serverMaxStep = parsedMessages.compactMap { self.extractStepIndex(from: $0) }.max() ?? -1
-            let isTruncatedOrReverted = serverMaxStep < clientMaxStep || parsedMessages.isEmpty
-            let hasExpandedHistory = self.messages.count > parsedMessages.count && !isTruncatedOrReverted
+            let serverMaxStep = mergedParsedMessages.compactMap { self.extractStepIndex(from: $0) }.max() ?? -1
+            let isTruncatedOrReverted = serverMaxStep < clientMaxStep || mergedParsedMessages.isEmpty
+            let hasExpandedHistory = self.messages.count > mergedParsedMessages.count && !isTruncatedOrReverted
             
-            if parsedMessages.isEmpty {
+            if mergedParsedMessages.isEmpty {
                 if self.pendingOptimisticMessageId == nil {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         self.messages = []
@@ -128,12 +153,12 @@ extension ChatViewModel {
                 }
             } else if (payload.isFullSnapshot == true || isTruncatedOrReverted) && !hasExpandedHistory {
                 self.applySnapshotMessages(
-                    parsedMessages,
+                    mergedParsedMessages,
                     hasMore: payload.hasMore ?? false,
                     nextOffset: payload.nextOffset ?? 0
                 )
             } else {
-                self.mergeIncomingMessages(parsedMessages)
+                self.mergeIncomingMessages(mergedParsedMessages)
                 if self.messages.contains(where: { self.extractStepIndex(from: $0) == 0 }) {
                     self.hasMore = false
                     self.nextOffset = 0

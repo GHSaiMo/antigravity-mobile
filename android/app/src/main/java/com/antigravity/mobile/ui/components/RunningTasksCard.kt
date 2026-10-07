@@ -175,7 +175,7 @@ fun RunningTasksCard(
                                     )
                                 }
 
-                                val bubbleText = cmdText.ifBlank { desc.ifBlank { "run_command" } }
+                                val bubbleText = cmdText.ifBlank { desc.ifBlank { "运行终端命令" } }
                                 Box(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(6.dp))

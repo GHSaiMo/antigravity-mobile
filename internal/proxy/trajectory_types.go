@@ -5,17 +5,29 @@ import (
 	"strings"
 )
 
+// ArtifactItem represents a Markdown document or previewable artifact generated in a turn.
+type ArtifactItem struct {
+	URI             string `json:"uri"`
+	Title           string `json:"title"`
+	Summary         string `json:"summary,omitempty"`
+	RequestFeedback bool   `json:"requestFeedback,omitempty"`
+	UserFacing      bool   `json:"userFacing,omitempty"`
+}
+
 type CascadeMessageItem struct {
-	ID        string   `json:"id"`
-	Type      string   `json:"type"` // "user", "agent", "tools", "error"
-	Role      string   `json:"role"`
-	Text      string   `json:"text"`
-	Content   string   `json:"content"`
-	StepIndex *int     `json:"stepIndex,omitempty"`
-	ToolCount int      `json:"toolCount,omitempty"`
-	ToolNames []string `json:"toolNames,omitempty"`
-	Media     []string `json:"media,omitempty"`     // Base64 thumbnails
-	ImageURLs []string `json:"imageUrls,omitempty"` // Markdown image URLs
+	ID           string         `json:"id"`
+	Type         string         `json:"type"` // "user", "agent", "tools", "error"
+	Role         string         `json:"role"`
+	Text         string         `json:"text"`
+	Content      string         `json:"content"`
+	StepIndex    *int           `json:"stepIndex,omitempty"`
+	ToolCount    int            `json:"toolCount,omitempty"`
+	ToolNames    []string       `json:"toolNames,omitempty"`
+	Media        []string       `json:"media,omitempty"`     // Base64 thumbnails
+	ImageURLs    []string       `json:"imageUrls,omitempty"` // Markdown image URLs
+	Artifacts    []ArtifactItem `json:"artifacts,omitempty"` // Linked/generated artifact cards
+	AttemptCount int            `json:"attemptCount,omitempty"`
+	MaxAttempts  int            `json:"maxAttempts,omitempty"`
 }
 
 // QueuedMessageItem represents a pending follow-up user message queued for execution.

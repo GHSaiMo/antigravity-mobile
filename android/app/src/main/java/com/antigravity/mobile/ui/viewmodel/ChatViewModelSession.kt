@@ -157,6 +157,9 @@ internal fun ChatViewModel.prepareSession(
     val cached = if (!isDraft) cacheManager?.loadSession(cascadeId) else null
     if (cached != null) {
         val healed = sanitizeMessageOrder(cached.messages)
+        if (healed.size != cached.messages.size) {
+            cacheManager?.saveSession(cached.copy(messages = healed))
+        }
         val hasEarliest = healed.any { (it.stepIndex ?: extractStepIndex(it.id)) == 0 }
         val hasMore = if (hasEarliest) false else cached.hasMore
         val nextOffset = if (hasEarliest) 0 else cached.nextOffset
@@ -265,6 +268,9 @@ internal fun ChatViewModel.initSession(
         val cached = if (!isDraft) cacheManager?.loadSession(cascadeId) else null
         if (cached != null) {
             val healed = sanitizeMessageOrder(cached.messages)
+            if (healed.size != cached.messages.size) {
+                cacheManager?.saveSession(cached.copy(messages = healed))
+            }
             val hasEarliest = healed.any { (it.stepIndex ?: extractStepIndex(it.id)) == 0 }
             val hasMore = if (hasEarliest) false else cached.hasMore
             val nextOffset = if (hasEarliest) 0 else cached.nextOffset
@@ -423,7 +429,7 @@ internal fun ChatViewModel.initSession(
                         val latestAction = when {
                             payload.pendingInteraction != null -> payload.pendingInteraction.prompt ?: "需要审批操作"
                             activeRunningTasks.isNotEmpty() -> activeRunningTasks.firstOrNull()?.displayCommand?.ifBlank { "正在执行后台任务..." } ?: "正在执行后台任务..."
-                            lastMsg?.toolCalls?.isNotEmpty() == true -> "正在执行: " + (lastMsg.toolCalls.lastOrNull()?.name ?: "操作")
+                            lastMsg?.toolCalls?.isNotEmpty() == true -> "正在执行: " + com.antigravity.mobile.ui.util.ToolLocalization.localizedName(lastMsg.toolCalls.lastOrNull()?.name ?: "操作")
                             else -> "正在执行任务..."
                         }
                         liveActivityManager?.startOrUpdateActivity(
@@ -555,7 +561,7 @@ internal fun ChatViewModel.ensureWebSocketObserving() {
                     val latestAction = when {
                         payload.pendingInteraction != null -> payload.pendingInteraction.prompt ?: "需要审批操作"
                         activeRunningTasks.isNotEmpty() -> activeRunningTasks.firstOrNull()?.displayCommand?.ifBlank { "正在执行后台任务..." } ?: "正在执行后台任务..."
-                        lastMsg?.toolCalls?.isNotEmpty() == true -> "正在执行: " + (lastMsg.toolCalls.lastOrNull()?.name ?: "操作")
+                        lastMsg?.toolCalls?.isNotEmpty() == true -> "正在执行: " + com.antigravity.mobile.ui.util.ToolLocalization.localizedName(lastMsg.toolCalls.lastOrNull()?.name ?: "操作")
                         awaiting -> "正在思考并组织回复..."
                         else -> "正在执行任务..."
                     }

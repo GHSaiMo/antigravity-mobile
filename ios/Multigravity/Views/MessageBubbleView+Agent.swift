@@ -37,11 +37,37 @@ extension MessageBubbleView {
             } else if fallbackAgentImageURLs.count > 1 {
                 agentMultiImageRow
             }
+            
+            if !message.artifacts.isEmpty {
+                VStack(spacing: 8) {
+                    ForEach(message.artifacts, id: \.uri) { artifact in
+                        ArtifactPreviewCardView(artifact: artifact)
+                    }
+                }
+                .padding(.top, 2)
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .background(Color(uiColor: .secondarySystemBackground))
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .contextMenu {
+            let plainText = agentPlainText
+            if !plainText.isEmpty {
+                Button {
+                    copyWholeText(plainText)
+                } label: {
+                    Label("复制", systemImage: "doc.on.doc")
+                }
+                
+                Button {
+                    showTextSelectionSheet = true
+                } label: {
+                    Label("选择文本", systemImage: "selection.pin.in.out")
+                }
+            }
+        }
     }
     
     /// Image URLs attached to the agent message that are not already rendered

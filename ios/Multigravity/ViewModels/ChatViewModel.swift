@@ -496,6 +496,27 @@ public final class ChatViewModel {
                     }
                 }
             }
+            if healed.count != cached.messages.count {
+                resolvedCacheManager.saveSession(CachedChatSession(
+                    cascadeId: cached.cascadeId,
+                    status: cached.status,
+                    duration: cached.duration,
+                    stepCount: cached.stepCount,
+                    totalTools: cached.totalTools,
+                    hasMore: self.hasMore,
+                    nextOffset: self.nextOffset,
+                    messages: healed,
+                    title: self.currentTitle,
+                    cascadeConfigRaw: cached.cascadeConfigRaw,
+                    canProceed: cached.canProceed,
+                    proceedArtifactUri: cached.proceedArtifactUri,
+                    pendingInteraction: cached.pendingInteraction,
+                    queuedMessages: cached.queuedMessages,
+                    runningTasks: cached.runningTasks,
+                    workspaceName: cached.workspaceName,
+                    savedAt: cached.savedAt
+                ))
+            }
         }
     }
     
@@ -632,6 +653,27 @@ public final class ChatViewModel {
             }
             self.runningTasks = cached.runningTasks ?? []
             self.knownServerMessageIds = Set(healed.map(\.id))
+            if healed.count != cached.messages.count {
+                self.cacheManager.saveSession(CachedChatSession(
+                    cascadeId: cached.cascadeId,
+                    status: cached.status,
+                    duration: cached.duration,
+                    stepCount: cached.stepCount,
+                    totalTools: cached.totalTools,
+                    hasMore: self.hasMore,
+                    nextOffset: self.nextOffset,
+                    messages: healed,
+                    title: cached.title,
+                    cascadeConfigRaw: cached.cascadeConfigRaw,
+                    canProceed: cached.canProceed,
+                    proceedArtifactUri: cached.proceedArtifactUri,
+                    pendingInteraction: cached.pendingInteraction,
+                    queuedMessages: cached.queuedMessages,
+                    runningTasks: cached.runningTasks,
+                    workspaceName: cached.workspaceName,
+                    savedAt: cached.savedAt
+                ))
+            }
         }
         
         guard let url = settings.serverURL else {

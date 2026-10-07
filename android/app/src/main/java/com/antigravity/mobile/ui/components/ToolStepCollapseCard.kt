@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.ToolCallItem
 import com.antigravity.mobile.ui.theme.AntigravityTheme
+import com.antigravity.mobile.ui.util.ToolLocalization
 
 @Composable
 fun ToolStepCollapseCard(
@@ -44,7 +45,7 @@ fun ToolStepCollapseCard(
     val colors = AntigravityTheme.colors
 
     val uniqueToolNames = remember(toolCalls) {
-        toolCalls.map { it.name.ifBlank { "action" } }.distinct().joinToString(", ")
+        toolCalls.map { ToolLocalization.localizedName(it.name.ifBlank { "action" }) }.distinct().joinToString(", ")
     }
 
     val summaryText = remember(toolCalls, uniqueToolNames) {
@@ -160,11 +161,10 @@ fun ToolStepCollapseCard(
 
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = tool.name.ifBlank { tool.type.ifBlank { "action_${index + 1}" } },
+                                text = ToolLocalization.localizedName(tool.name.ifBlank { tool.type.ifBlank { "action_${index + 1}" } }),
                                 color = colors.textPrimary,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                fontFamily = FontFamily.Monospace,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )

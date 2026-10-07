@@ -1309,6 +1309,170 @@ func TestParseTrajectoryDetails_RunningStatusWithMidTurnError(t *testing.T) {
 	}
 }
 
+func TestParseTrajectoryDetails_AttemptErrorsMerged(t *testing.T) {
+	rawJSON := `{
+		"status": "CASCADE_RUN_STATUS_RUNNING",
+		"trajectory": {
+			"cascadeId": "test-attempt-cascade",
+			"steps": [
+				{
+					"type": "CORTEX_STEP_TYPE_USER_INPUT",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"userInput": {
+						"userResponse": "Job Failure Troubleshooting Iran Sitrep"
+					}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_ERROR_MESSAGE",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"errorMessage": {
+						"error": {
+							"shortError": "API error (attempt 1): request failed: Post \"https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse\": Post \"https://oauth2.googleapis.com/token\": EOF"
+						},
+						"shouldShowUser": true
+					}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_ERROR_MESSAGE",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"errorMessage": {
+						"error": {
+							"shortError": "API error (attempt 2): request failed: Post \"https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse\": Post \"https://oauth2.googleapis.com/token\": EOF"
+						},
+						"shouldShowUser": true
+					}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_ERROR_MESSAGE",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"errorMessage": {
+						"error": {
+							"shortError": "API error (attempt 3): request failed: Post \"https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse\": Post \"https://oauth2.googleapis.com/token\": EOF"
+						},
+						"shouldShowUser": true
+					}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_ERROR_MESSAGE",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"errorMessage": {
+						"error": {
+							"shortError": "API error (attempt 4): request failed: Post \"https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse\": Post \"https://oauth2.googleapis.com/token\": EOF"
+						},
+						"shouldShowUser": true
+					}
+				}
+			]
+		}
+	}`
+
+	var rawResp upstreamTrajectoryResp
+	if err := json.Unmarshal([]byte(rawJSON), &rawResp); err != nil {
+		t.Fatalf("failed to unmarshal test JSON: %v", err)
+	}
+
+	p := &Proxy{}
+	details := p.ParseTrajectoryDetails(&rawResp)
+
+	// Should have exactly 2 messages: 1 user prompt, 1 merged error message
+	if len(details.AllMessages) != 2 {
+		t.Fatalf("expected 2 messages (1 user, 1 merged error), got %d: %+v", len(details.AllMessages), details.AllMessages)
+	}
+
+	errMsg := details.AllMessages[1]
+	if errMsg.Type != "error" {
+		t.Errorf("expected error message type, got %s", errMsg.Type)
+	}
+	if errMsg.AttemptCount != 4 {
+		t.Errorf("expected AttemptCount 4, got %d", errMsg.AttemptCount)
+	}
+	if errMsg.MaxAttempts != 9 {
+		t.Errorf("expected MaxAttempts 9, got %d", errMsg.MaxAttempts)
+	}
+	if !strings.Contains(errMsg.Text, "attempt 4/9") || !strings.Contains(errMsg.Text, "已重试 4 次") {
+		t.Errorf("expected merged text with attempt 4/9 and 已重试 4 次, got: %s", errMsg.Text)
+	}
+}
+
+func TestParseTrajectoryDetails_ArtifactItems(t *testing.T) {
+	rawJSON := `{
+		"status": "CASCADE_RUN_STATUS_IDLE",
+		"trajectory": {
+			"cascadeId": "test-artifact-cascade",
+			"trajectoryId": "traj-artifact-1",
+			"steps": [
+				{
+					"type": "CORTEX_STEP_TYPE_USER_INPUT",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"userInput": {
+						"userResponse": "请美化照片"
+					}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_CODE_ACTION",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"codeAction": {
+						"isArtifactFile": true,
+						"artifactMetadata": {
+							"summary": "照片美化与景深虚化效果展示，包含原图与三种不同风格的景深虚化对比。",
+							"requestFeedback": false,
+							"userFacing": true
+						},
+						"actionResult": {
+							"edit": {
+								"absoluteUri": "file:///path/to/.gemini/antigravity/brain/test-artifact-cascade/photo_enhancement_showcase.md",
+								"createFile": true
+							}
+						}
+					}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_PLANNER_RESPONSE",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"plannerResponse": {
+						"response": "已为您完成照片的美化处理。详细对比已整理至 [photo_enhancement_showcase.md](file:///path/to/.gemini/antigravity/brain/test-artifact-cascade/photo_enhancement_showcase.md)。"
+					}
+				}
+			]
+		}
+	}`
+
+	var rawResp upstreamTrajectoryResp
+	if err := json.Unmarshal([]byte(rawJSON), &rawResp); err != nil {
+		t.Fatalf("failed to unmarshal test JSON: %v", err)
+	}
+
+	p := &Proxy{}
+	details := p.ParseTrajectoryDetails(&rawResp)
+
+	var agentMsg *CascadeMessageItem
+	for i := range details.AllMessages {
+		if details.AllMessages[i].Type == "agent" {
+			agentMsg = &details.AllMessages[i]
+			break
+		}
+	}
+
+	if agentMsg == nil {
+		t.Fatalf("expected agent message, none found")
+	}
+
+	if len(agentMsg.Artifacts) != 1 {
+		t.Fatalf("expected exactly 1 artifact in agent message, got %d: %+v", len(agentMsg.Artifacts), agentMsg.Artifacts)
+	}
+
+	art := agentMsg.Artifacts[0]
+	if art.Title != "Photo Enhancement Showcase" {
+		t.Errorf("expected title 'Photo Enhancement Showcase', got %q", art.Title)
+	}
+	if art.Summary != "照片美化与景深虚化效果展示，包含原图与三种不同风格的景深虚化对比。" {
+		t.Errorf("expected summary, got %q", art.Summary)
+	}
+	if art.URI != "file:///path/to/.gemini/antigravity/brain/test-artifact-cascade/photo_enhancement_showcase.md" {
+		t.Errorf("expected uri, got %q", art.URI)
+	}
+}
+
 
 
 
