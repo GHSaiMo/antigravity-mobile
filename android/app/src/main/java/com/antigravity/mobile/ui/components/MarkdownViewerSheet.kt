@@ -118,33 +118,19 @@ fun MarkdownViewerSheet(
                     }
                 )
 
-                // Center: Title & Filename
-                Column(
+                // Center: Title
+                Text(
+                    text = displayTitle,
+                    color = colors.textPrimary,
+                    fontSize = 15.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier
                         .weight(1f)
-                        .padding(horizontal = 12.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = displayTitle,
-                        color = colors.textPrimary,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        textAlign = TextAlign.Center
-                    )
-                    if (displayFilename.isNotBlank() && displayFilename != displayTitle) {
-                        Text(
-                            text = displayFilename,
-                            color = colors.textSecondary,
-                            fontSize = 11.5.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                }
+                        .padding(horizontal = 10.dp),
+                    textAlign = TextAlign.Center
+                )
 
                 // Top-right: Apple native Share button
                 ApplePreviewCircleButton(
