@@ -86,22 +86,42 @@ public enum MarkdownParser {
                 }
             }
             
-            // Fenced code block
-            if trimmed.hasPrefix("```") {
-                let lang = String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespaces)
-                var codeLines: [String] = []
-                i += 1
-                while i < lines.count {
-                    if lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("```") {
-                        i += 1
-                        break
-                    }
-                    codeLines.append(lines[i])
-                    i += 1
+            // Fenced code block or Carousel
+            if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
+                let fenceChar = trimmed.first!
+                var fenceCount = 0
+                for ch in trimmed {
+                    if ch == fenceChar { fenceCount += 1 } else { break }
                 }
-                blocks.append(.codeBlock(id: "block-\(blockIdx)", lang: lang, code: codeLines.joined(separator: "\n")))
-                blockIdx += 1
-                continue
+                if fenceCount >= 3 {
+                    let fence = String(repeating: fenceChar, count: fenceCount)
+                    let info = String(trimmed.dropFirst(fenceCount)).trimmingCharacters(in: .whitespaces)
+                    var codeLines: [String] = []
+                    i += 1
+                    while i < lines.count {
+                        let curTrimmed = lines[i].trimmingCharacters(in: .whitespaces)
+                        if curTrimmed.hasPrefix(fence) {
+                            i += 1
+                            break
+                        }
+                        codeLines.append(lines[i])
+                        i += 1
+                    }
+                    
+                    let cleanLang = info.lowercased()
+                    if cleanLang == "carousel" {
+                        let slides = parseCarouselSlides(codeLines, blockIdx: blockIdx)
+                        if !slides.isEmpty {
+                            blocks.append(.carousel(id: "block-\(blockIdx)", slides: slides))
+                            blockIdx += 1
+                            continue
+                        }
+                    }
+                    
+                    blocks.append(.codeBlock(id: "block-\(blockIdx)", lang: info, code: codeLines.joined(separator: "\n")))
+                    blockIdx += 1
+                    continue
+                }
             }
             
             // Divider
@@ -236,13 +256,21 @@ public enum MarkdownParser {
                 continue
             }
             
+            // Standalone agent embed line: <agent-embed src="..."></agent-embed>
+            if let embedSrc = parseStandaloneAgentEmbed(trimmed) {
+                blocks.append(.agentEmbed(id: "block-\(blockIdx)", src: embedSrc))
+                blockIdx += 1
+                i += 1
+                continue
+            }
+            
             // Paragraph
             var paraLines: [String] = [line]
             i += 1
             while i < lines.count {
                 let nextLine = lines[i]
                 let nTrimmed = nextLine.trimmingCharacters(in: .whitespaces)
-                if nTrimmed.isEmpty || nTrimmed.hasPrefix("```") || nTrimmed.hasPrefix("#") || nTrimmed == "---" || (nTrimmed.hasPrefix("|") && nTrimmed.hasSuffix("|")) || nTrimmed.hasPrefix("- ") || nTrimmed.hasPrefix("* ") || nTrimmed.hasPrefix("• ") || parseOrderedListItem(nTrimmed) != nil || parseStandaloneImage(nTrimmed) != nil {
+                if nTrimmed.isEmpty || nTrimmed.hasPrefix("```") || nTrimmed.hasPrefix("#") || nTrimmed == "---" || (nTrimmed.hasPrefix("|") && nTrimmed.hasSuffix("|")) || nTrimmed.hasPrefix("- ") || nTrimmed.hasPrefix("* ") || nTrimmed.hasPrefix("• ") || parseOrderedListItem(nTrimmed) != nil || parseStandaloneImage(nTrimmed) != nil || parseStandaloneAgentEmbed(nTrimmed) != nil {
                     break
                 }
                 paraLines.append(nextLine)
@@ -359,9 +387,72 @@ public enum MarkdownParser {
         return (img.alt, img.url)
     }
     
+    // MARK: - Agent Embed syntax (<agent-embed src="..."></agent-embed>)
+    
+    private static let agentEmbedRegex = try? NSRegularExpression(
+        pattern: #"<agent-embed\b[^>]*?\bsrc=["']([^"']+)["'][^>]*>(?:\s*<\/agent-embed>)?"#,
+        options: [.caseInsensitive]
+    )
+    
+    static func findAgentEmbeds(in text: String) -> [(src: String, range: NSRange)] {
+        guard !text.isEmpty, let regex = agentEmbedRegex else { return [] }
+        let ns = text as NSString
+        let full = NSRange(location: 0, length: ns.length)
+        let codeSpans = text.contains("`") ? codeSpanIndexSet(in: text) : IndexSet()
+        var results: [(src: String, range: NSRange)] = []
+        
+        for match in regex.matches(in: text, range: full) {
+            let range = match.range
+            guard range.location != NSNotFound, range.length > 0 else { continue }
+            if !codeSpans.intersection(IndexSet(integersIn: range.location ..< (range.location + range.length))).isEmpty {
+                continue
+            }
+            if match.numberOfRanges > 1 {
+                let srcRange = match.range(at: 1)
+                if srcRange.location != NSNotFound {
+                    let rawSrc = ns.substring(with: srcRange).trimmingCharacters(in: .whitespacesAndNewlines)
+                    let cleanSrc = cleanImageURL(rawSrc)
+                    if !cleanSrc.isEmpty {
+                        results.append((src: cleanSrc, range: range))
+                    }
+                }
+            }
+        }
+        return results
+    }
+    
+    static func parseStandaloneAgentEmbed(_ trimmed: String) -> String? {
+        let embeds = findAgentEmbeds(in: trimmed)
+        guard embeds.count == 1 else { return nil }
+        let embed = embeds[0]
+        let ns = trimmed as NSString
+        let before = ns.substring(to: embed.range.location)
+        let afterStart = embed.range.location + embed.range.length
+        let after = afterStart < ns.length ? ns.substring(from: afterStart) : ""
+        guard before.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              after.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return embed.src
+    }
+    
+    private enum ParagraphInlineItem {
+        case image(alt: String, url: String, range: NSRange)
+        case agentEmbed(src: String, range: NSRange)
+        
+        var range: NSRange {
+            switch self {
+            case .image(_, _, let range): return range
+            case .agentEmbed(_, let range): return range
+            }
+        }
+    }
+    
     static func splitParagraphIntoBlocks(text: String, blockIdx: inout Int) -> [MarkdownBlock] {
         let images = findImages(in: text)
-        if images.isEmpty {
+        let embeds = findAgentEmbeds(in: text)
+        
+        if images.isEmpty && embeds.isEmpty {
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return [] }
             let block = MarkdownBlock.paragraph(id: "block-\(blockIdx)", text: text)
@@ -369,27 +460,56 @@ public enum MarkdownParser {
             return [block]
         }
         
+        var allItems: [ParagraphInlineItem] = []
+        for img in images {
+            allItems.append(.image(alt: img.alt, url: img.url, range: img.range))
+        }
+        for emb in embeds {
+            allItems.append(.agentEmbed(src: emb.src, range: emb.range))
+        }
+        allItems.sort { $0.range.location < $1.range.location }
+        
+        // Exclude overlapping ranges
+        var nonOverlapping: [ParagraphInlineItem] = []
+        var occupied = IndexSet()
+        for item in allItems {
+            let r = item.range
+            guard r.location != NSNotFound, r.length > 0 else { continue }
+            let indices = IndexSet(integersIn: r.location ..< (r.location + r.length))
+            if occupied.intersection(indices).isEmpty {
+                occupied.formUnion(indices)
+                nonOverlapping.append(item)
+            }
+        }
+        
         var blocks: [MarkdownBlock] = []
         let ns = text as NSString
         var cursor = 0
         
-        for img in images {
-            if img.range.location > cursor {
-                let prefix = ns.substring(with: NSRange(location: cursor, length: img.range.location - cursor))
-                if !prefix.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    blocks.append(.paragraph(id: "block-\(blockIdx)", text: prefix.trimmingCharacters(in: .whitespacesAndNewlines)))
+        for item in nonOverlapping {
+            if item.range.location > cursor {
+                let prefix = ns.substring(with: NSRange(location: cursor, length: item.range.location - cursor))
+                let trimmedPrefix = prefix.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmedPrefix.isEmpty {
+                    blocks.append(.paragraph(id: "block-\(blockIdx)", text: trimmedPrefix))
                     blockIdx += 1
                 }
             }
-            blocks.append(.image(id: "block-\(blockIdx)", alt: img.alt, url: img.url))
+            switch item {
+            case .image(let alt, let url, _):
+                blocks.append(.image(id: "block-\(blockIdx)", alt: alt, url: url))
+            case .agentEmbed(let src, _):
+                blocks.append(.agentEmbed(id: "block-\(blockIdx)", src: src))
+            }
             blockIdx += 1
-            cursor = img.range.location + img.range.length
+            cursor = item.range.location + item.range.length
         }
         
         if cursor < ns.length {
             let suffix = ns.substring(from: cursor)
-            if !suffix.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                blocks.append(.paragraph(id: "block-\(blockIdx)", text: suffix.trimmingCharacters(in: .whitespacesAndNewlines)))
+            let trimmedSuffix = suffix.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedSuffix.isEmpty {
+                blocks.append(.paragraph(id: "block-\(blockIdx)", text: trimmedSuffix))
                 blockIdx += 1
             }
         }
@@ -457,5 +577,78 @@ public enum MarkdownParser {
             }
         }
         flushPlainOrderedList()
+    }
+    
+    // MARK: - Carousel Slides Parsing
+    
+    private static func isSlideSeparatorLine(_ line: String) -> (isSeparator: Bool, title: String?) {
+        let t = line.trimmingCharacters(in: .whitespaces)
+        guard t.hasPrefix("<!--") && t.hasSuffix("-->") else { return (false, nil) }
+        let inner = String(t.dropFirst(4).dropLast(3)).trimmingCharacters(in: .whitespaces)
+        if inner.lowercased().hasPrefix("slide") {
+            let remainder = String(inner.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+            if remainder.isEmpty {
+                return (true, nil)
+            }
+            if remainder.hasPrefix(":") || remainder.hasPrefix("-") {
+                let customTitle = String(remainder.dropFirst()).trimmingCharacters(in: .whitespaces)
+                return (true, customTitle.isEmpty ? nil : customTitle)
+            }
+            return (true, nil)
+        }
+        return (false, nil)
+    }
+    
+    public static func parseCarouselSlides(_ lines: [String], blockIdx: Int) -> [MarkdownCarouselSlide] {
+        var rawSlides: [(title: String?, lines: [String])] = []
+        var curSlideLines: [String] = []
+        var curSlideTitle: String? = nil
+        
+        for line in lines {
+            let sep = isSlideSeparatorLine(line)
+            if sep.isSeparator {
+                let joined = curSlideLines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+                if !joined.isEmpty {
+                    rawSlides.append((title: curSlideTitle, lines: curSlideLines))
+                }
+                curSlideLines = []
+                curSlideTitle = sep.title
+            } else {
+                curSlideLines.append(line)
+            }
+        }
+        
+        let lastJoined = curSlideLines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !lastJoined.isEmpty {
+            rawSlides.append((title: curSlideTitle, lines: curSlideLines))
+        }
+        
+        if rawSlides.isEmpty {
+            return []
+        }
+        
+        return rawSlides.enumerated().map { (slideIdx, raw) in
+            var slideTitle = raw.title
+            if slideTitle == nil || slideTitle?.isEmpty == true {
+                for l in raw.lines {
+                    let st = l.trimmingCharacters(in: .whitespaces)
+                    if st.hasPrefix("#") {
+                        let stripped = st.drop(while: { $0 == "#" }).trimmingCharacters(in: .whitespaces)
+                        if !stripped.isEmpty {
+                            slideTitle = stripped
+                            break
+                        }
+                    } else if !st.isEmpty {
+                        break
+                    }
+                }
+            }
+            let content = raw.lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+            return MarkdownCarouselSlide(
+                id: "block-\(blockIdx)-slide-\(slideIdx)",
+                title: slideTitle,
+                content: content
+            )
+        }
     }
 }

@@ -52,7 +52,10 @@ extension APIClient {
                         toolNames: item.toolNames ?? [],
                         imageDataList: imgDataList,
                         imageUrls: resolvedImageUrls,
-                        stepIndex: item.stepIndex
+                        artifacts: item.artifacts ?? [],
+                        stepIndex: item.stepIndex,
+                        attemptCount: item.attemptCount,
+                        maxAttempts: item.maxAttempts
                     )
                 }
                 
@@ -242,11 +245,46 @@ extension APIClient {
                     ?? step.error?.message
                     ?? "执行遇到错误"
                 let trimmed = errText.trimmingCharacters(in: .whitespacesAndNewlines)
+                
+                let parsed = Self.parseAttemptError(trimmed)
+                if let last = messages.last, last.isError {
+                    let prevParsed = Self.parseAttemptError(last.content)
+                    if parsed.isAttempt && prevParsed.isAttempt && Self.normalizeErrKey(prevParsed.baseError) == Self.normalizeErrKey(parsed.baseError) {
+                        let newAttempt = max(parsed.attempt, (last.attemptCount ?? prevParsed.attempt) + 1)
+                        let maxAttempts = parsed.maxAttempts > 0 ? parsed.maxAttempts : (last.maxAttempts ?? 9)
+                        let formatted = "\(parsed.prefix) (attempt \(newAttempt)/\(maxAttempts) · 已重试 \(newAttempt) 次): \(parsed.baseError)"
+                        messages[messages.count - 1] = ChatMessage(
+                            id: last.id,
+                            sender: .error,
+                            content: formatted,
+                            stepIndex: last.stepIndex,
+                            attemptCount: newAttempt,
+                            maxAttempts: maxAttempts
+                        )
+                        continue
+                    } else if !parsed.isAttempt && !prevParsed.isAttempt && Self.normalizeErrKey(last.content) == Self.normalizeErrKey(trimmed) {
+                        let count = (last.attemptCount ?? 1) + 1
+                        let formatted = "\(trimmed) (已重试 \(count) 次)"
+                        messages[messages.count - 1] = ChatMessage(
+                            id: last.id,
+                            sender: .error,
+                            content: formatted,
+                            stepIndex: last.stepIndex,
+                            attemptCount: count,
+                            maxAttempts: nil
+                        )
+                        continue
+                    }
+                }
+                
+                let formatted = parsed.isAttempt ? "\(parsed.prefix) (attempt \(parsed.attempt)/\(parsed.maxAttempts)): \(parsed.baseError)" : trimmed
                 messages.append(ChatMessage(
                     id: "step-\(idx)",
                     sender: .error,
-                    content: trimmed,
-                    stepIndex: idx
+                    content: formatted,
+                    stepIndex: idx,
+                    attemptCount: parsed.isAttempt ? parsed.attempt : nil,
+                    maxAttempts: parsed.isAttempt ? parsed.maxAttempts : nil
                 ))
             } else if type.hasPrefix("CORTEX_STEP_TYPE_") && type != "CORTEX_STEP_TYPE_SYSTEM_MESSAGE" {
                 let toolName: String = {
@@ -372,4 +410,34 @@ extension APIClient {
         return (runStatus, messages, steps.count, totalToolsCount, durationString, title, latestTurnHasError, latestTurnErrorMessage)
     }
     
+    static func parseAttemptError(_ text: String) -> (isAttempt: Bool, prefix: String, attempt: Int, maxAttempts: Int, baseError: String) {
+        let pattern = #"(?i)^(.*?)\s*\(attempt\s+(\d+)(?:\s*(?:of|/)\s*(\d+))?(?:\s*[·,]\s*[^)]*)?\)\s*[:：\-]?\s*(.*)$"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: .dotMatchesLineSeparators) else {
+            return (false, "API error", 0, 0, text)
+        }
+        let ns = text as NSString
+        guard let m = regex.firstMatch(in: text, options: [], range: NSRange(location: 0, length: ns.length)) else {
+            return (false, "API error", 0, 0, text)
+        }
+        var prefix = ns.substring(with: m.range(at: 1)).trimmingCharacters(in: .whitespacesAndNewlines)
+        if prefix.isEmpty { prefix = "API error" }
+        let attempt = Int(ns.substring(with: m.range(at: 2))) ?? 1
+        var maxAttempts = 0
+        if m.numberOfRanges > 3 && m.range(at: 3).location != NSNotFound {
+            maxAttempts = Int(ns.substring(with: m.range(at: 3))) ?? 0
+        }
+        if maxAttempts == 0 {
+            maxAttempts = attempt <= 9 ? 9 : attempt
+        }
+        let baseError = ns.substring(with: m.range(at: 4)).trimmingCharacters(in: .whitespacesAndNewlines)
+        return (true, prefix, attempt, maxAttempts, baseError)
+    }
+
+    static func normalizeErrKey(_ text: String) -> String {
+        var s = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        while s.hasSuffix(".") || s.hasSuffix(":") || s.hasSuffix(";") || s.hasSuffix(",") {
+            s.removeLast()
+        }
+        return s.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 }

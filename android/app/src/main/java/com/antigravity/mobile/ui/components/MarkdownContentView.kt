@@ -119,6 +119,24 @@ fun MarkdownContentView(
                         onImageClick = onImageClick
                     )
                 }
+
+                is MarkdownBlock.AgentEmbed -> {
+                    AgentEmbedView(
+                        src = block.src,
+                        colors = colors,
+                        urlResolver = urlResolver
+                    )
+                }
+
+                is MarkdownBlock.Carousel -> {
+                    CarouselBlockView(
+                        slides = block.slides,
+                        colors = colors,
+                        onPlanClick = onPlanClick,
+                        urlResolver = urlResolver,
+                        onImageClick = onImageClick
+                    )
+                }
             }
         }
     }

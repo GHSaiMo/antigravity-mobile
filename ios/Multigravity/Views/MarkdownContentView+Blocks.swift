@@ -20,7 +20,6 @@ extension MarkdownContentView {
             .foregroundColor(.primary)
             .padding(.top, level <= 2 ? 6 : 2)
             .padding(.bottom, 2)
-            .textSelection(.enabled)
     }
     
     @ViewBuilder
@@ -35,8 +34,10 @@ extension MarkdownContentView {
                 Spacer()
                 
                 Button(action: {
-                    UIPasteboard.general.string = code
+                    let formatted = code.hasSuffix("\n") ? code : "\(code)\n"
+                    UIPasteboard.general.string = formatted
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    CopiedHUD.show("已复制代码")
                 }) {
                     HStack(spacing: 4) {
                         Image(systemName: "doc.on.doc")
@@ -57,7 +58,6 @@ extension MarkdownContentView {
             ScrollView(.horizontal, showsIndicators: true) {
                 Text(code)
                     .font(.system(size: 12.5, design: .monospaced))
-                    .textSelection(.enabled)
                     .padding(10)
             }
             .fixedSize(horizontal: false, vertical: true)

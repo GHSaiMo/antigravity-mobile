@@ -416,6 +416,136 @@ function buildImageThumbnailCard(originalPath, thumbPath, altText) {
   `;
 }
 
+function buildAgentEmbedCard(src) {
+  if (!src) return "";
+  let clean = String(src).trim().replace(/^[`"'<(\[]+|[`>"')\]]+$/g, "");
+  const fileName = extractImageFileName(clean);
+  const cardId = "agent_embed_" + Math.random().toString(36).substring(2, 9);
+  const title = (fileName && fileName !== "interactive_preview.html" && fileName !== "widget.html") ? fileName : "交互预览";
+
+  setTimeout(() => {
+    if (window.loadAgentEmbedContent) {
+      window.loadAgentEmbedContent(cardId, clean);
+    }
+  }, 10);
+
+  return `
+    <div class="agent-embed-card" id="${cardId}" data-src="${escapeHtml(clean)}">
+      <div class="agent-embed-header">
+        <div class="agent-embed-title-wrap">
+          <svg class="agent-embed-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="4" y1="21" x2="4" y2="14"></line>
+            <line x1="4" y1="10" x2="4" y2="3"></line>
+            <line x1="12" y1="21" x2="12" y2="12"></line>
+            <line x1="12" y1="8" x2="12" y2="3"></line>
+            <line x1="20" y1="21" x2="20" y2="16"></line>
+            <line x1="20" y1="12" x2="20" y2="3"></line>
+            <line x1="1" y1="14" x2="7" y2="14"></line>
+            <line x1="9" y1="8" x2="15" y2="8"></line>
+            <line x1="17" y1="16" x2="23" y2="16"></line>
+          </svg>
+          <span class="agent-embed-title">${escapeHtml(title)}</span>
+          <span class="agent-embed-badge">INTERACTIVE</span>
+        </div>
+        <div class="agent-embed-actions">
+          <button class="agent-embed-action-btn" onclick="refreshAgentEmbedCard('${cardId}')" title="刷新交互组件" type="button">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M23 4v6h-6"></path>
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+            </svg>
+          </button>
+          <button class="agent-embed-action-btn" onclick="toggleFullscreenAgentEmbed('${cardId}')" title="全屏查看" type="button">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="agent-embed-viewport">
+        <iframe class="agent-embed-frame" sandbox="allow-scripts allow-same-origin" src="about:blank"></iframe>
+      </div>
+    </div>
+  `;
+}
+
+window.loadAgentEmbedContent = function(cardId, src) {
+  const card = document.getElementById(cardId);
+  if (!card) return;
+  const frame = card.querySelector(".agent-embed-frame");
+  if (!frame) return;
+
+  const params = new URLSearchParams();
+  params.set("uri", src);
+  fetch(`/api/v1/files/content?${params.toString()}`)
+    .then(res => {
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return res.json();
+    })
+    .then(data => {
+      let rawHtml = data.content || "";
+      rawHtml = rawHtml.replace(/<meta\s+[^>]*?name=["']viewport["'][^>]*>/gi, "");
+      const isDark = document.documentElement.classList.contains("dark") || window.matchMedia("(prefers-color-scheme: dark)").matches;
+      const themeCss = `
+        <style>
+          :root {
+            --background: ${isDark ? "#18181b" : "#ffffff"};
+            --foreground: ${isDark ? "#f4f4f5" : "#18181b"};
+            --muted-foreground: ${isDark ? "#a1a1aa" : "#71717a"};
+            --card: ${isDark ? "#27272a" : "#f4f4f5"};
+            --sidebar: ${isDark ? "#18181b" : "#fafafa"};
+            --border: ${isDark ? "rgba(255, 255, 255, 0.12)" : "rgba(0, 0, 0, 0.10)"};
+            --primary: ${isDark ? "#6366f1" : "#4f46e5"};
+            --primary-foreground: #ffffff;
+            --secondary: ${isDark ? "#27272a" : "#e4e4e7"};
+            --secondary-foreground: ${isDark ? "#f4f4f5" : "#18181b"};
+            --accent: ${isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.05)"};
+            color-scheme: ${isDark ? "dark" : "light"};
+          }
+          * { box-sizing: border-box; }
+          html, body {
+            margin: 0; padding: 8px; background: transparent !important;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            -webkit-text-size-adjust: 100%;
+            touch-action: pan-x pan-y;
+            overscroll-behavior: none;
+          }
+          img, svg, video { max-width: 100% !important; }
+        </style>
+      `;
+      const meta = `<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">`;
+      const gestureScript = `<script>
+        document.addEventListener('gesturestart', function(e) { e.preventDefault(); }, { passive: false });
+        document.addEventListener('gesturechange', function(e) { e.preventDefault(); }, { passive: false });
+        document.addEventListener('gestureend', function(e) { e.preventDefault(); });
+      </script>`;
+      let finalHtml = rawHtml;
+      if (finalHtml.includes("<head>")) {
+        finalHtml = finalHtml.replace("<head>", "<head>" + meta + themeCss + gestureScript);
+      } else {
+        finalHtml = "<!DOCTYPE html><html><head>" + meta + themeCss + gestureScript + "</head><body>" + finalHtml + "</body></html>";
+      }
+      frame.srcdoc = finalHtml;
+    })
+    .catch(err => {
+      frame.srcdoc = `<div style="padding:20px;color:#ef4444;font-family:sans-serif;font-size:12px;">加载交互组件失败: ${escapeHtml(err.message)}</div>`;
+    });
+};
+
+window.refreshAgentEmbedCard = function(cardId) {
+  const card = document.getElementById(cardId);
+  if (!card) return;
+  const src = card.dataset.src;
+  if (src && window.loadAgentEmbedContent) {
+    window.loadAgentEmbedContent(cardId, src);
+  }
+};
+
+window.toggleFullscreenAgentEmbed = function(cardId) {
+  const card = document.getElementById(cardId);
+  if (!card) return;
+  card.classList.toggle("fullscreen");
+};
+
 window.handleThumbnailLoad = function(img) {
   if (!img) return;
   img.classList.add("loaded");
@@ -521,6 +651,11 @@ function renderInlineMarkdown(text) {
   // Strikethrough
   html = html.replace(/~~((?:[^~]|~(?!~))+?)~~/g, '<del>$1</del>');
 
+  // 5. Agent embed tag: <agent-embed src="..."></agent-embed>
+  html = html.replace(/&lt;agent-embed\b[^&>]*?\bsrc=[&quot;']([^&quot;']+)&quot;[^&>]*&gt;(?:\s*&lt;\/agent-embed&gt;)?/gi, (_, src) => {
+    return buildAgentEmbedCard(htmlUnescape(src));
+  });
+
   return html;
 }
 
@@ -622,23 +757,38 @@ function renderMarkdown(md) {
       }
     }
 
-    // 1. Fenced Code Block
-    if (trimmed.startsWith("```")) {
-      const lang = trimmed.slice(3).trim();
-      const codeLines = [];
-      i++;
-      while (i < lines.length) {
-        if (lines[i].trim().startsWith("```")) {
-          i++;
-          break;
-        }
-        codeLines.push(lines[i]);
-        i++;
+    // 1. Fenced Code Block or Carousel
+    if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) {
+      const fenceChar = trimmed[0];
+      let fenceCount = 0;
+      while (fenceCount < trimmed.length && trimmed[fenceCount] === fenceChar) {
+        fenceCount++;
       }
-      const rawCode = codeLines.join("\n");
-      const langClean = (lang || "").toLowerCase();
-      const displayLang = langClean ? langClean.toUpperCase() : "CODE";
-      const codeEscaped = escapeHtml(rawCode);
+      if (fenceCount >= 3) {
+        const fence = fenceChar.repeat(fenceCount);
+        const lang = trimmed.slice(fenceCount).trim();
+        const codeLines = [];
+        i++;
+        while (i < lines.length) {
+          if (lines[i].trim().startsWith(fence)) {
+            i++;
+            break;
+          }
+          codeLines.push(lines[i]);
+          i++;
+        }
+        const rawCode = codeLines.join("\n");
+        const langClean = (lang || "").toLowerCase();
+        const displayLang = langClean ? langClean.toUpperCase() : "CODE";
+        const codeEscaped = escapeHtml(rawCode);
+
+        if (langClean === "carousel") {
+          const carouselHtml = renderCarouselBlock(codeLines);
+          if (carouselHtml) {
+            blocks.push(carouselHtml);
+            continue;
+          }
+        }
 
       if (langClean === "mermaid") {
         blocks.push(`
@@ -849,6 +999,14 @@ function renderMarkdown(md) {
       continue;
     }
 
+    // 6.6 Standalone Agent Embed Block
+    const standaloneEmbedMatch = trimmed.match(/^<agent-embed\b[^>]*?\bsrc=["']([^"']+)["'][^>]*>(?:\s*<\/agent-embed>)?$/i);
+    if (standaloneEmbedMatch) {
+      blocks.push(buildAgentEmbedCard(standaloneEmbedMatch[1]));
+      i++;
+      continue;
+    }
+
     // 7. Paragraph
     const paraLines = [line];
     i++;
@@ -857,6 +1015,7 @@ function renderMarkdown(md) {
       const nTrimmed = nextLine.trim();
       if (!nTrimmed ||
           nTrimmed.startsWith("MEDIA:") ||
+          /^<agent-embed\b/i.test(nTrimmed) ||
           /^(?:https?:\/\/[^\s]+\.(?:png|jpe?g|webp|gif|svg|bmp)|(?:\/|[a-zA-Z]:\\|file:\/\/)[^\s<"']+\.(?:png|jpe?g|webp|gif|svg|bmp))$/i.test(nTrimmed) ||
           nTrimmed.startsWith("```") ||
           nTrimmed.startsWith("#") ||
@@ -935,6 +1094,135 @@ window.toggleMermaidCard = function(btn, mode) {
     if (codeWrap) codeWrap.style.display = "none";
   }
 };
+
+// --- Interactive Photo Carousel Helpers ---
+function renderCarouselBlock(lines) {
+  const slides = [];
+  let curLines = [];
+  let curTitle = null;
+  const slideRegex = /^<!--\s*slide(?::\s*([^>]*))?\s*-->$/i;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const match = trimmed.match(slideRegex);
+    if (match) {
+      const joined = curLines.join("\n").trim();
+      if (joined) {
+        slides.push({ title: curTitle, content: joined });
+      }
+      curLines = [];
+      curTitle = match[1] ? match[1].trim() : null;
+    } else {
+      curLines.push(line);
+    }
+  }
+  const lastJoined = curLines.join("\n").trim();
+  if (lastJoined) {
+    slides.push({ title: curTitle, content: lastJoined });
+  }
+
+  if (slides.length === 0) return "";
+
+  const carouselId = "carousel-" + Math.random().toString(36).slice(2, 9);
+  const total = slides.length;
+
+  const slidesHtml = slides.map((s, idx) => {
+    return `<div class="carousel-slide-pane ${idx === 0 ? "active" : ""}" data-index="${idx}">
+      ${renderMarkdown(s.content)}
+    </div>`;
+  }).join("");
+
+  const dotsHtml = total > 1 ? `
+    <div class="carousel-dots-row">
+      ${slides.map((_, idx) => `
+        <span class="carousel-dot ${idx === 0 ? "active" : ""}" data-index="${idx}" onclick="jumpCarouselDot(this, ${idx})"></span>
+      `).join("")}
+    </div>
+  ` : "";
+
+  return `
+    <div class="carousel-card" id="${carouselId}" data-current="0" data-total="${total}">
+      <div class="carousel-header">
+        <div class="carousel-title-group">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="carousel-icon">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+            <circle cx="8.5" cy="8.5" r="1.5"></circle>
+            <polyline points="21 15 16 10 5 21"></polyline>
+          </svg>
+          <span class="carousel-title">照片轮播</span>
+          <span class="carousel-counter-badge"><span class="carousel-current-num">1</span> / ${total}</span>
+        </div>
+        <div class="carousel-nav-buttons">
+          <button class="carousel-nav-btn btn-prev" disabled onclick="navigateCarousel(this, -1)" type="button" aria-label="上一张">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="15 18 9 12 15 6"></polyline>
+            </svg>
+            <span>上一张</span>
+          </button>
+          <button class="carousel-nav-btn btn-next" ${total <= 1 ? "disabled" : ""} onclick="navigateCarousel(this, 1)" type="button" aria-label="下一张">
+            <span>下一张</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="9 18 15 12 9 6"></polyline>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="carousel-viewport">
+        ${slidesHtml}
+      </div>
+      ${dotsHtml}
+    </div>
+  `;
+}
+
+window.navigateCarousel = function(btn, dir) {
+  const card = btn.closest(".carousel-card");
+  if (!card) return;
+  const current = parseInt(card.getAttribute("data-current") || "0", 10);
+  const total = parseInt(card.getAttribute("data-total") || "1", 10);
+  const next = current + dir;
+  if (next < 0 || next >= total) return;
+  setCarouselIndex(card, next);
+};
+
+window.jumpCarouselDot = function(dot, targetIdx) {
+  const card = dot.closest(".carousel-card");
+  if (!card) return;
+  setCarouselIndex(card, targetIdx);
+};
+
+function setCarouselIndex(card, targetIdx) {
+  const total = parseInt(card.getAttribute("data-total") || "1", 10);
+  if (targetIdx < 0 || targetIdx >= total) return;
+  card.setAttribute("data-current", targetIdx.toString());
+
+  const counterEl = card.querySelector(".carousel-current-num");
+  if (counterEl) counterEl.textContent = (targetIdx + 1).toString();
+
+  const prevBtn = card.querySelector(".carousel-nav-btn.btn-prev");
+  const nextBtn = card.querySelector(".carousel-nav-btn.btn-next");
+  if (prevBtn) prevBtn.disabled = (targetIdx === 0);
+  if (nextBtn) nextBtn.disabled = (targetIdx >= total - 1);
+
+  const slides = card.querySelectorAll(".carousel-slide-pane");
+  slides.forEach((s, idx) => {
+    if (idx === targetIdx) {
+      s.classList.add("active");
+    } else {
+      s.classList.remove("active");
+    }
+  });
+
+  const dots = card.querySelectorAll(".carousel-dot");
+  dots.forEach((d, idx) => {
+    if (idx === targetIdx) {
+      d.classList.add("active");
+    } else {
+      d.classList.remove("active");
+    }
+  });
+}
+window.setCarouselIndex = setCarouselIndex;
 
 let mermaidInitialized = false;
 function initMermaidIfNeeded() {

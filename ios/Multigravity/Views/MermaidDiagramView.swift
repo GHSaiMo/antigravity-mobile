@@ -78,7 +78,8 @@ public struct MermaidDiagramView: View {
                 
                 // Copy Button
                 Button(action: {
-                    UIPasteboard.general.string = code
+                    let formatted = code.hasSuffix("\n") ? code : "\(code)\n"
+                    UIPasteboard.general.string = formatted
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     withAnimation {
                         isCopied = true
@@ -317,7 +318,8 @@ public struct MermaidFullscreenViewer: View {
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Button(action: {
-                        UIPasteboard.general.string = code
+                        let formatted = code.hasSuffix("\n") ? code : "\(code)\n"
+                        UIPasteboard.general.string = formatted
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                         withAnimation {
                             isCopied = true

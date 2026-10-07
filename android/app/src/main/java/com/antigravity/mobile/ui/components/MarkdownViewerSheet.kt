@@ -178,30 +178,6 @@ fun MarkdownViewerSheet(
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    // Companion Summary card if present
-                    data.summary?.takeIf { it.isNotBlank() }?.let { summary ->
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(colors.accentIndigo.copy(alpha = 0.10f))
-                                .padding(14.dp)
-                        ) {
-                            Text(
-                                text = "📋 实施方案概要",
-                                color = colors.accentIndigo,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = summary,
-                                color = colors.textPrimary,
-                                fontSize = 13.sp,
-                                lineHeight = 18.sp,
-                                modifier = Modifier.padding(top = 4.dp)
-                            )
-                        }
-                    }
 
                     // Markdown Document Content
                     MarkdownContentView(

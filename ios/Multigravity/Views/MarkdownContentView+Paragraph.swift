@@ -10,7 +10,6 @@ extension MarkdownContentView {
         if segments.count <= 1 && (segments.first?.isPlanButton != true) {
             Self.renderRichText(cleanText, size: size)
                 .font(.system(size: size))
-                .textSelection(.enabled)
                 .lineSpacing(3)
                 .fixedSize(horizontal: false, vertical: true)
         } else {
@@ -22,7 +21,6 @@ extension MarkdownContentView {
                         if !trimmed.isEmpty {
                             Self.renderRichText(trimmed, size: size)
                                 .font(.system(size: size))
-                                .textSelection(.enabled)
                                 .lineSpacing(3)
                         }
                     case .planButton(_, let title, let uri):

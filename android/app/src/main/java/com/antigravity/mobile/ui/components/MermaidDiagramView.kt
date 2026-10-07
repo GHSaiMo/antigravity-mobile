@@ -171,7 +171,8 @@ fun MermaidDiagramView(
                         .clip(RoundedCornerShape(6.dp))
                         .clickable {
                             haptic.medium()
-                            clipboardManager.setText(AnnotatedString(code))
+                            val formattedCode = if (code.endsWith("\n")) code else "$code\n"
+                            clipboardManager.setText(AnnotatedString(formattedCode))
                             isCopied = true
                             Toast.makeText(context, "代码已复制", Toast.LENGTH_SHORT).show()
                             Handler(Looper.getMainLooper()).postDelayed({ isCopied = false }, 1800)
@@ -352,7 +353,8 @@ fun MermaidDiagramView(
                         )
 
                         TextButton(onClick = {
-                            clipboardManager.setText(AnnotatedString(code))
+                            val formattedCode = if (code.endsWith("\n")) code else "$code\n"
+                            clipboardManager.setText(AnnotatedString(formattedCode))
                             Toast.makeText(context, "代码已复制", Toast.LENGTH_SHORT).show()
                         }) {
                             Text(

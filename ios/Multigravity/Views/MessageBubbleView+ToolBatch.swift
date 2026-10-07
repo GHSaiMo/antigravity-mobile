@@ -41,7 +41,8 @@ extension MessageBubbleView {
             let actualCount = max(count, tools.count)
             let uniqueNames = Array(NSOrderedSet(array: tools)).compactMap { $0 as? String }
             if !uniqueNames.isEmpty {
-                let namesSummary = uniqueNames.joined(separator: ", ")
+                let localizedNames = uniqueNames.map { ToolLocalization.localizedName(for: $0) }
+                let namesSummary = localizedNames.joined(separator: ", ")
                 return "已思考并执行 \(actualCount) 项操作 (\(namesSummary))"
             }
             return "已思考并执行 \(actualCount) 项操作"
@@ -93,8 +94,8 @@ extension MessageBubbleView {
                                 .font(.system(size: 11, weight: .semibold))
                                 .foregroundColor(Color(red: 0.3, green: 0.85, blue: 0.4))
                             
-                            Text(toolName)
-                                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                            Text(ToolLocalization.localizedName(for: toolName))
+                                .font(.system(size: 12, weight: .semibold))
                                 .foregroundColor(.primary)
                                 .lineLimit(1)
                             

@@ -53,6 +53,23 @@ class ApiClient(
     private val prefs: PreferencesManager,
     private val connectionManager: ConnectionManager? = null
 ) {
+    init {
+        defaultInstance = this
+    }
+
+    companion object {
+        @Volatile
+        var defaultInstance: ApiClient? = null
+
+        suspend fun fetchFileContent(uri: String, cascadeId: String? = null): Result<FileContentResponse> {
+            val inst = defaultInstance ?: return Result.failure(IllegalStateException("ApiClient not initialized"))
+            return inst.fetchFileContent(uri, cascadeId)
+        }
+
+        val currentBaseUrl: String?
+            get() = defaultInstance?.currentBaseUrl
+    }
+
     val currentBaseUrl: String?
         get() {
             val avoidLan = (connectionManager?.isCellular ?: false) || !(connectionManager?.isWifi ?: true)

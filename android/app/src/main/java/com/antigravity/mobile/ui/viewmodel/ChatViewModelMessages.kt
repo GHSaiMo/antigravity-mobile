@@ -47,12 +47,115 @@ internal fun ChatViewModel.sanitizeMessageOrder(list: List<GatewayMessageItem>):
         }
     }
 
-    if (dropIndex != null) {
+    val ordered = if (dropIndex != null) {
         val head = list.subList(0, dropIndex)
         val tail = list.subList(dropIndex, list.size)
-        return tail + head
+        tail + head
+    } else {
+        list
     }
-    return list
+    return collapseAttemptErrors(ordered)
+}
+
+data class ParsedAttemptError(
+    val isAttempt: Boolean,
+    val prefix: String,
+    val attempt: Int,
+    val maxAttempts: Int,
+    val baseError: String
+)
+
+private val attemptPattern = Regex("""(?i)^(.*?)\s*\(attempt\s+(\d+)(?:\s*(?:of|/)\s*(\d+))?(?:\s*[·,]\s*[^)]*)?\)\s*[:：\-]?\s*(.*)$""")
+
+internal fun parseAttemptError(text: String): ParsedAttemptError {
+    val trimmed = text.trim()
+    val match = attemptPattern.find(trimmed)
+    if (match != null) {
+        var prefix = match.groupValues[1].trim()
+        if (prefix.isBlank()) prefix = "API error"
+        val attempt = match.groupValues[2].toIntOrNull() ?: 1
+        var maxAttempts = match.groupValues[3].toIntOrNull() ?: 0
+        if (maxAttempts == 0) {
+            maxAttempts = if (attempt <= 9) 9 else attempt
+        }
+        val baseError = match.groupValues[4].trim()
+        return ParsedAttemptError(
+            isAttempt = true,
+            prefix = prefix,
+            attempt = attempt,
+            maxAttempts = maxAttempts,
+            baseError = baseError
+        )
+    }
+    return ParsedAttemptError(
+        isAttempt = false,
+        prefix = "API error",
+        attempt = 1,
+        maxAttempts = 9,
+        baseError = trimmed
+    )
+}
+
+internal fun normalizeErrKey(text: String): String {
+    var s = text.trim().lowercase()
+    while (s.endsWith(".") || s.endsWith(":") || s.endsWith(";") || s.endsWith(",")) {
+        s = s.substring(0, s.length - 1)
+    }
+    return s.trim()
+}
+
+internal fun collapseAttemptErrors(list: List<GatewayMessageItem>): List<GatewayMessageItem> {
+    if (list.size < 2) return list
+    val result = ArrayList<GatewayMessageItem>(list.size)
+
+    for (msg in list) {
+        val last = result.lastOrNull()
+        if (msg.isError && last != null && last.isError) {
+            val msgText = msg.effectiveText.ifBlank { "执行遇到错误" }
+            val lastText = last.effectiveText.ifBlank { "执行遇到错误" }
+            val parsed = parseAttemptError(msgText)
+            val prevParsed = parseAttemptError(lastText)
+
+            if (parsed.isAttempt && prevParsed.isAttempt && normalizeErrKey(prevParsed.baseError) == normalizeErrKey(parsed.baseError)) {
+                val newAttempt = maxOf(parsed.attempt, (last.attemptCount ?: prevParsed.attempt) + 1)
+                val maxAttempts = if (parsed.maxAttempts > 0) parsed.maxAttempts else (last.maxAttempts ?: 9)
+                val formatted = "${parsed.prefix} (attempt $newAttempt/$maxAttempts · 已重试 $newAttempt 次): ${parsed.baseError}"
+                result[result.size - 1] = last.copy(
+                    text = formatted,
+                    content = formatted,
+                    stepIndex = msg.stepIndex ?: last.stepIndex,
+                    attemptCount = newAttempt,
+                    maxAttempts = maxAttempts
+                )
+                continue
+            } else if (parsed.isAttempt && normalizeErrKey(lastText) == normalizeErrKey(parsed.baseError)) {
+                val newAttempt = maxOf(parsed.attempt, (last.attemptCount ?: 1) + 1)
+                val maxAttempts = if (parsed.maxAttempts > 0) parsed.maxAttempts else 9
+                val formatted = "${parsed.prefix} (attempt $newAttempt/$maxAttempts · 已重试 $newAttempt 次): ${parsed.baseError}"
+                result[result.size - 1] = last.copy(
+                    text = formatted,
+                    content = formatted,
+                    stepIndex = msg.stepIndex ?: last.stepIndex,
+                    attemptCount = newAttempt,
+                    maxAttempts = maxAttempts
+                )
+                continue
+            } else if (!parsed.isAttempt && !prevParsed.isAttempt && normalizeErrKey(lastText) == normalizeErrKey(msgText)) {
+                val count = (last.attemptCount ?: 1) + 1
+                val formatted = "$msgText (已重试 $count 次)"
+                result[result.size - 1] = last.copy(
+                    text = formatted,
+                    content = formatted,
+                    stepIndex = msg.stepIndex ?: last.stepIndex,
+                    attemptCount = count,
+                    maxAttempts = null
+                )
+                continue
+            }
+        }
+        result.add(msg)
+    }
+    return result
 }
 
 internal fun ChatViewModel.mergeIncomingMessages(incoming: List<GatewayMessageItem>): List<GatewayMessageItem> {

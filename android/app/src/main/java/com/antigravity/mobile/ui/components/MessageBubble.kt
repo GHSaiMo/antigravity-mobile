@@ -11,6 +11,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Undo
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -31,8 +32,10 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.antigravity.mobile.data.model.ArtifactItem
 import com.antigravity.mobile.data.model.GatewayMessageItem
 import com.antigravity.mobile.ui.theme.AntigravityTheme
+import com.antigravity.mobile.ui.util.rememberHaptic
 
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.platform.LocalContext
@@ -100,12 +103,116 @@ fun MessageBubble(
         return
     }
 
+    // Error card for execution errors
+    if (message.isError) {
+        val errText = message.effectiveText.ifBlank { "执行遇到错误" }
+        val attemptInfo = remember(errText, message.attemptCount, message.maxAttempts) {
+            val cur = message.attemptCount
+            val max = message.maxAttempts
+            if (cur != null && max != null && max > 0) {
+                Pair(cur, max)
+            } else if (cur != null && cur > 0) {
+                Pair(cur, if (cur <= 9) 9 else cur)
+            } else {
+                val match = Regex("""(?i)\(attempt\s+(\d+)(?:\s*(?:of|/)\s*(\d+))?(?:\s*[·,]\s*[^)]*)?\)""").find(errText)
+                if (match != null) {
+                    val c = match.groupValues[1].toIntOrNull() ?: 1
+                    val m = match.groupValues.getOrNull(2)?.toIntOrNull() ?: if (c <= 9) 9 else c
+                    Pair(c, m)
+                } else null
+            }
+        }
+        val badgeText = when {
+            attemptInfo != null -> "ERROR · 尝试 ${attemptInfo.first}/${attemptInfo.second}"
+            else -> "ERROR"
+        }
+        val titleText = when {
+            attemptInfo != null && attemptInfo.first > 1 -> "执行遇到错误 (已重试 ${attemptInfo.first} 次)"
+            else -> "执行遇到错误"
+        }
+
+        Box(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth(0.95f)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color(0xFFFEF2F2))
+                    .border(1.dp, Color(0xFFEF4444).copy(alpha = 0.25f), RoundedCornerShape(14.dp))
+                    .padding(12.dp),
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFEF4444).copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Warning,
+                        contentDescription = "Error",
+                        tint = Color(0xFFDC2626),
+                        modifier = Modifier.size(15.dp)
+                    )
+                }
+
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(Color(0xFFEF4444).copy(alpha = 0.18f))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = badgeText.uppercase(),
+                                color = Color(0xFFDC2626),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+
+                        Text(
+                            text = titleText,
+                            color = Color(0xFFDC2626),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+
+                    Text(
+                        text = errText,
+                        color = colors.textPrimary.copy(alpha = 0.9f),
+                        fontSize = 13.sp,
+                        fontFamily = FontFamily.Monospace,
+                        lineHeight = 18.sp
+                    )
+                }
+            }
+        }
+        return
+    }
+
     val isUser = message.isUser
     val clipboard = LocalClipboardManager.current
     val haptic = LocalHapticFeedback.current
     var copiedHintVisible by remember { mutableStateOf(false) }
     fun copyAll(text: String) {
-        clipboard.setText(AnnotatedString(text))
+        val formatted = if (text.endsWith("\n")) text else "$text\n"
+        clipboard.setText(AnnotatedString(formatted))
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
         copiedHintVisible = true
     }
@@ -341,9 +448,10 @@ fun MessageBubble(
                 }
             }
         } else {
-            if (displayText.isNotBlank()) {
+            val hasArtifacts = !message.artifacts.isNullOrEmpty()
+            if (displayText.isNotBlank() || hasArtifacts) {
                 // Agent Bubble: Card background, textPrimary, 18.dp radius with subtle soft shadow
-                Box(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .shadow(
@@ -355,16 +463,86 @@ fun MessageBubble(
                         .clip(RoundedCornerShape(18.dp))
                         .background(colors.agentBubbleBg)
                         .border(0.5.dp, colors.border, RoundedCornerShape(18.dp))
-                        .padding(horizontal = 14.dp, vertical = 12.dp)
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    MarkdownContentView(
-                        content = displayText,
-                        onPlanClick = onPlanClick,
-                        urlResolver = urlResolver,
-                        onImageClick = { url -> onImageClick?.invoke(url, null) }
-                    )
+                    if (displayText.isNotBlank()) {
+                        MarkdownContentView(
+                            content = displayText,
+                            onPlanClick = onPlanClick,
+                            urlResolver = urlResolver,
+                            onImageClick = { url -> onImageClick?.invoke(url, null) }
+                        )
+                    }
+
+                    if (hasArtifacts) {
+                        message.artifacts!!.forEach { artifact ->
+                            ArtifactPreviewCard(
+                                artifact = artifact,
+                                onClick = {
+                                    onPlanClick?.invoke(artifact.uri, artifact.title)
+                                }
+                            )
+                        }
+                    }
                 }
             }
+        }
+    }
+}
+
+/**
+ * Interactive card for Markdown documents & artifacts in chat messages.
+ */
+@Composable
+fun ArtifactPreviewCard(
+    artifact: ArtifactItem,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = AntigravityTheme.colors
+    val haptic = rememberHaptic()
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(colors.surfaceVariant.copy(alpha = 0.85f))
+            .border(0.8.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+            .clickable {
+                haptic.medium()
+                onClick()
+            }
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        // Document icon + title
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "📄",
+                fontSize = 15.sp
+            )
+            Text(
+                text = artifact.title.ifBlank { "文档详情" },
+                color = colors.textPrimary,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        // Summary text if present
+        if (!artifact.summary.isNullOrBlank()) {
+            Text(
+                text = artifact.summary,
+                color = colors.textSecondary,
+                fontSize = 12.5.sp,
+                lineHeight = 17.5.sp
+            )
         }
     }
 }

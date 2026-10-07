@@ -1,9 +1,11 @@
 package com.antigravity.mobile.ui.components
 
 import android.widget.Toast
+import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -11,7 +13,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -19,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.*
@@ -115,7 +121,8 @@ internal fun CodeBlockView(
                     .clip(RoundedCornerShape(6.dp))
                     .clickable {
                         haptic.medium()
-                        clipboardManager.setText(AnnotatedString(code))
+                        val formattedCode = if (code.endsWith("\n")) code else "$code\n"
+                        clipboardManager.setText(AnnotatedString(formattedCode))
                         copied = true
                         Toast.makeText(context, "已复制到剪贴板", Toast.LENGTH_SHORT).show()
                     }
@@ -366,3 +373,211 @@ internal fun OrderedListBlockView(
         }
     }
 }
+
+@Composable
+internal fun CarouselBlockView(
+    slides: List<MarkdownCarouselSlide>,
+    colors: AppColors,
+    modifier: Modifier = Modifier,
+    onPlanClick: ((String, String) -> Unit)? = null,
+    urlResolver: ((String) -> String)? = null,
+    onImageClick: ((String) -> Unit)? = null
+) {
+    if (slides.isEmpty()) return
+
+    var currentIndex by remember { mutableIntStateOf(0) }
+    val safeIndex = currentIndex.coerceIn(0, slides.size - 1)
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(colors.surface)
+            .border(1.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+    ) {
+        // Header Bar
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(colors.surfaceVariant.copy(alpha = 0.6f))
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Collections,
+                    contentDescription = null,
+                    tint = colors.accentBlue,
+                    modifier = Modifier.size(16.dp)
+                )
+                Text(
+                    text = "照片轮播",
+                    color = colors.textPrimary,
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(colors.surfaceVariant)
+                        .padding(horizontal = 7.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "${safeIndex + 1} / ${slides.size}",
+                        color = colors.textSecondary,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.weight(1f))
+
+            // Navigation Buttons (上一张 / 下一张)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                // 上一张
+                val prevEnabled = safeIndex > 0
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .border(
+                            0.8.dp,
+                            colors.border.copy(alpha = if (prevEnabled) 0.5f else 0.2f),
+                            RoundedCornerShape(8.dp)
+                        )
+                        .background(if (prevEnabled) colors.surfaceVariant.copy(alpha = 0.8f) else Color.Transparent)
+                        .clickable(enabled = prevEnabled) {
+                            if (safeIndex > 0) currentIndex--
+                        }
+                        .padding(horizontal = 8.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "上一张",
+                        tint = if (prevEnabled) colors.textPrimary else colors.textSecondary.copy(alpha = 0.35f),
+                        modifier = Modifier.size(12.dp)
+                    )
+                    Text(
+                        text = "上一张",
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = if (prevEnabled) colors.textPrimary else colors.textSecondary.copy(alpha = 0.35f)
+                    )
+                }
+
+                // 下一张
+                val nextEnabled = safeIndex < slides.size - 1
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .border(
+                            0.8.dp,
+                            colors.border.copy(alpha = if (nextEnabled) 0.5f else 0.2f),
+                            RoundedCornerShape(8.dp)
+                        )
+                        .background(if (nextEnabled) colors.surfaceVariant.copy(alpha = 0.8f) else Color.Transparent)
+                        .clickable(enabled = nextEnabled) {
+                            if (safeIndex < slides.size - 1) currentIndex++
+                        }
+                        .padding(horizontal = 8.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    Text(
+                        text = "下一张",
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = if (nextEnabled) colors.textPrimary else colors.textSecondary.copy(alpha = 0.35f)
+                    )
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                        contentDescription = "下一张",
+                        tint = if (nextEnabled) colors.textPrimary else colors.textSecondary.copy(alpha = 0.35f),
+                        modifier = Modifier.size(12.dp)
+                    )
+                }
+            }
+        }
+
+        HorizontalDivider(
+            color = colors.border.copy(alpha = 0.4f),
+            thickness = 0.8.dp
+        )
+
+        // Slide Content Area with swipe support
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp)
+                .pointerInput(safeIndex, slides.size) {
+                    var totalDrag = 0f
+                    detectHorizontalDragGestures(
+                        onDragStart = { totalDrag = 0f },
+                        onDragEnd = {
+                            if (totalDrag < -60f && safeIndex < slides.size - 1) {
+                                currentIndex++
+                            } else if (totalDrag > 60f && safeIndex > 0) {
+                                currentIndex--
+                            }
+                        },
+                        onHorizontalDrag = { _, dragAmount ->
+                            totalDrag += dragAmount
+                        }
+                    )
+                }
+        ) {
+            AnimatedContent(
+                targetState = safeIndex,
+                transitionSpec = {
+                    if (targetState > initialState) {
+                        (slideInHorizontally { width -> width / 3 } + fadeIn()).togetherWith(
+                            slideOutHorizontally { width -> -width / 3 } + fadeOut()
+                        )
+                    } else {
+                        (slideInHorizontally { width -> -width / 3 } + fadeIn()).togetherWith(
+                            slideOutHorizontally { width -> width / 3 } + fadeOut()
+                        )
+                    }
+                },
+                label = "carousel_slide"
+            ) { targetIdx ->
+                val slide = slides[targetIdx]
+                MarkdownContentView(
+                    content = slide.content,
+                    onPlanClick = onPlanClick,
+                    urlResolver = urlResolver,
+                    onImageClick = onImageClick
+                )
+            }
+        }
+
+        // Bottom pagination dots
+        if (slides.size > 1) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 2.dp, bottom = 10.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                slides.forEachIndexed { idx, _ ->
+                    Box(
+                        modifier = Modifier
+                            .padding(horizontal = 3.dp)
+                            .size(width = if (idx == safeIndex) 18.dp else 6.dp, height = 6.dp)
+                            .clip(CircleShape)
+                            .background(if (idx == safeIndex) colors.accentBlue else colors.textSecondary.copy(alpha = 0.25f))
+                            .clickable { currentIndex = idx }
+                    )
+                }
+            }
+        }
+    }
+}
+

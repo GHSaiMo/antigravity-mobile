@@ -15,6 +15,15 @@ data class ToolCallItem(
 )
 
 @Serializable
+data class ArtifactItem(
+    val uri: String = "",
+    val title: String = "",
+    val summary: String? = null,
+    val requestFeedback: Boolean? = null,
+    val userFacing: Boolean? = null
+)
+
+@Serializable
 data class GatewayMessageItem(
     val id: String = "",
     val type: String = "user", // "user", "agent", "tools", "error"
@@ -25,9 +34,12 @@ data class GatewayMessageItem(
     val toolNames: List<String>? = null,
     val media: List<String>? = null,
     val imageUrls: List<String>? = null,
+    val artifacts: List<ArtifactItem>? = null,
     val timestamp: String? = null,
     val status: String? = null,
     val stepIndex: Int? = null,
+    val attemptCount: Int? = null,
+    val maxAttempts: Int? = null,
     @SerialName("tool_calls") val toolCalls: List<ToolCallItem>? = null,
     @SerialName("reasoning_content") val reasoningContent: String? = null,
     @kotlinx.serialization.Transient val imageDataList: List<ByteArray> = emptyList()
@@ -103,9 +115,9 @@ data class RunningTaskItem(
     val displayTitle: String
         get() = toolSummary?.takeIf { it.isNotBlank() }
             ?: toolAction?.takeIf { it.isNotBlank() }
-            ?: toolName?.takeIf { it.isNotBlank() }
-            ?: type.takeIf { it.isNotBlank() }
-            ?: "run_command"
+            ?: toolName?.takeIf { it.isNotBlank() }?.let { com.antigravity.mobile.ui.util.ToolLocalization.localizedName(it) }
+            ?: type.takeIf { it.isNotBlank() }?.let { com.antigravity.mobile.ui.util.ToolLocalization.localizedName(it) }
+            ?: "运行终端命令"
 
     val displayCommand: String
         get() = commandLine.takeIf { it.isNotBlank() }

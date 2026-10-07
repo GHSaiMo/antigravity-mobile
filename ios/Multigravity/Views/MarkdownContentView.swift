@@ -49,6 +49,14 @@ public struct MarkdownContentView: View {
                     
                 case .image(_, let alt, let url):
                     markdownImageView(alt: alt, urlString: url)
+                    
+                case .agentEmbed(_, let src):
+                    AgentEmbedView(src: src)
+                    
+                case .carousel(_, let slides):
+                    MarkdownCarouselView(slides: slides, onImageTap: { url in
+                        handleImageTap(url: url)
+                    })
                 }
             }
         }

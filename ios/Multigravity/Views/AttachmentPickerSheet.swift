@@ -291,16 +291,14 @@ struct AttachmentPickerSheet: View {
         } label: {
             Text("添加 (\(selected.count))")
                 .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(.white)
+                .foregroundColor(.indigo)
                 .frame(maxWidth: .infinity)
-                .frame(height: 44)
-                .background(Color.indigo)
-                .clipShape(Capsule())
+                .frame(height: 48)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(NativeThinGlassButtonStyle(tintColor: .indigo))
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(Color(uiColor: .systemBackground))
+        .background(.ultraThinMaterial)
     }
     
     private static func topViewController() -> UIViewController? {
@@ -336,5 +334,47 @@ enum PhotoAssetLoader {
                 cont.resume(returning: img)
             }
         }
+    }
+}
+
+// MARK: - Native Thin Glass Button Style (原生薄玻璃按钮样式)
+
+public struct NativeThinGlassButtonStyle: ButtonStyle {
+    public var tintColor: Color
+    
+    public init(tintColor: Color = .indigo) {
+        self.tintColor = tintColor
+    }
+    
+    public func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(
+                ZStack {
+                    Capsule()
+                        .fill(.thinMaterial)
+                    Capsule()
+                        .fill(tintColor.opacity(configuration.isPressed ? 0.20 : 0.08))
+                }
+            )
+            .overlay(
+                Capsule()
+                    .stroke(
+                        tintColor.opacity(configuration.isPressed ? 0.35 : 0.22),
+                        lineWidth: 0.8
+                    )
+            )
+            .overlay(
+                Capsule()
+                    .stroke(Color.white.opacity(0.35), lineWidth: 0.5)
+            )
+            .shadow(
+                color: tintColor.opacity(configuration.isPressed ? 0.04 : 0.12),
+                radius: configuration.isPressed ? 2 : 6,
+                x: 0,
+                y: configuration.isPressed ? 1 : 2.5
+            )
+            .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
+            .opacity(configuration.isPressed ? 0.88 : 1.0)
+            .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
     }
 }

@@ -9,6 +9,7 @@ public struct MessageBubbleView: View {
     @State var isThinkingExpanded: Bool = false
     
     @State var previewGallery: ImageGalleryData? = nil
+    @State var showTextSelectionSheet: Bool = false
     
     public init(message: ChatMessage, isActiveToolBatch: Bool = false, onUndo: ((ChatMessage) -> Void)? = nil) {
         self.message = message
@@ -46,12 +47,26 @@ public struct MessageBubbleView: View {
                 .presentationBackground(.clear)
                 .ignoresSafeArea()
         }
+        .sheet(isPresented: $showTextSelectionSheet) {
+            TextSelectionSheet(
+                title: "选择文本",
+                content: agentPlainText
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
     }
 }
 
 extension MessageBubbleView {
+    var agentPlainText: String {
+        let converted = MarkdownPlainText.convert(message.content)
+        return converted.isEmpty ? message.content : converted
+    }
+    
     func copyWholeText(_ text: String) {
-        UIPasteboard.general.string = text
+        let formatted = text.hasSuffix("\n") ? text : "\(text)\n"
+        UIPasteboard.general.string = formatted
         UINotificationFeedbackGenerator().notificationOccurred(.success)
         CopiedHUD.show()
     }

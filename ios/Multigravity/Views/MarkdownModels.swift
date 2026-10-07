@@ -32,6 +32,8 @@ public enum MarkdownBlock: Identifiable {
     case orderedList(id: String, startIndex: Int, items: [String])
     case paragraph(id: String, text: String)
     case image(id: String, alt: String, url: String)
+    case agentEmbed(id: String, src: String)
+    case carousel(id: String, slides: [MarkdownCarouselSlide])
     
     public var id: String {
         switch self {
@@ -44,7 +46,21 @@ public enum MarkdownBlock: Identifiable {
         case .orderedList(let id, _, _): return id
         case .paragraph(let id, _): return id
         case .image(let id, _, _): return id
+        case .agentEmbed(let id, _): return id
+        case .carousel(let id, _): return id
         }
+    }
+}
+
+public struct MarkdownCarouselSlide: Identifiable, Sendable, Equatable {
+    public let id: String
+    public let title: String?
+    public let content: String
+    
+    public init(id: String, title: String? = nil, content: String) {
+        self.id = id
+        self.title = title
+        self.content = content
     }
 }
 

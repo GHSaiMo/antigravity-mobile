@@ -25,8 +25,9 @@ extension MessageBubbleView {
                         .foregroundColor(.primary.opacity(0.85))
                     
                     if !tools.isEmpty {
-                        Text("(\(tools.prefix(3).joined(separator: ", "))\(tools.count > 3 ? "..." : ""))")
-                            .font(.system(size: 10.5, design: .monospaced))
+                        let localizedPrefix = tools.prefix(3).map { ToolLocalization.localizedName(for: $0) }
+                        Text("(\(localizedPrefix.joined(separator: ", "))\(tools.count > 3 ? "..." : ""))")
+                            .font(.system(size: 10.5))
                             .foregroundColor(.secondary)
                             .lineLimit(1)
                     }
@@ -58,7 +59,7 @@ extension MessageBubbleView {
             
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
-                    Text("error")
+                    Text(errorBadgeText)
                         .font(.system(size: 10, weight: .bold, design: .monospaced))
                         .textCase(.uppercase)
                         .padding(.horizontal, 6)
@@ -67,7 +68,7 @@ extension MessageBubbleView {
                         .foregroundColor(.red)
                         .clipShape(Capsule())
                     
-                    Text("执行遇到错误")
+                    Text(errorTitleText)
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(.red)
                 }
@@ -89,5 +90,30 @@ extension MessageBubbleView {
             
             Spacer(minLength: 20)
         }
+    }
+    
+    private var errorBadgeText: String {
+        if let cur = message.attemptCount, let max = message.maxAttempts, max > 0 {
+            return "error · 尝试 \(cur)/\(max)"
+        } else if let cur = message.attemptCount, cur > 1 {
+            return "error · 重试 \(cur) 次"
+        }
+        let info = APIClient.parseAttemptError(message.content)
+        if info.isAttempt {
+            return "error · 尝试 \(info.attempt)/\(info.maxAttempts)"
+        }
+        return "error"
+    }
+
+    private var errorTitleText: String {
+        let count: Int = {
+            if let c = message.attemptCount, c > 0 { return c }
+            let info = APIClient.parseAttemptError(message.content)
+            return info.isAttempt ? info.attempt : 1
+        }()
+        if count > 1 {
+            return "执行遇到错误 (已重试 \(count) 次)"
+        }
+        return "执行遇到错误"
     }
 }

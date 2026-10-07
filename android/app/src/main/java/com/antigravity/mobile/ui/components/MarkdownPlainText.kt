@@ -48,6 +48,8 @@ object MarkdownPlainText {
                     .joinToString("\n") { (i, s) -> "${block.startIndex + i}. " + inline(s) }
                 is MarkdownBlock.Paragraph -> inline(block.text)
                 is MarkdownBlock.Image -> block.alt.takeIf { it.isNotBlank() }
+                is MarkdownBlock.AgentEmbed -> "[交互组件: ${block.src.substringAfterLast('/')}]"
+                is MarkdownBlock.Carousel -> block.slides.joinToString("\n\n") { convert(it.content) }
             }
         }
         return parts.filter { it.isNotEmpty() }.joinToString("\n\n")
@@ -99,7 +101,8 @@ internal fun WithCleanCopyToolbar(content: @Composable () -> Unit) {
                             copy()
                             clipboard.getText()?.text?.let { raw ->
                                 val cleaned = raw.replace(" \u2009", "").replace("\u2009", "")
-                                if (cleaned != raw) clipboard.setText(AnnotatedString(cleaned))
+                                val formatted = if (cleaned.endsWith("\n")) cleaned else "$cleaned\n"
+                                clipboard.setText(AnnotatedString(formatted))
                             }
                         }
                     },

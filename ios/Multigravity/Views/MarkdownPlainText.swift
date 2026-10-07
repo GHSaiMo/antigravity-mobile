@@ -33,6 +33,12 @@ public enum MarkdownPlainText {
                 parts.append(inline(text))
             case .image(_, let alt, _):
                 if !alt.isEmpty { parts.append(alt) }
+            case .agentEmbed(_, let src):
+                let filename = (src as NSString).lastPathComponent
+                parts.append("[交互组件: \(filename)]")
+            case .carousel(_, let slides):
+                let slideTexts = slides.map { convert($0.content) }
+                parts.append(slideTexts.joined(separator: "\n\n"))
             }
         }
         return parts.filter { !$0.isEmpty }.joined(separator: "\n\n")

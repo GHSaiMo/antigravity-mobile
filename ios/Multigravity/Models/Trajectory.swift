@@ -372,6 +372,22 @@ public struct CancelCascadeInvocationRequest: Codable, Sendable {
     }
 }
 
+public struct ArtifactItem: Hashable, Sendable, Codable {
+    public let uri: String
+    public let title: String
+    public let summary: String?
+    public let requestFeedback: Bool?
+    public let userFacing: Bool?
+    
+    public init(uri: String, title: String, summary: String? = nil, requestFeedback: Bool? = nil, userFacing: Bool? = nil) {
+        self.uri = uri
+        self.title = title
+        self.summary = summary
+        self.requestFeedback = requestFeedback
+        self.userFacing = userFacing
+    }
+}
+
 // Clean model for SwiftUI chat view
 public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
     public let id: String
@@ -382,7 +398,10 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
     public let toolNames: [String]
     public let imageDataList: [Data]
     public let imageUrls: [String]
+    public let artifacts: [ArtifactItem]
     public let stepIndex: Int?
+    public let attemptCount: Int?
+    public let maxAttempts: Int?
     
     public enum MessageSender: Hashable, Sendable, Codable {
         case user
@@ -437,7 +456,10 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
         toolNames: [String] = [],
         imageDataList: [Data] = [],
         imageUrls: [String] = [],
-        stepIndex: Int? = nil
+        artifacts: [ArtifactItem] = [],
+        stepIndex: Int? = nil,
+        attemptCount: Int? = nil,
+        maxAttempts: Int? = nil
     ) {
         self.id = id
         self.sender = sender
@@ -447,6 +469,9 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
         self.toolNames = toolNames
         self.imageDataList = imageDataList
         self.imageUrls = imageUrls
+        self.artifacts = artifacts
+        self.attemptCount = attemptCount
+        self.maxAttempts = maxAttempts
         if let stepIndex = stepIndex {
             self.stepIndex = stepIndex
         } else if id.hasPrefix("step-"), let val = Int(id.dropFirst(5)) {
@@ -481,7 +506,74 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
         if case .error = sender { return true }
         return false
     }
+
+    public var localizedToolNames: [String] {
+        toolNames.map { ToolLocalization.localizedName(for: $0) }
+    }
 }
+
+// MARK: - Tool Localization
+
+public enum ToolLocalization {
+    public static func localizedName(for toolName: String?) -> String {
+        guard let raw = toolName?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+            return "工具操作"
+        }
+
+        switch raw.lowercased() {
+        // 命令与任务
+        case "run_command": return "运行终端命令"
+        case "manage_task": return "管理后台任务"
+        case "schedule": return "定时调度"
+        case "shell_command", "command": return "运行命令"
+
+        // 文件与代码
+        case "view_file": return "查看文件"
+        case "write_to_file": return "写入文件"
+        case "replace_file_content": return "编辑文件"
+        case "edit_file": return "编辑文件"
+        case "create_file": return "创建文件"
+        case "delete_file": return "删除文件"
+        case "read_file": return "读取文件"
+        case "list_dir", "list_directory": return "浏览目录"
+        case "search_code", "grep_search": return "搜索代码"
+        case "file_search", "find_by_name": return "搜索文件"
+
+        // 网络与搜索
+        case "search_web": return "搜索网络"
+        case "read_url_content": return "读取网页"
+
+        // 子代理与协作
+        case "invoke_subagent": return "调用子代理"
+        case "define_subagent": return "定义子代理"
+        case "manage_subagents": return "管理子代理"
+        case "send_message": return "发送消息"
+        case "browser_subagent": return "浏览器代理"
+
+        // 人机交互与生成
+        case "ask_question": return "询问用户"
+        case "generate_image": return "生成图片"
+
+        // MCP 协议工具
+        case "call_mcp_tool": return "调用 MCP 工具"
+        case "list_resources": return "列出 MCP 资源"
+        case "read_resource": return "读取 MCP 资源"
+
+        // 通用兜底
+        case "thinking": return "思考中"
+        case "tool_call": return "工具操作"
+        case "action": return "操作"
+
+        default:
+            if raw.hasPrefix("mcp_") {
+                let stripped = String(raw.dropFirst(4))
+                return "MCP: \(stripped)"
+            }
+            return raw
+        }
+    }
+}
+
 
 // MARK: - Revert / Undo Models
 
