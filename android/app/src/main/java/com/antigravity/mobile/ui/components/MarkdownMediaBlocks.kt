@@ -54,13 +54,8 @@ internal fun MarkdownImageView(
     }
 
     Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(colors.surfaceVariant.copy(alpha = 0.5f))
-            .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
-            .clickable { onImageClick?.invoke(resolvedUrl) },
-        contentAlignment = Alignment.Center
+        modifier = Modifier.fillMaxWidth(),
+        contentAlignment = Alignment.CenterStart
     ) {
         SubcomposeAsyncImage(
             model = ImageRequest.Builder(context)
@@ -69,11 +64,11 @@ internal fun MarkdownImageView(
                 .memoryCacheKey(stableCacheKey)
                 .crossfade(true)
                 .build(),
-            contentDescription = alt.ifBlank { "Markdown image" },
+            contentDescription = alt.ifBlank { "图片" },
             contentScale = ContentScale.Fit,
             modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = 320.dp)
+                .heightIn(max = 280.dp)
+                .clip(RoundedCornerShape(8.dp))
         ) {
             val state = painter.state
             when (state) {
@@ -81,8 +76,8 @@ internal fun MarkdownImageView(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(140.dp),
-                        contentAlignment = Alignment.Center
+                            .heightIn(min = 120.dp, max = 160.dp),
+                        contentAlignment = Alignment.CenterStart
                     ) {
                         CircularProgressIndicator(
                             color = colors.accentIndigo,
@@ -92,28 +87,31 @@ internal fun MarkdownImageView(
                     }
                 }
                 is AsyncImagePainter.State.Error -> {
-                    Column(
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Description,
                             contentDescription = "Failed",
                             tint = colors.textMuted,
-                            modifier = Modifier.size(28.dp)
+                            modifier = Modifier.size(16.dp)
                         )
                         Text(
                             text = if (alt.isNotBlank()) alt else "图片加载失败",
                             color = colors.textSecondary,
-                            fontSize = 12.sp
+                            fontSize = 12.sp,
+                            maxLines = 2
                         )
                     }
                 }
                 else -> {
-                    SubcomposeAsyncImageContent()
+                    SubcomposeAsyncImageContent(
+                        modifier = Modifier.clickable { onImageClick?.invoke(resolvedUrl) }
+                    )
                 }
             }
         }

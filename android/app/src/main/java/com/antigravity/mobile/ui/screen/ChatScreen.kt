@@ -51,6 +51,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalTextToolbar
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -114,12 +115,20 @@ fun ChatScreen(
     val focusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
+    val textToolbar = LocalTextToolbar.current
     val dismissKeyboard: () -> Unit = {
         focusManager.clearFocus()
         keyboardController?.hide()
     }
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val inputText by viewModel.inputText.collectAsStateWithLifecycle()
+    val handleBackNavigation: () -> Unit = {
+        textToolbar.hide()
+        focusManager.clearFocus()
+        keyboardController?.hide()
+        viewModel.handleBack(cascadeId, inputText)
+        onNavigateBack()
+    }
     val scrollToBottomTrigger by viewModel.scrollToBottomTrigger.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val colors = AntigravityTheme.colors
@@ -256,18 +265,20 @@ fun ChatScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
 
     BackHandler {
-        viewModel.handleBack(cascadeId, inputText)
-        onNavigateBack()
+        handleBackNavigation()
     }
 
     DisposableEffect(lifecycleOwner, cascadeId) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) {
+                textToolbar.hide()
                 viewModel.saveDraftFor(cascadeId, inputText, uiState.selectedImages.map { it.byteArray })
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
+            textToolbar.hide()
+            focusManager.clearFocus()
             lifecycleOwner.lifecycle.removeObserver(observer)
             viewModel.saveDraftFor(cascadeId, inputText, uiState.selectedImages.map { it.byteArray })
         }
@@ -439,7 +450,10 @@ fun ChatScreen(
     // Auto-dismiss keyboard when user manually scrolls through messages and track user manual scroll
     LaunchedEffect(listState.isScrollInProgress) {
         if (listState.isScrollInProgress && !isProgrammaticScrolling) {
-            dismissKeyboard()
+            // 仅在软键盘显示或输入框聚焦时收起软键盘，绝不在此处清除全局焦点，确保选中的文字选框 (SelectionContainer) 在移动屏幕时稳稳保留
+            if (isImeVisible || isInputFocused) {
+                keyboardController?.hide()
+            }
             if (hasInitiallyAligned) {
                 if (isNearBottom) {
                     hasUserInteracted = false
@@ -503,6 +517,10 @@ fun ChatScreen(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
+                modifier = Modifier.clickable(
+                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                    indication = null
+                ) { focusManager.clearFocus() },
                 title = {
                     Text(
                         text = uiState.title,
@@ -514,10 +532,7 @@ fun ChatScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = {
-                        viewModel.handleBack(cascadeId, inputText)
-                        onNavigateBack()
-                    }) {
+                    IconButton(onClick = handleBackNavigation) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back",
@@ -655,7 +670,15 @@ fun ChatScreen(
 
                                 // Bottom breathing room spacer ensuring bubble is fully clear of input bar
                                 item(key = "chat_bottom_spacer") {
-                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Spacer(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(10.dp)
+                                            .clickable(
+                                                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                                indication = null
+                                            ) { focusManager.clearFocus() }
+                                    )
                                 }
                             }
 
