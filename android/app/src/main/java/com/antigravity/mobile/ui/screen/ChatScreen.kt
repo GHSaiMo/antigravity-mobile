@@ -471,8 +471,10 @@ fun ChatScreen(
                 lower.contains("implementation_plan") || lower.contains("walkthrough")
             ) {
                 val docTitle = when {
+                    title.isNotBlank() && !title.endsWith(".md", ignoreCase = true) && !title.endsWith(".markdown", ignoreCase = true) -> title
                     lower.contains("walkthrough") -> "Walkthrough"
                     lower.contains("implementation_plan") -> "Implementation Plan"
+                    title.isNotBlank() -> title
                     else -> decodedFileName
                 }
                 viewModel.openMarkdownViewer(clean, docTitle)
