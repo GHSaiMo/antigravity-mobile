@@ -244,8 +244,24 @@ func TestGetFileContentAndHandler(t *testing.T) {
 	if !strings.Contains(rawRR.Header().Get("Content-Disposition"), "implementation_plan.md") {
 		t.Errorf("expected Content-Disposition header with filename, got: %s", rawRR.Header().Get("Content-Disposition"))
 	}
+	if rawRR.Header().Get("Cache-Control") != "private, max-age=604800, must-revalidate" {
+		t.Errorf("expected Cache-Control header, got: %s", rawRR.Header().Get("Cache-Control"))
+	}
+	etag := rawRR.Header().Get("ETag")
+	if etag == "" {
+		t.Errorf("expected non-empty ETag header")
+	}
 	if rawRR.Body.String() != "# Test Plan\nHello world" {
 		t.Errorf("expected raw body '# Test Plan\\nHello world', got %s", rawRR.Body.String())
+	}
+
+	// Test 304 Not Modified with If-None-Match
+	req304 := httptest.NewRequest(http.MethodGet, "/api/v1/files/raw?uri="+testMD, nil)
+	req304.Header.Set("If-None-Match", etag)
+	rr304 := httptest.NewRecorder()
+	proxy.HandleFileRaw(rr304, req304)
+	if rr304.Code != http.StatusNotModified {
+		t.Errorf("expected 304 Not Modified, got: %d", rr304.Code)
 	}
 }
 

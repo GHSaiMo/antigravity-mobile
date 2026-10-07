@@ -515,5 +515,9 @@ func (p *Proxy) HandleFileRaw(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Disposition", fmt.Sprintf("%s; filename=%q; filename*=UTF-8''%s", disposition, fileName, encodedName))
 
+	etag := fmt.Sprintf(`"%x-%x"`, fi.ModTime().UnixNano(), fi.Size())
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", "private, max-age=604800, must-revalidate")
+
 	http.ServeContent(w, r, fileName, fi.ModTime(), f)
 }

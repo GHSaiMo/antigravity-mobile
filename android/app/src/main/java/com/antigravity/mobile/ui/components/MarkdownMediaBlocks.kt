@@ -45,6 +45,13 @@ internal fun MarkdownImageView(
 ) {
     val context = LocalContext.current
     val resolvedUrl = remember(url) { urlResolver?.invoke(url) ?: url }
+    val stableCacheKey = remember(url, resolvedUrl) {
+        if (resolvedUrl.contains("/api/v1/files/raw")) {
+            resolvedUrl.substringAfter("/api/v1/files/raw")
+        } else {
+            url
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -58,6 +65,8 @@ internal fun MarkdownImageView(
         SubcomposeAsyncImage(
             model = ImageRequest.Builder(context)
                 .data(resolvedUrl)
+                .diskCacheKey(stableCacheKey)
+                .memoryCacheKey(stableCacheKey)
                 .crossfade(true)
                 .build(),
             contentDescription = alt.ifBlank { "Markdown image" },

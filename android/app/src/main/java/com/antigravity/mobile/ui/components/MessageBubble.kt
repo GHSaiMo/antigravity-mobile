@@ -335,9 +335,23 @@ fun MessageBubble(
                                     modifier = Modifier.fillMaxSize()
                                 )
                             } else if (item.bytes != null || !item.url.isNullOrBlank()) {
+                                val imgUrl = item.url
+                                val stableKey = if (!imgUrl.isNullOrBlank()) {
+                                    if (imgUrl.contains("/api/v1/files/raw")) {
+                                        imgUrl.substringAfter("/api/v1/files/raw")
+                                    } else {
+                                        imgUrl
+                                    }
+                                } else null
                                 SubcomposeAsyncImage(
                                     model = ImageRequest.Builder(context)
                                         .data(item.bytes ?: item.url)
+                                        .apply {
+                                            if (stableKey != null) {
+                                                diskCacheKey(stableKey)
+                                                memoryCacheKey(stableKey)
+                                            }
+                                        }
                                         .crossfade(true)
                                         .build(),
                                     contentDescription = "Attached image",
