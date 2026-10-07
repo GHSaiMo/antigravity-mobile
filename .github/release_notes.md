@@ -31,4 +31,9 @@
   - 修复 Cloudflare 边缘 DNS 污染导致的隧道超时（恢复双栈与动态解析）；
   - 基于 SVG 重绘 iOS / Android 全套图标，新增 Logo 矢量文件。
 
+- 🖼️ **图片本地强缓存与秒开 (iOS / Android / Gateway)**
+  - 网关补充 HTTP 强缓存指令（`Cache-Control: private, max-age=604800, must-revalidate`）与 `ETag` 协商缓存，符合带鉴权凭据请求规范；
+  - Android Coil 开启 `.respectCacheHeaders(false)` 优先直读磁盘缓存，并基于文件相对路径哈希固化 Cache Key，彻底消除重入会话转圈与内外网切换缓存穿透；
+  - iOS URLCache 同步预检本地缓存，首帧直接同步解码渲染，消除异步加载占位闪烁。
+
 ---

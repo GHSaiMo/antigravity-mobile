@@ -60,6 +60,14 @@ struct CachedMarkdownAsyncImageView: View {
             if uiImage == nil && !hasFailed {
                 if let cached = MarkdownImageCache.shared.image(for: url) {
                     uiImage = cached
+                } else {
+                    var request = URLRequest(url: url)
+                    request.cachePolicy = .returnCacheDataElseLoad
+                    if let cachedData = URLCache.shared.cachedResponse(for: request)?.data,
+                       let cached = UIImage(data: cachedData) {
+                        MarkdownImageCache.shared.insert(cached, for: url)
+                        uiImage = cached
+                    }
                 }
             }
         }
@@ -67,6 +75,14 @@ struct CachedMarkdownAsyncImageView: View {
 
     private func loadImage() async {
         if let cached = MarkdownImageCache.shared.image(for: url) {
+            uiImage = cached
+            return
+        }
+        var request = URLRequest(url: url)
+        request.cachePolicy = .returnCacheDataElseLoad
+        if let cachedData = URLCache.shared.cachedResponse(for: request)?.data,
+           let cached = UIImage(data: cachedData) {
+            MarkdownImageCache.shared.insert(cached, for: url)
             uiImage = cached
             return
         }

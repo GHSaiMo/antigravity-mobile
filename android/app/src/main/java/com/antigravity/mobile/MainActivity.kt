@@ -96,6 +96,7 @@ class MainActivity : ComponentActivity() {
         coil.Coil.setImageLoader(
             coil.ImageLoader.Builder(this)
                 .okHttpClient(coilOkHttpClient)
+                .respectCacheHeaders(false)
                 .memoryCache {
                     coil.memory.MemoryCache.Builder(this)
                         .maxSizePercent(0.20)
