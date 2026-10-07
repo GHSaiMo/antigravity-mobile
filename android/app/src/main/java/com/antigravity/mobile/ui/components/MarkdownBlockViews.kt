@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -121,8 +122,7 @@ internal fun CodeBlockView(
                     .clip(RoundedCornerShape(6.dp))
                     .clickable {
                         haptic.medium()
-                        val formattedCode = if (code.endsWith("\n")) code else "$code\n"
-                        clipboardManager.setText(AnnotatedString(formattedCode))
+                        clipboardManager.setText(AnnotatedString(code.trimEnd('\r', '\n')))
                         copied = true
                         Toast.makeText(context, "已复制到剪贴板", Toast.LENGTH_SHORT).show()
                     }
@@ -321,13 +321,15 @@ internal fun BulletListBlockView(
                 verticalAlignment = Alignment.Top,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Text(
-                    text = "•",
-                    color = colors.textSecondary,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(top = 2.dp)
-                )
+                DisableSelection {
+                    Text(
+                        text = "•",
+                        color = colors.textSecondary,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
                 Box(modifier = Modifier.weight(1f)) {
                     ParagraphBlockView(
                         text = item,
@@ -354,14 +356,16 @@ internal fun OrderedListBlockView(
                 verticalAlignment = Alignment.Top,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Text(
-                    text = "${startIndex + idx}.",
-                    color = colors.textSecondary,
-                    fontSize = 13.5.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    fontFamily = FontFamily.Monospace,
-                    modifier = Modifier.padding(top = 2.dp)
-                )
+                DisableSelection {
+                    Text(
+                        text = "${startIndex + idx}.",
+                        color = colors.textSecondary,
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
                 Box(modifier = Modifier.weight(1f)) {
                     ParagraphBlockView(
                         text = item,

@@ -75,17 +75,100 @@ object MarkdownPlainText {
                 }
             }
         }
+
+    /**
+     * Reconstructs natural newlines and bullet formatting for selected plain text by mapping it
+     * against the authoritative full plain-text structure of the message.
+     */
+    fun restoreFormattedSelection(raw: String, fullPlainText: String): String {
+        val cleanedRaw = raw.replace(" \u2009", "").replace("\u2009", "").trim()
+        if (cleanedRaw.isEmpty()) return ""
+        if (fullPlainText.isBlank()) return cleanedRaw
+
+        // Identify structural list marker prefixes at the beginning of each line (e.g. "• ", "1. ", "12. ")
+        val isMarker = BooleanArray(fullPlainText.length)
+        val listPrefixRegex = Regex("""^(\s*(?:•|\d+[.)])\s+)""")
+        var lineStart = 0
+        while (lineStart < fullPlainText.length) {
+            val lineEnd = fullPlainText.indexOf('\n', lineStart).let { if (it == -1) fullPlainText.length else it }
+            val line = fullPlainText.substring(lineStart, lineEnd)
+            val match = listPrefixRegex.find(line)
+            if (match != null) {
+                val markerLen = match.value.length
+                for (i in 0 until markerLen) {
+                    isMarker[lineStart + i] = true
+                }
+            }
+            lineStart = lineEnd + 1
+        }
+
+        // Canonical content string of authoritative text (excluding markers and whitespace)
+        val canonToFullIdx = ArrayList<Int>()
+        val fullCanonBuilder = StringBuilder()
+        for (i in fullPlainText.indices) {
+            if (!isMarker[i] && !fullPlainText[i].isWhitespace()) {
+                canonToFullIdx.add(i)
+                fullCanonBuilder.append(fullPlainText[i])
+            }
+        }
+        val fullCanon = fullCanonBuilder.toString()
+
+        // Canonical content string of raw selection (excluding bullets and whitespace)
+        val rawCanonBuilder = StringBuilder()
+        for (ch in cleanedRaw) {
+            if (!ch.isWhitespace() && ch != '•') {
+                rawCanonBuilder.append(ch)
+            }
+        }
+        val rawCanon = rawCanonBuilder.toString()
+
+        if (rawCanon.isEmpty()) return cleanedRaw
+
+        // Full selection / Select All / high coverage (> 90%): return full authoritative plain text directly
+        if (rawCanon == fullCanon ||
+            (rawCanon.length > 20 && fullCanon.contains(rawCanon) && rawCanon.length >= (fullCanon.length * 0.90f))
+        ) {
+            return fullPlainText.trim()
+        }
+
+        // Short sub-selection within a single line (e.g. commit hash, single word): keep exact raw text
+        if (rawCanon.length < 8 && fullPlainText.contains(cleanedRaw)) {
+            return cleanedRaw
+        }
+
+        // Find canonical substring match in authoritative text
+        val matchStart = fullCanon.indexOf(rawCanon)
+        if (matchStart != -1 && matchStart + rawCanon.length <= canonToFullIdx.size) {
+            var realStart = canonToFullIdx[matchStart]
+            val realEnd = canonToFullIdx[matchStart + rawCanon.length - 1] + 1
+
+            // If the selection starts at the beginning of a list item content, include the marker prefix
+            val prevNewline = fullPlainText.lastIndexOf('\n', realStart - 1)
+            val lineStartOfRealStart = if (prevNewline == -1) 0 else prevNewline + 1
+            val linePrefix = fullPlainText.substring(lineStartOfRealStart, realStart)
+            if (linePrefix.isNotBlank() && (linePrefix.startsWith("•") || listPrefixRegex.matches(linePrefix))) {
+                realStart = lineStartOfRealStart
+            }
+
+            return fullPlainText.substring(realStart, realEnd).trim()
+        }
+
+        return cleanedRaw
+    }
 }
 
 /**
  * Wraps the system selection toolbar so that copying a selection drops the inline file-icon
- * placeholders (a space + thin space) that the rich text renderer inserts.
+ * placeholders, reconstructs block newlines and list prefixes, and avoids trailing extra newlines.
  */
 @Composable
-internal fun WithCleanCopyToolbar(content: @Composable () -> Unit) {
+internal fun WithCleanCopyToolbar(
+    rawMarkdown: String? = null,
+    content: @Composable () -> Unit
+) {
     val base = LocalTextToolbar.current
     val clipboard = LocalClipboardManager.current
-    val toolbar = remember(base, clipboard) {
+    val toolbar = remember(base, clipboard, rawMarkdown) {
         object : TextToolbar by base {
             override fun showMenu(
                 rect: Rect,
@@ -101,7 +184,12 @@ internal fun WithCleanCopyToolbar(content: @Composable () -> Unit) {
                             copy()
                             clipboard.getText()?.text?.let { raw ->
                                 val cleaned = raw.replace(" \u2009", "").replace("\u2009", "")
-                                val formatted = if (cleaned.endsWith("\n")) cleaned else "$cleaned\n"
+                                val formatted = if (!rawMarkdown.isNullOrBlank()) {
+                                    val fullPlainText = MarkdownPlainText.convert(rawMarkdown)
+                                    MarkdownPlainText.restoreFormattedSelection(cleaned, fullPlainText)
+                                } else {
+                                    cleaned.trimEnd('\r', '\n')
+                                }
                                 clipboard.setText(AnnotatedString(formatted))
                             }
                         }
