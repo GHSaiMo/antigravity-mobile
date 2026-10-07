@@ -213,8 +213,7 @@ fun MessageBubble(
     val haptic = LocalHapticFeedback.current
     var copiedHintVisible by remember { mutableStateOf(false) }
     fun copyAll(text: String) {
-        val formatted = if (text.endsWith("\n")) text else "$text\n"
-        clipboard.setText(AnnotatedString(formatted))
+        clipboard.setText(AnnotatedString(text))
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
         copiedHintVisible = true
     }

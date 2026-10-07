@@ -25,7 +25,7 @@ fun MarkdownContentView(
     val blocks = remember(content) { MarkdownParser.parse(content) }
     val colors = AntigravityTheme.colors
 
-    WithCleanCopyToolbar {
+    WithCleanCopyToolbar(rawMarkdown = content) {
     SelectionContainer {
     Column(
         modifier = modifier.fillMaxWidth(),

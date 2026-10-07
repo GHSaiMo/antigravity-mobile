@@ -458,6 +458,8 @@ fun AgentEmbedView(
     }
 }
 
+private data class LoadedHtmlState(val url: String, val html: String)
+
 /**
  * Native Android WebView wrapper rendering Agent Embed HTML.
  */
@@ -483,7 +485,6 @@ private fun AgentEmbedWebViewContainer(
                 setBackgroundColor(android.graphics.Color.TRANSPARENT)
                 isVerticalScrollBarEnabled = true
                 isHorizontalScrollBarEnabled = false
-                isNestedScrollingEnabled = true
 
                 settings.apply {
                     javaScriptEnabled = true
@@ -517,17 +518,14 @@ private fun AgentEmbedWebViewContainer(
                     "AndroidAgentEmbedBridge"
                 )
 
-                setTag(android.R.id.text1, targetBaseUrl)
-                setTag(android.R.id.text2, enhancedHtml)
+                tag = LoadedHtmlState(targetBaseUrl, enhancedHtml)
                 loadDataWithBaseURL(targetBaseUrl, enhancedHtml, "text/html", "UTF-8", null)
             }
         },
         update = { webView ->
-            val lastUrl = webView.getTag(android.R.id.text1) as? String
-            val lastHtml = webView.getTag(android.R.id.text2) as? String
-            if (lastUrl != targetBaseUrl || lastHtml != enhancedHtml) {
-                webView.setTag(android.R.id.text1, targetBaseUrl)
-                webView.setTag(android.R.id.text2, enhancedHtml)
+            val lastState = webView.tag as? LoadedHtmlState
+            if (lastState?.url != targetBaseUrl || lastState?.html != enhancedHtml) {
+                webView.tag = LoadedHtmlState(targetBaseUrl, enhancedHtml)
                 webView.loadDataWithBaseURL(targetBaseUrl, enhancedHtml, "text/html", "UTF-8", null)
             }
         }
