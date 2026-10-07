@@ -39,6 +39,7 @@ import com.antigravity.mobile.ui.util.rememberHaptic
 
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -67,6 +68,7 @@ fun MessageBubble(
 ) {
     val colors = AntigravityTheme.colors
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
 
     // Standalone tool message
     if (message.isTools) {
@@ -421,7 +423,7 @@ fun MessageBubble(
                         .clip(RoundedCornerShape(18.dp))
                         .background(colors.userBubbleBg)
                         .combinedClickable(
-                            onClick = {},
+                            onClick = { focusManager.clearFocus() },
                             onLongClick = { showContextMenu = true }
                         )
                         .padding(horizontal = 14.dp, vertical = 10.dp)

@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalTextToolbar
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -76,6 +77,10 @@ fun ConversationListScreen(
     val projects by viewModel.projects.collectAsStateWithLifecycle()
     val isLoadingProjects by viewModel.isLoadingProjects.collectAsStateWithLifecycle()
     val projectsError by viewModel.projectsError.collectAsStateWithLifecycle()
+    val textToolbar = LocalTextToolbar.current
+    LaunchedEffect(Unit) {
+        textToolbar.hide()
+    }
 
     var showQuotaSheet by remember { mutableStateOf(false) }
     var showNewConvSheet by remember { mutableStateOf(false) }

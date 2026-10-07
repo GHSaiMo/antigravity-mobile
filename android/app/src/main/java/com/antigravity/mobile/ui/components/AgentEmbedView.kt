@@ -37,6 +37,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.antigravity.mobile.data.model.FileContentResponse
 import com.antigravity.mobile.data.service.ApiClient
+import com.antigravity.mobile.data.service.PreferencesManager
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 import com.antigravity.mobile.ui.theme.AppColors
 import com.antigravity.mobile.ui.util.rememberHaptic
@@ -82,6 +83,8 @@ fun AgentEmbedView(
 
     val haptic = rememberHaptic()
     val isDark = isSystemInDarkTheme()
+    val context = LocalContext.current
+    val fallbackBaseUrl = remember(context) { PreferencesManager(context).gatewayBaseUrl }
 
     val defaultTitle = remember(src) {
         val clean = src.trim('`', '"', '\'', '(', ')', '[', ']', '<', '>')
@@ -312,16 +315,15 @@ fun AgentEmbedView(
                 }
 
                 htmlContent != null -> {
-                    val density = LocalDensity.current
                     AgentEmbedWebViewContainer(
                         htmlContent = htmlContent!!,
                         isDark = isDark,
-                        baseUrl = ApiClient.defaultInstance?.currentBaseUrl,
+                        baseUrl = ApiClient.defaultInstance?.currentBaseUrl ?: fallbackBaseUrl,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(embedHeightDp),
-                        onHeightMeasured = { hPx ->
-                            val dpVal = with(density) { hPx.toDp() }
+                        onHeightMeasured = { hCssPx ->
+                            val dpVal = hCssPx.dp
                             embedHeightDp = dpVal.coerceIn(160.dp, 520.dp)
                         },
                         onTitleDetected = { t ->
@@ -443,7 +445,7 @@ fun AgentEmbedView(
                     AgentEmbedWebViewContainer(
                         htmlContent = htmlContent!!,
                         isDark = isDark,
-                        baseUrl = ApiClient.defaultInstance?.currentBaseUrl,
+                        baseUrl = ApiClient.defaultInstance?.currentBaseUrl ?: fallbackBaseUrl,
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f),
@@ -481,6 +483,7 @@ private fun AgentEmbedWebViewContainer(
                 setBackgroundColor(android.graphics.Color.TRANSPARENT)
                 isVerticalScrollBarEnabled = true
                 isHorizontalScrollBarEnabled = false
+                isNestedScrollingEnabled = true
 
                 settings.apply {
                     javaScriptEnabled = true
@@ -514,11 +517,19 @@ private fun AgentEmbedWebViewContainer(
                     "AndroidAgentEmbedBridge"
                 )
 
+                setTag(android.R.id.text1, targetBaseUrl)
+                setTag(android.R.id.text2, enhancedHtml)
                 loadDataWithBaseURL(targetBaseUrl, enhancedHtml, "text/html", "UTF-8", null)
             }
         },
         update = { webView ->
-            webView.loadDataWithBaseURL(targetBaseUrl, enhancedHtml, "text/html", "UTF-8", null)
+            val lastUrl = webView.getTag(android.R.id.text1) as? String
+            val lastHtml = webView.getTag(android.R.id.text2) as? String
+            if (lastUrl != targetBaseUrl || lastHtml != enhancedHtml) {
+                webView.setTag(android.R.id.text1, targetBaseUrl)
+                webView.setTag(android.R.id.text2, enhancedHtml)
+                webView.loadDataWithBaseURL(targetBaseUrl, enhancedHtml, "text/html", "UTF-8", null)
+            }
         }
     )
 }
@@ -581,7 +592,7 @@ private object AgentEmbedHtmlBuilder {
                     if (!body) return;
                     var card = body.firstElementChild || body;
                     var rect = card.getBoundingClientRect();
-                    var h = Math.ceil(rect.height || card.scrollHeight || 0) + 16;
+                    var h = Math.ceil(Math.max(rect.height || 0, card.scrollHeight || 0, body.scrollHeight || 0, body.offsetHeight || 0)) + 16;
                     if (!h || h < 80) {
                       h = Math.max(body.scrollHeight, body.offsetHeight, html.clientHeight, html.scrollHeight, html.offsetHeight);
                     }
@@ -615,6 +626,16 @@ private object AgentEmbedHtmlBuilder {
                   var ro = new ResizeObserver(function() { reportSize(); });
                   ro.observe(document.body);
                 }
+
+                try {
+                  Array.from(document.images || []).forEach(function(img) {
+                    if (!img.complete) {
+                      img.addEventListener('load', reportSize);
+                      img.addEventListener('error', reportSize);
+                    }
+                  });
+                } catch(e) {}
+
                 setTimeout(reportSize, 120);
                 setTimeout(reportSize, 400);
                 setTimeout(reportSize, 1200);
