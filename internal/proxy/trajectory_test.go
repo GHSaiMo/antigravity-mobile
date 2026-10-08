@@ -1594,6 +1594,46 @@ func TestParseTrajectoryDetails_NonUserFacingArtifactsExcluded(t *testing.T) {
 	}
 }
 
+// TestParseTrajectoryDetails_WildcardsAndAsteriskExcluded verifies that wildcard prose like
+// `docs/*.md` or `/*` in agent responses never creates artifact cards with title `*`.
+func TestParseTrajectoryDetails_WildcardsAndAsteriskExcluded(t *testing.T) {
+	rawJSON := `{
+		"status": "CASCADE_RUN_STATUS_IDLE",
+		"trajectory": {
+			"cascadeId": "test-asterisk-cascade",
+			"trajectoryId": "traj-asterisk-1",
+			"steps": [
+				{
+					"type": "CORTEX_STEP_TYPE_USER_INPUT",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"userInput": { "userResponse": "check docs" }
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_PLANNER_RESPONSE",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"plannerResponse": {
+						"response": "说明：严格排除常规工作区（Workspace）项目工程文件（如 docs/*.md、README.md）；包含通配符 *.md 与临时状态。"
+					}
+				}
+			]
+		}
+	}`
+
+	var rawResp upstreamTrajectoryResp
+	if err := json.Unmarshal([]byte(rawJSON), &rawResp); err != nil {
+		t.Fatalf("failed to unmarshal test JSON: %v", err)
+	}
+
+	p := &Proxy{}
+	details := p.ParseTrajectoryDetails(&rawResp)
+
+	for _, msg := range details.AllMessages {
+		if len(msg.Artifacts) > 0 {
+			t.Fatalf("expected 0 artifacts for prose with wildcards like docs/*.md, got %d: %+v", len(msg.Artifacts), msg.Artifacts)
+		}
+	}
+}
+
 
 
 

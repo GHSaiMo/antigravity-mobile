@@ -321,8 +321,9 @@ func formatArtifactTitle(uri string) string {
 		}
 	}
 	res := strings.Join(words, " ")
-	if res == "" {
-		return "文档详情"
+	cleanedName := strings.Trim(res, " *_-#@!~`+=")
+	if cleanedName == "" {
+		return ""
 	}
 	return res
 }
@@ -397,6 +398,9 @@ func extractArtifactsFromStep(s TrajectoryStep) []ArtifactItem {
 		}
 
 		title := formatArtifactTitle(uri)
+		if title == "" {
+			return
+		}
 		results = append(results, ArtifactItem{
 			URI:             uri,
 			Title:           title,
@@ -478,7 +482,7 @@ func extractArtifactsFromStep(s TrajectoryStep) []ArtifactItem {
 	return results
 }
 
-var markdownFileLinkRegex = regexp.MustCompile(`(?i)(?:\[([^\]]*)\]\()?((?:file://)?(/[^\s)\]]+\.(?:md|markdown)))\)?`)
+var markdownFileLinkRegex = regexp.MustCompile(`(?i)\[([^\]]+)\]\(((?:file://)?(/[^\s\)><\*` + "`" + `]+\.(?:md|markdown)))\)`)
 
 // extractArtifactsFromText scans response text for markdown links pointing to markdown artifact files.
 // Desktop client parity: only true brain artifacts with valid on-disk user-facing metadata are extracted.
@@ -515,6 +519,9 @@ func extractArtifactsFromText(text string) []ArtifactItem {
 				continue
 			}
 			title := formatArtifactTitle(uri)
+			if title == "" {
+				continue
+			}
 			results = append(results, ArtifactItem{
 				URI:        uri,
 				Title:      title,
@@ -532,6 +539,9 @@ func extractArtifactsFromText(text string) []ArtifactItem {
 		}
 
 		title := formatArtifactTitle(uri)
+		if title == "" {
+			continue
+		}
 		results = append(results, ArtifactItem{
 			URI:             uri,
 			Title:           title,
