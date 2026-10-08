@@ -4,6 +4,8 @@ public struct ConversationListView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    /// iPad sidebar: true once the list is scrolled up, collapsing the large title to an inline one.
+    @State private var sidebarScrolled = false
     @State private var settings = AppSettings.shared
     @State private var viewModel = ConversationListViewModel()
     @State private var showSettings = false
@@ -313,6 +315,7 @@ public struct ConversationListView: View {
     private var sidebarWithChrome: some View {
         pairedContentView
             .toolbar(.hidden, for: .navigationBar)
+            .modifier(SidebarScrollTracker(isScrolled: $sidebarScrolled))
             .safeAreaInset(edge: .top, spacing: 0) {
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: 10) {
@@ -327,17 +330,36 @@ public struct ConversationListView: View {
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 0)
+                    .overlay {
+                        // Inline title shown after scrolling, like the collapsed iPhone nav bar title.
+                        Text("Multigravity")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundColor(.primary)
+                            .opacity(sidebarScrolled ? 1 : 0)
+                            .allowsHitTesting(false)
+                    }
                     
                     // Large leading title; tapping it 10 times opens the easter egg (same as iPhone).
-                    Text("Multigravity")
-                        .font(.system(size: 34, weight: .bold))
-                        .foregroundColor(.primary)
-                        .padding(.horizontal, 20)
-                        .padding(.top, 10)
-                        .padding(.bottom, 6)
-                        .contentShape(Rectangle())
-                        .onTapGesture { handleEasterEggTap() }
+                    if !sidebarScrolled {
+                        Text("Multigravity")
+                            .font(.system(size: 34, weight: .bold))
+                            .foregroundColor(.primary)
+                            .padding(.horizontal, 20)
+                            .padding(.top, 10)
+                            .padding(.bottom, 6)
+                            .contentShape(Rectangle())
+                            .onTapGesture { handleEasterEggTap() }
+                            .transition(.opacity)
+                    } else {
+                        Color.clear.frame(height: 6)
+                    }
                 }
+                .background {
+                    if sidebarScrolled {
+                        Rectangle().fill(.bar).ignoresSafeArea(edges: .top)
+                    }
+                }
+                .animation(.easeInOut(duration: 0.2), value: sidebarScrolled)
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 sidebarSearchField
@@ -1169,6 +1191,23 @@ private struct RowActions: ViewModifier {
     }
 }
 
+
+/// Reports whether the sidebar list has been scrolled away from the top (iOS 18+; earlier
+/// systems keep the large title static).
+private struct SidebarScrollTracker: ViewModifier {
+    @Binding var isScrolled: Bool
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.onScrollGeometryChange(for: Bool.self) { geo in
+                geo.contentOffset.y + geo.contentInsets.top > 24
+            } action: { _, scrolled in
+                isScrolled = scrolled
+            }
+        } else {
+            content
+        }
+    }
+}
 
 /// Circular button background matching the system toolbar buttons used on iPhone
 /// (Liquid Glass on iOS 26+, material elsewhere).
