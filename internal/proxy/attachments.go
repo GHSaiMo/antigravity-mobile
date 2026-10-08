@@ -56,6 +56,7 @@ func buildAttachmentExts() map[string]string {
 	add("document", "doc", "docx", "dot", "dotx", "rtf", "odt", "pages", "pdf", "md", "markdown", "txt", "log", "epub")
 	add("spreadsheet", "xls", "xlsx", "xlsm", "csv", "tsv", "ods", "numbers")
 	add("presentation", "ppt", "pptx", "pps", "ppsx", "odp", "key")
+	add("audio", "mp3", "m4a", "wav", "aac", "flac", "ogg", "oga", "opus", "aif", "aiff", "wma", "amr", "caf")
 	add("archive", "zip", "tar", "gz", "tgz", "7z")
 	add("code",
 		"py", "js", "mjs", "cjs", "ts", "tsx", "jsx", "go", "rs", "java", "kt", "kts", "swift", "m", "mm",
