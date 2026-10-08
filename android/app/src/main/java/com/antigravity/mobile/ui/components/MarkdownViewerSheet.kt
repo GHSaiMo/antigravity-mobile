@@ -309,7 +309,7 @@ private fun shareMarkdown(context: Context, filename: String, content: String) {
             putExtra(Intent.EXTRA_SUBJECT, safeName)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        context.startActivity(Intent.createChooser(shareIntent, "分享Markdown文档"))
+        com.antigravity.mobile.ui.util.ShareImageUtils.startShare(context, shareIntent, "分享Markdown文档")
     } catch (e: Exception) {
         Toast.makeText(context, "分享失败: ${e.message}", Toast.LENGTH_SHORT).show()
     }

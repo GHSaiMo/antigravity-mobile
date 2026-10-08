@@ -1,7 +1,10 @@
 package com.antigravity.mobile.ui.components
 
 import android.graphics.Bitmap
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -9,18 +12,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.*
@@ -33,6 +36,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.layer.GraphicsLayer
@@ -63,32 +67,55 @@ import kotlin.math.roundToInt
 /** 分享长图卡片头部需要的会话上下文。 */
 data class ShareCardContext(
     val sessionTitle: String = "",
+    /** 完整模型展示名，如 "Gemini 3.8 Flash" / "Opus 4.6 Thinking"。 */
     val modelName: String? = null,
+    val modelIsClaude: Boolean = false,
     /** 紧邻该气泡之前的用户提问（用于「包含上一条提问」开关）。 */
     val previousQuestion: String? = null
-)
+) {
+    companion object {
+        /** 把 `gemini-3.8-flash-high` / `claude-opus-4-6-thinking` 这类内部模型 ID 转成展示名。 */
+        fun modelBadge(raw: String): Pair<String, Boolean> {
+            val isClaude = raw.contains("claude", ignoreCase = true) || raw.contains("M26")
+            val effort = setOf("high", "medium", "low")
+            val tokens = raw.split("-").filter { it.isNotBlank() }.toMutableList()
+            if (tokens.firstOrNull()?.equals("claude", ignoreCase = true) == true) tokens.removeAt(0)
+            tokens.removeAll { it.lowercase() in effort }
+            val parts = mutableListOf<String>()
+            for (token in tokens) {
+                val isDigits = token.all { it.isDigit() }
+                val last = parts.lastOrNull()
+                if (isDigits && last != null && last.all { it.isDigit() || it == '.' }) {
+                    parts[parts.lastIndex] = "$last.$token"
+                } else if (token.first().isLetter()) {
+                    parts.add(token.replaceFirstChar { it.uppercase() })
+                } else {
+                    parts.add(token)
+                }
+            }
+            var name = parts.joinToString(" ")
+            if (!isClaude && !name.startsWith("Gemini", ignoreCase = true)) name = "Gemini $name"
+            return (name.ifBlank { if (isClaude) "Claude" else "Gemini" }) to isClaude
+        }
+    }
+}
 
-enum class ShareCardTheme(val label: String, val isDark: Boolean) {
-    DARK_GLASS("暗黑极客", true),
-    CLEAN_LIGHT("极简纸白", false),
-    TITANIUM("渐变钛金", true);
+enum class ShareCardTheme(val isDark: Boolean) {
+    DARK(true),
+    LIGHT(false);
 
     val accent: Color
-        get() = when (this) {
-            DARK_GLASS -> Color(0xFF8C80FF)
-            CLEAN_LIGHT -> Color(0xFF5856D6)
-            TITANIUM -> Color(0xFFCCD6EB)
-        }
+        get() = if (isDark) Color(0xFF8C80FF) else Color(0xFF5856D6)
 
     val background: Brush
-        get() = when (this) {
-            DARK_GLASS -> Brush.linearGradient(listOf(Color(0xFF0F121C), Color(0xFF1F1738)))
-            CLEAN_LIGHT -> Brush.linearGradient(listOf(Color(0xFFFCFCFA), Color(0xFFF5F5F2)))
-            TITANIUM -> Brush.linearGradient(listOf(Color(0xFF292E38), Color(0xFF5C6373)))
+        get() = if (isDark) {
+            Brush.linearGradient(listOf(Color(0xFF0F121C), Color(0xFF1F1738)))
+        } else {
+            Brush.linearGradient(listOf(Color(0xFFFCFCFA), Color(0xFFF5F5F2)))
         }
 
     val questionBackground: Color
-        get() = if (this == CLEAN_LIGHT) Color.Black.copy(alpha = 0.05f) else Color.White.copy(alpha = 0.09f)
+        get() = if (isDark) Color.White.copy(alpha = 0.09f) else Color.Black.copy(alpha = 0.05f)
 }
 
 private val CARD_WIDTH = 390.dp
@@ -111,7 +138,7 @@ fun MessageShareCardSheet(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
-    var theme by remember { mutableStateOf(if (systemDark) ShareCardTheme.DARK_GLASS else ShareCardTheme.CLEAN_LIGHT) }
+    var theme by remember { mutableStateOf(if (systemDark) ShareCardTheme.DARK else ShareCardTheme.LIGHT) }
     var includeQuestion by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     val layer = rememberGraphicsLayer()
@@ -142,14 +169,45 @@ fun MessageShareCardSheet(
                 .fillMaxHeight(0.92f)
                 .navigationBarsPadding()
         ) {
-            Text(
-                text = "分享长图",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
+            // Top bar: 保存（左） / 标题 / 分享（右）
+            Row(
                 modifier = Modifier
-                    .align(Alignment.CenterHorizontally)
-                    .padding(bottom = 8.dp)
-            )
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(
+                    onClick = {
+                        scope.launch {
+                            busy = true
+                            ShareImageUtils.saveBitmapToGallery(context, capture())
+                            busy = false
+                        }
+                    },
+                    enabled = !busy
+                ) {
+                    Icon(Icons.Default.FileDownload, contentDescription = "保存到相册")
+                }
+                Text(
+                    text = "分享长图",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+                IconButton(
+                    onClick = {
+                        scope.launch {
+                            busy = true
+                            ShareImageUtils.shareBitmap(context, capture())
+                            busy = false
+                        }
+                    },
+                    enabled = !busy
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = "分享")
+                }
+            }
 
             // Live preview of the card (what you see is what gets exported)
             Box(
@@ -179,89 +237,56 @@ fun MessageShareCardSheet(
                 }
             }
 
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                ShareCardTheme.entries.forEach { item ->
-                    FilterChip(
-                        selected = theme == item,
-                        onClick = { theme = item },
-                        label = { Text(item.label, fontSize = 13.sp) }
-                    )
-                }
-            }
-
-            if (canIncludeQuestion) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("包含上一条提问", modifier = Modifier.weight(1f), fontSize = 15.sp)
-                    Switch(checked = includeQuestion, onCheckedChange = { includeQuestion = it })
-                }
-            }
-
+            // 底部：左 = 浅/深色切换，右 = 是否包含上一条提问
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                OutlinedButton(
+                ShareOptionPill(
+                    icon = if (theme == ShareCardTheme.DARK) Icons.Default.DarkMode else Icons.Default.LightMode,
+                    label = if (theme == ShareCardTheme.DARK) "深色" else "浅色",
+                    selected = false,
                     onClick = {
-                        scope.launch {
-                            busy = true
-                            ShareImageUtils.saveBitmapToGallery(context, capture())
-                            busy = false
-                        }
-                    },
-                    enabled = !busy,
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 8.dp)
-                ) {
-                    Icon(Icons.Default.FileDownload, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("保存相册", fontSize = 13.sp, maxLines = 1)
-                }
-                OutlinedButton(
-                    onClick = {
-                        scope.launch {
-                            busy = true
-                            ShareImageUtils.copyBitmapToClipboard(context, capture())
-                            busy = false
-                        }
-                    },
-                    enabled = !busy,
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 8.dp)
-                ) {
-                    Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("拷贝", fontSize = 13.sp, maxLines = 1)
-                }
-                Button(
-                    onClick = {
-                        scope.launch {
-                            busy = true
-                            ShareImageUtils.shareBitmap(context, capture())
-                            busy = false
-                        }
-                    },
-                    enabled = !busy,
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 8.dp)
-                ) {
-                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("系统分享", fontSize = 13.sp, maxLines = 1)
+                        theme = if (theme == ShareCardTheme.DARK) ShareCardTheme.LIGHT else ShareCardTheme.DARK
+                    }
+                )
+                Spacer(Modifier.weight(1f))
+                if (canIncludeQuestion) {
+                    ShareOptionPill(
+                        icon = if (includeQuestion) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+                        label = "包含上一条提问",
+                        selected = includeQuestion,
+                        onClick = { includeQuestion = !includeQuestion }
+                    )
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ShareOptionPill(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    val container = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+    else MaterialTheme.colorScheme.surfaceVariant
+    Row(
+        modifier = Modifier
+            .height(44.dp)
+            .clip(CircleShape)
+            .background(container)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+        Text(label, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -311,43 +336,28 @@ private fun MessageShareCard(
                 .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // Header
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Box(
-                    modifier = Modifier
-                        .size(26.dp)
-                        .clip(RoundedCornerShape(7.dp))
-                        .background(theme.accent),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp))
-                }
-                Text("Multigravity", color = colors.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.weight(1f))
-                Text(dateText, color = colors.textSecondary, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
-            }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (shareContext.sessionTitle.isNotBlank()) {
-                    Text(
-                        shareContext.sessionTitle,
-                        color = colors.textSecondary,
-                        fontSize = 12.5.sp,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
-                    )
-                }
+            // Header: 会话标题 / 时间 + 模型胶囊
+            Text(
+                text = shareContext.sessionTitle.ifBlank { "Multigravity 会话" },
+                color = colors.textPrimary,
+                fontSize = 24.sp,
+                lineHeight = 30.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(dateText, color = colors.textSecondary, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
                 if (!shareContext.modelName.isNullOrBlank()) {
+                    val tint = if (shareContext.modelIsClaude) colors.accentOrange else colors.accentBlue
                     Text(
                         shareContext.modelName,
-                        color = theme.accent,
-                        fontSize = 10.5.sp,
+                        color = tint,
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier
                             .clip(CircleShape)
-                            .background(theme.accent.copy(alpha = 0.16f))
-                            .padding(horizontal = 7.dp, vertical = 2.dp)
+                            .background(tint.copy(alpha = 0.14f))
+                            .border(1.dp, tint.copy(alpha = 0.35f), CircleShape)
+                            .padding(horizontal = 10.dp, vertical = 4.dp)
                     )
                 }
             }
@@ -391,12 +401,55 @@ private fun MessageShareCard(
             }
 
             HorizontalDivider(color = colors.textMuted.copy(alpha = 0.4f), thickness = 0.5.dp)
-            Text(
-                "Generated by Multigravity · Powering AI Workflows",
-                color = colors.textSecondary,
-                fontSize = 10.5.sp,
-                modifier = Modifier.align(Alignment.CenterHorizontally)
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(RoundedCornerShape(9.dp))
+                        .background(theme.accent),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                }
+                Spacer(Modifier.width(8.dp))
+                Text("Multigravity", color = colors.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.weight(1f))
+                val qr = remember { buildQrBitmap(LANDING_URL) }
+                if (qr != null) {
+                    Image(
+                        bitmap = qr.asImageBitmap(),
+                        contentDescription = LANDING_URL,
+                        filterQuality = androidx.compose.ui.graphics.FilterQuality.None,
+                        modifier = Modifier
+                            .size(70.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color.White)
+                            .padding(5.dp)
+                    )
+                }
+            }
         }
     }
+}
+
+private const val LANDING_URL = "https://mgy.jiuge.space"
+
+/** 用 zxing 本地生成落地页二维码（黑白位图）。 */
+private fun buildQrBitmap(text: String, size: Int = 320): Bitmap? = try {
+    val matrix = com.google.zxing.qrcode.QRCodeWriter().encode(
+        text,
+        com.google.zxing.BarcodeFormat.QR_CODE,
+        size,
+        size,
+        mapOf(
+            com.google.zxing.EncodeHintType.MARGIN to 0,
+            com.google.zxing.EncodeHintType.ERROR_CORRECTION to com.google.zxing.qrcode.decoder.ErrorCorrectionLevel.M
+        )
+    )
+    val pixels = IntArray(size * size) { i ->
+        if (matrix[i % size, i / size]) android.graphics.Color.BLACK else android.graphics.Color.WHITE
+    }
+    Bitmap.createBitmap(pixels, size, size, Bitmap.Config.ARGB_8888)
+} catch (e: Exception) {
+    null
 }

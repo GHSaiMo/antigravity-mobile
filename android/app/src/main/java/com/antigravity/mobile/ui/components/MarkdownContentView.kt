@@ -70,6 +70,8 @@ fun MarkdownContentView(
                             code = block.code,
                             colors = colors
                         )
+                    } else if (isExport) {
+                        ShareExportPlaceholder("代码块（${block.code.trimEnd().lines().size} 行），请在 App 中查看")
                     } else {
                         CodeBlockView(
                             lang = block.lang,
@@ -80,6 +82,10 @@ fun MarkdownContentView(
                 }
 
                 is MarkdownBlock.Table -> {
+                    val columns = maxOf(block.headers.size, block.rows.maxOfOrNull { it.size } ?: 0)
+                    if (isExport && (columns >= 4 || block.rows.size > 12)) {
+                        ShareExportPlaceholder("表格（${block.rows.size} 行 × $columns 列），请在 App 中查看")
+                    } else
                     DisableSelection {
                     TableBlockView(
                         headers = block.headers,

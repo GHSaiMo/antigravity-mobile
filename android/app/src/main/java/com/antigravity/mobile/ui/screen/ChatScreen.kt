@@ -664,9 +664,11 @@ fun ChatScreen(
                                             val question = list.take(idx).lastOrNull { it.isUser }
                                                 ?.let { com.antigravity.mobile.data.service.AttachmentRules.parseBlock(it.effectiveText).first }
                                                 ?.takeIf { it.isNotBlank() }
+                                            val badge = ShareCardContext.modelBadge(uiState.activeModel)
                                             ShareCardContext(
                                                 sessionTitle = uiState.title,
-                                                modelName = if (uiState.activeModel.contains("claude", ignoreCase = true)) "Claude" else "Gemini",
+                                                modelName = badge.first,
+                                                modelIsClaude = badge.second,
                                                 previousQuestion = question
                                             )
                                         }

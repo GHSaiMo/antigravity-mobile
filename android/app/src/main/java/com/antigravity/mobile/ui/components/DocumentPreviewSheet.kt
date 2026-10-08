@@ -1135,7 +1135,7 @@ private fun shareDocument(context: Context, file: File, title: String) {
             putExtra(Intent.EXTRA_SUBJECT, title)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        context.startActivity(Intent.createChooser(shareIntent, "分享文件"))
+        com.antigravity.mobile.ui.util.ShareImageUtils.startShare(context, shareIntent, "分享文件")
     } catch (e: Exception) {
         Toast.makeText(context, "分享失败: ${e.message}", Toast.LENGTH_SHORT).show()
     }
