@@ -70,8 +70,8 @@ data class ShareCardContext(
     /** 完整模型展示名，如 "Gemini 3.8 Flash" / "Opus 4.6 Thinking"。 */
     val modelName: String? = null,
     val modelIsClaude: Boolean = false,
-    /** 紧邻该气泡之前的用户提问（用于「包含上一条提问」开关）。 */
-    val previousQuestion: String? = null
+    /** 紧邻该气泡之前的用户提问消息（含图片/附件，用于「包含上一条提问」开关）。 */
+    val previousMessage: com.antigravity.mobile.data.model.GatewayMessageItem? = null
 ) {
     companion object {
         /** 把 `gemini-3.8-flash-high` / `claude-opus-4-6-thinking` 这类内部模型 ID 转成展示名。 */
@@ -142,7 +142,7 @@ fun MessageShareCardSheet(
     var includeQuestion by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     val layer = rememberGraphicsLayer()
-    val canIncludeQuestion = !isUserMessage && !shareContext.previousQuestion.isNullOrBlank()
+    val canIncludeQuestion = !isUserMessage && (shareContext.previousMessage?.hasQuestionContent() ?: false)
 
     /** 将卡片录制为位图；超过像素上限时等比缩小，避免 OOM / 纹理超限。 */
     suspend fun capture(): Bitmap? {
@@ -227,7 +227,7 @@ fun MessageShareCardSheet(
                         MessageShareCard(
                             content = content,
                             isUserMessage = isUserMessage,
-                            question = if (includeQuestion) shareContext.previousQuestion else null,
+                            question = if (includeQuestion) shareContext.previousMessage else null,
                             images = images,
                             theme = theme,
                             shareContext = shareContext,
@@ -317,7 +317,7 @@ private fun ScaledToFitWidth(designWidth: androidx.compose.ui.unit.Dp, content: 
 private fun MessageShareCard(
     content: String,
     isUserMessage: Boolean,
-    question: String?,
+    question: com.antigravity.mobile.data.model.GatewayMessageItem?,
     images: List<ImageViewerItem>,
     theme: ShareCardTheme,
     shareContext: ShareCardContext,
@@ -333,7 +333,7 @@ private fun MessageShareCard(
             modifier = Modifier
                 .width(CARD_WIDTH)
                 .background(theme.background)
-                .padding(20.dp),
+                .padding(start = 20.dp, end = 20.dp, bottom = 20.dp, top = 56.dp), // 预留顶部：避开刘海/状态栏遮挡
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             // Header: 会话标题 / 时间 + 模型胶囊
@@ -345,7 +345,6 @@ private fun MessageShareCard(
                 fontWeight = FontWeight.Bold
             )
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(dateText, color = colors.textSecondary, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
                 if (!shareContext.modelName.isNullOrBlank()) {
                     val tint = if (shareContext.modelIsClaude) colors.accentOrange else colors.accentBlue
                     Text(
@@ -360,21 +359,12 @@ private fun MessageShareCard(
                             .padding(horizontal = 10.dp, vertical = 4.dp)
                     )
                 }
+                Text(dateText, color = colors.textSecondary, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
             }
             HorizontalDivider(color = colors.textMuted.copy(alpha = 0.4f), thickness = 0.5.dp)
 
-            if (!question.isNullOrBlank()) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(theme.questionBackground)
-                        .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text("提问", color = theme.accent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    Text(question, color = colors.textPrimary, fontSize = 14.5.sp, lineHeight = 20.sp)
-                }
+            if (question != null) {
+                QuestionBubble(question, urlResolver)
             }
 
             val appContext = LocalContext.current
@@ -402,15 +392,14 @@ private fun MessageShareCard(
 
             HorizontalDivider(color = colors.textMuted.copy(alpha = 0.4f), thickness = 0.5.dp)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
+                Image(
+                    painter = androidx.compose.ui.res.painterResource(com.antigravity.mobile.R.drawable.share_app_logo),
+                    contentDescription = null,
                     modifier = Modifier
                         .size(32.dp)
                         .clip(RoundedCornerShape(9.dp))
-                        .background(theme.accent),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-                }
+                        .border(0.5.dp, Color.Black.copy(alpha = 0.08f), RoundedCornerShape(9.dp))
+                )
                 Spacer(Modifier.width(8.dp))
                 Text("Multigravity", color = colors.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.weight(1f))
@@ -452,4 +441,106 @@ private fun buildQrBitmap(text: String, size: Int = 320): Bitmap? = try {
     Bitmap.createBitmap(pixels, size, size, Bitmap.Config.ARGB_8888)
 } catch (e: Exception) {
     null
+}
+
+private fun com.antigravity.mobile.data.model.GatewayMessageItem.hasQuestionContent(): Boolean {
+    val (body, files) = com.antigravity.mobile.data.service.AttachmentRules.parseBlock(effectiveText)
+    return body.isNotBlank() || files.isNotEmpty() || !imageUrls.isNullOrEmpty() || effectiveImageDataList.isNotEmpty()
+}
+
+/** 复刻会话内用户气泡的排布：右对齐，图片 → 文件卡片 → 靛蓝文字气泡。 */
+@Composable
+private fun QuestionBubble(
+    message: com.antigravity.mobile.data.model.GatewayMessageItem,
+    urlResolver: ((String) -> String)?
+) {
+    val colors = AntigravityTheme.colors
+    val appContext = LocalContext.current
+    val (bodyText, files) = remember(message) {
+        com.antigravity.mobile.data.service.AttachmentRules.parseBlock(message.effectiveText)
+    }
+    val imageItems = remember(message, urlResolver) {
+        if (!message.imageUrls.isNullOrEmpty()) {
+            message.imageUrls.mapIndexed { idx, raw ->
+                ImageViewerItem(url = urlResolver?.invoke(raw) ?: raw, bytes = message.effectiveImageDataList.getOrNull(idx))
+            }
+        } else {
+            message.effectiveImageDataList.map { ImageViewerItem(bytes = it) }
+        }
+    }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.End,
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        if (imageItems.size == 1) {
+            val item = imageItems.first()
+            AsyncImage(
+                model = ImageRequest.Builder(appContext).data(item.bytes ?: item.url).crossfade(false).build(),
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                alignment = Alignment.CenterEnd,
+                modifier = Modifier
+                    .widthIn(max = 240.dp)
+                    .heightIn(max = 220.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .border(0.5.dp, colors.border, RoundedCornerShape(14.dp))
+            )
+        } else if (imageItems.size > 1) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                imageItems.forEach { item ->
+                    AsyncImage(
+                        model = ImageRequest.Builder(appContext).data(item.bytes ?: item.url).crossfade(false).build(),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(72.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
+                    )
+                }
+            }
+        }
+
+        files.forEach { f ->
+            Row(
+                modifier = Modifier
+                    .widthIn(max = 280.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(colors.surface)
+                    .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                FileTypeBadge(f.name, 36.dp)
+                Column {
+                    Text(
+                        text = f.name,
+                        color = colors.textPrimary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(text = "${f.ext.uppercase()} · ${f.sizeLabel}", color = colors.textMuted, fontSize = 11.sp)
+                }
+            }
+        }
+
+        if (bodyText.isNotBlank()) {
+            Text(
+                text = bodyText,
+                color = colors.userBubbleText,
+                fontSize = 15.5.sp,
+                lineHeight = 21.sp,
+                modifier = Modifier
+                    .widthIn(max = 320.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(colors.userBubbleBg)
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
+            )
+        }
+    }
 }

@@ -268,11 +268,10 @@ extension ChatView {
     }
     
     func shareContext(forMessageAt index: Int) -> ShareCardContext {
-        var question: String?
+        var question: ChatMessage?
         for candidate in viewModel.messages[..<index].reversed() {
             if case .user = candidate.sender {
-                let body = AttachmentRules.parseBlock(candidate.content).body
-                question = body.isEmpty ? nil : body
+                question = candidate.hasQuestionContent ? candidate : nil
                 break
             }
         }
@@ -281,7 +280,7 @@ extension ChatView {
             sessionTitle: viewModel.currentTitle,
             modelName: badge.name,
             modelIsClaude: badge.isClaude,
-            previousQuestion: question
+            previousMessage: question
         )
     }
     

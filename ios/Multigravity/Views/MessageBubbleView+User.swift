@@ -3,17 +3,7 @@ import Photos
 
 extension MessageBubbleView {
     var userAttachmentItems: [IdentifiableImage] {
-        if !message.imageUrls.isEmpty {
-            return message.imageUrls.enumerated().compactMap { idx, urlString in
-                guard let url = URL(string: urlString) else { return nil }
-                let thumbImg = idx < message.imageDataList.count ? UIImage(data: message.imageDataList[idx]) : nil
-                return IdentifiableImage(image: thumbImg, url: url)
-            }
-        }
-        return message.imageDataList.compactMap { data in
-            guard let uiImg = UIImage(data: data) else { return nil }
-            return IdentifiableImage(image: uiImg)
-        }
+        message.attachmentImages
     }
     
     var userBubble: some View {

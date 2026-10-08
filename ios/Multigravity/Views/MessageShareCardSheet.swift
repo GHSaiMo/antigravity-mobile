@@ -9,8 +9,8 @@ struct ShareCardContext: Equatable {
     /// 完整模型展示名，如 "Gemini 3.8 Flash" / "Opus 4.6 Thinking"。
     var modelName: String?
     var modelIsClaude: Bool = false
-    /// 紧邻该气泡之前的用户提问（用于「包含提问」开关）。
-    var previousQuestion: String?
+    /// 紧邻该气泡之前的用户提问消息（含图片/附件，用于「包含提问」开关）。
+    var previousMessage: ChatMessage?
 
     /// 把 `gemini-3.8-flash-high` / `claude-opus-4-6-thinking` 这类内部模型 ID 转成展示名。
     static func modelBadge(from raw: String) -> (name: String, isClaude: Bool) {
@@ -65,6 +65,38 @@ enum ShareCardTheme: String {
     }
 }
 
+// MARK: - Question content
+
+/// 「包含上一条提问」时渲染所需的内容：与会话内用户气泡同样的 图片 / 文件卡片 / 文字 排列。
+struct ShareCardQuestion {
+    let text: String
+    let images: [UIImage]
+    let files: [AttachmentRules.ParsedFile]
+}
+
+extension ChatMessage {
+    /// 用户消息里的图片附件（优先 imageUrls，缩略图来自 imageDataList）。
+    var attachmentImages: [IdentifiableImage] {
+        if !imageUrls.isEmpty {
+            return imageUrls.enumerated().compactMap { idx, urlString in
+                guard let url = URL(string: urlString) else { return nil }
+                let thumb = idx < imageDataList.count ? UIImage(data: imageDataList[idx]) : nil
+                return IdentifiableImage(image: thumb, url: url)
+            }
+        }
+        return imageDataList.compactMap { data in
+            guard let image = UIImage(data: data) else { return nil }
+            return IdentifiableImage(image: image)
+        }
+    }
+
+    /// 是否有可展示的提问内容（文字、图片或文件）。
+    var hasQuestionContent: Bool {
+        let parsed = AttachmentRules.parseBlock(content)
+        return !parsed.body.isEmpty || !parsed.files.isEmpty || !attachmentImages.isEmpty
+    }
+}
+
 // MARK: - Card View
 
 struct MessageShareCardView: View {
@@ -72,7 +104,7 @@ struct MessageShareCardView: View {
 
     let content: String
     let isUserMessage: Bool
-    let question: String?
+    let question: ShareCardQuestion?
     let images: [UIImage]
     let theme: ShareCardTheme
     let context: ShareCardContext
@@ -83,20 +115,8 @@ struct MessageShareCardView: View {
             header
             Divider().overlay(Color.secondary.opacity(0.4))
 
-            if let question, !question.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("提问")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundColor(theme.accent)
-                    Text(question)
-                        .font(.system(size: 14.5))
-                        .foregroundColor(.primary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(theme.questionBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            if let question {
+                questionBubble(question)
             }
 
             ForEach(Array(images.enumerated()), id: \.offset) { _, image in
@@ -121,11 +141,53 @@ struct MessageShareCardView: View {
             Divider().overlay(Color.secondary.opacity(0.4))
             footer
         }
-        .padding(20)
+        .padding(.horizontal, 20)
+        .padding(.bottom, 20)
+        .padding(.top, 56) // 预留顶部：避开刘海/状态栏遮挡与圆角裁切
         .frame(width: Self.width, alignment: .leading)
         .background(theme.background)
         .environment(\.colorScheme, theme.colorScheme)
         .environment(\.isShareExport, true)
+    }
+
+    /// 复刻会话内用户气泡的排布：右对齐，图片 → 文件卡片 → 靛蓝文字气泡。
+    @ViewBuilder
+    private func questionBubble(_ question: ShareCardQuestion) -> some View {
+        VStack(alignment: .trailing, spacing: 6) {
+            if question.images.count == 1, let image = question.images.first {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: 240, maxHeight: 220, alignment: .trailing)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.primary.opacity(0.12), lineWidth: 0.8))
+            } else if question.images.count > 1 {
+                HStack(spacing: 6) {
+                    ForEach(Array(question.images.enumerated()), id: \.offset) { _, image in
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 72, height: 72)
+                            .clipped()
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color.primary.opacity(0.12), lineWidth: 0.8))
+                    }
+                }
+            }
+            ForEach(question.files) { file in
+                MessageFileCardView(file: file, onTap: {})
+            }
+            if !question.text.isEmpty {
+                Text(question.text)
+                    .font(.system(size: 15.5))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(Color.indigo)
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
     private var header: some View {
@@ -135,9 +197,6 @@ struct MessageShareCardView: View {
                 .foregroundColor(.primary)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 10) {
-                Text(Self.dateFormatter.string(from: date))
-                    .font(.system(size: 13, design: .monospaced))
-                    .foregroundColor(.secondary)
                 if let model = context.modelName, !model.isEmpty {
                     let tint: Color = context.modelIsClaude ? .orange : .blue
                     Text(model)
@@ -148,6 +207,9 @@ struct MessageShareCardView: View {
                         .background(tint.opacity(0.14), in: Capsule())
                         .overlay(Capsule().stroke(tint.opacity(0.35), lineWidth: 1))
                 }
+                Text(Self.dateFormatter.string(from: date))
+                    .font(.system(size: 13, design: .monospaced))
+                    .foregroundColor(.secondary)
             }
         }
     }
@@ -155,11 +217,12 @@ struct MessageShareCardView: View {
     private var footer: some View {
         HStack(alignment: .center) {
             HStack(spacing: 8) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundColor(.white)
+                Image("AppLogo")
+                    .resizable()
+                    .scaledToFit()
                     .frame(width: 32, height: 32)
-                    .background(theme.accent, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(Color.black.opacity(0.08), lineWidth: 0.5))
                 Text("Multigravity")
                     .font(.system(size: 18, weight: .bold))
                     .foregroundColor(.primary)
@@ -215,7 +278,7 @@ struct MessageShareCardSheet: View {
 
     private var isUserMessage: Bool { message.sender == .user }
     private var canIncludeQuestion: Bool {
-        !isUserMessage && !(context.previousQuestion ?? "").isEmpty
+        !isUserMessage && (context.previousMessage?.hasQuestionContent ?? false)
     }
 
     private struct RenderKey: Equatable {
@@ -343,10 +406,21 @@ struct MessageShareCardSheet: View {
         }
         if Task.isCancelled { return }
 
+        var questionContent: ShareCardQuestion?
+        if includeQuestion, let previous = context.previousMessage {
+            let parsed = AttachmentRules.parseBlock(previous.content)
+            var questionImages: [UIImage] = []
+            for item in previous.attachmentImages {
+                if let image = await ImageActions.loadImage(item) { questionImages.append(image) }
+            }
+            questionContent = ShareCardQuestion(text: parsed.body, images: questionImages, files: parsed.files)
+        }
+        if Task.isCancelled { return }
+
         let card = MessageShareCardView(
             content: isUserMessage ? AttachmentRules.parseBlock(message.content).body : message.content,
             isUserMessage: isUserMessage,
-            question: includeQuestion ? context.previousQuestion : nil,
+            question: questionContent,
             images: loadedImages,
             theme: theme,
             context: context,
