@@ -36,12 +36,20 @@ public struct MarkdownContentView: View {
                         } else {
                             MermaidDiagramView(code: code)
                         }
+                    } else if isShareExport {
+                        let lines = code.split(separator: "\n", omittingEmptySubsequences: false).count
+                        shareExportPlaceholder("代码块（\(lines) 行），请在 App 中查看")
                     } else {
                         codeBlockView(lang: lang, code: code)
                     }
                     
                 case .table(_, let headers, let rows, let alignments):
-                    tableView(headers: headers, rows: rows, alignments: alignments)
+                    let columns = max(headers.count, rows.map(\.count).max() ?? 0)
+                    if isShareExport && (columns >= 4 || rows.count > 12) {
+                        shareExportPlaceholder("表格（\(rows.count) 行 × \(columns) 列），请在 App 中查看")
+                    } else {
+                        tableView(headers: headers, rows: rows, alignments: alignments)
+                    }
                     
                 case .list(_, let items):
                     listView(items: items)

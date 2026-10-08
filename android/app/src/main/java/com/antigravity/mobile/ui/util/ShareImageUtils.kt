@@ -111,7 +111,7 @@ object ShareImageUtils {
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             withContext(Dispatchers.Main) {
-                context.startActivity(Intent.createChooser(intent, "分享图片").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                startShare(context, intent, "分享图片")
             }
         } catch (e: Exception) {
             toast(context, "分享失败: ${e.localizedMessage}")
@@ -134,6 +134,32 @@ object ShareImageUtils {
         } catch (e: Exception) {
             toast(context, "拷贝失败: ${e.localizedMessage}")
         }
+    }
+
+    const val WECHAT_PACKAGE = "com.tencent.mm"
+
+    fun isWeChatInstalled(context: Context): Boolean = try {
+        context.packageManager.getPackageInfo(WECHAT_PACKAGE, 0)
+        true
+    } catch (e: Exception) {
+        false
+    }
+
+    /**
+     * 统一的分享出口：已安装微信则直接定向微信（跳过系统选择器），否则回落系统分享面板。
+     * 调用方只需构造好 ACTION_SEND Intent（含 EXTRA_STREAM 及读权限 flag）。
+     */
+    fun startShare(context: Context, intent: Intent, chooserTitle: String) {
+        if (isWeChatInstalled(context)) {
+            try {
+                val direct = Intent(intent).setPackage(WECHAT_PACKAGE).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(direct)
+                return
+            } catch (e: Exception) {
+                // 微信无法处理该内容 → 回落系统分享
+            }
+        }
+        context.startActivity(Intent.createChooser(intent, chooserTitle).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 
     private suspend fun toast(context: Context, message: String) {

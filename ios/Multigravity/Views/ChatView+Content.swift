@@ -276,9 +276,11 @@ extension ChatView {
                 break
             }
         }
+        let badge = ShareCardContext.modelBadge(from: viewModel.activeModel)
         return ShareCardContext(
             sessionTitle: viewModel.currentTitle,
-            modelName: viewModel.activeModelDisplayName,
+            modelName: badge.name,
+            modelIsClaude: badge.isClaude,
             previousQuestion: question
         )
     }
