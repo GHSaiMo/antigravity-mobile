@@ -1473,6 +1473,127 @@ func TestParseTrajectoryDetails_ArtifactItems(t *testing.T) {
 	}
 }
 
+// TestParseTrajectoryDetails_WorkspaceDocsExcludedFromArtifacts verifies that ordinary project workspace
+// Markdown files (like docs/relay_plan.md) referenced in agent responses or edited in code actions are NOT
+// extracted as artifact preview cards, strictly matching desktop IDE behavior (Figure 1 in user bug report).
+func TestParseTrajectoryDetails_WorkspaceDocsExcludedFromArtifacts(t *testing.T) {
+	rawJSON := `{
+		"status": "CASCADE_RUN_STATUS_IDLE",
+		"trajectory": {
+			"cascadeId": "test-workspace-cascade",
+			"trajectoryId": "traj-workspace-1",
+			"steps": [
+				{
+					"type": "CORTEX_STEP_TYPE_USER_INPUT",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"userInput": {
+						"userResponse": "commit and push"
+					}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_CODE_ACTION",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"codeAction": {
+						"isArtifactFile": false,
+						"actionResult": {
+							"edit": {
+								"absoluteUri": "file:///Users/hal9000/Projects/antigravity-mobile/docs/relay_plan.md"
+							}
+						}
+					}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_PLANNER_RESPONSE",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"plannerResponse": {
+						"response": "已完成提交与推送！全部变更已成功推送到远程仓库：\n- [docs/frontend_roadmap.md](file:///Users/hal9000/Projects/antigravity-mobile/docs/frontend_roadmap.md): 新增忽略\n- [docs/relay_plan.md](file:///Users/hal9000/Projects/antigravity-mobile/docs/relay_plan.md): 从版本追踪中解除缓存\n- [docs/relay_plan.md](file:///Users/hal9000/Projects/antigravity-mobile/docs/relay_plan.md): 再次提及\n- [docs/file_attachments_design.md](file:///Users/hal9000/Projects/antigravity-mobile/docs/file_attachments_design.md): 清理完成。"
+					}
+				}
+			]
+		}
+	}`
+
+	var rawResp upstreamTrajectoryResp
+	if err := json.Unmarshal([]byte(rawJSON), &rawResp); err != nil {
+		t.Fatalf("failed to unmarshal test JSON: %v", err)
+	}
+
+	p := &Proxy{}
+	details := p.ParseTrajectoryDetails(&rawResp)
+
+	var agentMsg *CascadeMessageItem
+	for i := range details.AllMessages {
+		if details.AllMessages[i].Type == "agent" {
+			agentMsg = &details.AllMessages[i]
+			break
+		}
+	}
+
+	if agentMsg == nil {
+		t.Fatalf("expected agent message, none found")
+	}
+
+	if len(agentMsg.Artifacts) != 0 {
+		t.Fatalf("expected 0 artifacts for regular workspace docs, got %d: %+v", len(agentMsg.Artifacts), agentMsg.Artifacts)
+	}
+}
+
+// TestParseTrajectoryDetails_NonUserFacingArtifactsExcluded verifies that artifacts marked with
+// UserFacing = false (e.g. scratch scripts or internal intermediate files) are excluded from cards.
+func TestParseTrajectoryDetails_NonUserFacingArtifactsExcluded(t *testing.T) {
+	rawJSON := `{
+		"status": "CASCADE_RUN_STATUS_IDLE",
+		"trajectory": {
+			"cascadeId": "test-hidden-artifact",
+			"trajectoryId": "traj-hidden-1",
+			"steps": [
+				{
+					"type": "CORTEX_STEP_TYPE_USER_INPUT",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"userInput": { "userResponse": "run internal task" }
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_CODE_ACTION",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"codeAction": {
+						"isArtifactFile": true,
+						"artifactMetadata": {
+							"summary": "Internal scratch state",
+							"userFacing": false
+						},
+						"actionResult": {
+							"edit": {
+								"absoluteUri": "file:///path/to/.gemini/antigravity/brain/test-hidden-artifact/internal_state.md"
+							}
+						}
+					}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_PLANNER_RESPONSE",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"plannerResponse": {
+						"response": "任务已完成。"
+					}
+				}
+			]
+		}
+	}`
+
+	var rawResp upstreamTrajectoryResp
+	if err := json.Unmarshal([]byte(rawJSON), &rawResp); err != nil {
+		t.Fatalf("failed to unmarshal test JSON: %v", err)
+	}
+
+	p := &Proxy{}
+	details := p.ParseTrajectoryDetails(&rawResp)
+
+	for _, msg := range details.AllMessages {
+		if len(msg.Artifacts) > 0 {
+			t.Fatalf("expected 0 artifacts for non-user-facing artifact, got %d: %+v", len(msg.Artifacts), msg.Artifacts)
+		}
+	}
+}
+
 
 
 

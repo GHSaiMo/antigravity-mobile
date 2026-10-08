@@ -79,10 +79,18 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 	seenArtifactURIs := make(map[string]bool)
 
 	addTurnArtifact := func(art ArtifactItem) {
-		if art.URI == "" || seenArtifactURIs[art.URI] {
+		norm := strings.TrimSpace(art.URI)
+		if norm == "" {
 			return
 		}
-		seenArtifactURIs[art.URI] = true
+		if !strings.HasPrefix(norm, "file://") && filepath.IsAbs(norm) {
+			norm = "file://" + norm
+		}
+		if seenArtifactURIs[norm] {
+			return
+		}
+		seenArtifactURIs[norm] = true
+		art.URI = norm
 		turnArtifacts = append(turnArtifacts, art)
 	}
 
@@ -319,11 +327,22 @@ func formatArtifactTitle(uri string) string {
 	return res
 }
 
+// isBrainArtifactURI reports whether a file URI points to an artifact within the brain directory.
+func isBrainArtifactURI(uri string) bool {
+	lower := strings.ToLower(strings.TrimSpace(uri))
+	if lower == "" || strings.Contains(lower, "/scratch/") {
+		return false
+	}
+	return strings.Contains(lower, "/brain/") ||
+		strings.Contains(lower, ".gemini/antigravity/brain") ||
+		strings.Contains(lower, "/static/artifacts/")
+}
+
 // extractArtifactsFromStep parses any artifact files created/edited in a trajectory step.
 func extractArtifactsFromStep(s TrajectoryStep) []ArtifactItem {
 	var results []ArtifactItem
 
-	addArtifact := func(uri, summary string, reqFeedback, userFacing bool) {
+	addArtifact := func(uri, summary string, reqFeedback, userFacing bool, isExplicitArtifact bool) {
 		uri = strings.TrimSpace(uri)
 		if uri == "" {
 			return
@@ -336,24 +355,45 @@ func extractArtifactsFromStep(s TrajectoryStep) []ArtifactItem {
 			return
 		}
 
-		isArtifact := strings.HasSuffix(lower, ".md") || strings.HasSuffix(lower, ".markdown") ||
-			strings.Contains(lower, "/brain/") || strings.Contains(lower, ".gemini/antigravity/brain")
+		isMd := strings.HasSuffix(lower, ".md") || strings.HasSuffix(lower, ".markdown")
+		if !isMd {
+			return
+		}
 
-		if !isArtifact {
+		isBrain := isBrainArtifactURI(uri)
+		// 严禁将非 brain 目录且非 upstream 明确标记的常规工作区工程代码/文档文件当作 Artifact！
+		if !isBrain && !isExplicitArtifact {
 			return
 		}
 
 		filePath := strings.TrimPrefix(uri, "file://")
-		if summary == "" && filePath != "" {
+		hasDiskMeta := false
+		if filePath != "" {
 			metaPath := filePath + ".metadata.json"
 			if metaBytes, err := os.ReadFile(metaPath); err == nil {
 				var meta ArtifactMetadata
 				if err := json.Unmarshal(metaBytes, &meta); err == nil {
-					summary = strings.TrimSpace(meta.Summary)
-					userFacing = meta.UserFacing
-					reqFeedback = meta.RequestFeedback
+					hasDiskMeta = true
+					if summary == "" {
+						summary = strings.TrimSpace(meta.Summary)
+					}
+					userFacing = meta.IsUserFacing()
+					if meta.RequestFeedback {
+						reqFeedback = true
+					}
 				}
 			}
+		}
+
+		// 标准内置产物（如 implementation_plan.md 或 walkthrough.md）若位于 brain 目录亦视作产物
+		isStandardPlan := strings.HasSuffix(lower, "implementation_plan.md") || strings.HasSuffix(lower, "walkthrough.md")
+		if !isExplicitArtifact && !hasDiskMeta && !isStandardPlan {
+			return
+		}
+
+		// 桌面端核心规范：仅用户可见（UserFacing == true）的产物在界面中渲染气泡
+		if !userFacing {
+			return
 		}
 
 		title := formatArtifactTitle(uri)
@@ -382,12 +422,19 @@ func extractArtifactsFromStep(s TrajectoryStep) []ArtifactItem {
 		summary := ""
 		userFacing := true
 		reqFeedback := false
+		hasExplicitMeta := false
 		if ca.ArtifactMetadata != nil {
+			hasExplicitMeta = true
 			summary = strings.TrimSpace(ca.ArtifactMetadata.Summary)
-			userFacing = ca.ArtifactMetadata.UserFacing
+			if ca.ArtifactMetadata.UserFacing != nil {
+				userFacing = *ca.ArtifactMetadata.UserFacing
+			}
 			reqFeedback = ca.ArtifactMetadata.RequestFeedback
 		}
-		addArtifact(uri, summary, reqFeedback, userFacing)
+		isExplicit := ca.IsArtifactFile || hasExplicitMeta
+		if isExplicit || isBrainArtifactURI(uri) {
+			addArtifact(uri, summary, reqFeedback, userFacing, isExplicit)
+		}
 	}
 
 	tcName := ""
@@ -406,19 +453,25 @@ func extractArtifactsFromStep(s TrajectoryStep) []ArtifactItem {
 			ArtifactMetadata *struct {
 				Summary         string `json:"Summary"`
 				RequestFeedback bool   `json:"RequestFeedback"`
-				UserFacing      bool   `json:"UserFacing"`
+				UserFacing      *bool  `json:"UserFacing"`
 			} `json:"ArtifactMetadata"`
 		}
 		if err := json.Unmarshal([]byte(tcArgs), &args); err == nil && args.TargetFile != "" {
 			summary := ""
 			userFacing := true
 			reqFeedback := false
+			hasExplicitMeta := false
 			if args.ArtifactMetadata != nil {
+				hasExplicitMeta = true
 				summary = strings.TrimSpace(args.ArtifactMetadata.Summary)
-				userFacing = args.ArtifactMetadata.UserFacing
+				if args.ArtifactMetadata.UserFacing != nil {
+					userFacing = *args.ArtifactMetadata.UserFacing
+				}
 				reqFeedback = args.ArtifactMetadata.RequestFeedback
 			}
-			addArtifact(args.TargetFile, summary, reqFeedback, userFacing)
+			if hasExplicitMeta || isBrainArtifactURI(args.TargetFile) {
+				addArtifact(args.TargetFile, summary, reqFeedback, userFacing, hasExplicitMeta)
+			}
 		}
 	}
 
@@ -428,6 +481,8 @@ func extractArtifactsFromStep(s TrajectoryStep) []ArtifactItem {
 var markdownFileLinkRegex = regexp.MustCompile(`(?i)(?:\[([^\]]*)\]\()?((?:file://)?(/[^\s)\]]+\.(?:md|markdown)))\)?`)
 
 // extractArtifactsFromText scans response text for markdown links pointing to markdown artifact files.
+// Desktop client parity: only true brain artifacts with valid on-disk user-facing metadata are extracted.
+// Regular workspace code/doc links (e.g. docs/foo.md) are strictly excluded from artifact cards.
 func extractArtifactsFromText(text string) []ArtifactItem {
 	var results []ArtifactItem
 	matches := markdownFileLinkRegex.FindAllStringSubmatch(text, -1)
@@ -437,33 +492,52 @@ func extractArtifactsFromText(text string) []ArtifactItem {
 		}
 		rawPath := m[2]
 		uri := rawPath
-		if !strings.HasPrefix(uri, "file://") {
+		if !strings.HasPrefix(uri, "file://") && filepath.IsAbs(rawPath) {
 			uri = "file://" + uri
 		}
 		lower := strings.ToLower(uri)
 		if strings.Contains(lower, "/scratch/") {
 			continue
 		}
-		filePath := strings.TrimPrefix(uri, "file://")
-		summary := ""
-		userFacing := true
-		reqFeedback := false
-		metaPath := filePath + ".metadata.json"
-		if metaBytes, err := os.ReadFile(metaPath); err == nil {
-			var meta ArtifactMetadata
-			if err := json.Unmarshal(metaBytes, &meta); err == nil {
-				summary = strings.TrimSpace(meta.Summary)
-				userFacing = meta.UserFacing
-				reqFeedback = meta.RequestFeedback
-			}
+
+		// 必须是 brain 目录下的产物路径，严禁将项目工作区普通文档当做 Artifact
+		if !isBrainArtifactURI(uri) {
+			continue
 		}
+
+		filePath := strings.TrimPrefix(uri, "file://")
+		metaPath := filePath + ".metadata.json"
+		metaBytes, err := os.ReadFile(metaPath)
+		if err != nil {
+			// 只有标准内置 plan/walkthrough 允许在无独立 metadata 文件时被识别
+			isStandardPlan := strings.HasSuffix(lower, "implementation_plan.md") || strings.HasSuffix(lower, "walkthrough.md")
+			if !isStandardPlan {
+				continue
+			}
+			title := formatArtifactTitle(uri)
+			results = append(results, ArtifactItem{
+				URI:        uri,
+				Title:      title,
+				UserFacing: true,
+			})
+			continue
+		}
+
+		var meta ArtifactMetadata
+		if err := json.Unmarshal(metaBytes, &meta); err != nil {
+			continue
+		}
+		if !meta.IsUserFacing() {
+			continue
+		}
+
 		title := formatArtifactTitle(uri)
 		results = append(results, ArtifactItem{
 			URI:             uri,
 			Title:           title,
-			Summary:         summary,
-			RequestFeedback: reqFeedback,
-			UserFacing:      userFacing,
+			Summary:         strings.TrimSpace(meta.Summary),
+			RequestFeedback: meta.RequestFeedback,
+			UserFacing:      meta.IsUserFacing(),
 		})
 	}
 	return results

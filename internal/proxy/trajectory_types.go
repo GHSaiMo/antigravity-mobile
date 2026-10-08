@@ -171,7 +171,7 @@ type TrajectoryStep struct {
 		ArtifactMetadata *struct {
 			Summary         string `json:"summary"`
 			RequestFeedback bool   `json:"requestFeedback"`
-			UserFacing      bool   `json:"userFacing"`
+			UserFacing      *bool  `json:"userFacing"`
 		} `json:"artifactMetadata"`
 		ActionResult *struct {
 			Edit *struct {
