@@ -29,7 +29,8 @@
           {
             "uri": "file:///p/.gemini/antigravity/brain/g-proceed-plan/implementation_plan.md",
             "title": "Implementation Plan",
-            "requestFeedback": true
+            "requestFeedback": true,
+            "userFacing": true
           }
         ]
       },

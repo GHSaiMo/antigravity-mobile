@@ -29,8 +29,16 @@ type FileContentResult struct {
 type ArtifactMetadata struct {
 	Summary         string `json:"summary"`
 	RequestFeedback bool   `json:"requestFeedback"`
-	UserFacing      bool   `json:"userFacing"`
+	UserFacing      *bool  `json:"userFacing"`
 	UpdatedAt       string `json:"updatedAt"`
+}
+
+// IsUserFacing returns true unless UserFacing is explicitly set to false.
+func (m *ArtifactMetadata) IsUserFacing() bool {
+	if m == nil || m.UserFacing == nil {
+		return true
+	}
+	return *m.UserFacing
 }
 
 const maxReadSizeBytes = 10 * 1024 * 1024 // 10MB limit
@@ -332,7 +340,7 @@ func GetFileContent(rawURI, cascadeID string) (*FileContentResult, error) {
 			if err := json.Unmarshal(metaBytes, &meta); err == nil {
 				res.Summary = strings.TrimSpace(meta.Summary)
 				res.RequestFeedback = meta.RequestFeedback
-				res.UserFacing = meta.UserFacing
+				res.UserFacing = meta.IsUserFacing()
 			}
 		}
 	}
