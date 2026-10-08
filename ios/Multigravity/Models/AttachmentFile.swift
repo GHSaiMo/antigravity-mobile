@@ -79,6 +79,8 @@ public enum AttachmentRules {
         "xls", "xlsx", "xlsm", "csv", "tsv", "ods", "numbers",
         // presentations
         "ppt", "pptx", "pps", "ppsx", "odp", "key",
+        // audio
+        "mp3", "m4a", "wav", "aac", "flac", "ogg", "oga", "opus", "aif", "aiff", "wma", "amr", "caf",
         // archives
         "zip", "tar", "gz", "tgz", "7z",
         // source & config

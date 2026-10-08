@@ -253,16 +253,17 @@ public struct ConversationListView: View {
         }
         .overlay(alignment: .bottom) {
             if !shareInbox.files.isEmpty && !shareInbox.showSheet && navigationPath.isEmpty && settings.isPaired {
+                // Sits above the bottom search capsule (centered), drawn with the native glass effect.
                 Button { shareInbox.showSheet = true } label: {
                     Text("\(shareInbox.files.count) 个文件待投递 · 选择去向")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(.white)
+                        .foregroundStyle(.primary)
                         .padding(.horizontal, 18)
-                        .padding(.vertical, 10)
-                        .background(Capsule().fill(Color.indigo))
-                        .shadow(radius: 4, y: 2)
+                        .padding(.vertical, 11)
+                        .glassEffect(.regular.interactive(), in: .capsule)
                 }
-                .padding(.bottom, 24)
+                .buttonStyle(.plain)
+                .padding(.bottom, 76)
             }
         }
     }

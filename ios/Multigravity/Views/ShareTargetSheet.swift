@@ -85,37 +85,47 @@ struct ShareTargetSheet: View {
         }
     }
     
+    /// Single file is the common case, so each row is a tall card with a large icon; with more
+    /// files the list simply grows downward (scrolling only once it gets long).
+    @ViewBuilder
     private var fileList: some View {
-        ScrollView {
-            VStack(spacing: 6) {
+        if inbox.files.count <= 3 {
+            fileRows
+        } else {
+            ScrollView { fileRows }
+                .scrollBounceBehavior(.basedOnSize)
+                .frame(maxHeight: 320)
+        }
+    }
+    
+    private var fileRows: some View {
+        VStack(spacing: 10) {
                 ForEach(inbox.files) { f in
-                    HStack(spacing: 10) {
-                        FileTypeBadge(fileName: f.name, size: 32)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(f.name).font(.system(size: 13)).lineLimit(1)
+                    HStack(spacing: 14) {
+                        FileTypeBadge(fileName: f.name, size: 56)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(f.name).font(.system(size: 15, weight: .medium)).lineLimit(2)
                             Text(f.rejectReason ?? formatFileSize(f.size))
-                                .font(.system(size: 11))
+                                .font(.system(size: 12))
                                 .foregroundColor(f.rejectReason == nil ? .secondary : .red)
                                 .lineLimit(2)
                         }
-                        Spacer()
+                        Spacer(minLength: 4)
                         Button { inbox.remove(f.id) } label: {
                             Image(systemName: "xmark")
-                                .font(.system(size: 11, weight: .semibold))
+                                .font(.system(size: 12, weight: .semibold))
                                 .foregroundColor(.secondary)
-                                .frame(width: 28, height: 28)
+                                .frame(width: 32, height: 32)
                         }
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 7)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 14)
                     .background(Color(uiColor: .secondarySystemBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 6)
         }
-        .frame(maxHeight: 170)
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
     }
     
     private var newConversationList: some View {

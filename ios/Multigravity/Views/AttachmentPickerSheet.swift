@@ -153,13 +153,17 @@ struct AttachmentPickerSheet: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
             }
-            // The confirm button only shows once photos are selected.
-            if !selected.isEmpty {
-                Divider()
-                footer
-            }
         }
         .background(Color(uiColor: .systemBackground))
+        // The confirm button floats centered over the grid once photos are selected.
+        .overlay(alignment: .bottom) {
+            if !selected.isEmpty {
+                footer
+                    .padding(.bottom, 12)
+                    .transition(.scale(scale: 0.9).combined(with: .opacity))
+            }
+        }
+        .animation(.easeOut(duration: 0.18), value: selected.isEmpty)
     }
     
     private var limitedBanner: some View {
@@ -291,14 +295,12 @@ struct AttachmentPickerSheet: View {
         } label: {
             Text("添加 (\(selected.count))")
                 .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(.indigo)
-                .frame(maxWidth: .infinity)
-                .frame(height: 48)
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 32)
+                .padding(.vertical, 13)
+                .glassEffect(.regular.interactive(), in: .capsule)
         }
-        .buttonStyle(NativeThinGlassButtonStyle(tintColor: .indigo))
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(.ultraThinMaterial)
+        .buttonStyle(.plain)
     }
     
     private static func topViewController() -> UIViewController? {
