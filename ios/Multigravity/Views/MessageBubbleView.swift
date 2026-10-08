@@ -53,7 +53,7 @@ public struct MessageBubbleView: View {
         .sheet(isPresented: $showShareCard) {
             MessageShareCardSheet(
                 message: message,
-                context: shareContext ?? ShareCardContext(sessionTitle: "", modelName: nil, previousQuestion: nil),
+                context: shareContext ?? ShareCardContext(sessionTitle: "", modelName: nil, previousMessage: nil),
                 extraImages: shareCardImages
             )
             .presentationDetents([.large])
