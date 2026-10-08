@@ -33,6 +33,7 @@ extension MarkdownContentView {
                 
                 Spacer()
                 
+                if !isShareExport {
                 Button(action: {
                     let formatted = code.hasSuffix("\n") ? code : "\(code)\n"
                     UIPasteboard.general.string = formatted
@@ -47,6 +48,7 @@ extension MarkdownContentView {
                     }
                     .foregroundColor(.secondary)
                 }
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
@@ -55,7 +57,7 @@ extension MarkdownContentView {
             Divider()
             
             // Code text
-            ScrollView(.horizontal, showsIndicators: true) {
+            ExportAwareHorizontalScroll {
                 Text(code)
                     .font(.system(size: 12.5, design: .monospaced))
                     .padding(10)
@@ -75,7 +77,7 @@ extension MarkdownContentView {
         let columnCount = max(headers.count, rows.map(\.count).max() ?? 0)
         
         if columnCount > 0 {
-            ScrollView(.horizontal, showsIndicators: true) {
+            ExportAwareHorizontalScroll {
                 Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
                     // Header row
                     if !headers.isEmpty {

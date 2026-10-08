@@ -33,6 +33,15 @@ struct CachedMarkdownAsyncImageView: View {
     @State private var isLoading = false
     @State private var hasFailed = false
 
+    init(url: URL, alt: String, onTap: @escaping (URL) -> Void, onFailure: @escaping (String) -> AnyView) {
+        self.url = url
+        self.alt = alt
+        self.onTap = onTap
+        self.onFailure = onFailure
+        // 同步命中缓存，保证离屏渲染（长图卡片）首帧就有图。
+        _uiImage = State(initialValue: MarkdownImageCache.shared.image(for: url))
+    }
+
     var body: some View {
         Group {
             if let uiImage {
@@ -45,6 +54,9 @@ struct CachedMarkdownAsyncImageView: View {
                         .frame(maxWidth: .infinity, maxHeight: 280, alignment: .leading)
                 }
                 .buttonStyle(.plain)
+                .imageContextMenu(item: IdentifiableImage(image: uiImage, url: url)) {
+                    onTap(url)
+                }
                 .accessibilityLabel(alt.isEmpty ? "图片" : alt)
             } else if hasFailed {
                 onFailure(alt)
@@ -161,4 +173,49 @@ extension MarkdownContentView {
         .accessibilityLabel(alt.isEmpty ? "图片加载失败" : alt)
     }
     
+}
+
+// MARK: - Share Export Support
+
+private struct ShareExportKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// 为 true 时表示正在为长图卡片离屏渲染：避免 ScrollView / WebView 等离屏渲染为空白的控件。
+    var isShareExport: Bool {
+        get { self[ShareExportKey.self] }
+        set { self[ShareExportKey.self] = newValue }
+    }
+}
+
+/// 正常情况下横向滚动；导出长图时直接铺开，避免 ImageRenderer 无法渲染 ScrollView。
+struct ExportAwareHorizontalScroll<Content: View>: View {
+    @Environment(\.isShareExport) private var isShareExport
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        if isShareExport {
+            content()
+        } else {
+            ScrollView(.horizontal, showsIndicators: true) {
+                content()
+            }
+        }
+    }
+}
+
+extension MarkdownContentView {
+    func shareExportPlaceholder(_ text: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "rectangle.on.rectangle.angled")
+            Text(text)
+        }
+        .font(.footnote)
+        .foregroundColor(.secondary)
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.secondary.opacity(0.12))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
 }

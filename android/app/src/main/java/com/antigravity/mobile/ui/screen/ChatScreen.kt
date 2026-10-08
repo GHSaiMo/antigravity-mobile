@@ -657,6 +657,18 @@ fun ChatScreen(
                                         },
                                         onUndoClick = { target ->
                                             viewModel.requestUndo(target)
+                                        },
+                                        shareContextProvider = { target ->
+                                            val list = uiState.messages
+                                            val idx = list.indexOfFirst { it === target }.takeIf { it >= 0 } ?: list.size
+                                            val question = list.take(idx).lastOrNull { it.isUser }
+                                                ?.let { com.antigravity.mobile.data.service.AttachmentRules.parseBlock(it.effectiveText).first }
+                                                ?.takeIf { it.isNotBlank() }
+                                            ShareCardContext(
+                                                sessionTitle = uiState.title,
+                                                modelName = if (uiState.activeModel.contains("claude", ignoreCase = true)) "Claude" else "Gemini",
+                                                previousQuestion = question
+                                            )
                                         }
                                     )
                                 }

@@ -36,6 +36,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.ui.theme.AppColors
 
+/** 为 true 时表示正在为分享长图离屏渲染：代码块 / 表格不再横向滚动，而是铺满宽度自动换行。 */
+internal val LocalShareExport = compositionLocalOf { false }
+
 @Composable
 internal fun HeadingBlockView(
     level: Int,
@@ -117,6 +120,7 @@ internal fun CodeBlockView(
                 )
             }
 
+            if (!LocalShareExport.current) {
             Row(
                 modifier = Modifier
                     .clip(RoundedCornerShape(6.dp))
@@ -142,6 +146,7 @@ internal fun CodeBlockView(
                     fontSize = 11.sp
                 )
             }
+            }
         }
 
         HorizontalDivider(color = colors.border.copy(alpha = 0.4f), thickness = 0.5.dp)
@@ -150,7 +155,7 @@ internal fun CodeBlockView(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
+                .then(if (LocalShareExport.current) Modifier else Modifier.horizontalScroll(rememberScrollState()))
                 .padding(12.dp)
         ) {
             Text(
@@ -174,6 +179,7 @@ internal fun TableBlockView(
 ) {
     val columnCount = maxOf(headers.size, rows.maxOfOrNull { it.size } ?: 0)
     if (columnCount == 0) return
+    val isExport = LocalShareExport.current
 
     // Calculate synchronized column widths across header and all rows
     val columnWidths = remember(headers, rows, columnCount) {
@@ -209,13 +215,14 @@ internal fun TableBlockView(
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
             .border(0.8.dp, colors.border, RoundedCornerShape(10.dp))
-            .horizontalScroll(rememberScrollState())
+            .then(if (isExport) Modifier else Modifier.horizontalScroll(rememberScrollState()))
     ) {
-        Column {
+        Column(modifier = if (isExport) Modifier.fillMaxWidth() else Modifier) {
             // Header Row
             if (headers.isNotEmpty()) {
                 Row(
                     modifier = Modifier
+                        .then(if (isExport) Modifier.fillMaxWidth() else Modifier)
                         .background(colors.surfaceVariant.copy(alpha = 0.85f))
                         .height(IntrinsicSize.Min)
                 ) {
@@ -225,8 +232,7 @@ internal fun TableBlockView(
                         val width = columnWidths.getOrElse(colIdx) { 110.dp }
 
                         Box(
-                            modifier = Modifier
-                                .width(width)
+                            modifier = (if (isExport) Modifier.weight(width.value) else Modifier.width(width))
                                 .padding(horizontal = 12.dp, vertical = 9.dp),
                             contentAlignment = when (alignment) {
                                 TableColumnAlignment.LEADING -> Alignment.CenterStart
@@ -263,6 +269,7 @@ internal fun TableBlockView(
 
                 Row(
                     modifier = Modifier
+                        .then(if (isExport) Modifier.fillMaxWidth() else Modifier)
                         .background(rowBg)
                         .height(IntrinsicSize.Min)
                 ) {
@@ -272,8 +279,7 @@ internal fun TableBlockView(
                         val width = columnWidths.getOrElse(colIdx) { 110.dp }
 
                         Box(
-                            modifier = Modifier
-                                .width(width)
+                            modifier = (if (isExport) Modifier.weight(width.value) else Modifier.width(width))
                                 .padding(horizontal = 12.dp, vertical = 9.dp),
                             contentAlignment = when (alignment) {
                                 TableColumnAlignment.LEADING -> Alignment.CenterStart

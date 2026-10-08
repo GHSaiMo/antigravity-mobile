@@ -8,6 +8,8 @@ final class SingleImagePreviewController: UIViewController, UIScrollViewDelegate
     let scrollView = UIScrollView()
     let imageView = UIImageView()
     let spinner = UIActivityIndicatorView(style: .large)
+    private let saveButton = UIButton(type: .system)
+    private let shareButton = UIButton(type: .system)
     
     init(item: IdentifiableImage, onSingleTap: @escaping () -> Void) {
         self.item = item
@@ -56,7 +58,43 @@ final class SingleImagePreviewController: UIViewController, UIScrollViewDelegate
         longPress.minimumPressDuration = 0.4
         view.addGestureRecognizer(longPress)
         
+        setupActionButtons()
         loadImage()
+    }
+    
+    /// 右上角常驻的「保存 / 分享」快捷按钮。
+    private func setupActionButtons() {
+        func style(_ button: UIButton, symbol: String, label: String, action: Selector) {
+            var config = UIButton.Configuration.plain()
+            config.image = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .medium))
+            config.baseForegroundColor = .white
+            config.background.backgroundColor = UIColor.black.withAlphaComponent(0.45)
+            config.background.cornerRadius = 19
+            config.contentInsets = NSDirectionalEdgeInsets(top: 9, leading: 9, bottom: 9, trailing: 9)
+            button.configuration = config
+            button.accessibilityLabel = label
+            button.addTarget(self, action: action, for: .touchUpInside)
+            button.translatesAutoresizingMaskIntoConstraints = false
+            view.addSubview(button)
+        }
+        style(saveButton, symbol: "square.and.arrow.down", label: "保存到相册", action: #selector(saveButtonTapped))
+        style(shareButton, symbol: "square.and.arrow.up", label: "分享图片", action: #selector(shareButtonTapped))
+        NSLayoutConstraint.activate([
+            shareButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
+            shareButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
+            saveButton.centerYAnchor.constraint(equalTo: shareButton.centerYAnchor),
+            saveButton.trailingAnchor.constraint(equalTo: shareButton.leadingAnchor, constant: -10),
+        ])
+    }
+    
+    @objc private func saveButtonTapped() {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        saveToPhotosAlbum()
+    }
+    
+    @objc private func shareButtonTapped() {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        shareImage()
     }
     
     override func viewDidLayoutSubviews() {
@@ -177,6 +215,12 @@ final class SingleImagePreviewController: UIViewController, UIScrollViewDelegate
         alert.addAction(UIAlertAction(title: "保存到相册", style: .default) { [weak self] _ in
             self?.saveToPhotosAlbum()
         })
+        alert.addAction(UIAlertAction(title: "分享图片", style: .default) { [weak self] _ in
+            self?.shareImage()
+        })
+        alert.addAction(UIAlertAction(title: "拷贝图片", style: .default) { [weak self] _ in
+            self?.copyImage()
+        })
         alert.addAction(UIAlertAction(title: "取消", style: .cancel, handler: nil))
         
         if let popover = alert.popoverPresentationController {
@@ -204,46 +248,37 @@ final class SingleImagePreviewController: UIViewController, UIScrollViewDelegate
             showToast(message: "图片正在加载，请稍后重试", isError: true)
             return
         }
-        
-        PHPhotoLibrary.requestAuthorization(for: .addOnly) { [weak self] status in
-            guard status == .authorized || status == .limited else {
-                DispatchQueue.main.async {
-                    self?.showPermissionAlert()
-                }
-                return
-            }
-            
-            if let url = self?.item.url, url.isFileURL, FileManager.default.fileExists(atPath: url.path) {
-                PHPhotoLibrary.shared().performChanges {
-                    let request = PHAssetCreationRequest.forAsset()
-                    request.addResource(with: .photo, fileURL: url, options: nil)
-                } completionHandler: { success, error in
-                    DispatchQueue.main.async {
-                        if success {
-                            UINotificationFeedbackGenerator().notificationOccurred(.success)
-                            self?.showToast(message: "已保存到相册", isError: false)
-                        } else {
-                            UINotificationFeedbackGenerator().notificationOccurred(.error)
-                            self?.showToast(message: "保存失败: \(error?.localizedDescription ?? "未知错误")", isError: true)
-                        }
-                    }
-                }
-            } else {
-                PHPhotoLibrary.shared().performChanges {
-                    PHAssetChangeRequest.creationRequestForAsset(from: image)
-                } completionHandler: { success, error in
-                    DispatchQueue.main.async {
-                        if success {
-                            UINotificationFeedbackGenerator().notificationOccurred(.success)
-                            self?.showToast(message: "已保存到相册", isError: false)
-                        } else {
-                            UINotificationFeedbackGenerator().notificationOccurred(.error)
-                            self?.showToast(message: "保存失败: \(error?.localizedDescription ?? "未知错误")", isError: true)
-                        }
-                    }
-                }
+        let fileURL = item.url
+        Task { @MainActor [weak self] in
+            switch await ImageActions.saveToPhotos(image, fileURL: fileURL) {
+            case .saved:
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                self?.showToast(message: "已保存到相册", isError: false)
+            case .denied:
+                self?.showPermissionAlert()
+            case .failed(let message):
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+                self?.showToast(message: "保存失败: \(message)", isError: true)
             }
         }
+    }
+    
+    private func shareImage() {
+        guard let image = imageView.image else {
+            showToast(message: "图片正在加载，请稍后重试", isError: true)
+            return
+        }
+        ImageActions.share(image, from: self, sourceView: shareButton)
+    }
+    
+    private func copyImage() {
+        guard let image = imageView.image else {
+            showToast(message: "图片正在加载，请稍后重试", isError: true)
+            return
+        }
+        UIPasteboard.general.image = image
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        showToast(message: "已拷贝图片", isError: false)
     }
     
     private func showPermissionAlert() {

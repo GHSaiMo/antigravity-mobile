@@ -6,15 +6,18 @@ public struct MessageBubbleView: View {
     public let message: ChatMessage
     public let isActiveToolBatch: Bool
     public let onUndo: ((ChatMessage) -> Void)?
+    let shareContext: ShareCardContext?
+    @State var showShareCard: Bool = false
     @State var isThinkingExpanded: Bool = false
     
     @State var previewGallery: ImageGalleryData? = nil
     @State var showTextSelectionSheet: Bool = false
     
-    public init(message: ChatMessage, isActiveToolBatch: Bool = false, onUndo: ((ChatMessage) -> Void)? = nil) {
+    init(message: ChatMessage, isActiveToolBatch: Bool = false, onUndo: ((ChatMessage) -> Void)? = nil, shareContext: ShareCardContext? = nil) {
         self.message = message
         self.isActiveToolBatch = isActiveToolBatch
         self.onUndo = onUndo
+        self.shareContext = shareContext
     }
     
     public var body: some View {
@@ -47,6 +50,15 @@ public struct MessageBubbleView: View {
                 .presentationBackground(.clear)
                 .ignoresSafeArea()
         }
+        .sheet(isPresented: $showShareCard) {
+            MessageShareCardSheet(
+                message: message,
+                context: shareContext ?? ShareCardContext(sessionTitle: "", modelName: nil, previousQuestion: nil),
+                extraImages: shareCardImages
+            )
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
         .sheet(isPresented: $showTextSelectionSheet) {
             TextSelectionSheet(
                 title: "选择文本",
@@ -59,6 +71,20 @@ public struct MessageBubbleView: View {
 }
 
 extension MessageBubbleView {
+    var shareCardImages: [IdentifiableImage] {
+        if case .user = message.sender { return userAttachmentItems }
+        return fallbackAgentImageURLs.compactMap { URL(string: $0) }.map { IdentifiableImage(url: $0) }
+    }
+    
+    @ViewBuilder
+    var shareLongImageButton: some View {
+        Button {
+            showShareCard = true
+        } label: {
+            Label("分享为长图", systemImage: "photo.badge.plus")
+        }
+    }
+    
     var agentPlainText: String {
         let converted = MarkdownPlainText.convert(message.content)
         return converted.isEmpty ? message.content : converted

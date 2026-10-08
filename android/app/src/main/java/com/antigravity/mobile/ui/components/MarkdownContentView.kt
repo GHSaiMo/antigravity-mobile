@@ -1,6 +1,9 @@
 package com.antigravity.mobile.ui.components
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -24,6 +27,7 @@ fun MarkdownContentView(
 ) {
     val blocks = remember(content) { MarkdownParser.parse(content) }
     val colors = AntigravityTheme.colors
+    val isExport = LocalShareExport.current
 
     WithCleanCopyToolbar(rawMarkdown = content) {
     SelectionContainer {
@@ -59,7 +63,9 @@ fun MarkdownContentView(
                 }
 
                 is MarkdownBlock.CodeBlock -> {
-                    if (block.lang.equals("mermaid", ignoreCase = true) || block.lang.equals("diagram", ignoreCase = true)) {
+                    if (isExport && (block.lang.equals("mermaid", ignoreCase = true) || block.lang.equals("diagram", ignoreCase = true))) {
+                        ShareExportPlaceholder("Mermaid 图表，请在 App 中查看")
+                    } else if (block.lang.equals("mermaid", ignoreCase = true) || block.lang.equals("diagram", ignoreCase = true)) {
                         MermaidDiagramView(
                             code = block.code,
                             colors = colors
@@ -121,25 +127,49 @@ fun MarkdownContentView(
                 }
 
                 is MarkdownBlock.AgentEmbed -> {
-                    AgentEmbedView(
-                        src = block.src,
-                        colors = colors,
-                        urlResolver = urlResolver
-                    )
+                    if (isExport) {
+                        ShareExportPlaceholder("交互内容，请在 App 中查看")
+                    } else {
+                        AgentEmbedView(
+                            src = block.src,
+                            colors = colors,
+                            urlResolver = urlResolver
+                        )
+                    }
                 }
 
                 is MarkdownBlock.Carousel -> {
-                    CarouselBlockView(
-                        slides = block.slides,
-                        colors = colors,
-                        onPlanClick = onPlanClick,
-                        urlResolver = urlResolver,
-                        onImageClick = onImageClick
-                    )
+                    if (isExport) {
+                        ShareExportPlaceholder("图片轮播（${block.slides.size} 张），请在 App 中查看")
+                    } else {
+                        CarouselBlockView(
+                            slides = block.slides,
+                            colors = colors,
+                            onPlanClick = onPlanClick,
+                            urlResolver = urlResolver,
+                            onImageClick = onImageClick
+                        )
+                    }
                 }
             }
         }
     }
     }
     }
+}
+
+/** 长图导出时，WebView / 交互类块无法离屏绘制，用占位提示代替。 */
+@Composable
+private fun ShareExportPlaceholder(text: String) {
+    val colors = AntigravityTheme.colors
+    androidx.compose.material3.Text(
+        text = text,
+        color = colors.textSecondary,
+        fontSize = androidx.compose.ui.unit.TextUnit(12f, androidx.compose.ui.unit.TextUnitType.Sp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(colors.surfaceVariant.copy(alpha = 0.5f))
+            .padding(10.dp)
+    )
 }
