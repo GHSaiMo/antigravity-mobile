@@ -16,9 +16,7 @@
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 
 <p align="center">
-  <img src="images/welcome_pairing.jpg" alt="Multigravity 极速开箱与扫码一键配对" width="360" />
-  &nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="images/chat_multimodal.jpg" alt="Multigravity 实时思考流与多模态绘图交互" width="360" />
+  <img src="images/ipad_overview.jpg" alt="Multigravity iPad 会话列表与实时对话" width="720" />
 </p>
 
 ---
