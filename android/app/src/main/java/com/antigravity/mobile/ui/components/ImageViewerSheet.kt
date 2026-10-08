@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.CircularProgressIndicator
@@ -34,6 +35,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.*
 import com.antigravity.mobile.ui.util.rememberHaptic
+import com.antigravity.mobile.ui.util.ShareImageUtils
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -299,6 +301,26 @@ fun ImageViewerSheet(
                 }
             }
 
+            // Persistent quick actions (save / share) at the top-right corner
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .statusBarsPadding()
+                    .padding(top = 8.dp, end = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                ViewerIconButton(Icons.Default.FileDownload, "保存到相册") {
+                    val current = effectiveItems.getOrNull(pagerState.currentPage)
+                        ?: ImageViewerItem(data.bitmap, data.url, data.title, bytes = data.bytes)
+                    coroutineScope.launch { saveImageToGallery(context, current) }
+                }
+                ViewerIconButton(Icons.Default.Share, "分享图片") {
+                    val current = effectiveItems.getOrNull(pagerState.currentPage)
+                        ?: ImageViewerItem(data.bitmap, data.url, data.title, bytes = data.bytes)
+                    coroutineScope.launch { shareImage(context, current) }
+                }
+            }
+
             // Native ModalBottomSheet for Save to Album on long press
             if (showSaveSheet) {
                 ModalBottomSheet(
@@ -325,38 +347,19 @@ fun ImageViewerSheet(
                             .navigationBarsPadding()
                             .padding(bottom = 16.dp)
                     ) {
-                        Surface(
-                            onClick = {
-                                showSaveSheet = false
-                                val currentItem = effectiveItems.getOrNull(pagerState.currentPage)
-                                    ?: ImageViewerItem(data.bitmap, data.url, data.title, bytes = data.bytes)
-                                coroutineScope.launch {
-                                    saveImageToGallery(context, currentItem)
-                                }
-                            },
-                            color = Color.Transparent,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 20.dp, vertical = 14.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(16.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.FileDownload,
-                                    contentDescription = "保存到相册",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Text(
-                                    text = "保存到相册",
-                                    color = Color.White,
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
+                        val sheetItem = effectiveItems.getOrNull(pagerState.currentPage)
+                            ?: ImageViewerItem(data.bitmap, data.url, data.title, bytes = data.bytes)
+                        ViewerActionRow(Icons.Default.FileDownload, "保存到相册") {
+                            showSaveSheet = false
+                            coroutineScope.launch { saveImageToGallery(context, sheetItem) }
+                        }
+                        ViewerActionRow(Icons.Default.Share, "分享图片") {
+                            showSaveSheet = false
+                            coroutineScope.launch { shareImage(context, sheetItem) }
+                        }
+                        ViewerActionRow(Icons.Default.ContentCopy, "拷贝图片") {
+                            showSaveSheet = false
+                            coroutineScope.launch { copyImage(context, sheetItem) }
                         }
                     }
                 }
@@ -416,126 +419,56 @@ private suspend fun PointerInputScope.detectZoomAndPan(
     }
 }
 
-private suspend fun resolveBitmap(context: Context, item: ImageViewerItem): Bitmap? {
-    if (item.bitmap != null) return item.bitmap
-    val data = item.bytes ?: item.url
-    if (data == null || (data is String && data.isBlank())) return null
-    return withContext(Dispatchers.IO) {
-        try {
-            val loader = context.imageLoader
-            val request = ImageRequest.Builder(context)
-                .data(data)
-                .allowHardware(false)
-                .build()
-            val result = loader.execute(request)
-            if (result is SuccessResult) {
-                (result.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap
-            } else null
-        } catch (e: Exception) {
-            null
-        }
-    }
-}
-
-private suspend fun resolveBitmap(context: Context, data: ImageViewerData): Bitmap? {
-    val item = data.items.getOrNull(data.initialIndex) ?: ImageViewerItem(data.bitmap, data.url, data.title, bytes = data.bytes)
-    return resolveBitmap(context, item)
-}
+private suspend fun resolveBitmap(context: Context, item: ImageViewerItem): Bitmap? =
+    ShareImageUtils.resolveBitmap(context, item)
 
 private suspend fun saveImageToGallery(context: Context, item: ImageViewerItem) {
-    val bitmap = resolveBitmap(context, item)
-    if (bitmap == null) {
-        withContext(Dispatchers.Main) {
-            Toast.makeText(context, "图片未就绪，无法保存", Toast.LENGTH_SHORT).show()
-        }
-        return
-    }
-
-    withContext(Dispatchers.IO) {
-        try {
-            val filename = "Antigravity_${System.currentTimeMillis()}.png"
-            val fos: OutputStream?
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                val resolver = context.contentResolver
-                val contentValues = ContentValues().apply {
-                    put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
-                    put(MediaStore.MediaColumns.MIME_TYPE, "image/png")
-                    put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/Antigravity")
-                }
-                val imageUri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
-                fos = imageUri?.let { resolver.openOutputStream(it) }
-            } else {
-                val imagesDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString()
-                val image = java.io.File(imagesDir, filename)
-                fos = java.io.FileOutputStream(image)
-            }
-
-            fos?.use {
-                bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
-            }
-
-            withContext(Dispatchers.Main) {
-                Toast.makeText(context, "已保存到相册", Toast.LENGTH_SHORT).show()
-            }
-        } catch (e: Exception) {
-            withContext(Dispatchers.Main) {
-                Toast.makeText(context, "保存失败: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-}
-
-private suspend fun saveImageToGallery(context: Context, data: ImageViewerData) {
-    val item = data.items.getOrNull(data.initialIndex) ?: ImageViewerItem(data.bitmap, data.url, data.title, bytes = data.bytes)
-    saveImageToGallery(context, item)
+    ShareImageUtils.saveBitmapToGallery(context, resolveBitmap(context, item))
 }
 
 private suspend fun shareImage(context: Context, item: ImageViewerItem) {
-    val bitmap = resolveBitmap(context, item)
-    if (bitmap == null) {
-        if (!item.url.isNullOrBlank()) {
-            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                type = "text/plain"
-                putExtra(Intent.EXTRA_TEXT, item.url)
-            }
-            context.startActivity(Intent.createChooser(shareIntent, "分享图片链接"))
-        }
-        return
-    }
+    ShareImageUtils.shareBitmap(context, resolveBitmap(context, item), fallbackUrl = item.url)
+}
 
-    withContext(Dispatchers.IO) {
-        try {
-            val cachePath = java.io.File(context.cacheDir, "images")
-            cachePath.mkdirs()
-            val file = java.io.File(cachePath, "shared_image_${System.currentTimeMillis()}.png")
-            val stream = java.io.FileOutputStream(file)
-            bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
-            stream.close()
+private suspend fun copyImage(context: Context, item: ImageViewerItem) {
+    ShareImageUtils.copyBitmapToClipboard(context, resolveBitmap(context, item))
+}
 
-            val contentUri: Uri = androidx.core.content.FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.fileprovider",
-                file
+@Composable
+private fun ViewerIconButton(icon: androidx.compose.ui.graphics.vector.ImageVector, description: String, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = Color.Black.copy(alpha = 0.45f),
+        modifier = Modifier.size(40.dp)
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = icon,
+                contentDescription = description,
+                tint = Color.White,
+                modifier = Modifier.size(22.dp)
             )
-
-            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                type = "image/png"
-                putExtra(Intent.EXTRA_STREAM, contentUri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-
-            withContext(Dispatchers.Main) {
-                context.startActivity(Intent.createChooser(shareIntent, "分享图片"))
-            }
-        } catch (e: Exception) {
-            withContext(Dispatchers.Main) {
-                Toast.makeText(context, "分享失败: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
-            }
         }
     }
 }
 
-private suspend fun shareImage(context: Context, data: ImageViewerData) {
-    val item = data.items.getOrNull(data.initialIndex) ?: ImageViewerItem(data.bitmap, data.url, data.title, bytes = data.bytes)
-    shareImage(context, item)
+@Composable
+private fun ViewerActionRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        color = Color.Transparent,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Icon(imageVector = icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(24.dp))
+            Text(text = label, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+        }
+    }
 }

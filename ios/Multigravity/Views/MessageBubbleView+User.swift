@@ -60,6 +60,9 @@ extension MessageBubbleView {
                     Label("复制", systemImage: "doc.on.doc")
                 }
             }
+            if !parsed.body.isEmpty || !userAttachmentItems.isEmpty {
+                shareLongImageButton
+            }
             Button(role: .destructive) {
                 onUndo?(message)
             } label: {
@@ -80,6 +83,9 @@ extension MessageBubbleView {
                         thumbnailView(for: item)
                     }
                     .buttonStyle(.plain)
+                    .imageContextMenu(item: item) {
+                        previewGallery = ImageGalleryData(items: userAttachmentItems, initialIndex: index)
+                    }
                 }
             }
             .padding(.horizontal, 2)
@@ -96,6 +102,9 @@ extension MessageBubbleView {
                             thumbnailView(for: item)
                         }
                         .buttonStyle(.plain)
+                        .imageContextMenu(item: item) {
+                            previewGallery = ImageGalleryData(items: userAttachmentItems, initialIndex: index)
+                        }
                     }
                 }
                 .padding(.horizontal, 2)
@@ -199,6 +208,10 @@ extension MessageBubbleView {
                 .shadow(color: Color.black.opacity(0.06), radius: 3, x: 0, y: 1.5)
         }
         .buttonStyle(.plain)
+        .imageContextMenu(item: IdentifiableImage(image: uiImg)) {
+            let effectiveItems = gallery.isEmpty ? [IdentifiableImage(image: uiImg)] : gallery
+            previewGallery = ImageGalleryData(items: effectiveItems, initialIndex: index)
+        }
     }
     
     func userAsyncImageBubble(for url: URL, placeholder: UIImage? = nil, gallery: [IdentifiableImage] = [], index: Int = 0) -> some View {
@@ -239,6 +252,10 @@ extension MessageBubbleView {
                         .frame(maxWidth: 240, maxHeight: 220, alignment: .trailing)
                 }
                 .buttonStyle(.plain)
+                .imageContextMenu(item: IdentifiableImage(image: placeholder, url: url)) {
+                    let effectiveItems = gallery.isEmpty ? [IdentifiableImage(image: placeholder, url: url)] : gallery
+                    previewGallery = ImageGalleryData(items: effectiveItems, initialIndex: index)
+                }
             case .failure:
                 if let placeholder = placeholder {
                     Button(action: {
@@ -258,6 +275,10 @@ extension MessageBubbleView {
                             .frame(maxWidth: 240, maxHeight: 220, alignment: .trailing)
                     }
                     .buttonStyle(.plain)
+                    .imageContextMenu(item: IdentifiableImage(image: placeholder, url: url)) {
+                        let effectiveItems = gallery.isEmpty ? [IdentifiableImage(image: placeholder, url: url)] : gallery
+                        previewGallery = ImageGalleryData(items: effectiveItems, initialIndex: index)
+                    }
                 } else {
                     HStack(spacing: 6) {
                         Image(systemName: "photo")

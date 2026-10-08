@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Undo
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.DropdownMenu
@@ -64,7 +65,8 @@ fun MessageBubble(
     urlResolver: ((String) -> String)? = null,
     onImageClick: ((url: String?, bitmap: Bitmap?) -> Unit)? = null,
     onImageGroupClick: ((items: List<ImageViewerItem>, initialIndex: Int) -> Unit)? = null,
-    onUndoClick: ((GatewayMessageItem) -> Unit)? = null
+    onUndoClick: ((GatewayMessageItem) -> Unit)? = null,
+    shareContextProvider: ((GatewayMessageItem) -> ShareCardContext)? = null
 ) {
     val colors = AntigravityTheme.colors
     val context = LocalContext.current
@@ -219,6 +221,19 @@ fun MessageBubble(
     }
     CopiedHint(visible = copiedHintVisible, onHidden = { copiedHintVisible = false })
 
+    // 分享长图：弹窗所需的内容快照（点击菜单时写入）
+    var shareCardRequest by remember { mutableStateOf<ShareCardRequest?>(null) }
+    shareCardRequest?.let { request ->
+        MessageShareCardSheet(
+            content = request.content,
+            isUserMessage = request.isUser,
+            images = request.images,
+            shareContext = shareContextProvider?.invoke(message) ?: ShareCardContext(),
+            urlResolver = urlResolver,
+            onDismiss = { shareCardRequest = null }
+        )
+    }
+
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -312,22 +327,33 @@ fun MessageBubble(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     allUserImages.forEachIndexed { index, item ->
+                        var showImageMenu by remember { mutableStateOf(false) }
+                        val openImage = {
+                            if (onImageGroupClick != null) {
+                                onImageGroupClick(allUserImages, index)
+                            } else {
+                                val fallbackBmp = item.bitmap ?: item.bytes?.let { b ->
+                                    try { BitmapFactory.decodeByteArray(b, 0, b.size) } catch (_: Exception) { null }
+                                }
+                                onImageClick?.invoke(item.url, fallbackBmp)
+                            }
+                        }
                         Box(
                             modifier = Modifier
                                 .size(72.dp)
                                 .clip(RoundedCornerShape(12.dp))
                                 .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
-                                .clickable {
-                                    if (onImageGroupClick != null) {
-                                        onImageGroupClick(allUserImages, index)
-                                    } else {
-                                        val fallbackBmp = item.bitmap ?: item.bytes?.let { b ->
-                                            try { BitmapFactory.decodeByteArray(b, 0, b.size) } catch (_: Exception) { null }
-                                        }
-                                        onImageClick?.invoke(item.url, fallbackBmp)
-                                    }
-                                }
+                                .combinedClickable(
+                                    onClick = { openImage() },
+                                    onLongClick = { showImageMenu = true }
+                                )
                         ) {
+                            ImageActionMenu(
+                                expanded = showImageMenu,
+                                onDismiss = { showImageMenu = false },
+                                item = item,
+                                onOpen = { openImage() }
+                            )
                             if (item.bitmap != null) {
                                 Image(
                                     bitmap = item.bitmap.asImageBitmap(),
@@ -447,6 +473,14 @@ fun MessageBubble(
                             }
                         )
                         DropdownMenuItem(
+                            text = { Text("分享为长图") },
+                            leadingIcon = { Icon(Icons.Default.Share, contentDescription = "分享为长图") },
+                            onClick = {
+                                showContextMenu = false
+                                shareCardRequest = ShareCardRequest(userBodyText, true, allUserImages)
+                            }
+                        )
+                        DropdownMenuItem(
                             text = { Text("撤回") },
                             leadingIcon = {
                                 Icon(
@@ -466,6 +500,8 @@ fun MessageBubble(
             val hasArtifacts = !message.artifacts.isNullOrEmpty()
             if (displayText.isNotBlank() || hasArtifacts) {
                 // Agent Bubble: Card background, textPrimary, 18.dp radius with subtle soft shadow
+                // 长按文字仍是选字；长按气泡非文字区域（边距/空白）弹出菜单
+                var showAgentMenu by remember { mutableStateOf(false) }
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -478,6 +514,10 @@ fun MessageBubble(
                         .clip(RoundedCornerShape(18.dp))
                         .background(colors.agentBubbleBg)
                         .border(0.5.dp, colors.border, RoundedCornerShape(18.dp))
+                        .combinedClickable(
+                            onClick = { focusManager.clearFocus() },
+                            onLongClick = { showAgentMenu = true }
+                        )
                         .padding(horizontal = 14.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
@@ -488,6 +528,31 @@ fun MessageBubble(
                             urlResolver = urlResolver,
                             onImageClick = { url -> onImageClick?.invoke(url, null) }
                         )
+                    }
+
+                    DropdownMenu(
+                        expanded = showAgentMenu,
+                        onDismissRequest = { showAgentMenu = false }
+                    ) {
+                        if (displayText.isNotBlank()) {
+                            DropdownMenuItem(
+                                text = { Text("复制") },
+                                leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = "复制") },
+                                onClick = {
+                                    showAgentMenu = false
+                                    val plain = MarkdownPlainText.convert(displayText)
+                                    copyAll(plain.ifEmpty { displayText })
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("分享为长图") },
+                                leadingIcon = { Icon(Icons.Default.Share, contentDescription = "分享为长图") },
+                                onClick = {
+                                    showAgentMenu = false
+                                    shareCardRequest = ShareCardRequest(displayText, false, emptyList())
+                                }
+                            )
+                        }
                     }
 
                     if (hasArtifacts) {
@@ -582,3 +647,9 @@ fun SimpleMarkdownContent(
     )
 }
 
+
+private data class ShareCardRequest(
+    val content: String,
+    val isUser: Boolean,
+    val images: List<ImageViewerItem>
+)

@@ -6,6 +6,7 @@ public struct MarkdownContentView: View {
     let blocks: [MarkdownBlock]
     
     @State var internalPreviewImage: IdentifiableImage? = nil
+    @Environment(\.isShareExport) var isShareExport
     
     public init(content: String, onImageTap: ((URL) -> Void)? = nil) {
         self.content = content
@@ -30,7 +31,11 @@ public struct MarkdownContentView: View {
                     
                 case .codeBlock(_, let lang, let code):
                     if lang.trimmingCharacters(in: .whitespaces).lowercased() == "mermaid" {
-                        MermaidDiagramView(code: code)
+                        if isShareExport {
+                            shareExportPlaceholder("Mermaid 图表，请在 App 中查看")
+                        } else {
+                            MermaidDiagramView(code: code)
+                        }
                     } else {
                         codeBlockView(lang: lang, code: code)
                     }
@@ -51,12 +56,20 @@ public struct MarkdownContentView: View {
                     markdownImageView(alt: alt, urlString: url)
                     
                 case .agentEmbed(_, let src):
-                    AgentEmbedView(src: src)
+                    if isShareExport {
+                        shareExportPlaceholder("交互内容，请在 App 中查看")
+                    } else {
+                        AgentEmbedView(src: src)
+                    }
                     
                 case .carousel(_, let slides):
-                    MarkdownCarouselView(slides: slides, onImageTap: { url in
-                        handleImageTap(url: url)
-                    })
+                    if isShareExport {
+                        shareExportPlaceholder("图片轮播（\(slides.count) 张），请在 App 中查看")
+                    } else {
+                        MarkdownCarouselView(slides: slides, onImageTap: { url in
+                            handleImageTap(url: url)
+                        })
+                    }
                 }
             }
         }

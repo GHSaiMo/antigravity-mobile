@@ -17,6 +17,9 @@ extension MessageBubbleView {
                         thumbnailView(for: item)
                     }
                     .buttonStyle(.plain)
+                    .imageContextMenu(item: item) {
+                        previewGallery = ImageGalleryData(items: fallbackAgentGalleryItems, initialIndex: index)
+                    }
                 }
             }
             .padding(.horizontal, 2)
@@ -67,6 +70,9 @@ extension MessageBubbleView {
                     Label("选择文本", systemImage: "selection.pin.in.out")
                 }
             }
+            if !plainText.isEmpty || !message.imageUrls.isEmpty {
+                shareLongImageButton
+            }
         }
     }
     
@@ -109,6 +115,10 @@ extension MessageBubbleView {
                         .frame(maxWidth: .infinity, maxHeight: 280, alignment: .leading)
                 }
                 .buttonStyle(.plain)
+                .imageContextMenu(item: IdentifiableImage(url: url)) {
+                    let effectiveItems = gallery.isEmpty ? [IdentifiableImage(url: url)] : gallery
+                    previewGallery = ImageGalleryData(items: effectiveItems, initialIndex: index)
+                }
             case .failure:
                 HStack(spacing: 6) {
                     Image(systemName: "photo")

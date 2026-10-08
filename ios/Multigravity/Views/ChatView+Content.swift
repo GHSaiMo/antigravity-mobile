@@ -261,9 +261,26 @@ extension ChatView {
             isActiveToolBatch: isActive,
             onUndo: { msg in
                 viewModel.requestUndo(for: msg)
-            }
+            },
+            shareContext: shareContext(forMessageAt: index)
         )
         .id(message.id)
+    }
+    
+    func shareContext(forMessageAt index: Int) -> ShareCardContext {
+        var question: String?
+        for candidate in viewModel.messages[..<index].reversed() {
+            if case .user = candidate.sender {
+                let body = AttachmentRules.parseBlock(candidate.content).body
+                question = body.isEmpty ? nil : body
+                break
+            }
+        }
+        return ShareCardContext(
+            sessionTitle: viewModel.currentTitle,
+            modelName: viewModel.activeModelDisplayName,
+            previousQuestion: question
+        )
     }
     
     @ViewBuilder

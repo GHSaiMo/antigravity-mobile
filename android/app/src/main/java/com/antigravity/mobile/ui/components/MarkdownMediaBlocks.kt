@@ -9,7 +9,9 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -35,6 +37,7 @@ import coil.compose.SubcomposeAsyncImageContent
 import coil.request.ImageRequest
 import com.antigravity.mobile.ui.theme.AppColors
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun MarkdownImageView(
     alt: String,
@@ -53,16 +56,24 @@ internal fun MarkdownImageView(
         }
     }
 
+    var showMenu by remember { mutableStateOf(false) }
+
     Box(
         modifier = Modifier.fillMaxWidth(),
         contentAlignment = Alignment.CenterStart
     ) {
+        ImageActionMenu(
+            expanded = showMenu,
+            onDismiss = { showMenu = false },
+            item = ImageViewerItem(url = resolvedUrl),
+            onOpen = { onImageClick?.invoke(resolvedUrl) }
+        )
         SubcomposeAsyncImage(
             model = ImageRequest.Builder(context)
                 .data(resolvedUrl)
                 .diskCacheKey(stableCacheKey)
                 .memoryCacheKey(stableCacheKey)
-                .crossfade(true)
+                .crossfade(!LocalShareExport.current)
                 .build(),
             contentDescription = alt.ifBlank { "图片" },
             contentScale = ContentScale.Fit,
@@ -110,7 +121,10 @@ internal fun MarkdownImageView(
                 }
                 else -> {
                     SubcomposeAsyncImageContent(
-                        modifier = Modifier.clickable { onImageClick?.invoke(resolvedUrl) }
+                        modifier = Modifier.combinedClickable(
+                            onClick = { onImageClick?.invoke(resolvedUrl) },
+                            onLongClick = { showMenu = true }
+                        )
                     )
                 }
             }
