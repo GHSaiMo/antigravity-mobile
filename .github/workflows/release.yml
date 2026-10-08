@@ -9,7 +9,7 @@ on:
       tag:
         description: 'Release Tag'
         required: false
-        default: 'v1.0.6'
+        default: 'v1.0.7'
 
 permissions:
   contents: write
@@ -75,7 +75,7 @@ jobs:
           mkdir -p dist
           TAG_NAME="${{ github.ref_name }}"
           if [ -z "$TAG_NAME" ] || [ "$TAG_NAME" = "main" ]; then
-            TAG_NAME="${{ inputs.tag || 'v1.0.6' }}"
+            TAG_NAME="${{ inputs.tag || 'v1.0.7' }}"
           fi
           APK_PATH=$(find android/app/build/outputs/apk/release -name "*.apk" | head -n 1)
           if [ -z "$APK_PATH" ]; then
@@ -121,7 +121,7 @@ jobs:
           mkdir -p dist/arm64 dist/amd64 dist/universal
           TAG_NAME="${{ github.ref_name }}"
           if [ -z "$TAG_NAME" ] || [ "$TAG_NAME" = "main" ]; then
-            TAG_NAME="${{ inputs.tag || '1.0.6' }}"
+            TAG_NAME="${{ inputs.tag || '1.0.7' }}"
           fi
           VERSION_NUM="${TAG_NAME#v}"
 
@@ -169,7 +169,7 @@ jobs:
           mkdir -p dist/amd64 dist/out
           TAG_NAME="${{ github.ref_name }}"
           if [ -z "$TAG_NAME" ] || [ "$TAG_NAME" = "main" ]; then
-            TAG_NAME="${{ inputs.tag || '1.0.6' }}"
+            TAG_NAME="${{ inputs.tag || '1.0.7' }}"
           fi
           VERSION_NUM="${TAG_NAME#v}"
 
@@ -203,7 +203,7 @@ jobs:
           mkdir -p dist/amd64 dist/out
           TAG_NAME="${{ github.ref_name }}"
           if [ -z "$TAG_NAME" ] || [ "$TAG_NAME" = "main" ]; then
-            TAG_NAME="${{ inputs.tag || '1.0.6' }}"
+            TAG_NAME="${{ inputs.tag || '1.0.7' }}"
           fi
           VERSION_NUM="${TAG_NAME#v}"
 
@@ -257,8 +257,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: release-assets/*
-          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag || 'v1.0.6' }}
-          name: "Multigravity ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag || 'v1.0.6' }}"
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag || 'v1.0.7' }}
+          name: "Multigravity ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag || 'v1.0.7' }}"
           body_path: .github/release_notes.md
           draft: false
           prerelease: false
