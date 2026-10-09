@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -34,6 +35,15 @@ import (
 
 // Version represents the Multigravity Gateway release version.
 var Version = "1.0.7"
+
+// envDisabled reports whether an opt-out switch is explicitly turned off ("0", "false", "off", "no").
+func envDisabled(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
+	case "0", "false", "off", "no":
+		return true
+	}
+	return false
+}
 
 func main() {
 	// 0. Initialize console output synchronization so concurrent logs don't tear terminal output
@@ -291,6 +301,22 @@ func runGatewayServer(args []string) {
 	}
 
 	cockpit.StartQuotaAutoRefresher(watcherCtx, 10*time.Minute, cockpitAlertFn)
+
+	// Gemini 5h low-quota alerts (≤20% warn, ≤5% critical; overridable via QUOTA_ALERT_*_PERCENT)
+	if notif != nil && !envDisabled("QUOTA_ALERT_ENABLED") {
+		alertCfg := cockpit.QuotaAlertConfigFromEnv()
+		alertCfg.StatePath = filepath.Join(config.GetDataDir(), "quota_alert_state.json")
+		alertCfg.LiveEmail = func() string {
+			email, _, _ := p.GetActiveUserStatus()
+			return email
+		}
+		alertCfg.Notify = func(a cockpit.QuotaAlert) {
+			if err := notif.NotifyQuotaAlert(a.StateKey, a.Title, a.Body, a.Level == "critical"); err != nil {
+				slog.Warn("[QuotaAlert] push failed", "err", err)
+			}
+		}
+		cockpit.StartQuotaAlerter(watcherCtx, alertCfg)
+	}
 
 	listenLoopback := auth.IsListenAddrLoopback(*host)
 	authPolicy := auth.AuthPolicy{
