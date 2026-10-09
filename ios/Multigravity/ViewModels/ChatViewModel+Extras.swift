@@ -2,6 +2,16 @@ import Foundation
 import Observation
 import UIKit
 
+/// Git 提交浮窗状态。
+public struct GitSheetState: Sendable {
+    public var isLoading: Bool = true
+    public var status: GitStatusResponse? = nil
+    public var error: String? = nil
+    public var isWorking: Bool = false
+    public var result: GitCommitResponse? = nil
+    public var actionError: String? = nil
+}
+
 /// 待分享的导出文件（Identifiable，用于 `.sheet(item:)`）。
 public struct ExportedMarkdownFile: Identifiable, Sendable {
     public let id = UUID()
@@ -11,6 +21,102 @@ public struct ExportedMarkdownFile: Identifiable, Sendable {
 extension ChatViewModel {
     private var isLocalDraftSession: Bool {
         cascadeId.isEmpty || cascadeId.hasPrefix("local_draft_") || cascadeId.hasPrefix("draft_")
+    }
+
+    // MARK: - Git 直接提交
+
+    public func openGitSheet() {
+        guard settings.serverURL != nil else { return }
+        guard !isLocalDraftSession else {
+            errorMessage = "新会话还没有关联的工作区"
+            return
+        }
+        gitSheet = GitSheetState()
+        refreshGitStatus()
+    }
+
+    public func refreshGitStatus() {
+        guard let url = settings.serverURL, var sheet = gitSheet else { return }
+        sheet.isLoading = true
+        sheet.error = nil
+        gitSheet = sheet
+        let id = cascadeId
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let st = try await apiClient.fetchGitStatus(cascadeId: id, baseURL: url)
+                guard var s = self.gitSheet else { return }
+                s.isLoading = false
+                s.status = st
+                s.error = nil
+                self.gitSheet = s
+            } catch {
+                guard var s = self.gitSheet else { return }
+                s.isLoading = false
+                s.error = error.localizedDescription
+                self.gitSheet = s
+            }
+        }
+    }
+
+    /// 直接调用网关提交（可选推送）。paths 为空表示提交全部改动。
+    public func commitGit(message: String, paths: [String], push: Bool) {
+        guard let url = settings.serverURL, var sheet = gitSheet, !sheet.isWorking else { return }
+        sheet.isWorking = true
+        sheet.actionError = nil
+        gitSheet = sheet
+        let id = cascadeId
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let res = try await apiClient.gitCommit(cascadeId: id, message: message, paths: paths, push: push, baseURL: url)
+                guard var s = self.gitSheet else { return }
+                s.isWorking = false
+                s.result = res
+                self.gitSheet = s
+            } catch {
+                guard var s = self.gitSheet else { return }
+                s.isWorking = false
+                s.actionError = error.localizedDescription
+                self.gitSheet = s
+            }
+        }
+    }
+
+    /// 提交已成功但推送失败时，单独重试推送；工作区干净但有未推送提交时也走这里。
+    public func retryGitPush() {
+        guard let url = settings.serverURL, var sheet = gitSheet, !sheet.isWorking else { return }
+        sheet.isWorking = true
+        sheet.actionError = nil
+        gitSheet = sheet
+        let id = cascadeId
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                _ = try await apiClient.gitPush(cascadeId: id, baseURL: url)
+                guard var s = self.gitSheet else { return }
+                s.isWorking = false
+                if var r = s.result {
+                    r.pushed = true
+                    r.pushError = nil
+                    s.result = r
+                } else {
+                    // 干净工作区直接推送：刷新状态，ahead 会归零
+                    s.result = nil
+                }
+                self.gitSheet = s
+                if s.result == nil { self.refreshGitStatus() }
+            } catch {
+                guard var s = self.gitSheet else { return }
+                s.isWorking = false
+                s.actionError = error.localizedDescription
+                self.gitSheet = s
+            }
+        }
+    }
+
+    public func closeGitSheet() {
+        gitSheet = nil
     }
 
     // MARK: - 导出 Markdown

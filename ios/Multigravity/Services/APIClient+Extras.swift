@@ -46,6 +46,35 @@ extension APIClient {
         }
     }
 
+    public func fetchGitStatus(cascadeId: String, baseURL: URL) async throws -> GitStatusResponse {
+        try await gatewayPost(
+            path: "gateway/git/status",
+            body: GitCascadeRequest(cascadeId: cascadeId),
+            baseURL: baseURL,
+            failurePrefix: "获取 Git 状态失败"
+        )
+    }
+
+    public func gitCommit(cascadeId: String, message: String, paths: [String], push: Bool, baseURL: URL) async throws -> GitCommitResponse {
+        try await gatewayPost(
+            path: "gateway/git/commit",
+            body: GitCommitRequest(cascadeId: cascadeId, message: message, paths: paths, push: push),
+            baseURL: baseURL,
+            timeout: push ? 150 : 70,
+            failurePrefix: "提交失败"
+        )
+    }
+
+    public func gitPush(cascadeId: String, baseURL: URL) async throws -> GitCommitResponse {
+        try await gatewayPost(
+            path: "gateway/git/push",
+            body: GitCascadeRequest(cascadeId: cascadeId),
+            baseURL: baseURL,
+            timeout: 150,
+            failurePrefix: "推送失败"
+        )
+    }
+
     /// 会话内容全文搜索（language_server SearchConversations，经网关透传）。
     public func searchConversations(query: String, baseURL: URL) async throws -> [ConversationSearchResult] {
         let resp: ConversationSearchResponse = try await rpc(

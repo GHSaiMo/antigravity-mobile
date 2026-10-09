@@ -108,6 +108,7 @@ data class ChatUiState(
     val showConfirmUndoSheet: Boolean = false,
     val isReverting: Boolean = false,
     val isLoadingRevertPreview: Boolean = false,
+    val gitSheet: GitSheetState? = null,
     val focusInputTrigger: Int = 0
 )
 

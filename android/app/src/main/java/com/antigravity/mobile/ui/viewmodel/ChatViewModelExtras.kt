@@ -1,9 +1,108 @@
 package com.antigravity.mobile.ui.viewmodel
 
 import androidx.lifecycle.viewModelScope
+import com.antigravity.mobile.data.model.GitCommitResponse
+import com.antigravity.mobile.data.model.GitStatusResponse
 import kotlinx.coroutines.launch
 
+/** Git 提交浮窗状态。 */
+data class GitSheetState(
+    val isLoading: Boolean = true,
+    val status: GitStatusResponse? = null,
+    val error: String? = null,
+    val isWorking: Boolean = false,
+    val result: GitCommitResponse? = null,
+    val actionError: String? = null
+)
+
 private fun String.isLocalDraft(): Boolean = isBlank() || startsWith("local_draft_")
+
+// endregion
+
+// region Git 直接提交
+
+fun ChatViewModel.openGitSheet() {
+    val cascadeId = _uiState.value.cascadeId
+    if (cascadeId.isLocalDraft()) {
+        _uiState.value = _uiState.value.copy(errorMessage = "新会话还没有关联的工作区")
+        return
+    }
+    _uiState.value = _uiState.value.copy(gitSheet = GitSheetState())
+    refreshGitStatus()
+}
+
+fun ChatViewModel.refreshGitStatus() {
+    val cascadeId = _uiState.value.cascadeId
+    val current = _uiState.value.gitSheet ?: return
+    _uiState.value = _uiState.value.copy(gitSheet = current.copy(isLoading = true, error = null))
+    viewModelScope.launch {
+        apiClient.getGitStatus(cascadeId)
+            .onSuccess { st ->
+                val sheet = _uiState.value.gitSheet ?: return@onSuccess
+                _uiState.value = _uiState.value.copy(gitSheet = sheet.copy(isLoading = false, status = st, error = null))
+            }
+            .onFailure { err ->
+                val sheet = _uiState.value.gitSheet ?: return@onFailure
+                _uiState.value = _uiState.value.copy(
+                    gitSheet = sheet.copy(isLoading = false, error = err.message ?: "加载失败")
+                )
+            }
+    }
+}
+
+/** 直接调用网关提交（可选推送）。paths 为空表示提交全部改动。 */
+fun ChatViewModel.commitGit(message: String, paths: List<String>, push: Boolean) {
+    val cascadeId = _uiState.value.cascadeId
+    val sheet = _uiState.value.gitSheet ?: return
+    if (sheet.isWorking) return
+    _uiState.value = _uiState.value.copy(gitSheet = sheet.copy(isWorking = true, actionError = null))
+    viewModelScope.launch {
+        apiClient.gitCommit(cascadeId, message, paths, push)
+            .onSuccess { res ->
+                val s = _uiState.value.gitSheet ?: return@onSuccess
+                _uiState.value = _uiState.value.copy(gitSheet = s.copy(isWorking = false, result = res))
+            }
+            .onFailure { err ->
+                val s = _uiState.value.gitSheet ?: return@onFailure
+                _uiState.value = _uiState.value.copy(
+                    gitSheet = s.copy(isWorking = false, actionError = err.message ?: "提交失败")
+                )
+            }
+    }
+}
+
+/** 提交已成功但推送失败时，单独重试推送。 */
+fun ChatViewModel.retryGitPush() {
+    val cascadeId = _uiState.value.cascadeId
+    val sheet = _uiState.value.gitSheet ?: return
+    if (sheet.isWorking) return
+    _uiState.value = _uiState.value.copy(gitSheet = sheet.copy(isWorking = true, actionError = null))
+    viewModelScope.launch {
+        apiClient.gitPush(cascadeId)
+            .onSuccess {
+                val s = _uiState.value.gitSheet ?: return@onSuccess
+                _uiState.value = _uiState.value.copy(
+                    gitSheet = s.copy(isWorking = false, result = s.result?.copy(pushed = true, pushError = null))
+                )
+            }
+            .onFailure { err ->
+                val s = _uiState.value.gitSheet ?: return@onFailure
+                _uiState.value = _uiState.value.copy(
+                    gitSheet = s.copy(isWorking = false, actionError = err.message ?: "推送失败")
+                )
+            }
+    }
+}
+
+fun ChatViewModel.closeGitSheet() {
+    _uiState.value = _uiState.value.copy(gitSheet = null)
+}
+
+/** 回退到「让 Agent 来提交」：保留原有行为，适合需要 Agent 理解改动并写提交信息的场景。 */
+fun ChatViewModel.delegateCommitToAgent() {
+    closeGitSheet()
+    insertCommitAndPush()
+}
 
 // endregion
 

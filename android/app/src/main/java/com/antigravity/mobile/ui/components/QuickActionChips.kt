@@ -97,7 +97,7 @@ fun QuickActionChips(
             )
         }
 
-        // 3. Commit and Push Button
+        // 3. Commit：打开 Git 提交浮窗（直接调用网关，不再消耗一轮 Agent 对话）
         Box(
             modifier = Modifier
                 .height(32.dp)
@@ -112,7 +112,7 @@ fun QuickActionChips(
             contentAlignment = Alignment.Center
         ) {
             Text(
-                text = "Commit and Push",
+                text = "Commit",
                 color = colors.textPrimary,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Medium
