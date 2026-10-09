@@ -1,5 +1,9 @@
 package com.antigravity.mobile.ui.screen
 
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -157,8 +161,13 @@ fun ChatScreen(
     val isImeVisible = WindowInsets.isImeVisible
 
     // Scroll state tracking: distinguish initial logical entry alignment vs in-session incremental scroll
-    var hasInitiallyAligned by remember(cascadeId) { mutableStateOf(false) }
-    var hasUserInteracted by remember(cascadeId) { mutableStateOf(false) }
+    // 对齐 iOS preserveScrollOnReturn：压入子页面（如子代理会话）后返回，保持原滚动位置，不重新对齐到底部。
+    // 这些状态用 rememberSaveable，才能在页面离开组合后随回退栈条目恢复。
+    var hasInitiallyAligned by rememberSaveable(cascadeId) { mutableStateOf(false) }
+    var hasUserInteracted by rememberSaveable(cascadeId) { mutableStateOf(false) }
+    var preserveScrollOnReturn by rememberSaveable(cascadeId) { mutableStateOf(false) }
+    var savedScrollIndex by rememberSaveable(cascadeId) { mutableIntStateOf(0) }
+    var savedScrollOffset by rememberSaveable(cascadeId) { mutableIntStateOf(0) }
     var previousMessageCount by remember(cascadeId) { mutableIntStateOf(uiState.messages.size) }
     var lastTrigger by remember(cascadeId) { mutableIntStateOf(scrollToBottomTrigger) }
 
@@ -172,6 +181,13 @@ fun ChatScreen(
                 lastVisibleIndex >= layoutInfo.totalItemsCount - 2
             }
         }
+    }
+
+    val openSubagent: (com.antigravity.mobile.data.model.SubagentItem) -> Unit = { sub ->
+        savedScrollIndex = listState.firstVisibleItemIndex
+        savedScrollOffset = listState.firstVisibleItemScrollOffset
+        preserveScrollOnReturn = hasInitiallyAligned
+        onOpenSubagent(sub)
     }
 
     // 对齐 iOS performAdaptiveCardScroll：多阶段弹性阻尼自适应滚动与贴边回弹
@@ -302,9 +318,12 @@ fun ChatScreen(
     }
 
     LaunchedEffect(cascadeId, isNewConversation) {
-        hasInitiallyAligned = false
-        hasUserInteracted = false
-        previousMessageCount = 0
+        val returningFromChild = preserveScrollOnReturn
+        if (!returningFromChild) {
+            hasInitiallyAligned = false
+            hasUserInteracted = false
+            previousMessageCount = 0
+        }
         lastTrigger = scrollToBottomTrigger
         viewModel.initSession(
             cascadeId = cascadeId,
@@ -313,6 +332,22 @@ fun ChatScreen(
             isUnread = isUnreadOnEntry,
             conversationStatus = initialStatus
         )
+        if (returningFromChild) {
+            // 共享的 ViewModel 此刻装载过子会话，列表位置被夹到了错误范围；等本会话消息就绪后还原进入子页面前的位置
+            isProgrammaticScrolling = true
+            try {
+                withTimeoutOrNull(1500) {
+                    snapshotFlow { uiState.cascadeId == cascadeId && uiState.messages.isNotEmpty() }.first { it }
+                }
+                previousMessageCount = uiState.messages.size
+                listState.scrollToItem(savedScrollIndex, savedScrollOffset)
+            } finally {
+                delay(50)
+                isProgrammaticScrolling = false
+            }
+            delay(1500)
+            preserveScrollOnReturn = false
+        }
         // Automatically focus the input field and pop up soft keyboard ONLY on new conversation creation without pending options
         if (isNewConversation && uiState.pendingInteraction == null) {
             delay(250)
@@ -392,7 +427,7 @@ fun ChatScreen(
 
     // Phase 2: Calibration after network sync completes (if user hasn't scrolled manually)
     LaunchedEffect(uiState.isLoading) {
-        if (!uiState.isLoading && uiState.messages.isNotEmpty()) {
+        if (!uiState.isLoading && uiState.messages.isNotEmpty() && !preserveScrollOnReturn) {
             if (!hasUserInteracted) {
                 delay(30)
                 performInitialAlignment()
@@ -409,7 +444,7 @@ fun ChatScreen(
         val msgSizeChanged = uiState.messages.size != previousMessageCount
         previousMessageCount = uiState.messages.size
 
-        if (!hasInitiallyAligned) {
+        if (!hasInitiallyAligned || preserveScrollOnReturn) {
             // Guard: Initial alignment handles entry positioning with instant scrollToItem
             return@LaunchedEffect
         }
@@ -438,14 +473,16 @@ fun ChatScreen(
 
     // Phase 4: 对齐 iOS：任务或队列列表数量变化时触发自适应吸附滚动
     LaunchedEffect(uiState.runningTasks.size, uiState.queuedMessages.size) {
-        if (hasInitiallyAligned && (isNearBottom || !hasUserInteracted)) {
+        if (hasInitiallyAligned && !preserveScrollOnReturn && (isNearBottom || !hasUserInteracted)) {
             performAdaptiveCardScroll()
         }
     }
 
     // Phase 5: 对齐 iOS isInputFocused：输入框获焦或键盘弹出时，会话内容自动往上顶，让用户可以看到会话的最底端
     LaunchedEffect(isInputFocused, isImeVisible) {
-        if (isInputFocused || isImeVisible) {
+        if (preserveScrollOnReturn) {
+            // 从子页面返回时保持原位置，不做贴底
+        } else if (isInputFocused || isImeVisible) {
             hasUserInteracted = false
             performAdaptiveCardScroll()
         } else if (hasInitiallyAligned) {
@@ -673,7 +710,7 @@ fun ChatScreen(
                                         onImageGroupClick = { items, index ->
                                             viewModel.openImageViewer(items = items, initialIndex = index)
                                         },
-                                        onSubagentClick = onOpenSubagent,
+                                        onSubagentClick = openSubagent,
                                         onUndoClick = if (compat.isAvailable(com.antigravity.mobile.data.model.GatewayFeature.REVERT)) {
                                             { target -> viewModel.requestUndo(target) }
                                         } else null,
@@ -767,7 +804,7 @@ fun ChatScreen(
                         SubagentsCard(
                             items = runningSubagents,
                             canStop = compat.isAvailable(com.antigravity.mobile.data.model.GatewayFeature.SUBAGENTS),
-                            onOpen = onOpenSubagent,
+                            onOpen = openSubagent,
                             onStop = { viewModel.stopSubagent(it.conversationId) },
                             onToggleExpand = { isExpanded ->
                                 handleFloatingCardToggle(isExpanded)
