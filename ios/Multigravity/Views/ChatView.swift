@@ -10,6 +10,8 @@ public struct ChatView: View {
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
     @FocusState var isInputFocused: Bool
     @State var hasInitiallyAligned = false
+    /// 进入子代理等子页面再返回时，保持原滚动位置，不重新对齐到底部。
+    @State var preserveScrollOnReturn = false
     @State var hasUserInteracted = false
     @State var isNearBottom = true
     @State var messagesContentHeight: CGFloat = 0
@@ -139,6 +141,9 @@ public struct ChatView: View {
         }
         .onAppear {
             isViewAppeared = true
+            if preserveScrollOnReturn {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { preserveScrollOnReturn = false }
+            }
             viewModel.restoreDraftsIfNeeded()
             consumeSharedFiles()
             if shouldAutoFocus && viewModel.pendingInteraction == nil {
@@ -185,11 +190,16 @@ public struct ChatView: View {
         }
         .onDisappear {
             isViewAppeared = false
-            hasInitiallyAligned = false
-            hasUserInteracted = false
-            isNearBottom = true
-            messagesContentHeight = 0
-            currentViewportHeight = 0
+            if hasInitiallyAligned && !isSplitDetail {
+                // 压入子页面（如子代理会话）：保留滚动状态，返回时留在原位置
+                preserveScrollOnReturn = true
+            } else {
+                hasInitiallyAligned = false
+                hasUserInteracted = false
+                isNearBottom = true
+                messagesContentHeight = 0
+                currentViewportHeight = 0
+            }
             autoFocusTask?.cancel()
             autoFocusTask = nil
             viewModel.saveCurrentDraft()
