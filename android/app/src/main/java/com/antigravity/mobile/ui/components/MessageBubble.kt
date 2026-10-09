@@ -545,12 +545,14 @@ fun MessageBubble(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     if (displayText.isNotBlank()) {
-                        MarkdownContentView(
-                            content = displayText,
-                            onPlanClick = onPlanClick,
-                            urlResolver = urlResolver,
-                            onImageClick = { url -> onImageClick?.invoke(url, null) }
-                        )
+                        BlankLongPressHost(onBlankLongPress = { showAgentMenu = true }) {
+                            MarkdownContentView(
+                                content = displayText,
+                                onPlanClick = onPlanClick,
+                                urlResolver = urlResolver,
+                                onImageClick = { url -> onImageClick?.invoke(url, null) }
+                            )
+                        }
                     }
 
                     DropdownMenu(
