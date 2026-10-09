@@ -406,3 +406,73 @@ async function rescanGateway() {
     if (btn) btn.textContent = "重新嗅探 Antigravity 实例";
   }
 }
+
+
+// ---------------------------------------------------------------------------
+// 升级自检（网关 /gateway/status 的 compat 字段）
+//
+// Antigravity 升级后 language_server 的接口可能消失。网关读取其二进制里的方法清单，告诉客户端哪些
+// 功能不可用；客户端隐藏对应入口，核心功能缺失时在首页顶部给出提示条。
+// 原则与原生端一致：拿不到、解析不了、旧网关没有这个字段、网关无法检测时一律「放行」，宁可保留入口，
+// 也不误隐藏可用功能。
+// ---------------------------------------------------------------------------
+const GATEWAY_FEATURE = {
+  SEARCH: "search",
+  EXPORT: "export",
+  CHANGES: "changes",
+  REVERT: "revert",
+  SLASH: "slash",
+  SUBAGENTS: "subagents",
+};
+
+let gatewayCompat = { version: "", checked: false, coreOk: true, unavailable: [] };
+let lastCompatRefreshAt = 0;
+
+function parseGatewayCompat(data) {
+  const c = data && typeof data === "object" ? data.compat : null;
+  if (!c || typeof c !== "object") return { version: "", checked: false, coreOk: true, unavailable: [] };
+  return {
+    version: typeof c.version === "string" ? c.version : "",
+    checked: c.checked === true,
+    coreOk: c.coreOk !== false,
+    unavailable: Array.isArray(c.unavailable) ? c.unavailable.filter((x) => typeof x === "string") : [],
+  };
+}
+
+function isFeatureAvailable(featureId) {
+  return !(gatewayCompat.checked && gatewayCompat.unavailable.includes(featureId));
+}
+
+function isGatewayIncompatible() {
+  return gatewayCompat.checked && !gatewayCompat.coreOk;
+}
+
+function gatewayCompatBannerText() {
+  const ver = gatewayCompat.version ? `（${gatewayCompat.version}）` : "";
+  return `当前 Antigravity 版本${ver} 与网关不兼容，部分基础功能可能无法使用。请升级网关（mgy）。`;
+}
+
+// 按自检结果显示 / 隐藏带 data-feature 的入口，并刷新首页提示条。
+function applyGatewayCompat() {
+  document.querySelectorAll("[data-feature]").forEach((el) => {
+    el.classList.toggle("feature-unavailable", !isFeatureAvailable(el.getAttribute("data-feature")));
+  });
+  const banner = document.getElementById("compat-banner");
+  if (banner) {
+    const text = document.getElementById("compat-banner-text");
+    if (text) text.textContent = gatewayCompatBannerText();
+    banner.classList.toggle("hidden", !isGatewayIncompatible());
+  }
+}
+
+async function refreshGatewayCompat(force = false) {
+  const now = Date.now();
+  if (!force && now - lastCompatRefreshAt < 30000) return;
+  lastCompatRefreshAt = now;
+  try {
+    const resp = await fetch("/gateway/status");
+    if (!resp.ok) return; // 失败时保持上一次的结果
+    gatewayCompat = parseGatewayCompat(await resp.json());
+    applyGatewayCompat();
+  } catch (_) {}
+}
