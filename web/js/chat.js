@@ -491,7 +491,7 @@ async function connectStreamWs(cascadeId) {
   closeActiveWs();
 
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  let wsUrl = `${proto}//${location.host}/gateway/cascade/stream?cascadeId=${encodeURIComponent(cascadeId)}&delta=1`;
+  let wsUrl = `${proto}//${location.host}/gateway/cascade/stream?cascadeId=${encodeURIComponent(cascadeId)}&delta=1&messages=0`;
   try {
     // S9 / C-1: Exchange HttpOnly session cookie for a short-lived one-time ticket
     // so no long-lived token ever appears in query strings or logs.
@@ -609,6 +609,12 @@ async function connectStreamWs(cascadeId) {
 
 function fallbackToHttpPolling(cascadeId) {
   if (activeCascadeId === cascadeId && !pollTimer) {
+    // Opening a chat relies on the stream's init frame; if the stream failed before anything
+    // was rendered for this session, load it over HTTP right away instead of after the first tick.
+    const streamEl = document.getElementById("messages-stream");
+    if (streamEl && (streamEl.__currentCascadeId !== cascadeId || streamEl.querySelector(".loading-state"))) {
+      loadChat(cascadeId, true);
+    }
     pollTimer = setInterval(() => {
       if (activeCascadeId === cascadeId && document.visibilityState === "visible") {
         loadChat(cascadeId, true);
