@@ -353,7 +353,10 @@ final class DemoGateway: @unchecked Sendable {
         if lines.count != ids.count { return "附件不存在或已过期" }
         
         var media: [String] = []
-        for img in (body["images"] as? [[String: Any]]) ?? [] { if let b = img["base64Data"] as? String { media.append(b) } }
+        for m in (body["media"] as? [[String: Any]]) ?? [] { if let b = m["inlineData"] as? String { media.append(b) } }
+        if media.isEmpty {
+            for img in (body["images"] as? [[String: Any]]) ?? [] { if let b = img["base64Data"] as? String { media.append(b) } }
+        }
         
         let names = lines.map { line -> String in
             let path = line.dropFirst(2).components(separatedBy: " (").first ?? ""
