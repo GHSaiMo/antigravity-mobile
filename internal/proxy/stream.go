@@ -39,6 +39,11 @@ type StreamUpdatePayload struct {
 	ActiveModelName    string               `json:"activeModelName,omitempty"`
 	ModelDisplayName   string               `json:"modelDisplayName,omitempty"`
 	StartedAt          string               `json:"startedAt,omitempty"`
+
+	// Delta framing, only set for clients that connect with delta=1 (see streamDeltaState).
+	Delta      bool     `json:"delta,omitempty"`
+	MessageIDs []string `json:"messageIds,omitempty"`
+	StepsFrom  *int     `json:"stepsFrom,omitempty"`
 }
 
 // Fingerprint computes a fast signature to detect changes and prevent redundant pushes.
@@ -67,7 +72,7 @@ func (p *StreamUpdatePayload) Fingerprint() string {
 	msgsKey := fmt.Sprintf("%d", p.TotalMessages)
 	if len(p.Messages) > 0 {
 		lastMsg := p.Messages[len(p.Messages)-1]
-		msgsKey = fmt.Sprintf("%d:%s:%d", p.TotalMessages, lastMsg.ID, len(lastMsg.Text))
+		msgsKey = fmt.Sprintf("%d:%s:%d:%x", p.TotalMessages, lastMsg.ID, len(lastMsg.Text), hashStrings(lastMsg.Text))
 	}
 	if len(p.Steps) == 0 {
 		return fmt.Sprintf("%s:%t:%s:%t:%s:%s:%s:%s:%s", p.Status, p.HasError, msgsKey, p.CanProceed, piKey, queuedKey, tasksKey, p.ActiveModel, p.Title)
@@ -86,7 +91,14 @@ func (p *StreamUpdatePayload) Fingerprint() string {
 	if last.ErrorMessage != nil {
 		lastLen += len(last.ErrorMessage.Error.ShortError) + len(last.ErrorMessage.Error.UserErrorMessage)
 	}
-	return fmt.Sprintf("%s:%t:%d:%d:%s:%s:%d:%s:%t:%s:%s:%s:%s:%s", p.Status, p.HasError, p.TotalSteps, p.TotalTools, last.Type, last.Status, lastLen, msgsKey, p.CanProceed, piKey, queuedKey, tasksKey, p.ActiveModel, p.Title)
+	// Length alone misses same-length rewrites of the tail step, so also fold in a content hash.
+	var contentHash uint64
+	if last.PlannerResponse != nil {
+		contentHash = hashStrings(last.PlannerResponse.Response, last.PlannerResponse.Thinking, last.Content)
+	} else {
+		contentHash = hashStrings(last.Content)
+	}
+	return fmt.Sprintf("%s:%t:%d:%d:%s:%s:%d:%s:%t:%s:%s:%s:%s:%s:%x", p.Status, p.HasError, p.TotalSteps, p.TotalTools, last.Type, last.Status, lastLen, msgsKey, p.CanProceed, piKey, queuedKey, tasksKey, p.ActiveModel, p.Title, contentHash)
 }
 
 // rawTrajectorySignature computes an O(1) lightweight fingerprint of the raw upstream response
@@ -129,8 +141,14 @@ func rawTrajectorySignature(raw *upstreamTrajectoryResp) string {
 	}
 	hasPI := (last.RequestedInteraction != nil)
 
-	return fmt.Sprintf("%s:%d:%s:%s:%d:%t:%s:%d:%s:%d",
-		raw.Status, n, last.Type, last.Status, lastContentLen, hasPI, title, pamCount, lastPamID, lastPamLen)
+	var contentHash uint64
+	if last.PlannerResponse != nil {
+		contentHash = hashStrings(last.PlannerResponse.Response, last.PlannerResponse.Thinking, last.Content)
+	} else {
+		contentHash = hashStrings(last.Content)
+	}
+	return fmt.Sprintf("%s:%d:%s:%s:%d:%t:%s:%d:%s:%d:%x",
+		raw.Status, n, last.Type, last.Status, lastContentLen, hasPI, title, pamCount, lastPamID, lastPamLen, contentHash)
 }
 
 // HandleCascadeStream serves a WebSocket connection for continuous real-time trajectory updates.
@@ -146,6 +164,9 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 	ua := r.UserAgent()
 	isMessagesOnly := format == "messages" || clientType == "ios" ||
 		((strings.Contains(ua, "CFNetwork") || strings.Contains(ua, "Darwin") || strings.Contains(ua, "Antigravity")) && !strings.Contains(ua, "Mozilla"))
+
+	wantDelta := r.URL.Query().Get("delta") == "1"
+	var deltaState streamDeltaState
 
 	sanitizeWebSocketHeaders(r)
 
@@ -348,6 +369,9 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 		fp := payload.Fingerprint()
 		if firstPush || fp != lastFingerprint {
 			lastFingerprint = fp
+			if wantDelta {
+				deltaState.apply(&payload)
+			}
 			firstPush = false
 			t3 := time.Now()
 			errWrite := writeJSON(payload)
