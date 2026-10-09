@@ -32,7 +32,7 @@ extension ChatView {
                             viewModel.toggleModel()
                         }
                     }) {
-                        Text(viewModel.isClaudeActive ? "Claude" : "Gemini")
+                        Text(viewModel.activeModelDisplayName)
                             .font(.system(size: 13, weight: .medium))
                             .foregroundColor(viewModel.isClaudeActive ? .orange : .blue)
                             .padding(.horizontal, 11)

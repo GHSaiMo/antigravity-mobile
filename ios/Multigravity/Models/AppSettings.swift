@@ -29,6 +29,8 @@ public final class AppSettings {
     private let activeServerURLKey = "antigravity.active_server_url"
     private let enableLiveActivityKey = "antigravity.enable_live_activity"
     private let activeModelKey = "antigravity.active_model"
+    private let defaultGeminiModelKey = "antigravity.default_gemini_model"
+    private let defaultClaudeModelKey = "antigravity.default_claude_model"
     private let autoApprovePermissionsKey = "antigravity.auto_approve_permissions"
     private let gatewayPlatformKey = "antigravity.gateway_platform"
     private let demoModeKey = "antigravity.demo_mode"
@@ -149,30 +151,34 @@ public final class AppSettings {
         }
     }
     
+    /// 「默认模型」：输入框上方 Gemini / Claude 胶囊切换时使用的具体模型。
+    public var defaultGeminiModel: String {
+        didSet { UserDefaults.standard.set(defaultGeminiModel, forKey: defaultGeminiModelKey) }
+    }
+
+    public var defaultClaudeModel: String {
+        didSet { UserDefaults.standard.set(defaultClaudeModel, forKey: defaultClaudeModelKey) }
+    }
+
     public var activeModelEnum: String {
-        activeModel == "claude-opus-4-6-thinking" ? "MODEL_PLACEHOLDER_M26" : "MODEL_PLACEHOLDER_M318"
+        if let known = ModelCatalogStore.shared.modelEnum(forID: activeModel) { return known }
+        return isClaudeActive ? "MODEL_PLACEHOLDER_M26" : "MODEL_PLACEHOLDER_M318"
     }
-    
+
     public var activeModelDisplayName: String {
-        activeModel == "claude-opus-4-6-thinking" ? "Claude" : "Gemini"
+        ModelDefaultsLogic.providerLabel(activeModel)
     }
-    
+
     public var isClaudeActive: Bool {
-        activeModel == "claude-opus-4-6-thinking"
+        ModelDefaultsLogic.isClaude(activeModel)
     }
-    
+
     public func toggleActiveModel() {
-        if activeModel == "gemini-3.8-flash-high" {
-            activeModel = "claude-opus-4-6-thinking"
-        } else {
-            activeModel = "gemini-3.8-flash-high"
-        }
+        activeModel = ModelDefaultsLogic.toggleTarget(current: activeModel, geminiDefault: defaultGeminiModel, claudeDefault: defaultClaudeModel)
     }
-    
+
     public func syncModel(from raw: String?) {
-        guard let raw = raw, !raw.isEmpty else { return }
-        let lower = raw.lowercased()
-        let target = (lower.contains("claude") || lower.contains("m26")) ? "claude-opus-4-6-thinking" : "gemini-3.8-flash-high"
+        let target = ModelDefaultsLogic.resolveActive(raw: raw, current: activeModel, geminiDefault: defaultGeminiModel, claudeDefault: defaultClaudeModel)
         if activeModel != target {
             activeModel = target
         }
@@ -497,6 +503,8 @@ public final class AppSettings {
         
         let savedModel = UserDefaults.standard.string(forKey: activeModelKey) ?? "gemini-3.8-flash-high"
         self.activeModel = savedModel
+        self.defaultGeminiModel = UserDefaults.standard.string(forKey: defaultGeminiModelKey).flatMap { $0.isEmpty ? nil : $0 } ?? ModelDefaultsLogic.fallbackGemini
+        self.defaultClaudeModel = UserDefaults.standard.string(forKey: defaultClaudeModelKey).flatMap { $0.isEmpty ? nil : $0 } ?? ModelDefaultsLogic.fallbackClaude
         
         let savedAutoApprove = UserDefaults.standard.bool(forKey: autoApprovePermissionsKey)
         self.autoApprovePermissions = savedAutoApprove

@@ -301,11 +301,17 @@ extension ChatView {
                 break
             }
         }
-        let badge = ShareCardContext.modelBadge(from: viewModel.activeModel)
+        let badge = ShareCardContext.resolveModel(
+            for: viewModel.messages[index],
+            in: viewModel.messages,
+            activeModel: viewModel.activeModel,
+            activeModelName: viewModel.activeModelName
+        )
         return ShareCardContext(
             sessionTitle: viewModel.currentTitle,
             modelName: badge.name,
             modelIsClaude: badge.isClaude,
+            startedAtISO: viewModel.startedAt,
             previousMessage: question
         )
     }

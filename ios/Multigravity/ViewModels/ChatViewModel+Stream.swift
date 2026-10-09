@@ -68,6 +68,8 @@ extension ChatViewModel {
                 self.syncModel(from: activeModel)
             }
         }
+        if let name = payload.activeModelName, !name.isEmpty { self.activeModelName = name }
+        if let started = payload.startedAt, !started.isEmpty { self.startedAt = started }
         
         if let title = payload.title?.trimmingCharacters(in: .whitespacesAndNewlines),
            !title.isEmpty, title != "未命名会话" {
@@ -106,7 +108,9 @@ extension ChatViewModel {
                     artifacts: item.artifacts ?? [],
                     stepIndex: item.stepIndex ?? (item.id.hasPrefix("step-") ? Int(item.id.dropFirst(5)) : nil),
                     attemptCount: item.attemptCount,
-                    maxAttempts: item.maxAttempts
+                    maxAttempts: item.maxAttempts,
+                    model: item.model,
+                    modelName: item.modelName
                 )
             }
             var mergedParsedMessages: [ChatMessage] = []

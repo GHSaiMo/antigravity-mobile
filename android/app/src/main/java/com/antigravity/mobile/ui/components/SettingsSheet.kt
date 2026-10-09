@@ -37,6 +37,9 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.antigravity.mobile.data.model.ModelDefaults
+import com.antigravity.mobile.data.model.ModelOption
+import com.antigravity.mobile.data.model.ModelsResponse
 import com.antigravity.mobile.data.service.ConnectionManager
 import com.antigravity.mobile.data.service.PreferencesManager
 import com.antigravity.mobile.ui.theme.AntigravityTheme
@@ -50,7 +53,8 @@ fun SettingsSheet(
     onThemeModeChange: (String) -> Unit,
     onUnpair: () -> Unit,
     onDismiss: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onLoadModels: suspend () -> Result<ModelsResponse> = { Result.failure(IllegalStateException("未提供模型目录")) }
 ) {
     var showUnpairAlert by remember { mutableStateOf(false) }
     var showClearCacheAlert by remember { mutableStateOf(false) }
@@ -135,7 +139,8 @@ fun SettingsSheet(
                     currentThemeMode = currentThemeMode,
                     onThemeModeChange = onThemeModeChange,
                     onPromptUnpair = { showUnpairAlert = true },
-                    onPromptClearCache = { showClearCacheAlert = true }
+                    onPromptClearCache = { showClearCacheAlert = true },
+                    onLoadModels = onLoadModels
                 )
             }
         }
@@ -225,7 +230,8 @@ private fun MainSettingsContent(
     currentThemeMode: String,
     onThemeModeChange: (String) -> Unit,
     onPromptUnpair: () -> Unit,
-    onPromptClearCache: () -> Unit
+    onPromptClearCache: () -> Unit,
+    onLoadModels: suspend () -> Result<ModelsResponse>
 ) {
     val colors = AntigravityTheme.colors
     val localContext = LocalContext.current
@@ -556,6 +562,9 @@ private fun MainSettingsContent(
             }
         }
 
+        // MARK: - 4b. 默认模型
+        DefaultModelSection(prefs = prefs, onLoadModels = onLoadModels)
+
         // MARK: - 5. 存储
         SettingsSection(
             title = "存储",
@@ -735,6 +744,129 @@ private fun ThemeOptionSegment(
                 fontSize = 12.sp,
                 fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
             )
+        }
+    }
+}
+
+/**
+ * 「默认模型」：输入框上方 Gemini / Claude 胶囊切换时使用的具体模型。
+ * 列表来自网关实时取到的可用模型；已有会话继续沿用它自己正在用的模型。
+ */
+@Composable
+private fun DefaultModelSection(
+    prefs: PreferencesManager,
+    onLoadModels: suspend () -> Result<ModelsResponse>
+) {
+    val colors = AntigravityTheme.colors
+    var catalog by remember { mutableStateOf<ModelsResponse?>(null) }
+    var loadState by remember { mutableStateOf("loading") } // loading | ok | failed
+    var gemini by remember { mutableStateOf(prefs.defaultGeminiModel) }
+    var claude by remember { mutableStateOf(prefs.defaultClaudeModel) }
+
+    LaunchedEffect(Unit) {
+        onLoadModels()
+            .onSuccess { c ->
+                catalog = c
+                loadState = "ok"
+                // 已保存的默认模型若已下线，换成网关建议的默认值，避免之后发消息时解析失败
+                val g = ModelDefaults.validated(gemini, "gemini", c)
+                if (g != gemini) { gemini = g; prefs.defaultGeminiModel = g }
+                val cl = ModelDefaults.validated(claude, "claude", c)
+                if (cl != claude) { claude = cl; prefs.defaultClaudeModel = cl }
+            }
+            .onFailure { loadState = "failed" }
+    }
+
+    val footer = when (loadState) {
+        "loading" -> "正在读取可用模型..."
+        "failed" -> "暂时无法读取可用模型列表，仍会使用当前已保存的默认模型。"
+        else -> "输入框上方的 Gemini / Claude 切换会使用这里选定的模型；已有会话继续沿用它正在使用的模型。"
+    }
+
+    SettingsSection(title = "默认模型", footer = footer) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(colors.surface)
+                .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
+        ) {
+            ModelPickerRow(
+                label = "Gemini",
+                selectedId = gemini,
+                options = catalog?.models?.filter { it.provider == "gemini" }.orEmpty(),
+                onSelect = { gemini = it; prefs.defaultGeminiModel = it }
+            )
+            HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
+            ModelPickerRow(
+                label = "Claude",
+                selectedId = claude,
+                options = catalog?.models?.filter { it.provider == "claude" }.orEmpty(),
+                onSelect = { claude = it; prefs.defaultClaudeModel = it }
+            )
+        }
+    }
+}
+
+@Composable
+private fun ModelPickerRow(
+    label: String,
+    selectedId: String,
+    options: List<ModelOption>,
+    onSelect: (String) -> Unit
+) {
+    val colors = AntigravityTheme.colors
+    val haptic = rememberHaptic()
+    var expanded by remember { mutableStateOf(false) }
+    val selectedName = options.firstOrNull { it.id == selectedId }?.name ?: selectedId
+
+    Box {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(enabled = options.isNotEmpty()) {
+                    haptic.light()
+                    expanded = true
+                }
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(text = label, color = colors.textPrimary, fontSize = 15.sp)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = selectedName,
+                    color = colors.textSecondary,
+                    fontSize = 14.sp,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = 220.dp)
+                )
+                if (options.isNotEmpty()) {
+                    Icon(
+                        imageVector = Icons.Default.UnfoldMore,
+                        contentDescription = null,
+                        tint = colors.textMuted,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(option.name) },
+                    trailingIcon = {
+                        if (option.id == selectedId) {
+                            Icon(Icons.Default.Check, contentDescription = null, tint = colors.accentIndigo, modifier = Modifier.size(18.dp))
+                        }
+                    },
+                    onClick = {
+                        expanded = false
+                        onSelect(option.id)
+                    }
+                )
+            }
         }
     }
 }

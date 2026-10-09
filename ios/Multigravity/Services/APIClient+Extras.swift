@@ -46,6 +46,32 @@ extension APIClient {
         }
     }
 
+    /// 可选模型目录（网关从 language_server 实时取，失败时返回内置兜底）。
+    public func fetchModels(baseURL: URL, refresh: Bool = false) async throws -> ModelsResponse {
+        var components = URLComponents(url: baseURL.appendingPathComponent("gateway/models"), resolvingAgainstBaseURL: false)
+        if refresh { components?.queryItems = [URLQueryItem(name: "refresh", value: "1")] }
+        guard let url = components?.url else { throw APIError.invalidURL }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 15
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await transport.send(request: request)
+        } catch {
+            throw APIError.networkError(error.localizedDescription)
+        }
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+            throw APIError.serverError(statusCode: code, message: "获取模型列表失败")
+        }
+        do {
+            return try JSONDecoder().decode(ModelsResponse.self, from: data)
+        } catch {
+            throw APIError.decodingError(error.localizedDescription)
+        }
+    }
+
     public func fetchCascadeChanges(cascadeId: String, fromStepIndex: Int? = nil, baseURL: URL) async throws -> CascadeChangesResponse {
         try await gatewayPost(
             path: "gateway/cascade/changes",

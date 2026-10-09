@@ -85,7 +85,11 @@ data class ChatUiState(
     val canProceed: Boolean = false,
     val proceedArtifactUri: String? = null,
     val pendingInteraction: PendingInteraction? = null,
-    val activeModel: String = "gemini-3.8-flash-high",
+    val activeModel: String = ModelDefaults.FALLBACK_GEMINI,
+    /** 网关给出的模型完整展示名；为空时界面回退到由 id 推断的名称。 */
+    val activeModelName: String? = null,
+    /** 会话发起时间（ISO-8601），用于长图分享等场景。 */
+    val startedAt: String? = null,
     val connectionStatus: ConnectionStatus = ConnectionStatus.DISCONNECTED,
     val errorMessage: String? = null,
     val isLatestMessageError: Boolean = false,
@@ -124,6 +128,11 @@ class ChatViewModel(
 
     internal val _uiState = MutableStateFlow(ChatUiState())
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
+
+    init {
+        // 新会话默认走「设置 › 默认模型」里选定的 Gemini 模型
+        _uiState.value = _uiState.value.copy(activeModel = geminiDefaultModel)
+    }
 
     internal val _inputText = MutableStateFlow("")
     val inputText: StateFlow<String> = _inputText.asStateFlow()
@@ -205,24 +214,27 @@ class ChatViewModel(
         }
     }
 
+    /** 胶囊切换：Gemini ⇄ Claude，落到「设置 › 默认模型」里为各自选定的具体模型。 */
     fun toggleModel() {
-        val nextModel = if (_uiState.value.activeModel.contains("claude", ignoreCase = true)) {
-            "gemini-3.8-flash-high"
-        } else {
-            "claude-opus-4-6-thinking"
-        }
-        _uiState.value = _uiState.value.copy(activeModel = nextModel)
+        val nextModel = ModelDefaults.toggleTarget(
+            current = _uiState.value.activeModel,
+            geminiDefault = geminiDefaultModel,
+            claudeDefault = claudeDefaultModel
+        )
+        _uiState.value = _uiState.value.copy(activeModel = nextModel, activeModelName = null)
     }
 
     fun syncModel(model: String) {
-        val lower = model.lowercase()
-        val canonical = if (lower.contains("claude") || lower.contains("m26")) {
-            "claude-opus-4-6-thinking"
-        } else {
-            "gemini-3.8-flash-high"
-        }
-        _uiState.value = _uiState.value.copy(activeModel = canonical)
+        _uiState.value = _uiState.value.copy(
+            activeModel = ModelDefaults.resolveActive(model, _uiState.value.activeModel, geminiDefaultModel, claudeDefaultModel)
+        )
     }
+
+    internal val geminiDefaultModel: String
+        get() = prefs?.defaultGeminiModel ?: ModelDefaults.FALLBACK_GEMINI
+
+    internal val claudeDefaultModel: String
+        get() = prefs?.defaultClaudeModel ?: ModelDefaults.FALLBACK_CLAUDE
 
     fun insertCommitAndPush() {
         val cmd = "Commit and Push"

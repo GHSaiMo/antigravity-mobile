@@ -402,6 +402,9 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
     public let stepIndex: Int?
     public let attemptCount: Int?
     public let maxAttempts: Int?
+    /// 生成这条回复的模型 id 与展示名（仅 Agent 消息；未知时为 nil）。
+    public let model: String?
+    public let modelName: String?
     
     public enum MessageSender: Hashable, Sendable, Codable {
         case user
@@ -459,8 +462,12 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
         artifacts: [ArtifactItem] = [],
         stepIndex: Int? = nil,
         attemptCount: Int? = nil,
-        maxAttempts: Int? = nil
+        maxAttempts: Int? = nil,
+        model: String? = nil,
+        modelName: String? = nil
     ) {
+        self.model = model
+        self.modelName = modelName
         self.id = id
         self.sender = sender
         self.content = content

@@ -36,6 +36,9 @@ data class GatewayMessageItem(
     val imageUrls: List<String>? = null,
     val artifacts: List<ArtifactItem>? = null,
     val timestamp: String? = null,
+    /** 生成这条回复的模型 id 与展示名（仅 Agent 消息；未知时为空）。 */
+    val model: String? = null,
+    val modelName: String? = null,
     val status: String? = null,
     val stepIndex: Int? = null,
     val attemptCount: Int? = null,
@@ -149,7 +152,11 @@ data class StreamUpdatePayload(
     val proceedArtifactUri: String? = null,
     val pendingInteraction: PendingInteraction? = null,
     val activeModel: String? = null,
-    val modelDisplayName: String? = null
+    /** 完整展示名，如 "Gemini 3.8 Flash (High)"。 */
+    val activeModelName: String? = null,
+    val modelDisplayName: String? = null,
+    /** 会话发起时间（ISO-8601）。 */
+    val startedAt: String? = null
 )
 
 @Serializable

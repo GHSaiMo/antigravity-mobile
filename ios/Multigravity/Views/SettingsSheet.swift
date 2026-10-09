@@ -8,6 +8,7 @@ public struct SettingsSheet: View {
     @State private var showUnpairAlert: Bool = false
     @State private var lanAddress: String = ""
     @State private var customAddress: String = ""
+    @State private var modelCatalog = ModelCatalogStore.shared
     
     public init() {}
     
@@ -120,6 +121,15 @@ public struct SettingsSheet: View {
                         }
                 }
                 
+                // MARK: - 4b. 默认模型
+                Section(
+                    header: Text("默认模型"),
+                    footer: Text(defaultModelFooter)
+                ) {
+                    defaultModelPicker(title: "Gemini", provider: "gemini", selection: $settings.defaultGeminiModel)
+                    defaultModelPicker(title: "Claude", provider: "claude", selection: $settings.defaultClaudeModel)
+                }
+                
                 // MARK: - 5. 本地缓存
                 Section(
                     header: Text("存储"),
@@ -160,6 +170,11 @@ public struct SettingsSheet: View {
         .task {
             await connectionManager.probeEndpoints()
         }
+        .task {
+            if let url = settings.serverURL, !settings.isDemoMode {
+                await modelCatalog.refresh(settings: settings, baseURL: url)
+            }
+        }
         .alert(settings.isDemoMode ? "确定退出演示模式？" : "确定解除设备配对？", isPresented: $showUnpairAlert) {
             Button("取消", role: .cancel) {}
             Button(settings.isDemoMode ? "退出演示" : "解除配对", role: .destructive) {
@@ -198,5 +213,32 @@ public struct SettingsSheet: View {
         } message: {
             Text("本地缓存的会话消息、方案及离线文档将被清理，下次访问时将从网关重新拉取。")
         }
+    }
+}
+
+
+// MARK: - 默认模型
+
+extension SettingsSheet {
+    fileprivate var defaultModelFooter: String {
+        if modelCatalog.isLoading && modelCatalog.catalog == nil { return "正在读取可用模型..." }
+        if modelCatalog.loadFailed && modelCatalog.catalog == nil { return "暂时无法读取可用模型列表，仍会使用当前已保存的默认模型。" }
+        return "输入框上方的 Gemini / Claude 切换会使用这里选定的模型；已有会话继续沿用它正在使用的模型。"
+    }
+
+    /// 列表来自网关实时取到的可用模型；已保存的模型不在列表里时仍显示它的 id，避免选择器空白。
+    @ViewBuilder
+    fileprivate func defaultModelPicker(title: String, provider: String, selection: Binding<String>) -> some View {
+        let options = modelCatalog.options(for: provider)
+        Picker(title, selection: selection) {
+            if !options.contains(where: { $0.id == selection.wrappedValue }) {
+                Text(selection.wrappedValue).tag(selection.wrappedValue)
+            }
+            ForEach(options) { option in
+                Text(option.name).tag(option.id)
+            }
+        }
+        .pickerStyle(.menu)
+        .disabled(options.isEmpty)
     }
 }

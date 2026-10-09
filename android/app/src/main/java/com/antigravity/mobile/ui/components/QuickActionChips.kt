@@ -36,7 +36,8 @@ fun QuickActionChips(
     modifier: Modifier = Modifier
 ) {
     val colors = AntigravityTheme.colors
-    val isClaude = activeModel.contains("claude", ignoreCase = true)
+    val isClaude = com.antigravity.mobile.data.model.ModelDefaults.isClaude(activeModel)
+    val providerLabel = com.antigravity.mobile.data.model.ModelDefaults.providerLabel(activeModel)
     val haptic = com.antigravity.mobile.ui.util.rememberHaptic()
 
     Row(
@@ -91,7 +92,7 @@ fun QuickActionChips(
             contentAlignment = Alignment.Center
         ) {
             Text(
-                text = if (isClaude) "Claude" else "Gemini",
+                text = providerLabel,
                 color = if (isClaude) colors.accentOrange else colors.accentBlue,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Medium

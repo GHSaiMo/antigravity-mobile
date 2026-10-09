@@ -28,6 +28,10 @@ type CascadeMessageItem struct {
 	Artifacts    []ArtifactItem `json:"artifacts,omitempty"` // Linked/generated artifact cards
 	AttemptCount int            `json:"attemptCount,omitempty"`
 	MaxAttempts  int            `json:"maxAttempts,omitempty"`
+	// Model / ModelName identify the model that actually generated an agent reply (from the step's
+	// generatorModel): Model is the model id, ModelName its display name. Empty when unknown.
+	Model     string `json:"model,omitempty"`
+	ModelName string `json:"modelName,omitempty"`
 }
 
 // QueuedMessageItem represents a pending follow-up user message queued for execution.
@@ -101,7 +105,9 @@ type CascadeMessagesResponse struct {
 	QueuedMessages     []QueuedMessageItem  `json:"queuedMessages"`
 	RunningTasks       []RunningTaskItem    `json:"runningTasks,omitempty"`
 	ActiveModel        string               `json:"activeModel,omitempty"`
+	ActiveModelName    string               `json:"activeModelName,omitempty"` // full display name, e.g. "Gemini 3.8 Flash (High)"
 	ModelDisplayName   string               `json:"modelDisplayName,omitempty"`
+	StartedAt          string               `json:"startedAt,omitempty"` // when the conversation started (first step)
 	CascadeConfig      json.RawMessage      `json:"cascadeConfig,omitempty"`
 	CascadeConfigRaw   string               `json:"cascadeConfigRaw,omitempty"`
 	CanProceed         bool                 `json:"canProceed"`
@@ -139,6 +145,7 @@ type TrajectoryStep struct {
 	Status   string `json:"status"`
 	Metadata struct {
 		CreatedAt                string `json:"createdAt"`
+		GeneratorModel           string `json:"generatorModel,omitempty"`
 		ToolSummary              string `json:"toolSummary,omitempty"`
 		ToolAction               string `json:"toolAction,omitempty"`
 		SourceTrajectoryStepInfo *struct {
@@ -302,7 +309,9 @@ type TrajectoryDetails struct {
 	QueuedMessages     []QueuedMessageItem  `json:"queuedMessages"`
 	RunningTasks       []RunningTaskItem    `json:"runningTasks,omitempty"`
 	ActiveModel        string               `json:"activeModel,omitempty"`
+	ActiveModelName    string               `json:"activeModelName,omitempty"`
 	ModelDisplayName   string               `json:"modelDisplayName,omitempty"`
+	StartedAt          string               `json:"startedAt,omitempty"`
 	CascadeConfig      json.RawMessage      `json:"cascadeConfig,omitempty"`
 	CascadeConfigRaw   string               `json:"cascadeConfigRaw,omitempty"`
 	CanProceed         bool                 `json:"canProceed"`

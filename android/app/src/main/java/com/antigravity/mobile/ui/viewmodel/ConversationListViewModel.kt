@@ -533,6 +533,9 @@ class ConversationListViewModel(
         }
     }
 
+    /** 设置页「默认模型」用：向网关取可选模型目录。 */
+    suspend fun loadModelCatalog(): Result<com.antigravity.mobile.data.model.ModelsResponse> = apiClient.getModels()
+
     fun onSearchQueryChanged(query: String) {
         _searchQuery.value = query
         applyFilter()

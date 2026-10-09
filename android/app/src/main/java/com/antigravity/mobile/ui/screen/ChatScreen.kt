@@ -678,11 +678,17 @@ fun ChatScreen(
                                             val list = uiState.messages
                                             val idx = list.indexOfFirst { it === target }.takeIf { it >= 0 } ?: list.size
                                             val question = list.take(idx).lastOrNull { it.isUser }
-                                            val badge = ShareCardContext.modelBadge(uiState.activeModel)
+                                            val badge = ShareCardContext.resolveModel(
+                                                target = target,
+                                                messages = list,
+                                                activeModel = uiState.activeModel,
+                                                activeModelName = uiState.activeModelName
+                                            )
                                             ShareCardContext(
                                                 sessionTitle = uiState.title,
                                                 modelName = badge.first,
                                                 modelIsClaude = badge.second,
+                                                startedAtIso = uiState.startedAt,
                                                 previousMessage = question
                                             )
                                         }

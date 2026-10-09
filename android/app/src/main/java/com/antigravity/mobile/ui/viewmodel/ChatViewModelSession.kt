@@ -35,7 +35,9 @@ internal fun ChatViewModel.saveSessionToCache() {
         pendingInteraction = state.pendingInteraction,
         queuedMessages = state.queuedMessages,
         runningTasks = state.runningTasks,
-        activeModel = state.activeModel
+        activeModel = state.activeModel,
+        activeModelName = state.activeModelName,
+        startedAt = state.startedAt
     )
     cm.saveSession(session)
 }
@@ -184,6 +186,8 @@ internal fun ChatViewModel.prepareSession(
             proceedArtifactUri = cached.proceedArtifactUri,
             pendingInteraction = cached.pendingInteraction,
             activeModel = cached.activeModel ?: _uiState.value.activeModel,
+            activeModelName = cached.activeModelName ?: _uiState.value.activeModelName,
+            startedAt = cached.startedAt ?: _uiState.value.startedAt,
             errorMessage = null,
             isLatestMessageError = cached.status.equals("CASCADE_RUN_STATUS_ERROR", ignoreCase = true) || cached.status.equals("ERROR", ignoreCase = true),
             hasMore = hasMore,
@@ -295,6 +299,8 @@ internal fun ChatViewModel.initSession(
                 proceedArtifactUri = cached.proceedArtifactUri,
                 pendingInteraction = cached.pendingInteraction,
                 activeModel = cached.activeModel ?: _uiState.value.activeModel,
+                activeModelName = cached.activeModelName ?: _uiState.value.activeModelName,
+                startedAt = cached.startedAt ?: _uiState.value.startedAt,
                 errorMessage = null,
                 isLatestMessageError = cached.status.equals("CASCADE_RUN_STATUS_ERROR", ignoreCase = true) || cached.status.equals("ERROR", ignoreCase = true),
                 hasMore = hasMore,
@@ -407,13 +413,9 @@ internal fun ChatViewModel.initSession(
                         canProceed = payload.canProceed,
                         proceedArtifactUri = payload.proceedArtifactUri,
                         pendingInteraction = payload.pendingInteraction,
-                        activeModel = payload.activeModel?.let { raw ->
-                            if (raw.contains("claude", ignoreCase = true) || raw.contains("m26", ignoreCase = true)) {
-                                "claude-opus-4-6-thinking"
-                            } else {
-                                "gemini-3.8-flash-high"
-                            }
-                        } ?: _uiState.value.activeModel,
+                        activeModel = ModelDefaults.resolveActive(payload.activeModel, _uiState.value.activeModel, geminiDefaultModel, claudeDefaultModel),
+                        activeModelName = payload.activeModelName ?: _uiState.value.activeModelName,
+                        startedAt = payload.startedAt ?: _uiState.value.startedAt,
                         errorMessage = if (payload.hasError && _uiState.value.messages.isEmpty()) payload.errorMessage else null,
                         isLatestMessageError = isError,
                         hasMore = hasMore,
@@ -539,13 +541,9 @@ internal fun ChatViewModel.ensureWebSocketObserving() {
                     canProceed = payload.canProceed,
                     proceedArtifactUri = payload.proceedArtifactUri,
                     pendingInteraction = payload.pendingInteraction,
-                    activeModel = payload.activeModel?.let { raw ->
-                        if (raw.contains("claude", ignoreCase = true) || raw.contains("m26", ignoreCase = true)) {
-                            "claude-opus-4-6-thinking"
-                        } else {
-                            "gemini-3.8-flash-high"
-                        }
-                    } ?: _uiState.value.activeModel,
+                    activeModel = ModelDefaults.resolveActive(payload.activeModel, _uiState.value.activeModel, geminiDefaultModel, claudeDefaultModel),
+                    activeModelName = payload.activeModelName ?: _uiState.value.activeModelName,
+                    startedAt = payload.startedAt ?: _uiState.value.startedAt,
                     errorMessage = if (payload.hasError) payload.errorMessage else null,
                     isLatestMessageError = isError,
                     hasMore = hasMore,
