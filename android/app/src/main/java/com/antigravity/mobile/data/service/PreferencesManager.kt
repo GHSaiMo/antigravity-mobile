@@ -1,5 +1,6 @@
 package com.antigravity.mobile.data.service
 
+import com.antigravity.mobile.data.model.ModelDefaults
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
@@ -150,6 +151,15 @@ class PreferencesManager(context: Context) {
             prefs.edit().putString(KEY_THEME_MODE, value).apply()
             _themeModeFlow.value = value
         }
+
+    /** 「默认模型」：输入框上方 Gemini / Claude 胶囊切换时使用的具体模型。 */
+    var defaultGeminiModel: String
+        get() = prefs.getString(KEY_DEFAULT_GEMINI_MODEL, null)?.takeIf { it.isNotBlank() } ?: ModelDefaults.FALLBACK_GEMINI
+        set(value) = prefs.edit().putString(KEY_DEFAULT_GEMINI_MODEL, value.trim()).apply()
+
+    var defaultClaudeModel: String
+        get() = prefs.getString(KEY_DEFAULT_CLAUDE_MODEL, null)?.takeIf { it.isNotBlank() } ?: ModelDefaults.FALLBACK_CLAUDE
+        set(value) = prefs.edit().putString(KEY_DEFAULT_CLAUDE_MODEL, value.trim()).apply()
 
     var autoApprovePermissions: Boolean
         get() = prefs.getBoolean(KEY_AUTO_APPROVE, false)
@@ -562,6 +572,8 @@ class PreferencesManager(context: Context) {
         private const val KEY_DEVICE_TOKEN = "device_token"
         private const val KEY_DEVICE_ID = "device_id"
         private const val KEY_THEME_MODE = "theme_mode"
+        private const val KEY_DEFAULT_GEMINI_MODEL = "default_gemini_model"
+        private const val KEY_DEFAULT_CLAUDE_MODEL = "default_claude_model"
         private const val KEY_AUTO_APPROVE = "auto_approve_permissions"
         private const val KEY_LIVE_NOTIFICATIONS = "live_notifications"
         private const val KEY_FCM_PUSH_TOKEN = "fcm_push_token"

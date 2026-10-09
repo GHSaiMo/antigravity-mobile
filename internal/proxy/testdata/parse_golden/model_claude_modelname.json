@@ -21,6 +21,7 @@
     ],
     "queuedMessages": [],
     "activeModel": "claude-sonnet-4-6",
+    "activeModelName": "Claude Sonnet 4.6 (Thinking)",
     "modelDisplayName": "Claude",
     "cascadeConfig": {
       "plannerConfig": {

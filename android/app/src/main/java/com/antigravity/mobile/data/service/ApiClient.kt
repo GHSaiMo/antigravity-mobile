@@ -1064,6 +1064,14 @@ class ApiClient(
             }
         }
 
+    /** 可选模型目录（网关从 language_server 实时取，失败时返回内置兜底）。 */
+    suspend fun getModels(refresh: Boolean = false): Result<ModelsResponse> =
+        postGatewayJson(
+            if (refresh) "/gateway/models?refresh=1" else "/gateway/models",
+            "{}",
+            "获取模型列表失败"
+        ).mapCatching { json.decodeFromString<ModelsResponse>(it) }
+
     /** 本会话累计改动（正向 diff）。fromStepIndex 非空时只取该步骤起的改动。 */
     suspend fun getCascadeChanges(cascadeId: String, fromStepIndex: Int? = null): Result<CascadeChangesResponse> =
         postGatewayJson(

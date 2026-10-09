@@ -55,7 +55,9 @@ extension APIClient {
                         artifacts: item.artifacts ?? [],
                         stepIndex: item.stepIndex,
                         attemptCount: item.attemptCount,
-                        maxAttempts: item.maxAttempts
+                        maxAttempts: item.maxAttempts,
+                        model: item.model,
+                        modelName: item.modelName
                     )
                 }
                 
@@ -81,7 +83,9 @@ extension APIClient {
                     queuedMessages: decoded.queuedMessages ?? [],
                     runningTasks: decoded.runningTasks ?? [],
                     activeModel: decoded.activeModel,
+                    activeModelName: decoded.activeModelName,
                     modelDisplayName: decoded.modelDisplayName,
+                    startedAt: decoded.startedAt,
                     hasError: isErr,
                     errorMessage: errMsg
                 )
@@ -107,7 +111,9 @@ extension APIClient {
             queuedMessages: [],
             runningTasks: [],
             activeModel: nil,
+            activeModelName: nil,
             modelDisplayName: nil,
+            startedAt: nil,
             hasError: hasErr,
             errorMessage: errMsg
         )

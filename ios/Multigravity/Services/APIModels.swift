@@ -104,7 +104,9 @@ public struct PaginatedMessagesResponse: Codable, Sendable {
     public let queuedMessages: [QueuedMessageItem]?
     public let runningTasks: [RunningTaskItem]?
     public let activeModel: String?
+    public let activeModelName: String?
     public let modelDisplayName: String?
+    public let startedAt: String?
     public let hasError: Bool?
     public let errorMessage: String?
     
@@ -120,6 +122,9 @@ public struct PaginatedMessagesResponse: Codable, Sendable {
         public let stepIndex: Int?
         public let attemptCount: Int?
         public let maxAttempts: Int?
+        /// 生成这条回复的模型 id 与展示名（仅 Agent 消息；未知时为空）。
+        public let model: String?
+        public let modelName: String?
     }
 }
 
@@ -139,7 +144,9 @@ public struct FetchMessagesResult: Sendable {
     public let queuedMessages: [QueuedMessageItem]
     public let runningTasks: [RunningTaskItem]
     public let activeModel: String?
+    public let activeModelName: String?
     public let modelDisplayName: String?
+    public let startedAt: String?
     public let hasError: Bool
     public let errorMessage: String?
 }

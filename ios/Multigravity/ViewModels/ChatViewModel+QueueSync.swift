@@ -239,11 +239,13 @@ extension ChatViewModel {
     public func toggleModel() {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         hasUserManuallySelectedModel = true
-        if isClaudeActive {
-            activeModel = "gemini-3.8-flash-high"
-        } else {
-            activeModel = "claude-opus-4-6-thinking"
-        }
+        // 切到「设置 › 默认模型」里为另一个厂商选定的具体模型
+        activeModel = ModelDefaultsLogic.toggleTarget(
+            current: activeModel,
+            geminiDefault: settings.defaultGeminiModel,
+            claudeDefault: settings.defaultClaudeModel
+        )
+        activeModelName = nil
         updateCascadeConfigRawModel(activeModelEnum, modelName: activeModel)
         guard let url = settings.serverURL else { return }
         let cid = self.cascadeId

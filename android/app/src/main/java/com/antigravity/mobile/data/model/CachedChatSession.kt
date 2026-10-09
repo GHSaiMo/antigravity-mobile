@@ -21,5 +21,7 @@ data class CachedChatSession(
     val queuedMessages: List<QueuedMessageItem>? = null,
     val runningTasks: List<RunningTaskItem>? = null,
     val activeModel: String? = null,
+    val activeModelName: String? = null,
+    val startedAt: String? = null,
     val savedAtEpochMs: Long = System.currentTimeMillis()
 )

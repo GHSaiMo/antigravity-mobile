@@ -67,13 +67,56 @@ import kotlin.math.roundToInt
 /** 分享长图卡片头部需要的会话上下文。 */
 data class ShareCardContext(
     val sessionTitle: String = "",
-    /** 完整模型展示名，如 "Gemini 3.8 Flash" / "Opus 4.6 Thinking"。 */
+    /** 完整模型展示名，如 "Gemini 3.8 Flash (High)" / "Claude Opus 4.6 (Thinking)"。 */
     val modelName: String? = null,
     val modelIsClaude: Boolean = false,
+    /** 会话发起时间（ISO-8601）。分享卡片显示它，而不是分享当下的时间。 */
+    val startedAtIso: String? = null,
     /** 紧邻该气泡之前的用户提问消息（含图片/附件，用于「包含上一条提问」开关）。 */
     val previousMessage: com.antigravity.mobile.data.model.GatewayMessageItem? = null
 ) {
     companion object {
+        /**
+         * 长图里的模型名要和用户当时实际选用的模型一致：
+         * - Agent 回复：用生成这条回复的模型；
+         * - 用户提问：用紧随其后那条回复的模型；
+         * - 都没有（旧数据、未知枚举）：回退到会话当前模型。
+         */
+        fun resolveModel(
+            target: com.antigravity.mobile.data.model.GatewayMessageItem,
+            messages: List<com.antigravity.mobile.data.model.GatewayMessageItem>,
+            activeModel: String,
+            activeModelName: String?
+        ): Pair<String, Boolean> {
+            fun nameOf(m: com.antigravity.mobile.data.model.GatewayMessageItem): String? =
+                m.modelName?.takeIf { it.isNotBlank() } ?: m.model?.takeIf { it.isNotBlank() }?.let { modelBadge(it).first }
+
+            val source: com.antigravity.mobile.data.model.GatewayMessageItem? = when {
+                target.isUser -> {
+                    val idx = messages.indexOfFirst { it === target || (target.id.isNotBlank() && it.id == target.id) }
+                    if (idx < 0) null else messages.drop(idx + 1).takeWhile { !it.isUser }.firstOrNull { nameOf(it) != null }
+                }
+                nameOf(target) != null -> target
+                else -> null
+            }
+            if (source != null) {
+                val id = source.model ?: activeModel
+                return nameOf(source)!! to com.antigravity.mobile.data.model.ModelDefaults.isClaude(id)
+            }
+            val fallback = activeModelName?.takeIf { it.isNotBlank() } ?: modelBadge(activeModel).first
+            return fallback to com.antigravity.mobile.data.model.ModelDefaults.isClaude(activeModel)
+        }
+
+        /** ISO-8601 → 本地时区的 `yyyy-MM-dd HH:mm`；解析失败返回 null（界面直接不显示，不拿分享时间冒充）。 */
+        fun formatStartedAt(iso: String?, zone: java.time.ZoneId = java.time.ZoneId.systemDefault()): String? {
+            val raw = iso?.trim().orEmpty()
+            if (raw.isEmpty()) return null
+            val instant = runCatching { java.time.Instant.parse(raw) }.getOrNull()
+                ?: runCatching { java.time.OffsetDateTime.parse(raw).toInstant() }.getOrNull()
+                ?: return null
+            return java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(zone).format(instant)
+        }
+
         /** 把 `gemini-3.8-flash-high` / `claude-opus-4-6-thinking` 这类内部模型 ID 转成展示名。 */
         fun modelBadge(raw: String): Pair<String, Boolean> {
             val isClaude = raw.contains("claude", ignoreCase = true) || raw.contains("M26")
@@ -323,7 +366,7 @@ private fun MessageShareCard(
     shareContext: ShareCardContext,
     urlResolver: ((String) -> String)?
 ) {
-    val dateText = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date()) }
+    val dateText = remember(shareContext.startedAtIso) { ShareCardContext.formatStartedAt(shareContext.startedAtIso) }
     CompositionLocalProvider(
         LocalAppColors provides (if (theme.isDark) DarkAppColors else LightAppColors),
         LocalShareExport provides true
@@ -359,7 +402,9 @@ private fun MessageShareCard(
                             .padding(horizontal = 10.dp, vertical = 4.dp)
                     )
                 }
-                Text(dateText, color = colors.textSecondary, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
+                if (dateText != null) {
+                    Text(dateText, color = colors.textSecondary, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
+                }
             }
             HorizontalDivider(color = colors.textMuted.copy(alpha = 0.4f), thickness = 0.5.dp)
 

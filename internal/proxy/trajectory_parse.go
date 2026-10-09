@@ -15,6 +15,7 @@ import (
 // It is an orchestrator over small stage functions; stage order matters because some stages
 // have side effects (config/title caches) and some read on-disk metadata.
 func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) TrajectoryDetails {
+	p.warmLiveModels() // 非阻塞：让新枚举尽快能反查成模型 id / 展示名
 	steps := rawResp.Trajectory.Steps
 	totalSteps := len(steps)
 
@@ -27,6 +28,7 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 		activeConfigStr = string(activeConfig)
 	}
 	modelDisplayName := modelDisplayNameFor(activeModel)
+	activeModelName := liveModels.displayName(activeModel)
 
 	wsURI := ""
 	if len(rawResp.Trajectory.WorkspaceUris) > 0 {
@@ -58,7 +60,9 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 		QueuedMessages:     queuedMessages,
 		RunningTasks:       runningTasks,
 		ActiveModel:        activeModel,
+		ActiveModelName:    activeModelName,
 		ModelDisplayName:   modelDisplayName,
+		StartedAt:          trajectoryStartedAt(steps),
 		CascadeConfig:      activeConfig,
 		CascadeConfigRaw:   activeConfigStr,
 		CanProceed:         canProceed,
@@ -203,6 +207,7 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 
 			if respText != "" {
 				flushTools()
+				modelID, modelName := generatorModelOf(s)
 
 				// Extract image URLs
 				imgURLs := extractImageURLsFromText(respText)
@@ -229,6 +234,8 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 					StepIndex: &stepIdx,
 					ImageURLs: imgURLs,
 					Artifacts: msgArtifacts,
+					Model:     modelID,
+					ModelName: modelName,
 				})
 			}
 		} else if stepType == "CORTEX_STEP_TYPE_ERROR_MESSAGE" {
@@ -551,6 +558,33 @@ func extractArtifactsFromText(text string) []ArtifactItem {
 		})
 	}
 	return results
+}
+
+// trajectoryStartedAt returns the creation time of the first step that carries one, i.e. when the
+// conversation was started. Empty when no step has a timestamp.
+func trajectoryStartedAt(steps []TrajectoryStep) string {
+	for _, s := range steps {
+		if s.Metadata.CreatedAt != "" {
+			if _, err := parseTime(s.Metadata.CreatedAt); err == nil {
+				return s.Metadata.CreatedAt
+			}
+		}
+	}
+	return ""
+}
+
+// generatorModelOf returns the id and display name of the model that produced a step.
+func generatorModelOf(s TrajectoryStep) (id, name string) {
+	enum := strings.TrimSpace(s.Metadata.GeneratorModel)
+	if enum == "" {
+		return "", ""
+	}
+	id = canonicalModelName(enum)
+	if id == enum && strings.HasPrefix(enum, "MODEL_") && liveModels.idForEnum(enum) == "" {
+		// 解析不出可读 id（注册表尚未就绪或未知枚举）：不暴露裸枚举，客户端回退到会话模型
+		return "", ""
+	}
+	return id, liveModels.displayName(id)
 }
 
 // trajectoryDuration formats the span between the first and last parseable step timestamps.

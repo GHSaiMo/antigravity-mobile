@@ -36,7 +36,9 @@ type StreamUpdatePayload struct {
 	ProceedArtifactURI string               `json:"proceedArtifactUri,omitempty"`
 	PendingInteraction *PendingInteraction  `json:"pendingInteraction,omitempty"`
 	ActiveModel        string               `json:"activeModel,omitempty"`
+	ActiveModelName    string               `json:"activeModelName,omitempty"`
 	ModelDisplayName   string               `json:"modelDisplayName,omitempty"`
+	StartedAt          string               `json:"startedAt,omitempty"`
 }
 
 // Fingerprint computes a fast signature to detect changes and prevent redundant pushes.
@@ -330,7 +332,9 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			ProceedArtifactURI: details.ProceedArtifactURI,
 			PendingInteraction: details.PendingInteraction,
 			ActiveModel:        details.ActiveModel,
+			ActiveModelName:    details.ActiveModelName,
 			ModelDisplayName:   details.ModelDisplayName,
+			StartedAt:          details.StartedAt,
 		}
 
 		if !isMessagesOnly {

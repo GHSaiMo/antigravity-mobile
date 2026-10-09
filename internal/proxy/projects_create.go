@@ -123,6 +123,7 @@ func (p *Proxy) HandleCreateCascade(w http.ResponseWriter, r *http.Request) {
 		startPayload["workspaceUris"] = []string{wsURI}
 	}
 
+	p.ensureLiveModels(r.Context())
 	modelEnum := resolveModelEnum(req.Model)
 	if modelEnum != "" {
 		startPayload["requestedModel"] = modelEnum
@@ -274,10 +275,22 @@ func resolveModelEnum(model string) string {
 		}
 		return model
 	}
+	// 实时列表是事实来源：客户端发来的 id 正是从它里面选的
+	if enum := liveModels.enumForID(model); enum != "" {
+		return normalizeLegacyEnum(enum)
+	}
 	if enum, ok := modelEnumMap[strings.ToLower(model)]; ok {
 		return enum
 	}
 	return ""
+}
+
+// normalizeLegacyEnum keeps the historical remap of the retired Gemini 2.5 enums.
+func normalizeLegacyEnum(enum string) string {
+	if enum == "MODEL_GOOGLE_GEMINI_2_5_PRO" || enum == "MODEL_GOOGLE_GEMINI_2_5_FLASH" {
+		return "MODEL_PLACEHOLDER_M318"
+	}
+	return enum
 }
 
 // canonicalModelName converts a model enum or friendly alias into its canonical model name.
@@ -292,6 +305,13 @@ func canonicalModelName(model string) string {
 	enum := resolveModelEnum(model)
 	if name, ok := enumToCanonicalMap[enum]; ok {
 		return name
+	}
+	// 静态表没有的新枚举：用实时列表反查出 id，而不是把裸枚举名当模型名
+	if id := liveModels.idForEnum(model); id != "" {
+		return id
+	}
+	if id := liveModels.idForEnum(enum); id != "" {
+		return id
 	}
 	return model
 }

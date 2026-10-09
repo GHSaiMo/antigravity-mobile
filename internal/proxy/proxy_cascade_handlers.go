@@ -255,6 +255,7 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 				configToUse = p.GetCascadeConfig(cascadeID, port, token)
 			}
 
+			p.ensureLiveModels(r.Context())
 			modelEnum := resolveModelEnum(targetModel)
 			canonicalName := canonicalModelName(targetModel)
 			if canonicalName == "" {
@@ -368,6 +369,7 @@ func (p *Proxy) handleJetboxWriteState(w http.ResponseWriter, r *http.Request, r
 	if err := json.Unmarshal(bodyBytes, &stateReq); err == nil {
 		model := stateReq.AppState.LastSelectedAgentModel
 		if model != "" {
+			p.ensureLiveModels(r.Context())
 			modelEnum := resolveModelEnum(model)
 			canonicalName := canonicalModelName(model)
 			if canonicalName == "" {

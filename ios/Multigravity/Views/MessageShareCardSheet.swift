@@ -6,11 +6,57 @@ import CoreImage.CIFilterBuiltins
 /// 分享长图卡片头部需要的会话上下文。
 struct ShareCardContext: Equatable {
     var sessionTitle: String
-    /// 完整模型展示名，如 "Gemini 3.8 Flash" / "Opus 4.6 Thinking"。
+    /// 完整模型展示名，如 "Gemini 3.8 Flash (High)" / "Claude Opus 4.6 (Thinking)"。
     var modelName: String?
     var modelIsClaude: Bool = false
+    /// 会话发起时间（ISO-8601）。分享卡片显示它，而不是分享当下的时间。
+    var startedAtISO: String?
     /// 紧邻该气泡之前的用户提问消息（含图片/附件，用于「包含提问」开关）。
     var previousMessage: ChatMessage?
+
+    /// 长图里的模型名要和用户当时实际选用的模型一致：
+    /// - Agent 回复：用生成这条回复的模型；
+    /// - 用户提问：用紧随其后那条回复的模型；
+    /// - 都没有（旧数据、未知枚举）：回退到会话当前模型。
+    static func resolveModel(
+        for target: ChatMessage,
+        in messages: [ChatMessage],
+        activeModel: String,
+        activeModelName: String?
+    ) -> (name: String, isClaude: Bool) {
+        func nameOf(_ m: ChatMessage) -> String? {
+            if let n = m.modelName, !n.isEmpty { return n }
+            if let id = m.model, !id.isEmpty { return modelBadge(from: id).name }
+            return nil
+        }
+        var source: ChatMessage?
+        if target.isUser {
+            if let idx = messages.firstIndex(where: { $0.id == target.id }) {
+                for next in messages[(idx + 1)...] {
+                    if next.isUser { break }
+                    if nameOf(next) != nil { source = next; break }
+                }
+            }
+        } else if nameOf(target) != nil {
+            source = target
+        }
+        if let source, let name = nameOf(source) {
+            return (name, ModelDefaultsLogic.isClaude(source.model ?? activeModel))
+        }
+        let fallback = (activeModelName?.isEmpty == false) ? activeModelName! : modelBadge(from: activeModel).name
+        return (fallback, ModelDefaultsLogic.isClaude(activeModel))
+    }
+
+    /// ISO-8601 → 本地时区的 Date；解析失败返回 nil（界面直接不显示，不拿分享时间冒充）。
+    static func parseStartedAt(_ iso: String?) -> Date? {
+        guard let raw = iso?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else { return nil }
+        let withFraction = ISO8601DateFormatter()
+        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = withFraction.date(from: raw) { return d }
+        let plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        return plain.date(from: raw)
+    }
 
     /// 把 `gemini-3.8-flash-high` / `claude-opus-4-6-thinking` 这类内部模型 ID 转成展示名。
     static func modelBadge(from raw: String) -> (name: String, isClaude: Bool) {
@@ -108,7 +154,7 @@ struct MessageShareCardView: View {
     let images: [UIImage]
     let theme: ShareCardTheme
     let context: ShareCardContext
-    let date: Date
+    let date: Date?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -207,9 +253,11 @@ struct MessageShareCardView: View {
                         .background(tint.opacity(0.14), in: Capsule())
                         .overlay(Capsule().stroke(tint.opacity(0.35), lineWidth: 1))
                 }
-                Text(Self.dateFormatter.string(from: date))
-                    .font(.system(size: 13, design: .monospaced))
-                    .foregroundColor(.secondary)
+                if let date {
+                    Text(Self.dateFormatter.string(from: date))
+                        .font(.system(size: 13, design: .monospaced))
+                        .foregroundColor(.secondary)
+                }
             }
         }
     }
@@ -424,7 +472,7 @@ struct MessageShareCardSheet: View {
             images: loadedImages,
             theme: theme,
             context: context,
-            date: Date()
+            date: ShareCardContext.parseStartedAt(context.startedAtISO)
         )
 
         let renderer = ImageRenderer(content: card)

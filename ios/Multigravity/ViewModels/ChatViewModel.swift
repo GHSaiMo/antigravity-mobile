@@ -350,22 +350,34 @@ public final class ChatViewModel {
         }
     }
     
+    /// 网关给出的模型完整展示名（如 "Gemini 3.8 Flash (High)"）；为空时界面回退到由 id 推断的名称。
+    public var activeModelName: String? = nil
+    /// 会话发起时间（ISO-8601），用于长图分享等场景。
+    public var startedAt: String? = nil
+
     public var isClaudeActive: Bool {
-        activeModel.lowercased().contains("claude") || activeModel == "MODEL_PLACEHOLDER_M26"
+        ModelDefaultsLogic.isClaude(activeModel)
     }
     
+    /// 发给网关/LS 的模型枚举：优先用模型目录里的，目录还没取到时回退到内置的两个固定枚举。
     public var activeModelEnum: String {
-        isClaudeActive ? "MODEL_PLACEHOLDER_M26" : "MODEL_PLACEHOLDER_M318"
+        if let known = ModelCatalogStore.shared.modelEnum(forID: activeModel) { return known }
+        return isClaudeActive ? "MODEL_PLACEHOLDER_M26" : "MODEL_PLACEHOLDER_M318"
     }
     
+    /// 输入框上方胶囊的文字：只有厂商名，保持简洁。
     public var activeModelDisplayName: String {
-        isClaudeActive ? "Claude" : "Gemini"
+        ModelDefaultsLogic.providerLabel(activeModel)
     }
     
     public func syncModel(from raw: String?) {
         guard let raw = raw, !raw.isEmpty else { return }
-        let lower = raw.lowercased()
-        let target = (lower.contains("claude") || lower.contains("m26")) ? "claude-opus-4-6-thinking" : "gemini-3.8-flash-high"
+        let target = ModelDefaultsLogic.resolveActive(
+            raw: raw,
+            current: activeModel,
+            geminiDefault: settings.defaultGeminiModel,
+            claudeDefault: settings.defaultClaudeModel
+        )
         if activeModel != target {
             activeModel = target
         }
@@ -440,11 +452,16 @@ public final class ChatViewModel {
         var initialModel = resolvedSettings.activeModel
         if let cached = resolvedCacheManager.loadSession(for: cascadeId),
            let cfg = cached.cascadeConfigRaw {
-            let lower = cfg.lowercased()
-            if lower.contains("m26") || lower.contains("claude") {
-                initialModel = "claude-opus-4-6-thinking"
-            } else if lower.contains("m318") || lower.contains("gemini") {
-                initialModel = "gemini-3.8-flash-high"
+            if let enumName = ModelDefaultsLogic.extractModelEnum(fromConfig: cfg),
+               let knownID = ModelCatalogStore.shared.id(forEnum: enumName) {
+                initialModel = knownID
+            } else {
+                let lower = cfg.lowercased()
+                if lower.contains("m26") || lower.contains("claude") {
+                    initialModel = resolvedSettings.defaultClaudeModel
+                } else if lower.contains("m318") || lower.contains("gemini") {
+                    initialModel = resolvedSettings.defaultGeminiModel
+                }
             }
         }
         self.activeModel = initialModel
@@ -710,6 +727,8 @@ public final class ChatViewModel {
                     self.syncModel(from: activeModel)
                 }
             }
+            if let name = result.activeModelName, !name.isEmpty { self.activeModelName = name }
+            if let started = result.startedAt, !started.isEmpty { self.startedAt = started }
             
             if result.messages.isEmpty {
                 if self.pendingOptimisticMessageId == nil {
