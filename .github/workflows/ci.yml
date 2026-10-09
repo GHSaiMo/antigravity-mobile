@@ -26,6 +26,21 @@ jobs:
       - name: Test
         run: go test ./...
 
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      # The PWA scripts are plain <script defer> files with no build step, so a syntax error
+      # anywhere silently disables the whole file in the browser. Node is preinstalled on ubuntu-latest.
+      - name: Syntax check web scripts
+        run: |
+          set -e
+          for f in web/js/*.js web/sw.js; do
+            echo "node --check $f"
+            node --check "$f"
+          done
+
   android:
     runs-on: ubuntu-latest
     steps:
