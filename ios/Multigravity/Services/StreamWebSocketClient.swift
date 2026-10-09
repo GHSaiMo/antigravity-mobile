@@ -21,7 +21,8 @@ public struct StreamUpdatePayload: Decodable, Sendable {
     public let hasMore: Bool?
     public let nextOffset: Int?
     public let workspaceUri: String?
-    public let messages: [PaginatedMessagesResponse.GatewayMessageItem]?
+    /// Complete window once `StreamWebSocketClient` has reassembled any `delta` frame (see StreamDeltaReassembler).
+    public var messages: [PaginatedMessagesResponse.GatewayMessageItem]?
     public let isFullSnapshot: Bool?
     public let cascadeConfigRaw: String?
     public let canProceed: Bool?
@@ -35,6 +36,9 @@ public struct StreamUpdatePayload: Decodable, Sendable {
     public let startedAt: String?
     public let hasError: Bool?
     public let errorMessage: String?
+    /// delta=1 frames: `messages` holds only new/changed items and `messageIds` the full ordered window.
+    public let delta: Bool?
+    public let messageIds: [String]?
 }
 
 @Observable
@@ -53,6 +57,7 @@ public final class StreamWebSocketClient {
     private var activeCascadeId: String?
     private var isIntentionallyClosed: Bool = false
     private var reconnectAttempt: Int = 0
+    private var deltaReassembler = StreamDeltaReassembler<PaginatedMessagesResponse.GatewayMessageItem>(idOf: { $0.id })
     
     public init() {
         NotificationCenter.default.addObserver(
@@ -128,7 +133,8 @@ public final class StreamWebSocketClient {
         var queryItems = [
             URLQueryItem(name: "cascadeId", value: cascadeId),
             URLQueryItem(name: "client", value: "ios"),
-            URLQueryItem(name: "format", value: "messages")
+            URLQueryItem(name: "format", value: "messages"),
+            URLQueryItem(name: "delta", value: "1")
         ]
         components.queryItems = queryItems
         
@@ -212,6 +218,7 @@ public final class StreamWebSocketClient {
             connectionWatchdogTask?.cancel()
             connectionWatchdogTask = nil
             reconnectAttempt = 0
+            deltaReassembler.reset()
             updateStatus(.connected)
             receiveNextMessage()
         case .waiting(let error):
@@ -257,8 +264,17 @@ public final class StreamWebSocketClient {
     
     private func handlePayloadData(_ data: Data, expectedCascadeId: String) {
         do {
-            let payload = try JSONDecoder().decode(StreamUpdatePayload.self, from: data)
+            var payload = try JSONDecoder().decode(StreamUpdatePayload.self, from: data)
             if payload.cascadeId == expectedCascadeId {
+                switch deltaReassembler.apply(isDelta: payload.delta ?? false, messageIds: payload.messageIds, messages: payload.messages) {
+                case .messages(let rebuilt):
+                    payload.messages = rebuilt
+                case .resync:
+                    // Baseline mismatch: drop this socket; the reconnect path opens with a fresh complete "init".
+                    print("[StreamWS] Delta baseline mismatch, resyncing")
+                    handleConnectionLoss()
+                    return
+                }
                 self.onUpdate?(payload)
             }
         } catch {
