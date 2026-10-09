@@ -78,6 +78,10 @@ public final class CacheManager: @unchecked Sendable {
     
     private var memConversations: [ConversationItem]?
     private var memSessions: [String: CachedChatSession] = [:]
+    /// Latest not-yet-written snapshot per session. The chat stream saves on every frame (several per
+    /// second while an agent runs); disk writes are coalesced to one per `sessionWriteInterval`.
+    private var pendingSessionWrites: [String: CachedChatSession] = [:]
+    private static let sessionWriteInterval: TimeInterval = 1.5
     private var memLastViewDates: [String: Date] = [:]
     private var memDrafts: [String: String] = [:]
     private var memDraftImages: [String: [Data]] = [:]
@@ -272,6 +276,13 @@ public final class CacheManager: @unchecked Sendable {
             queue: nil
         ) { [weak self] _ in
             self?.handleMemoryWarning()
+        }
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            self?.flushPendingSessionWrites()
         }
         #endif
     }
@@ -506,6 +517,7 @@ public final class CacheManager: @unchecked Sendable {
         items.removeAll(where: { $0.id == cascadeId })
         memConversations = items
         memSessions.removeValue(forKey: cascadeId)
+        pendingSessionWrites.removeValue(forKey: cascadeId)
         memLastViewDates.removeValue(forKey: cascadeId)
         UserDefaults.standard.removeObject(forKey: "ag_last_view_\(cascadeId)")
         clearDraft(key: cascadeId)
@@ -545,16 +557,43 @@ public final class CacheManager: @unchecked Sendable {
             }
         }
         
-        guard let data = try? Self.encoder.encode(session) else { return }
-        let fileURL = cacheDir.appendingPathComponent("sessions/\(session.cascadeId).json")
-        ioQueue.async {
-            try? data.write(to: fileURL, options: .atomic)
+        let cascadeId = session.cascadeId
+        lock.lock()
+        let alreadyScheduled = pendingSessionWrites[cascadeId] != nil
+        pendingSessionWrites[cascadeId] = session
+        lock.unlock()
+        if !alreadyScheduled {
+            ioQueue.asyncAfter(deadline: .now() + Self.sessionWriteInterval) { [weak self] in
+                self?.writePendingSession(cascadeId)
+            }
+        }
+    }
+
+    /// Runs on `ioQueue`: encodes and writes the latest pending snapshot of one session.
+    private func writePendingSession(_ cascadeId: String) {
+        lock.lock()
+        let session = pendingSessionWrites.removeValue(forKey: cascadeId)
+        lock.unlock()
+        guard let session, let data = try? Self.encoder.encode(session) else { return }
+        try? data.write(to: cacheDir.appendingPathComponent("sessions/\(cascadeId).json"), options: .atomic)
+    }
+
+    /// Writes every pending session now (e.g. when the app moves to the background).
+    public func flushPendingSessionWrites() {
+        lock.lock()
+        let ids = Array(pendingSessionWrites.keys)
+        lock.unlock()
+        guard !ids.isEmpty else { return }
+        ioQueue.async { [weak self] in
+            for id in ids {
+                self?.writePendingSession(id)
+            }
         }
     }
     
     public func loadSession(for cascadeId: String) -> CachedChatSession? {
         lock.lock()
-        if let mem = memSessions[cascadeId] {
+        if let mem = memSessions[cascadeId] ?? pendingSessionWrites[cascadeId] {
             lock.unlock()
             return mem
         }
@@ -577,7 +616,7 @@ public final class CacheManager: @unchecked Sendable {
     
     public func loadSessionAsync(for cascadeId: String) async -> CachedChatSession? {
         lock.lock()
-        if let mem = memSessions[cascadeId] {
+        if let mem = memSessions[cascadeId] ?? pendingSessionWrites[cascadeId] {
             lock.unlock()
             return mem
         }
@@ -622,6 +661,7 @@ public final class CacheManager: @unchecked Sendable {
         lock.lock()
         memConversations = nil
         memSessions.removeAll()
+        pendingSessionWrites.removeAll()
         memDrafts.removeAll()
         memDraftImages.removeAll()
         memLocalDraftSessions?.removeAll()
