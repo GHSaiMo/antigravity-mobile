@@ -14,7 +14,7 @@
   <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=4" />
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=4" />
   <link rel="manifest" href="/manifest.json" />
-  <link rel="stylesheet" href="/style.css?v=12" />
+  <link rel="stylesheet" href="/style.css?v=13" />
 </head>
 <body>
   <div id="app">
@@ -333,6 +333,15 @@
           <button id="btn-sheet-pairing-submit" class="sheet-header-btn primary">确认配对</button>
         </div>
         <div class="sheet-body">
+          <div class="ios-grouped-section pairing-scan-section">
+            <button id="btn-pairing-scan" class="ios-cell-button pairing-scan-btn" type="button">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"></path>
+                <rect x="8" y="8" width="3" height="3"></rect><rect x="13" y="8" width="3" height="3"></rect><rect x="8" y="13" width="3" height="3"></rect><path d="M13 13h3v3"></path>
+              </svg>
+              <span>扫描配对二维码</span>
+            </button>
+          </div>
           <div class="ios-grouped-section">
             <div class="ios-cell no-padding">
               <textarea id="input-pairing-code" rows="3" placeholder="输入配对码或粘贴完整配对链接 (如 agy://pair?host=...&code=...)"></textarea>
@@ -517,12 +526,35 @@
     </div>
   </div>
 
+  <!-- 扫码配对：实时摄像头 / 拍照识别（见 js/scan.js） -->
+  <div id="scan-overlay" class="scan-overlay hidden" role="dialog" aria-modal="true" aria-label="扫描配对二维码">
+    <video id="scan-video" class="scan-video" playsinline muted autoplay></video>
+    <div class="scan-dim"></div>
+    <div class="scan-topbar">
+      <button id="btn-scan-cancel" class="scan-glass-btn" type="button">取消</button>
+      <span class="scan-title">扫描配对二维码</span>
+      <span class="scan-topbar-spacer"></span>
+    </div>
+    <div class="scan-frame" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+    <div class="scan-bottom">
+      <div id="scan-status" class="scan-status">将二维码放入框内</div>
+      <div id="scan-actions" class="scan-actions">
+        <button id="btn-scan-photo" class="scan-glass-btn" type="button">拍照识别</button>
+        <button id="btn-scan-gallery" class="scan-glass-btn" type="button">从相册选择</button>
+      </div>
+    </div>
+    <input id="scan-file-camera" type="file" accept="image/*" capture="environment" hidden>
+    <input id="scan-file-gallery" type="file" accept="image/*" hidden>
+  </div>
+
   <script defer src="/js/core.js?v=26"></script>
   <script defer src="/js/nav.js?v=27"></script>
   <script defer src="/js/chat.js?v=27"></script>
-  <script defer src="/js/actions.js?v=26"></script>
+  <script defer src="/js/actions.js?v=27"></script>
   <script defer src="/js/media.js?v=28"></script>
-  <script defer src="/js/init.js?v=27"></script>
   <script defer src="/js/cockpit.js?v=26"></script>
+  <script defer src="/js/scan.js?v=2"></script>
+  <!-- init.js 必须最后加载：它在执行时就会调用 initApp()，依赖前面所有脚本里的函数 -->
+  <script defer src="/js/init.js?v=28"></script>
 </body>
 </html>

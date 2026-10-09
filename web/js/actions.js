@@ -848,7 +848,11 @@ async function pairWithCode(code) {
 
   const data = await resp.json();
   if (!resp.ok) {
-    throw new Error(data.error || `配对失败 (HTTP ${resp.status})`);
+    const serverMsg = String(data.error || "");
+    if (/invalid or expired/i.test(serverMsg)) {
+      throw new Error("配对码无效或已过期，请在电脑上重新生成配对二维码（mgy pair）");
+    }
+    throw new Error(serverMsg || `配对失败 (HTTP ${resp.status})`);
   }
 
   // C-1: Token is securely set as HttpOnly Cookie by the gateway response.

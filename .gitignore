@@ -16,6 +16,7 @@ build/
 *.test
 *.out
 vendor/
+!web/js/vendor/
 
 # --- Logs & Runtime Output ---
 logs/*.log
