@@ -385,6 +385,9 @@ internal fun ChatViewModel.sendMessage(
                             workspaceName = payload.workspaceUri?.trimEnd('/')?.substringAfterLast('/')?.takeIf { it.isNotBlank() } ?: _uiState.value.workspaceName,
                             messages = msgs,
                             runningTasks = filterRunningTasks(payload.runningTasks),
+                            subagents = payload.subagents.orEmpty(),
+                            parentConversationId = payload.parentConversationId?.takeIf { it.isNotBlank() },
+                            subagentRole = payload.subagentRole,
                             queuedMessages = syncQueuedMessages(payload.queuedMessages, msgs),
                             isRunning = isStatusRunning(payload.status),
                             canProceed = payload.canProceed,
@@ -466,6 +469,24 @@ internal fun ChatViewModel.cancelExecution() {
         apiClient.cancelInvocation(cascadeId)
         tasksToStop.forEach { task ->
             apiClient.stopTask(cascadeId, task.id, task.stepIndex)
+        }
+    }
+}
+
+/** 关停一个子代理：先乐观标成「已结束」，失败则恢复并提示；成功后以网关随后推送的状态为准。 */
+internal fun ChatViewModel.stopSubagent(conversationId: String) {
+    val previous = _uiState.value.subagents
+    _uiState.value = _uiState.value.copy(
+        subagents = previous.map { if (it.conversationId == conversationId) it.copy(status = "done") else it }
+    )
+    viewModelScope.launch {
+        val result = apiClient.stopSubagent(conversationId)
+        if (result.isFailure) {
+            Log.e("ChatViewModel", "stopSubagent failed for $conversationId: ${result.exceptionOrNull()?.message}")
+            _uiState.value = _uiState.value.copy(
+                subagents = previous,
+                attachmentNotice = "关停子代理失败，请稍后重试"
+            )
         }
     }
 }

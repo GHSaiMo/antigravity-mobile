@@ -98,7 +98,19 @@ public struct ChatView: View {
             errorBanner
             floatingCards
                 .readableChatWidth(horizontalSizeClass == .regular)
-            inputBar
+            if viewModel.isSubagentSession || initialConversation?.isSubagent == true {
+                SubagentReadOnlyBar(
+                    role: viewModel.subagentRole,
+                    isRunning: viewModel.isRunning,
+                    canStop: GatewayCompatStore.shared.isAvailable(GatewayFeature.subagents),
+                    onStop: {
+                        let me = SubagentItem(conversationId: viewModel.cascadeId, status: "running")
+                        Task { await viewModel.stopSubagent(me) }
+                    }
+                )
+            } else {
+                inputBar
+            }
         }
         .navigationTitle(viewModel.currentTitle)
         .navigationBarTitleDisplayMode(.inline)

@@ -30,6 +30,9 @@ public struct StreamUpdatePayload: Decodable, Sendable {
     public let pendingInteraction: PendingInteraction?
     public let queuedMessages: [QueuedMessageItem]?
     public let runningTasks: [RunningTaskItem]?
+    public let subagents: [SubagentItem]?
+    public let parentConversationId: String?
+    public let subagentRole: String?
     public let activeModel: String?
     public let activeModelName: String?
     public let modelDisplayName: String?

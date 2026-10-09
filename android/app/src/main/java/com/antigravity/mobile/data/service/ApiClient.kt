@@ -662,6 +662,25 @@ class ApiClient(
     }
 
     /**
+     * 关停一个子代理（网关只接受子代理会话，不会误停主会话）。
+     */
+    suspend fun stopSubagent(conversationId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val payload = buildJsonObject { put("conversationId", conversationId) }
+        try {
+            val req = buildAuthorizedRequest("$baseUrl/gateway/subagent/stop")
+                .post(payload.toString().toRequestBody(jsonMediaType))
+                .build()
+            client.newCall(req).await().use { response ->
+                if (response.isSuccessful) Result.success(Unit)
+                else Result.failure(RuntimeException("关停子代理失败: HTTP ${response.code}"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
      * Stop background running command task
      */
     suspend fun stopTask(cascadeId: String, taskId: String, stepIndex: Int = 0): Result<Unit> = withContext(Dispatchers.IO) {

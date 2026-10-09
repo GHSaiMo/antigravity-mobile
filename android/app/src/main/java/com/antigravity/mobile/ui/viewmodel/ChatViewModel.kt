@@ -76,6 +76,11 @@ data class ChatUiState(
     val workspaceFolder: String? = null,
     val messages: List<GatewayMessageItem> = emptyList(),
     val runningTasks: List<RunningTaskItem> = emptyList(),
+    /** 本会话派发的子代理（来自 stream，不入缓存）。 */
+    val subagents: List<SubagentItem> = emptyList(),
+    /** 非空说明当前会话本身就是子代理，界面只读。 */
+    val parentConversationId: String? = null,
+    val subagentRole: String? = null,
     val queuedMessages: List<QueuedMessageItem> = emptyList(),
     val isLoading: Boolean = false,
     val isNewConversation: Boolean = false,
