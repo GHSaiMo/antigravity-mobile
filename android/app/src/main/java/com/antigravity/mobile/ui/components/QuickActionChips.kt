@@ -28,6 +28,7 @@ fun QuickActionChips(
     onToggleModel: () -> Unit,
     onAddImage: () -> Unit,
     onCommitAndPush: () -> Unit,
+    showCommit: Boolean = true,
     onShowChanges: () -> Unit,
     showChanges: Boolean = true,
     showContinue: Boolean,
@@ -101,25 +102,27 @@ fun QuickActionChips(
         }
 
         // 3. Commit：打开 Git 提交浮窗（直接调用网关，不再消耗一轮 Agent 对话）
-        Box(
-            modifier = Modifier
-                .height(32.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(colors.surface)
-                .border(1.dp, colors.border, RoundedCornerShape(10.dp))
-                .clickable {
-                    haptic.light()
-                    onCommitAndPush()
-                }
-                .padding(horizontal = 14.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "Commit",
-                color = colors.textPrimary,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium
-            )
+        if (showCommit) {
+            Box(
+                modifier = Modifier
+                    .height(32.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(colors.surface)
+                    .border(1.dp, colors.border, RoundedCornerShape(10.dp))
+                    .clickable {
+                        haptic.light()
+                        onCommitAndPush()
+                    }
+                    .padding(horizontal = 14.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Commit",
+                    color = colors.textPrimary,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
         }
 
         // 3b. Changes：本会话累计改动的 diff（当前 Antigravity 缺少所需接口时隐藏）

@@ -282,6 +282,9 @@ public final class ChatViewModel {
 
     public var changesSheet: ChangesSheetState? = nil
     public var gitSheet: GitSheetState? = nil
+    /// Commit / Changes 快捷按钮的动态可见性：会话没有 Git 工作区、或没有文件变动时不显示。
+    public var hasGitChanges: Bool = false
+    public var hasSessionChanges: Bool = false
     public var exportedMarkdownFile: ExportedMarkdownFile? = nil
     
     /// ID of the first message of the latest response turn (e.g., tool batch or agent response following the last user message)

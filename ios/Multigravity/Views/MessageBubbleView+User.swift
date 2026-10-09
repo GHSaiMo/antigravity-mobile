@@ -47,11 +47,8 @@ extension MessageBubbleView {
                 Button {
                     copyWholeText(parsed.body)
                 } label: {
-                    Label("复制", systemImage: "doc.on.doc")
+                    Label("复制全文", systemImage: "doc.on.doc")
                 }
-            }
-            if !parsed.body.isEmpty || !userAttachmentItems.isEmpty {
-                shareLongImageButton
             }
             if let onExportMarkdown {
                 Button {
@@ -59,6 +56,9 @@ extension MessageBubbleView {
                 } label: {
                     Label("导出 MD", systemImage: "square.and.arrow.down")
                 }
+            }
+            if !parsed.body.isEmpty || !userAttachmentItems.isEmpty {
+                shareLongImageButton
             }
             // 当前 Antigravity 不支持撤回接口时，调用方传 nil，菜单里就不显示这一项
             if let onUndo {

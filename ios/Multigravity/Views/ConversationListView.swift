@@ -823,7 +823,8 @@ public struct ConversationListView: View {
             HStack(alignment: .top) {
                 Text(item.title)
                     .font(.system(size: 15.5, weight: .semibold))
-                    .lineLimit(2)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                     .foregroundColor(.primary)
                 
                 Spacer()

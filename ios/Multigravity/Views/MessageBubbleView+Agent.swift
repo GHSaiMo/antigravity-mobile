@@ -59,19 +59,16 @@ extension MessageBubbleView {
             let plainText = agentPlainText
             if !plainText.isEmpty {
                 Button {
-                    copyWholeText(plainText)
-                } label: {
-                    Label("复制", systemImage: "doc.on.doc")
-                }
-                
-                Button {
                     showTextSelectionSheet = true
                 } label: {
                     Label("选择文本", systemImage: "selection.pin.in.out")
                 }
-            }
-            if !plainText.isEmpty || !message.imageUrls.isEmpty {
-                shareLongImageButton
+
+                Button {
+                    copyWholeText(plainText)
+                } label: {
+                    Label("复制全文", systemImage: "doc.on.doc")
+                }
             }
             if let onExportMarkdown {
                 Button {
@@ -79,6 +76,9 @@ extension MessageBubbleView {
                 } label: {
                     Label("导出 MD", systemImage: "square.and.arrow.down")
                 }
+            }
+            if !plainText.isEmpty || !message.imageUrls.isEmpty {
+                shareLongImageButton
             }
         }
     }
@@ -105,39 +105,26 @@ extension MessageBubbleView {
     }
     
     func agentAsyncImageBubble(for url: URL, gallery: [IdentifiableImage] = [], index: Int = 0) -> some View {
-        AsyncImage(url: url) { phase in
-            switch phase {
-            case .empty:
-                ProgressView()
-                    .frame(maxWidth: .infinity, minHeight: 120, maxHeight: 160, alignment: .leading)
-            case .success(let image):
-                Button(action: {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    let effectiveItems = gallery.isEmpty ? [IdentifiableImage(url: url)] : gallery
-                    previewGallery = ImageGalleryData(items: effectiveItems, initialIndex: index)
-                }) {
-                    image
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxWidth: .infinity, maxHeight: 280, alignment: .leading)
-                }
-                .buttonStyle(.plain)
-                .imageContextMenu(item: IdentifiableImage(url: url)) {
-                    let effectiveItems = gallery.isEmpty ? [IdentifiableImage(url: url)] : gallery
-                    previewGallery = ImageGalleryData(items: effectiveItems, initialIndex: index)
-                }
-            case .failure:
-                HStack(spacing: 6) {
-                    Image(systemName: "photo")
-                    Text("图片加载失败")
-                }
-                .font(.footnote)
-                .foregroundColor(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            @unknown default:
-                EmptyView()
+        // 与 Markdown 内嵌图片共用同一个带圆角边框的缓存图片视图，样式与用户发出的图片一致
+        CachedMarkdownAsyncImageView(
+            url: url,
+            alt: "",
+            onTap: { _ in
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                let effectiveItems = gallery.isEmpty ? [IdentifiableImage(url: url)] : gallery
+                previewGallery = ImageGalleryData(items: effectiveItems, initialIndex: index)
+            },
+            onFailure: { _ in
+                AnyView(
+                    HStack(spacing: 6) {
+                        Image(systemName: "photo")
+                        Text("图片加载失败")
+                    }
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                )
             }
-        }
+        )
     }
-    
 }

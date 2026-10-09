@@ -26,6 +26,26 @@ data class GitSheetState(
 
 private fun String.isLocalDraft(): Boolean = isBlank() || startsWith("local_draft_")
 
+// region 快捷按钮可见性
+
+/** 探测当前会话是否有 Git 改动、是否有本会话文件改动；探测失败（纯对话、非 Git 目录、接口缺失）一律视为没有。 */
+suspend fun ChatViewModel.refreshActionAvailability(changesSupported: Boolean) {
+    val cascadeId = _uiState.value.cascadeId
+    if (cascadeId.isLocalDraft()) {
+        _uiState.value = _uiState.value.copy(hasGitChanges = false, hasSessionChanges = false)
+        return
+    }
+    val git = apiClient.getGitStatus(cascadeId).getOrNull()
+    val changes = if (changesSupported) apiClient.getCascadeChanges(cascadeId).getOrNull() else null
+    if (_uiState.value.cascadeId != cascadeId) return
+    _uiState.value = _uiState.value.copy(
+        hasGitChanges = git?.files?.isNotEmpty() == true,
+        hasSessionChanges = changes?.hasChanges == true
+    )
+}
+
+// endregion
+
 // region 本会话改动
 
 fun ChatViewModel.openChangesSheet() {

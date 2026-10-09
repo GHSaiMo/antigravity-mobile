@@ -475,19 +475,11 @@ fun MessageBubble(
                         onDismissRequest = { showContextMenu = false }
                     ) {
                         DropdownMenuItem(
-                            text = { Text("复制") },
-                            leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = "复制") },
+                            text = { Text("复制全文") },
+                            leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = "复制全文") },
                             onClick = {
                                 showContextMenu = false
                                 copyAll(userBodyText)
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("分享为长图") },
-                            leadingIcon = { Icon(Icons.Default.Share, contentDescription = "分享为长图") },
-                            onClick = {
-                                showContextMenu = false
-                                shareCardRequest = ShareCardRequest(userBodyText, true, allUserImages)
                             }
                         )
                         if (onExportMarkdownClick != null) {
@@ -500,6 +492,14 @@ fun MessageBubble(
                                 }
                             )
                         }
+                        DropdownMenuItem(
+                            text = { Text("分享为长图") },
+                            leadingIcon = { Icon(Icons.Default.Share, contentDescription = "分享为长图") },
+                            onClick = {
+                                showContextMenu = false
+                                shareCardRequest = ShareCardRequest(userBodyText, true, allUserImages)
+                            }
+                        )
                         // 当前 Antigravity 不支持撤回接口时，调用方传 null，菜单里就不显示这一项
                         if (onUndoClick != null) {
                             DropdownMenuItem(
@@ -559,20 +559,12 @@ fun MessageBubble(
                     ) {
                         if (displayText.isNotBlank()) {
                             DropdownMenuItem(
-                                text = { Text("复制") },
-                                leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = "复制") },
+                                text = { Text("复制全文") },
+                                leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = "复制全文") },
                                 onClick = {
                                     showAgentMenu = false
                                     val plain = MarkdownPlainText.convert(displayText)
                                     copyAll(plain.ifEmpty { displayText })
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("分享为长图") },
-                                leadingIcon = { Icon(Icons.Default.Share, contentDescription = "分享为长图") },
-                                onClick = {
-                                    showAgentMenu = false
-                                    shareCardRequest = ShareCardRequest(displayText, false, emptyList())
                                 }
                             )
                             if (onExportMarkdownClick != null) {
@@ -585,6 +577,14 @@ fun MessageBubble(
                                     }
                                 )
                             }
+                            DropdownMenuItem(
+                                text = { Text("分享为长图") },
+                                leadingIcon = { Icon(Icons.Default.Share, contentDescription = "分享为长图") },
+                                onClick = {
+                                    showAgentMenu = false
+                                    shareCardRequest = ShareCardRequest(displayText, false, emptyList())
+                                }
+                            )
                         }
                     }
 

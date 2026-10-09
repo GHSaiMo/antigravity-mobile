@@ -125,6 +125,9 @@ data class ChatUiState(
     val selectedSlashCommand: SlashCommandOption? = null,
     val changesSheet: ChangesSheetState? = null,
     val gitSheet: GitSheetState? = null,
+    /** Commit / Changes 快捷按钮的动态可见性：会话没有 Git 工作区、或没有文件变动时不显示。 */
+    val hasGitChanges: Boolean = false,
+    val hasSessionChanges: Boolean = false,
     val focusInputTrigger: Int = 0
 )
 

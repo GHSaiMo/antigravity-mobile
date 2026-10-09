@@ -30,6 +30,26 @@ extension ChatViewModel {
         cascadeId.isEmpty || cascadeId.hasPrefix("local_draft_") || cascadeId.hasPrefix("draft_")
     }
 
+    // MARK: - 快捷按钮可见性
+
+    /// 探测当前会话是否有 Git 改动、是否有本会话文件改动；探测失败（纯对话、非 Git 目录、接口缺失）一律视为没有。
+    public func refreshActionAvailability() async {
+        guard let url = settings.serverURL, !isLocalDraftSession else {
+            hasGitChanges = false
+            hasSessionChanges = false
+            return
+        }
+        let id = cascadeId
+        async let git = try? apiClient.fetchGitStatus(cascadeId: id, baseURL: url)
+        async let changes: CascadeChangesResponse? = GatewayCompatStore.shared.isAvailable(GatewayFeature.changes)
+            ? (try? apiClient.fetchCascadeChanges(cascadeId: id, baseURL: url))
+            : nil
+        let (g, c) = await (git, changes)
+        guard id == cascadeId else { return }
+        hasGitChanges = g.map { !$0.files.isEmpty } ?? false
+        hasSessionChanges = c?.hasChanges ?? false
+    }
+
     // MARK: - 本会话改动
 
     public func openChangesSheet() {
