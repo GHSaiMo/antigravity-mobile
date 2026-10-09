@@ -333,8 +333,7 @@ function initApp() {
   initQuotaModule();
   initMarkdownViewer();
 
-  // Handle PWA shortcut action query params e.g. /?action=new
-  const urlParams = new URLSearchParams(window.location.search);
+  // Handle PWA shortcut action query params e.g. /?action=new (reuses urlParams declared above)
   if (urlParams.get("action") === "new") {
     window.history.replaceState({}, document.title, window.location.pathname + window.location.hash);
     setTimeout(() => {
