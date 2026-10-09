@@ -6,6 +6,7 @@ public struct MessageBubbleView: View {
     public let message: ChatMessage
     public let isActiveToolBatch: Bool
     public let onUndo: ((ChatMessage) -> Void)?
+    let onExportMarkdown: (() -> Void)?
     let shareContext: ShareCardContext?
     @State var showShareCard: Bool = false
     @State var isThinkingExpanded: Bool = false
@@ -13,10 +14,11 @@ public struct MessageBubbleView: View {
     @State var previewGallery: ImageGalleryData? = nil
     @State var showTextSelectionSheet: Bool = false
     
-    init(message: ChatMessage, isActiveToolBatch: Bool = false, onUndo: ((ChatMessage) -> Void)? = nil, shareContext: ShareCardContext? = nil) {
+    init(message: ChatMessage, isActiveToolBatch: Bool = false, onUndo: ((ChatMessage) -> Void)? = nil, onExportMarkdown: (() -> Void)? = nil, shareContext: ShareCardContext? = nil) {
         self.message = message
         self.isActiveToolBatch = isActiveToolBatch
         self.onUndo = onUndo
+        self.onExportMarkdown = onExportMarkdown
         self.shareContext = shareContext
     }
     

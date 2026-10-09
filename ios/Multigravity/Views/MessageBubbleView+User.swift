@@ -53,6 +53,13 @@ extension MessageBubbleView {
             if !parsed.body.isEmpty || !userAttachmentItems.isEmpty {
                 shareLongImageButton
             }
+            if let onExportMarkdown {
+                Button {
+                    onExportMarkdown()
+                } label: {
+                    Label("导出 MD", systemImage: "square.and.arrow.down")
+                }
+            }
             Button(role: .destructive) {
                 onUndo?(message)
             } label: {

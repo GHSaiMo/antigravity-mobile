@@ -267,6 +267,7 @@ public final class ChatViewModel {
     public var isReverting: Bool = false
     public var isLoadingRevertPreview: Bool = false
     public var focusInputTrigger: Int = 0
+    public var exportedMarkdownFile: ExportedMarkdownFile? = nil
     
     /// ID of the first message of the latest response turn (e.g., tool batch or agent response following the last user message)
     public var latestTurnStartMessageId: String? {

@@ -36,6 +36,10 @@ extension ChatView {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
+        .sheet(item: $viewModel.exportedMarkdownFile) { file in
+            ShareSheetView(activityItems: [file.url])
+                .presentationDetents([.medium, .large])
+        }
     }
     
     @ViewBuilder
@@ -261,6 +265,9 @@ extension ChatView {
             isActiveToolBatch: isActive,
             onUndo: { msg in
                 viewModel.requestUndo(for: msg)
+            },
+            onExportMarkdown: {
+                viewModel.exportMarkdown()
             },
             shareContext: shareContext(forMessageAt: index)
         )
