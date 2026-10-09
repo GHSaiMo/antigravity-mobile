@@ -182,7 +182,7 @@ fun MessageShareCardSheet(
     val scope = rememberCoroutineScope()
     val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
     var theme by remember { mutableStateOf(if (systemDark) ShareCardTheme.DARK else ShareCardTheme.LIGHT) }
-    var includeQuestion by remember { mutableStateOf(false) }
+    var includeQuestion by remember { mutableStateOf(true) }
     var busy by remember { mutableStateOf(false) }
     val layer = rememberGraphicsLayer()
     val canIncludeQuestion = !isUserMessage && (shareContext.previousMessage?.hasQuestionContent() ?: false)
@@ -270,7 +270,7 @@ fun MessageShareCardSheet(
                         MessageShareCard(
                             content = content,
                             isUserMessage = isUserMessage,
-                            question = if (includeQuestion) shareContext.previousMessage else null,
+                            question = if (includeQuestion && canIncludeQuestion) shareContext.previousMessage else null,
                             images = images,
                             theme = theme,
                             shareContext = shareContext,
@@ -299,7 +299,7 @@ fun MessageShareCardSheet(
                 if (canIncludeQuestion) {
                     ShareOptionPill(
                         icon = if (includeQuestion) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
-                        label = "包含上一条提问",
+                        label = "包含提问",
                         selected = includeQuestion,
                         onClick = { includeQuestion = !includeQuestion }
                     )
@@ -409,7 +409,7 @@ private fun MessageShareCard(
             HorizontalDivider(color = colors.textMuted.copy(alpha = 0.4f), thickness = 0.5.dp)
 
             if (question != null) {
-                QuestionBubble(question, urlResolver)
+                QuestionBubble(question, theme, urlResolver)
             }
 
             val appContext = LocalContext.current
@@ -441,12 +441,12 @@ private fun MessageShareCard(
                     painter = androidx.compose.ui.res.painterResource(com.antigravity.mobile.R.drawable.share_app_logo),
                     contentDescription = null,
                     modifier = Modifier
-                        .size(32.dp)
-                        .clip(RoundedCornerShape(9.dp))
-                        .border(0.5.dp, Color.Black.copy(alpha = 0.08f), RoundedCornerShape(9.dp))
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .border(0.5.dp, Color.Black.copy(alpha = 0.08f), RoundedCornerShape(10.dp))
                 )
                 Spacer(Modifier.width(8.dp))
-                Text("Multigravity", color = colors.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text("Multigravity", color = colors.textPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.weight(1f))
                 val qr = remember { buildQrBitmap(LANDING_URL) }
                 if (qr != null) {
@@ -455,10 +455,10 @@ private fun MessageShareCard(
                         contentDescription = LANDING_URL,
                         filterQuality = androidx.compose.ui.graphics.FilterQuality.None,
                         modifier = Modifier
-                            .size(70.dp)
+                            .size(56.dp)
                             .clip(RoundedCornerShape(8.dp))
                             .background(Color.White)
-                            .padding(5.dp)
+                            .padding(4.dp)
                     )
                 }
             }
@@ -493,10 +493,11 @@ private fun com.antigravity.mobile.data.model.GatewayMessageItem.hasQuestionCont
     return body.isNotBlank() || files.isNotEmpty() || !imageUrls.isNullOrEmpty() || effectiveImageDataList.isNotEmpty()
 }
 
-/** 复刻会话内用户气泡的排布：右对齐，图片 → 文件卡片 → 靛蓝文字气泡。 */
+/** 复刻电脑端的提问样式：图片 / 文件 / 文字整体放进一个带底色的圆角矩形，与下面的回答区分开。 */
 @Composable
 private fun QuestionBubble(
     message: com.antigravity.mobile.data.model.GatewayMessageItem,
+    theme: ShareCardTheme,
     urlResolver: ((String) -> String)?
 ) {
     val colors = AntigravityTheme.colors
@@ -515,9 +516,14 @@ private fun QuestionBubble(
     }
 
     Column(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.End,
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(theme.questionBackground)
+            .border(0.5.dp, colors.border, RoundedCornerShape(16.dp))
+            .padding(14.dp),
+        horizontalAlignment = Alignment.Start,
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         if (imageItems.size == 1) {
             val item = imageItems.first()
@@ -525,7 +531,7 @@ private fun QuestionBubble(
                 model = ImageRequest.Builder(appContext).data(item.bytes ?: item.url).crossfade(false).build(),
                 contentDescription = null,
                 contentScale = ContentScale.Fit,
-                alignment = Alignment.CenterEnd,
+                alignment = Alignment.CenterStart,
                 modifier = Modifier
                     .widthIn(max = 240.dp)
                     .heightIn(max = 220.dp)
@@ -577,14 +583,9 @@ private fun QuestionBubble(
         if (bodyText.isNotBlank()) {
             Text(
                 text = bodyText,
-                color = colors.userBubbleText,
+                color = colors.textPrimary,
                 fontSize = 15.5.sp,
-                lineHeight = 21.sp,
-                modifier = Modifier
-                    .widthIn(max = 320.dp)
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(colors.userBubbleBg)
-                    .padding(horizontal = 14.dp, vertical = 10.dp)
+                lineHeight = 21.sp
             )
         }
     }
