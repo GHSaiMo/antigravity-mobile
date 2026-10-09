@@ -16,16 +16,19 @@ extension ChatView {
         let text = viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         let images = viewModel.selectedImageData
         let files = viewModel.selectedFiles
-        guard !text.isEmpty || !images.isEmpty || !files.isEmpty else { return }
+        let slash = viewModel.selectedSlashCommand
+        guard !text.isEmpty || !images.isEmpty || !files.isEmpty || slash != nil else { return }
         // Files are uploaded in the background; wait until they have all reached the gateway.
         guard files.allSatisfy({ $0.isUploaded }) else { return }
         hasUserInteracted = false
         viewModel.inputText = ""
         viewModel.selectedImageData = []
         viewModel.selectedFiles = []
+        viewModel.selectedSlashCommand = nil
         Task {
-            let success = await viewModel.sendMessage(text: text, images: images, files: files)
+            let success = await viewModel.sendMessage(text: text, images: images, files: files, slashCommand: slash?.name)
             if !success {
+                if let slash { viewModel.selectedSlashCommand = slash }
                 if !images.isEmpty { viewModel.selectedImageData = images }
                 if !files.isEmpty {
                     viewModel.selectedFiles = files

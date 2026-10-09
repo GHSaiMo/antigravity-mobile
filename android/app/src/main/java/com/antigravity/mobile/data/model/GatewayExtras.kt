@@ -154,3 +154,57 @@ object ModelDefaults {
     }
 }
 
+// endregion
+
+// region 斜杠命令
+
+/** 网关 /gateway/slash-commands 返回的一项。发送时只需把 [name] 带回去，网关会补全权威定义。 */
+@Serializable
+data class SlashCommandOption(
+    val name: String = "",
+    val title: String = "",
+    val description: String = "",
+    val icon: String? = null,
+    /** "system" 系统命令 | "skill" 技能。 */
+    val kind: String = "system"
+)
+
+@Serializable
+data class SlashCommandsResponse(val commands: List<SlashCommandOption> = emptyList())
+
+/** 输入框里 "/xxx" 的筛选规则（纯函数，便于单测）。 */
+object SlashCommandFilter {
+    /**
+     * 输入以 "/" 开头且尚未出现空白时，返回要筛选的关键字（不含 "/"）；否则返回 null，表示不弹出命令列表。
+     * "/" -> ""，"/pl" -> "pl"，"/plan 帮我" -> null，"hello" -> null。
+     */
+    fun queryOf(input: String): String? {
+        if (!input.startsWith("/")) return null
+        val rest = input.substring(1)
+        return if (rest.any { it.isWhitespace() }) null else rest
+    }
+
+    /**
+     * 把 "/plan 帮我规划" 拆成（命令，"帮我规划"）；开头不是已知命令（或命令列表还没加载）时原样返回。
+     * 用于队列里的「编辑 / 立即发送」：队列显示的是服务端生成的显示文本，需要还原成「命令 + 文本」。
+     */
+    fun splitPrefix(text: String, commands: List<SlashCommandOption>): Pair<SlashCommandOption?, String> {
+        if (!text.startsWith("/") || commands.isEmpty()) return null to text
+        val firstToken = text.substring(1).takeWhile { !it.isWhitespace() }
+        val command = commands.firstOrNull { it.name == firstToken } ?: return null to text
+        return command to text.substring(1 + firstToken.length).trimStart()
+    }
+
+    /** 名称前缀命中优先，其次名称/标题/描述包含；保持原有顺序。 */
+    fun filter(all: List<SlashCommandOption>, query: String): List<SlashCommandOption> {
+        val q = query.trim().lowercase()
+        if (q.isEmpty()) return all
+        val prefix = all.filter { it.name.lowercase().startsWith(q) }
+        val rest = all.filter {
+            it !in prefix && (it.name.lowercase().contains(q) || it.title.lowercase().contains(q) || it.description.lowercase().contains(q))
+        }
+        return prefix + rest
+    }
+}
+
+// endregion

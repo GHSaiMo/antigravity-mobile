@@ -191,7 +191,9 @@ internal fun ChatViewModel.sendQueuedMessageNow(item: QueuedMessageItem) {
     )
 
     val attachments = item.media?.mapNotNull { decodeBase64ToAttachment(it) } ?: emptyList()
-    sendMessage(item.text, attachments, forceImmediate = true)
+    // 队列里显示的是 "/plan 内容"：还原成「命令 + 文本」再发，否则会变成一条以斜杠开头的普通文字
+    val (slash, rest) = SlashCommandFilter.splitPrefix(item.text, _uiState.value.slashCommands)
+    sendMessage(rest, attachments, forceImmediate = true, slashCommand = slash?.name)
 
     viewModelScope.launch {
         var targetMsgId: String? = if (item.id.startsWith("queue-")) null else item.id
@@ -227,7 +229,11 @@ internal fun ChatViewModel.editQueuedMessage(item: QueuedMessageItem) {
     _scrollToBottomTrigger.value++
     saveSessionToCache()
 
-    _inputText.value = item.text
+    val (slash, rest) = SlashCommandFilter.splitPrefix(item.text, _uiState.value.slashCommands)
+    _inputText.value = rest
+    if (slash != null) {
+        _uiState.value = _uiState.value.copy(selectedSlashCommand = slash)
+    }
     if (!item.media.isNullOrEmpty()) {
         val attachments = item.media.mapNotNull { decodeBase64ToAttachment(it) }
         if (attachments.isNotEmpty()) {

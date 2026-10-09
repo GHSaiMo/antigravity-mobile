@@ -73,6 +73,9 @@ import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.antigravity.mobile.ui.viewmodel.addImagesFromUris
 import com.antigravity.mobile.ui.viewmodel.cancelExecution
+import com.antigravity.mobile.ui.viewmodel.clearSlashCommand
+import com.antigravity.mobile.ui.viewmodel.ensureSlashCommands
+import com.antigravity.mobile.ui.viewmodel.selectSlashCommand
 import com.antigravity.mobile.ui.viewmodel.closeChangesSheet
 import com.antigravity.mobile.ui.viewmodel.closeGitSheet
 import com.antigravity.mobile.ui.viewmodel.commitGit
@@ -808,6 +811,22 @@ fun ChatScreen(
                             .padding(top = 8.dp, bottom = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        // 斜杠命令：键入 "/" 弹出列表；选中后以标签形式挂在输入框上方
+                        val slashQuery = com.antigravity.mobile.data.model.SlashCommandFilter.queryOf(inputText)
+                        LaunchedEffect(slashQuery != null) {
+                            if (slashQuery != null) viewModel.ensureSlashCommands()
+                        }
+                        if (slashQuery != null) {
+                            SlashCommandPicker(
+                                commands = com.antigravity.mobile.data.model.SlashCommandFilter.filter(uiState.slashCommands, slashQuery),
+                                isLoading = uiState.isLoadingSlashCommands,
+                                onSelect = { viewModel.selectSlashCommand(it) }
+                            )
+                        }
+                        uiState.selectedSlashCommand?.let { command ->
+                            SlashCommandChip(command = command, onClear = { viewModel.clearSlashCommand() })
+                        }
+
                         // Quick Action Chips
                         Box(modifier = Modifier.padding(horizontal = 16.dp)) {
                             QuickActionChips(
@@ -948,7 +967,7 @@ fun ChatScreen(
                                 maxLines = 5,
                                 keyboardActions = KeyboardActions(
                                     onSend = {
-                                        if (inputText.isNotBlank() || uiState.selectedImages.isNotEmpty() || uiState.selectedFiles.isNotEmpty()) {
+                                        if (inputText.isNotBlank() || uiState.selectedImages.isNotEmpty() || uiState.selectedFiles.isNotEmpty() || uiState.selectedSlashCommand != null) {
                                             dismissKeyboard()
                                             viewModel.sendCurrentMessage()
                                         }
@@ -980,7 +999,7 @@ fun ChatScreen(
 
                             val isActivelyRunning = uiState.isRunning || uiState.isAwaitingResponse || uiState.runningTasks.isNotEmpty()
                             val isInputBlank = inputText.isBlank()
-                            val hasAttachments = uiState.selectedImages.isNotEmpty() || uiState.selectedFiles.isNotEmpty()
+                            val hasAttachments = uiState.selectedImages.isNotEmpty() || uiState.selectedFiles.isNotEmpty() || uiState.selectedSlashCommand != null
 
                             if (isActivelyRunning && isInputBlank && !hasAttachments) {
                                 // Stop button: 44.dp circle, matches iOS stop button (gray circle with red stop square)

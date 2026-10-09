@@ -192,12 +192,15 @@ internal fun ChatViewModel.sendMessage(
     text: String,
     attachments: List<AttachmentImage> = emptyList(),
     forceImmediate: Boolean = false,
-    files: List<AttachmentFile> = emptyList()
+    files: List<AttachmentFile> = emptyList(),
+    slashCommand: String? = null
 ) {
     val cascadeId = _uiState.value.cascadeId
     // The gateway appends the attachment block to the text; mirror it locally so optimistic
     // bubbles and queued items match what the server will echo back.
-    val displayText = AttachmentRules.appendBlock(text, files)
+    val bodyText = AttachmentRules.appendBlock(text, files)
+    // language_server 把斜杠命令的显示文本生成为 "/name 内容"，本地气泡与队列条目保持一致
+    val displayText = if (slashCommand.isNullOrBlank()) bodyText else "/$slashCommand" + if (bodyText.isNotEmpty()) " $bodyText" else ""
     val attachmentIds = files.mapNotNull { it.attachmentId }
     val model = _uiState.value.activeModel
 
@@ -248,7 +251,8 @@ internal fun ChatViewModel.sendMessage(
                     images = imagePayloads,
                     deliveryStrategy = 2,
                     clientMessageId = queueClientMsgId,
-                    attachmentIds = attachmentIds
+                    attachmentIds = attachmentIds,
+                    slashCommand = slashCommand
                 )
             } catch (e: Exception) {
                 Log.w("ChatViewModel", "Failed to deliver queued message upstream", e)
@@ -286,7 +290,7 @@ internal fun ChatViewModel.sendMessage(
         val isPure = project.isPureChat
         val pid = if (isPure) "outside-of-project" else (project.rawId ?: (if (project.id != project.uri) project.id else null))
         val wsUri = if (isPure) "" else project.uri
-        val initialPrompt = if (attachments.isEmpty() && files.isEmpty()) text else ""
+        val initialPrompt = if (attachments.isEmpty() && files.isEmpty() && slashCommand.isNullOrBlank()) text else ""
 
         viewModelScope.launch {
             val createRes = apiClient.createCascade(
@@ -343,11 +347,12 @@ internal fun ChatViewModel.sendMessage(
                 wsClient.connect(newCascadeId)
                 ensureWebSocketObserving()
 
-                if (attachments.isNotEmpty() || files.isNotEmpty()) {
+                if (attachments.isNotEmpty() || files.isNotEmpty() || !slashCommand.isNullOrBlank()) {
                     val imagePayloads = attachments.map { Pair(it.byteArray, it.mimeType) }
                     val sendResult = apiClient.sendMessage(
                         newCascadeId, text, model, imagePayloads,
-                        attachmentIds = attachmentIds
+                        attachmentIds = attachmentIds,
+                        slashCommand = slashCommand
                     )
                     sendResult.onFailure { err ->
                         _uiState.value = _uiState.value.copy(
@@ -427,7 +432,8 @@ internal fun ChatViewModel.sendMessage(
             images = imagePayloads,
             deliveryStrategy = deliveryStrategy,
             clientMessageId = optId,
-            attachmentIds = attachmentIds
+            attachmentIds = attachmentIds,
+            slashCommand = slashCommand
         )
         result.onFailure { err ->
             _uiState.value = _uiState.value.copy(

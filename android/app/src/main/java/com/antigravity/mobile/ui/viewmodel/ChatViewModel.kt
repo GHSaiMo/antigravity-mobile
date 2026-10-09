@@ -112,6 +112,10 @@ data class ChatUiState(
     val showConfirmUndoSheet: Boolean = false,
     val isReverting: Boolean = false,
     val isLoadingRevertPreview: Boolean = false,
+    val slashCommands: List<SlashCommandOption> = emptyList(),
+    val isLoadingSlashCommands: Boolean = false,
+    /** 输入框里已选中的斜杠命令（显示为标签），发送时随消息一起带上。 */
+    val selectedSlashCommand: SlashCommandOption? = null,
     val changesSheet: ChangesSheetState? = null,
     val gitSheet: GitSheetState? = null,
     val focusInputTrigger: Int = 0
@@ -250,7 +254,7 @@ class ChatViewModel(
         val text = _inputText.value.trim()
         val images = _uiState.value.selectedImages
         val files = _uiState.value.selectedFiles
-        if (text.isEmpty() && images.isEmpty() && files.isEmpty()) return
+        if (text.isEmpty() && images.isEmpty() && files.isEmpty() && _uiState.value.selectedSlashCommand == null) return
         if (files.any { it.state == UploadState.FAILED }) {
             _uiState.value = _uiState.value.copy(attachmentNotice = "有文件上传失败，请重试或移除后再发送")
             return
@@ -265,9 +269,10 @@ class ChatViewModel(
             prefs?.clearDraftImages(cid)
             prefs?.clearDraftFiles(cid)
         }
+        val slash = _uiState.value.selectedSlashCommand
         _inputText.value = ""
-        _uiState.value = _uiState.value.copy(selectedImages = emptyList(), selectedFiles = emptyList())
-        sendMessage(text, images, files = files)
+        _uiState.value = _uiState.value.copy(selectedImages = emptyList(), selectedFiles = emptyList(), selectedSlashCommand = null)
+        sendMessage(text, images, files = files, slashCommand = slash?.name)
     }
 
     fun deleteLocalDraftSession(cascadeId: String) {

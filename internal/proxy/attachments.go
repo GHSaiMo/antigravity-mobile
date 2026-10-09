@@ -467,11 +467,25 @@ func applyAttachmentsToMessage(rawMap map[string]interface{}) (bool, error) {
 
 	handled := false
 	if items, ok := rawMap["items"].([]interface{}); ok && len(items) > 0 {
-		if first, ok := items[0].(map[string]interface{}); ok {
-			if t, ok := first["text"].(string); ok || first["text"] == nil {
-				first["text"] = appendBlock(t)
+		// 文本块并入第一个「文本条目」；斜杠命令等 scope 条目（带 item 字段）不能同时再带 text。
+		for _, it := range items {
+			m, ok := it.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if _, isScopeItem := m["item"]; isScopeItem {
+				continue
+			}
+			if t, ok := m["text"].(string); ok || m["text"] == nil {
+				m["text"] = appendBlock(t)
 				handled = true
 			}
+			break
+		}
+		if !handled {
+			// 只有 scope 条目（例如单独一个斜杠命令）：补一个文本条目承载附件块
+			rawMap["items"] = append(items, map[string]interface{}{"text": block})
+			handled = true
 		}
 	}
 	if t, ok := rawMap["text"].(string); ok {

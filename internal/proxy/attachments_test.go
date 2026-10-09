@@ -187,6 +187,58 @@ func TestApplyAttachmentsToMessage(t *testing.T) {
 	}
 }
 
+func slashItem(name string) map[string]interface{} {
+	return map[string]interface{}{"item": map[string]interface{}{"slashCommand": map[string]interface{}{"info": map[string]interface{}{"name": name}}}}
+}
+
+// 斜杠命令条目排在最前时，附件块必须并入后面的文本条目，而不是塞进命令条目（text 与 item 是互斥分支）。
+func TestApplyAttachmentsWithSlashCommandFirst(t *testing.T) {
+	setupInbox(t)
+	a := decodeAttachment(t, upload(t, "plan.md", []byte("# plan")))
+	msg := map[string]interface{}{
+		"cascadeId":   "c1",
+		"items":       []interface{}{slashItem("plan"), map[string]interface{}{"text": " 看这个"}},
+		"attachments": []interface{}{map[string]interface{}{"id": a.ID}},
+	}
+	if _, err := applyAttachmentsToMessage(msg); err != nil {
+		t.Fatal(err)
+	}
+	items := msg["items"].([]interface{})
+	if len(items) != 2 {
+		t.Fatalf("items = %v", items)
+	}
+	first := items[0].(map[string]interface{})
+	if _, hasText := first["text"]; hasText {
+		t.Errorf("slash item must not gain a text field: %v", first)
+	}
+	if got := items[1].(map[string]interface{})["text"].(string); !strings.HasPrefix(got, " 看这个\n\n"+attachmentHeader) || !strings.Contains(got, a.Path) {
+		t.Errorf("attachment block not merged into the text item: %q", got)
+	}
+}
+
+func TestApplyAttachmentsWithSlashCommandOnly(t *testing.T) {
+	setupInbox(t)
+	a := decodeAttachment(t, upload(t, "x.csv", []byte("a,b")))
+	msg := map[string]interface{}{
+		"cascadeId":   "c1",
+		"items":       []interface{}{slashItem("plan")},
+		"attachments": []interface{}{map[string]interface{}{"id": a.ID}},
+	}
+	if _, err := applyAttachmentsToMessage(msg); err != nil {
+		t.Fatal(err)
+	}
+	items := msg["items"].([]interface{})
+	if len(items) != 2 {
+		t.Fatalf("a text item must be appended after the command: %v", items)
+	}
+	if _, hasText := items[0].(map[string]interface{})["text"]; hasText {
+		t.Errorf("slash item polluted: %v", items[0])
+	}
+	if !strings.Contains(items[1].(map[string]interface{})["text"].(string), a.Path) {
+		t.Errorf("appended text item missing the block: %v", items[1])
+	}
+}
+
 func TestApplyAttachmentsOnlyNoText(t *testing.T) {
 	setupInbox(t)
 	a := decodeAttachment(t, upload(t, "x.csv", []byte("a,b")))

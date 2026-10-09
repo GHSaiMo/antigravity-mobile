@@ -86,6 +86,26 @@ public struct TextItem: Codable, Sendable {
     public let text: String?
 }
 
+/// 发送消息时 `items[]` 的一个元素：文本，或带 scope 的条目（目前只用斜杠命令）。两个分支互斥。
+/// 斜杠命令只需带名称，网关会补全权威定义（modelFacingText 等）。
+public struct SendItem: Codable, Sendable {
+    public let text: String?
+    public let item: ScopeItem?
+
+    public struct ScopeItem: Codable, Sendable {
+        public let slashCommand: SlashCommandRef?
+    }
+    public struct SlashCommandRef: Codable, Sendable {
+        public let info: Info
+        public struct Info: Codable, Sendable { public let name: String }
+    }
+
+    public static func text(_ value: String) -> SendItem { SendItem(text: value, item: nil) }
+    public static func slashCommand(_ name: String) -> SendItem {
+        SendItem(text: nil, item: ScopeItem(slashCommand: SlashCommandRef(info: .init(name: name))))
+    }
+}
+
 public struct PlannerResponsePayload: Codable, Sendable {
     public let response: String?
     public let thinking: String?
@@ -319,7 +339,7 @@ public struct MediaDataPayload: Codable, Sendable {
 public struct SendUserCascadeMessageRequest: Codable, Sendable {
     public let cascadeId: String
     public let model: String?
-    public let items: [TextItem]
+    public let items: [SendItem]
     public let images: [ImageDataPayload]?
     public let media: [MediaDataPayload]?
     public let cascadeConfigRaw: String?
@@ -327,10 +347,15 @@ public struct SendUserCascadeMessageRequest: Codable, Sendable {
     public let deliveryStrategy: Int?
     public let attachments: [AttachmentRef]?
     
-    public init(cascadeId: String, text: String, model: String? = nil, images: [ImageDataPayload]? = nil, media: [MediaDataPayload]? = nil, deliveryStrategy: Int? = nil, cascadeConfigRaw: String? = nil, attachments: [AttachmentRef]? = nil) {
+    public init(cascadeId: String, text: String, model: String? = nil, images: [ImageDataPayload]? = nil, media: [MediaDataPayload]? = nil, deliveryStrategy: Int? = nil, cascadeConfigRaw: String? = nil, attachments: [AttachmentRef]? = nil, slashCommand: String? = nil) {
         self.cascadeId = cascadeId
         self.model = model
-        self.items = text.isEmpty ? [] : [TextItem(text: text)]
+        if let slash = slashCommand, !slash.isEmpty {
+            // 命令条目在前；文本前补一个空格，让服务端生成的显示文本是 "/plan 内容"
+            self.items = [.slashCommand(slash)] + (text.isEmpty ? [] : [.text(" " + text)])
+        } else {
+            self.items = text.isEmpty ? [] : [.text(text)]
+        }
         self.images = images
         self.media = media
         self.cascadeConfigRaw = cascadeConfigRaw
@@ -339,7 +364,7 @@ public struct SendUserCascadeMessageRequest: Codable, Sendable {
         self.attachments = attachments
     }
     
-    public init(cascadeId: String, items: [TextItem] = [], model: String? = nil, images: [ImageDataPayload]? = nil, media: [MediaDataPayload]? = nil, deliveryStrategy: Int? = nil, cascadeConfigRaw: String? = nil, artifactComments: [ArtifactCommentPayload]? = nil) {
+    public init(cascadeId: String, items: [SendItem] = [], model: String? = nil, images: [ImageDataPayload]? = nil, media: [MediaDataPayload]? = nil, deliveryStrategy: Int? = nil, cascadeConfigRaw: String? = nil, artifactComments: [ArtifactCommentPayload]? = nil) {
         self.cascadeId = cascadeId
         self.model = model
         self.items = items

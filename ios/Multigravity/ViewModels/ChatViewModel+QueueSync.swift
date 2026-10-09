@@ -262,16 +262,19 @@ extension ChatViewModel {
     
     @discardableResult
     @MainActor
-    public func sendMessage(text customText: String? = nil, images: [Data]? = nil, files: [DraftFile]? = nil) async -> Bool {
+    public func sendMessage(text customText: String? = nil, images: [Data]? = nil, files: [DraftFile]? = nil, slashCommand: String? = nil) async -> Bool {
         guard !isSending else { return false }
         let text = (customText ?? inputText).trimmingCharacters(in: .whitespacesAndNewlines)
         let hasImages = (images != nil && !images!.isEmpty)
         let sendFiles = files ?? []
         let hasFiles = !sendFiles.isEmpty
-        guard (!text.isEmpty || hasImages || hasFiles), let url = settings.serverURL else { return false }
+        let hasSlash = !(slashCommand ?? "").isEmpty
+        guard (!text.isEmpty || hasImages || hasFiles || hasSlash), let url = settings.serverURL else { return false }
         // The gateway appends the attachment block to the text; mirror it locally so optimistic
         // bubbles and queued items match what the server will echo back.
-        let displayText = AttachmentRules.appendBlock(to: text, files: sendFiles)
+        let bodyText = AttachmentRules.appendBlock(to: text, files: sendFiles)
+        // language_server 把斜杠命令的显示文本生成为 "/name 内容"，本地气泡与队列条目保持一致
+        let displayText = hasSlash ? "/\(slashCommand!)" + (bodyText.isEmpty ? "" : " " + bodyText) : bodyText
         let attachmentIds = sendFiles.compactMap(\.attachmentId)
         
         hasUserManuallySelectedModel = true
@@ -344,6 +347,7 @@ extension ChatViewModel {
                         cascadeConfigRaw: self.cascadeConfigRaw,
                         clientMessageId: queueClientMsgId,
                         attachmentIds: attachmentIds,
+                        slashCommand: slashCommand,
                         baseURL: url
                     )
                 } catch {
@@ -397,7 +401,7 @@ extension ChatViewModel {
                 let isPure = project.isPureChat
                 let pid = isPure ? "outside-of-project" : (project.rawId ?? (project.id != project.uri ? project.id : nil))
                 let wsUri = isPure ? "" : project.uri
-                let initialPrompt = (images == nil || images!.isEmpty) && !hasFiles ? text : ""
+                let initialPrompt = (images == nil || images!.isEmpty) && !hasFiles && !hasSlash ? text : ""
                 let newCascadeId = try await apiClient.createCascade(
                     workspaceUri: wsUri,
                     prompt: initialPrompt,
@@ -454,7 +458,7 @@ extension ChatViewModel {
                     startPollingFallback()
                 }
                 
-                if (images?.isEmpty == false) || hasFiles {
+                if (images?.isEmpty == false) || hasFiles || hasSlash {
                     try await apiClient.sendMessage(
                         cascadeId: newCascadeId,
                         text: text,
@@ -463,6 +467,7 @@ extension ChatViewModel {
                         cascadeConfigRaw: cascadeConfigRaw,
                         clientMessageId: UUID().uuidString,
                         attachmentIds: attachmentIds,
+                        slashCommand: slashCommand,
                         baseURL: url
                     )
                 }
@@ -480,6 +485,7 @@ extension ChatViewModel {
                     cascadeConfigRaw: cascadeConfigRaw,
                     clientMessageId: clientMessageId,
                     attachmentIds: attachmentIds,
+                    slashCommand: slashCommand,
                     baseURL: url
                 )
                 // Allow upstream 250ms to register task and update state before first eager sync

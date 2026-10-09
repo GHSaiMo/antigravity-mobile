@@ -1,5 +1,7 @@
 import Foundation
 
+private struct EmptyBody: Encodable {}
+
 /// 网关统一错误体 {"error": "..."}。
 private struct GatewayErrorBody: Decodable { let error: String? }
 
@@ -70,6 +72,17 @@ extension APIClient {
         } catch {
             throw APIError.decodingError(error.localizedDescription)
         }
+    }
+
+    /// 手机端 "/" 菜单（系统命令 + 技能）。
+    public func fetchSlashCommands(baseURL: URL) async throws -> [SlashCommandOption] {
+        let resp: SlashCommandsResponse = try await gatewayPost(
+            path: "gateway/slash-commands",
+            body: EmptyBody(),
+            baseURL: baseURL,
+            failurePrefix: "获取斜杠命令失败"
+        )
+        return resp.commands
     }
 
     public func fetchCascadeChanges(cascadeId: String, fromStepIndex: Int? = nil, baseURL: URL) async throws -> CascadeChangesResponse {
