@@ -181,7 +181,12 @@ extension APIClient {
         }
         
         let delegate = FileDownloadProgressDelegate(onProgress: onProgress)
-        let config = URLSessionConfiguration.background(withIdentifier: "com.antigravity.mobile.download.\(UUID().uuidString)")
+        // A plain session: background sessions are scheduled by nsurlsessiond out of process, which adds
+        // start-up latency to the small, user-awaited preview downloads this is used for.
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 60
+        config.httpShouldSetCookies = false
+        config.protocolClasses = [DemoURLProtocol.self] + (config.protocolClasses ?? [])
         let session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
         
         let (tempDownloadedURL, httpResp) = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<(URL, HTTPURLResponse), Error>) in
