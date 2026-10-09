@@ -196,17 +196,17 @@ struct MessageShareCardView: View {
         .environment(\.isShareExport, true)
     }
 
-    /// 复刻会话内用户气泡的排布：右对齐，图片 → 文件卡片 → 靛蓝文字气泡。
+    /// 复刻电脑端的提问样式：图片 / 文件 / 文字整体放进一个带底色的圆角矩形，与下面的回答区分开。
     @ViewBuilder
     private func questionBubble(_ question: ShareCardQuestion) -> some View {
-        VStack(alignment: .trailing, spacing: 6) {
+        VStack(alignment: .leading, spacing: 10) {
             if question.images.count == 1, let image = question.images.first {
                 Image(uiImage: image)
                     .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: 240, maxHeight: 220, alignment: .trailing)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.primary.opacity(0.12), lineWidth: 0.8))
+                    .frame(width: Self.fittedSize(of: image, maxWidth: 240, maxHeight: 220).width,
+                           height: Self.fittedSize(of: image, maxWidth: 240, maxHeight: 220).height)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.primary.opacity(0.12), lineWidth: 0.8))
             } else if question.images.count > 1 {
                 HStack(spacing: 6) {
                     ForEach(Array(question.images.enumerated()), id: \.offset) { _, image in
@@ -215,8 +215,8 @@ struct MessageShareCardView: View {
                             .scaledToFill()
                             .frame(width: 72, height: 72)
                             .clipped()
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color.primary.opacity(0.12), lineWidth: 0.8))
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.primary.opacity(0.12), lineWidth: 0.8))
                     }
                 }
             }
@@ -226,14 +226,14 @@ struct MessageShareCardView: View {
             if !question.text.isEmpty {
                 Text(question.text)
                     .font(.system(size: 15.5))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(Color.indigo)
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .foregroundColor(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .trailing)
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.questionBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.primary.opacity(0.10), lineWidth: 0.8))
     }
 
     private var header: some View {
@@ -268,11 +268,11 @@ struct MessageShareCardView: View {
                 Image("AppLogo")
                     .resizable()
                     .scaledToFit()
-                    .frame(width: 32, height: 32)
-                    .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(Color.black.opacity(0.08), lineWidth: 0.5))
+                    .frame(width: 36, height: 36)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.black.opacity(0.08), lineWidth: 0.5))
                 Text("Multigravity")
-                    .font(.system(size: 18, weight: .bold))
+                    .font(.system(size: 20, weight: .bold))
                     .foregroundColor(.primary)
             }
             Spacer()
@@ -280,11 +280,18 @@ struct MessageShareCardView: View {
                 Image(uiImage: qr)
                     .interpolation(.none)
                     .resizable()
-                    .frame(width: 60, height: 60)
-                    .padding(5)
+                    .frame(width: 48, height: 48)
+                    .padding(4)
                     .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
         }
+    }
+
+    /// 按图片真实宽高比算出放进 maxWidth×maxHeight 后的实际尺寸，让边框/圆角紧贴图片，不留空白。
+    private static func fittedSize(of image: UIImage, maxWidth: CGFloat, maxHeight: CGFloat) -> CGSize {
+        let w = max(image.size.width, 1), h = max(image.size.height, 1)
+        let scale = min(maxWidth / w, maxHeight / h, 1)
+        return CGSize(width: w * scale, height: h * scale)
     }
 
     static let landingURL = "https://mgy.jiuge.space"
@@ -318,7 +325,7 @@ struct MessageShareCardSheet: View {
     @Environment(\.colorScheme) private var systemScheme
 
     @State private var theme: ShareCardTheme = .dark
-    @State private var includeQuestion = false
+    @State private var includeQuestion = true
     @State private var renderedImage: UIImage?
     @State private var isRendering = false
     @State private var renderNote: String?
@@ -425,7 +432,7 @@ struct MessageShareCardSheet: View {
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                         includeQuestion.toggle()
                     } label: {
-                        Label("包含上一条提问", systemImage: includeQuestion ? "checkmark.circle.fill" : "circle")
+                        Label("包含提问", systemImage: includeQuestion ? "checkmark.circle.fill" : "circle")
                             .font(.system(size: 15, weight: .semibold))
                             .padding(.horizontal, 16)
                             .frame(height: 44)
@@ -455,7 +462,7 @@ struct MessageShareCardSheet: View {
         if Task.isCancelled { return }
 
         var questionContent: ShareCardQuestion?
-        if includeQuestion, let previous = context.previousMessage {
+        if includeQuestion, canIncludeQuestion, let previous = context.previousMessage {
             let parsed = AttachmentRules.parseBlock(previous.content)
             var questionImages: [UIImage] = []
             for item in previous.attachmentImages {
