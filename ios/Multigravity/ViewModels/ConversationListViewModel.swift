@@ -21,6 +21,10 @@ public final class ConversationListViewModel {
     private let tombstoneTTL: TimeInterval = 600.0 // 10 minutes
     
     private var pollTask: Task<Void, Never>? = nil
+    /// Gateway push hints for list changes; polling is the fallback and a slow safety net.
+    private let eventsClient = ConversationEventsClient()
+    /// While the event socket is up, pushed hints drive refreshes and polling only runs this slowly.
+    private static let eventsSafetyPollSeconds = 60
     private var lastCompatRefresh: Date = .distantPast
     private var lastResumeTime: Date = .distantPast
     
@@ -188,12 +192,24 @@ public final class ConversationListViewModel {
     public func startAutoRefresh() {
         guard settings.isPaired else { return }
         guard pollTask == nil else { return }
+        eventsClient.onChange = { [weak self] in
+            guard let self else { return }
+            Task { await self.fetchConversations(isBackgroundPoll: true) }
+        }
+        eventsClient.start(baseURL: { [weak self] in self?.settings.serverURL })
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
-                let hasRunning = self?.conversations.contains(where: { $0.status.isRunning || $0.status.needsAction }) ?? false
-                let delaySeconds: UInt64 = hasRunning ? 4 : 10
-                try? await Task.sleep(nanoseconds: delaySeconds * 1_000_000_000)
-                guard let self, !Task.isCancelled else { break }
+                guard let self else { break }
+                let connectedAtStart = self.eventsClient.isConnected
+                let hasRunning = self.conversations.contains(where: { $0.status.isRunning || $0.status.needsAction })
+                let waitSeconds = connectedAtStart ? Self.eventsSafetyPollSeconds : (hasRunning ? 4 : 10)
+                // Sleep in 1s steps so a lost (or newly established) event socket changes cadence immediately.
+                var waited = 0
+                while waited < waitSeconds, !Task.isCancelled, self.eventsClient.isConnected == connectedAtStart {
+                    try? await Task.sleep(nanoseconds: 1_000_000_000)
+                    waited += 1
+                }
+                guard !Task.isCancelled else { break }
                 guard self.settings.isPaired else { break }
                 await self.fetchConversations(isBackgroundPoll: true)
             }
@@ -203,6 +219,8 @@ public final class ConversationListViewModel {
     public func stopAutoRefresh() {
         pollTask?.cancel()
         pollTask = nil
+        eventsClient.stop()
+        eventsClient.onChange = nil
     }
     
     @MainActor
