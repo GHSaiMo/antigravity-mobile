@@ -158,7 +158,10 @@ data class StreamUpdatePayload(
     val activeModelName: String? = null,
     val modelDisplayName: String? = null,
     /** 会话发起时间（ISO-8601）。 */
-    val startedAt: String? = null
+    val startedAt: String? = null,
+    /** delta=1 增量帧：messages 仅含新增/变化项，messageIds 为当前窗口完整有序 ID（见 StreamDeltaReassembler）。 */
+    val delta: Boolean = false,
+    val messageIds: List<String>? = null
 )
 
 @Serializable

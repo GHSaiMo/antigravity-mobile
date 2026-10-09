@@ -43,6 +43,7 @@ class StreamWebSocketClient(
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var reconnectJob: Job? = null
     private var reconnectAttempt = 0
+    private val deltaReassembler = StreamDeltaReassembler()
 
     init {
         connectionManager?.addOnRouteChangedListener { newUrl ->
@@ -112,12 +113,21 @@ class StreamWebSocketClient(
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 Log.d("StreamWS", "Connected to cascade stream: $cascadeId")
                 reconnectAttempt = 0
+                deltaReassembler.reset()
                 _connectionStatus.value = ConnectionStatus.CONNECTED
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
                 try {
-                    val payload = json.decodeFromString<StreamUpdatePayload>(text)
+                    val raw = json.decodeFromString<StreamUpdatePayload>(text)
+                    val payload = deltaReassembler.apply(raw)
+                    if (payload == null) {
+                        // Delta does not line up with what we hold: drop the socket and let the
+                        // normal reconnect path fetch a fresh complete "init" frame.
+                        Log.w("StreamWS", "Delta baseline mismatch, resyncing")
+                        webSocket.close(1000, "delta resync")
+                        return
+                    }
                     _streamUpdates.value = payload
                 } catch (e: Exception) {
                     Log.e("StreamWS", "Failed to parse stream update: ${e.message}")
@@ -168,7 +178,7 @@ class StreamWebSocketClient(
         val wsScheme = if (cleanBase.startsWith("https://", ignoreCase = true)) "wss" else "ws"
         val hostAndPort = cleanBase.substringAfter("://")
 
-        var url = "$wsScheme://$hostAndPort/gateway/cascade/stream?cascadeId=$cascadeId&client=android&format=messages"
+        var url = "$wsScheme://$hostAndPort/gateway/cascade/stream?cascadeId=$cascadeId&client=android&format=messages&delta=1"
         if (!ticket.isNullOrBlank()) {
             url += "&ticket=$ticket"
         }
