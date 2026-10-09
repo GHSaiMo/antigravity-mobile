@@ -82,6 +82,10 @@ function renderRoute() {
         updateChatControls(isRunning, null, false);
       }
 
+      // Per-session queue / background-task cards (previously only re-initialised by loadChat).
+      LocalQueueManager.init(activeCascadeId);
+      RunningTasksManager.init(activeCascadeId);
+
       const streamEl = document.getElementById("messages-stream");
       const cached = sessionStepsCache[activeCascadeId];
       if (cached && cached.steps && cached.steps.length > 0) {
@@ -102,14 +106,11 @@ function renderRoute() {
           }
         });
       }
-
-      // Fetch initial conversation trajectory via HTTP RPC only if not cached in memory
-      if (!sessionStepsCache[activeCascadeId] || !sessionStepsCache[activeCascadeId].steps?.length) {
-        loadChat(activeCascadeId, true);
-      }
     }
 
-    // Connect real-time WebSocket stream
+    // The stream's "init" frame carries the full step list, so it is the only initial load; a raw
+    // GetCascadeTrajectory here would download the whole history a second time. If the stream
+    // cannot connect, fallbackToHttpPolling loads it over HTTP instead.
     connectStreamWs(activeCascadeId);
   } else if (hash === "#draft") {
     if (!activeDraftSession) {

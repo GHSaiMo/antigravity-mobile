@@ -177,6 +177,9 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 		((strings.Contains(ua, "CFNetwork") || strings.Contains(ua, "Darwin") || strings.Contains(ua, "Antigravity")) && !strings.Contains(ua, "Mozilla"))
 
 	wantDelta := r.URL.Query().Get("delta") == "1"
+	// Step-rendering clients (the web app) never read the messages window; messages=0 drops it so
+	// every frame (and the large init frame) is not sent twice in two shapes.
+	omitMessages := !isMessagesOnly && r.URL.Query().Get("messages") == "0"
 	var deltaState streamDeltaState
 
 	sanitizeWebSocketHeaders(r)
@@ -376,6 +379,9 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 
 		if !isMessagesOnly {
 			payload.Steps = details.Steps
+		}
+		if omitMessages {
+			payload.Messages = nil
 		}
 
 		if firstPush {
