@@ -153,4 +153,27 @@ extension ChatView {
             scrollToBottom(proxy: proxy, animated: false)
         }
     }
+
+    /// 滚动偏移越过内容末尾（视口底部出现大片空白）且稳定一小会儿后，主动重新贴底。
+    /// 用户正在拖动、或下拉/上拉回弹的小幅越界不处理。
+    func scheduleOvershootHeal(overshoot: CGFloat, proxy: ScrollViewProxy) {
+        guard overshoot > 120 else { return }
+        blankHealTask?.cancel()
+        blankHealTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard !Task.isCancelled, !isUserDragging else { return }
+            scrollToBottom(proxy: proxy, animated: false)
+        }
+    }
+
+    /// 长会话（LazyVStack）程序化滚到底后，底部的行有时不被创建，整屏空白。
+    /// 稳定后若最后一行仍未出现，先滚到最后一行再贴底，逼它创建。
+    func healUnmaterializedBottom(proxy: ScrollViewProxy) {
+        guard !hasUserInteracted, !isUserDragging, !lastRowMaterialized,
+              let lastId = viewModel.messages.last?.id else { return }
+        proxy.scrollTo(lastId, anchor: .bottom)
+        DispatchQueue.main.async {
+            scrollToBottom(proxy: proxy, animated: false)
+        }
+    }
 }
