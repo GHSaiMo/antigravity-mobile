@@ -1,5 +1,10 @@
 package com.antigravity.mobile.ui.components
 
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.drawBehind
 import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
@@ -180,135 +185,120 @@ internal fun TableBlockView(
     val columnCount = maxOf(headers.size, rows.maxOfOrNull { it.size } ?: 0)
     if (columnCount == 0) return
     val isExport = LocalShareExport.current
+    val hasHeader = headers.isNotEmpty()
+    val lastRow = rows.size - 1
 
-    // Calculate synchronized column widths across header and all rows
-    val columnWidths = remember(headers, rows, columnCount) {
-        (0 until columnCount).map { colIdx ->
-            val headerText = headers.getOrNull(colIdx) ?: ""
-            val rowTexts = rows.map { it.getOrNull(colIdx) ?: "" }
-            val allTexts = listOf(headerText) + rowTexts
-
-            // Effective display length: non-ASCII characters count as 2, ASCII as 1
-            val maxLen = allTexts.maxOfOrNull { text ->
-                text.fold(0) { acc, ch -> acc + if (ch.code > 127) 2 else 1 }
-            } ?: 0
-
-            when {
-                columnCount == 2 && colIdx == 0 -> {
-                    // Two-column table first column (Key/Property): compact but fits 4-8 Chinese chars nicely
-                    (maxLen * 8.5f + 32f).coerceIn(104f, 150f).dp
+    @Composable
+    fun Cell(text: String, colIdx: Int, isHeader: Boolean, rowIdx: Int) {
+        val alignment = alignments.getOrNull(colIdx) ?: TableColumnAlignment.LEADING
+        val bg = when {
+            isHeader -> colors.surfaceVariant.copy(alpha = 0.85f)
+            rowIdx % 2 == 0 -> Color.Transparent
+            else -> colors.surfaceVariant.copy(alpha = 0.35f)
+        }
+        val vLine = colors.border.copy(alpha = if (isHeader) 0.4f else 0.3f)
+        val hLine = if (isHeader) colors.border.copy(alpha = 0.5f) else colors.border.copy(alpha = 0.25f)
+        val drawBottom = isHeader || rowIdx < lastRow
+        val isLastCol = colIdx == columnCount - 1
+        Box(
+            modifier = Modifier
+                .background(bg)
+                .drawBehind {
+                    if (!isLastCol) {
+                        drawLine(vLine, Offset(size.width, 0f), Offset(size.width, size.height), strokeWidth = 0.8.dp.toPx())
+                    }
+                    if (drawBottom) {
+                        drawLine(hLine, Offset(0f, size.height), Offset(size.width, size.height), strokeWidth = 0.6.dp.toPx())
+                    }
                 }
-                columnCount == 2 && colIdx == 1 -> {
-                    // Two-column table second column (Value/Detail): spacious with auto-wrapping
-                    maxOf(220f, (maxLen * 7.5f + 32f).coerceAtMost(360f)).dp
+                .padding(horizontal = 12.dp, vertical = 9.dp),
+            contentAlignment = when (alignment) {
+                TableColumnAlignment.LEADING -> Alignment.CenterStart
+                TableColumnAlignment.CENTER -> Alignment.Center
+                TableColumnAlignment.TRAILING -> Alignment.CenterEnd
+            }
+        ) {
+            RichTextRenderer(
+                text = text,
+                colors = colors,
+                baseFontSize = 13.sp,
+                baseFontWeight = if (isHeader) FontWeight.Bold else FontWeight.Normal,
+                onPlanClick = onPlanClick
+            )
+        }
+    }
+
+    // 容器宽度来自外层约束（横向滚动内部约束是无限的），列宽按内容自适应，占用面积尽量小
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val limitPx = with(LocalDensity.current) { maxWidth.roundToPx() }
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(10.dp))
+                .border(0.8.dp, colors.border, RoundedCornerShape(10.dp))
+                .then(if (isExport) Modifier else Modifier.horizontalScroll(rememberScrollState()))
+        ) {
+            AutoTableLayout(columnCount = columnCount, limitPx = limitPx) {
+                if (hasHeader) {
+                    for (c in 0 until columnCount) Cell(headers.getOrNull(c) ?: "", c, true, -1)
                 }
-                else -> {
-                    // Multi-column table: balanced column width
-                    (maxLen * 8f + 28f).coerceIn(96f, 260f).dp
+                rows.forEachIndexed { r, row ->
+                    for (c in 0 until columnCount) Cell(row.getOrNull(c) ?: "", c, false, r)
                 }
             }
         }
     }
+}
 
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .border(0.8.dp, colors.border, RoundedCornerShape(10.dp))
-            .then(if (isExport) Modifier else Modifier.horizontalScroll(rememberScrollState()))
-    ) {
-        Column(modifier = if (isExport) Modifier.fillMaxWidth() else Modifier) {
-            // Header Row
-            if (headers.isNotEmpty()) {
-                Row(
-                    modifier = Modifier
-                        .then(if (isExport) Modifier.fillMaxWidth() else Modifier)
-                        .background(colors.surfaceVariant.copy(alpha = 0.85f))
-                        .height(IntrinsicSize.Min)
-                ) {
-                    for (colIdx in 0 until columnCount) {
-                        val headerText = headers.getOrNull(colIdx) ?: ""
-                        val alignment = alignments.getOrNull(colIdx) ?: TableColumnAlignment.LEADING
-                        val width = columnWidths.getOrElse(colIdx) { 110.dp }
-
-                        Box(
-                            modifier = (if (isExport) Modifier.weight(width.value) else Modifier.width(width))
-                                .padding(horizontal = 12.dp, vertical = 9.dp),
-                            contentAlignment = when (alignment) {
-                                TableColumnAlignment.LEADING -> Alignment.CenterStart
-                                TableColumnAlignment.CENTER -> Alignment.Center
-                                TableColumnAlignment.TRAILING -> Alignment.CenterEnd
-                            }
-                        ) {
-                            RichTextRenderer(
-                                text = headerText,
-                                colors = colors,
-                                baseFontSize = 13.sp,
-                                baseFontWeight = FontWeight.Bold,
-                                onPlanClick = onPlanClick
-                            )
-                        }
-
-                        if (colIdx < columnCount - 1) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxHeight()
-                                    .width(0.8.dp)
-                                    .background(colors.border.copy(alpha = 0.4f))
-                            )
-                        }
-                    }
-                }
-                HorizontalDivider(color = colors.border.copy(alpha = 0.5f), thickness = 0.8.dp)
+/**
+ * 表格自适应列宽：容器装得下时每列取内容的单行宽度；装不下时在「最窄宽度」与「单行宽度」之间按比例分配；
+ * 即使全取最窄宽度仍超出，则保持最窄宽度并交给外层横向滚动。对齐 iOS 的 AutoTableLayout。
+ */
+@Composable
+private fun AutoTableLayout(columnCount: Int, limitPx: Int, content: @Composable () -> Unit) {
+    Layout(content = content) { measurables, constraints ->
+        val minW = IntArray(columnCount)
+        val maxW = IntArray(columnCount)
+        measurables.forEachIndexed { i, m ->
+            val c = i % columnCount
+            minW[c] = maxOf(minW[c], m.minIntrinsicWidth(0))
+            maxW[c] = maxOf(maxW[c], m.maxIntrinsicWidth(Constraints.Infinity))
+        }
+        for (c in 0 until columnCount) maxW[c] = maxOf(maxW[c], minW[c])
+        val sumMin = minW.sum()
+        val sumMax = maxW.sum()
+        val limit = if (constraints.hasBoundedWidth) minOf(limitPx, constraints.maxWidth) else limitPx
+        val widths = when {
+            limit <= 0 || sumMax <= limit -> maxW
+            sumMin >= limit -> minW
+            else -> {
+                val t = (limit - sumMin).toFloat() / (sumMax - sumMin)
+                IntArray(columnCount) { minW[it] + ((maxW[it] - minW[it]) * t).toInt() }
             }
-
-            // Data Rows
-            rows.forEachIndexed { rowIdx, row ->
-                val isEven = rowIdx % 2 == 0
-                val rowBg = if (isEven) Color.Transparent else colors.surfaceVariant.copy(alpha = 0.35f)
-
-                Row(
-                    modifier = Modifier
-                        .then(if (isExport) Modifier.fillMaxWidth() else Modifier)
-                        .background(rowBg)
-                        .height(IntrinsicSize.Min)
-                ) {
-                    for (colIdx in 0 until columnCount) {
-                        val cellText = row.getOrNull(colIdx) ?: ""
-                        val alignment = alignments.getOrNull(colIdx) ?: TableColumnAlignment.LEADING
-                        val width = columnWidths.getOrElse(colIdx) { 110.dp }
-
-                        Box(
-                            modifier = (if (isExport) Modifier.weight(width.value) else Modifier.width(width))
-                                .padding(horizontal = 12.dp, vertical = 9.dp),
-                            contentAlignment = when (alignment) {
-                                TableColumnAlignment.LEADING -> Alignment.CenterStart
-                                TableColumnAlignment.CENTER -> Alignment.Center
-                                TableColumnAlignment.TRAILING -> Alignment.CenterEnd
-                            }
-                        ) {
-                            RichTextRenderer(
-                                text = cellText,
-                                colors = colors,
-                                baseFontSize = 13.sp,
-                                onPlanClick = onPlanClick
-                            )
-                        }
-
-                        if (colIdx < columnCount - 1) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxHeight()
-                                    .width(0.8.dp)
-                                    .background(colors.border.copy(alpha = 0.3f))
-                            )
-                        }
-                    }
+        }
+        val rowCount = (measurables.size + columnCount - 1) / columnCount
+        val rowHeights = IntArray(rowCount)
+        for (r in 0 until rowCount) {
+            for (c in 0 until columnCount) {
+                val i = r * columnCount + c
+                if (i < measurables.size) {
+                    rowHeights[r] = maxOf(rowHeights[r], measurables[i].minIntrinsicHeight(widths[c]))
                 }
-
-                if (rowIdx < rows.size - 1) {
-                    HorizontalDivider(color = colors.border.copy(alpha = 0.25f), thickness = 0.5.dp)
+            }
+        }
+        val placeables = measurables.mapIndexed { i, m ->
+            val c = i % columnCount
+            m.measure(Constraints.fixed(widths[c], rowHeights[i / columnCount]))
+        }
+        layout(widths.sum(), rowHeights.sum()) {
+            var y = 0
+            for (r in 0 until rowCount) {
+                var x = 0
+                for (c in 0 until columnCount) {
+                    val i = r * columnCount + c
+                    if (i < placeables.size) placeables[i].placeRelative(x, y)
+                    x += widths[c]
                 }
+                y += rowHeights[r]
             }
         }
     }
