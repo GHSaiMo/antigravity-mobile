@@ -70,8 +70,52 @@ const PersistentStepsCache = {
     }
     return this.dbPromise;
   },
+  // The stream re-renders several times per second while an agent runs; each IndexedDB put
+  // structured-clones the whole step list, so writes are coalesced per session (latest wins).
+  pending: new Map(),
+  flushTimer: null,
+  WRITE_INTERVAL_MS: 1500,
+  MAX_SESSIONS: 50,
+  LRU_KEY: "agy_steps_cache_lru",
+
+  schedule(cascadeId, data) {
+    if (!cascadeId || !data) return;
+    this.pending.set(cascadeId, data);
+    if (!this.flushTimer) {
+      this.flushTimer = setTimeout(() => this.flush(), this.WRITE_INTERVAL_MS);
+    }
+  },
+  flush() {
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+    const entries = Array.from(this.pending.entries());
+    this.pending.clear();
+    for (const [id, data] of entries) {
+      this.set(id, data);
+    }
+  },
+  // Keeps the store bounded: remembers write order in localStorage and drops the oldest sessions.
+  touchLRU(cascadeId) {
+    let ids = [];
+    try {
+      ids = JSON.parse(localStorage.getItem(this.LRU_KEY) || "[]");
+    } catch (_) {}
+    ids = ids.filter((id) => id !== cascadeId);
+    ids.push(cascadeId);
+    const evicted = ids.length > this.MAX_SESSIONS ? ids.splice(0, ids.length - this.MAX_SESSIONS) : [];
+    try {
+      localStorage.setItem(this.LRU_KEY, JSON.stringify(ids));
+    } catch (_) {}
+    for (const id of evicted) {
+      if (id !== activeCascadeId) this.delete(id);
+    }
+  },
+
   async get(cascadeId) {
     if (!cascadeId) return null;
+    if (this.pending.has(cascadeId)) return this.pending.get(cascadeId);
     const db = await this.getDB();
     if (!db) return null;
     return new Promise((resolve) => {
@@ -95,9 +139,11 @@ const PersistentStepsCache = {
       const store = tx.objectStore("session_steps");
       store.put({ cascadeId, data, updatedAt: Date.now() });
     } catch (_) {}
+    this.touchLRU(cascadeId);
   },
   async delete(cascadeId) {
     if (!cascadeId) return;
+    this.pending.delete(cascadeId);
     const db = await this.getDB();
     if (!db) return;
     try {
@@ -120,9 +166,15 @@ function setSessionStepsCache(cascadeId, data) {
       delete sessionStepsCache[oldest];
     }
   }
-  // Asynchronously persist to IndexedDB for zero-latency instant restores
-  PersistentStepsCache.set(cascadeId, data);
+  // Persist to IndexedDB (coalesced) for zero-latency instant restores
+  PersistentStepsCache.schedule(cascadeId, data);
 }
+
+// Write any coalesced session snapshots before the page is hidden or unloaded.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") PersistentStepsCache.flush();
+});
+window.addEventListener("pagehide", () => PersistentStepsCache.flush());
 
 // --- Session Drafts Manager ---
 const DraftManager = {
