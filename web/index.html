@@ -14,7 +14,7 @@
   <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=4" />
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=4" />
   <link rel="manifest" href="/manifest.json" />
-  <link rel="stylesheet" href="/style.css?v=20" />
+  <link rel="stylesheet" href="/style.css?v=21" />
 </head>
 <body>
   <div id="app">
@@ -316,6 +316,19 @@
             </button>
           </div>
 
+          <!-- 默认模型：输入框上方「Gemini / Claude」胶囊切换到的具体模型（js/models.js） -->
+          <div class="ios-grouped-section">
+            <div class="ios-cell between">
+              <span class="cell-label">默认 Gemini 模型</span>
+              <select id="settings-default-gemini" class="settings-select" aria-label="默认 Gemini 模型"></select>
+            </div>
+            <div class="ios-cell between">
+              <span class="cell-label">默认 Claude 模型</span>
+              <select id="settings-default-claude" class="settings-select" aria-label="默认 Claude 模型"></select>
+            </div>
+            <div id="settings-models-note" class="settings-note hidden"></div>
+          </div>
+
           <!-- Section 3: 本地数据与缓存 -->
           <div class="ios-grouped-section">
             <button id="btn-clear-web-cache" class="ios-cell-button destructive" type="button">
@@ -592,7 +605,7 @@
     <input id="scan-file-gallery" type="file" accept="image/*" hidden>
   </div>
 
-  <script defer src="/js/core.js?v=29"></script>
+  <script defer src="/js/core.js?v=30"></script>
   <script defer src="/js/nav.js?v=30"></script>
   <script defer src="/js/chat.js?v=30"></script>
   <script defer src="/js/actions.js?v=29"></script>
@@ -603,7 +616,8 @@
   <script defer src="/js/slash.js?v=2"></script>
   <script defer src="/js/changes.js?v=1"></script>
   <script defer src="/js/git.js?v=1"></script>
+  <script defer src="/js/models.js?v=1"></script>
   <!-- init.js 必须最后加载：它在执行时就会调用 initApp()，依赖前面所有脚本里的函数 -->
-  <script defer src="/js/init.js?v=32"></script>
+  <script defer src="/js/init.js?v=33"></script>
 </body>
 </html>

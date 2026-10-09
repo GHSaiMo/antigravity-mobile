@@ -122,6 +122,7 @@ function initApp() {
   initSlashCommands();
   initChangesSheet();
   initGitSheet();
+  initModelSettings();
 
   // iOS Alert Dialog: Rename Conversation
   document.getElementById("btn-alert-rename-cancel")?.addEventListener("click", closeRenameAlert);

@@ -211,24 +211,16 @@ function updateModelSwitchUI() {
   const text = document.getElementById("model-switch-text");
   if (!btn || !text) return;
 
-  if (activeModel === "claude-opus-4-6-thinking") {
-    btn.className = "chip-pill chip-model-switch chip-claude";
-    text.textContent = "Claude";
-    btn.title = "当前模型: Claude (Opus 4.6 Thinking) - 点击切换为 Gemini";
-  } else {
-    activeModel = "gemini-3.8-flash-high";
-    btn.className = "chip-pill chip-model-switch chip-gemini";
-    text.textContent = "Gemini";
-    btn.title = "当前模型: Gemini (3.8 Flash High) - 点击切换为 Claude";
-  }
+  const label = modelProviderLabel(activeModel);
+  const name = modelDisplayName(activeModel);
+  const target = isClaudeModel(activeModel) ? "Gemini" : "Claude";
+  btn.className = `chip-pill chip-model-switch ${label === "Claude" ? "chip-claude" : "chip-gemini"}`;
+  text.textContent = label;
+  btn.title = `当前模型: ${name} - 点击切换为 ${target}`;
 }
 
 async function toggleModel() {
-  if (activeModel === "gemini-3.8-flash-high") {
-    activeModel = "claude-opus-4-6-thinking";
-  } else {
-    activeModel = "gemini-3.8-flash-high";
-  }
+  activeModel = modelToggleTarget(activeModel);
   localStorage.setItem("agy_active_model", activeModel);
   updateModelSwitchUI();
 
@@ -239,11 +231,10 @@ async function toggleModel() {
   }
 
   // Update Language Server default model via JetboxWriteState
-  const modelEnum = (activeModel === "claude-opus-4-6-thinking") ? "MODEL_PLACEHOLDER_M26" : "MODEL_PLACEHOLDER_M318";
   try {
     await rpc("JetboxWriteState", {
       appState: {
-        lastSelectedAgentModel: modelEnum
+        lastSelectedAgentModel: modelEnumFor(activeModel)
       }
     });
   } catch (err) {
@@ -253,10 +244,7 @@ async function toggleModel() {
 
 function syncActiveModel(rawModel) {
   if (!rawModel) return;
-  const lower = rawModel.toLowerCase();
-  const target = (lower.includes("claude") || lower.includes("m26"))
-    ? "claude-opus-4-6-thinking"
-    : "gemini-3.8-flash-high";
+  const target = resolveActiveModel(rawModel, activeModel);
   if (activeModel !== target) {
     activeModel = target;
     localStorage.setItem("agy_active_model", activeModel);
