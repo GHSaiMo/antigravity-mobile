@@ -54,8 +54,9 @@ func loadRPCBaseline(t *testing.T) map[string]bool {
 	return set
 }
 
-func TestReferencedRPCsExistInLanguageServerBaseline(t *testing.T) {
-	base := loadRPCBaseline(t)
+// collectReferencedRPCs scans Go / Web / Android / iOS sources for the language_server RPC names they use.
+func collectReferencedRPCs(t *testing.T) map[string][]string {
+	t.Helper()
 	root := filepath.Join("..", "..")
 	scanDirs := []struct {
 		dir string
@@ -104,10 +105,16 @@ func TestReferencedRPCsExistInLanguageServerBaseline(t *testing.T) {
 			return nil
 		})
 	}
-
 	if len(used) < 10 {
 		t.Fatalf("只扫描到 %d 个 RPC 引用，扫描逻辑可能失效", len(used))
 	}
+	return used
+}
+
+func TestReferencedRPCsExistInLanguageServerBaseline(t *testing.T) {
+	base := loadRPCBaseline(t)
+	used := collectReferencedRPCs(t)
+
 	var missing []string
 	for name, files := range used {
 		if nonLSServiceNames[name] || base[name] {
@@ -119,5 +126,54 @@ func TestReferencedRPCsExistInLanguageServerBaseline(t *testing.T) {
 	if len(missing) > 0 {
 		t.Errorf("以下 RPC 不在 language_server 基线中（拼错，或 Antigravity 已移除/改名；升级后请先运行 scripts/ls-rpc-snapshot.sh）:\n  %s",
 			strings.Join(missing, "\n  "))
+	}
+}
+
+// 升级自检（capabilities.go）靠「功能 → RPC」表判断哪些功能可用。表必须覆盖源码里实际用到的每个 RPC，
+// 否则新增了依赖却忘了登记，升级后该功能消失时手机端不会隐藏入口。
+func TestFeatureTableCoversEveryReferencedRPC(t *testing.T) {
+	inTable := map[string]bool{}
+	for _, f := range Features {
+		for _, r := range f.RPCs {
+			inTable[r] = true
+		}
+	}
+	var uncovered []string
+	for name, files := range collectReferencedRPCs(t) {
+		if nonLSServiceNames[name] || inTable[name] {
+			continue
+		}
+		uncovered = append(uncovered, name+"  <- "+files[0])
+	}
+	sort.Strings(uncovered)
+	if len(uncovered) > 0 {
+		t.Errorf("以下 RPC 被源码使用，但没有登记到 capabilities.go 的 Features 表（请归入某个功能；核心功能标 Core）:\n  %s",
+			strings.Join(uncovered, "\n  "))
+	}
+}
+
+// 表里登记的 RPC 都必须真实存在于基线，避免拼错后永远显示「功能不可用」。
+func TestFeatureTableRPCsExistInBaseline(t *testing.T) {
+	base := loadRPCBaseline(t)
+	seenID := map[string]bool{}
+	for _, f := range Features {
+		if f.ID == "" || seenID[f.ID] {
+			t.Errorf("功能 ID 为空或重复: %q", f.ID)
+		}
+		seenID[f.ID] = true
+		if len(f.RPCs) == 0 {
+			t.Errorf("功能 %s 没有登记任何 RPC", f.ID)
+		}
+		for _, r := range f.RPCs {
+			if !base[r] {
+				t.Errorf("功能 %s 依赖的 %s 不在 language_server 基线中", f.ID, r)
+			}
+		}
+	}
+	// 客户端按这些 ID 隐藏入口；改名会让手机端静默失效
+	for _, id := range []string{"core", "interaction", "search", "export", "changes", "revert", "slash"} {
+		if !seenID[id] {
+			t.Errorf("客户端依赖的功能 ID %q 不存在", id)
+		}
 	}
 }

@@ -24,6 +24,9 @@ type InstanceInfo struct {
 	CSRFToken    string    `json:"csrf_token"`
 	DiscoveredAt time.Time `json:"discovered_at"`
 	IsHealthy    bool      `json:"is_healthy"`
+	// Version is the Antigravity version when the discovery source reports it (daemon files); otherwise
+	// callers can look it up from the process with LookupProcessDetails.
+	Version string `json:"version,omitempty"`
 }
 
 // UpstreamDiscoverer defines the contract for discovering and monitoring Antigravity language_server instances.
@@ -338,6 +341,7 @@ func (i *Inspector) findFromDaemon() *InstanceInfo {
 				CSRFToken:    d.CSRFToken,
 				DiscoveredAt: time.Now(),
 				IsHealthy:    true,
+				Version:      d.LSVersion,
 			}
 		}
 	}
