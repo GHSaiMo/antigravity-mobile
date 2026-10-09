@@ -156,6 +156,10 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 		// Tag the message with the client's id so it can be recognised in the pending queue later.
 		// Only queued / injected messages (those carrying a deliveryStrategy) ever show up in the pending queue.
 		tagApplied := false
+		if _, queued := rawMap["deliveryStrategy"]; queued {
+			tagApplied = applyClientMessageTag(rawMap, clientMsgID)
+		}
+
 		// Short-window idempotency check: prevent duplicate triggers within 15 seconds
 		// PERF: use streaming hasher to avoid full string copy for sha256
 		contentHasher := sha256.New()

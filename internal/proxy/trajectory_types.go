@@ -36,11 +36,15 @@ type CascadeMessageItem struct {
 
 // QueuedMessageItem represents a pending follow-up user message queued for execution.
 type QueuedMessageItem struct {
-	ID        string   `json:"id"`
-	Text      string   `json:"text"`
-	CreatedAt string   `json:"createdAt,omitempty"`
-	Media     []string `json:"media,omitempty"`     // Base64 thumbnails or image data
-	ImageURLs []string `json:"imageUrls,omitempty"` // Image URLs
+	ID   string `json:"id"`
+	Text string `json:"text"`
+	// ClientMessageID is the X-Client-Message-Id the sender used, recovered from the message's tags.
+	// Empty for messages not sent through the gateway. Lets clients match their own optimistic item
+	// to the server id exactly instead of comparing text.
+	ClientMessageID string   `json:"clientMessageId,omitempty"`
+	CreatedAt       string   `json:"createdAt,omitempty"`
+	Media           []string `json:"media,omitempty"`     // Base64 thumbnails or image data
+	ImageURLs       []string `json:"imageUrls,omitempty"` // Image URLs
 }
 
 // RunningTaskItem represents an asynchronous background task currently running in Antigravity.

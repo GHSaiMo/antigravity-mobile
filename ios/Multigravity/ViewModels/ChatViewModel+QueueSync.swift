@@ -81,6 +81,18 @@ extension ChatViewModel {
         )
     }
     
+    /// 在服务端队列里找到与本地条目对应的那一条：优先按客户端 id（精确），没有 id（旧网关、非本机发出）再按文字。
+    public static func findServerQueueItem(in serverQueue: [QueuedMessageItem], for item: QueuedMessageItem, trimmedText: String) -> QueuedMessageItem? {
+        if serverQueue.isEmpty { return nil }
+        if let cid = item.clientMessageId, !cid.isEmpty {
+            if let hit = serverQueue.first(where: { $0.clientMessageId == cid }) { return hit }
+            // 网关已支持 id 标注（队列里有带 id 的条目）却找不到：说明服务端还没收到这一条，
+            // 此时按文字回退可能误删另一条同文字消息，宁可返回空让调用方稍后重试
+            if serverQueue.contains(where: { !($0.clientMessageId ?? "").isEmpty }) { return nil }
+        }
+        return serverQueue.first(where: { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == trimmedText })
+    }
+
     func syncQueuedMessages(serverQueue: [QueuedMessageItem]?) {
         let now = Date()
         // 1. Expire stale optimistic items older than 15 seconds
@@ -99,6 +111,8 @@ extension ChatViewModel {
             let trimmed = opt.text.trimmingCharacters(in: .whitespacesAndNewlines)
             let normOpt = Self.normalizeForComparison(opt.text)
             let inServer = serverQueue?.contains(where: {
+                // 网关把客户端 id 写进了消息 tags，服务端队列里能精确认出这一条
+                if let cid = opt.clientMessageId, !cid.isEmpty, $0.clientMessageId == cid { return true }
                 if !normOpt.isEmpty {
                     return Self.normalizeForComparison($0.text) == normOpt
                 }
@@ -163,6 +177,7 @@ extension ChatViewModel {
                 return nil
             }
             if baseQueue.contains(where: {
+                if let cid = opt.clientMessageId, !cid.isEmpty, $0.clientMessageId == cid { return true }
                 if !normOpt.isEmpty {
                     return Self.normalizeForComparison($0.text) == normOpt
                 }
@@ -184,7 +199,8 @@ extension ChatViewModel {
                 id: opt.id,
                 text: opt.text,
                 media: opt.media,
-                imageUrls: opt.imageUrls
+                imageUrls: opt.imageUrls,
+                clientMessageId: opt.clientMessageId
             )
         }
         
@@ -290,10 +306,13 @@ extension ChatViewModel {
                 self.deletedQueueItemTombstones.removeAll(where: { $0.text == displayText })
             }
             let mediaBase64 = images?.map { $0.base64EncodedString() }
+            // 同一个 uuid 既做本地乐观条目的 id，也随消息发给网关（写进 tags），之后在服务端队列里按它精确对应
+            let queueClientMsgId = UUID().uuidString
             let queueItem = QueuedMessageItem(
-                id: "queue-\(UUID().uuidString)",
+                id: "queue-\(queueClientMsgId)",
                 text: displayText,
-                media: mediaBase64
+                media: mediaBase64,
+                clientMessageId: queueClientMsgId
             )
             let lastUserMsgId = self.messages.last(where: { $0.isUser })?.id
             self.pendingOptimisticQueueItems.append(PendingOptimisticQueueItem(
@@ -302,7 +321,8 @@ extension ChatViewModel {
                 media: mediaBase64,
                 imageUrls: nil,
                 createdAt: Date(),
-                enqueuedAfterMessageId: lastUserMsgId
+                enqueuedAfterMessageId: lastUserMsgId,
+                clientMessageId: queueClientMsgId
             ))
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                 self.queuedMessages.append(queueItem)
@@ -334,7 +354,6 @@ extension ChatViewModel {
             ))
             
             // Dispatch to server with deliveryStrategy = 2 (WHEN_IDLE)
-            let queueClientMsgId = UUID().uuidString
             Task { [weak self] in
                 guard let self else { return }
                 do {

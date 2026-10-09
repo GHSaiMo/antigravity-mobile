@@ -965,11 +965,12 @@ func (p *Proxy) buildQueuedMessages(rawResp *upstreamTrajectoryResp, steps []Tra
 		media, imageUrls := extractQueuedMessageMedia(uMsg)
 		if (text != "" || len(media) > 0 || len(imageUrls) > 0) && !isInternalAgentMessage(false, "", nil, text) {
 			queuedMessages = append(queuedMessages, QueuedMessageItem{
-				ID:        pam.ID,
-				Text:      text,
-				CreatedAt: parseAgentMessageTimestamp(pam.Timestamp),
-				Media:     media,
-				ImageURLs: imageUrls,
+				ID:              pam.ID,
+				Text:            text,
+				ClientMessageID: extractQueuedClientMessageID(uMsg),
+				CreatedAt:       parseAgentMessageTimestamp(pam.Timestamp),
+				Media:           media,
+				ImageURLs:       imageUrls,
 			})
 		}
 	}

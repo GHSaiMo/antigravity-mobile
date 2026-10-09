@@ -728,9 +728,10 @@ func parseAgentStateQueuedMessages(state *upstreamAgentStateUpdate) []QueuedMess
 		}
 		createdAt := parseAgentMessageTimestamp(pam.Timestamp)
 		items = append(items, QueuedMessageItem{
-			ID:        pam.ID,
-			Text:      text,
-			CreatedAt: createdAt,
+			ID:              pam.ID,
+			Text:            text,
+			ClientMessageID: extractQueuedClientMessageID(pam),
+			CreatedAt:       createdAt,
 			Media:     media,
 			ImageURLs: imageUrls,
 		})

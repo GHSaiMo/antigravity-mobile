@@ -217,10 +217,13 @@ internal fun ChatViewModel.sendMessage(
             Base64.encodeToString(att.byteArray, Base64.NO_WRAP)
         }.takeIf { it.isNotEmpty() }
 
+        // 同一个 uuid 既做本地乐观条目的 id，也随消息发给网关（写进 tags），之后在服务端队列里按它精确对应
+        val queueClientMsgId = UUID.randomUUID().toString()
         val queueItem = QueuedMessageItem(
-            id = "queue-${UUID.randomUUID()}",
+            id = "queue-$queueClientMsgId",
             text = displayText,
-            media = mediaBase64
+            media = mediaBase64,
+            clientMessageId = queueClientMsgId
         )
         val lastUserMsgId = _uiState.value.messages.lastOrNull { it.isUser }?.id
         pendingOptimisticQueueItems.add(
@@ -230,7 +233,8 @@ internal fun ChatViewModel.sendMessage(
                 media = mediaBase64,
                 imageUrls = null,
                 createdAt = System.currentTimeMillis(),
-                enqueuedAfterMessageId = lastUserMsgId
+                enqueuedAfterMessageId = lastUserMsgId,
+                clientMessageId = queueClientMsgId
             )
         )
         _uiState.value = _uiState.value.copy(
@@ -240,7 +244,6 @@ internal fun ChatViewModel.sendMessage(
         saveSessionToCache()
         notifyConversationUpdated()
 
-        val queueClientMsgId = UUID.randomUUID().toString()
         val imagePayloads = attachments.map { Pair(it.byteArray, it.mimeType) }
         viewModelScope.launch {
             try {

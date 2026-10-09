@@ -399,6 +399,8 @@ public final class ChatViewModel {
         let imageUrls: [String]?
         let createdAt: Date
         let enqueuedAfterMessageId: String?
+        /// 随消息发给网关的客户端 id，用来在服务端队列里精确认出这一条。
+        var clientMessageId: String? = nil
     }
     var pendingOptimisticQueueItems: [PendingOptimisticQueueItem] = []
     
