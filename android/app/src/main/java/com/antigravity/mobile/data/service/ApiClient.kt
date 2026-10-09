@@ -548,14 +548,8 @@ class ApiClient(
             }
             put("text", text)
             if (images.isNotEmpty()) {
-                putJsonArray("images") {
-                    images.forEach { (bytes, mime) ->
-                        addJsonObject {
-                            put("base64Data", Base64.encodeToString(bytes, Base64.NO_WRAP))
-                            put("mimeType", mime)
-                        }
-                    }
-                }
+                // Only media[] is stored by language_server (and read by the model); sending the
+                // legacy images[] copy as well would double the upload.
                 putJsonArray("media") {
                     images.forEach { (bytes, mime) ->
                         addJsonObject {
