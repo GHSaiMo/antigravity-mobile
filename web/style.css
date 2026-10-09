@@ -4865,3 +4865,22 @@ html[data-unavail~="models"] [data-feature="models"] {
 
 .tall-sheet-card .sheet-body { gap: 0; }
 .sheet-header-btn.hidden { display: none !important; }
+
+
+/* ---------- 设置：默认模型 ---------- */
+.settings-select {
+  max-width: 58%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 8px;
+  background: var(--ios-fill);
+  color: var(--ios-label);
+  font-size: 14px;
+  text-overflow: ellipsis;
+}
+
+.settings-note {
+  padding: 8px 16px 12px;
+  font-size: 12px;
+  color: var(--ios-secondary-label);
+}
