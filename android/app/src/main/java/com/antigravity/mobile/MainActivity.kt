@@ -70,6 +70,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var conversationListViewModel: ConversationListViewModel
     private lateinit var chatViewModel: ChatViewModel
     private lateinit var liveActivityManager: com.antigravity.mobile.data.service.LiveActivityNotificationManager
+    private lateinit var cacheManager: CacheManager
 
     private lateinit var qrScanLauncher: ActivityResultLauncher<ScanOptions>
     private lateinit var notificationPermissionLauncher: ActivityResultLauncher<String>
@@ -86,7 +87,7 @@ class MainActivity : ComponentActivity() {
         connectionManager.startMonitoring(prefs)
         apiClient = ApiClient(applicationContext, prefs, connectionManager)
         wsClient = StreamWebSocketClient(prefs, connectionManager)
-        val cacheManager = CacheManager(applicationContext)
+        cacheManager = CacheManager(applicationContext)
         val documentCacheManager = com.antigravity.mobile.data.service.DocumentCacheManager(applicationContext)
         liveActivityManager = com.antigravity.mobile.data.service.LiveActivityNotificationManager(applicationContext, prefs)
 
@@ -558,6 +559,14 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         if (::liveActivityManager.isInitialized) {
             liveActivityManager.cleanUpOrphanedActivities()
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // Session snapshots are written to disk in batches; persist the latest before the process may be killed.
+        if (::cacheManager.isInitialized) {
+            cacheManager.flushPendingSessionWrites()
         }
     }
 
