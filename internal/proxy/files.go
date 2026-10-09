@@ -213,7 +213,8 @@ func IsSafeFilePath(path string) bool {
 		resolved = clean
 	}
 
-	slashPath := filepath.ToSlash(resolved)
+	// Lower-cased: macOS/Windows file systems are case-insensitive, so ~/.AWS must match /.aws/.
+	slashPath := strings.ToLower(filepath.ToSlash(resolved))
 	sensitiveDirs := []string{
 		"/.ssh/", "/.gnupg/", "/.aws/", "/.docker/", "/Library/Keychains/",
 		"/Library/Application Support/",
@@ -223,6 +224,7 @@ func IsSafeFilePath(path string) bool {
 		"/.acme.sh/", "/.lego/", "/.certbot/",
 	}
 	for _, sd := range sensitiveDirs {
+		sd = strings.ToLower(sd)
 		if strings.Contains(slashPath, sd) || strings.HasSuffix(slashPath, strings.TrimSuffix(sd, "/")) {
 			return false
 		}

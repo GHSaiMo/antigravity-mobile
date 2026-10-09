@@ -186,10 +186,13 @@ func AuthMiddlewareWithPolicy(store *AuthStore, next http.Handler, policy AuthPo
 		}
 
 		// 1. Genuine Localhost access (no pairing required)
-		isLocalhost := IsLoopbackAddr(r.RemoteAddr) && !IsCloudflareRequest(r)
+		// Implicit (address-based) trust is only granted when Host/Origin look legitimate, which
+		// defeats DNS rebinding and cross-site request forgery from a browser on this machine/LAN.
+		implicitOK := ImplicitTrustRequestOK(r)
+		isLocalhost := implicitOK && IsLoopbackAddr(r.RemoteAddr) && !IsCloudflareRequest(r)
 
 		// 2. Genuine Private LAN access when policy.TrustLAN is enabled
-		isTrustedLAN := policy.TrustLAN && IsPrivateLANAddr(r.RemoteAddr) && !IsCloudflareRequest(r)
+		isTrustedLAN := implicitOK && policy.TrustLAN && IsPrivateLANAddr(r.RemoteAddr) && !IsCloudflareRequest(r)
 
 		if isLocalhost || isTrustedLAN {
 			var autoDev *PairedDevice

@@ -287,7 +287,7 @@ func (h *AuthHandler) RequestAuthorized(r *http.Request) bool {
 	if IsCloudflareRequest(r) {
 		return h.hasValidToken(r)
 	}
-	if IsLoopbackAddr(r.RemoteAddr) || (h.policy.TrustLAN && IsPrivateLANAddr(r.RemoteAddr)) {
+	if ImplicitTrustRequestOK(r) && (IsLoopbackAddr(r.RemoteAddr) || (h.policy.TrustLAN && IsPrivateLANAddr(r.RemoteAddr))) {
 		return true
 	}
 	return h.hasValidToken(r)
@@ -694,7 +694,7 @@ func (h *AuthHandler) isAuthorizedAdmin(r *http.Request) bool {
 
 	// Check if genuinely from localhost (not behind a reverse proxy or Cloudflare tunnel).
 	if !IsCloudflareRequest(r) && r.Header.Get("X-Forwarded-For") == "" && r.Header.Get("X-Real-IP") == "" {
-		if IsLoopbackAddr(r.RemoteAddr) {
+		if IsLoopbackAddr(r.RemoteAddr) && ImplicitTrustRequestOK(r) {
 			return true
 		}
 	}

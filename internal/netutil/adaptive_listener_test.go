@@ -249,3 +249,19 @@ func TestAdaptiveListener_ProxyV2(t *testing.T) {
 		t.Fatal("test timed out")
 	}
 }
+
+// A non-loopback peer must not be able to forge its source address with a PROXY header.
+func TestIsLoopbackPeer(t *testing.T) {
+	for addr, want := range map[string]bool{
+		"127.0.0.1:5000": true, "[::1]:5000": true,
+		"192.168.1.9:5000": false, "8.8.8.8:1": false,
+	} {
+		a, _ := net.ResolveTCPAddr("tcp", addr)
+		if got := isLoopbackPeer(a); got != want {
+			t.Errorf("isLoopbackPeer(%s)=%v want %v", addr, got, want)
+		}
+	}
+	if isLoopbackPeer(nil) {
+		t.Error("nil must not be loopback")
+	}
+}
