@@ -48,10 +48,18 @@ struct CachedMarkdownAsyncImageView: View {
                 Button {
                     onTap(url)
                 } label: {
+                    // aspectRatio(.fit) 的视图尺寸就是实际图片尺寸，边框才能紧贴图片；scaledToFit 会撑满提议尺寸
                     Image(uiImage: uiImage)
                         .resizable()
-                        .scaledToFit()
-                        .frame(maxWidth: .infinity, maxHeight: 280, alignment: .leading)
+                        .aspectRatio(uiImage.size, contentMode: .fit)
+                        .frame(maxHeight: 280)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(Color.primary.opacity(0.12), lineWidth: 0.8)
+                        )
+                        .shadow(color: Color.black.opacity(0.06), radius: 3, x: 0, y: 1.5)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .buttonStyle(.plain)
                 .imageContextMenu(item: IdentifiableImage(image: uiImage, url: url)) {

@@ -79,7 +79,8 @@ internal fun MarkdownImageView(
             contentScale = ContentScale.Fit,
             modifier = Modifier
                 .heightIn(max = 280.dp)
-                .clip(RoundedCornerShape(8.dp))
+                .clip(RoundedCornerShape(14.dp))
+                .border(0.5.dp, colors.border, RoundedCornerShape(14.dp))
         ) {
             val state = painter.state
             when (state) {
