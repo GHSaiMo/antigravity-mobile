@@ -26,7 +26,7 @@ data class ArtifactItem(
 @Serializable
 data class GatewayMessageItem(
     val id: String = "",
-    val type: String = "user", // "user", "agent", "tools", "error"
+    val type: String = "user", // "user", "agent", "tools", "error", "subagent"
     val role: String = "", // "user", "assistant", "system"
     val text: String = "",
     val content: String = "",
@@ -45,6 +45,8 @@ data class GatewayMessageItem(
     val maxAttempts: Int? = null,
     @SerialName("tool_calls") val toolCalls: List<ToolCallItem>? = null,
     @SerialName("reasoning_content") val reasoningContent: String? = null,
+    /** type == "subagent" 时的子代理卡片数据（状态由网关实时补全）。 */
+    val subagent: SubagentItem? = null,
     @kotlinx.serialization.Transient val imageDataList: List<ByteArray> = emptyList()
 ) {
     val effectiveRole: String
@@ -70,8 +72,11 @@ data class GatewayMessageItem(
     val isError: Boolean
         get() = status.equals("error", ignoreCase = true) || type.equals("error", ignoreCase = true)
 
+    val isSubagent: Boolean
+        get() = type.equals("subagent", ignoreCase = true) && subagent != null
+
     val isAgent: Boolean
-        get() = !isUser && !isTools && !isError
+        get() = !isUser && !isTools && !isError && !isSubagent
 
     val effectiveImageDataList: List<ByteArray>
         get() {

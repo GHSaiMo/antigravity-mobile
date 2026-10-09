@@ -58,4 +58,30 @@ class SubagentItemTest {
         assertEquals("research", SubagentItem(conversationId = "abcdef123456", typeName = "research").displayName)
         assertEquals("abcdef12", SubagentItem(conversationId = "abcdef123456", role = "  ", typeName = "").displayName)
     }
+
+    @Test
+    fun inlineSubagentMessageIsNotAnAgentReply() {
+        val body = """{"type":"update","cascadeId":"p1","messages":[
+            {"id":"step-1","type":"agent","role":"assistant","text":"已派发"},
+            {"id":"subagent-c1","type":"subagent","role":"subagent","text":"Embodied AI Researcher","stepIndex":6,
+             "subagent":{"conversationId":"c1","typeName":"research","role":"Embodied AI Researcher","status":"done","stepCount":14}}
+        ]}"""
+        val msgs = json.decodeFromString<StreamUpdatePayload>(body).messages!!
+        val card = msgs[1]
+        assertTrue(card.isSubagent)
+        assertFalse(card.isAgent)
+        assertFalse(card.isTools)
+        assertFalse(card.isUser)
+        assertEquals("c1", card.subagent!!.conversationId)
+        assertEquals("已结束", card.subagent!!.statusText)
+
+        assertTrue(msgs[0].isAgent)
+        assertFalse(msgs[0].isSubagent)
+    }
+
+    @Test
+    fun subagentTypeWithoutPayloadFallsBackToNormalMessage() {
+        val msg = json.decodeFromString<GatewayMessageItem>("""{"id":"x","type":"subagent","text":"t"}""")
+        assertFalse(msg.isSubagent) // 没有卡片数据时不当作子代理卡片渲染
+    }
 }
