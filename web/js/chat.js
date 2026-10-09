@@ -576,6 +576,7 @@ async function connectStreamWs(cascadeId) {
         }
 
         RunningTasksManager.syncFromServer(data.runningTasks);
+        SubagentManager.sync(data);
 
         if (data.steps) {
           scheduleRenderMessages(data.steps, isRunning);
@@ -663,6 +664,7 @@ async function loadChat(cascadeId, isBackgroundPoll = false) {
               LocalQueueManager.syncFromServer(null, info.messages);
             }
             RunningTasksManager.syncFromServer(info.runningTasks);
+            SubagentManager.sync(info);
             currentCanProceed = !!info.canProceed && !isRunning;
             currentProceedArtifactUri = info.proceedArtifactUri || null;
             updateProceedButton(currentCanProceed);
@@ -785,6 +787,23 @@ function groupSteps(steps) {
           currentBatch.toolNames.push("thinking");
         }
       }
+    } else if (type === "CORTEX_STEP_TYPE_INVOKE_SUBAGENT") {
+      // 与桌面端一致：在调用位置内联展示每个子代理的卡片，而不是折进「已执行 N 项操作」
+      flushBatch();
+      const inv = s.invokeSubagent || {};
+      const specs = Array.isArray(inv.subagents) ? inv.subagents : [];
+      (Array.isArray(inv.results) ? inv.results : []).forEach((res, k) => {
+        const conversationId = (res && res.conversationId || "").trim();
+        if (!conversationId) return;
+        const spec = specs[k] || {};
+        items.push({
+          type: "subagent",
+          id: `item-subagent-${conversationId}`,
+          index: i,
+          sub: { conversationId, typeName: spec.typeName || "", role: spec.role || "", prompt: spec.initialPrompt || "" },
+          step: s
+        });
+      });
     } else if (type === "CORTEX_STEP_TYPE_ERROR_MESSAGE") {
       const isUserVisible = (() => {
         if (s.errorMessage) {
@@ -899,6 +918,10 @@ function getItemFingerprint(item, isRunning, isLastItem) {
   if (item.type === "error") {
     return `e:${item.text.length}:${item.text.slice(-12)}`;
   }
+  if (item.type === "subagent") {
+    const live = SubagentManager.byId.get(item.sub.conversationId);
+    return `s:${item.sub.conversationId}:${live ? live.status : ""}:${live ? live.stepCount || 0 : 0}`;
+  }
   return "";
 }
 
@@ -974,6 +997,9 @@ function generateItemHtml(item, isRunning, isLastItem) {
         </div>
       </div>
     `;
+  }
+  if (item.type === "subagent") {
+    return buildSubagentCardHtml(item.sub);
   }
   if (item.type === "user") {
     let imagesHtml = "";
@@ -1170,6 +1196,8 @@ function renderMessages(steps, isRunning = false) {
         rowClass = (isRunning && isLastItem) ? "message-row agent" : "message-row tool-batch-row";
       } else if (item.type === "error") {
         rowClass = "message-row agent error-row";
+      } else if (item.type === "subagent") {
+        rowClass = "message-row subagent-row";
       }
 
       const newEl = document.createElement("div");
@@ -1233,6 +1261,8 @@ function renderMessages(steps, isRunning = false) {
         rowClass = (isRunning && isLastItem) ? "message-row agent" : "message-row tool-batch-row";
       } else if (item.type === "error") {
         rowClass = "message-row agent error-row";
+      } else if (item.type === "subagent") {
+        rowClass = "message-row subagent-row";
       }
 
       let existingEl = document.getElementById(item.id);

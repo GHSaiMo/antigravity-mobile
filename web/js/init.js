@@ -74,7 +74,7 @@ function initApp() {
   // Navigation & Sheets
   document.getElementById("btn-back")?.addEventListener("click", () => {
     triggerHaptic("selection");
-    navigateTo("#");
+    navigateTo(SubagentManager.backHash());
   });
   document.getElementById("btn-new")?.addEventListener("click", openNewSheet);
   document.getElementById("btn-settings")?.addEventListener("click", openSettingsSheet);
@@ -123,6 +123,7 @@ function initApp() {
   initChangesSheet();
   initGitSheet();
   initModelSettings();
+  initSubagents();
 
   // iOS Alert Dialog: Rename Conversation
   document.getElementById("btn-alert-rename-cancel")?.addEventListener("click", closeRenameAlert);

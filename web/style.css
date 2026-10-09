@@ -4884,3 +4884,206 @@ html[data-unavail~="models"] [data-feature="models"] {
   font-size: 12px;
   color: var(--ios-secondary-label);
 }
+
+
+/* ---------- 子代理 ---------- */
+.message-row.subagent-row {
+  padding: 3px 0;
+  width: 100%;
+}
+
+.subagent-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  border: 0.5px solid var(--ios-separator-subtle);
+  border-radius: 12px;
+  background: var(--ios-secondary-bg);
+  color: var(--ios-label);
+  text-align: left;
+  cursor: pointer;
+}
+
+.subagent-card:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.subagent-card:not(:disabled):active {
+  background: var(--ios-fill);
+}
+
+.subagent-icon {
+  flex: 0 0 18px;
+  text-align: center;
+  font-size: 15px;
+  color: var(--ios-secondary-label);
+}
+
+.subagent-icon-spin {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  border-width: 2px;
+}
+
+.subagent-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.subagent-name {
+  font-size: 14px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subagent-meta {
+  font-size: 12px;
+  color: var(--ios-secondary-label);
+}
+
+.subagent-card svg {
+  flex-shrink: 0;
+  color: var(--ios-tertiary-label);
+}
+
+.subagents-card {
+  margin: 0 12px 8px;
+  padding: 10px 14px;
+  border: 0.5px solid var(--ios-separator-subtle);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--ios-secondary-bg) 86%, transparent);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+}
+
+.subagents-card.hidden {
+  display: none;
+}
+
+.subagents-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 6px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.subagents-spinner {
+  width: 14px;
+  height: 14px;
+  border-width: 2px;
+}
+
+.subagents-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-top: 0.5px solid var(--ios-separator-subtle);
+}
+
+.subagents-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--ios-label);
+  text-align: left;
+  cursor: pointer;
+}
+
+.subagents-name {
+  font-size: 13.5px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subagents-meta {
+  font-size: 11.5px;
+  color: var(--ios-secondary-label);
+}
+
+.subagents-stop {
+  flex: 0 0 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: var(--ios-red);
+  cursor: pointer;
+}
+
+.subagents-stop i {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: #fff;
+}
+
+.subagent-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px calc(12px + var(--safe-bottom));
+  border-top: 0.5px solid var(--ios-separator-subtle);
+  background: var(--ios-secondary-bg);
+}
+
+.subagent-bar.hidden {
+  display: none;
+}
+
+.subagent-bar-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.subagent-bar-role {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--ios-secondary-label);
+}
+
+.subagent-bar-stop {
+  padding: 6px 14px;
+  border: none;
+  border-radius: 999px;
+  background: none;
+  color: var(--ios-red);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* 子代理会话只读：隐藏输入栏与各类浮层 */
+#view-chat.subagent-readonly .ios-input-bar,
+#view-chat.subagent-readonly .queued-messages-card {
+  display: none !important;
+}
+
+/* 行内小转圈：.ios-spinner 默认 margin: 0 auto，在 flex 行里会被挤到中间 */
+.content-hits-spinner,
+.slash-spinner,
+.subagent-icon-spin,
+.subagents-spinner {
+  margin: 0;
+}

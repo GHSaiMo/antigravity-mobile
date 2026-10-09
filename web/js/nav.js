@@ -45,6 +45,7 @@ function renderRoute() {
     const newCascadeId = hash.slice(3);
     const changed = activeCascadeId !== newCascadeId;
     activeCascadeId = newCascadeId;
+    if (changed) SubagentManager.reset(); // 切换会话时清掉上一个会话的子代理 / 只读状态
     markConversationAsRead(newCascadeId);
 
     // View toggling with iOS NavigationStack slide
@@ -943,7 +944,7 @@ function initEdgeSwipeBack() {
         convView.style.transition = "";
         chatView.style.transform = "";
         convView.style.transform = "";
-        navigateTo("#");
+        navigateTo(SubagentManager.backHash());
       }, 250);
     } else {
       chatView.style.transition = "transform 0.22s cubic-bezier(0.32, 0.72, 0, 1)";
