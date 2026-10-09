@@ -17,6 +17,8 @@ public struct ChatView: View {
     @State var cardToggleTrigger = 0
     @State var isUserDragging = false
     @State var blankHealTask: Task<Void, Never>? = nil
+    /// 最后一条消息的行当前是否已被创建（LazyVStack 懒加载时可能迟迟不创建）。
+    @State var lastRowMaterialized = false
     @State var lastFollowScrollAt: Date = .distantPast
     @State var showCameraPicker = false
     @State var showCameraUnavailableAlert = false
