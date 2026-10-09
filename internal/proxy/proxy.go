@@ -35,6 +35,8 @@ type GatewayStatus struct {
 	ActiveStreamTitle     string                  `json:"active_stream_title,omitempty"`
 	Timestamp             time.Time               `json:"timestamp"`
 	UnifiedCursor         *UnifiedCursor          `json:"unified_cursor,omitempty"`
+	// Compat tells the apps which features the running Antigravity still supports.
+	Compat *Compatibility `json:"compat,omitempty"`
 }
 
 // NotificationSink receives real-time trajectory status updates.
@@ -60,6 +62,7 @@ type Proxy struct {
 	notifier    NotificationSink
 
 	slashCache slashCommandCache
+	compat     compatState
 
 	// allTrajectories shares one GetAllCascadeTrajectories response across Watcher, list polls and lookups.
 	allTrajectories allTrajectoriesSnapshot
@@ -378,6 +381,9 @@ func (p *Proxy) updateUpstream(info inspector.InstanceInfo) {
 		slog.Info(fmt.Sprintf("[Proxy] Updated upstream proxy to 127.0.0.1:%d", port))
 	}
 
+	// 升级自检：读取这个实例的二进制方法清单，判断哪些功能可用（后台执行，不阻塞切换）
+	go p.refreshCompatibility(info)
+
 	// Reset historical sync state and asynchronously sync historical trajectories
 	ResetHistoricalSyncState()
 	go func(prt int, tok string) {
@@ -594,6 +600,7 @@ func (p *Proxy) handleStatus(w http.ResponseWriter, r *http.Request) {
 		ActiveStreamTitle:     activeTitle,
 		Timestamp:             time.Now(),
 		UnifiedCursor:         p.ArbitrateCursor(),
+		Compat:                p.currentCompatibility(cur),
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
