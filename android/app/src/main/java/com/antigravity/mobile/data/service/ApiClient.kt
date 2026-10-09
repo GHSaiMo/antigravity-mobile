@@ -1037,6 +1037,43 @@ class ApiClient(
         }
     }
 
+    // region 改动 diff / Git / 搜索 / 导出
+
+    /** POST 一个 JSON 到网关并返回响应文本；失败时优先取网关 {"error": "..."} 里的说明。 */
+    private suspend fun postGatewayJson(path: String, payload: String, failurePrefix: String): Result<String> =
+        withContext(Dispatchers.IO) {
+            val baseUrl = currentBaseUrl?.trim()?.trimEnd('/')
+                ?: return@withContext Result.failure(IllegalStateException("网关地址未配置"))
+            try {
+                val request = buildAuthorizedRequest("$baseUrl$path")
+                    .post(payload.toRequestBody(jsonMediaType))
+                    .build()
+                client.newCall(request).await().use { response ->
+                    val body = response.body?.string().orEmpty()
+                    if (!response.isSuccessful) {
+                        val msg = runCatching {
+                            json.parseToJsonElement(body).jsonObject["error"]?.jsonPrimitive?.contentOrNull
+                                ?: json.parseToJsonElement(body).jsonObject["message"]?.jsonPrimitive?.contentOrNull
+                        }.getOrNull() ?: body.ifBlank { "HTTP ${response.code}" }
+                        return@withContext Result.failure(RuntimeException("$failurePrefix: $msg"))
+                    }
+                    Result.success(body)
+                }
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+
+    /** 会话内容全文搜索（language_server SearchConversations，经网关透传）。 */
+    suspend fun searchConversations(query: String): Result<List<ConversationSearchResult>> =
+        postGatewayJson(
+            "/api/exa.language_server_pb.LanguageServerService/SearchConversations",
+            buildJsonObject { put("query", query) }.toString(),
+            "搜索失败"
+        ).mapCatching { json.decodeFromString<ConversationSearchResponse>(it).results }
+
+    // endregion
+
     /**
      * Registers the device push token (FCM / remote push) with the gateway.
      */

@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.antigravity.mobile.data.model.CockpitQuotaResponse
 import com.antigravity.mobile.data.model.ConversationItem
+import com.antigravity.mobile.data.model.ConversationSearchResult
 import com.antigravity.mobile.data.model.ConversationStatus
 import com.antigravity.mobile.data.model.LocalDraftSession
 import com.antigravity.mobile.data.model.ProjectItem
@@ -40,6 +41,15 @@ class ConversationListViewModel(
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    /** 会话「内容」命中（language_server SearchConversations），与按标题过滤并行存在。 */
+    private val _contentResults = MutableStateFlow<List<ConversationSearchResult>>(emptyList())
+    val contentResults: StateFlow<List<ConversationSearchResult>> = _contentResults.asStateFlow()
+
+    private val _isSearchingContent = MutableStateFlow(false)
+    val isSearchingContent: StateFlow<Boolean> = _isSearchingContent.asStateFlow()
+
+    private var contentSearchJob: kotlinx.coroutines.Job? = null
 
     private val _quotaData = MutableStateFlow<CockpitQuotaResponse?>(null)
     val quotaData: StateFlow<CockpitQuotaResponse?> = _quotaData.asStateFlow()
@@ -526,6 +536,32 @@ class ConversationListViewModel(
     fun onSearchQueryChanged(query: String) {
         _searchQuery.value = query
         applyFilter()
+        searchContent(query.trim())
+    }
+
+    /** 输入停顿 350ms 后再查；少于 2 个字符不查（单字命中太泛）。 */
+    private fun searchContent(query: String) {
+        contentSearchJob?.cancel()
+        if (query.codePointCount(0, query.length) < 2) {
+            _contentResults.value = emptyList()
+            _isSearchingContent.value = false
+            return
+        }
+        _isSearchingContent.value = true
+        contentSearchJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(350)
+            apiClient.searchConversations(query)
+                .onSuccess { results ->
+                    // 子代理会话不在列表里展示，也不作为搜索结果
+                    val visible = rawConversations.filter { !it.isSubagent }.map { it.id }.toSet()
+                    _contentResults.value = results.filter { visible.isEmpty() || it.cascadeId in visible }
+                }
+                .onFailure {
+                    Log.w("ConvListVM", "Content search failed: ${it.message}")
+                    _contentResults.value = emptyList()
+                }
+            _isSearchingContent.value = false
+        }
     }
 
     private fun applyFilter() {

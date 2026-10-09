@@ -290,6 +290,9 @@ public struct ConversationListView: View {
         pairedContentView
             .navigationTitle("Multigravity")
             .modifier(ConversationSearch(text: $viewModel.searchQuery, usesBottomCapsule: usesSplitLayout))
+            .onChange(of: viewModel.searchQuery) { _, _ in
+                viewModel.scheduleContentSearch()
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button(action: { showSettings = true }) {
@@ -376,7 +379,7 @@ public struct ConversationListView: View {
             refreshingSkeletonView
         } else if let err = viewModel.errorMessage, viewModel.conversations.isEmpty {
             errorView(err)
-        } else if viewModel.filteredConversations.isEmpty {
+        } else if viewModel.filteredConversations.isEmpty && unmatchedContentHits.isEmpty && !viewModel.isSearchingContent {
             emptyView
         } else {
             listView
@@ -572,13 +575,76 @@ public struct ConversationListView: View {
                         }
                     }
             }
+
+            // 对话内容命中（language_server 全文搜索），与上面的标题/工作区匹配并列
+            if !viewModel.searchQuery.trimmingCharacters(in: .whitespaces).isEmpty,
+               !unmatchedContentHits.isEmpty || viewModel.isSearchingContent {
+                Section {
+                    ForEach(unmatchedContentHits) { hit in
+                        contentHitRow(hit)
+                            .contentShape(Rectangle())
+                            .onTapGesture { openConversation(hit.item) }
+                            .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                    }
+                } header: {
+                    HStack(spacing: 8) {
+                        Text("对话内容匹配")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.secondary)
+                        if viewModel.isSearchingContent {
+                            ProgressView().scaleEffect(0.6)
+                        }
+                    }
+                }
+            }
         }
         .listStyle(.plain)
         .refreshable {
             await viewModel.fetchConversations()
         }
     }
-    
+
+    /// 内容命中里去掉已经按标题/工作区出现在上面列表中的会话。
+    private var unmatchedContentHits: [ConversationListViewModel.ContentSearchHit] {
+        let shown = Set(viewModel.filteredConversations.map(\.id))
+        return viewModel.contentHits.filter { !shown.contains($0.item.id) }
+    }
+
+    private func contentHitRow(_ hit: ConversationListViewModel.ContentSearchHit) -> some View {
+        var highlight = AttributeContainer()
+        highlight.backgroundColor = Color.orange.opacity(0.28)
+        let snippet = SearchSnippetHighlighter.attributed(
+            snippet: hit.result.snippet,
+            ranges: hit.result.snippetMatchRanges,
+            highlight: highlight
+        )
+        return VStack(alignment: .leading, spacing: 6) {
+            Text(hit.item.title.isEmpty ? "未命名会话" : hit.item.title)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(.primary)
+                .lineLimit(1)
+            if !hit.result.snippet.isEmpty {
+                Text(snippet)
+                    .font(.system(size: 13))
+                    .foregroundColor(.secondary)
+                    .lineLimit(3)
+            }
+            if !hit.item.workspaceName.isEmpty {
+                Text(hit.item.workspaceName)
+                    .font(.system(size: 11.5))
+                    .foregroundColor(.secondary.opacity(0.8))
+                    .lineLimit(1)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(Color(uiColor: .secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
     private func handleScenePhaseChange(_ newPhase: ScenePhase) {
         if newPhase == .active {
             if AppSettings.shared.isPaired {
