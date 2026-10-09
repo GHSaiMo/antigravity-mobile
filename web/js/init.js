@@ -50,16 +50,21 @@ function initApp() {
 
   window.addEventListener("hashchange", renderRoute);
 
-  checkGatewayStatus();
+  // The status pill / upstream port live in the settings sheet, so only poll while it is open
+  // (openSettingsSheet refreshes it immediately).
+  const isSettingsOpen = () => {
+    const sheet = document.getElementById("sheet-settings");
+    return !!sheet && !sheet.classList.contains("hidden");
+  };
   setInterval(() => {
-    if (document.visibilityState === "visible") {
+    if (document.visibilityState === "visible" && isSettingsOpen()) {
       checkGatewayStatus();
     }
   }, 6000);
 
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") {
-      checkGatewayStatus();
+      if (isSettingsOpen()) checkGatewayStatus();
       if (activeCascadeId) {
         if (!activeWs || activeWs.readyState !== WebSocket.OPEN) {
           connectStreamWs(activeCascadeId);

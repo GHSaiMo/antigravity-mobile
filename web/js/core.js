@@ -339,26 +339,61 @@ function removePendingImage(id) {
   renderImagePreviews();
 }
 
+// Phone photos are 3-12 MB and go to the gateway as base64 (and are stored that way upstream), so
+// shrink them like the iOS app does before sending: longest side 1600 px, JPEG.
+const UPLOAD_IMAGE_MAX_DIM = 1600;
+const UPLOAD_IMAGE_JPEG_QUALITY = 0.8;
+const UPLOAD_IMAGE_KEEP_BELOW_BYTES = 1.5 * 1024 * 1024;
+
+async function shrinkImageForUpload(file) {
+  // Animated GIFs and vector images would lose what makes them what they are.
+  if (file.type === "image/gif" || file.type === "image/svg+xml" || typeof createImageBitmap !== "function") {
+    return file;
+  }
+  try {
+    const bitmap = await createImageBitmap(file); // applies EXIF orientation
+    const scale = Math.min(1, UPLOAD_IMAGE_MAX_DIM / Math.max(bitmap.width, bitmap.height));
+    if (scale === 1 && file.size <= UPLOAD_IMAGE_KEEP_BELOW_BYTES) {
+      bitmap.close();
+      return file;
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#fff"; // JPEG has no alpha: keep transparent PNGs readable
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", UPLOAD_IMAGE_JPEG_QUALITY));
+    return blob && blob.size < file.size ? blob : file;
+  } catch (_) {
+    return file;
+  }
+}
+
 function handleFilesSelected(files) {
   if (!files || !files.length) return;
   for (const file of Array.from(files)) {
     if (!file.type.startsWith("image/")) continue;
     const id = `img-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const previewUrl = URL.createObjectURL(file);
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const dataUrl = e.target.result;
-      const base64Data = dataUrl.split(",")[1];
-      pendingImages.push({
-        id,
-        name: file.name,
-        mimeType: file.type || "image/jpeg",
-        base64Data,
-        previewUrl
-      });
-      renderImagePreviews();
-    };
-    reader.readAsDataURL(file);
+    shrinkImageForUpload(file).then((upload) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const dataUrl = e.target.result;
+        const base64Data = dataUrl.split(",")[1];
+        pendingImages.push({
+          id,
+          name: file.name,
+          mimeType: upload.type || file.type || "image/jpeg",
+          base64Data,
+          previewUrl
+        });
+        renderImagePreviews();
+      };
+      reader.readAsDataURL(upload);
+    });
   }
 }
 
