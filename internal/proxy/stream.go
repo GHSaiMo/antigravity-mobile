@@ -170,7 +170,7 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 
 	sanitizeWebSocketHeaders(r)
 
-	clientConn, err := upgrader.Upgrade(w, r, nil)
+	clientConn, err := streamUpgrader.Upgrade(w, r, nil)
 	if err != nil {
 		slog.Warn("[Stream] WS upgrade failed", "err", err)
 		return
