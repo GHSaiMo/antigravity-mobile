@@ -267,6 +267,13 @@ public final class ChatViewModel {
     public var isReverting: Bool = false
     public var isLoadingRevertPreview: Bool = false
     public var focusInputTrigger: Int = 0
+
+    // 本会话改动 / Git 提交 / Markdown 导出
+    /// 斜杠命令菜单（首次键入 "/" 时懒加载）与输入框里已选中的命令标签。
+    public var slashCommands: [SlashCommandOption] = []
+    public var isLoadingSlashCommands: Bool = false
+    public var selectedSlashCommand: SlashCommandOption? = nil
+
     public var changesSheet: ChangesSheetState? = nil
     public var gitSheet: GitSheetState? = nil
     public var exportedMarkdownFile: ExportedMarkdownFile? = nil

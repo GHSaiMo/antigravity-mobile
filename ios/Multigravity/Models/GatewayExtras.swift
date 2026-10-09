@@ -152,3 +152,78 @@ public enum SearchSnippetHighlighter {
 }
 
 
+// MARK: - 斜杠命令
+
+/// 网关 /gateway/slash-commands 返回的一项。发送时只需把 `name` 带回去，网关会补全权威定义。
+public struct SlashCommandOption: Codable, Sendable, Identifiable, Hashable {
+    public var id: String { name }
+    public let name: String
+    public let title: String
+    public let description: String
+    public let icon: String?
+    /// "system" 系统命令 | "skill" 技能。
+    public let kind: String
+
+    public init(name: String, title: String = "", description: String = "", icon: String? = nil, kind: String = "system") {
+        self.name = name
+        self.title = title
+        self.description = description
+        self.icon = icon
+        self.kind = kind
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decode(String.self, forKey: .name)
+        title = try c.decodeIfPresent(String.self, forKey: .title) ?? name
+        description = try c.decodeIfPresent(String.self, forKey: .description) ?? ""
+        icon = try c.decodeIfPresent(String.self, forKey: .icon)
+        kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? "system"
+    }
+    enum CodingKeys: String, CodingKey { case name, title, description, icon, kind }
+}
+
+struct SlashCommandsResponse: Decodable {
+    let commands: [SlashCommandOption]
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        commands = try c.decodeIfPresent([SlashCommandOption].self, forKey: .commands) ?? []
+    }
+    enum CodingKeys: String, CodingKey { case commands }
+}
+
+/// 输入框里 "/xxx" 的筛选规则（纯函数，便于单测）。
+public enum SlashCommandFilter {
+    /// 输入以 "/" 开头且尚未出现空白时，返回要筛选的关键字（不含 "/"）；否则返回 nil，表示不弹出命令列表。
+    /// "/" -> ""，"/pl" -> "pl"，"/plan 帮我" -> nil，"hello" -> nil。
+    public static func query(of input: String) -> String? {
+        guard input.hasPrefix("/") else { return nil }
+        let rest = input.dropFirst()
+        return rest.contains(where: { $0.isWhitespace }) ? nil : String(rest)
+    }
+
+    /// 名称前缀命中优先，其次名称/标题/描述包含；保持原有顺序。
+    public static func filter(_ all: [SlashCommandOption], query: String) -> [SlashCommandOption] {
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        if q.isEmpty { return all }
+        let prefix = all.filter { $0.name.lowercased().hasPrefix(q) }
+        let prefixNames = Set(prefix.map(\.name))
+        let rest = all.filter {
+            !prefixNames.contains($0.name) &&
+            ($0.name.lowercased().contains(q) || $0.title.lowercased().contains(q) || $0.description.lowercased().contains(q))
+        }
+        return prefix + rest
+    }
+
+    /// 把 "/plan 帮我规划" 拆成（命令，"帮我规划"）；开头不是已知命令（或命令列表还没加载）时原样返回。
+    /// 用于队列里的「编辑 / 立即发送」：队列显示的是服务端生成的显示文本，需要还原成「命令 + 文本」。
+    public static func splitPrefix(_ text: String, commands: [SlashCommandOption]) -> (command: SlashCommandOption?, rest: String) {
+        guard text.hasPrefix("/"), !commands.isEmpty else { return (nil, text) }
+        let afterSlash = text.dropFirst()
+        let token = String(afterSlash.prefix(while: { !$0.isWhitespace }))
+        guard let command = commands.first(where: { $0.name == token }) else { return (nil, text) }
+        let rest = afterSlash.dropFirst(token.count).drop(while: { $0.isWhitespace })
+        return (command, String(rest))
+    }
+}

@@ -59,6 +59,8 @@ type Proxy struct {
 	activeToken string
 	notifier    NotificationSink
 
+	slashCache slashCommandCache
+
 	activeStreamMu        sync.RWMutex
 	activeStreamCascadeID string
 	activeStreamTitle     string
@@ -439,6 +441,14 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/gateway/cascade/revert/execute" {
 		p.HandleCascadeRevertExecute(w, r)
+		return
+	}
+	if r.URL.Path == "/gateway/slash-commands" {
+		p.HandleSlashCommands(w, r)
+		return
+	}
+	if r.URL.Path == "/gateway/models" {
+		p.HandleModels(w, r)
 		return
 	}
 	if r.URL.Path == "/gateway/cascade/changes" {

@@ -146,6 +146,16 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 			return
 		}
 
+		// Slash commands: swap the client's {name} for the authoritative info (modelFacingText etc.).
+		slashApplied, slashErr := p.expandSlashCommands(r.Context(), rawMap)
+		if slashErr != nil {
+			slog.Warn("[Proxy] SendUserCascadeMessage slash command rejected", "err", slashErr)
+			writeJSONError(w, slashErr.Error(), http.StatusBadRequest)
+			return
+		}
+		// Tag the message with the client's id so it can be recognised in the pending queue later.
+		// Only queued / injected messages (those carrying a deliveryStrategy) ever show up in the pending queue.
+		tagApplied := false
 		// Short-window idempotency check: prevent duplicate triggers within 15 seconds
 		// PERF: use streaming hasher to avoid full string copy for sha256
 		contentHasher := sha256.New()
@@ -156,6 +166,12 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 					if t, ok := itemMap["text"].(string); ok {
 						contentHasher.Write([]byte(t))
 						contentLen += len(t)
+					}
+				}
+				if itemMap, ok := it.(map[string]interface{}); ok {
+					if name, _, isSlash := slashCommandName(itemMap); isSlash && name != "" {
+						contentHasher.Write([]byte("/" + name))
+						contentLen += len(name) + 1
 					}
 				}
 			}
@@ -224,7 +240,7 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 		_, hasModel := rawMap["model"]
 		_, hasCfgRaw := rawMap["cascadeConfigRaw"]
 		_, hasText := rawMap["text"]
-		needsModification := targetModel != "" || hasModel || hasCfgRaw || hasText || attachmentsApplied
+		needsModification := targetModel != "" || hasModel || hasCfgRaw || hasText || attachmentsApplied || slashApplied || tagApplied
 
 		if !needsModification {
 			// No changes required — forward original bytes as-is.

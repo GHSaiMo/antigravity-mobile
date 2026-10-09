@@ -4,6 +4,7 @@ import androidx.lifecycle.viewModelScope
 import com.antigravity.mobile.data.model.CascadeChangesResponse
 import com.antigravity.mobile.data.model.GitCommitResponse
 import com.antigravity.mobile.data.model.GitStatusResponse
+import com.antigravity.mobile.data.model.SlashCommandOption
 import kotlinx.coroutines.launch
 
 /** 「本会话改动」浮窗状态。 */
@@ -164,3 +165,34 @@ fun ChatViewModel.exportMarkdown(onReady: (title: String, markdown: String) -> U
     }
 }
 
+// endregion
+
+// region 斜杠命令
+
+/** 首次键入 "/" 时懒加载命令列表；已加载或正在加载时什么都不做。失败后下次键入 "/" 会重试。 */
+fun ChatViewModel.ensureSlashCommands() {
+    val st = _uiState.value
+    if (st.slashCommands.isNotEmpty() || st.isLoadingSlashCommands) return
+    _uiState.value = st.copy(isLoadingSlashCommands = true)
+    viewModelScope.launch {
+        apiClient.getSlashCommands()
+            .onSuccess { list ->
+                _uiState.value = _uiState.value.copy(slashCommands = list, isLoadingSlashCommands = false)
+            }
+            .onFailure {
+                _uiState.value = _uiState.value.copy(isLoadingSlashCommands = false)
+            }
+    }
+}
+
+/** 选中命令：输入框里的 "/xx" 清掉，命令变成输入框上方的标签。 */
+fun ChatViewModel.selectSlashCommand(command: SlashCommandOption) {
+    _inputText.value = ""
+    _uiState.value = _uiState.value.copy(selectedSlashCommand = command, focusInputTrigger = _uiState.value.focusInputTrigger + 1)
+}
+
+fun ChatViewModel.clearSlashCommand() {
+    _uiState.value = _uiState.value.copy(selectedSlashCommand = null)
+}
+
+// endregion

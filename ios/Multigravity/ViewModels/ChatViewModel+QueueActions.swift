@@ -84,6 +84,8 @@ extension ChatViewModel {
         
         // Dispatch with deliveryStrategy = 1 (NEXT_INVOCATION)
         do {
+            // 队列里显示的是 "/plan 内容"：还原成「命令 + 文本」再发，否则会变成一条以斜杠开头的普通文字
+            let split = SlashCommandFilter.splitPrefix(item.text, commands: slashCommands)
             try await apiClient.sendMessage(
                 cascadeId: cascadeId,
                 text: item.text,
@@ -92,6 +94,7 @@ extension ChatViewModel {
                 deliveryStrategy: 1,
                 cascadeConfigRaw: cascadeConfigRaw,
                 clientMessageId: clientMessageId,
+                slashCommand: split.command?.name,
                 baseURL: url
             )
             
@@ -191,7 +194,9 @@ extension ChatViewModel {
             inFlightDeletingQueueIds.remove(item.id)
         }
         
-        self.inputText = item.text
+        let split = SlashCommandFilter.splitPrefix(item.text, commands: slashCommands)
+        self.inputText = split.rest
+        if let command = split.command { self.selectedSlashCommand = command }
         if let media = item.media, !media.isEmpty {
             let images = media.compactMap { raw -> Data? in
                 let cleaned: String

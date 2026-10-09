@@ -151,6 +151,33 @@ extension ChatViewModel {
         gitSheet = nil
     }
 
+    // MARK: - 斜杠命令
+
+    /// 首次键入 "/" 时懒加载命令列表；已加载或正在加载时什么都不做。失败后下次键入 "/" 会重试。
+    public func ensureSlashCommands() {
+        guard slashCommands.isEmpty, !isLoadingSlashCommands, let url = settings.serverURL else { return }
+        isLoadingSlashCommands = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.isLoadingSlashCommands = false }
+            if let list = try? await self.apiClient.fetchSlashCommands(baseURL: url) {
+                self.slashCommands = list
+            }
+        }
+    }
+
+    /// 选中命令：输入框里的 "/xx" 清掉，命令变成输入框上方的标签。
+    public func selectSlashCommand(_ command: SlashCommandOption) {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        inputText = ""
+        selectedSlashCommand = command
+        focusInputTrigger += 1
+    }
+
+    public func clearSlashCommand() {
+        selectedSlashCommand = nil
+    }
+
     // MARK: - 导出 Markdown
 
     public func exportMarkdown() {

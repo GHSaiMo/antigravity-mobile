@@ -520,7 +520,9 @@ class ApiClient(
         images: List<Pair<ByteArray, String>> = emptyList(),
         deliveryStrategy: Int? = null,
         clientMessageId: String? = null,
-        attachmentIds: List<String> = emptyList()
+        attachmentIds: List<String> = emptyList(),
+        /** 斜杠命令名（如 "plan"）。网关会补全权威定义；命令条目排在文本条目之前。 */
+        slashCommand: String? = null
     ): Result<Unit> = withContext(Dispatchers.IO) {
         val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
         val url = "$baseUrl/api/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage"
@@ -528,8 +530,20 @@ class ApiClient(
         val payload = buildJsonObject {
             put("cascadeId", cascadeId)
             putJsonArray("items") {
-                addJsonObject {
-                    put("text", text)
+                if (!slashCommand.isNullOrBlank()) {
+                    addJsonObject {
+                        putJsonObject("item") {
+                            putJsonObject("slashCommand") {
+                                putJsonObject("info") { put("name", slashCommand) }
+                            }
+                        }
+                    }
+                }
+                // 带命令时文本前补一个空格，让服务端生成的显示文本是 "/plan 内容"；只有命令没有文本时不带文本条目
+                if (slashCommand.isNullOrBlank() || text.isNotEmpty()) {
+                    addJsonObject {
+                        put("text", if (slashCommand.isNullOrBlank()) text else " $text")
+                    }
                 }
             }
             put("text", text)
@@ -1063,6 +1077,14 @@ class ApiClient(
                 Result.failure(e)
             }
         }
+
+    /** 手机端 "/" 菜单（系统命令 + 技能）。 */
+    suspend fun getSlashCommands(refresh: Boolean = false): Result<List<SlashCommandOption>> =
+        postGatewayJson(
+            if (refresh) "/gateway/slash-commands?refresh=1" else "/gateway/slash-commands",
+            "{}",
+            "获取斜杠命令失败"
+        ).mapCatching { json.decodeFromString<SlashCommandsResponse>(it).commands }
 
     /** 可选模型目录（网关从 language_server 实时取，失败时返回内置兜底）。 */
     suspend fun getModels(refresh: Boolean = false): Result<ModelsResponse> =

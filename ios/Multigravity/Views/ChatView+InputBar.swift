@@ -5,6 +5,21 @@ import AVFoundation
 extension ChatView {
     var inputBar: some View {
         VStack(alignment: .leading, spacing: 8) {
+            // 斜杠命令：键入 "/" 弹出列表；选中后以标签形式挂在输入框上方
+            if let slashQuery = SlashCommandFilter.query(of: viewModel.inputText) {
+                SlashCommandPickerView(
+                    commands: SlashCommandFilter.filter(viewModel.slashCommands, query: slashQuery),
+                    isLoading: viewModel.isLoadingSlashCommands,
+                    onSelect: { viewModel.selectSlashCommand($0) }
+                )
+                .padding(.horizontal, 16)
+                .onAppear { viewModel.ensureSlashCommands() }
+            }
+            if let command = viewModel.selectedSlashCommand {
+                SlashCommandChipView(command: command) { viewModel.clearSlashCommand() }
+                    .padding(.horizontal, 16)
+            }
+
             // Quick action chips at top of input box (➕ and Model Switch placed in front of Commit and Push)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
@@ -226,7 +241,7 @@ extension ChatView {
                     .lineLimit(1...5)
                     .focused($isInputFocused)
                 
-                if viewModel.isActivelyRunning && viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if viewModel.isActivelyRunning && viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && viewModel.selectedSlashCommand == nil {
                     Button(action: handleCancel) {
                         ZStack {
                             Circle()
@@ -287,7 +302,8 @@ extension ChatView {
             || viewModel.selectedFiles.contains(where: { !$0.isUploaded })
             || (viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 && viewModel.selectedImageData.isEmpty
-                && viewModel.selectedFiles.isEmpty)
+                && viewModel.selectedFiles.isEmpty
+                && viewModel.selectedSlashCommand == nil)
     }
     
 }
