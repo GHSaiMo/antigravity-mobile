@@ -156,6 +156,30 @@ func listSignature(raw []byte) (uint64, bool) {
 	return h.Sum64(), true
 }
 
+// cascadeSummarySignature hashes one cascade's entry in the shared GetAllCascadeTrajectories snapshot.
+// ok is false when the snapshot is unavailable or does not list the cascade.
+func (p *Proxy) cascadeSummarySignature(cascadeID string, port int, token string) (uint64, bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	raw, err := p.fetchAllTrajectoriesRaw(ctx, port, token)
+	if err != nil {
+		return 0, false
+	}
+	var env struct {
+		TrajectorySummaries map[string]json.RawMessage `json:"trajectorySummaries"`
+	}
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return 0, false
+	}
+	entry, ok := env.TrajectorySummaries[cascadeID]
+	if !ok {
+		return 0, false
+	}
+	h := fnv.New64a()
+	_, _ = h.Write(entry)
+	return h.Sum64(), true
+}
+
 // runEventsDetector polls the shared list snapshot while subscribers exist.
 func (p *Proxy) runEventsDetector(ctx context.Context, nudge <-chan struct{}) {
 	ticker := time.NewTicker(eventsPollInterval)

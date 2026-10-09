@@ -255,6 +255,8 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 	cachedStreamTitle := streamTitle
 	lastTitleLookupTime := time.Time{}
 	var lastDetails TrajectoryDetails
+	var lastSummarySig uint64
+	haveSummarySig := false
 
 	// fetchAndSend does one poll + send cycle. Returns false if the connection should close.
 	fetchAndSend := func() bool {
@@ -269,8 +271,21 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 		}
 
 		maxAge := 300 * time.Millisecond
-		if !firstPush && lastDetails.Status != "" && lastDetails.Status != "CASCADE_RUN_STATUS_RUNNING" && len(lastDetails.QueuedMessages) == 0 {
+		if firstPush {
+			// Baseline for the idle change detector below, taken before the first full fetch.
+			lastSummarySig, haveSummarySig = p.cascadeSummarySignature(cascadeID, port, token)
+		} else if lastDetails.Status != "" && lastDetails.Status != "CASCADE_RUN_STATUS_RUNNING" && len(lastDetails.QueuedMessages) == 0 {
+			// Idle: the full trajectory is only refetched every 15s, but a run started elsewhere (e.g. on
+			// the desktop) must show up promptly. The shared conversation list (1s TTL, also used by list
+			// clients and the events hub) is a cheap change detector: refetch as soon as this cascade's
+			// entry changes.
 			maxAge = 15 * time.Second
+			if sig, ok := p.cascadeSummarySignature(cascadeID, port, token); ok {
+				if haveSummarySig && sig != lastSummarySig {
+					maxAge = 0
+				}
+				lastSummarySig, haveSummarySig = sig, true
+			}
 		}
 		t1 := time.Now()
 		rawResp, err := p.fetchUpstreamTrajectoryWithMaxAge(cascadeID, port, token, maxAge)
