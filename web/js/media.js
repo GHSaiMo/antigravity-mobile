@@ -764,31 +764,30 @@ function renderMarkdown(md) {
       while (fenceCount < trimmed.length && trimmed[fenceCount] === fenceChar) {
         fenceCount++;
       }
-      if (fenceCount >= 3) {
-        const fence = fenceChar.repeat(fenceCount);
-        const lang = trimmed.slice(fenceCount).trim();
-        const codeLines = [];
-        i++;
-        while (i < lines.length) {
-          if (lines[i].trim().startsWith(fence)) {
-            i++;
-            break;
-          }
-          codeLines.push(lines[i]);
+      const fence = fenceChar.repeat(fenceCount);
+      const lang = trimmed.slice(fenceCount).trim();
+      const codeLines = [];
+      i++;
+      while (i < lines.length) {
+        if (lines[i].trim().startsWith(fence)) {
           i++;
+          break;
         }
-        const rawCode = codeLines.join("\n");
-        const langClean = (lang || "").toLowerCase();
-        const displayLang = langClean ? langClean.toUpperCase() : "CODE";
-        const codeEscaped = escapeHtml(rawCode);
+        codeLines.push(lines[i]);
+        i++;
+      }
+      const rawCode = codeLines.join("\n");
+      const langClean = (lang || "").toLowerCase();
+      const displayLang = langClean ? langClean.toUpperCase() : "CODE";
+      const codeEscaped = escapeHtml(rawCode);
 
-        if (langClean === "carousel") {
-          const carouselHtml = renderCarouselBlock(codeLines);
-          if (carouselHtml) {
-            blocks.push(carouselHtml);
-            continue;
-          }
+      if (langClean === "carousel") {
+        const carouselHtml = renderCarouselBlock(codeLines);
+        if (carouselHtml) {
+          blocks.push(carouselHtml);
+          continue;
         }
+      }
 
       if (langClean === "mermaid") {
         blocks.push(`
