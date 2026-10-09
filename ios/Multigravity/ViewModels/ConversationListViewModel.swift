@@ -98,14 +98,60 @@ public final class ConversationListViewModel {
         recentlyDeletedIDs = recentlyDeletedIDs.filter { now.timeIntervalSince($0.value) < tombstoneTTL }
     }
     
-    public var filteredConversations: [ConversationItem] {
-        let q = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let nonSubagents = conversations.filter { item in
+    /// 列表里实际可见的会话（不含子代理与已删除/删除中的），不受搜索框影响。
+    private var visibleConversations: [ConversationItem] {
+        conversations.filter { item in
             !item.isSubagent &&
             !pendingDeleteCascadeIDs.contains(item.id) &&
             (recentlyDeletedIDs[item.id] == nil) &&
             !cacheManager.isDeletedConversation(cascadeId: item.id)
         }
+    }
+
+    // MARK: - 会话内容搜索（language_server SearchConversations）
+
+    /// 内容命中，与会话条目配对，点击后直接进入该会话。
+    public struct ContentSearchHit: Identifiable {
+        public var id: String { item.id }
+        public let result: ConversationSearchResult
+        public let item: ConversationItem
+    }
+
+    public var contentHits: [ContentSearchHit] = []
+    public var isSearchingContent: Bool = false
+    private var contentSearchTask: Task<Void, Never>? = nil
+
+    /// 输入停顿 350ms 后再查；少于 2 个字符不查（单字命中太泛）。由视图在 searchQuery 变化时调用。
+    public func scheduleContentSearch() {
+        contentSearchTask?.cancel()
+        let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard query.unicodeScalars.count >= 2, let baseURL = settings.serverURL else {
+            contentHits = []
+            isSearchingContent = false
+            return
+        }
+        isSearchingContent = true
+        contentSearchTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            guard !Task.isCancelled, let self else { return }
+            do {
+                let results = try await self.apiClient.searchConversations(query: query, baseURL: baseURL)
+                guard !Task.isCancelled else { return }
+                let byID = Dictionary(self.visibleConversations.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+                self.contentHits = results.compactMap { r in
+                    byID[r.cascadeId].map { ContentSearchHit(result: r, item: $0) }
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                self.contentHits = []
+            }
+            self.isSearchingContent = false
+        }
+    }
+
+    public var filteredConversations: [ConversationItem] {
+        let q = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let nonSubagents = visibleConversations
         if q.isEmpty { return nonSubagents }
         return nonSubagents.filter {
             $0.title.lowercased().contains(q) ||

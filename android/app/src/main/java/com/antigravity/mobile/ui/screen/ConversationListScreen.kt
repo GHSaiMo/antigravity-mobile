@@ -72,6 +72,8 @@ fun ConversationListScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
+    val contentResults by viewModel.contentResults.collectAsStateWithLifecycle()
+    val isSearchingContent by viewModel.isSearchingContent.collectAsStateWithLifecycle()
     val quotaData by viewModel.quotaData.collectAsStateWithLifecycle()
     val isRefreshingQuota by viewModel.isRefreshingQuota.collectAsStateWithLifecycle()
     val projects by viewModel.projects.collectAsStateWithLifecycle()
@@ -275,6 +277,19 @@ fun ConversationListScreen(
                             listState = listState,
                             quotaData = quotaData,
                             searchQuery = searchQuery,
+                            contentResults = contentResults.filter { hit -> state.conversations.none { it.id == hit.cascadeId } },
+                            isSearchingContent = isSearchingContent,
+                            onSelectContentHit = { hit ->
+                                val known = viewModel.getConversation(hit.cascadeId)
+                                onSelectConversation(
+                                    hit.cascadeId,
+                                    known?.displayTitle ?: hit.title.ifBlank { "未命名会话" },
+                                    false,
+                                    known?.isUnread ?: false,
+                                    known?.status ?: com.antigravity.mobile.data.model.ConversationStatus.UNKNOWN,
+                                    known?.lastModifiedTime ?: hit.lastModifiedTime
+                                )
+                            },
                             largeTitleAlpha = largeTitleAlpha,
                             topPadding = topBarHeight,
                             onEasterEggTap = handleEasterEggTap,
@@ -640,6 +655,9 @@ private fun ConversationListContent(
     listState: LazyListState,
     quotaData: CockpitQuotaResponse?,
     searchQuery: String,
+    contentResults: List<com.antigravity.mobile.data.model.ConversationSearchResult>,
+    isSearchingContent: Boolean,
+    onSelectContentHit: (com.antigravity.mobile.data.model.ConversationSearchResult) -> Unit,
     largeTitleAlpha: Float,
     topPadding: Dp,
     onEasterEggTap: () -> Unit,
@@ -704,7 +722,7 @@ private fun ConversationListContent(
             }
         }
 
-        if (conversations.isEmpty()) {
+        if (conversations.isEmpty() && contentResults.isEmpty() && !isSearchingContent) {
             item(key = "empty_placeholder") {
                 Column(
                     modifier = Modifier
@@ -755,6 +773,87 @@ private fun ConversationListContent(
                     onDelete = { onDelete(conversation) }
                 )
             }
+        }
+
+        // 对话内容命中（language_server 全文搜索），与上面的标题/工作区匹配并列
+        if (searchQuery.isNotBlank() && (contentResults.isNotEmpty() || isSearchingContent)) {
+            item(key = "content_hits_header") {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "对话内容匹配",
+                        color = colors.textSecondary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    if (isSearchingContent) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(12.dp),
+                            strokeWidth = 1.5.dp,
+                            color = colors.textMuted
+                        )
+                    }
+                }
+            }
+            items(contentResults, key = { "hit_${it.cascadeId}" }) { hit ->
+                ContentHitCard(hit = hit, onClick = { onSelectContentHit(hit) })
+            }
+        }
+    }
+}
+
+@Composable
+private fun ContentHitCard(
+    hit: com.antigravity.mobile.data.model.ConversationSearchResult,
+    onClick: () -> Unit
+) {
+    val colors = AntigravityTheme.colors
+    val highlight = colors.accentOrange.copy(alpha = 0.28f)
+    val annotated = remember(hit.snippet, hit.snippetMatchRanges, highlight) {
+        androidx.compose.ui.text.buildAnnotatedString {
+            append(hit.snippet)
+            com.antigravity.mobile.ui.util.highlightRanges(hit.snippet, hit.snippetMatchRanges).forEach { r ->
+                addStyle(
+                    androidx.compose.ui.text.SpanStyle(background = highlight, fontWeight = FontWeight.SemiBold),
+                    r.first,
+                    r.last + 1
+                )
+            }
+        }
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(colors.surface)
+            .border(0.5.dp, colors.border, RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text(
+            text = hit.title.ifBlank { "未命名会话" },
+            color = colors.textPrimary,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        if (hit.snippet.isNotBlank()) {
+            Text(
+                text = annotated,
+                color = colors.textSecondary,
+                fontSize = 13.sp,
+                lineHeight = 18.sp,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        hit.workspaceName?.takeIf { it.isNotBlank() }?.let {
+            Text(text = it, color = colors.textMuted, fontSize = 11.5.sp, maxLines = 1)
         }
     }
 }
