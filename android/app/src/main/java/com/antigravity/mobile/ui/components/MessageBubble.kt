@@ -492,19 +492,22 @@ fun MessageBubble(
                                 }
                             )
                         }
-                        DropdownMenuItem(
-                            text = { Text("撤回") },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Default.Undo,
-                                    contentDescription = "撤回"
-                                )
-                            },
-                            onClick = {
-                                showContextMenu = false
-                                onUndoClick?.invoke(message)
-                            }
-                        )
+                        // 当前 Antigravity 不支持撤回接口时，调用方传 null，菜单里就不显示这一项
+                        if (onUndoClick != null) {
+                            DropdownMenuItem(
+                                text = { Text("撤回") },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Undo,
+                                        contentDescription = "撤回"
+                                    )
+                                },
+                                onClick = {
+                                    showContextMenu = false
+                                    onUndoClick(message)
+                                }
+                            )
+                        }
                     }
                 }
             }

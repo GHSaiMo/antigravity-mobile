@@ -73,6 +73,7 @@ fun ConversationListScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val contentResults by viewModel.contentResults.collectAsStateWithLifecycle()
+    val compat by com.antigravity.mobile.data.model.GatewayCompatStore.state.collectAsStateWithLifecycle()
     val isSearchingContent by viewModel.isSearchingContent.collectAsStateWithLifecycle()
     val quotaData by viewModel.quotaData.collectAsStateWithLifecycle()
     val isRefreshingQuota by viewModel.isRefreshingQuota.collectAsStateWithLifecycle()
@@ -236,6 +237,10 @@ fun ConversationListScreen(
                             verticalArrangement = Arrangement.Center,
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
+                            if (compat.isIncompatible) {
+                                CompatBanner(text = compat.bannerText)
+                                Spacer(modifier = Modifier.height(20.dp))
+                            }
                             Icon(
                                 imageVector = Icons.Default.Warning,
                                 contentDescription = "Error",
@@ -276,6 +281,7 @@ fun ConversationListScreen(
                             conversations = state.conversations,
                             listState = listState,
                             quotaData = quotaData,
+                            compat = compat,
                             searchQuery = searchQuery,
                             contentResults = contentResults.filter { hit -> state.conversations.none { it.id == hit.cascadeId } },
                             isSearchingContent = isSearchingContent,
@@ -650,11 +656,36 @@ fun ConversationListScreen(
     }
 }
 
+/** 升级自检提示条：当前 Antigravity 版本缺少基础接口，需要升级网关。 */
+@Composable
+private fun CompatBanner(text: String, modifier: Modifier = Modifier) {
+    val colors = AntigravityTheme.colors
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(colors.accentRed.copy(alpha = 0.12f))
+            .border(1.dp, colors.accentRed.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Icon(
+            imageVector = Icons.Default.Warning,
+            contentDescription = null,
+            tint = colors.accentRed,
+            modifier = Modifier.padding(top = 1.dp).size(18.dp)
+        )
+        Text(text = text, color = colors.textPrimary, fontSize = 13.5.sp, lineHeight = 19.sp)
+    }
+}
+
 @Composable
 private fun ConversationListContent(
     conversations: List<ConversationItem>,
     listState: LazyListState,
     quotaData: CockpitQuotaResponse?,
+    compat: com.antigravity.mobile.data.model.GatewayCompat,
     searchQuery: String,
     contentResults: List<com.antigravity.mobile.data.model.ConversationSearchResult>,
     isSearchingContent: Boolean,
@@ -708,6 +739,11 @@ private fun ConversationListContent(
                         )
                 )
             }
+        }
+
+        // 升级自检：基础能力缺失时在首页顶部提示（可选功能缺失只会隐藏对应入口，不打扰）
+        if (compat.isIncompatible) {
+            item(key = "header_compat_banner") { CompatBanner(text = compat.bannerText) }
         }
 
         // Quota Status Bar (matches iOS QuotaStatusBarView directly below large title)

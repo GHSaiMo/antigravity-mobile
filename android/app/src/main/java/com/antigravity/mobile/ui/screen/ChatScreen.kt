@@ -134,6 +134,8 @@ fun ChatScreen(
     }
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val inputText by viewModel.inputText.collectAsStateWithLifecycle()
+    // 升级自检：当前 Antigravity 缺少某接口时，对应功能的入口直接不显示
+    val compat by com.antigravity.mobile.data.model.GatewayCompatStore.state.collectAsStateWithLifecycle()
     val handleBackNavigation: () -> Unit = {
         textToolbar.hide()
         focusManager.clearFocus()
@@ -667,16 +669,18 @@ fun ChatScreen(
                                         onImageGroupClick = { items, index ->
                                             viewModel.openImageViewer(items = items, initialIndex = index)
                                         },
-                                        onUndoClick = { target ->
-                                            viewModel.requestUndo(target)
-                                        },
-                                        onExportMarkdownClick = {
-                                            viewModel.exportMarkdown { title, markdown ->
-                                                coroutineScope.launch {
-                                                    com.antigravity.mobile.ui.util.MarkdownExportUtils.shareMarkdown(context, title, markdown)
+                                        onUndoClick = if (compat.isAvailable(com.antigravity.mobile.data.model.GatewayFeature.REVERT)) {
+                                            { target -> viewModel.requestUndo(target) }
+                                        } else null,
+                                        onExportMarkdownClick = if (compat.isAvailable(com.antigravity.mobile.data.model.GatewayFeature.EXPORT)) {
+                                            {
+                                                viewModel.exportMarkdown { title, markdown ->
+                                                    coroutineScope.launch {
+                                                        com.antigravity.mobile.ui.util.MarkdownExportUtils.shareMarkdown(context, title, markdown)
+                                                    }
                                                 }
                                             }
-                                        },
+                                        } else null,
                                         shareContextProvider = { target ->
                                             val list = uiState.messages
                                             val idx = list.indexOfFirst { it === target }.takeIf { it >= 0 } ?: list.size
@@ -813,6 +817,7 @@ fun ChatScreen(
                     ) {
                         // 斜杠命令：键入 "/" 弹出列表；选中后以标签形式挂在输入框上方
                         val slashQuery = com.antigravity.mobile.data.model.SlashCommandFilter.queryOf(inputText)
+                            .takeIf { compat.isAvailable(com.antigravity.mobile.data.model.GatewayFeature.SLASH) }
                         LaunchedEffect(slashQuery != null) {
                             if (slashQuery != null) viewModel.ensureSlashCommands()
                         }
@@ -844,6 +849,7 @@ fun ChatScreen(
                                     dismissKeyboard()
                                     viewModel.openChangesSheet()
                                 },
+                                showChanges = compat.isAvailable(com.antigravity.mobile.data.model.GatewayFeature.CHANGES),
                                 showContinue = uiState.isLatestMessageError,
                                 onContinue = {
                                     dismissKeyboard()

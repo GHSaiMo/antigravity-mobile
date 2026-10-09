@@ -60,10 +60,13 @@ extension MessageBubbleView {
                     Label("导出 MD", systemImage: "square.and.arrow.down")
                 }
             }
-            Button(role: .destructive) {
-                onUndo?(message)
-            } label: {
-                Label("撤回", systemImage: "arrow.uturn.backward")
+            // 当前 Antigravity 不支持撤回接口时，调用方传 nil，菜单里就不显示这一项
+            if let onUndo {
+                Button(role: .destructive) {
+                    onUndo(message)
+                } label: {
+                    Label("撤回", systemImage: "arrow.uturn.backward")
+                }
             }
         }
     }

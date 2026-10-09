@@ -282,12 +282,12 @@ extension ChatView {
         MessageBubbleView(
             message: message,
             isActiveToolBatch: isActive,
-            onUndo: { msg in
-                viewModel.requestUndo(for: msg)
-            },
-            onExportMarkdown: {
-                viewModel.exportMarkdown()
-            },
+            onUndo: GatewayCompatStore.shared.isAvailable(GatewayFeature.revert)
+                ? { msg in viewModel.requestUndo(for: msg) }
+                : nil,
+            onExportMarkdown: GatewayCompatStore.shared.isAvailable(GatewayFeature.export)
+                ? { viewModel.exportMarkdown() }
+                : nil,
             shareContext: shareContext(forMessageAt: index)
         )
         .id(message.id)

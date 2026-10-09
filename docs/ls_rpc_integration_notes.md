@@ -153,3 +153,33 @@
 
 - 模型名：Agent 回复用生成它的模型；用户提问用紧随其后那条回复的模型；都没有时回退到会话当前模型的展示名（再不行才由 id 推断）。
 - 时间：显示**会话发起时间**（本地时区，`yyyy-MM-dd HH:mm`），不再是分享当下；拿不到发起时间时不显示日期，而不是用分享时间冒充。
+
+### 5.6 低额度预警与数据口径（2026-10-09）
+
+- **数据以 Cockpit 的 4 个窗口为准**（Claude/Gemini × 5h/周）。`GetAvailableModels` 里每个模型的 `quotaInfo` 每个厂商只给一个比例，
+  且选哪个窗口不固定（实测 Claude 给的是周额度、Gemini 给的是 5h），不能当权威，也不能用来做预警。
+- 预警规则（`internal/cockpit/quota_alert.go`）：只监控**当前账号**（以 language_server 实际在用的账号为准）的 **Gemini 5h**；
+  ≤20% 推送提醒、≤5% 推送紧急，每个「账号 × 重置周期」每一档只推一次（状态落盘 `~/.multigravity/quota_alert_state.json`，重启不重复）；
+  一次性掉过两档只推紧急；不新增任何界面显示。
+- 推送正文：脱敏账号（推送经过第三方推送服务）、按当前时间现算的重置倒计时与时钟，以及「按最近 60 分钟速度预计几点用完」——
+  最小二乘外推，样本不足 3 个 / 跨度不足 15 分钟 / 几乎没消耗 / 预计晚于重置时间时都不写。紧急档用 `timeSensitive` 级别 + 告警音，
+  不用 Bark 的 `critical`（它会无视静音开关）。
+- 环境变量：`QUOTA_ALERT_ENABLED`、`QUOTA_ALERT_WARN_PERCENT`、`QUOTA_ALERT_CRITICAL_PERCENT`（非法值回退 20/5）。
+  走现有 Bark / FCM 通道；两者都没配置时不会有任何推送。
+
+### 5.7 升级自检（2026-10-09）
+
+- 网关每连上一个新的 language_server 实例（PID / 版本 / 二进制变化）就自检一次，后台执行：读该进程**二进制里的
+  `LanguageServerServiceHandler.<方法>` 符号清单**（只读文件，不发请求，没有副作用；真实 150MB 文件约 25ms），
+  对照 `internal/proxy/capabilities.go` 的「功能 → 依赖 RPC」表，结果放在 `GET /gateway/status` 的 `compat`：
+  `{version, checked, coreOk, unavailable[], missingRpcs[]}`（不含二进制路径）。
+- 二进制路径与版本号：Linux 读 `/proc/<pid>/exe`，macOS 用 `ps -o comm=`，Windows 用 `Get-CimInstance`；版本取自命令行
+  `--override_ide_version`（daemon 模式取 daemon 文件里的 `lsVersion`）。读不到二进制 → `checked=false`，**一律放行**，不隐藏任何入口。
+- 客户端：`unavailable` 里的功能 ID 对应的入口直接不显示（`search` 内容搜索、`export` 导出 MD、`changes` Changes 胶囊、
+  `revert` 撤回、`slash` 斜杠命令）；`coreOk=false`（会话列表 / 读取 / 发送 / 流式 / 审批缺失）时首页顶部显示
+  「当前 Antigravity 版本与网关不兼容，请升级网关」提示条（包括列表加载失败的页面）。字段缺失（旧网关）、解析失败一律按放行处理。
+  `models` 功能有网关内置列表兜底，不据此隐藏。
+- **功能表由契约测试守住**：源码里用到的每个 RPC 必须登记在 `Features` 里（否则新增依赖忘了登记，升级后手机端不会隐藏入口），
+  表里的 RPC 必须存在于基线，客户端依赖的功能 ID 不允许改名。新增依赖某个 RPC 的功能时，先加进表，测试会提醒。
+- **只检测方法名**。方法还在、字段结构变了的情况检测不到（这类问题靠 `scripts/ls-rpc-snapshot.sh` + 解析 golden 测试 + 真机验证）；
+  按约定也不对「Antigravity 版本高于已验证基线」做提示，避免每周升级都打扰。

@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.antigravity.mobile.data.model.CockpitQuotaResponse
 import com.antigravity.mobile.data.model.ConversationItem
 import com.antigravity.mobile.data.model.ConversationSearchResult
+import com.antigravity.mobile.data.model.GatewayCompatStore
+import com.antigravity.mobile.data.model.GatewayFeature
 import com.antigravity.mobile.data.model.ConversationStatus
 import com.antigravity.mobile.data.model.LocalDraftSession
 import com.antigravity.mobile.data.model.ProjectItem
@@ -317,6 +319,8 @@ class ConversationListViewModel(
             _uiState.value = ConversationListUiState.Success(emptyList())
             return
         }
+        // 升级自检结果随列表一起刷新（一次很小的 GET），失败时保持上一次结果
+        viewModelScope.launch { apiClient.refreshGatewayCompat() }
         viewModelScope.launch {
             val result = apiClient.fetchConversations()
             result.onSuccess { list ->
@@ -545,7 +549,8 @@ class ConversationListViewModel(
     /** 输入停顿 350ms 后再查；少于 2 个字符不查（单字命中太泛）。 */
     private fun searchContent(query: String) {
         contentSearchJob?.cancel()
-        if (query.codePointCount(0, query.length) < 2) {
+        // 当前 Antigravity 没有 SearchConversations 时只保留按标题过滤，不再发必然失败的请求
+        if (!GatewayCompatStore.isAvailable(GatewayFeature.SEARCH) || query.codePointCount(0, query.length) < 2) {
             _contentResults.value = emptyList()
             _isSearchingContent.value = false
             return
