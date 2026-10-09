@@ -183,32 +183,46 @@ public final class NetworkTransport: Sendable {
             let lastUsed: Date
         }
         
-        private var pool: [String: Entry] = [:] // key: "\(ip):\(port)"
-        
+        /// Idle keep-alive connections per "\(ip):\(port)", most recently used last. HTTP/1.1 carries one
+        /// request at a time per connection, so concurrent requests (list, quotas, status and messages on
+        /// launch) each need their own; keeping several avoids a fresh TCP+TLS handshake for each.
+        private var pool: [String: [Entry]] = [:]
+        private static let maxIdlePerKey = 4
+        private static let idleTimeout: TimeInterval = 15.0
+
         func acquire(ip: String, host: String, port: NWEndpoint.Port, parameters: NWParameters) -> (NWConnection, Bool) {
             let key = "\(ip):\(port.rawValue)"
-            if let entry = pool.removeValue(forKey: key) {
+            var idle = pool[key] ?? []
+            var reusable: NWConnection?
+            while reusable == nil, let entry = idle.popLast() {
                 if entry.connection.state == .ready &&
                    entry.host == host &&
-                   Date().timeIntervalSince(entry.lastUsed) < 15.0 {
-                    return (entry.connection, true)
+                   Date().timeIntervalSince(entry.lastUsed) < Self.idleTimeout {
+                    reusable = entry.connection
+                } else {
+                    entry.connection.cancel()
                 }
-                entry.connection.cancel()
+            }
+            pool[key] = idle.isEmpty ? nil : idle
+            if let reusable {
+                return (reusable, true)
             }
             let conn = NWConnection(host: NWEndpoint.Host(ip), port: port, using: parameters)
             return (conn, false)
         }
-        
+
         func release(connection: NWConnection, ip: String, host: String, port: NWEndpoint.Port, canReuse: Bool) {
             let key = "\(ip):\(port.rawValue)"
-            if canReuse && connection.state == .ready {
-                if let existing = pool.removeValue(forKey: key) {
-                    existing.connection.cancel()
-                }
-                pool[key] = Entry(connection: connection, host: host, lastUsed: Date())
-            } else {
+            guard canReuse && connection.state == .ready else {
                 connection.cancel()
+                return
             }
+            var idle = pool[key] ?? []
+            idle.append(Entry(connection: connection, host: host, lastUsed: Date()))
+            while idle.count > Self.maxIdlePerKey {
+                idle.removeFirst().connection.cancel()
+            }
+            pool[key] = idle
         }
     }
     
@@ -242,12 +256,12 @@ public final class NetworkTransport: Sendable {
                 }
             }
             
-            let payload = Self.buildHTTP11Request(request, url: url, bareHost: bareHost, keepAlive: true)
+            let payload = HTTP11Codec.buildRequest(request, url: url, bareHost: bareHost, keepAlive: true)
             var canReuse = false
             do {
                 try await Self.sendAll(connection, payload)
                 let raw = try await Self.receiveHTTPMessage(connection)
-                let (data, response) = try Self.parseHTTP11Response(raw, url: url)
+                let (data, response) = try HTTP11Codec.parseResponse(raw, url: url)
                 
                 if let http = response as? HTTPURLResponse,
                    let connHeader = http.value(forHTTPHeaderField: "Connection"),
@@ -286,10 +300,10 @@ public final class NetworkTransport: Sendable {
         try await Self.waitUntilReady(connection, timeout: request.timeoutInterval > 0 ? request.timeoutInterval : 8)
         defer { connection.cancel() }
         
-        let payload = Self.buildHTTP11Request(request, url: url, bareHost: bareHost)
+        let payload = HTTP11Codec.buildRequest(request, url: url, bareHost: bareHost, keepAlive: false)
         try await Self.sendAll(connection, payload)
         let raw = try await Self.receiveHTTPMessage(connection)
-        return try Self.parseHTTP11Response(raw, url: url)
+        return try HTTP11Codec.parseResponse(raw, url: url)
     }
     
     private static func waitUntilReady(_ connection: NWConnection, timeout: TimeInterval) async throws {
@@ -333,44 +347,6 @@ public final class NetworkTransport: Sendable {
         }
     }
     
-    private static func buildHTTP11Request(_ request: URLRequest, url: URL, bareHost: String, keepAlive: Bool = false) -> Data {
-        var path = url.path.isEmpty ? "/" : url.path
-        if let query = url.query, !query.isEmpty {
-            path += "?" + query
-        }
-        let method = request.httpMethod ?? "GET"
-        let defaultPort = (url.scheme?.lowercased() == "https") ? 443 : 80
-        let port = url.port ?? defaultPort
-        let hostHeader: String
-        if bareHost.contains(":") {
-            hostHeader = "[\(bareHost)]:\(port)"
-        } else if port == defaultPort {
-            hostHeader = bareHost
-        } else {
-            hostHeader = "\(bareHost):\(port)"
-        }
-        
-        var lines: [String] = [
-            "\(method) \(path) HTTP/1.1",
-            "Host: \(hostHeader)",
-            keepAlive ? "Connection: keep-alive" : "Connection: close"
-        ]
-        if let headers = request.allHTTPHeaderFields {
-            for (key, value) in headers {
-                if key.lowercased() == "host" || key.lowercased() == "connection" { continue }
-                lines.append("\(key): \(value)")
-            }
-        }
-        let body = request.httpBody ?? Data()
-        if request.value(forHTTPHeaderField: "Content-Length") == nil {
-            lines.append("Content-Length: \(body.count)")
-        }
-        var data = Data(lines.joined(separator: "\r\n").utf8)
-        data.append(Data("\r\n\r\n".utf8))
-        data.append(body)
-        return data
-    }
-    
     private static func sendAll(_ connection: NWConnection, _ data: Data) async throws {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             connection.send(content: data, completion: .contentProcessed { error in
@@ -384,7 +360,7 @@ public final class NetworkTransport: Sendable {
     }
     
     private static func receiveHTTPMessage(_ connection: NWConnection) async throws -> Data {
-        var buffer = Data()
+        var accumulator = HTTP11Codec.ResponseAccumulator()
         while true {
             let chunk: Data = try await withCheckedThrowingContinuation { cont in
                 connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { content, _, _, error in
@@ -395,116 +371,15 @@ public final class NetworkTransport: Sendable {
                     cont.resume(returning: content ?? Data())
                 }
             }
-            buffer.append(chunk)
-            if httpMessageComplete(buffer) {
-                return buffer
+            if accumulator.append(chunk) {
+                return accumulator.buffer
             }
             if chunk.isEmpty {
-                if buffer.isEmpty {
+                if accumulator.buffer.isEmpty {
                     throw URLError(.networkConnectionLost)
                 }
-                return buffer
+                return accumulator.buffer
             }
         }
-    }
-    
-    private static func httpMessageComplete(_ data: Data) -> Bool {
-        guard let headerEnd = data.range(of: Data("\r\n\r\n".utf8)) else { return false }
-        let headerData = data.subdata(in: data.startIndex..<headerEnd.lowerBound)
-        guard let headerText = String(data: headerData, encoding: .isoLatin1) else { return false }
-        let body = data.subdata(in: headerEnd.upperBound..<data.endIndex)
-        let lines = headerText.split(separator: "\r\n")
-        var isChunked = false
-        for line in lines {
-            let parts = line.split(separator: ":", maxSplits: 1)
-            if parts.count == 2 {
-                let name = parts[0].trimmingCharacters(in: .whitespaces).lowercased()
-                let value = parts[1].trimmingCharacters(in: .whitespaces).lowercased()
-                if name == "content-length" {
-                    let n = Int(value) ?? 0
-                    return body.count >= n
-                }
-                if name == "transfer-encoding" && value.contains("chunked") {
-                    isChunked = true
-                }
-            }
-        }
-        if isChunked {
-            if body.range(of: Data("\r\n0\r\n\r\n".utf8)) != nil || body.starts(with: Data("0\r\n\r\n".utf8)) {
-                return true
-            }
-        }
-        return false
-    }
-    
-    private static func decodeChunkedBody(_ data: Data) throws -> Data {
-        var unchunked = Data()
-        var offset = 0
-        let crlf = Data("\r\n".utf8)
-        
-        while offset < data.count {
-            guard let range = data.range(of: crlf, options: [], in: offset..<data.count) else {
-                break
-            }
-            let sizeData = data.subdata(in: offset..<range.lowerBound)
-            guard let sizeStr = String(data: sizeData, encoding: .ascii)?.trimmingCharacters(in: .whitespaces) else {
-                throw URLError(.cannotParseResponse)
-            }
-            if sizeStr.isEmpty {
-                offset = range.upperBound
-                continue
-            }
-            let hexStr = sizeStr.split(separator: ";").first.map(String.init) ?? sizeStr
-            guard let chunkSize = Int(hexStr.trimmingCharacters(in: .whitespaces), radix: 16) else {
-                throw URLError(.cannotParseResponse)
-            }
-            if chunkSize == 0 {
-                break
-            }
-            let chunkStart = range.upperBound
-            let chunkEnd = chunkStart + chunkSize
-            guard chunkEnd <= data.count else {
-                throw URLError(.cannotParseResponse)
-            }
-            unchunked.append(data.subdata(in: chunkStart..<chunkEnd))
-            offset = chunkEnd
-            if offset + 2 <= data.count && data.subdata(in: offset..<offset + 2) == crlf {
-                offset += 2
-            }
-        }
-        return unchunked
-    }
-    
-    private static func parseHTTP11Response(_ data: Data, url: URL) throws -> (Data, URLResponse) {
-        guard let headerEnd = data.range(of: Data("\r\n\r\n".utf8)) else {
-            throw URLError(.cannotParseResponse)
-        }
-        let headerText = String(data: data.subdata(in: data.startIndex..<headerEnd.lowerBound), encoding: .isoLatin1) ?? ""
-        var lines = headerText.split(separator: "\r\n", omittingEmptySubsequences: false).map(String.init)
-        guard let statusLine = lines.first else {
-            throw URLError(.cannotParseResponse)
-        }
-        lines.removeFirst()
-        let statusParts = statusLine.split(separator: " ")
-        let code = statusParts.count >= 2 ? (Int(statusParts[1]) ?? 500) : 500
-        
-        var fields: [String: String] = [:]
-        for line in lines {
-            guard let colon = line.firstIndex(of: ":") else { continue }
-            let key = String(line[..<colon])
-            let value = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
-            fields[key] = value
-        }
-        var body = data.subdata(in: headerEnd.upperBound..<data.endIndex)
-        let isChunked = fields.contains { $0.key.lowercased() == "transfer-encoding" && $0.value.lowercased().contains("chunked") }
-        if isChunked {
-            body = try decodeChunkedBody(body)
-        } else if let lenStr = fields.first(where: { $0.key.lowercased() == "content-length" })?.value,
-           let len = Int(lenStr), len >= 0, body.count > len {
-            body = body.prefix(len)
-        }
-        let response = HTTPURLResponse(url: url, statusCode: code, httpVersion: "HTTP/1.1", headerFields: fields)
-            ?? URLResponse(url: url, mimeType: nil, expectedContentLength: body.count, textEncodingName: nil)
-        return (body, response)
     }
 }
