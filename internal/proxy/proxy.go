@@ -67,6 +67,9 @@ type Proxy struct {
 	// allTrajectories shares one GetAllCascadeTrajectories response across Watcher, list polls and lookups.
 	allTrajectories allTrajectoriesSnapshot
 
+	// events fans conversation-list change notifications out to /gateway/events subscribers.
+	events eventsHub
+
 	activeStreamMu        sync.RWMutex
 	activeStreamCascadeID string
 	activeStreamTitle     string
@@ -422,6 +425,10 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/gateway/cascade/stream" {
 		p.HandleCascadeStream(w, r)
+		return
+	}
+	if r.URL.Path == "/gateway/events" {
+		p.HandleEvents(w, r)
 		return
 	}
 	if r.URL.Path == "/gateway/projects/alias" {

@@ -170,3 +170,68 @@ func TestWSTicketStore_DeviceQuotaEviction(t *testing.T) {
 	}
 }
 
+func TestIsWebSocketPath(t *testing.T) {
+	for path, want := range map[string]bool{
+		"/connect-websocket":      true,
+		"/gateway/events":         true,
+		"/gateway/cascade/stream": true,
+		"/gateway/status":         false,
+		"/gateway/events/extra":   false,
+		"/api/v1/cockpit/quotas":  false,
+	} {
+		if got := isWebSocketPath(path); got != want {
+			t.Errorf("isWebSocketPath(%q) = %v, want %v", path, got, want)
+		}
+	}
+}
+
+// /gateway/events must accept a one-time ticket by path alone (no Upgrade header needed to pick the
+// ticket branch), while an ordinary gateway path must not honor a ticket.
+func TestAuthMiddleware_EventsEndpointTicket(t *testing.T) {
+	store, err := NewAuthStore(t.TempDir() + "/auth.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	deviceToken := "valid-device-token-67890"
+	if err := store.AddDevice(PairedDevice{DeviceID: "dev-evt", DeviceName: "Pixel", Platform: "android", TokenHash: HashToken(deviceToken), CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	authHandler := NewAuthHandler(store, NewPairingManager(), "127.0.0.1", 58900, false)
+
+	issue := func() string {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/ws-ticket", nil)
+		req.Header.Set("Authorization", "Bearer "+deviceToken)
+		rec := httptest.NewRecorder()
+		authHandler.HandleWSTicket(rec, req)
+		var resp struct {
+			Ticket string `json:"ticket"`
+		}
+		if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil || resp.Ticket == "" {
+			t.Fatalf("ticket issue failed: %v", err)
+		}
+		return resp.Ticket
+	}
+
+	router := AuthMiddlewareWithPolicy(store, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}), AuthPolicy{})
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/gateway/events?ticket="+issue(), nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("/gateway/events with valid ticket: got %d, want 200", rec.Code)
+	}
+
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/gateway/status?ticket="+issue(), nil))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("/gateway/status must not accept a ticket: got %d, want 401", rec.Code)
+	}
+
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/gateway/events", nil))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("/gateway/events without credentials: got %d, want 401", rec.Code)
+	}
+	time.Sleep(30 * time.Millisecond)
+}

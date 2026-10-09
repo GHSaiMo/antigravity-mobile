@@ -96,6 +96,7 @@ func (p *Proxy) invalidateAllTrajectories() {
 	s.body = nil
 	s.gen++
 	s.mu.Unlock()
+	p.events.requestCheck()
 }
 
 func (p *Proxy) fetchAllTrajectoriesUpstream(ctx context.Context, port int, token string) ([]byte, error) {

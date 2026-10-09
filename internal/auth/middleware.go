@@ -56,8 +56,7 @@ func ExtractToken(r *http.Request) string {
 	}
 
 	isWS := strings.Contains(strings.ToLower(r.Header.Get("Upgrade")), "websocket") ||
-		r.URL.Path == "/connect-websocket" ||
-		strings.HasPrefix(r.URL.Path, "/gateway/cascade/stream")
+		isWebSocketPath(r.URL.Path)
 	isRawFile := strings.HasPrefix(r.URL.Path, "/api/v1/files/raw")
 	if isWS || isRawFile {
 		token := strings.TrimSpace(r.URL.Query().Get("auth_token"))
@@ -243,8 +242,7 @@ func AuthMiddlewareWithPolicy(store *AuthStore, next http.Handler, policy AuthPo
 		// S9: Support short-lived one-time ticket for WebSocket and raw file requests
 		// to avoid putting long-lived device tokens into URLs/query strings.
 		isWS := strings.Contains(strings.ToLower(r.Header.Get("Upgrade")), "websocket") ||
-			r.URL.Path == "/connect-websocket" ||
-			strings.HasPrefix(r.URL.Path, "/gateway/cascade/stream")
+			isWebSocketPath(r.URL.Path)
 		isRawFile := strings.HasPrefix(r.URL.Path, "/api/v1/files/raw")
 
 		if (isWS || isRawFile) && r.URL.Query().Get("ticket") != "" {
@@ -343,3 +341,11 @@ func MaxBytesMiddleware(maxBytes int64, next http.Handler) http.Handler {
 	})
 }
 
+
+// isWebSocketPath reports whether path is a gateway WebSocket endpoint that may authenticate with a
+// one-time ticket or query token (browsers cannot set headers on WebSocket connections).
+func isWebSocketPath(path string) bool {
+	return path == "/connect-websocket" ||
+		path == "/gateway/events" ||
+		strings.HasPrefix(path, "/gateway/cascade/stream")
+}

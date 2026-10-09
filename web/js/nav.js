@@ -33,6 +33,7 @@ function renderRoute() {
     clearInterval(pollTimer);
     pollTimer = null;
   }
+  stopListEvents();
 
   // Persist current input text to memory draft before leaving the session
   const chatInput = document.getElementById("chat-input");
@@ -173,12 +174,122 @@ function renderRoute() {
     if (inlineTitle) inlineTitle.classList.add("hidden");
 
     loadConversations();
+    startListEvents();
   }
 }
 
 // --- Conversations List ---
 
-async function loadConversations() {
+// --- Conversation list live updates ---
+// The gateway pushes a bare "changed" hint over /gateway/events; the list itself is still fetched
+// through loadConversations(), so filtering/enrichment stay in one place. Connected only while the
+// list is on screen and the tab is visible.
+
+let listEventsWs = null;
+let listEventsWanted = false;
+let listEventsReconnectTimer = null;
+let listEventsRefreshTimer = null;
+let listEventsAttempts = 0;
+let listEventsHadConnection = false;
+
+function isConversationListActive() {
+  return !activeCascadeId && !activeDraftSession;
+}
+
+function scheduleListRefresh() {
+  if (listEventsRefreshTimer) return;
+  listEventsRefreshTimer = setTimeout(() => {
+    listEventsRefreshTimer = null;
+    if (listEventsWanted && isConversationListActive()) loadConversations(true);
+  }, 150);
+}
+
+function closeListEventsSocket() {
+  if (listEventsReconnectTimer) {
+    clearTimeout(listEventsReconnectTimer);
+    listEventsReconnectTimer = null;
+  }
+  if (listEventsWs) {
+    listEventsWs.onopen = listEventsWs.onmessage = listEventsWs.onerror = listEventsWs.onclose = null;
+    try { listEventsWs.close(); } catch (_) {}
+    listEventsWs = null;
+  }
+}
+
+function stopListEvents() {
+  listEventsWanted = false;
+  listEventsAttempts = 0;
+  if (listEventsRefreshTimer) {
+    clearTimeout(listEventsRefreshTimer);
+    listEventsRefreshTimer = null;
+  }
+  closeListEventsSocket();
+}
+
+function startListEvents() {
+  listEventsWanted = true;
+  connectListEvents();
+}
+
+async function connectListEvents() {
+  if (!listEventsWanted || document.visibilityState !== "visible") return;
+  if (listEventsWs && (listEventsWs.readyState === WebSocket.OPEN || listEventsWs.readyState === WebSocket.CONNECTING)) return;
+  closeListEventsSocket();
+
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  let wsUrl = `${proto}//${location.host}/gateway/events`;
+  try {
+    // Same one-time ticket exchange as the cascade stream: no long-lived token in the URL.
+    const resp = await originalFetch("/api/v1/auth/ws-ticket", { method: "POST" });
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data && data.ticket) wsUrl += `?ticket=${encodeURIComponent(data.ticket)}`;
+    }
+  } catch (_) {}
+  // The route may have changed while the ticket was in flight.
+  if (!listEventsWanted || document.visibilityState !== "visible") return;
+  closeListEventsSocket();
+
+  try {
+    const ws = new WebSocket(wsUrl);
+    listEventsWs = ws;
+    ws.onopen = () => {
+      listEventsAttempts = 0;
+    };
+    ws.onmessage = (event) => {
+      let frame;
+      try { frame = JSON.parse(event.data); } catch (_) { return; }
+      if (frame.type === "changed") {
+        scheduleListRefresh();
+      } else if (frame.type === "hello") {
+        // After a reconnect we may have missed changes; the first connect already has fresh data.
+        if (listEventsHadConnection) scheduleListRefresh();
+        listEventsHadConnection = true;
+      }
+    };
+    ws.onclose = () => {
+      if (listEventsWs !== ws) return;
+      listEventsWs = null;
+      if (!listEventsWanted) return;
+      const delay = Math.min(1000 * Math.pow(1.5, listEventsAttempts), 30000);
+      listEventsAttempts++;
+      listEventsReconnectTimer = setTimeout(connectListEvents, delay);
+    };
+  } catch (_) {}
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") {
+    if (listEventsWanted) {
+      connectListEvents();
+      if (isConversationListActive()) scheduleListRefresh();
+    }
+  } else {
+    closeListEventsSocket();
+  }
+});
+
+async function loadConversations(quiet = false) {
   const listEl = document.getElementById("conversations-list");
   try {
     const data = await rpc("GetAllCascadeTrajectories");
@@ -187,6 +298,11 @@ async function loadConversations() {
 
     renderConversationList(summaries);
   } catch (err) {
+    if (quiet) {
+      // Background refresh: keep showing the last good list instead of replacing it with an error.
+      console.warn("[ListEvents] refresh failed:", err);
+      return;
+    }
     listEl.innerHTML = `
       <div class="loading-state">
         <p style="color: var(--ios-red);">加载失败: ${escapeHtml(err.message)}</p>
