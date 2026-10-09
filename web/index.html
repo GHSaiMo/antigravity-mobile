@@ -14,7 +14,7 @@
   <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=4" />
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=4" />
   <link rel="manifest" href="/manifest.json" />
-  <link rel="stylesheet" href="/style.css?v=17" />
+  <link rel="stylesheet" href="/style.css?v=18" />
 </head>
 <body>
   <div id="app">
@@ -187,6 +187,10 @@
 
         <!-- Sticky iOS Chat Input Bar -->
         <div class="ios-input-bar">
+          <!-- 斜杠命令：键入 "/" 弹出的列表，以及选中后的标签（见 js/slash.js） -->
+          <div id="slash-picker" class="slash-picker hidden" data-feature="slash"></div>
+          <div id="slash-chip" class="slash-chip hidden" data-feature="slash"></div>
+
           <!-- Quick Action Chips (Add Image, Model Switch, Commit & Push, Proceed) -->
           <div class="quick-actions-chips" id="quick-actions-bar">
             <button id="btn-add-image" class="chip-pill chip-add-image" type="button" title="添加图片" aria-label="添加图片">
@@ -561,13 +565,14 @@
 
   <script defer src="/js/core.js?v=28"></script>
   <script defer src="/js/nav.js?v=30"></script>
-  <script defer src="/js/chat.js?v=29"></script>
-  <script defer src="/js/actions.js?v=27"></script>
+  <script defer src="/js/chat.js?v=30"></script>
+  <script defer src="/js/actions.js?v=29"></script>
   <script defer src="/js/media.js?v=28"></script>
   <script defer src="/js/cockpit.js?v=26"></script>
   <script defer src="/js/scan.js?v=2"></script>
   <script defer src="/js/msgmenu.js?v=3"></script>
+  <script defer src="/js/slash.js?v=2"></script>
   <!-- init.js 必须最后加载：它在执行时就会调用 initApp()，依赖前面所有脚本里的函数 -->
-  <script defer src="/js/init.js?v=30"></script>
+  <script defer src="/js/init.js?v=31"></script>
 </body>
 </html>

@@ -4394,3 +4394,124 @@ html[data-unavail~="models"] [data-feature="models"] {
   opacity: 1;
   transform: translate(-50%, 0);
 }
+
+
+/* ---------- 斜杠命令 ---------- */
+.slash-picker {
+  display: flex;
+  flex-direction: column;
+  max-height: 38vh;
+  margin: 0 12px 8px;
+  overflow-y: auto;
+  border: 0.5px solid var(--ios-separator-subtle);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--ios-secondary-bg) 82%, transparent);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+}
+
+.slash-picker.hidden,
+.slash-chip.hidden {
+  display: none;
+}
+
+.slash-empty {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px;
+  font-size: 14px;
+  color: var(--ios-secondary-label);
+}
+
+.slash-spinner {
+  width: 14px;
+  height: 14px;
+  border-width: 2px;
+}
+
+.slash-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 10px 14px;
+  text-align: left;
+  border: none;
+  border-bottom: 0.5px solid var(--ios-separator-subtle);
+  background: transparent;
+  color: var(--ios-label);
+  cursor: pointer;
+}
+
+.slash-item:last-child {
+  border-bottom: none;
+}
+
+.slash-item:active {
+  background: var(--ios-fill);
+}
+
+.slash-item-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.slash-item-name {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 14.5px;
+  font-weight: 600;
+}
+
+.slash-item-kind {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--ios-fill);
+  font-size: 10.5px;
+  color: var(--ios-secondary-label);
+}
+
+.slash-item-desc {
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--ios-secondary-label);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.slash-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  margin: 0 12px 8px;
+  padding: 5px 6px 5px 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ios-indigo) 22%, transparent);
+  border: 0.5px solid color-mix(in srgb, var(--ios-indigo) 50%, transparent);
+  color: var(--ios-label);
+}
+
+.slash-chip-name {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.slash-chip-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 50%;
+  background: var(--ios-fill);
+  color: var(--ios-secondary-label);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}

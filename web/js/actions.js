@@ -8,7 +8,8 @@ async function sendMessage() {
   const inputEl = document.getElementById("chat-input");
   const text = inputEl.value.trim();
   const hasImages = pendingImages.length > 0;
-  if (!text && !hasImages) return;
+  const slashSelected = getSelectedSlashCommand();
+  if (!text && !hasImages && !slashSelected) return;
 
   if (!activeCascadeId && activeDraftSession) {
     isSendingMessage = true;
@@ -106,7 +107,10 @@ async function sendMessage() {
   updateProceedButton(false);
   updateContinueButton(false);
 
-  const items = text ? [{ text }] : [];
+  const items = buildSendItems(text);
+  const displayText = slashDisplayText(text);
+  const sentSlash = slashSelected;
+  clearSelectedSlash();
   const imagesPayload = imagesToSend.map(img => ({
     base64Data: img.base64Data,
     mimeType: img.mimeType || "image/jpeg"
@@ -118,7 +122,7 @@ async function sendMessage() {
 
   if (isRunning) {
     // Enqueue message while agent is running
-    LocalQueueManager.enqueue(text || (imagesToSend.length ? `[${imagesToSend.length} 张图片]` : ""));
+    LocalQueueManager.enqueue(displayText || (imagesToSend.length ? `[${imagesToSend.length} 张图片]` : ""));
     updateChatControls(true, null, false);
     try {
       const payload = {
@@ -148,7 +152,7 @@ async function sendMessage() {
       imagesToSend.map(img => `<img src="${img.dataUrl}" class="bubble-image" onclick="window.open('${img.dataUrl}')" alt="上传图片" />`).join("") +
       `</div>`;
   }
-  const textHtml = text ? `<div>${escapeHtml(text)}</div>` : "";
+  const textHtml = displayText ? `<div>${escapeHtml(displayText)}</div>` : "";
   streamEl.insertAdjacentHTML("beforeend", `
     <div id="${tempId}" class="message-row user">
       <div class="bubble">${imgHtml}${textHtml}</div>
@@ -184,6 +188,11 @@ async function sendMessage() {
     alert("发送失败: " + err.message);
     const tempEl = document.getElementById(tempId);
     if (tempEl) tempEl.remove();
+    if (sentSlash) {
+      slashState.selected = sentSlash;
+      slashState.cascadeId = activeCascadeId;
+      renderSlashChip();
+    }
     inputEl.value = text;
     pendingImages = imagesToSend;
     renderImagePreviews();
