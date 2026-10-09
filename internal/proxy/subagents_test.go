@@ -263,3 +263,57 @@ func TestHandleSubagentStop_NoUpstream(t *testing.T) {
 		t.Fatalf("want 503, got %d", rec.Code)
 	}
 }
+
+func TestBuildTrajectoryMessages_InlineSubagentCards(t *testing.T) {
+	steps := []TrajectoryStep{
+		parseStep(t, `{"type":"CORTEX_STEP_TYPE_USER_INPUT","userInput":{"userResponse":"并行调研"}}`),
+		parseStep(t, `{"type":"CORTEX_STEP_TYPE_VIEW_FILE"}`),
+		parseStep(t, invokeSubagentStepJSON),
+		parseStep(t, `{"type":"CORTEX_STEP_TYPE_PLANNER_RESPONSE","plannerResponse":{"response":"已派发"}}`),
+	}
+	msgs, tools := buildTrajectoryMessages(steps)
+	// user, tools(1), subagent×2, agent
+	var kinds []string
+	for _, m := range msgs {
+		kinds = append(kinds, m.Type)
+	}
+	want := []string{"user", "tools", "subagent", "subagent", "agent"}
+	if strings.Join(kinds, ",") != strings.Join(want, ",") {
+		t.Fatalf("message kinds = %v, want %v", kinds, want)
+	}
+	if tools != 1 {
+		t.Fatalf("invoke_subagent must not count as a tool step; tools = %d", tools)
+	}
+	a, b := msgs[2], msgs[3]
+	if a.ID != "subagent-child-a" || b.ID != "subagent-child-b" {
+		t.Fatalf("stable ids expected, got %q %q", a.ID, b.ID)
+	}
+	if a.Subagent == nil || a.Subagent.Role != "Embodied AI Researcher" || a.Text != "Embodied AI Researcher" {
+		t.Fatalf("card a wrong: %+v", a)
+	}
+	if a.StepIndex == nil || *a.StepIndex != 2 {
+		t.Fatalf("card must carry its step index, got %v", a.StepIndex)
+	}
+}
+
+func TestEnrichSubagentMessages_DoesNotMutateInput(t *testing.T) {
+	_, p := newFakeSubagentUpstream(t, subagentListFixture)
+	steps := []TrajectoryStep{parseStep(t, invokeSubagentStepJSON)}
+	msgs, _ := buildTrajectoryMessages(steps)
+
+	out := p.enrichSubagentMessages(msgs)
+	if out[0].Subagent.Status != "running" || out[0].Subagent.StepCount != 12 {
+		t.Fatalf("child-a not enriched: %+v", out[0].Subagent)
+	}
+	if out[1].Subagent.Status != "done" {
+		t.Fatalf("child-b not enriched: %+v", out[1].Subagent)
+	}
+	if msgs[0].Subagent.Status != "" {
+		t.Fatal("cached input messages must stay untouched")
+	}
+
+	plain := []CascadeMessageItem{{ID: "x", Type: "agent"}}
+	if got := p.enrichSubagentMessages(plain); &got[0] != &plain[0] {
+		t.Fatal("no subagent cards → same slice returned")
+	}
+}

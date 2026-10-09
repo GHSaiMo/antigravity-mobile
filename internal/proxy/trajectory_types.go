@@ -16,7 +16,7 @@ type ArtifactItem struct {
 
 type CascadeMessageItem struct {
 	ID           string         `json:"id"`
-	Type         string         `json:"type"` // "user", "agent", "tools", "error"
+	Type         string         `json:"type"` // "user", "agent", "tools", "error", "subagent"
 	Role         string         `json:"role"`
 	Text         string         `json:"text"`
 	Content      string         `json:"content"`
@@ -32,6 +32,9 @@ type CascadeMessageItem struct {
 	// generatorModel): Model is the model id, ModelName its display name. Empty when unknown.
 	Model     string `json:"model,omitempty"`
 	ModelName string `json:"modelName,omitempty"`
+	// Subagent is set for Type "subagent": one card per subagent a invoke_subagent step dispatched,
+	// shown inline at that step's position (like the desktop client). Status is filled live before sending.
+	Subagent *SubagentItem `json:"subagent,omitempty"`
 }
 
 // QueuedMessageItem represents a pending follow-up user message queued for execution.

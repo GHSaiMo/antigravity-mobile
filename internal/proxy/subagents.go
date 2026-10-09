@@ -30,34 +30,41 @@ const (
 	subagentPromptMaxRunes = 600
 )
 
-// buildSubagents lists the subagents a conversation dispatched, in dispatch order. Entries whose
+// subagentsOfStep returns the subagents one INVOKE_SUBAGENT step dispatched, in order. Entries whose
 // conversation id is not known yet (result not delivered) are skipped.
+func subagentsOfStep(s TrajectoryStep, idx int) []SubagentItem {
+	if s.Type != stepTypeInvokeSubagent || s.InvokeSubagent == nil {
+		return nil
+	}
+	stepIdx := idx
+	if s.Metadata.SourceTrajectoryStepInfo != nil && s.Metadata.SourceTrajectoryStepInfo.StepIndex > 0 {
+		stepIdx = s.Metadata.SourceTrajectoryStepInfo.StepIndex
+	}
+	inv := s.InvokeSubagent
+	var out []SubagentItem
+	for i, res := range inv.Results {
+		id := strings.TrimSpace(res.ConversationID)
+		if id == "" {
+			continue
+		}
+		item := SubagentItem{ConversationID: id, StepIndex: stepIdx}
+		if i < len(inv.Subagents) {
+			spec := inv.Subagents[i]
+			item.TypeName = spec.TypeName
+			item.Role = spec.Role
+			item.ModelTier = spec.ModelTier
+			item.Prompt = truncateRunes(spec.InitialPrompt, subagentPromptMaxRunes)
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+// buildSubagents lists the subagents a conversation dispatched, in dispatch order.
 func (p *Proxy) buildSubagents(steps []TrajectoryStep) []SubagentItem {
 	var out []SubagentItem
 	for idx, s := range steps {
-		if s.Type != stepTypeInvokeSubagent || s.InvokeSubagent == nil {
-			continue
-		}
-		stepIdx := idx
-		if s.Metadata.SourceTrajectoryStepInfo != nil && s.Metadata.SourceTrajectoryStepInfo.StepIndex > 0 {
-			stepIdx = s.Metadata.SourceTrajectoryStepInfo.StepIndex
-		}
-		inv := s.InvokeSubagent
-		for i, res := range inv.Results {
-			id := strings.TrimSpace(res.ConversationID)
-			if id == "" {
-				continue
-			}
-			item := SubagentItem{ConversationID: id, StepIndex: stepIdx}
-			if i < len(inv.Subagents) {
-				spec := inv.Subagents[i]
-				item.TypeName = spec.TypeName
-				item.Role = spec.Role
-				item.ModelTier = spec.ModelTier
-				item.Prompt = truncateRunes(spec.InitialPrompt, subagentPromptMaxRunes)
-			}
-			out = append(out, item)
-		}
+		out = append(out, subagentsOfStep(s, idx)...)
 	}
 	return out
 }
@@ -68,6 +75,31 @@ func truncateRunes(s string, max int) string {
 		return s
 	}
 	return string(r[:max]) + "…"
+}
+
+// enrichSubagentMessages fills the live state of the inline subagent cards. It returns the input
+// unchanged when there are none, and never mutates the (possibly cached) input messages.
+func (p *Proxy) enrichSubagentMessages(msgs []CascadeMessageItem) []CascadeMessageItem {
+	var idxs []int
+	var ids []string
+	for i, m := range msgs {
+		if m.Subagent != nil {
+			idxs = append(idxs, i)
+			ids = append(ids, m.Subagent.ConversationID)
+		}
+	}
+	if len(idxs) == 0 {
+		return msgs
+	}
+	live := p.liveSummaries(ids)
+	out := make([]CascadeMessageItem, len(msgs))
+	copy(out, msgs)
+	for _, i := range idxs {
+		it := *msgs[i].Subagent
+		applyLive(&it, live)
+		out[i].Subagent = &it
+	}
+	return out
 }
 
 // subagentIdentity reports whether the trajectory itself is a subagent and, if so, its parent and role.
@@ -148,20 +180,25 @@ func (p *Proxy) enrichSubagents(items []SubagentItem) []SubagentItem {
 	live := p.liveSummaries(ids)
 	out := make([]SubagentItem, len(items))
 	for i, it := range items {
-		if l, ok := live[it.ConversationID]; ok {
-			it.StepCount = l.StepCount
-			it.Title = l.Title
-			if l.Status == "CASCADE_RUN_STATUS_RUNNING" {
-				it.Status = subagentStatusRunning
-			} else {
-				it.Status = subagentStatusDone
-			}
-		} else {
-			it.Status = subagentStatusGone
-		}
+		applyLive(&it, live)
 		out[i] = it
 	}
 	return out
+}
+
+// applyLive fills Status / StepCount / Title from the list snapshot.
+func applyLive(it *SubagentItem, live map[string]subagentLive) {
+	if l, ok := live[it.ConversationID]; ok {
+		it.StepCount = l.StepCount
+		it.Title = l.Title
+		if l.Status == "CASCADE_RUN_STATUS_RUNNING" {
+			it.Status = subagentStatusRunning
+		} else {
+			it.Status = subagentStatusDone
+		}
+	} else {
+		it.Status = subagentStatusGone
+	}
 }
 
 // subagentLiveSignature folds the subagents' live state into the stream's change detection, because a

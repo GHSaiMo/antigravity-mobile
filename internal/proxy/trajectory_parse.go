@@ -243,6 +243,26 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 					ModelName: modelName,
 				})
 			}
+		} else if stepType == stepTypeInvokeSubagent {
+			// 与桌面端一致：在调用位置内联展示每个子代理的卡片，而不是折进「已执行 N 项操作」
+			flushTools()
+			for _, sa := range subagentsOfStep(s, idx) {
+				sa := sa
+				stepIdx := idx
+				label := sa.Role
+				if label == "" {
+					label = sa.TypeName
+				}
+				allMessages = append(allMessages, CascadeMessageItem{
+					ID:        "subagent-" + sa.ConversationID,
+					Type:      "subagent",
+					Role:      "subagent",
+					Text:      label,
+					Content:   label,
+					StepIndex: &stepIdx,
+					Subagent:  &sa,
+				})
+			}
 		} else if stepType == "CORTEX_STEP_TYPE_ERROR_MESSAGE" {
 			if !isUserVisibleError(s) {
 				continue
