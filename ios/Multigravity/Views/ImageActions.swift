@@ -160,7 +160,7 @@ enum ImageActions {
     }
 }
 
-/// 聊天流中图片的统一长按菜单：查看大图 / 保存 / 分享 / 拷贝。
+/// 聊天流中图片的统一长按菜单：保存图片 / 分享图片。
 struct ImageContextMenu: ViewModifier {
     let item: IdentifiableImage
     let onOpen: () -> Void
@@ -168,24 +168,14 @@ struct ImageContextMenu: ViewModifier {
     func body(content: Content) -> some View {
         content.contextMenu {
             Button {
-                onOpen()
-            } label: {
-                Label("查看大图", systemImage: "arrow.up.left.and.arrow.down.right")
-            }
-            Button {
                 ImageActions.performSave(item)
             } label: {
-                Label("保存到相册", systemImage: "square.and.arrow.down")
+                Label("保存图片", systemImage: "square.and.arrow.down")
             }
             Button {
                 ImageActions.performShare(item)
             } label: {
                 Label("分享图片", systemImage: "square.and.arrow.up")
-            }
-            Button {
-                ImageActions.performCopy(item)
-            } label: {
-                Label("拷贝图片", systemImage: "doc.on.doc")
             }
         }
     }

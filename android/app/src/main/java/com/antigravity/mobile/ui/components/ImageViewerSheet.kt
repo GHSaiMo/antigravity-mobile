@@ -301,26 +301,6 @@ fun ImageViewerSheet(
                 }
             }
 
-            // Persistent quick actions (save / share) at the top-right corner
-            Row(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .statusBarsPadding()
-                    .padding(top = 8.dp, end = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                ViewerIconButton(Icons.Default.FileDownload, "保存到相册") {
-                    val current = effectiveItems.getOrNull(pagerState.currentPage)
-                        ?: ImageViewerItem(data.bitmap, data.url, data.title, bytes = data.bytes)
-                    coroutineScope.launch { saveImageToGallery(context, current) }
-                }
-                ViewerIconButton(Icons.Default.Share, "分享图片") {
-                    val current = effectiveItems.getOrNull(pagerState.currentPage)
-                        ?: ImageViewerItem(data.bitmap, data.url, data.title, bytes = data.bytes)
-                    coroutineScope.launch { shareImage(context, current) }
-                }
-            }
-
             // Native ModalBottomSheet for Save to Album on long press
             if (showSaveSheet) {
                 ModalBottomSheet(
@@ -349,17 +329,13 @@ fun ImageViewerSheet(
                     ) {
                         val sheetItem = effectiveItems.getOrNull(pagerState.currentPage)
                             ?: ImageViewerItem(data.bitmap, data.url, data.title, bytes = data.bytes)
-                        ViewerActionRow(Icons.Default.FileDownload, "保存到相册") {
+                        ViewerActionRow(Icons.Default.FileDownload, "保存图片") {
                             showSaveSheet = false
                             coroutineScope.launch { saveImageToGallery(context, sheetItem) }
                         }
                         ViewerActionRow(Icons.Default.Share, "分享图片") {
                             showSaveSheet = false
                             coroutineScope.launch { shareImage(context, sheetItem) }
-                        }
-                        ViewerActionRow(Icons.Default.ContentCopy, "拷贝图片") {
-                            showSaveSheet = false
-                            coroutineScope.launch { copyImage(context, sheetItem) }
                         }
                     }
                 }
@@ -432,25 +408,6 @@ private suspend fun shareImage(context: Context, item: ImageViewerItem) {
 
 private suspend fun copyImage(context: Context, item: ImageViewerItem) {
     ShareImageUtils.copyBitmapToClipboard(context, resolveBitmap(context, item))
-}
-
-@Composable
-private fun ViewerIconButton(icon: androidx.compose.ui.graphics.vector.ImageVector, description: String, onClick: () -> Unit) {
-    Surface(
-        onClick = onClick,
-        shape = CircleShape,
-        color = Color.Black.copy(alpha = 0.45f),
-        modifier = Modifier.size(40.dp)
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(
-                imageVector = icon,
-                contentDescription = description,
-                tint = Color.White,
-                modifier = Modifier.size(22.dp)
-            )
-        }
-    }
 }
 
 @Composable

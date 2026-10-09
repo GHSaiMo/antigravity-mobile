@@ -295,10 +295,10 @@ struct AttachmentPickerSheet: View {
         } label: {
             Text("添加 (\(selected.count))")
                 .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(.primary)
+                .foregroundStyle(.white)
                 .padding(.horizontal, 32)
                 .padding(.vertical, 13)
-                .glassEffect(.regular.interactive(), in: .capsule)
+                .glassEffect(.regular.tint(.blue).interactive(), in: .capsule)
         }
         .buttonStyle(.plain)
     }
