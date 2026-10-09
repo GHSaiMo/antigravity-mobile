@@ -1078,6 +1078,32 @@ class ApiClient(
             }
         }
 
+    @Volatile
+    private var lastCompatRefreshAt = 0L
+
+    /**
+     * 刷新网关的升级自检结果（GET /gateway/status 的 compat 字段）。失败时保持上一次的结果不变。
+     */
+    suspend fun refreshGatewayCompat(force: Boolean = false): Result<GatewayCompat> = withContext(Dispatchers.IO) {
+        val baseUrl = currentBaseUrl?.trim()?.trimEnd('/')
+            ?: return@withContext Result.failure(IllegalStateException("网关地址未配置"))
+        // 列表会被频繁轮询；自检结果只在 Antigravity 重启/升级时才会变，30 秒内不重复请求
+        val now = System.currentTimeMillis()
+        if (!force && now - lastCompatRefreshAt < 30_000L) return@withContext Result.success(GatewayCompatStore.state.value)
+        lastCompatRefreshAt = now
+        try {
+            val request = buildAuthorizedRequest("$baseUrl/gateway/status").get().build()
+            client.newCall(request).await().use { response ->
+                if (!response.isSuccessful) return@withContext Result.failure(RuntimeException("HTTP ${response.code}"))
+                val compat = GatewayCompat.fromStatusJson(response.body?.string().orEmpty())
+                GatewayCompatStore.update(compat)
+                Result.success(compat)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     /** 手机端 "/" 菜单（系统命令 + 技能）。 */
     suspend fun getSlashCommands(refresh: Boolean = false): Result<List<SlashCommandOption>> =
         postGatewayJson(

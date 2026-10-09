@@ -74,6 +74,17 @@ extension APIClient {
         }
     }
 
+    /// 刷新网关的升级自检结果（GET /gateway/status 的 compat 字段）。失败时保持上一次的结果不变。
+    @MainActor
+    public func refreshGatewayCompat(baseURL: URL) async {
+        var request = URLRequest(url: baseURL.appendingPathComponent("gateway/status"))
+        request.httpMethod = "GET"
+        request.timeoutInterval = 8
+        guard let (data, response) = try? await transport.send(request: request),
+              let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return }
+        GatewayCompatStore.shared.update(GatewayCompat.fromStatusData(data))
+    }
+
     /// 手机端 "/" 菜单（系统命令 + 技能）。
     public func fetchSlashCommands(baseURL: URL) async throws -> [SlashCommandOption] {
         let resp: SlashCommandsResponse = try await gatewayPost(

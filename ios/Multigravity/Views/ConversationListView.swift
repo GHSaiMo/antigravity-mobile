@@ -277,6 +277,26 @@ public struct ConversationListView: View {
     private var selectedConversationID: String? { navigationPath.last?.id }
     
     /// Opens a conversation: replaces the detail on iPad, pushes on iPhone.
+    private func compatBanner(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(.red)
+                .padding(.top, 2)
+            Text(text)
+                .font(.system(size: 13.5))
+                .foregroundColor(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(Color.red.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color.red.opacity(0.35), lineWidth: 1))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
+    }
+    
     private func openConversation(_ item: ConversationItem) {
         if usesSplitLayout {
             navigationPath = [item]
@@ -288,6 +308,12 @@ public struct ConversationListView: View {
     /// The conversation list with its navigation chrome (title, search, toolbar).
     private var listWithChrome: some View {
         pairedContentView
+            .safeAreaInset(edge: .top, spacing: 0) {
+                // 升级自检：基础能力缺失时在首页顶部提示（任何状态下可见，包括加载失败）
+                if GatewayCompatStore.shared.compat.isIncompatible {
+                    compatBanner(GatewayCompatStore.shared.compat.bannerText)
+                }
+            }
             .navigationTitle("Multigravity")
             .modifier(ConversationSearch(text: $viewModel.searchQuery, usesBottomCapsule: usesSplitLayout))
             .onChange(of: viewModel.searchQuery) { _, _ in

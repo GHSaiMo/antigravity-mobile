@@ -21,6 +21,7 @@ public final class ConversationListViewModel {
     private let tombstoneTTL: TimeInterval = 600.0 // 10 minutes
     
     private var pollTask: Task<Void, Never>? = nil
+    private var lastCompatRefresh: Date = .distantPast
     private var lastResumeTime: Date = .distantPast
     
     public init(
@@ -125,7 +126,9 @@ public final class ConversationListViewModel {
     public func scheduleContentSearch() {
         contentSearchTask?.cancel()
         let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard query.unicodeScalars.count >= 2, let baseURL = settings.serverURL else {
+        // 当前 Antigravity 没有 SearchConversations 时只保留按标题过滤，不再发必然失败的请求
+        guard GatewayCompatStore.shared.isAvailable(GatewayFeature.search),
+              query.unicodeScalars.count >= 2, let baseURL = settings.serverURL else {
             contentHits = []
             isSearchingContent = false
             return
@@ -231,6 +234,12 @@ public final class ConversationListViewModel {
         }
         if !isBackgroundPoll {
             self.errorMessage = nil
+        }
+        
+        // 升级自检结果随列表刷新（轮询很频繁，自检结果只在 Antigravity 重启/升级时才变，30 秒内不重复请求）
+        if Date().timeIntervalSince(lastCompatRefresh) > 30 {
+            lastCompatRefresh = Date()
+            Task { await apiClient.refreshGatewayCompat(baseURL: url) }
         }
         
         do {

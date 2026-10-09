@@ -29,6 +29,7 @@ fun QuickActionChips(
     onAddImage: () -> Unit,
     onCommitAndPush: () -> Unit,
     onShowChanges: () -> Unit,
+    showChanges: Boolean = true,
     showContinue: Boolean,
     onContinue: () -> Unit,
     showProceed: Boolean,
@@ -121,26 +122,28 @@ fun QuickActionChips(
             )
         }
 
-        // 3b. Changes：本会话累计改动的 diff
-        Box(
-            modifier = Modifier
-                .height(32.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(colors.surface)
-                .border(1.dp, colors.border, RoundedCornerShape(10.dp))
-                .clickable {
-                    haptic.light()
-                    onShowChanges()
-                }
-                .padding(horizontal = 14.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "Changes",
-                color = colors.textPrimary,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium
-            )
+        // 3b. Changes：本会话累计改动的 diff（当前 Antigravity 缺少所需接口时隐藏）
+        if (showChanges) {
+            Box(
+                modifier = Modifier
+                    .height(32.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(colors.surface)
+                    .border(1.dp, colors.border, RoundedCornerShape(10.dp))
+                    .clickable {
+                        haptic.light()
+                        onShowChanges()
+                    }
+                    .padding(horizontal = 14.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Changes",
+                    color = colors.textPrimary,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
         }
 
         // 4. Continue Button (when error occurred)

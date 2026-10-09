@@ -6,7 +6,8 @@ extension ChatView {
     var inputBar: some View {
         VStack(alignment: .leading, spacing: 8) {
             // 斜杠命令：键入 "/" 弹出列表；选中后以标签形式挂在输入框上方
-            if let slashQuery = SlashCommandFilter.query(of: viewModel.inputText) {
+            if GatewayCompatStore.shared.isAvailable(GatewayFeature.slash),
+               let slashQuery = SlashCommandFilter.query(of: viewModel.inputText) {
                 SlashCommandPickerView(
                     commands: SlashCommandFilter.filter(viewModel.slashCommands, query: slashQuery),
                     isLoading: viewModel.isLoadingSlashCommands,
@@ -86,25 +87,27 @@ extension ChatView {
                     }
                     .buttonStyle(.plain)
 
-                    // 3b. Changes：本会话累计改动的 diff
-                    Button {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        isInputFocused = false
-                        viewModel.openChangesSheet()
-                    } label: {
-                        Text("Changes")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(.primary)
-                            .padding(.horizontal, 14)
-                            .frame(height: 32)
-                            .background(Color(uiColor: .secondarySystemBackground))
-                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
-                            )
+                    // 3b. Changes：本会话累计改动的 diff（当前 Antigravity 缺少所需接口时隐藏）
+                    if GatewayCompatStore.shared.isAvailable(GatewayFeature.changes) {
+                        Button {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            isInputFocused = false
+                            viewModel.openChangesSheet()
+                        } label: {
+                            Text("Changes")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(.primary)
+                                .padding(.horizontal, 14)
+                                .frame(height: 32)
+                                .background(Color(uiColor: .secondarySystemBackground))
+                                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+                                )
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
 
                     // 4. Continue Button (Shown when Agent's latest message is an error)
                     if viewModel.isLatestMessageError {
