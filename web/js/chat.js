@@ -450,6 +450,40 @@ function updateChatControls(isRunning, wsUri, hasAction = false) {
   }
 }
 
+// Rebuilds a full stream payload from a delta frame (server sends delta=1 frames as changes
+// against what this connection already received). The baseline lives on the socket, so every
+// new connection starts clean from a complete "init" frame. Returns false when the baseline
+// does not line up, in which case the caller reconnects to resync.
+function applyStreamDelta(ws, data) {
+  if (data.delta) {
+    const prevSteps = ws.__steps;
+    const prevMsgs = ws.__messages;
+    if (!prevSteps && !prevMsgs) return false;
+
+    if (Array.isArray(data.messageIds)) {
+      const byId = new Map();
+      (prevMsgs || []).forEach((m) => byId.set(m.id, m));
+      (data.messages || []).forEach((m) => byId.set(m.id, m));
+      const rebuilt = [];
+      for (const id of data.messageIds) {
+        const m = byId.get(id);
+        if (!m) return false;
+        rebuilt.push(m);
+      }
+      data.messages = rebuilt;
+    }
+
+    if (typeof data.stepsFrom === "number") {
+      if (!prevSteps || data.stepsFrom > prevSteps.length) return false;
+      const rebuilt = prevSteps.slice(0, data.stepsFrom).concat(data.steps || []);
+      data.steps = typeof data.totalSteps === "number" ? rebuilt.slice(0, data.totalSteps) : rebuilt;
+    }
+  }
+  ws.__steps = data.steps || ws.__steps || null;
+  ws.__messages = data.messages || ws.__messages || null;
+  return true;
+}
+
 async function connectStreamWs(cascadeId) {
   if (activeWs && activeWs.__cascadeId === cascadeId && (activeWs.readyState === WebSocket.OPEN || activeWs.readyState === WebSocket.CONNECTING)) {
     return;
@@ -457,7 +491,7 @@ async function connectStreamWs(cascadeId) {
   closeActiveWs();
 
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  let wsUrl = `${proto}//${location.host}/gateway/cascade/stream?cascadeId=${encodeURIComponent(cascadeId)}`;
+  let wsUrl = `${proto}//${location.host}/gateway/cascade/stream?cascadeId=${encodeURIComponent(cascadeId)}&delta=1`;
   try {
     // S9 / C-1: Exchange HttpOnly session cookie for a short-lived one-time ticket
     // so no long-lived token ever appears in query strings or logs.
@@ -493,6 +527,13 @@ async function connectStreamWs(cascadeId) {
       try {
         const data = JSON.parse(event.data);
         if (data.cascadeId !== cascadeId) return;
+
+        if (!applyStreamDelta(ws, data)) {
+          // Baseline mismatch: drop this connection and let onclose reconnect for a fresh "init".
+          console.warn("[WS] Delta baseline mismatch, resyncing");
+          ws.close();
+          return;
+        }
 
         if (data.activeModel) {
           syncActiveModel(data.activeModel);
