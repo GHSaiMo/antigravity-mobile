@@ -241,7 +241,11 @@ struct MessageShareCardView: View {
             Text(context.sessionTitle.isEmpty ? "Multigravity 会话" : context.sessionTitle)
                 .font(.system(size: 24, weight: .bold))
                 .foregroundColor(.primary)
+                // 长图标题必须完整显示：不限行数、不截断，宽度占满后纵向按内容撑开
+                .lineLimit(nil)
+                .multilineTextAlignment(.leading)
                 .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: 10) {
                 if let model = context.modelName, !model.isEmpty {
                     let tint: Color = context.modelIsClaude ? .orange : .blue
