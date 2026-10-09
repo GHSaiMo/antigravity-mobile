@@ -317,7 +317,9 @@ fun ChatScreen(
         }
     }
 
-    LaunchedEffect(cascadeId, isNewConversation) {
+    // 共享的 ChatViewModel 同一时刻只装载一个会话：子代理会话压栈后，返回时必须把本会话重新装回来
+    // （并还原进入子页面前的滚动位置）。进入时和「回到前台却发现装载的不是自己」时共用这一段。
+    suspend fun enterSession() {
         val returningFromChild = preserveScrollOnReturn
         if (!returningFromChild) {
             hasInitiallyAligned = false
@@ -333,7 +335,6 @@ fun ChatScreen(
             conversationStatus = initialStatus
         )
         if (returningFromChild) {
-            // 共享的 ViewModel 此刻装载过子会话，列表位置被夹到了错误范围；等本会话消息就绪后还原进入子页面前的位置
             isProgrammaticScrolling = true
             try {
                 withTimeoutOrNull(1500) {
@@ -348,6 +349,10 @@ fun ChatScreen(
             delay(1500)
             preserveScrollOnReturn = false
         }
+    }
+
+    LaunchedEffect(cascadeId, isNewConversation) {
+        enterSession()
         // Automatically focus the input field and pop up soft keyboard ONLY on new conversation creation without pending options
         if (isNewConversation && uiState.pendingInteraction == null) {
             delay(250)
@@ -355,6 +360,16 @@ fun ChatScreen(
                 focusRequester.requestFocus()
                 keyboardController?.show()
             } catch (_: Exception) {}
+        }
+    }
+
+    // 兜底：本页回到前台（RESUMED）时，若共享 ViewModel 装载的仍是别的会话（典型：从子代理会话返回），重新装载本会话
+    val lifecycleState by lifecycleOwner.lifecycle.currentStateFlow.collectAsState()
+    val isScreenResumed = lifecycleState == Lifecycle.State.RESUMED
+    val isSessionMismatched = uiState.cascadeId != cascadeId
+    LaunchedEffect(isScreenResumed, isSessionMismatched) {
+        if (isScreenResumed && isSessionMismatched && !cascadeId.startsWith("local_draft_") && !isNewConversation) {
+            enterSession()
         }
     }
 
