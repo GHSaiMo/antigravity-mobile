@@ -86,10 +86,11 @@ internal fun ChatViewModel.syncQueuedMessages(
         val trimmed = opt.text.trim()
         val normOpt = normalizeForComparison(opt.text)
         val inServer = serverQueue?.any { s ->
-            if (normOpt.isNotEmpty()) {
-                normalizeForComparison(s.text) == normOpt
-            } else {
-                s.id == opt.id
+            when {
+                // 网关把客户端 id 写进了消息 tags，服务端队列里能精确认出这一条
+                !opt.clientMessageId.isNullOrEmpty() && s.clientMessageId == opt.clientMessageId -> true
+                normOpt.isNotEmpty() -> normalizeForComparison(s.text) == normOpt
+                else -> s.id == opt.id
             }
         } == true
         val inChat = isQueuedItemInMessages(
@@ -150,10 +151,10 @@ internal fun ChatViewModel.syncQueuedMessages(
             return@mapNotNull null
         }
         if (baseQueue.any { b ->
-            if (normOpt.isNotEmpty()) {
-                normalizeForComparison(b.text) == normOpt
-            } else {
-                b.id == opt.id
+            when {
+                !opt.clientMessageId.isNullOrEmpty() && b.clientMessageId == opt.clientMessageId -> true
+                normOpt.isNotEmpty() -> normalizeForComparison(b.text) == normOpt
+                else -> b.id == opt.id
             }
         }) {
             return@mapNotNull null
@@ -172,7 +173,8 @@ internal fun ChatViewModel.syncQueuedMessages(
             id = opt.id,
             text = opt.text,
             media = opt.media,
-            imageUrls = opt.imageUrls
+            imageUrls = opt.imageUrls,
+            clientMessageId = opt.clientMessageId
         )
     }
 
@@ -200,7 +202,7 @@ internal fun ChatViewModel.sendQueuedMessageNow(item: QueuedMessageItem) {
         if (targetMsgId == null) {
             delay(350)
             apiClient.fetchMessages(cascadeId, limit = 15).onSuccess { res ->
-                val match = res.queuedMessages?.firstOrNull { it.text.trim() == trimmedText }
+                val match = findServerQueueItem(res.queuedMessages, item, trimmedText)
                 if (match != null) {
                     targetMsgId = match.id
                 }
@@ -248,7 +250,7 @@ internal fun ChatViewModel.editQueuedMessage(item: QueuedMessageItem) {
                 if (targetMsgId == null) {
                     delay(350)
                     apiClient.fetchMessages(cascadeId, limit = 15).onSuccess { res ->
-                        val match = res.queuedMessages?.firstOrNull { it.text.trim() == trimmedText }
+                        val match = findServerQueueItem(res.queuedMessages, item, trimmedText)
                         if (match != null) {
                             targetMsgId = match.id
                             deletedQueueTombstones.add(QueuedMessageTombstone(id = match.id, text = trimmedText, deletedAt = System.currentTimeMillis()))
@@ -293,7 +295,7 @@ internal fun ChatViewModel.deleteQueuedMessage(item: QueuedMessageItem) {
                 if (targetMsgId == null) {
                     delay(350)
                     apiClient.fetchMessages(cascadeId, limit = 15).onSuccess { res ->
-                        val match = res.queuedMessages?.firstOrNull { it.text.trim() == trimmedText }
+                        val match = findServerQueueItem(res.queuedMessages, item, trimmedText)
                         if (match != null) {
                             targetMsgId = match.id
                             deletedQueueTombstones.add(QueuedMessageTombstone(id = match.id, text = trimmedText, deletedAt = System.currentTimeMillis()))
@@ -313,4 +315,23 @@ internal fun ChatViewModel.deleteQueuedMessage(item: QueuedMessageItem) {
     } else {
         inFlightDeletingQueueIds.remove(item.id)
     }
+}
+
+/**
+ * 在服务端队列里找到与本地条目对应的那一条：优先按客户端 id（精确），没有 id（旧网关、非本机发出）再按文字。
+ */
+internal fun findServerQueueItem(
+    serverQueue: List<QueuedMessageItem>?,
+    item: QueuedMessageItem,
+    trimmedText: String
+): QueuedMessageItem? {
+    if (serverQueue.isNullOrEmpty()) return null
+    val cid = item.clientMessageId
+    if (!cid.isNullOrEmpty()) {
+        serverQueue.firstOrNull { it.clientMessageId == cid }?.let { return it }
+        // 网关已支持 id 标注（队列里有带 id 的条目）却找不到：说明服务端还没收到这一条，
+        // 此时按文字回退可能误删另一条同文字消息，宁可返回空让调用方稍后重试
+        if (serverQueue.any { !it.clientMessageId.isNullOrEmpty() }) return null
+    }
+    return serverQueue.firstOrNull { it.text.trim() == trimmedText }
 }

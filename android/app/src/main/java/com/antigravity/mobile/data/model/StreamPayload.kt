@@ -95,7 +95,9 @@ data class QueuedMessageItem(
     val text: String = "",
     val createdAt: String? = null,
     val media: List<String>? = null,
-    val imageUrls: List<String>? = null
+    val imageUrls: List<String>? = null,
+    /** 发送时附带的客户端消息 id（网关写进 tags，读队列时还原）；不是经网关发的消息为空。 */
+    val clientMessageId: String? = null
 ) {
     val hasAttachments: Boolean
         get() = !media.isNullOrEmpty() || !imageUrls.isNullOrEmpty()

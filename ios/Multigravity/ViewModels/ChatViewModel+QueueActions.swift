@@ -88,7 +88,7 @@ extension ChatViewModel {
             let split = SlashCommandFilter.splitPrefix(item.text, commands: slashCommands)
             try await apiClient.sendMessage(
                 cascadeId: cascadeId,
-                text: item.text,
+                text: split.rest,
                 model: activeModelEnum,
                 images: imgDataList.isEmpty ? nil : imgDataList,
                 deliveryStrategy: 1,
@@ -106,7 +106,7 @@ extension ChatViewModel {
                     try? await Task.sleep(nanoseconds: 350_000_000)
                     if let currentMsgs = try? await self.apiClient.fetchMessages(cascadeId: self.cascadeId, limit: 15, offset: nil, baseURL: url) {
                         let trimmedTarget = item.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if let match = currentMsgs.queuedMessages.first(where: { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == trimmedTarget }) {
+                        if let match = Self.findServerQueueItem(in: currentMsgs.queuedMessages, for: item, trimmedText: trimmedTarget) {
                             targetMsgId = match.id
                         }
                     }
@@ -178,7 +178,7 @@ extension ChatViewModel {
                 if targetMsgId == nil {
                     try? await Task.sleep(nanoseconds: 350_000_000)
                     if let currentMsgs = try? await self.apiClient.fetchMessages(cascadeId: self.cascadeId, limit: 15, offset: nil, baseURL: url) {
-                        if let match = currentMsgs.queuedMessages.first(where: { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == trimmedText }) {
+                        if let match = Self.findServerQueueItem(in: currentMsgs.queuedMessages, for: item, trimmedText: trimmedText) {
                             targetMsgId = match.id
                             self.deletedQueueItemTombstones.append(QueuedMessageTombstone(id: match.id, text: trimmedText, deletedAt: Date()))
                             self.inFlightDeletingQueueIds.insert(match.id)
@@ -257,7 +257,7 @@ extension ChatViewModel {
                 if targetMsgId == nil {
                     try? await Task.sleep(nanoseconds: 350_000_000)
                     if let currentMsgs = try? await self.apiClient.fetchMessages(cascadeId: self.cascadeId, limit: 15, offset: nil, baseURL: url) {
-                        if let match = currentMsgs.queuedMessages.first(where: { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == trimmedText }) {
+                        if let match = Self.findServerQueueItem(in: currentMsgs.queuedMessages, for: item, trimmedText: trimmedText) {
                             targetMsgId = match.id
                             self.deletedQueueItemTombstones.append(QueuedMessageTombstone(id: match.id, text: trimmedText, deletedAt: Date()))
                             self.inFlightDeletingQueueIds.insert(match.id)

@@ -58,7 +58,9 @@ data class PendingOptimisticQueueItem(
     val media: List<String>? = null,
     val imageUrls: List<String>? = null,
     val createdAt: Long = System.currentTimeMillis(),
-    val enqueuedAfterMessageId: String? = null
+    val enqueuedAfterMessageId: String? = null,
+    /** 随消息发给网关的客户端 id，用来在服务端队列里精确认出这一条。 */
+    val clientMessageId: String? = null
 )
 
 data class QueuedMessageTombstone(
