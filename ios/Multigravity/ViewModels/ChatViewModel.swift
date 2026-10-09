@@ -267,6 +267,7 @@ public final class ChatViewModel {
     public var isReverting: Bool = false
     public var isLoadingRevertPreview: Bool = false
     public var focusInputTrigger: Int = 0
+    public var changesSheet: ChangesSheetState? = nil
     public var gitSheet: GitSheetState? = nil
     public var exportedMarkdownFile: ExportedMarkdownFile? = nil
     

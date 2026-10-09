@@ -73,10 +73,12 @@ import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.antigravity.mobile.ui.viewmodel.addImagesFromUris
 import com.antigravity.mobile.ui.viewmodel.cancelExecution
+import com.antigravity.mobile.ui.viewmodel.closeChangesSheet
 import com.antigravity.mobile.ui.viewmodel.closeGitSheet
 import com.antigravity.mobile.ui.viewmodel.commitGit
 import com.antigravity.mobile.ui.viewmodel.delegateCommitToAgent
 import com.antigravity.mobile.ui.viewmodel.exportMarkdown
+import com.antigravity.mobile.ui.viewmodel.openChangesSheet
 import com.antigravity.mobile.ui.viewmodel.openGitSheet
 import com.antigravity.mobile.ui.viewmodel.refreshGitStatus
 import com.antigravity.mobile.ui.viewmodel.retryGitPush
@@ -813,6 +815,10 @@ fun ChatScreen(
                                     dismissKeyboard()
                                     viewModel.openGitSheet()
                                 },
+                                onShowChanges = {
+                                    dismissKeyboard()
+                                    viewModel.openChangesSheet()
+                                },
                                 showContinue = uiState.isLatestMessageError,
                                 onContinue = {
                                     dismissKeyboard()
@@ -1085,6 +1091,11 @@ fun ChatScreen(
             title = uiState.previewDocumentTitle,
             onDismiss = { viewModel.closeDocumentPreview() }
         )
+    }
+
+    // 本会话改动（累计 diff）
+    uiState.changesSheet?.let { sheet ->
+        CascadeChangesSheet(state = sheet, onDismiss = { viewModel.closeChangesSheet() })
     }
 
     // Git 直接提交

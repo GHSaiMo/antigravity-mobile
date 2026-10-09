@@ -1,9 +1,17 @@
 package com.antigravity.mobile.ui.viewmodel
 
 import androidx.lifecycle.viewModelScope
+import com.antigravity.mobile.data.model.CascadeChangesResponse
 import com.antigravity.mobile.data.model.GitCommitResponse
 import com.antigravity.mobile.data.model.GitStatusResponse
 import kotlinx.coroutines.launch
+
+/** 「本会话改动」浮窗状态。 */
+data class ChangesSheetState(
+    val isLoading: Boolean = true,
+    val data: CascadeChangesResponse? = null,
+    val error: String? = null
+)
 
 /** Git 提交浮窗状态。 */
 data class GitSheetState(
@@ -16,6 +24,32 @@ data class GitSheetState(
 )
 
 private fun String.isLocalDraft(): Boolean = isBlank() || startsWith("local_draft_")
+
+// region 本会话改动
+
+fun ChatViewModel.openChangesSheet() {
+    val cascadeId = _uiState.value.cascadeId
+    if (cascadeId.isLocalDraft()) {
+        _uiState.value = _uiState.value.copy(errorMessage = "新会话还没有任何改动")
+        return
+    }
+    _uiState.value = _uiState.value.copy(changesSheet = ChangesSheetState())
+    viewModelScope.launch {
+        apiClient.getCascadeChanges(cascadeId)
+            .onSuccess { res ->
+                _uiState.value = _uiState.value.copy(changesSheet = ChangesSheetState(isLoading = false, data = res))
+            }
+            .onFailure { err ->
+                _uiState.value = _uiState.value.copy(
+                    changesSheet = ChangesSheetState(isLoading = false, error = err.message ?: "加载失败")
+                )
+            }
+    }
+}
+
+fun ChatViewModel.closeChangesSheet() {
+    _uiState.value = _uiState.value.copy(changesSheet = null)
+}
 
 // endregion
 

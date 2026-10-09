@@ -46,6 +46,16 @@ extension APIClient {
         }
     }
 
+    public func fetchCascadeChanges(cascadeId: String, fromStepIndex: Int? = nil, baseURL: URL) async throws -> CascadeChangesResponse {
+        try await gatewayPost(
+            path: "gateway/cascade/changes",
+            body: CascadeChangesRequest(cascadeId: cascadeId, fromStepIndex: fromStepIndex),
+            baseURL: baseURL,
+            timeout: 30,
+            failurePrefix: "获取本会话改动失败"
+        )
+    }
+
     public func fetchGitStatus(cascadeId: String, baseURL: URL) async throws -> GitStatusResponse {
         try await gatewayPost(
             path: "gateway/git/status",

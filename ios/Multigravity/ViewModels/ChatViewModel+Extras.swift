@@ -2,6 +2,13 @@ import Foundation
 import Observation
 import UIKit
 
+/// 「本会话改动」浮窗状态。
+public struct ChangesSheetState: Sendable {
+    public var isLoading: Bool = true
+    public var data: CascadeChangesResponse? = nil
+    public var error: String? = nil
+}
+
 /// Git 提交浮窗状态。
 public struct GitSheetState: Sendable {
     public var isLoading: Bool = true
@@ -21,6 +28,31 @@ public struct ExportedMarkdownFile: Identifiable, Sendable {
 extension ChatViewModel {
     private var isLocalDraftSession: Bool {
         cascadeId.isEmpty || cascadeId.hasPrefix("local_draft_") || cascadeId.hasPrefix("draft_")
+    }
+
+    // MARK: - 本会话改动
+
+    public func openChangesSheet() {
+        guard let url = settings.serverURL else { return }
+        guard !isLocalDraftSession else {
+            errorMessage = "新会话还没有任何改动"
+            return
+        }
+        changesSheet = ChangesSheetState()
+        let id = cascadeId
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let res = try await apiClient.fetchCascadeChanges(cascadeId: id, baseURL: url)
+                self.changesSheet = ChangesSheetState(isLoading: false, data: res)
+            } catch {
+                self.changesSheet = ChangesSheetState(isLoading: false, error: error.localizedDescription)
+            }
+        }
+    }
+
+    public func closeChangesSheet() {
+        changesSheet = nil
     }
 
     // MARK: - Git 直接提交
