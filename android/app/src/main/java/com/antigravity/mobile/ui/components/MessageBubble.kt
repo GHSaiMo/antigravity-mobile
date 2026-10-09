@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.ArtifactItem
 import com.antigravity.mobile.data.model.GatewayMessageItem
+import com.antigravity.mobile.data.model.SubagentItem
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 import com.antigravity.mobile.ui.util.rememberHaptic
 
@@ -68,11 +69,18 @@ fun MessageBubble(
     onImageGroupClick: ((items: List<ImageViewerItem>, initialIndex: Int) -> Unit)? = null,
     onUndoClick: ((GatewayMessageItem) -> Unit)? = null,
     onExportMarkdownClick: (() -> Unit)? = null,
+    onSubagentClick: ((SubagentItem) -> Unit)? = null,
     shareContextProvider: ((GatewayMessageItem) -> ShareCardContext)? = null
 ) {
     val colors = AntigravityTheme.colors
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
+
+    // 子代理卡片：内联在「调用子代理」的位置（对齐桌面端）
+    message.subagent?.takeIf { message.isSubagent }?.let { sa ->
+        SubagentInlineCard(item = sa, onClick = onSubagentClick, modifier = modifier)
+        return
+    }
 
     // Standalone tool message
     if (message.isTools) {

@@ -22,7 +22,7 @@ internal fun ChatViewModel.saveSessionToCache() {
         cascadeId = cid,
         status = statusString,
         duration = state.duration,
-        stepCount = if (state.stepCount > 0) state.stepCount else maxOf(0, state.messages.count { !it.isUser && !it.isTools }),
+        stepCount = if (state.stepCount > 0) state.stepCount else maxOf(0, state.messages.count { !it.isUser && !it.isTools && !it.isSubagent }),
         totalTools = state.totalTools,
         hasMore = state.hasMore,
         nextOffset = state.nextOffset,
@@ -62,7 +62,7 @@ internal fun ChatViewModel.currentConversationItem(): ConversationItem? {
         state.isRunning || state.isAwaitingResponse -> ConversationStatus.RUNNING
         else -> ConversationStatus.IDLE
     }
-    val stepCount = maxOf(0, state.messages.count { !it.isUser && !it.isTools })
+    val stepCount = maxOf(0, state.messages.count { !it.isUser && !it.isTools && !it.isSubagent })
     val wsName = state.workspaceName.takeIf { it.isNotBlank() && it != "Chat" }
         ?: state.workspaceFolder?.trimEnd('/')?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
         ?: "Chat"
@@ -514,7 +514,7 @@ internal fun ChatViewModel.ensureWebSocketObserving() {
                     val lastUserIdx = msgs.indexOfLast { it.isUser }
                     if (lastUserIdx >= 0) {
                         val subsequent = msgs.subList(lastUserIdx + 1, msgs.size)
-                        val hasAgent = subsequent.any { !it.isUser && !it.isTools }
+                        val hasAgent = subsequent.any { !it.isUser && !it.isTools && !it.isSubagent }
                         val hasSubsequentError = subsequent.any { it.status.equals("error", ignoreCase = true) }
                         if (hasAgent || hasSubsequentError) {
                             awaiting = false

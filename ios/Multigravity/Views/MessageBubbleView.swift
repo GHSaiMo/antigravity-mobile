@@ -43,6 +43,10 @@ public struct MessageBubbleView: View {
                 }
             case .error:
                 errorCard
+            case .subagent:
+                if let sa = message.subagent {
+                    SubagentInlineCardView(item: sa)
+                }
             }
         }
         .padding(.horizontal, 16)

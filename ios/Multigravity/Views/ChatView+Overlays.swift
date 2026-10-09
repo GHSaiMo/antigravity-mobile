@@ -20,9 +20,11 @@ extension ChatView {
             .transition(.move(edge: .bottom).combined(with: .opacity))
         }
         
-        if !viewModel.subagents.isEmpty {
+        // 底部只放仍在运行的子代理（方便随时关停）；已结束的留在消息流里的内联卡片中，不占底部位置
+        let runningSubagents = viewModel.subagents.filter(\.isRunning)
+        if !runningSubagents.isEmpty {
             SubagentsCardView(
-                items: viewModel.subagents,
+                items: runningSubagents,
                 canStop: GatewayCompatStore.shared.isAvailable(GatewayFeature.subagents),
                 onStop: { item in
                     Task { await viewModel.stopSubagent(item) }

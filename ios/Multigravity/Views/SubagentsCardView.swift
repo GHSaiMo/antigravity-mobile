@@ -217,3 +217,75 @@ public struct SubagentReadOnlyBar: View {
         }
     }
 }
+
+/// 消息流里内联的子代理卡片（对齐桌面端）：显示角色、类型、状态，点一下进入子会话（只读）。
+public struct SubagentInlineCardView: View {
+    public let item: SubagentItem
+
+    public init(item: SubagentItem) {
+        self.item = item
+    }
+
+    public var body: some View {
+        let card = HStack(spacing: 10) {
+            statusIcon
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.displayName)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(item.isGone ? .secondary : .primary)
+                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    if let t = item.typeName, !t.isEmpty, t != item.displayName {
+                        Text(t)
+                    }
+                    if !item.statusText.isEmpty, item.status != "done" {
+                        Text(item.statusText)
+                    }
+                    if let n = item.stepCount, n > 0, item.isRunning {
+                        Text("\(n) 步")
+                    }
+                }
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
+            }
+            Spacer(minLength: 8)
+            if !item.isGone {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.secondary.opacity(0.6))
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.primary.opacity(0.08), lineWidth: 0.8)
+        )
+        .contentShape(Rectangle())
+
+        if item.isGone {
+            card
+        } else {
+            NavigationLink(value: item.conversationItem) { card }
+                .buttonStyle(.plain)
+        }
+    }
+
+    @ViewBuilder
+    private var statusIcon: some View {
+        if item.isRunning {
+            ProgressView().controlSize(.small)
+        } else if item.isGone {
+            Image(systemName: "questionmark.circle")
+                .font(.system(size: 16))
+                .foregroundColor(.secondary)
+        } else {
+            Image(systemName: "checkmark.circle")
+                .font(.system(size: 16))
+                .foregroundColor(.secondary)
+        }
+    }
+}

@@ -6,11 +6,14 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircleOutline
+import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material3.*
@@ -272,5 +275,60 @@ fun SubagentReadOnlyBar(
             onConfirm = { confirm = false; onStop() },
             onDismiss = { confirm = false }
         )
+    }
+}
+
+/** 消息流里内联的子代理卡片（对齐桌面端）：角色、类型、状态，点一下进入子会话（只读）。 */
+@Composable
+fun SubagentInlineCard(
+    item: SubagentItem,
+    onClick: ((SubagentItem) -> Unit)?,
+    modifier: Modifier = Modifier
+) {
+    val colors = AntigravityTheme.colors
+    val clickable = onClick != null && !item.isGone
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(colors.surface)
+            .border(0.8.dp, colors.border.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
+            .then(if (clickable) Modifier.clickable { onClick?.invoke(item) } else Modifier)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        when {
+            item.isRunning -> CircularProgressIndicator(
+                modifier = Modifier.size(16.dp),
+                strokeWidth = 2.dp,
+                color = colors.accentIndigo,
+                trackColor = colors.accentIndigo.copy(alpha = 0.2f)
+            )
+            item.isGone -> Icon(Icons.Default.HelpOutline, null, tint = colors.textMuted, modifier = Modifier.size(18.dp))
+            else -> Icon(Icons.Default.CheckCircleOutline, null, tint = colors.textMuted, modifier = Modifier.size(18.dp))
+        }
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = item.displayName,
+                color = if (item.isGone) colors.textSecondary else colors.textPrimary,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            val meta = buildList {
+                item.typeName?.takeIf { it.isNotBlank() && it != item.displayName }?.let { add(it) }
+                if (item.status != "done") item.statusText.takeIf { it.isNotEmpty() }?.let { add(it) }
+                if (item.isRunning) item.stepCount?.takeIf { it > 0 }?.let { add("$it 步") }
+            }.joinToString(" · ")
+            if (meta.isNotEmpty()) {
+                Text(text = meta, color = colors.textSecondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        if (clickable) {
+            Icon(Icons.Default.KeyboardArrowRight, null, tint = colors.textMuted, modifier = Modifier.size(16.dp))
+        }
     }
 }

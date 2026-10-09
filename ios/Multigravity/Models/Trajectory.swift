@@ -430,12 +430,15 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
     /// 生成这条回复的模型 id 与展示名（仅 Agent 消息；未知时为 nil）。
     public let model: String?
     public let modelName: String?
+    /// sender == .subagent 时的子代理信息；卡片内联在「调用子代理」的位置。
+    public let subagent: SubagentItem?
     
     public enum MessageSender: Hashable, Sendable, Codable {
         case user
         case agent
         case toolBatch(count: Int, tools: [String])
         case error
+        case subagent
         
         private enum CodingKeys: String, CodingKey {
             case type, count, tools
@@ -454,6 +457,8 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
                 try container.encode(tools, forKey: .tools)
             case .error:
                 try container.encode("error", forKey: .type)
+            case .subagent:
+                try container.encode("subagent", forKey: .type)
             }
         }
         
@@ -465,6 +470,8 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
                 self = .agent
             case "error":
                 self = .error
+            case "subagent":
+                self = .subagent
             case "toolBatch":
                 let count = try container.decodeIfPresent(Int.self, forKey: .count) ?? 1
                 let tools = try container.decodeIfPresent([String].self, forKey: .tools) ?? []
@@ -489,10 +496,12 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
         attemptCount: Int? = nil,
         maxAttempts: Int? = nil,
         model: String? = nil,
-        modelName: String? = nil
+        modelName: String? = nil,
+        subagent: SubagentItem? = nil
     ) {
         self.model = model
         self.modelName = modelName
+        self.subagent = subagent
         self.id = id
         self.sender = sender
         self.content = content
@@ -536,6 +545,11 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
 
     public var isError: Bool {
         if case .error = sender { return true }
+        return false
+    }
+
+    public var isSubagent: Bool {
+        if case .subagent = sender { return true }
         return false
     }
 

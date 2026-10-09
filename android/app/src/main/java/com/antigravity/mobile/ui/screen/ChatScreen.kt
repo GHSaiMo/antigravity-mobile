@@ -671,6 +671,7 @@ fun ChatScreen(
                                         onImageGroupClick = { items, index ->
                                             viewModel.openImageViewer(items = items, initialIndex = index)
                                         },
+                                        onSubagentClick = onOpenSubagent,
                                         onUndoClick = if (compat.isAvailable(com.antigravity.mobile.data.model.GatewayFeature.REVERT)) {
                                             { target -> viewModel.requestUndo(target) }
                                         } else null,
@@ -731,8 +732,10 @@ fun ChatScreen(
             }
 
             // Floating Cards (RunningTasksCard, QueuedMessagesCard, InteractionCard) 对齐 iOS floatingCards
+            // 底部只放仍在运行的子代理（方便随时关停）；已结束的留在消息流里的内联卡片中，不占底部位置
+            val runningSubagents = uiState.subagents.filter { it.isRunning }
             val hasFloatingCards = uiState.runningTasks.isNotEmpty() ||
-                    uiState.subagents.isNotEmpty() ||
+                    runningSubagents.isNotEmpty() ||
                     uiState.queuedMessages.isNotEmpty() ||
                     uiState.pendingInteraction != null
 
@@ -756,9 +759,9 @@ fun ChatScreen(
                         )
                     }
 
-                    if (uiState.subagents.isNotEmpty()) {
+                    if (runningSubagents.isNotEmpty()) {
                         SubagentsCard(
-                            items = uiState.subagents,
+                            items = runningSubagents,
                             canStop = compat.isAvailable(com.antigravity.mobile.data.model.GatewayFeature.SUBAGENTS),
                             onOpen = onOpenSubagent,
                             onStop = { viewModel.stopSubagent(it.conversationId) },

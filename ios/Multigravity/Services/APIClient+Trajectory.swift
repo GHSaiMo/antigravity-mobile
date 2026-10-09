@@ -33,6 +33,7 @@ extension APIClient {
                         case "user": return .user
                         case "agent": return .agent
                         case "error": return .error
+                        case "subagent": return .subagent
                         default: return .toolBatch(count: item.toolCount ?? 1, tools: item.toolNames ?? [])
                         }
                     }()
@@ -57,7 +58,8 @@ extension APIClient {
                         attemptCount: item.attemptCount,
                         maxAttempts: item.maxAttempts,
                         model: item.model,
-                        modelName: item.modelName
+                        modelName: item.modelName,
+                        subagent: item.subagent
                     )
                 }
                 
