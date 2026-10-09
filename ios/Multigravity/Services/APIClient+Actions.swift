@@ -14,13 +14,14 @@ extension APIClient {
         slashCommand: String? = nil,
         baseURL: URL
     ) async throws {
-        let imagePayloads = images?.map { ImageDataPayload(base64Data: $0.base64EncodedString(), mimeType: "image/jpeg") }
+        // Only media[] is stored by language_server (and read by the model); sending the legacy
+        // images[] copy as well would double the upload.
         let mediaPayloads = images?.map { MediaDataPayload(inlineData: $0.base64EncodedString(), mimeType: "image/jpeg") }
         let req = SendUserCascadeMessageRequest(
             cascadeId: cascadeId,
             text: text,
             model: model,
-            images: imagePayloads,
+            images: nil,
             media: mediaPayloads,
             deliveryStrategy: deliveryStrategy,
             cascadeConfigRaw: cascadeConfigRaw,
