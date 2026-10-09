@@ -1113,3 +1113,17 @@ function initContentSearch() {
     if (id) navigateTo(`#c=${id}`);
   });
 }
+
+
+// 聊天页底部悬浮栈的高度会随浮层卡片 / 斜杠列表 / 输入框行数变化，
+// 把它同步成 CSS 变量，让消息列表底部留出等高的空白，最后一条消息不会被遮住。
+function initBottomStackObserver() {
+  const stack = document.getElementById("chat-bottom-stack");
+  const view = document.getElementById("view-chat");
+  if (!stack || !view || typeof ResizeObserver === "undefined") return;
+  const update = () => {
+    view.style.setProperty("--bottom-stack-h", Math.ceil(stack.getBoundingClientRect().height) + "px");
+  };
+  new ResizeObserver(update).observe(stack);
+  update();
+}
