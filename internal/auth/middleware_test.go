@@ -146,6 +146,7 @@ func TestAuthMiddleware_And_Handler(t *testing.T) {
 	}))
 	reqStatus := httptest.NewRequest(http.MethodGet, "/gateway/status", nil)
 	reqStatus.RemoteAddr = "192.168.1.50:12345"
+	reqStatus.Host = "127.0.0.1:58900"
 	rrStatus := httptest.NewRecorder()
 	wrappedRouter.ServeHTTP(rrStatus, reqStatus)
 	if rrStatus.Code != http.StatusUnauthorized {
@@ -155,6 +156,7 @@ func TestAuthMiddleware_And_Handler(t *testing.T) {
 	// 7. Device list via Loopback
 	reqList := httptest.NewRequest(http.MethodGet, "/api/v1/devices", nil)
 	reqList.RemoteAddr = "127.0.0.1:12345"
+	reqList.Host = "127.0.0.1:58900"
 	rrList := httptest.NewRecorder()
 	wrappedRouter.ServeHTTP(rrList, reqList)
 	if rrList.Code != http.StatusOK {
@@ -172,6 +174,7 @@ func TestAuthMiddleware_And_Handler(t *testing.T) {
 	// 8. Delete device
 	reqDel := httptest.NewRequest(http.MethodDelete, "/api/v1/devices/"+pairResp.DeviceID, nil)
 	reqDel.RemoteAddr = "127.0.0.1:12345"
+	reqDel.Host = "127.0.0.1:58900"
 	rrDel := httptest.NewRecorder()
 	wrappedRouter.ServeHTTP(rrDel, reqDel)
 	if rrDel.Code != http.StatusOK {
@@ -254,6 +257,7 @@ func TestAdminAuthorization(t *testing.T) {
 	// Case 1: Device token does NOT grant admin access
 	reqDevToken := httptest.NewRequest(http.MethodGet, "/api/v1/devices", nil)
 	reqDevToken.RemoteAddr = "192.168.1.100:12345"
+	reqDevToken.Host = "127.0.0.1:58900"
 	reqDevToken.Header.Set("Authorization", "Bearer "+deviceToken)
 	if authHandler.isAuthorizedAdmin(reqDevToken) {
 		t.Errorf("expected device token not to grant admin access")
@@ -262,6 +266,7 @@ func TestAdminAuthorization(t *testing.T) {
 	// Case 2: Direct loopback without proxy headers grants admin
 	reqLoopback := httptest.NewRequest(http.MethodGet, "/api/v1/devices", nil)
 	reqLoopback.RemoteAddr = "127.0.0.1:12345"
+	reqLoopback.Host = "127.0.0.1:58900"
 	if !authHandler.isAuthorizedAdmin(reqLoopback) {
 		t.Errorf("expected loopback to grant admin when no proxy headers present")
 	}
@@ -269,6 +274,7 @@ func TestAdminAuthorization(t *testing.T) {
 	// Case 3: Loopback with X-Forwarded-For should be rejected
 	reqProxyXFF := httptest.NewRequest(http.MethodGet, "/api/v1/devices", nil)
 	reqProxyXFF.RemoteAddr = "127.0.0.1:12345"
+	reqProxyXFF.Host = "127.0.0.1:58900"
 	reqProxyXFF.Header.Set("X-Forwarded-For", "203.0.113.195")
 	if authHandler.isAuthorizedAdmin(reqProxyXFF) {
 		t.Errorf("expected loopback with X-Forwarded-For to be rejected")
@@ -277,6 +283,7 @@ func TestAdminAuthorization(t *testing.T) {
 	// Case 4: Loopback with X-Real-IP should be rejected
 	reqProxyRealIP := httptest.NewRequest(http.MethodGet, "/api/v1/devices", nil)
 	reqProxyRealIP.RemoteAddr = "127.0.0.1:12345"
+	reqProxyRealIP.Host = "127.0.0.1:58900"
 	reqProxyRealIP.Header.Set("X-Real-IP", "203.0.113.195")
 	if authHandler.isAuthorizedAdmin(reqProxyRealIP) {
 		t.Errorf("expected loopback with X-Real-IP to be rejected")
@@ -286,6 +293,7 @@ func TestAdminAuthorization(t *testing.T) {
 	t.Setenv("MULTIGRAVITY_ADMIN_TOKEN", "secret-admin-123")
 	reqAdminBearer := httptest.NewRequest(http.MethodGet, "/api/v1/devices", nil)
 	reqAdminBearer.RemoteAddr = "192.168.1.100:12345"
+	reqAdminBearer.Host = "127.0.0.1:58900"
 	reqAdminBearer.Header.Set("Authorization", "Bearer secret-admin-123")
 	if !authHandler.isAuthorizedAdmin(reqAdminBearer) {
 		t.Errorf("expected MULTIGRAVITY_ADMIN_TOKEN via Bearer header to be authorized")
@@ -294,6 +302,7 @@ func TestAdminAuthorization(t *testing.T) {
 	// Case 6: MULTIGRAVITY_ADMIN_TOKEN via query param is rejected (leaks in logs/Referer)
 	reqAdminQuery := httptest.NewRequest(http.MethodGet, "/api/v1/devices?admin_token=secret-admin-123", nil)
 	reqAdminQuery.RemoteAddr = "192.168.1.100:12345"
+	reqAdminQuery.Host = "127.0.0.1:58900"
 	if authHandler.isAuthorizedAdmin(reqAdminQuery) {
 		t.Errorf("expected MULTIGRAVITY_ADMIN_TOKEN via query parameter to be rejected")
 	}
@@ -301,6 +310,7 @@ func TestAdminAuthorization(t *testing.T) {
 	// Case 7: Invalid MULTIGRAVITY_ADMIN_TOKEN
 	reqAdminBad := httptest.NewRequest(http.MethodGet, "/api/v1/devices", nil)
 	reqAdminBad.RemoteAddr = "192.168.1.100:12345"
+	reqAdminBad.Host = "127.0.0.1:58900"
 	reqAdminBad.Header.Set("Authorization", "Bearer wrong-token")
 	if authHandler.isAuthorizedAdmin(reqAdminBad) {
 		t.Errorf("expected invalid admin token to be rejected")
@@ -309,6 +319,7 @@ func TestAdminAuthorization(t *testing.T) {
 	// Case 8: MULTIGRAVITY_ADMIN_TOKEN configured — loopback fallback is disabled
 	reqLoopbackWithAdminEnv := httptest.NewRequest(http.MethodGet, "/api/v1/devices", nil)
 	reqLoopbackWithAdminEnv.RemoteAddr = "127.0.0.1:12345"
+	reqLoopbackWithAdminEnv.Host = "127.0.0.1:58900"
 	if authHandler.isAuthorizedAdmin(reqLoopbackWithAdminEnv) {
 		t.Errorf("expected loopback fallback to be disabled when MULTIGRAVITY_ADMIN_TOKEN is set")
 	}
@@ -326,6 +337,7 @@ func TestAdminAuthorization_TunnelDisablesLoopback(t *testing.T) {
 
 	reqLoopback := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", nil)
 	reqLoopback.RemoteAddr = "127.0.0.1:12345"
+	reqLoopback.Host = "127.0.0.1:58900"
 	if authHandler.isAuthorizedAdmin(reqLoopback) {
 		t.Errorf("expected loopback admin to be denied when tunnel is enabled")
 	}
@@ -333,6 +345,7 @@ func TestAdminAuthorization_TunnelDisablesLoopback(t *testing.T) {
 	t.Setenv("MULTIGRAVITY_ADMIN_TOKEN", "frp-admin-token")
 	reqWithToken := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", nil)
 	reqWithToken.RemoteAddr = "127.0.0.1:12345"
+	reqWithToken.Host = "127.0.0.1:58900"
 	reqWithToken.Header.Set("Authorization", "Bearer frp-admin-token")
 	if !authHandler.isAuthorizedAdmin(reqWithToken) {
 		t.Errorf("expected MULTIGRAVITY_ADMIN_TOKEN bearer to work even when tunnel is enabled")
@@ -350,6 +363,7 @@ func TestNewPairingSessionMethodNotAllowed(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/session", nil)
 	req.RemoteAddr = "127.0.0.1:1"
+	req.Host = "127.0.0.1:58900"
 	rr := httptest.NewRecorder()
 	authHandler.HandleNewPairingSession(rr, req)
 	if rr.Code != http.StatusMethodNotAllowed {
@@ -375,6 +389,7 @@ func TestAuthDisabledIgnoredWhenTunnelEnabled(t *testing.T) {
 	// Cloudflare tunnel request (forwarded to loopback with CF headers) must be rejected
 	req := httptest.NewRequest(http.MethodGet, "/api/secret", nil)
 	req.RemoteAddr = "127.0.0.1:9"
+	req.Host = "127.0.0.1:58900"
 	req.Header.Set("CF-Connecting-IP", "203.0.113.195")
 	rr := httptest.NewRecorder()
 	wrapped.ServeHTTP(rr, req)
@@ -389,6 +404,7 @@ func TestAuthDisabledIgnoredWhenTunnelEnabled(t *testing.T) {
 	hit = false
 	reqLocal := httptest.NewRequest(http.MethodGet, "/api/secret", nil)
 	reqLocal.RemoteAddr = "127.0.0.1:9"
+	reqLocal.Host = "127.0.0.1:58900"
 	rrLocal := httptest.NewRecorder()
 	wrapped.ServeHTTP(rrLocal, reqLocal)
 	if rrLocal.Code != http.StatusOK {
@@ -414,6 +430,7 @@ func TestAuthMiddleware_TrustLANPolicy(t *testing.T) {
 	wrappedStrict := AuthMiddlewareWithPolicy(store, next, AuthPolicy{TrustLAN: false})
 	reqLAN := httptest.NewRequest(http.MethodGet, "/api/secret", nil)
 	reqLAN.RemoteAddr = "192.168.1.100:12345"
+	reqLAN.Host = "127.0.0.1:58900"
 	rr1 := httptest.NewRecorder()
 	wrappedStrict.ServeHTTP(rr1, reqLAN)
 	if rr1.Code != http.StatusUnauthorized {
@@ -431,6 +448,7 @@ func TestAuthMiddleware_TrustLANPolicy(t *testing.T) {
 	// 3. TrustLAN = true, but request arrives via Cloudflare tunnel (CF-Connecting-IP): must be 401
 	reqLANCF := httptest.NewRequest(http.MethodGet, "/api/secret", nil)
 	reqLANCF.RemoteAddr = "192.168.1.100:12345"
+	reqLANCF.Host = "127.0.0.1:58900"
 	reqLANCF.Header.Set("CF-Connecting-IP", "203.0.113.50")
 	rr3 := httptest.NewRecorder()
 	wrappedTrust.ServeHTTP(rr3, reqLANCF)
@@ -569,6 +587,7 @@ func TestRequestAuthorized(t *testing.T) {
 	mk := func(remote string, mutate func(*http.Request)) *http.Request {
 		r := httptest.NewRequest(http.MethodGet, "/", nil)
 		r.RemoteAddr = remote
+		r.Host = "127.0.0.1:58900"
 		if mutate != nil {
 			mutate(r)
 		}
@@ -624,6 +643,7 @@ func TestHandlePair_DeviceKeyDedupeAndCookieSecure(t *testing.T) {
 		body, _ := json.Marshal(PairRequest{PairingCode: code.Code, DeviceName: "Web Browser (Desktop)", Platform: "web", DeviceKey: key})
 		r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/pair", bytes.NewReader(body))
 		r.RemoteAddr = "192.168.50.9:5555"
+		r.Host = "127.0.0.1:58900"
 		if mutate != nil {
 			mutate(r)
 		}

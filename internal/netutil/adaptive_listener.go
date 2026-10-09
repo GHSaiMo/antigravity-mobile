@@ -59,6 +59,14 @@ func (l *AdaptiveListener) Accept() (net.Conn, error) {
 			return nil, net.ErrClosed
 		}
 
+		// SEC: only a loopback peer (the local cloudflared connector) may supply a PROXY header.
+		// Anyone else could forge "PROXY TCP4 127.0.0.1 ..." and pose as localhost, which the
+		// auth middleware trusts. Non-loopback peers are passed through untouched, so a forged
+		// header simply reaches the HTTP parser as garbage.
+		if !isLoopbackPeer(conn.RemoteAddr()) {
+			return conn, nil
+		}
+
 		timeout := l.HeaderTimeout
 		if timeout <= 0 {
 			timeout = 3 * time.Second
@@ -101,6 +109,18 @@ func (l *AdaptiveListener) Accept() (net.Conn, error) {
 			remoteAddr: remoteAddr,
 		}, nil
 	}
+}
+
+func isLoopbackPeer(a net.Addr) bool {
+	if a == nil {
+		return false
+	}
+	host, _, err := net.SplitHostPort(a.String())
+	if err != nil {
+		host = a.String()
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // bufferedConn wraps net.Conn with a buffered reader to ensure bytes peeked

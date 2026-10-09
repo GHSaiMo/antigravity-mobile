@@ -425,3 +425,13 @@ func TestHandleFileRaw_JSONAndLog(t *testing.T) {
 		t.Errorf("expected text/plain, got: %s", ct)
 	}
 }
+
+func TestIsSafeFilePath_CaseInsensitiveSensitiveDirs(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	for _, p := range []string{".aws/credentials", ".AWS/credentials", ".SSH/config", "Library/Application Support/x", "library/application support/x"} {
+		if IsSafeFilePath(filepath.Join(home, p)) {
+			t.Errorf("%s must be restricted", p)
+		}
+	}
+}
