@@ -10,7 +10,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -39,7 +38,6 @@ internal fun suggestCommitMessage(files: List<GitFileStatus>): String {
 @Composable
 fun GitCommitSheet(
     state: GitSheetState,
-    onRefresh: () -> Unit,
     onCommit: (message: String, paths: List<String>, push: Boolean) -> Unit,
     onRetryPush: () -> Unit,
     onDelegateToAgent: () -> Unit,
@@ -72,24 +70,24 @@ fun GitCommitSheet(
         contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
         modifier = modifier
     ) {
+        // 文件多到半屏放不下时默认撑满整个面板
+        val tall = (status?.files?.size ?: 0) > 3
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .then(if (tall) Modifier.fillMaxHeight() else Modifier)
                 .navigationBarsPadding()
                 .imePadding()
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 24.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text("提交改动", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary)
-                IconButton(onClick = onRefresh, enabled = !state.isLoading && !state.isWorking, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Default.Refresh, contentDescription = "刷新", tint = colors.textSecondary, modifier = Modifier.size(18.dp))
-                }
-            }
+            Text(
+                "提交改动",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = colors.textPrimary,
+                modifier = Modifier.padding(bottom = 10.dp)
+            )
 
             val result = state.result
             when {
@@ -97,7 +95,11 @@ fun GitCommitSheet(
                 state.error != null && status == null -> {
                     NoticeRow(state.error, isError = true)
                     Spacer(Modifier.height(12.dp))
-                    TextButton(onClick = onDelegateToAgent) { Text("改为让 Agent 提交", color = colors.accentIndigo) }
+                    Button(
+                        onClick = onDelegateToAgent,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    ) { Text("改为让 Agent 提交") }
                 }
                 result != null && result.committed -> CommitDone(result.commitId, result.pushed, result.pushError, state, onRetryPush, onDismiss)
                 status != null -> {
@@ -117,7 +119,9 @@ fun GitCommitSheet(
                         state.actionError?.let { Spacer(Modifier.height(8.dp)); NoticeRow(it, isError = true) }
                     } else {
                         LazyColumn(
-                            modifier = Modifier.fillMaxWidth().heightIn(max = 260.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .then(if (tall) Modifier.weight(1f) else Modifier.heightIn(max = 260.dp)),
                             verticalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
                             items(status.files, key = { it.path }) { f ->
@@ -128,6 +132,14 @@ fun GitCommitSheet(
                                 )
                             }
                         }
+                        Spacer(Modifier.height(12.dp))
+                        // 主操作：让 Agent 提交，居中显示在变更文件区下方
+                        Button(
+                            onClick = onDelegateToAgent,
+                            enabled = !state.isWorking,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
+                        ) { Text("让 Agent 提交", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
                         Spacer(Modifier.height(12.dp))
                         OutlinedTextField(
                             value = message,
@@ -150,15 +162,12 @@ fun GitCommitSheet(
                                 modifier = Modifier.weight(1f),
                                 shape = RoundedCornerShape(12.dp)
                             ) { Text("提交") }
-                            Button(
+                            FilledTonalButton(
                                 onClick = { onCommit(message, pathsArg, true) },
                                 enabled = canCommit,
                                 modifier = Modifier.weight(1f),
                                 shape = RoundedCornerShape(12.dp)
                             ) { Text(if (state.isWorking) "处理中..." else "提交并推送") }
-                        }
-                        TextButton(onClick = onDelegateToAgent, enabled = !state.isWorking, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-                            Text("让 Agent 写提交信息并提交", fontSize = 12.5.sp, color = colors.accentIndigo)
                         }
                     }
                 }

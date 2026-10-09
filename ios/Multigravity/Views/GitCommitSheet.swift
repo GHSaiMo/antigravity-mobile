@@ -17,6 +17,7 @@ public struct GitCommitSheet: View {
     @State private var unchecked: Set<String> = []
     @State private var message: String = ""
     @State private var messageEdited = false
+    @State private var detent: PresentationDetent = .medium
 
     public init(viewModel: ChatViewModel, onDelegateToAgent: @escaping () -> Void) {
         self.viewModel = viewModel
@@ -34,20 +35,9 @@ public struct GitCommitSheet: View {
             }
             .navigationTitle("提交改动")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        viewModel.refreshGitStatus()
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .disabled(viewModel.gitSheet?.isLoading == true || viewModel.gitSheet?.isWorking == true)
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("完成") { dismiss() }
-                }
-            }
         }
+        .presentationDetents([.medium, .large], selection: $detent)
+        .presentationDragIndicator(.visible)
     }
 
     @ViewBuilder
@@ -64,6 +54,7 @@ public struct GitCommitSheet: View {
             VStack(spacing: 14) {
                 notice(err, icon: "exclamationmark.triangle.fill", tint: .orange)
                 Button("改为让 Agent 提交") { onDelegateToAgent() }
+                    .buttonStyle(.glass)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let status = state.status {
@@ -93,6 +84,7 @@ public struct GitCommitSheet: View {
                             Text(state.isWorking ? "推送中..." : "推送 \(status.ahead) 个未推送的提交")
                                 .frame(maxWidth: .infinity)
                         }
+                        .buttonStyle(.glass)
                         .disabled(state.isWorking)
                     }
                     if let err = state.actionError {
@@ -104,6 +96,16 @@ public struct GitCommitSheet: View {
                     ForEach(status.files) { file in
                         fileRow(file)
                     }
+                }
+                Section {
+                    Button { onDelegateToAgent() } label: {
+                        Text("让 Agent 提交").font(.system(size: 16, weight: .semibold)).frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.glassProminent)
+                    .controlSize(.large)
+                    .disabled(state.isWorking)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
                 }
                 Section("提交信息") {
                     // 只有用户输入才走这个 Binding 的 set，程序刷新建议文案不会把它标记成「已手改」
@@ -123,7 +125,7 @@ public struct GitCommitSheet: View {
                         } label: {
                             Text("提交").frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.glass)
                         .disabled(!canCommit)
 
                         Button {
@@ -131,17 +133,19 @@ public struct GitCommitSheet: View {
                         } label: {
                             Text(state.isWorking ? "处理中..." : "提交并推送").frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.glass)
+                        .tint(.indigo)
                         .disabled(!canCommit)
                     }
+                    .controlSize(.large)
                     .listRowBackground(Color.clear)
-                    Button("让 Agent 写提交信息并提交") { onDelegateToAgent() }
-                        .font(.system(size: 13))
-                        .disabled(state.isWorking)
-                        .frame(maxWidth: .infinity)
-                        .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
                 }
             }
+        }
+        .onChange(of: status.files.count, initial: true) { _, count in
+            // 文件多到半屏放不下时默认全屏（只升不降，避免用户手动拉到全屏后又被缩回）
+            if count > 3 { detent = .large }
         }
         .onAppear { refreshSuggestion(status) }
         .onChange(of: status.files) { _, _ in refreshSuggestion(status) }
@@ -234,10 +238,11 @@ public struct GitCommitSheet: View {
                 } label: {
                     Text(state.isWorking ? "推送中..." : "重试推送")
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.glass)
                 .disabled(state.isWorking)
             }
             Button("完成") { dismiss() }
+                .buttonStyle(.glass)
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

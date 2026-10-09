@@ -67,28 +67,30 @@ extension ChatView {
                     }
                     .buttonStyle(.plain)
                     
-                    // 3. Commit：打开 Git 提交浮窗（直接调用网关，不再消耗一轮 Agent 对话）
-                    Button {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        isInputFocused = false
-                        viewModel.openGitSheet()
-                    } label: {
-                        Text("Commit")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(.primary)
-                            .padding(.horizontal, 14)
-                            .frame(height: 32)
-                            .background(Color(uiColor: .secondarySystemBackground))
-                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
-                            )
+                    // 3. Commit：打开 Git 提交浮窗（会话没有 Git 工作区或没有文件变动时不显示）
+                    if viewModel.hasGitChanges {
+                        Button {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            isInputFocused = false
+                            viewModel.openGitSheet()
+                        } label: {
+                            Text("Commit")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(.primary)
+                                .padding(.horizontal, 14)
+                                .frame(height: 32)
+                                .background(Color(uiColor: .secondarySystemBackground))
+                                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+                                )
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
 
                     // 3b. Changes：本会话累计改动的 diff（当前 Antigravity 缺少所需接口时隐藏）
-                    if GatewayCompatStore.shared.isAvailable(GatewayFeature.changes) {
+                    if viewModel.hasSessionChanges {
                         Button {
                             UIImpactFeedbackGenerator(style: .light).impactOccurred()
                             isInputFocused = false

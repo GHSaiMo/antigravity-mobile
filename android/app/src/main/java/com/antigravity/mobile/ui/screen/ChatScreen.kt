@@ -83,6 +83,7 @@ import com.antigravity.mobile.ui.viewmodel.delegateCommitToAgent
 import com.antigravity.mobile.ui.viewmodel.exportMarkdown
 import com.antigravity.mobile.ui.viewmodel.openChangesSheet
 import com.antigravity.mobile.ui.viewmodel.openGitSheet
+import com.antigravity.mobile.ui.viewmodel.refreshActionAvailability
 import com.antigravity.mobile.ui.viewmodel.refreshGitStatus
 import com.antigravity.mobile.ui.viewmodel.retryGitPush
 import com.antigravity.mobile.ui.viewmodel.confirmUndo
@@ -880,7 +881,8 @@ fun ChatScreen(
                                     dismissKeyboard()
                                     viewModel.openChangesSheet()
                                 },
-                                showChanges = compat.isAvailable(com.antigravity.mobile.data.model.GatewayFeature.CHANGES),
+                                showCommit = uiState.hasGitChanges,
+                                showChanges = uiState.hasSessionChanges,
                                 showContinue = uiState.isLatestMessageError,
                                 onContinue = {
                                     dismissKeyboard()
@@ -1156,6 +1158,12 @@ fun ChatScreen(
         )
     }
 
+    // 会话切换、Agent 运行状态翻转（跑完了）、提交/改动面板关闭后重新探测 Commit / Changes 是否该显示
+    val changesSupported = compat.isAvailable(com.antigravity.mobile.data.model.GatewayFeature.CHANGES)
+    LaunchedEffect(uiState.cascadeId, uiState.isRunning, uiState.gitSheet == null, changesSupported) {
+        viewModel.refreshActionAvailability(changesSupported)
+    }
+
     // 本会话改动（累计 diff）
     uiState.changesSheet?.let { sheet ->
         CascadeChangesSheet(state = sheet, onDismiss = { viewModel.closeChangesSheet() })
@@ -1165,7 +1173,6 @@ fun ChatScreen(
     uiState.gitSheet?.let { sheet ->
         GitCommitSheet(
             state = sheet,
-            onRefresh = { viewModel.refreshGitStatus() },
             onCommit = { message, paths, push -> viewModel.commitGit(message, paths, push) },
             onRetryPush = { viewModel.retryGitPush() },
             onDelegateToAgent = { viewModel.delegateCommitToAgent() },

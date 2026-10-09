@@ -31,6 +31,10 @@ extension ChatView {
                 }
             }
         }
+        // 会话切换、Agent 运行状态翻转（跑完了）、提交/改动面板关闭后重新探测 Commit / Changes 是否该显示
+        .task(id: "\(viewModel.cascadeId)|\(viewModel.isRunning)|\(viewModel.gitSheet == nil)") {
+            await viewModel.refreshActionAvailability()
+        }
         .sheet(isPresented: $viewModel.showConfirmUndoSheet) {
             ConfirmUndoSheet(viewModel: viewModel)
                 .presentationDetents([.medium, .large])
@@ -52,8 +56,6 @@ extension ChatView {
                 viewModel.closeGitSheet()
                 insertCommitAndPush()
             }
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
         }
         .sheet(item: $viewModel.exportedMarkdownFile) { file in
             ShareSheetView(activityItems: [file.url])
@@ -138,6 +140,14 @@ extension ChatView {
                 .onEnded { _ in isUserDragging = false }
         )
         .scrollDismissesKeyboard(.interactively)
+        // 不依赖 LazyVStack 里的底部锚点：锚点离屏时它的 GeometryReader 不会被创建，偏移越过内容末尾后整屏全黑
+        .onScrollGeometryChange(for: CGFloat.self) { geo in
+            guard geo.contentSize.height > geo.containerSize.height else { return 0 }
+            // 视口底边超出内容末尾的距离（>0 即底部出现空白）
+            return geo.contentOffset.y + geo.containerSize.height - geo.contentSize.height
+        } action: { _, overshoot in
+            scheduleOvershootHeal(overshoot: overshoot, proxy: proxy)
+        }
         .refreshable {
             await viewModel.loadMessages()
         }
@@ -149,6 +159,12 @@ extension ChatView {
             // 第 2 阶段：等待 NavigationStack 转场动画完全完成（约 0.35s），视口展开至最终真实高度后二次对齐
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                 alignMessages(proxy: proxy, animated: false)
+            }
+            // 第 3 阶段：贴底后底部的行仍没被 LazyVStack 创建（整屏空白）时兜底
+            for delay in [0.7, 1.4] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                    healUnmaterializedBottom(proxy: proxy)
+                }
             }
         }
         .onChange(of: viewModel.isLoading) { _, loading in
@@ -230,9 +246,20 @@ extension ChatView {
         return viewModel.messages.isEmpty && viewModel.stepCount == 0
     }
     
+    /// 消息不多时用普通 VStack：LazyVStack 在程序化滚到底后可能不创建底部的行，整屏空白、要滑一下才出现。
+    /// 长会话仍用 LazyVStack 控制内存与首屏开销，靠 `healUnmaterializedBottom` 兜底。
+    @ViewBuilder
+    func messagesStack<C: View>(@ViewBuilder _ content: () -> C) -> some View {
+        if viewModel.messages.count <= 40 {
+            VStack(spacing: 8) { content() }
+        } else {
+            LazyVStack(spacing: 8) { content() }
+        }
+    }
+
     @ViewBuilder
     func messagesList(proxy: ScrollViewProxy) -> some View {
-        LazyVStack(spacing: 8) {
+        messagesStack {
             if viewModel.hasMore && !viewModel.messages.contains(where: { $0.id == "step-0" || $0.effectiveStepIndex == 0 }) {
                 loadOlderMessagesButton(proxy: proxy)
             }
@@ -308,6 +335,8 @@ extension ChatView {
             }
         }
         .id(message.id)
+        .onAppear { if index == viewModel.messages.count - 1 { lastRowMaterialized = true } }
+        .onDisappear { if index == viewModel.messages.count - 1 { lastRowMaterialized = false } }
     }
     
     func shareContext(forMessageAt index: Int) -> ShareCardContext {

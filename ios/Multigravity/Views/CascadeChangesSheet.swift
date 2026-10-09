@@ -3,7 +3,6 @@ import SwiftUI
 /// 「本会话改动」：Agent 在当前会话里累计改动了哪些文件，点开可看正向 diff。
 public struct CascadeChangesSheet: View {
     @Bindable var viewModel: ChatViewModel
-    @Environment(\.dismiss) private var dismiss
     @State private var viewingDiffFile: RevertPreviewFile? = nil
 
     public init(viewModel: ChatViewModel) {
@@ -21,11 +20,6 @@ public struct CascadeChangesSheet: View {
             }
             .navigationTitle("本会话改动")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("完成") { dismiss() }
-                }
-            }
         }
         .sheet(item: $viewingDiffFile) { file in
             DiffViewerSheet(file: file)
