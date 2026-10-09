@@ -296,6 +296,28 @@ extension ChatViewModel {
         }
     }
     
+    /// 关停一个子代理。先乐观地标成「已结束」，失败时恢复并提示；成功后以网关随后推送的状态为准。
+    @MainActor
+    public func stopSubagent(_ item: SubagentItem) async {
+        guard let url = settings.serverURL, item.isRunning else { return }
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+
+        let previous = self.subagents
+        self.subagents = self.subagents.map { sa in
+            sa.conversationId == item.conversationId
+                ? SubagentItem(conversationId: sa.conversationId, typeName: sa.typeName, role: sa.role, prompt: sa.prompt,
+                               modelTier: sa.modelTier, stepIndex: sa.stepIndex, status: "done", stepCount: sa.stepCount, title: sa.title)
+                : sa
+        }
+        do {
+            try await apiClient.stopSubagent(conversationId: item.conversationId, baseURL: url)
+        } catch {
+            print("[ChatViewModel] stopSubagent failed: \(error)")
+            self.subagents = previous
+            self.attachmentNotice = "关停子代理失败，请稍后重试"
+        }
+    }
+
     @MainActor
     public func proceedArtifact() async {
         guard canProceed, let artifactUri = proceedArtifactUri, let url = settings.serverURL else { return }

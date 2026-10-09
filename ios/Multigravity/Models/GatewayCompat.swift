@@ -8,6 +8,7 @@ public enum GatewayFeature {
     public static let changes = "changes"
     public static let revert = "revert"
     public static let slash = "slash"
+    public static let subagents = "subagents"
 }
 
 /// 升级自检结果（/gateway/status 的 compat 字段）。

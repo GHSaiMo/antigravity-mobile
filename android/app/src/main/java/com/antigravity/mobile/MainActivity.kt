@@ -312,6 +312,11 @@ class MainActivity : ComponentActivity() {
                             onNavigateBack = {
                                 conversationListViewModel.reloadFromCache()
                                 navController.popBackStack()
+                            },
+                            onOpenSubagent = { sub ->
+                                val subTitle = URLEncoder.encode(sub.displayName, "UTF-8")
+                                val subStatus = if (sub.isRunning) "RUNNING" else "IDLE"
+                                navController.navigate("chat/${sub.conversationId}/$subTitle?isNew=false&isUnread=false&status=$subStatus")
                             }
                         )
                     }

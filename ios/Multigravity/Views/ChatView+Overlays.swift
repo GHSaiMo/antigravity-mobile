@@ -20,6 +20,20 @@ extension ChatView {
             .transition(.move(edge: .bottom).combined(with: .opacity))
         }
         
+        if !viewModel.subagents.isEmpty {
+            SubagentsCardView(
+                items: viewModel.subagents,
+                canStop: GatewayCompatStore.shared.isAvailable(GatewayFeature.subagents),
+                onStop: { item in
+                    Task { await viewModel.stopSubagent(item) }
+                },
+                onToggleExpand: { isExpanded in
+                    handleFloatingCardToggle(isExpanded: isExpanded)
+                }
+            )
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+
         if !viewModel.queuedMessages.isEmpty {
             QueuedMessagesCardView(
                 items: viewModel.queuedMessages,

@@ -13,6 +13,7 @@ object GatewayFeature {
     const val CHANGES = "changes"
     const val REVERT = "revert"
     const val SLASH = "slash"
+    const val SUBAGENTS = "subagents"
 }
 
 /**

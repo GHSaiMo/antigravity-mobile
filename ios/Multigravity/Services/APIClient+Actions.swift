@@ -153,6 +153,25 @@ extension APIClient {
     }
     
 
+    // Stop a running subagent (POST /gateway/subagent/stop). Only subagents are accepted by the gateway.
+    public func stopSubagent(conversationId: String, baseURL: URL) async throws {
+        let endpoint = baseURL.appendingPathComponent("gateway/subagent/stop")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["conversationId": conversationId])
+        request.timeoutInterval = 15
+
+        let (data, response) = try await transport.send(request: request)
+        guard let httpResp = response as? HTTPURLResponse else {
+            throw APIError.networkError("Invalid response type")
+        }
+        guard (200...299).contains(httpResp.statusCode) else {
+            let msg = String(data: data, encoding: .utf8) ?? "HTTP \(httpResp.statusCode)"
+            throw APIError.serverError(statusCode: httpResp.statusCode, message: msg)
+        }
+    }
+
     // Stop / cancel a running background task step
     public func stopTask(cascadeId: String, stepIndex: Int, taskId: String, baseURL: URL) async throws {
         let endpoint = baseURL.appendingPathComponent("gateway/cascade/task/stop")

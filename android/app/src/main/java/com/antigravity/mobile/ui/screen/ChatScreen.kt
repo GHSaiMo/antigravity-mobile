@@ -107,6 +107,7 @@ import com.antigravity.mobile.ui.viewmodel.retryLoadMessages
 import com.antigravity.mobile.ui.viewmodel.saveDraftFor
 import com.antigravity.mobile.ui.viewmodel.sendQueuedMessageNow
 import com.antigravity.mobile.ui.viewmodel.skipInteraction
+import com.antigravity.mobile.ui.viewmodel.stopSubagent
 import com.antigravity.mobile.ui.viewmodel.stopTask
 import com.antigravity.mobile.ui.viewmodel.submitInteraction
 
@@ -120,7 +121,8 @@ fun ChatScreen(
     modifier: Modifier = Modifier,
     isNewConversation: Boolean = false,
     isUnreadOnEntry: Boolean = false,
-    initialStatus: com.antigravity.mobile.data.model.ConversationStatus? = null
+    initialStatus: com.antigravity.mobile.data.model.ConversationStatus? = null,
+    onOpenSubagent: (com.antigravity.mobile.data.model.SubagentItem) -> Unit = {}
 ) {
     val context = LocalContext.current
     val haptic = rememberHaptic()
@@ -730,6 +732,7 @@ fun ChatScreen(
 
             // Floating Cards (RunningTasksCard, QueuedMessagesCard, InteractionCard) 对齐 iOS floatingCards
             val hasFloatingCards = uiState.runningTasks.isNotEmpty() ||
+                    uiState.subagents.isNotEmpty() ||
                     uiState.queuedMessages.isNotEmpty() ||
                     uiState.pendingInteraction != null
 
@@ -746,6 +749,19 @@ fun ChatScreen(
                         RunningTasksCard(
                             tasks = uiState.runningTasks,
                             onStopTask = { viewModel.stopTask(it) },
+                            onToggleExpand = { isExpanded ->
+                                handleFloatingCardToggle(isExpanded)
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+
+                    if (uiState.subagents.isNotEmpty()) {
+                        SubagentsCard(
+                            items = uiState.subagents,
+                            canStop = compat.isAvailable(com.antigravity.mobile.data.model.GatewayFeature.SUBAGENTS),
+                            onOpen = onOpenSubagent,
+                            onStop = { viewModel.stopSubagent(it.conversationId) },
                             onToggleExpand = { isExpanded ->
                                 handleFloatingCardToggle(isExpanded)
                             },
@@ -794,6 +810,15 @@ fun ChatScreen(
             }
 
             // Bottom Control Area: Divider + Chips + Attached Images + Input Bar
+            val isSubagentSession = !uiState.parentConversationId.isNullOrBlank()
+            if (isSubagentSession) {
+                SubagentReadOnlyBar(
+                    role = uiState.subagentRole,
+                    isRunning = uiState.isRunning,
+                    canStop = compat.isAvailable(com.antigravity.mobile.data.model.GatewayFeature.SUBAGENTS),
+                    onStop = { viewModel.stopSubagent(cascadeId) }
+                )
+            } else {
             Surface(
                 color = colors.surface,
                 shadowElevation = 4.dp,
@@ -1069,6 +1094,7 @@ fun ChatScreen(
                         }
                     }
                 }
+            }
             }
         }
     }

@@ -247,6 +247,12 @@ public final class ChatViewModel {
     var lastAutoApprovedInteractionId: String? = nil
     public var queuedMessages: [QueuedMessageItem] = []
     public var runningTasks: [RunningTaskItem] = []
+    /// 本会话派发的子代理（来自 stream，不入缓存）。
+    public var subagents: [SubagentItem] = []
+    /// 非空说明当前会话本身就是子代理，界面只读。
+    public var parentConversationId: String? = nil
+    public var subagentRole: String? = nil
+    public var isSubagentSession: Bool { !(parentConversationId ?? "").isEmpty }
     public var isSending: Bool = false
     public var viewingMarkdownFile: MarkdownFileViewerData? = nil
     public var isDownloadingDocument: Bool = false

@@ -260,6 +260,12 @@ extension ChatViewModel {
         
         self.syncQueuedMessages(serverQueue: payload.queuedMessages)
         
+        let newSubagents = payload.subagents ?? []
+        if newSubagents != self.subagents { self.subagents = newSubagents }
+        let newParent = payload.parentConversationId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.parentConversationId = (newParent?.isEmpty == false) ? newParent : nil
+        self.subagentRole = payload.subagentRole
+        
         if let tasks = payload.runningTasks {
             self.runningTasks = tasks
         } else if !self.isRunning && !self.isAwaitingResponse {

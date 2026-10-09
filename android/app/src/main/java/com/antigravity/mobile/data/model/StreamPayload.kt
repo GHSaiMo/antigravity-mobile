@@ -130,6 +130,38 @@ data class RunningTaskItem(
             ?: ""
 }
 
+/** 父会话通过 invoke_subagent 派发的一个子代理（网关 stream 的 `subagents`）。 */
+@Serializable
+data class SubagentItem(
+    val conversationId: String = "",
+    val typeName: String? = null,
+    val role: String? = null,
+    val prompt: String? = null,
+    val modelTier: String? = null,
+    val stepIndex: Int? = null,
+    /** "running" | "done" | "gone"；网关尚未补全时为 null。 */
+    val status: String? = null,
+    val stepCount: Int? = null,
+    val title: String? = null
+) {
+    val isRunning: Boolean get() = status == "running"
+    val isGone: Boolean get() = status == "gone"
+
+    /** 列表里展示的名字：优先角色，其次类型，最后用会话 ID 前 8 位兜底。 */
+    val displayName: String
+        get() = role?.trim()?.takeIf { it.isNotEmpty() }
+            ?: typeName?.trim()?.takeIf { it.isNotEmpty() }
+            ?: conversationId.take(8)
+
+    val statusText: String
+        get() = when (status) {
+            "running" -> "运行中"
+            "gone" -> "已清理"
+            "done" -> "已结束"
+            else -> ""
+        }
+}
+
 @Serializable
 data class StreamUpdatePayload(
     val type: String = "update", // "init", "update", "error"
@@ -148,6 +180,10 @@ data class StreamUpdatePayload(
     val messages: List<GatewayMessageItem>? = null,
     val queuedMessages: List<QueuedMessageItem>? = null,
     val runningTasks: List<RunningTaskItem>? = null,
+    val subagents: List<SubagentItem>? = null,
+    /** 非空说明该会话本身是子代理。 */
+    val parentConversationId: String? = null,
+    val subagentRole: String? = null,
     val isFullSnapshot: Boolean = false,
     val cascadeConfigRaw: String? = null,
     val canProceed: Boolean = false,

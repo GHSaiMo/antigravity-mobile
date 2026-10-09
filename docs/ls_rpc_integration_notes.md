@@ -183,3 +183,22 @@
   表里的 RPC 必须存在于基线，客户端依赖的功能 ID 不允许改名。新增依赖某个 RPC 的功能时，先加进表，测试会提醒。
 - **只检测方法名**。方法还在、字段结构变了的情况检测不到（这类问题靠 `scripts/ls-rpc-snapshot.sh` + 解析 golden 测试 + 真机验证）；
   按约定也不对「Antigravity 版本高于已验证基线」做提示，避免每周升级都打扰。
+
+### 5.8 子代理（Subagent）可见性与关停（2026-10-09，真机抓包）
+
+- **父→子的引用**：父会话每次 `invoke_subagent` 产生一个 `CORTEX_STEP_TYPE_INVOKE_SUBAGENT` 步骤，
+  `invokeSubagent.subagents[i]` 给出 `typeName / role / initialPrompt / modelTier`，`invokeSubagent.results[i].conversationId`
+  给出子会话 ID（两数组按下标对应）。子会话本身是普通会话，`GetCascadeTrajectory` 直接可读。
+- **子→父的引用**：子会话的 `trajectory.metadata`（以及列表摘要的 `trajectoryMetadata`）带 `parentConversationId`、`rootConversationId`、
+  `nestingDepth`、`subagentSpec{typeName, role, model, modelTier}`、`agentScript{name}`。
+- **运行状态不在父会话里**：只能从 `GetAllCascadeTrajectories` 里按子会话 ID 取 `status` / `stepCount`。父会话在子代理工作期间可以是 `IDLE`，
+  所以父会话自己的轨迹没变化时子代理的进展不会触发推送——网关把子代理实时状态并入流的变化检测（`subagentLiveSignature`）。
+- **关停**：`ForceStopCascadeTree {"conversationId": "<id>"}` → `{"stoppedConversationIds": ["<id>", ...]}`。字段名是 `conversationId`
+  （传 `cascadeId` 会报 `could not find conversation`）。它停该会话及其下属，不影响父会话。语言服务器里还有内部的 `KillSubagent`，
+  但没有对应的 RPC；`SendAgentMessage` 的必填字段是 `content`（未探测其余字段，未使用）。
+- **已验证**：对一个刚好在调用瞬间收尾的子代理调用 `ForceStopCascadeTree`，返回了被停的 ID、状态为 `IDLE`；
+  **「中途关停一个仍在工作的子代理」尚未单独验证**，需要真机复测。
+- 网关接口：`POST /gateway/subagent/stop {"conversationId"}`，只接受带 `parentConversationId` 的会话（不会误停主会话）；
+  stream / messages 响应新增 `subagents[]`、`parentConversationId`、`subagentRole`。功能表登记为 `subagents`（依赖 `ForceStopCascadeTree`），
+  缺失时客户端只隐藏关停按钮，查看不受影响。
+- 范围：只读查看 + 关停；不做给子代理发消息。
