@@ -226,13 +226,16 @@ func IsListenAddrLoopback(host string) bool {
 func ExtractClientIP(r *http.Request) string {
 	ip := CleanIP(r.RemoteAddr)
 
-	// If the socket IP is loopback or local, check if an upstream proxy provided client headers
+	// Forwarded-for headers are client-controlled unless a trusted hop wrote them, so they are only
+	// honoured when the socket peer is loopback (our own tunnel connector / local proxy).
 	if IsLoopbackAddr(ip) || ip == "localhost" || ip == "" {
-		if cfIP := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); cfIP != "" {
-			c := CleanIP(cfIP)
-			if net.ParseIP(c) != nil {
+		// Cloudflare overwrites CF-Connecting-IP, so it is authoritative. For a Cloudflare request
+		// never fall back to X-Real-IP / X-Forwarded-For: those pass through from the client.
+		if IsCloudflareRequest(r) {
+			if c := CleanIP(strings.TrimSpace(r.Header.Get("CF-Connecting-IP"))); net.ParseIP(c) != nil {
 				return c
 			}
+			return ip
 		}
 		if realIP := strings.TrimSpace(r.Header.Get("X-Real-IP")); realIP != "" {
 			c := CleanIP(realIP)
@@ -241,12 +244,11 @@ func ExtractClientIP(r *http.Request) string {
 			}
 		}
 		if fwd := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); fwd != "" {
+			// Last entry is the one appended by our nearest proxy; earlier ones are client-supplied.
 			parts := strings.Split(fwd, ",")
-			if len(parts) > 0 {
-				candidate := CleanIP(strings.TrimSpace(parts[0]))
-				if candidate != "" && net.ParseIP(candidate) != nil {
-					return candidate
-				}
+			candidate := CleanIP(strings.TrimSpace(parts[len(parts)-1]))
+			if candidate != "" && net.ParseIP(candidate) != nil {
+				return candidate
 			}
 		}
 	}
