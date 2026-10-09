@@ -435,3 +435,18 @@ func TestIsSafeFilePath_CaseInsensitiveSensitiveDirs(t *testing.T) {
 		}
 	}
 }
+
+func TestIsSafeFilePath_MoreCredentialStores(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	resetWorkspaceRootsForTest()
+	t.Cleanup(resetWorkspaceRootsForTest)
+	for _, p := range []string{".config/gh/hosts.yml", ".zshrc", ".pgpass", ".vault-token", ".azure/accessTokens.json", ".cargo/credentials.toml", ".mozilla/firefox/x/logins.json"} {
+		if IsSafeFilePath(filepath.Join(home, p)) {
+			t.Errorf("%s must be restricted", p)
+		}
+	}
+	if !IsSafeFilePath(filepath.Join(home, "Desktop", "report.pdf")) {
+		t.Error("ordinary Desktop file must stay readable")
+	}
+}

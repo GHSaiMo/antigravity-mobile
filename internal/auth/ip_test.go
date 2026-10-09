@@ -42,12 +42,13 @@ func TestExtractClientIP(t *testing.T) {
 			expectedIP: "198.51.100.5",
 		},
 		{
+			// The last hop is appended by our own proxy; earlier entries are client-supplied.
 			name:       "Loopback with X-Forwarded-For multi-hop",
 			remoteAddr: "127.0.0.1:58900",
 			headers: map[string]string{
 				"X-Forwarded-For": "203.0.113.10, 198.51.100.1",
 			},
-			expectedIP: "203.0.113.10",
+			expectedIP: "198.51.100.1",
 		},
 		{
 			name:       "Public RemoteAddr ignores spoofed X-Forwarded-For",
@@ -97,3 +98,29 @@ func TestRateLimitKeyIP(t *testing.T) {
 	}
 }
 
+
+func TestExtractClientIP_ForwardedHeaderTrust(t *testing.T) {
+	mk := func(remote string, h map[string]string) *http.Request {
+		r := httptest.NewRequest("GET", "/", nil)
+		r.RemoteAddr = remote
+		for k, v := range h {
+			r.Header.Set(k, v)
+		}
+		return r
+	}
+	// Non-loopback peers can never choose their IP.
+	if got := ExtractClientIP(mk("192.168.1.9:1", map[string]string{"X-Forwarded-For": "1.2.3.4"})); got != "192.168.1.9" {
+		t.Errorf("got %s", got)
+	}
+	// Cloudflare request: CF-Connecting-IP wins; client-supplied XFF/X-Real-IP are ignored.
+	if got := ExtractClientIP(mk("127.0.0.1:1", map[string]string{"CF-Connecting-IP": "9.9.9.9", "CF-Ray": "x", "X-Real-IP": "6.6.6.6"})); got != "9.9.9.9" {
+		t.Errorf("got %s", got)
+	}
+	if got := ExtractClientIP(mk("127.0.0.1:1", map[string]string{"CF-Ray": "x", "X-Forwarded-For": "6.6.6.6"})); got != "127.0.0.1" {
+		t.Errorf("got %s", got)
+	}
+	// Local proxy: nearest hop (last XFF entry), not the client-supplied first one.
+	if got := ExtractClientIP(mk("127.0.0.1:1", map[string]string{"X-Forwarded-For": "6.6.6.6, 8.8.8.8"})); got != "8.8.8.8" {
+		t.Errorf("got %s", got)
+	}
+}

@@ -222,6 +222,10 @@ func IsSafeFilePath(path string) bool {
 		"/.multigravity/",
 		"/.antigravity-mobile/",
 		"/.acme.sh/", "/.lego/", "/.certbot/",
+		"/.config/gh/", "/.config/hub/", "/.config/rclone/", "/.config/op/", "/.config/doctl/",
+		"/.config/google-chrome/", "/.config/chromium/", "/.config/bravesoftware/", "/.mozilla/",
+		"/.azure/", "/.oci/", "/.terraform.d/", "/.password-store/", "/.local/share/keyrings/",
+		"/.cargo/", "/.gem/", "/.m2/", "/.gradle/", "/.config/pip/",
 	}
 	for _, sd := range sensitiveDirs {
 		sd = strings.ToLower(sd)
@@ -234,7 +238,10 @@ func IsSafeFilePath(path string) bool {
 	sensitiveNames := []string{
 		"id_rsa", "id_ed25519", "id_ecdsa", "id_dsa",
 		".env", ".envrc", ".git-credentials", ".netrc", ".dockercfg", ".npmrc", ".pypirc",
-		".bash_history", ".zsh_history",
+		".bash_history", ".zsh_history", ".python_history", ".node_repl_history", ".psql_history", ".mysql_history",
+		".zshrc", ".zprofile", ".zshenv", ".bashrc", ".bash_profile", ".profile",
+		".pgpass", ".my.cnf", ".vault-token", ".s3cfg", ".boto", "credentials", "credentials.toml",
+		"hosts.yml", "secrets.json", "secrets.yml", "secrets.yaml", "service-account.json",
 		"oauth_creds.json", "jetski-standalone-oauth-token", "google_accounts.json",
 		"auth_store.json", "credentials.db", "credentials.json",
 		"server.key", "client.key", "ca.key", "tls.key", "ssl.key", "privkey.key",

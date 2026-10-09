@@ -218,7 +218,9 @@ func AuthMiddlewareWithPolicy(store *AuthStore, next http.Handler, policy AuthPo
 			}
 
 			// Ensure session cookie is set so subsequent browser requests remain authenticated
-			if _, err := r.Cookie(DeviceCookieName); err != nil {
+			// Only for genuine loopback: over plain-HTTP LAN the admin token would be sniffable,
+			// and LAN clients are already trusted per request without any cookie.
+			if _, err := r.Cookie(DeviceCookieName); err != nil && isLocalhost {
 				if adminTok := GetAdminToken(); adminTok != "" {
 					http.SetCookie(w, &http.Cookie{
 						Name:     DeviceCookieName,
