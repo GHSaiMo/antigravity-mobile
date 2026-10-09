@@ -123,4 +123,34 @@ extension ChatView {
         performAdaptiveCardScroll(proxy: proxy)
     }
     
+    /// 流式文本每播放一小段后调用：用户没有手动翻看时，无动画贴底，避免动画叠加造成的抖动。
+    func followStreamGrowth(proxy: ScrollViewProxy) {
+        guard hasInitiallyAligned, !isUserDragging else { return }
+        guard isNearBottom || !hasUserInteracted else { return }
+        let now = Date()
+        guard now.timeIntervalSince(lastFollowScrollAt) >= 0.06 else { return }
+        lastFollowScrollAt = now
+        DispatchQueue.main.async {
+            scrollToBottom(proxy: proxy, animated: false)
+        }
+    }
+    
+    /// 长会话里 LazyVStack 用估算高度滚到底，随后真实行高落定，
+    /// 偏移会停在内容末尾之后，底部出现大片空白。检测到“内容比视口长、底部锚点却悬在视口中间”
+    /// 且稳定一小会儿后，主动重新贴底。
+    func scheduleBlankSpaceHeal(anchorMaxY: CGFloat, viewportHeight: CGFloat, proxy: ScrollViewProxy) {
+        let hasBlank = messagesContentHeight > viewportHeight + 1
+            && viewportHeight > 0
+            && anchorMaxY < viewportHeight - 40
+        blankHealTask?.cancel()
+        guard hasBlank else {
+            blankHealTask = nil
+            return
+        }
+        blankHealTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard !Task.isCancelled, !isUserDragging else { return }
+            scrollToBottom(proxy: proxy, animated: false)
+        }
+    }
 }

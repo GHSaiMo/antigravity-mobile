@@ -15,6 +15,9 @@ public struct ChatView: View {
     @State var messagesContentHeight: CGFloat = 0
     @State var currentViewportHeight: CGFloat = 0
     @State var cardToggleTrigger = 0
+    @State var isUserDragging = false
+    @State var blankHealTask: Task<Void, Never>? = nil
+    @State var lastFollowScrollAt: Date = .distantPast
     @State var showCameraPicker = false
     @State var showCameraUnavailableAlert = false
     @State var showCameraPermissionAlert = false

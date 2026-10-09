@@ -658,7 +658,8 @@ fun ChatScreen(
                                 items(
                                     uiState.messages,
                                     key = { if (it.id.isNotBlank()) it.id else "${it.timestamp}_${it.role}_${it.stepIndex ?: 0}" }
-                                ) { msg ->
+                                ) { rawMsg ->
+                                    val msg = com.antigravity.mobile.ui.util.rememberPacedMessage(rawMsg)
                                     MessageBubble(
                                         message = msg,
                                         onPlanClick = { uri, title ->
@@ -684,8 +685,10 @@ fun ChatScreen(
                                                 }
                                             }
                                         } else null,
-                                        shareContextProvider = { target ->
+                                        shareContextProvider = { pacedTarget ->
                                             val list = uiState.messages
+                                            // 播放中的消息是副本，按 id 还原回原始消息再取上下文
+                                            val target = list.firstOrNull { it.id.isNotBlank() && it.id == pacedTarget.id } ?: pacedTarget
                                             val idx = list.indexOfFirst { it === target }.takeIf { it >= 0 } ?: list.size
                                             val question = list.take(idx).lastOrNull { it.isUser }
                                             val badge = ShareCardContext.resolveModel(

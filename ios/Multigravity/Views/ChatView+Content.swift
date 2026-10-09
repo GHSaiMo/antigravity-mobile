@@ -117,6 +117,7 @@ extension ChatView {
             if near != isNearBottom {
                 isNearBottom = near
             }
+            scheduleBlankSpaceHeal(anchorMaxY: anchorMaxY, viewportHeight: viewportHeight, proxy: proxy)
         }
         .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
         .background(Color(uiColor: .systemBackground))
@@ -129,9 +130,12 @@ extension ChatView {
             }
         )
         .simultaneousGesture(
-            DragGesture(minimumDistance: 10).onChanged { _ in
-                hasUserInteracted = true
-            }
+            DragGesture(minimumDistance: 10)
+                .onChanged { _ in
+                    hasUserInteracted = true
+                    isUserDragging = true
+                }
+                .onEnded { _ in isUserDragging = false }
         )
         .scrollDismissesKeyboard(.interactively)
         .refreshable {
@@ -184,9 +188,11 @@ extension ChatView {
                 scrollToBottom(proxy: proxy, animated: true)
             }
         }
-        .onChange(of: viewModel.messages.last) { _, lastMsg in
-            guard lastMsg != nil else { return }
+        .onChange(of: viewModel.messages.last) { oldMsg, lastMsg in
+            guard let lastMsg else { return }
             guard hasInitiallyAligned else { return }
+            // 同一条 Agent 消息的文本增长由 PacedAgentRow 按节奏驱动滚动，这里不再每个增量都动画滚动
+            if lastMsg.isAgent, oldMsg?.id == lastMsg.id { return }
             if !hasUserInteracted || isNearBottom {
                 scrollToBottom(proxy: proxy, animated: true)
             }
@@ -236,7 +242,7 @@ extension ChatView {
             }
             
             ForEach(Array(viewModel.messages.enumerated()), id: \.element.id) { index, message in
-                messageRow(index: index, message: message)
+                messageRow(index: index, message: message, proxy: proxy)
             }
             
             if shouldShowThinkingBubble {
@@ -276,20 +282,31 @@ extension ChatView {
     }
     
     @ViewBuilder
-    func messageRow(index: Int, message: ChatMessage) -> some View {
+    func messageRow(index: Int, message: ChatMessage, proxy: ScrollViewProxy) -> some View {
         let isLast = (index == viewModel.messages.count - 1)
         let isActive = isLast && (viewModel.isRunning || viewModel.isAwaitingResponse)
-        MessageBubbleView(
-            message: message,
-            isActiveToolBatch: isActive,
-            onUndo: GatewayCompatStore.shared.isAvailable(GatewayFeature.revert)
-                ? { msg in viewModel.requestUndo(for: msg) }
-                : nil,
-            onExportMarkdown: GatewayCompatStore.shared.isAvailable(GatewayFeature.export)
-                ? { viewModel.exportMarkdown() }
-                : nil,
-            shareContext: shareContext(forMessageAt: index)
-        )
+        let shareCtx = shareContext(forMessageAt: index)
+        let bubble: (ChatMessage) -> MessageBubbleView = { msg in
+            MessageBubbleView(
+                message: msg,
+                isActiveToolBatch: isActive,
+                onUndo: GatewayCompatStore.shared.isAvailable(GatewayFeature.revert)
+                    ? { msg in viewModel.requestUndo(for: msg) }
+                    : nil,
+                onExportMarkdown: GatewayCompatStore.shared.isAvailable(GatewayFeature.export)
+                    ? { viewModel.exportMarkdown() }
+                    : nil,
+                shareContext: shareCtx
+            )
+        }
+        Group {
+            if message.isAgent {
+                // 流式文本按稳定速度播放，并在播放过程中平滑跟随到底部
+                PacedAgentRow(message: message, onGrow: { followStreamGrowth(proxy: proxy) }, content: bubble)
+            } else {
+                bubble(message)
+            }
+        }
         .id(message.id)
     }
     
