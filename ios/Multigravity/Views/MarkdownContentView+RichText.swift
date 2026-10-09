@@ -346,30 +346,48 @@ extension MarkdownContentView {
         }
         
         let segments = splitCodeSpans(in: text)
-        var hasMarkers = false
-        var processedSegments: [String] = []
-        
+
+        // Mask each code span with a single placeholder so emphasis that wraps inline code
+        // (e.g. 设定为**`Code`（说明）**) is processed as one run instead of being cut apart.
+        var codeSpans: [String] = []
+        var masked = ""
         for segment in segments {
             if segment.isCode {
-                processedSegments.append(segment.content)
-                continue
+                codeSpans.append(segment.content)
+                masked.append(codeSpanPlaceholder)
+            } else {
+                masked += segment.content
             }
-            
-            let normalizedContent = normalizeBoldSpaces(in: segment.content)
-            let (processed, marked) = processDelimitersInSegment(normalizedContent)
-            if marked { hasMarkers = true }
-            processedSegments.append(processed)
         }
-        
-        return (processedSegments.joined(), hasMarkers)
+        if !codeSpans.isEmpty && text.contains(codeSpanPlaceholder) {
+            return (text, false)
+        }
+
+        let normalized = normalizeBoldSpaces(in: masked)
+        let (processed, hasMarkers) = processDelimitersInSegment(normalized)
+
+        var result = ""
+        var index = 0
+        for ch in processed {
+            if ch == codeSpanPlaceholder, index < codeSpans.count {
+                result += codeSpans[index]
+                index += 1
+            } else {
+                result.append(ch)
+            }
+        }
+        return (result, hasMarkers)
     }
+
+    /// Stand-in for an inline code span while delimiter fixing runs (private-use, treated as punctuation).
+    static let codeSpanPlaceholder: Character = "\u{E000}"
     
     static func processDelimitersInSegment(_ text: String) -> (String, Bool) {
         var hasMarkers = false
         var result = text
         
         func isPunctOrSymbol(_ c: Character) -> Bool {
-            return c.isPunctuation || c.isSymbol
+            return c.isPunctuation || c.isSymbol || c == codeSpanPlaceholder
         }
         
         for regex in cjkDelimiterPatterns {
