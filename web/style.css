@@ -5087,3 +5087,329 @@ html[data-unavail~="models"] [data-feature="models"] {
 .subagents-spinner {
   margin: 0;
 }
+
+
+/* =====================================================================
+   玻璃层（Liquid Glass 风格）
+   对齐原生 iOS：浮动的圆形玻璃按钮、顶部渐隐模糊、底部悬浮的胶囊搜索栏 / 输入栏。
+   放在样式表最后，用同名选择器覆盖旧的扁平样式；每个区域独立成块，便于单独回退。
+   ===================================================================== */
+:root {
+  --glass-bg: rgba(58, 58, 62, 0.52);
+  --glass-bg-strong: rgba(44, 44, 48, 0.78);
+  --glass-border: rgba(255, 255, 255, 0.14);
+  --glass-highlight: rgba(255, 255, 255, 0.10);
+  --glass-shadow: 0 8px 28px rgba(0, 0, 0, 0.38);
+  --glass-filter: blur(22px) saturate(180%);
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --glass-bg: rgba(255, 255, 255, 0.62);
+    --glass-bg-strong: rgba(255, 255, 255, 0.86);
+    --glass-border: rgba(255, 255, 255, 0.7);
+    --glass-highlight: rgba(255, 255, 255, 0.9);
+    --glass-shadow: 0 8px 26px rgba(30, 30, 60, 0.14);
+  }
+}
+
+/* ---- 玻璃：通用表面 ---- */
+.glass {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
+  border: 0.5px solid var(--glass-border);
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
+}
+
+/* ---- 1. 顶栏：透明浮层，内容从下面滑过；按钮是浮动的玻璃圆 ---- */
+.ios-navbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  background: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-bottom: none;
+  pointer-events: none;
+}
+
+/* 顶部渐隐模糊：内容滚到顶栏下面时被柔和地虚化 */
+.ios-navbar::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 -18px 0;
+  z-index: -1;
+  background: linear-gradient(to bottom, var(--ios-bg) 0%, color-mix(in srgb, var(--ios-bg) 78%, transparent) 55%, transparent 100%);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  -webkit-mask-image: linear-gradient(to bottom, #000 62%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 62%, transparent 100%);
+}
+
+.ios-navbar .nav-left,
+.ios-navbar .nav-right {
+  pointer-events: auto;
+}
+
+.content-container {
+  position: absolute;
+  inset: 0;
+  width: auto;
+}
+
+.nav-btn {
+  width: 42px;
+  height: 42px;
+  min-width: 42px;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
+  border: 0.5px solid var(--glass-border);
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
+}
+
+.nav-btn:active {
+  background: var(--glass-bg-strong);
+}
+
+/* 顶栏现在是浮层，内容要自己让出位置 */
+#view-conversations .ios-large-title-bar {
+  padding-top: calc(var(--navbar-height) + var(--safe-top) + 10px);
+  background: transparent;
+}
+
+#view-chat .messages-container {
+  padding-top: calc(var(--navbar-height) + var(--safe-top) + 14px);
+}
+
+/* ---- 2. 会话列表：卡片更圆；搜索栏变成底部悬浮的玻璃胶囊 ---- */
+#view-conversations {
+  background-color: var(--ios-bg);
+}
+
+.conv-card {
+  border-radius: 20px;
+  padding: 16px;
+}
+
+.ios-search-bar {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: calc(var(--safe-bottom) + 14px);
+  z-index: 30;
+  padding: 0;
+  background: transparent;
+}
+
+.search-capsule {
+  height: 50px;
+  padding: 0 18px;
+  gap: 10px;
+  border-radius: 25px;
+  background: var(--glass-bg-strong);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
+  border: 0.5px solid var(--glass-border);
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
+}
+
+.search-capsule:focus-within {
+  background: var(--glass-bg-strong);
+  box-shadow: var(--glass-shadow), 0 0 0 2px color-mix(in srgb, var(--ios-blue) 45%, transparent), inset 0 1px 0 var(--glass-highlight);
+}
+
+/* 给悬浮搜索栏留出底部空间 */
+.conversations-list {
+  padding-bottom: calc(96px + var(--safe-bottom));
+}
+
+.content-hits {
+  padding-bottom: calc(96px + var(--safe-bottom));
+}
+
+/* 列表页只保留大标题（对齐原生）；聊天页的行内标题照常显示 */
+#nav-brand-header {
+  display: none;
+}
+
+/* 聊天页滑出时不要在屏幕右缘漏出阴影 */
+#view-chat {
+  box-shadow: none;
+}
+
+#view-chat.active {
+  box-shadow: -6px 0 28px rgba(0, 0, 0, 0.28);
+}
+
+/* ---- 3. 聊天页：底部悬浮栈（浮层卡片 + 胶囊输入栏），消息从它下面滑过 ---- */
+.chat-bottom-stack {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  pointer-events: none;
+}
+
+.chat-bottom-stack > * {
+  pointer-events: auto;
+}
+
+/* 栈背后的渐隐模糊，输入栏区域的文字不会和消息糊在一起 */
+.chat-bottom-stack::before {
+  content: "";
+  position: absolute;
+  inset: -22px 0 0 0;
+  z-index: -1;
+  background: linear-gradient(to top, var(--ios-bg) 0%, color-mix(in srgb, var(--ios-bg) 80%, transparent) 55%, transparent 100%);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  -webkit-mask-image: linear-gradient(to top, #000 62%, transparent 100%);
+  mask-image: linear-gradient(to top, #000 62%, transparent 100%);
+  pointer-events: none;
+}
+
+#view-chat .messages-container {
+  padding-bottom: calc(var(--bottom-stack-h, 150px) + 12px);
+}
+
+.ios-input-bar {
+  background: transparent;
+  border-top: none;
+  padding: 6px 14px calc(10px + var(--safe-bottom)) 14px;
+}
+
+/* 胶囊输入框 */
+.textfield-wrapper {
+  min-height: 48px;
+  padding: 10px 18px;
+  border-radius: 24px;
+  background: var(--glass-bg-strong);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
+  border: 0.5px solid var(--glass-border);
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
+}
+
+.btn-action-circle {
+  width: 48px;
+  height: 48px;
+  box-shadow: var(--glass-shadow);
+}
+
+/* 快捷胶囊（+ / 模型 / Changes / Commit） */
+.chip-pill {
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
+  border: 0.5px solid var(--glass-border);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.10), inset 0 1px 0 var(--glass-highlight);
+}
+
+/* 悬浮的浮层卡片：任务 / 队列 / 子代理 */
+.running-tasks-card,
+.queued-messages-card,
+.subagents-card {
+  border-radius: 24px;
+  background: var(--glass-bg-strong);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
+  border: 0.5px solid var(--glass-border);
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
+  margin: 0 12px 8px 12px;
+}
+
+.subagent-bar {
+  margin: 0 12px 8px 12px;
+  padding: 12px 16px;
+  border-radius: 20px;
+  background: var(--glass-bg-strong);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
+  border: 0.5px solid var(--glass-border);
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
+}
+
+.slash-picker,
+.slash-chip {
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
+}
+
+/* ---- 4. 弹层 / 设置分组 / 警告框 / 交互卡片：统一成玻璃质感 ---- */
+.ios-sheet-overlay {
+  background-color: rgba(0, 0, 0, 0.32);
+}
+
+.ios-sheet-card {
+  background: var(--glass-bg-strong);
+  backdrop-filter: blur(34px) saturate(190%);
+  -webkit-backdrop-filter: blur(34px) saturate(190%);
+  border-top: 0.5px solid var(--glass-border);
+  border-top-left-radius: 28px;
+  border-top-right-radius: 28px;
+  box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.28), inset 0 1px 0 var(--glass-highlight);
+}
+
+.sheet-header {
+  border-bottom-color: color-mix(in srgb, var(--ios-label) 8%, transparent);
+}
+
+/* 玻璃弹层里的分组 / 单元格：用半透明的叠加色，而不是不透明底色 */
+.ios-grouped-section {
+  background-color: color-mix(in srgb, var(--ios-label) 6%, transparent);
+  border-radius: 18px;
+  border-color: color-mix(in srgb, var(--ios-label) 8%, transparent);
+}
+
+.changes-file,
+.git-files,
+.git-message,
+.diff-view {
+  background: color-mix(in srgb, var(--ios-label) 6%, transparent);
+}
+
+.ios-alert-box {
+  border-radius: 22px;
+  background-color: var(--glass-bg-strong);
+  border: 0.5px solid var(--glass-border);
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
+}
+
+.interaction-card {
+  border-radius: 22px;
+  background: var(--glass-bg-strong);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
+  border: 0.5px solid var(--glass-border);
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
+}
+
+.interaction-card-container {
+  padding: 4px 12px 8px;
+}
+
+.app-toast {
+  background: var(--glass-bg-strong);
+  border-color: var(--glass-border);
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
+}
+
+.msg-action-btn {
+  background: var(--glass-bg);
+  border-color: var(--glass-border);
+}
+
+.quick-actions-chips {
+  scrollbar-width: none;
+}
+
+.quick-actions-chips::-webkit-scrollbar {
+  display: none;
+}
