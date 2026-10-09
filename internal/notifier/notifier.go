@@ -352,6 +352,40 @@ func (n *Notifier) NotifyCockpitAlert(title, message string) error {
 	return nil
 }
 
+// NotifyQuotaAlert pushes a low-quota alert. key identifies the (account, reset cycle) so a flaky sender retry
+// cannot double-send; the alerter itself already guarantees one push per level per cycle.
+func (n *Notifier) NotifyQuotaAlert(key, title, body string, critical bool) error {
+	if !n.IsEnabled() {
+		return nil
+	}
+	dedupKey := "quota:" + key
+	if critical {
+		dedupKey += ":critical"
+	}
+	if !n.dedup.TryNotify(dedupKey, 6*time.Hour) {
+		return nil
+	}
+
+	payload := BarkPayload{
+		Title:    title,
+		Body:     body,
+		Icon:     n.cfg.IconURL,
+		Group:    n.cfg.Group,
+		Level:    "active",
+		Category: "quota_alert",
+	}
+	if critical {
+		// 紧急一档：时效性通知 + 告警音，能穿透专注模式（但不用 critical，那会无视静音开关）
+		payload.Level = "timeSensitive"
+		payload.Sound = n.cfg.SoundAction
+	}
+	if err := n.sendToAll(context.Background(), payload); err != nil {
+		n.dedup.Remove(dedupKey)
+		return err
+	}
+	return nil
+}
+
 // OnTrajectoryUpdate handles a real-time trajectory snapshot from WebSocket or polling asynchronously
 // to prevent blocking streaming connections if the push server experiences latency.
 func (n *Notifier) OnTrajectoryUpdate(details *proxy.TrajectoryDetails) {
