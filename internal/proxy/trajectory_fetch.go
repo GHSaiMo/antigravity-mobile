@@ -508,6 +508,7 @@ func (p *Proxy) fetchUpstreamTrajectoryUncached(ctx context.Context, cascadeID s
 	if err := json.NewDecoder(reader).Decode(&data); err != nil {
 		return nil, fmt.Errorf("failed to decode upstream response: %w", err)
 	}
+	compactTrajectoryMedia(&data)
 
 	defaultTrajCache.trajCacheMu.Lock()
 	if defaultTrajCache.trajCacheGen == gen {
