@@ -441,6 +441,10 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		p.HandleCascadeRevertExecute(w, r)
 		return
 	}
+	if r.URL.Path == "/gateway/cascade/changes" {
+		p.HandleCascadeChanges(w, r)
+		return
+	}
 	if r.URL.Path == "/gateway/git/status" {
 		p.HandleGitStatus(w, r)
 		return

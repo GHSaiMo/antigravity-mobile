@@ -1064,6 +1064,14 @@ class ApiClient(
             }
         }
 
+    /** 本会话累计改动（正向 diff）。fromStepIndex 非空时只取该步骤起的改动。 */
+    suspend fun getCascadeChanges(cascadeId: String, fromStepIndex: Int? = null): Result<CascadeChangesResponse> =
+        postGatewayJson(
+            "/gateway/cascade/changes",
+            json.encodeToString(CascadeChangesRequest(cascadeId = cascadeId, fromStepIndex = fromStepIndex)),
+            "获取本会话改动失败"
+        ).mapCatching { json.decodeFromString<CascadeChangesResponse>(it) }
+
     suspend fun getGitStatus(cascadeId: String): Result<GitStatusResponse> =
         postGatewayJson(
             "/gateway/git/status",

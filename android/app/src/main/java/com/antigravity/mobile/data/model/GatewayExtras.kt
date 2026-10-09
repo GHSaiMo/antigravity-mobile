@@ -2,6 +2,22 @@ package com.antigravity.mobile.data.model
 
 import kotlinx.serialization.Serializable
 
+/** 本会话改动（正向累计 diff）。文件结构与撤回预览一致，直接复用 [RevertPreviewFile] 与 Diff 渲染。 */
+@Serializable
+data class CascadeChangesRequest(
+    val cascadeId: String = "",
+    val fromStepIndex: Int? = null
+)
+
+@Serializable
+data class CascadeChangesResponse(
+    val cascadeId: String = "",
+    val files: List<RevertPreviewFile> = emptyList(),
+    val additions: Int = 0,
+    val deletions: Int = 0,
+    val hasChanges: Boolean = false
+)
+
 /** Git 工作区状态与提交。 */
 @Serializable
 data class GitFileStatus(

@@ -254,7 +254,7 @@ fun ConfirmUndoBottomSheet(
 }
 
 @Composable
-private fun FileChangeItem(
+internal fun FileChangeItem(
     file: RevertPreviewFile,
     onViewDiff: () -> Unit,
     modifier: Modifier = Modifier

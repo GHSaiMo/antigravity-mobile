@@ -37,6 +37,14 @@ extension ChatView {
                 .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: Binding(
+            get: { viewModel.changesSheet != nil },
+            set: { if !$0 { viewModel.closeChangesSheet() } }
+        )) {
+            CascadeChangesSheet(viewModel: viewModel)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: Binding(
             get: { viewModel.gitSheet != nil },
             set: { if !$0 { viewModel.closeGitSheet() } }
         )) {

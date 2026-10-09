@@ -70,7 +70,27 @@ extension ChatView {
                             )
                     }
                     .buttonStyle(.plain)
-                    
+
+                    // 3b. Changes：本会话累计改动的 diff
+                    Button {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        isInputFocused = false
+                        viewModel.openChangesSheet()
+                    } label: {
+                        Text("Changes")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.primary)
+                            .padding(.horizontal, 14)
+                            .frame(height: 32)
+                            .background(Color(uiColor: .secondarySystemBackground))
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+
                     // 4. Continue Button (Shown when Agent's latest message is an error)
                     if viewModel.isLatestMessageError {
                         Button(action: handleContinue) {

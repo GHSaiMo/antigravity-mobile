@@ -1,5 +1,21 @@
 import Foundation
 
+// MARK: - 本会话改动（正向累计 diff）
+
+/// 文件结构与撤回预览一致，直接复用 `RevertPreviewFile` 与 `DiffViewerSheet`。
+public struct CascadeChangesResponse: Codable, Sendable {
+    public let cascadeId: String
+    public let files: [RevertPreviewFile]
+    public let additions: Int
+    public let deletions: Int
+    public let hasChanges: Bool
+}
+
+struct CascadeChangesRequest: Encodable {
+    let cascadeId: String
+    var fromStepIndex: Int? = nil
+}
+
 // MARK: - Git
 
 public struct GitFileStatus: Codable, Sendable, Identifiable, Hashable {
