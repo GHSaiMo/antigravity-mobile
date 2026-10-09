@@ -111,10 +111,8 @@ async function sendMessage() {
   const displayText = slashDisplayText(text);
   const sentSlash = slashSelected;
   clearSelectedSlash();
-  const imagesPayload = imagesToSend.map(img => ({
-    base64Data: img.base64Data,
-    mimeType: img.mimeType || "image/jpeg"
-  }));
+  // Only media[] is stored by language_server (and read by the model); the legacy images[] copy
+  // would just double the upload.
   const mediaPayload = imagesToSend.map(img => ({
     inlineData: img.base64Data,
     mimeType: img.mimeType || "image/jpeg"
@@ -131,8 +129,7 @@ async function sendMessage() {
         items: items,
         deliveryStrategy: 2 // WHEN_IDLE
       };
-      if (imagesPayload.length > 0) {
-        payload.images = imagesPayload;
+      if (mediaPayload.length > 0) {
         payload.media = mediaPayload;
       }
       await rpc("SendUserCascadeMessage", payload);
@@ -173,8 +170,7 @@ async function sendMessage() {
       model: activeModel,
       items: items
     };
-    if (imagesPayload.length > 0) {
-      payload.images = imagesPayload;
+    if (mediaPayload.length > 0) {
       payload.media = mediaPayload;
     }
 
