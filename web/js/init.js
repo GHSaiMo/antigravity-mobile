@@ -119,6 +119,7 @@ function initApp() {
   if (typeof initPairingScan === "function") initPairingScan();
   initContentSearch();
   initMessageActions();
+  initSlashCommands();
 
   // iOS Alert Dialog: Rename Conversation
   document.getElementById("btn-alert-rename-cancel")?.addEventListener("click", closeRenameAlert);
@@ -165,7 +166,7 @@ function initApp() {
   sendBtn?.addEventListener("click", () => {
     const summary = currentTrajectories[activeCascadeId];
     const isRunning = summary?.status === "CASCADE_RUN_STATUS_RUNNING";
-    const hasContent = (document.getElementById("chat-input")?.value.trim().length > 0) || (pendingImages && pendingImages.length > 0);
+    const hasContent = (document.getElementById("chat-input")?.value.trim().length > 0) || (pendingImages && pendingImages.length > 0) || !!getSelectedSlashCommand();
     if (isRunning && !hasContent) {
       cancelCurrentTask();
     } else {

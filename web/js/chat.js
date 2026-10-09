@@ -423,7 +423,7 @@ function updateChatControls(isRunning, wsUri, hasAction = false) {
   if (sendBtn) {
     const iconSend = sendBtn.querySelector(".icon-send");
     const iconStop = sendBtn.querySelector(".icon-stop");
-    const hasContent = (chatInput && chatInput.value.trim().length > 0) || (pendingImages && pendingImages.length > 0);
+    const hasContent = (chatInput && chatInput.value.trim().length > 0) || (pendingImages && pendingImages.length > 0) || !!getSelectedSlashCommand();
 
     if (isRunning) {
       if (hasContent) {
