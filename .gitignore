@@ -99,3 +99,6 @@ android/*.hprof
 android/.idea/
 android/gradle/gradle-daemon-jvm.properties
 
+
+# --- 介绍视频生成工具与素材（仅本机使用，不入库；成品输出在 dist/）---
+scripts/video/
