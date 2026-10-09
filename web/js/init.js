@@ -118,6 +118,7 @@ function initApp() {
 
   if (typeof initPairingScan === "function") initPairingScan();
   initContentSearch();
+  initMessageActions();
 
   // iOS Alert Dialog: Rename Conversation
   document.getElementById("btn-alert-rename-cancel")?.addEventListener("click", closeRenameAlert);

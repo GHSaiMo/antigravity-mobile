@@ -992,7 +992,7 @@ function generateItemHtml(item, isRunning, isLastItem) {
         }).join("") + `</div>`;
     }
     const textHtml = item.text ? `<div>${escapeHtml(item.text)}</div>` : "";
-    return `<div class="bubble">${imagesHtml}${textHtml}</div>`;
+    return `<div class="bubble-col"><div class="bubble">${imagesHtml}${textHtml}</div>${buildMessageActionsHtml("user")}</div>`;
   }
 
   if (item.type === "agent") {
@@ -1025,10 +1025,13 @@ function generateItemHtml(item, isRunning, isLastItem) {
         }).join("") + `</div>`;
     }
     return `
-      <div class="bubble markdown-body">
-        ${thoughtHtml}
-        <div class="agent-message-body">${bodyHtml}</div>
-        ${artifactsHtml}
+      <div class="bubble-col">
+        <div class="bubble markdown-body">
+          ${thoughtHtml}
+          <div class="agent-message-body">${bodyHtml}</div>
+          ${artifactsHtml}
+        </div>
+        ${buildMessageActionsHtml("agent")}
       </div>
     `;
   }
