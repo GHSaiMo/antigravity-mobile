@@ -1259,7 +1259,7 @@ function loadMermaidScript() {
   if (mermaidLoadPromise) return mermaidLoadPromise;
   mermaidLoadPromise = new Promise((resolve, reject) => {
     const script = document.createElement("script");
-    script.src = "/mermaid.min.js";
+    script.src = "/mermaid.min.js?v=1";
     script.async = true;
     script.onload = () => resolve();
     script.onerror = (e) => {

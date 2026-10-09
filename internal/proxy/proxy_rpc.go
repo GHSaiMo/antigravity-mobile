@@ -35,6 +35,10 @@ func (p *Proxy) handleRpcProxy(w http.ResponseWriter, r *http.Request) {
 			slog.Warn(fmt.Sprintf("[RPC] ⚠️ SLOW: %s in %v", r.URL.Path, dur))
 		}
 	}()
+	if r.Method == http.MethodPost && !isReadOnlyRPC(r.URL.Path) {
+		// Any non-read RPC may change the cascade list; drop the shared snapshot once it completes.
+		defer p.invalidateAllTrajectories()
+	}
 	p.mu.RLock()
 	rp := p.activeProxy
 	port := p.activePort
@@ -473,48 +477,58 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 		}(port, token)
 	}
 
-	url := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories", port)
 	bodyBytes, cleanup, _ := readBodyToPool(r.Body, 5*1024*1024)
 	defer cleanup()
-	if len(bodyBytes) == 0 {
-		bodyBytes = []byte("{}")
-	}
 
-	// P4: reuse p.mediumClient; enforce the 4s budget via a context deadline
-	// instead of allocating a new http.Client struct on every request.
+	// P4: enforce the 4s budget via a context deadline instead of allocating a new http.Client per request.
 	listCtx, listCancel := context.WithTimeout(r.Context(), 4*time.Second)
 	defer listCancel()
-	req, err := http.NewRequestWithContext(listCtx, http.MethodPost, url, bytes.NewReader(bodyBytes))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Connect-Protocol-Version", "1")
-	if token != "" {
-		req.Header.Set("x-codeium-csrf-token", token)
-	}
-
-	resp, err := p.mediumClient.Do(req)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		for k, v := range resp.Header {
-			w.Header()[k] = v
-		}
-		w.WriteHeader(resp.StatusCode)
-		io.Copy(w, resp.Body)
-		return
-	}
 
 	var rawMap map[string]json.RawMessage
-	if err := json.NewDecoder(resp.Body).Decode(&rawMap); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	if trimmed := bytes.TrimSpace(bodyBytes); len(trimmed) == 0 || string(trimmed) == "{}" {
+		// Unfiltered list: share one upstream call with the Watcher and other clients.
+		snap, err := p.fetchAllTrajectoriesRaw(listCtx, port, token)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		if err := json.Unmarshal(snap, &rawMap); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	} else {
+		url := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories", port)
+		req, err := http.NewRequestWithContext(listCtx, http.MethodPost, url, bytes.NewReader(bodyBytes))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Connect-Protocol-Version", "1")
+		if token != "" {
+			req.Header.Set("x-codeium-csrf-token", token)
+		}
+
+		resp, err := p.mediumClient.Do(req)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			for k, v := range resp.Header {
+				w.Header()[k] = v
+			}
+			w.WriteHeader(resp.StatusCode)
+			io.Copy(w, resp.Body)
+			return
+		}
+
+		if err := json.NewDecoder(resp.Body).Decode(&rawMap); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	summariesRaw, ok := rawMap["trajectorySummaries"]
@@ -971,4 +985,10 @@ func normalizeFileTypes(body []byte) []byte {
 		idx += 5 + msgLen
 	}
 	return out.Bytes()
+}
+
+// isReadOnlyRPC reports whether an RPC path is a Get*/List* query that cannot change the cascade list.
+func isReadOnlyRPC(path string) bool {
+	name := path[strings.LastIndex(path, "/")+1:]
+	return strings.HasPrefix(name, "Get") || strings.HasPrefix(name, "List")
 }
