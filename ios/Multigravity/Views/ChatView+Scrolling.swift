@@ -18,7 +18,7 @@ extension ChatView {
     
     func alignMessages(proxy: ScrollViewProxy, animated: Bool = false) {
         guard !viewModel.messages.isEmpty else { return }
-        guard !hasUserInteracted else { return }
+        guard !hasUserInteracted, !preserveScrollOnReturn else { return }
         hasInitiallyAligned = true
         smartScroll(proxy: proxy, animated: animated)
     }
@@ -169,7 +169,7 @@ extension ChatView {
     /// 长会话（LazyVStack）程序化滚到底后，底部的行有时不被创建，整屏空白。
     /// 稳定后若最后一行仍未出现，先滚到最后一行再贴底，逼它创建。
     func healUnmaterializedBottom(proxy: ScrollViewProxy) {
-        guard !hasUserInteracted, !isUserDragging, !lastRowMaterialized,
+        guard !hasUserInteracted, !isUserDragging, !lastRowMaterialized, !preserveScrollOnReturn,
               let lastId = viewModel.messages.last?.id else { return }
         proxy.scrollTo(lastId, anchor: .bottom)
         DispatchQueue.main.async {
