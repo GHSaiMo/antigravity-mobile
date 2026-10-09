@@ -59,6 +59,21 @@ type RunningTaskItem struct {
 	StartedAt   string `json:"startedAt,omitempty"`
 }
 
+// SubagentItem is one subagent a conversation dispatched through invoke_subagent.
+// Static fields come from the INVOKE_SUBAGENT step; Status / StepCount / Title are filled from the live list snapshot.
+type SubagentItem struct {
+	ConversationID string `json:"conversationId"`
+	TypeName       string `json:"typeName,omitempty"`
+	Role           string `json:"role,omitempty"`
+	Prompt         string `json:"prompt,omitempty"`
+	ModelTier      string `json:"modelTier,omitempty"`
+	StepIndex      int    `json:"stepIndex"`
+	// Status: "running" | "done" | "gone" (no longer known to the language_server). "" when not yet resolved.
+	Status    string `json:"status,omitempty"`
+	StepCount int    `json:"stepCount,omitempty"`
+	Title     string `json:"title,omitempty"`
+}
+
 type InteractionOption struct {
 	ID     string `json:"id"`
 	Text   string `json:"text"`
@@ -108,6 +123,9 @@ type CascadeMessagesResponse struct {
 	Messages           []CascadeMessageItem `json:"messages"`
 	QueuedMessages     []QueuedMessageItem  `json:"queuedMessages"`
 	RunningTasks       []RunningTaskItem    `json:"runningTasks,omitempty"`
+	Subagents          []SubagentItem       `json:"subagents,omitempty"`
+	ParentConversation string               `json:"parentConversationId,omitempty"`
+	SubagentRole       string               `json:"subagentRole,omitempty"`
 	ActiveModel        string               `json:"activeModel,omitempty"`
 	ActiveModelName    string               `json:"activeModelName,omitempty"` // full display name, e.g. "Gemini 3.8 Flash (High)"
 	ModelDisplayName   string               `json:"modelDisplayName,omitempty"`
@@ -172,6 +190,17 @@ type TrajectoryStep struct {
 		Cwd                 string `json:"cwd"`
 		WaitMsBeforeAsync   string `json:"waitMsBeforeAsync"`
 	} `json:"runCommand,omitempty"`
+	InvokeSubagent *struct {
+		Subagents []struct {
+			TypeName      string `json:"typeName"`
+			Role          string `json:"role"`
+			InitialPrompt string `json:"initialPrompt"`
+			ModelTier     string `json:"modelTier"`
+		} `json:"subagents"`
+		Results []struct {
+			ConversationID string `json:"conversationId"`
+		} `json:"results"`
+	} `json:"invokeSubagent,omitempty"`
 	UserInput       *TrajectoryUserInput `json:"userInput"`
 	PlannerResponse *struct {
 		Response string `json:"response"`
@@ -288,7 +317,14 @@ type upstreamTrajectoryResp struct {
 			Title            string `json:"title"`
 			LastUserViewTime string `json:"lastUserViewTime"`
 		} `json:"annotations"`
-		Summary           string `json:"summary"`
+		Summary  string `json:"summary"`
+		Metadata *struct {
+			ParentConversationID string `json:"parentConversationId"`
+			SubagentSpec         *struct {
+				TypeName string `json:"typeName"`
+				Role     string `json:"role"`
+			} `json:"subagentSpec"`
+		} `json:"metadata"`
 		ExecutorMetadatas []struct {
 			CascadeConfig json.RawMessage `json:"cascadeConfig"`
 		} `json:"executorMetadatas"`
@@ -312,6 +348,9 @@ type TrajectoryDetails struct {
 	AllMessages        []CascadeMessageItem `json:"allMessages"`
 	QueuedMessages     []QueuedMessageItem  `json:"queuedMessages"`
 	RunningTasks       []RunningTaskItem    `json:"runningTasks,omitempty"`
+	Subagents          []SubagentItem       `json:"subagents,omitempty"`
+	ParentConversation string               `json:"parentConversationId,omitempty"`
+	SubagentRole       string               `json:"subagentRole,omitempty"`
 	ActiveModel        string               `json:"activeModel,omitempty"`
 	ActiveModelName    string               `json:"activeModelName,omitempty"`
 	ModelDisplayName   string               `json:"modelDisplayName,omitempty"`

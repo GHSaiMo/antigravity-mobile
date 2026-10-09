@@ -1215,7 +1215,14 @@ func TestParseTrajectoryDetails_UserInputMediaURI(t *testing.T) {
 				Title            string `json:"title"`
 				LastUserViewTime string `json:"lastUserViewTime"`
 			} `json:"annotations"`
-			Summary           string `json:"summary"`
+			Summary  string `json:"summary"`
+			Metadata *struct {
+				ParentConversationID string `json:"parentConversationId"`
+				SubagentSpec         *struct {
+					TypeName string `json:"typeName"`
+					Role     string `json:"role"`
+				} `json:"subagentSpec"`
+			} `json:"metadata"`
 			ExecutorMetadatas []struct {
 				CascadeConfig json.RawMessage `json:"cascadeConfig"`
 			} `json:"executorMetadatas"`

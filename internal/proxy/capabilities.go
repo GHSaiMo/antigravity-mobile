@@ -46,6 +46,7 @@ var Features = []Feature{
 	{ID: "slash", RPCs: []string{"GetSlashCommands"}},
 	{ID: "models", RPCs: []string{"GetAvailableModels", "JetboxWriteState"}}, // 网关有内置列表兜底，客户端不据此隐藏
 	{ID: "queue", RPCs: []string{"DeleteAgentMessage"}},
+	{ID: "subagents", RPCs: []string{"ForceStopCascadeTree"}}, // 只影响「关停子代理」按钮；查看子代理只依赖核心接口
 	{ID: "tasks", RPCs: []string{"CancelCascadeSteps", "ForceStopCascadeTree"}},
 	{ID: "manage", RPCs: []string{"DeleteCascadeTrajectory", "UpdateConversationAnnotations", "LoadTrajectory"}},
 	{ID: "projects", RPCs: []string{"ReadDir", "ReadProjects", "StatUri"}},

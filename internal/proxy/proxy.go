@@ -451,6 +451,10 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		p.handleCascadeTaskStop(w, r)
 		return
 	}
+	if r.URL.Path == "/gateway/subagent/stop" {
+		p.HandleSubagentStop(w, r)
+		return
+	}
 	if r.URL.Path == "/gateway/cascade/revert/preview" {
 		p.HandleCascadeRevertPreview(w, r)
 		return
