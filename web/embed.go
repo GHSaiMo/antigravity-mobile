@@ -47,7 +47,9 @@ func (g *gzipResponseWriter) WriteHeader(status int) {
 		g.ResponseWriter.Header().Get("Content-Encoding") != "" ||
 		strings.HasPrefix(ct, "application/connect+") ||
 		strings.HasPrefix(ct, "application/grpc") ||
-		strings.HasPrefix(ct, "text/event-stream") {
+		strings.HasPrefix(ct, "text/event-stream") ||
+		alreadyCompressedType(ct) ||
+		knownSmallBody(g.ResponseWriter.Header().Get("Content-Length")) {
 		g.skipGzip = true
 		g.ResponseWriter.WriteHeader(status)
 		return
@@ -55,6 +57,33 @@ func (g *gzipResponseWriter) WriteHeader(status int) {
 	g.ResponseWriter.Header().Del("Content-Length")
 	g.ResponseWriter.Header().Set("Content-Encoding", "gzip")
 	g.ResponseWriter.WriteHeader(status)
+}
+
+// gzipMinSize is the smallest body worth compressing: below it the gzip header, trailer and chunked
+// framing outweigh the savings (e.g. a 500 B status reply grows to ~1.2 KB on the wire).
+const gzipMinSize = 1024
+
+func knownSmallBody(contentLength string) bool {
+	n, err := strconv.Atoi(contentLength)
+	return err == nil && n < gzipMinSize
+}
+
+// alreadyCompressedType reports content types that gzip cannot shrink further.
+func alreadyCompressedType(ct string) bool {
+	if strings.HasPrefix(ct, "image/") {
+		return ct != "image/svg+xml" && !strings.HasPrefix(ct, "image/svg+xml;") && !strings.HasPrefix(ct, "image/x-icon") && !strings.HasPrefix(ct, "image/bmp")
+	}
+	if strings.HasPrefix(ct, "video/") || strings.HasPrefix(ct, "audio/") || strings.HasPrefix(ct, "font/woff") {
+		return true
+	}
+	switch {
+	case strings.HasPrefix(ct, "application/zip"), strings.HasPrefix(ct, "application/gzip"),
+		strings.HasPrefix(ct, "application/x-gzip"), strings.HasPrefix(ct, "application/pdf"),
+		strings.HasPrefix(ct, "application/x-7z"), strings.HasPrefix(ct, "application/x-rar"),
+		strings.HasPrefix(ct, "application/x-xz"), strings.HasPrefix(ct, "application/zstd"):
+		return true
+	}
+	return false
 }
 
 func (g *gzipResponseWriter) Write(b []byte) (int, error) {
@@ -218,6 +247,7 @@ func Handler() http.Handler {
 func GzipHandler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") ||
+			r.Header.Get("Range") != "" || // a compressed body would not match the requested byte range
 			strings.Contains(strings.ToLower(r.Header.Get("Upgrade")), "websocket") ||
 			r.Header.Get("Sec-WebSocket-Key") != "" ||
 			strings.Contains(r.URL.Path, "Stream") ||
