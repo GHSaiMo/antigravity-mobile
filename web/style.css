@@ -4197,3 +4197,33 @@ body {
 .scan-actions.hidden {
   display: none;
 }
+
+
+/* ---------- 升级自检 ---------- */
+.compat-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 8px 16px 4px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--ios-red) 16%, transparent);
+  border: 0.5px solid color-mix(in srgb, var(--ios-red) 40%, transparent);
+  color: var(--ios-red);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.compat-banner svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.compat-banner.hidden {
+  display: none;
+}
+
+/* 升级自检判定不可用的功能入口 */
+.feature-unavailable {
+  display: none !important;
+}

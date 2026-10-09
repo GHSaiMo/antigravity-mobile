@@ -291,6 +291,7 @@ document.addEventListener("visibilitychange", () => {
 
 async function loadConversations(quiet = false) {
   const listEl = document.getElementById("conversations-list");
+  refreshGatewayCompat();
   try {
     const data = await rpc("GetAllCascadeTrajectories");
     const summaries = data.trajectorySummaries || {};

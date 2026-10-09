@@ -14,7 +14,7 @@
   <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=4" />
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=4" />
   <link rel="manifest" href="/manifest.json" />
-  <link rel="stylesheet" href="/style.css?v=13" />
+  <link rel="stylesheet" href="/style.css?v=14" />
 </head>
 <body>
   <div id="app">
@@ -61,6 +61,15 @@
     <main class="content-container">
       <!-- View 1: iOS Conversation List -->
       <section id="view-conversations" class="view active">
+        <!-- 升级自检：核心功能缺失时的提示条（见 core.js applyGatewayCompat） -->
+        <div id="compat-banner" class="compat-banner hidden" role="alert">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+            <line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line>
+          </svg>
+          <span id="compat-banner-text"></span>
+        </div>
+
         <!-- Large Title (iOS NavigationStack Style) -->
         <div class="ios-large-title-bar">
           <div class="large-title-brand">
@@ -547,8 +556,8 @@
     <input id="scan-file-gallery" type="file" accept="image/*" hidden>
   </div>
 
-  <script defer src="/js/core.js?v=26"></script>
-  <script defer src="/js/nav.js?v=27"></script>
+  <script defer src="/js/core.js?v=27"></script>
+  <script defer src="/js/nav.js?v=28"></script>
   <script defer src="/js/chat.js?v=27"></script>
   <script defer src="/js/actions.js?v=27"></script>
   <script defer src="/js/media.js?v=28"></script>
