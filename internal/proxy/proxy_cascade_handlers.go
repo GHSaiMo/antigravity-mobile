@@ -351,6 +351,14 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 	}
 
 	respBody := rw.body.Bytes()
+	if rw.statusCode >= 200 && rw.statusCode < 300 && cascadeID != "" {
+		// The pre-send invalidation above can race with a stream poll that reads the old state while
+		// upstream is still processing the send; drop that again and wake the stream so the user
+		// message and the run start show up immediately instead of on the next (idle) tick.
+		ClearTrajectoryCache(cascadeID)
+		ClearPendingMessagesCache(cascadeID)
+		p.notifyStreamTouch(cascadeID)
+	}
 	if rw.statusCode >= 200 && rw.statusCode < 300 {
 		// Ensure ConnectRPC empty responses always return valid JSON "{}"
 		// to prevent any client JSONDecoder from crashing on 0-byte data

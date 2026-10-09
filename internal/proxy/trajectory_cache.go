@@ -40,6 +40,9 @@ const (
 type TrajectoryCache struct {
 	trajCache   map[string]*trajectoryCacheEntry
 	trajCacheMu sync.RWMutex
+	// trajCacheGen is bumped (under trajCacheMu) by ClearTrajectoryCache so that an upstream fetch
+	// started before the invalidation does not write its now-stale result back into trajCache.
+	trajCacheGen uint64
 
 	cascadeTitles       map[string]string
 	cascadeTitlesMu     sync.RWMutex
@@ -260,7 +263,10 @@ func ClearTrajectoryCache(cascadeID string) {
 	}
 	defaultTrajCache.trajCacheMu.Lock()
 	delete(defaultTrajCache.trajCache, cascadeID)
+	defaultTrajCache.trajCacheGen++
 	defaultTrajCache.trajCacheMu.Unlock()
+	// Callers arriving after the invalidation must not join a fetch that may predate it.
+	trajFlights.forget(cascadeID)
 
 	defaultTrajCache.cascadeTitlesMu.Lock()
 	delete(defaultTrajCache.cascadeTitles, cascadeID)
