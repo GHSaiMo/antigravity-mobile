@@ -13,10 +13,12 @@ import com.antigravity.mobile.data.model.LocalDraftSession
 import com.antigravity.mobile.data.model.ProjectItem
 import com.antigravity.mobile.data.service.ApiClient
 import com.antigravity.mobile.data.service.CacheManager
+import com.antigravity.mobile.data.service.ConversationEventsClient
 import com.antigravity.mobile.data.service.PreferencesManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.encodeToString
@@ -24,6 +26,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+
+/** While the gateway event socket is up, pushed hints drive refreshes and polling only runs this slowly. */
+private const val EVENTS_SAFETY_POLL_MS = 60_000L
 
 sealed interface ConversationListUiState {
     data object Loading : ConversationListUiState
@@ -74,6 +79,10 @@ class ConversationListViewModel(
     private val deletedCascadeIds = mutableSetOf<String>()
     private var rawConversations = loadInitialConversations()
     private var pollJob: kotlinx.coroutines.Job? = null
+    private var eventsJob: kotlinx.coroutines.Job? = null
+
+    /** Gateway push hints for list changes; polling below is the fallback and a slow safety net. */
+    private val eventsClient = ConversationEventsClient(prefs) { apiClient.currentBaseUrl }
 
     init {
         if (prefs.isPaired()) {
@@ -116,28 +125,46 @@ class ConversationListViewModel(
     fun startAutoRefresh() {
         if (!prefs.isPaired()) return
         if (pollJob?.isActive == true) return
+        eventsClient.start()
+        eventsJob = viewModelScope.launch {
+            eventsClient.changes.collect { refreshConversationsFromServer() }
+        }
         pollJob = viewModelScope.launch {
             while (true) {
-                val hasRunning = rawConversations.any { it.status.isRunning || it.status.needsAction }
-                val delayMs = if (hasRunning) 4000L else 10000L
-                kotlinx.coroutines.delay(delayMs)
-                if (!prefs.isPaired()) break
-                val convResult = apiClient.fetchConversations()
-                convResult.onSuccess { list ->
-                    rawConversations = mergeWithLocalConversations(list)
-                    persistConversationsToCache(rawConversations)
-                    applyFilter()
-                    cacheManager?.prewarmSessions(rawConversations.take(15).map { it.id })
-                    liveActivityManager?.syncWithConversations(rawConversations)
+                if (eventsClient.connected.value) {
+                    // Pushed hints drive refreshes; poll slowly as a safety net, and drop back to
+                    // fast polling the moment the event socket is lost.
+                    kotlinx.coroutines.withTimeoutOrNull(EVENTS_SAFETY_POLL_MS) {
+                        eventsClient.connected.first { !it }
+                    }
+                } else {
+                    val hasRunning = rawConversations.any { it.status.isRunning || it.status.needsAction }
+                    kotlinx.coroutines.delay(if (hasRunning) 4000L else 10000L)
                 }
+                if (!prefs.isPaired()) break
+                refreshConversationsFromServer()
             }
+        }
+    }
+
+    private suspend fun refreshConversationsFromServer() {
+        apiClient.fetchConversations().onSuccess { list ->
+            rawConversations = mergeWithLocalConversations(list)
+            persistConversationsToCache(rawConversations)
+            applyFilter()
+            cacheManager?.prewarmSessions(rawConversations.take(15).map { it.id })
+            liveActivityManager?.syncWithConversations(rawConversations)
         }
     }
 
     fun stopAutoRefresh() {
         pollJob?.cancel()
         pollJob = null
+        eventsJob?.cancel()
+        eventsJob = null
+        eventsClient.stop()
     }
+
 
     private fun loadInitialConversations(): List<ConversationItem> {
         prefs.purgeExpiredTombstones()
@@ -625,7 +652,8 @@ class ConversationListViewModel(
     }
 
     override fun onCleared() {
-        super.onCleared()
         stopAutoRefresh()
+        eventsClient.close()
+        super.onCleared()
     }
 }
