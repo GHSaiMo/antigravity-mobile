@@ -313,6 +313,18 @@ async function loadConversations(quiet = false) {
   }
 }
 
+// 子代理会话不在列表里展示（与原生端一致）：有父会话 / 战斗模式分叉 / 子代理规格 / 嵌套深度 > 0。
+function isSubagentSummary(info) {
+  const meta = info && info.trajectoryMetadata;
+  if (!meta) return false;
+  if (typeof meta.parentConversationId === "string" && meta.parentConversationId.trim()) return true;
+  if (meta.isBattleModeFork === true) return true;
+  if (meta.subagentSpec) return true;
+  if (meta.agentScript) return true;
+  if (typeof meta.nestingDepth === "number" && meta.nestingDepth > 0) return true;
+  return false;
+}
+
 function isConversationUnread(item) {
   if (!item) return false;
   // 运行中或等待操作时不显示未读蓝点，优先展示状态标签
@@ -391,6 +403,7 @@ function renderConversationList(summaries) {
   }
 
   const items = Object.entries(summaries)
+    .filter(([, info]) => !isSubagentSummary(info))
     .map(([id, info]) => ({ id, ...info }))
     .sort((a, b) => new Date(b.lastModifiedTime || 0) - new Date(a.lastModifiedTime || 0))
     .filter((item) => {
@@ -401,8 +414,10 @@ function renderConversationList(summaries) {
     });
 
   if (items.length === 0) {
+    // 有内容命中（或正在搜索）时不显示「暂无匹配」，由下面的内容命中区承接
+    const contentBusy = !!query && contentSearch.query === (searchInput?.value || "").trim() && (contentSearch.loading || contentSearch.results.length > 0);
     listEl.innerHTML = `
-      <div class="loading-state">
+      <div class="loading-state no-match-state${contentBusy ? " hidden" : ""}">
         <p>暂无匹配会话</p>
       </div>
     `;
@@ -971,4 +986,129 @@ function initVisualViewportHandling() {
 
   window.visualViewport.addEventListener("resize", handleViewportChange);
   window.visualViewport.addEventListener("scroll", handleViewportChange);
+}
+
+
+// ---------------------------------------------------------------------------
+// 对话内容全文搜索（language_server SearchConversations，经网关透传）
+// 输入停顿 350ms 后再查；少于 2 个字符不查（单字命中太泛）；偏移量按 Unicode 码点计。
+// ---------------------------------------------------------------------------
+const contentSearch = { timer: 0, seq: 0, results: [], loading: false, query: "" };
+
+function codePointLength(str) {
+  let n = 0;
+  for (const _ of str) n++;
+  return n;
+}
+
+// 把片段按码点偏移切成「普通 / 命中」段并转义成 HTML
+function highlightSnippetHtml(snippet, ranges) {
+  const chars = Array.from(snippet || "");
+  const marks = (ranges || [])
+    .map((r) => [Math.max(0, r.startOffset | 0), Math.min(chars.length, r.endOffsetExclusive | 0)])
+    .filter(([a, b]) => b > a)
+    .sort((x, y) => x[0] - y[0]);
+  let html = "";
+  let cursor = 0;
+  for (const [a, b] of marks) {
+    if (a < cursor) continue; // 重叠的区间忽略
+    html += escapeHtml(chars.slice(cursor, a).join(""));
+    html += `<mark>${escapeHtml(chars.slice(a, b).join(""))}</mark>`;
+    cursor = b;
+  }
+  html += escapeHtml(chars.slice(cursor).join(""));
+  return html;
+}
+
+function syncNoMatchState(contentVisible) {
+  document.querySelector("#conversations-list .no-match-state")?.classList.toggle("hidden", !!contentVisible);
+}
+
+function renderContentHits() {
+  const box = document.getElementById("content-hits");
+  if (!box) return;
+  const query = (document.getElementById("conv-search")?.value || "").trim();
+  if (!query || (!contentSearch.loading && contentSearch.results.length === 0)) {
+    box.classList.add("hidden");
+    box.innerHTML = "";
+    syncNoMatchState(false);
+    return;
+  }
+  // 已经在上面的「标题 / 工作区」匹配里出现的会话不重复展示
+  const shown = new Set(
+    Object.entries(currentTrajectories || {})
+      .filter(([, info]) => !isSubagentSummary(info))
+      .filter(([id, info]) => {
+        const q = query.toLowerCase();
+        const title = formatConversationTitle(info.annotations, info.summary, "").toLowerCase();
+        const ws = (info.workspaceUris?.[0] || "").toLowerCase();
+        return title.includes(q) || ws.includes(q) || id.includes(q);
+      })
+      .map(([id]) => id),
+  );
+  const hits = contentSearch.results.filter((h) => !shown.has(h.cascadeId));
+  if (!contentSearch.loading && hits.length === 0) {
+    box.classList.add("hidden");
+    box.innerHTML = "";
+    syncNoMatchState(false);
+    return;
+  }
+  syncNoMatchState(true);
+  box.classList.remove("hidden");
+  box.innerHTML =
+    `<div class="content-hits-header"><span>对话内容匹配</span>${contentSearch.loading ? '<div class="ios-spinner content-hits-spinner"></div>' : ""}</div>` +
+    hits
+      .map((h) => {
+        const title = h.title && h.title.trim() ? h.title : "未命名会话";
+        const ws = h.workspaceName ? `<div class="content-hit-ws">${escapeHtml(h.workspaceName)}</div>` : "";
+        const snippet = h.snippet ? `<div class="content-hit-snippet">${highlightSnippetHtml(h.snippet, h.snippetMatchRanges)}</div>` : "";
+        return `<button type="button" class="content-hit-card" data-id="${escapeHtml(h.cascadeId)}">
+          <div class="content-hit-title">${escapeHtml(title)}</div>${snippet}${ws}
+        </button>`;
+      })
+      .join("");
+}
+
+function scheduleContentSearch() {
+  clearTimeout(contentSearch.timer);
+  const query = (document.getElementById("conv-search")?.value || "").trim();
+  contentSearch.query = query;
+  const seq = ++contentSearch.seq;
+  // 当前 Antigravity 没有 SearchConversations 时只保留按标题过滤，不再发必然失败的请求
+  if (!isFeatureAvailable(GATEWAY_FEATURE.SEARCH) || codePointLength(query) < 2) {
+    contentSearch.results = [];
+    contentSearch.loading = false;
+    renderContentHits();
+    return;
+  }
+  contentSearch.loading = true;
+  renderContentHits();
+  contentSearch.timer = setTimeout(async () => {
+    try {
+      const data = await rpc("SearchConversations", { query });
+      if (seq !== contentSearch.seq) return; // 已有更新的查询
+      const visible = new Set(
+        Object.entries(currentTrajectories || {})
+          .filter(([, info]) => !isSubagentSummary(info))
+          .map(([id]) => id),
+      );
+      const results = Array.isArray(data.results) ? data.results : [];
+      contentSearch.results = visible.size ? results.filter((h) => visible.has(h.cascadeId)) : results;
+    } catch (err) {
+      if (seq !== contentSearch.seq) return;
+      console.warn("[ContentSearch] failed:", err);
+      contentSearch.results = [];
+    }
+    contentSearch.loading = false;
+    renderContentHits();
+  }, 350);
+}
+
+function initContentSearch() {
+  document.getElementById("content-hits")?.addEventListener("click", (e) => {
+    const card = e.target.closest(".content-hit-card");
+    if (!card) return;
+    const id = card.getAttribute("data-id");
+    if (id) navigateTo(`#c=${id}`);
+  });
 }

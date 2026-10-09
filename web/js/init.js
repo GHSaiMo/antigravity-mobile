@@ -117,6 +117,7 @@ function initApp() {
   });
 
   if (typeof initPairingScan === "function") initPairingScan();
+  initContentSearch();
 
   // iOS Alert Dialog: Rename Conversation
   document.getElementById("btn-alert-rename-cancel")?.addEventListener("click", closeRenameAlert);
@@ -236,6 +237,7 @@ function initApp() {
         }
       }
       renderConversationList(currentTrajectories);
+      scheduleContentSearch();
     });
   }
   if (searchClearBtn) {
@@ -246,6 +248,7 @@ function initApp() {
       }
       searchClearBtn.classList.add("hidden");
       renderConversationList(currentTrajectories);
+      scheduleContentSearch();
     });
   }
 

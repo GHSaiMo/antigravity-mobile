@@ -14,7 +14,7 @@
   <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=4" />
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=4" />
   <link rel="manifest" href="/manifest.json" />
-  <link rel="stylesheet" href="/style.css?v=14" />
+  <link rel="stylesheet" href="/style.css?v=16" />
 </head>
 <body>
   <div id="app">
@@ -124,6 +124,9 @@
             <p>正在连接 Agent...</p>
           </div>
         </div>
+
+        <!-- 对话内容全文搜索命中（language_server SearchConversations），见 nav.js -->
+        <div id="content-hits" class="content-hits hidden" data-feature="search"></div>
       </section>
 
       <!-- View 2: iOS Chat View -->
@@ -557,13 +560,13 @@
   </div>
 
   <script defer src="/js/core.js?v=27"></script>
-  <script defer src="/js/nav.js?v=28"></script>
+  <script defer src="/js/nav.js?v=30"></script>
   <script defer src="/js/chat.js?v=27"></script>
   <script defer src="/js/actions.js?v=27"></script>
   <script defer src="/js/media.js?v=28"></script>
   <script defer src="/js/cockpit.js?v=26"></script>
   <script defer src="/js/scan.js?v=2"></script>
   <!-- init.js 必须最后加载：它在执行时就会调用 initApp()，依赖前面所有脚本里的函数 -->
-  <script defer src="/js/init.js?v=28"></script>
+  <script defer src="/js/init.js?v=29"></script>
 </body>
 </html>
