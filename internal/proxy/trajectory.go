@@ -131,6 +131,7 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	details := p.ParseTrajectoryDetails(rawResp)
+	details.Subagents = p.enrichSubagents(details.Subagents)
 	if details.Title == "" || details.Title == "未命名会话" {
 		if t := p.lookupCascadeTitle(cascadeID, port, token); t != "" {
 			details.Title = t
@@ -187,6 +188,9 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 		Messages:           sliced,
 		QueuedMessages:     details.QueuedMessages,
 		RunningTasks:       details.RunningTasks,
+		Subagents:          details.Subagents,
+		ParentConversation: details.ParentConversation,
+		SubagentRole:       details.SubagentRole,
 		ActiveModel:        details.ActiveModel,
 		ActiveModelName:    details.ActiveModelName,
 		ModelDisplayName:   details.ModelDisplayName,

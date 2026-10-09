@@ -30,6 +30,9 @@ type StreamUpdatePayload struct {
 	Messages           []CascadeMessageItem `json:"messages,omitempty"`
 	QueuedMessages     []QueuedMessageItem  `json:"queuedMessages"`
 	RunningTasks       []RunningTaskItem    `json:"runningTasks,omitempty"`
+	Subagents          []SubagentItem       `json:"subagents,omitempty"`
+	ParentConversation string               `json:"parentConversationId,omitempty"`
+	SubagentRole       string               `json:"subagentRole,omitempty"`
 	IsFullSnapshot     bool                 `json:"isFullSnapshot"`
 	CascadeConfigRaw   string               `json:"cascadeConfigRaw,omitempty"`
 	CanProceed         bool                 `json:"canProceed"`
@@ -68,6 +71,14 @@ func (p *StreamUpdatePayload) Fingerprint() string {
 	if len(p.RunningTasks) > 0 {
 		lastTask := p.RunningTasks[len(p.RunningTasks)-1]
 		tasksKey = fmt.Sprintf("%d:%s:%d", len(p.RunningTasks), lastTask.ID, lastTask.StepIndex)
+	}
+	if len(p.Subagents) > 0 {
+		var sb strings.Builder
+		sb.WriteString(tasksKey)
+		for _, sa := range p.Subagents {
+			fmt.Fprintf(&sb, ";%s:%s:%d", sa.ConversationID, sa.Status, sa.StepCount)
+		}
+		tasksKey = sb.String()
 	}
 	msgsKey := fmt.Sprintf("%d", p.TotalMessages)
 	if len(p.Messages) > 0 {
@@ -281,7 +292,7 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			return true
 		}
 
-		rawSig := rawTrajectorySignature(rawResp)
+		rawSig := rawTrajectorySignature(rawResp) + "|" + p.subagentLiveSignature(rawResp)
 		if !firstPush && rawSig == lastRawSig && (time.Since(lastTitleLookupTime) < 2*time.Second || cachedStreamTitle != "") {
 			// Fast path: Upstream trajectory has not changed at all.
 			// Skip full steps scan, regex image extraction, and payload construction.
@@ -299,6 +310,7 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 		if time.Since(t2) > 100*time.Millisecond {
 			slog.Debug("stream perf: slow ParseTrajectoryDetails", "cascade_id", cascadeID, "took", time.Since(t2))
 		}
+		details.Subagents = p.enrichSubagents(details.Subagents)
 		lastDetails = details
 		if details.Title != "" && details.Title != "未命名会话" {
 			cachedStreamTitle = details.Title
@@ -347,6 +359,9 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			Messages:           slicedMessages,
 			QueuedMessages:     details.QueuedMessages,
 			RunningTasks:       details.RunningTasks,
+			Subagents:          details.Subagents,
+			ParentConversation: details.ParentConversation,
+			SubagentRole:       details.SubagentRole,
 			IsFullSnapshot:     !hasMore,
 			CascadeConfigRaw:   details.CascadeConfigRaw,
 			CanProceed:         details.CanProceed,

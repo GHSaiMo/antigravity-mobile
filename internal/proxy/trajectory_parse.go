@@ -42,6 +42,8 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 	pendingInteraction := buildPendingInteraction(rawResp, steps)
 	queuedMessages := p.buildQueuedMessages(rawResp, steps, allMessages)
 	runningTasks := buildRunningTasks(steps)
+	subagents := p.buildSubagents(steps)
+	parentID, subagentRole := subagentIdentity(rawResp)
 	finalStatus, latestTurnErrorText := resolveFinalStatus(rawResp.Status, steps, lastUserInputIdx)
 	hasError := finalStatus == "CASCADE_RUN_STATUS_ERROR"
 
@@ -59,6 +61,9 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 		AllMessages:        allMessages,
 		QueuedMessages:     queuedMessages,
 		RunningTasks:       runningTasks,
+		Subagents:          subagents,
+		ParentConversation: parentID,
+		SubagentRole:       subagentRole,
 		ActiveModel:        activeModel,
 		ActiveModelName:    activeModelName,
 		ModelDisplayName:   modelDisplayName,
