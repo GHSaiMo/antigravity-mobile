@@ -1072,6 +1072,14 @@ class ApiClient(
             "搜索失败"
         ).mapCatching { json.decodeFromString<ConversationSearchResponse>(it).results }
 
+    /** 导出会话为 Markdown（language_server ConvertTrajectoryToMarkdown，经网关透传）。 */
+    suspend fun exportConversationMarkdown(cascadeId: String): Result<String> =
+        postGatewayJson(
+            "/api/exa.language_server_pb.LanguageServerService/ConvertTrajectoryToMarkdown",
+            buildJsonObject { put("conversationId", cascadeId) }.toString(),
+            "导出失败"
+        ).mapCatching { json.decodeFromString<MarkdownExportResponse>(it).markdown }
+
     // endregion
 
     /**

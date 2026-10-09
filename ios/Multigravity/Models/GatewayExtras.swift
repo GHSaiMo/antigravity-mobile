@@ -50,6 +50,14 @@ struct ConversationSearchResponse: Decodable {
     enum CodingKeys: String, CodingKey { case results }
 }
 
+struct MarkdownExportRequest: Encodable {
+    let conversationId: String
+}
+
+struct MarkdownExportResponse: Decodable {
+    let markdown: String
+}
+
 /// 搜索片段高亮：把码点区间换算成 `AttributedString`。越界或重叠的区间会被丢弃。
 public enum SearchSnippetHighlighter {
     /// 返回 `snippet.unicodeScalars` 上的合法区间（已按起点排序、互不重叠）。

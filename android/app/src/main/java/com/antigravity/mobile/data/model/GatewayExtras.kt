@@ -26,3 +26,6 @@ data class ConversationSearchResponse(
     val results: List<ConversationSearchResult> = emptyList()
 )
 
+@Serializable
+data class MarkdownExportResponse(val markdown: String = "")
+

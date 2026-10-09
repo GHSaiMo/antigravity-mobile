@@ -56,4 +56,13 @@ extension APIClient {
         return resp.results
     }
 
+    /// 导出会话为 Markdown（language_server ConvertTrajectoryToMarkdown，经网关透传）。
+    public func exportConversationMarkdown(cascadeId: String, baseURL: URL) async throws -> String {
+        let resp: MarkdownExportResponse = try await rpc(
+            method: "ConvertTrajectoryToMarkdown",
+            body: MarkdownExportRequest(conversationId: cascadeId),
+            baseURL: baseURL
+        )
+        return resp.markdown
+    }
 }

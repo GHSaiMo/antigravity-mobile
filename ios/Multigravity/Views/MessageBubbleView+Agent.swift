@@ -73,6 +73,13 @@ extension MessageBubbleView {
             if !plainText.isEmpty || !message.imageUrls.isEmpty {
                 shareLongImageButton
             }
+            if let onExportMarkdown {
+                Button {
+                    onExportMarkdown()
+                } label: {
+                    Label("导出 MD", systemImage: "square.and.arrow.down")
+                }
+            }
         }
     }
     

@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Undo
@@ -66,6 +67,7 @@ fun MessageBubble(
     onImageClick: ((url: String?, bitmap: Bitmap?) -> Unit)? = null,
     onImageGroupClick: ((items: List<ImageViewerItem>, initialIndex: Int) -> Unit)? = null,
     onUndoClick: ((GatewayMessageItem) -> Unit)? = null,
+    onExportMarkdownClick: (() -> Unit)? = null,
     shareContextProvider: ((GatewayMessageItem) -> ShareCardContext)? = null
 ) {
     val colors = AntigravityTheme.colors
@@ -480,6 +482,16 @@ fun MessageBubble(
                                 shareCardRequest = ShareCardRequest(userBodyText, true, allUserImages)
                             }
                         )
+                        if (onExportMarkdownClick != null) {
+                            DropdownMenuItem(
+                                text = { Text("导出 MD") },
+                                leadingIcon = { Icon(Icons.Default.FileDownload, contentDescription = "导出 MD") },
+                                onClick = {
+                                    showContextMenu = false
+                                    onExportMarkdownClick()
+                                }
+                            )
+                        }
                         DropdownMenuItem(
                             text = { Text("撤回") },
                             leadingIcon = {
@@ -552,6 +564,16 @@ fun MessageBubble(
                                     shareCardRequest = ShareCardRequest(displayText, false, emptyList())
                                 }
                             )
+                            if (onExportMarkdownClick != null) {
+                                DropdownMenuItem(
+                                    text = { Text("导出 MD") },
+                                    leadingIcon = { Icon(Icons.Default.FileDownload, contentDescription = "导出 MD") },
+                                    onClick = {
+                                        showAgentMenu = false
+                                        onExportMarkdownClick()
+                                    }
+                                )
+                            }
                         }
                     }
 

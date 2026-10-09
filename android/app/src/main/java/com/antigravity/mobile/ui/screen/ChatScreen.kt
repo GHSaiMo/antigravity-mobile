@@ -73,6 +73,7 @@ import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.antigravity.mobile.ui.viewmodel.addImagesFromUris
 import com.antigravity.mobile.ui.viewmodel.cancelExecution
+import com.antigravity.mobile.ui.viewmodel.exportMarkdown
 import com.antigravity.mobile.ui.viewmodel.confirmUndo
 import com.antigravity.mobile.ui.viewmodel.deleteQueuedMessage
 import com.antigravity.mobile.ui.viewmodel.downloadAndPreviewDocument
@@ -657,6 +658,13 @@ fun ChatScreen(
                                         },
                                         onUndoClick = { target ->
                                             viewModel.requestUndo(target)
+                                        },
+                                        onExportMarkdownClick = {
+                                            viewModel.exportMarkdown { title, markdown ->
+                                                coroutineScope.launch {
+                                                    com.antigravity.mobile.ui.util.MarkdownExportUtils.shareMarkdown(context, title, markdown)
+                                                }
+                                            }
                                         },
                                         shareContextProvider = { target ->
                                             val list = uiState.messages
