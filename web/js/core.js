@@ -452,11 +452,12 @@ function gatewayCompatBannerText() {
   return `当前 Antigravity 版本${ver} 与网关不兼容，部分基础功能可能无法使用。请升级网关（mgy）。`;
 }
 
-// 按自检结果显示 / 隐藏带 data-feature 的入口，并刷新首页提示条。
+// 按自检结果隐藏带 data-feature 的入口，并刷新首页提示条。
+// 不可用的功能记在 <html data-unavail="a b"> 上，由 CSS 属性选择器统一隐藏，
+// 这样之后才动态生成的入口（如聊天气泡里的按钮）也自动生效。
 function applyGatewayCompat() {
-  document.querySelectorAll("[data-feature]").forEach((el) => {
-    el.classList.toggle("feature-unavailable", !isFeatureAvailable(el.getAttribute("data-feature")));
-  });
+  const unavailable = gatewayCompat.checked ? gatewayCompat.unavailable : [];
+  document.documentElement.setAttribute("data-unavail", unavailable.join(" "));
   const banner = document.getElementById("compat-banner");
   if (banner) {
     const text = document.getElementById("compat-banner-text");

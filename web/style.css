@@ -4223,8 +4223,14 @@ body {
   display: none;
 }
 
-/* 升级自检判定不可用的功能入口 */
-.feature-unavailable {
+/* 升级自检判定不可用的功能入口：<html data-unavail="..."> 由 core.js 维护 */
+html[data-unavail~="search"] [data-feature="search"],
+html[data-unavail~="export"] [data-feature="export"],
+html[data-unavail~="changes"] [data-feature="changes"],
+html[data-unavail~="revert"] [data-feature="revert"],
+html[data-unavail~="slash"] [data-feature="slash"],
+html[data-unavail~="subagents"] [data-feature="subagents"],
+html[data-unavail~="models"] [data-feature="models"] {
   display: none !important;
 }
 
@@ -4306,4 +4312,85 @@ body {
 .content-hit-ws {
   font-size: 11.5px;
   color: var(--ios-tertiary-label);
+}
+
+
+/* ---------- 气泡操作条（点一下气泡展开） ---------- */
+.bubble-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.message-row.user .bubble-col {
+  align-items: flex-end;
+}
+
+.message-row.agent .bubble-col {
+  align-items: flex-start;
+}
+
+.msg-actions {
+  display: flex;
+  gap: 6px;
+  max-height: 0;
+  margin-top: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: max-height 0.2s ease, opacity 0.18s ease, margin-top 0.2s ease;
+}
+
+.message-row.actions-open .msg-actions {
+  max-height: 40px;
+  margin-top: 6px;
+  opacity: 1;
+}
+
+.msg-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border: 0.5px solid var(--ios-separator-subtle);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ios-secondary-bg) 72%, transparent);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  color: var(--ios-label);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.msg-action-btn:active {
+  background: var(--ios-fill);
+}
+
+/* ---------- 轻提示 ---------- */
+.app-toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--safe-bottom) + 96px);
+  transform: translate(-50%, 12px);
+  max-width: min(86vw, 420px);
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ios-tertiary-bg) 78%, transparent);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 0.5px solid var(--ios-separator-subtle);
+  color: var(--ios-label);
+  font-size: 14px;
+  line-height: 1.4;
+  text-align: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease, transform 0.2s ease;
+  z-index: 4000;
+}
+
+.app-toast.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
 }
