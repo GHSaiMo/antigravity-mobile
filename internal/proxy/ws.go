@@ -158,6 +158,23 @@ var upgrader = websocket.Upgrader{
 	EnableCompression: true, // PERF: permessage-deflate — reduces text/JSON WS bandwidth by 60-80%
 }
 
+// streamWriteBufferPool backs streamUpgrader's write buffers. gorilla borrows a buffer only while a
+// message is being written, so an idle (or between-pushes) stream connection holds no write buffer.
+// Pools must not be shared between upgraders with different WriteBufferSize.
+var streamWriteBufferPool = &sync.Pool{}
+
+// streamUpgrader serves the per-cascade stream (HandleCascadeStream). Unlike the proxy/mux upgrader
+// it neither carries bulk data nor receives anything but control frames from clients, so it uses
+// small buffers: payloads larger than the write buffer are simply split across frames, which every
+// client (browsers, OkHttp, NWConnection) reassembles transparently.
+var streamUpgrader = websocket.Upgrader{
+	ReadBufferSize:    4096,
+	WriteBufferSize:   32 * 1024,
+	WriteBufferPool:   streamWriteBufferPool,
+	CheckOrigin:       CheckWebSocketOrigin,
+	EnableCompression: true,
+}
+
 // sanitizeWebSocketHeaders normalizes HTTP headers required for WebSocket upgrade.
 // Reverse proxies (e.g. Cloudflare Tunnel, Nginx, ALB) or HTTP/2 gateways often:
 // 1. Join duplicate Sec-WebSocket-Key headers into a comma-separated list (e.g. "key1, key2")
