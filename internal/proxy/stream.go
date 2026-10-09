@@ -311,6 +311,7 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			slog.Debug("stream perf: slow ParseTrajectoryDetails", "cascade_id", cascadeID, "took", time.Since(t2))
 		}
 		details.Subagents = p.enrichSubagents(details.Subagents)
+		details.AllMessages = p.enrichSubagentMessages(details.AllMessages)
 		lastDetails = details
 		if details.Title != "" && details.Title != "未命名会话" {
 			cachedStreamTitle = details.Title
