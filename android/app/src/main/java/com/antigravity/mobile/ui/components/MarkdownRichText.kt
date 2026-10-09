@@ -137,7 +137,7 @@ internal fun RichTextRenderer(
 
     Text(
         text = renderData.annotatedString,
-        modifier = Modifier.pointerInput(renderData.annotatedString) {
+        modifier = Modifier.registerTextHit(layoutResult).pointerInput(renderData.annotatedString) {
             detectTapGestures { pos ->
                 layoutResult?.let { layout ->
                     val offset = layout.getOffsetForPosition(pos)
