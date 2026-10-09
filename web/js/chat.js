@@ -615,12 +615,22 @@ function fallbackToHttpPolling(cascadeId) {
     if (streamEl && (streamEl.__currentCascadeId !== cascadeId || streamEl.querySelector(".loading-state"))) {
       loadChat(cascadeId, true);
     }
-    pollTimer = setInterval(() => {
-      if (activeCascadeId === cascadeId && document.visibilityState === "visible") {
-        loadChat(cascadeId, true);
-      }
-    }, 1500);
+    startFallbackPoll(cascadeId);
   }
+}
+
+// HTTP stand-in for the stream: each poll downloads the whole raw trajectory (megabytes for long
+// sessions), so poll every tick only while the agent is running and at most every 10s when idle.
+function startFallbackPoll(cascadeId) {
+  let lastPollAt = Date.now();
+  pollTimer = setInterval(() => {
+    if (activeCascadeId !== cascadeId || document.visibilityState !== "visible") return;
+    const summary = currentTrajectories[cascadeId];
+    const running = summary?.status === "CASCADE_RUN_STATUS_RUNNING" || (summary?.runningTasks && summary.runningTasks.length > 0);
+    if (!running && Date.now() - lastPollAt < 10000) return;
+    lastPollAt = Date.now();
+    loadChat(cascadeId, true);
+  }, 1500);
 }
 
 async function loadChat(cascadeId, isBackgroundPoll = false) {
@@ -642,6 +652,8 @@ async function loadChat(cascadeId, isBackgroundPoll = false) {
     const steps = traj.steps || [];
 
     const summary = currentTrajectories[cascadeId];
+    // The list summary can be stale while the stream is down; the trajectory carries the live status.
+    if (summary && data.status) summary.status = data.status;
     const isRunning = summary?.status === "CASCADE_RUN_STATUS_RUNNING" || (summary?.runningTasks && summary.runningTasks.length > 0);
     const wsUri = traj.workspaceUris?.[0] || "";
 
@@ -686,11 +698,7 @@ async function loadChat(cascadeId, isBackgroundPoll = false) {
     }
 
     if (isRunning && (!activeWs || activeWs.readyState !== WebSocket.OPEN) && !pollTimer) {
-      pollTimer = setInterval(() => {
-        if (activeCascadeId === cascadeId && document.visibilityState === "visible") {
-          loadChat(cascadeId, true);
-        }
-      }, 1500);
+      startFallbackPoll(cascadeId);
     } else if (!isRunning && pollTimer && activeWs && activeWs.readyState === WebSocket.OPEN) {
       clearInterval(pollTimer);
       pollTimer = null;
