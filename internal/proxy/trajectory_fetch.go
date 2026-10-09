@@ -427,6 +427,14 @@ type trajFlightCall struct {
 
 var trajFlights = &trajFlightGroup{calls: make(map[string]*trajFlightCall)}
 
+// forget detaches any in-flight call for key so later callers start a fresh upstream request.
+// Callers already waiting on the old call still receive its result.
+func (g *trajFlightGroup) forget(key string) {
+	g.mu.Lock()
+	delete(g.calls, key)
+	g.mu.Unlock()
+}
+
 func (g *trajFlightGroup) do(key string, fn func() (*upstreamTrajectoryResp, error)) (*upstreamTrajectoryResp, error) {
 	g.mu.Lock()
 	if c, ok := g.calls[key]; ok {
@@ -440,7 +448,9 @@ func (g *trajFlightGroup) do(key string, fn func() (*upstreamTrajectoryResp, err
 
 	defer func() {
 		g.mu.Lock()
-		delete(g.calls, key)
+		if g.calls[key] == c {
+			delete(g.calls, key)
+		}
 		g.mu.Unlock()
 		close(c.done)
 	}()
@@ -449,6 +459,10 @@ func (g *trajFlightGroup) do(key string, fn func() (*upstreamTrajectoryResp, err
 }
 
 func (p *Proxy) fetchUpstreamTrajectoryUncached(ctx context.Context, cascadeID string, port int, token string) (*upstreamTrajectoryResp, error) {
+	defaultTrajCache.trajCacheMu.RLock()
+	gen := defaultTrajCache.trajCacheGen
+	defaultTrajCache.trajCacheMu.RUnlock()
+
 	buf := GetSmallBuffer()
 	defer PutSmallBuffer(buf)
 	buf.WriteString(`{"cascadeId":`)
@@ -496,11 +510,13 @@ func (p *Proxy) fetchUpstreamTrajectoryUncached(ctx context.Context, cascadeID s
 	}
 
 	defaultTrajCache.trajCacheMu.Lock()
-	defaultTrajCache.trajCache[cascadeID] = &trajectoryCacheEntry{
-		fetchedAt: time.Now(),
-		data:      &data,
+	if defaultTrajCache.trajCacheGen == gen {
+		defaultTrajCache.trajCache[cascadeID] = &trajectoryCacheEntry{
+			fetchedAt: time.Now(),
+			data:      &data,
+		}
+		defaultTrajCache.evictTrajCacheLocked()
 	}
-	defaultTrajCache.evictTrajCacheLocked()
 	defaultTrajCache.trajCacheMu.Unlock()
 
 	return &data, nil
