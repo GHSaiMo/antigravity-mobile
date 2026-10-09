@@ -477,3 +477,20 @@ async function refreshGatewayCompat(force = false) {
     applyGatewayCompat();
   } catch (_) {}
 }
+
+// 网关 JSON 接口（POST）。失败时抛出带服务端错误文案的 Error。
+async function postGatewayJson(path, body) {
+  const resp = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body || {}),
+  });
+  let data = null;
+  try {
+    data = await resp.json();
+  } catch (_) {}
+  if (!resp.ok) {
+    throw new Error((data && (data.error || data.message)) || `请求失败 (HTTP ${resp.status})`);
+  }
+  return data || {};
+}

@@ -14,7 +14,7 @@
   <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=4" />
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=4" />
   <link rel="manifest" href="/manifest.json" />
-  <link rel="stylesheet" href="/style.css?v=18" />
+  <link rel="stylesheet" href="/style.css?v=20" />
 </head>
 <body>
   <div id="app">
@@ -205,6 +205,9 @@
               <span id="model-switch-text" class="model-switch-text">Gemini</span>
             </button>
 
+            <button id="btn-changes" class="chip-pill" type="button" data-feature="changes" title="本会话改动">
+              <span>Changes</span>
+            </button>
             <button id="btn-commit-push" class="chip-pill" type="button">
               <span>Commit and Push</span>
             </button>
@@ -368,6 +371,32 @@
             请查看电脑终端网关启动时打印的配对二维码或终端输出的配对 URI。
           </p>
         </div>
+      </div>
+    </div>
+
+    <!-- iOS Bottom Sheet: 本会话改动 / diff（js/changes.js） -->
+    <div id="sheet-changes" class="ios-sheet-overlay hidden" data-feature="changes">
+      <div class="ios-sheet-card tall-sheet-card">
+        <div class="sheet-grabber"></div>
+        <div class="sheet-header">
+          <button id="btn-changes-back" class="sheet-header-btn hidden" type="button">‹ 返回</button>
+          <h2 id="changes-title" class="sheet-title">本会话改动</h2>
+          <button id="btn-changes-close" class="sheet-header-btn primary" type="button">完成</button>
+        </div>
+        <div id="changes-body" class="sheet-body"></div>
+      </div>
+    </div>
+
+    <!-- iOS Bottom Sheet: Git 提交（js/git.js） -->
+    <div id="sheet-git" class="ios-sheet-overlay hidden">
+      <div class="ios-sheet-card tall-sheet-card">
+        <div class="sheet-grabber"></div>
+        <div class="sheet-header">
+          <button id="btn-git-refresh" class="sheet-header-btn" type="button" aria-label="刷新">刷新</button>
+          <h2 class="sheet-title">提交改动</h2>
+          <button id="btn-git-close" class="sheet-header-btn primary" type="button">完成</button>
+        </div>
+        <div id="git-body" class="sheet-body"></div>
       </div>
     </div>
 
@@ -563,7 +592,7 @@
     <input id="scan-file-gallery" type="file" accept="image/*" hidden>
   </div>
 
-  <script defer src="/js/core.js?v=28"></script>
+  <script defer src="/js/core.js?v=29"></script>
   <script defer src="/js/nav.js?v=30"></script>
   <script defer src="/js/chat.js?v=30"></script>
   <script defer src="/js/actions.js?v=29"></script>
@@ -572,7 +601,9 @@
   <script defer src="/js/scan.js?v=2"></script>
   <script defer src="/js/msgmenu.js?v=3"></script>
   <script defer src="/js/slash.js?v=2"></script>
+  <script defer src="/js/changes.js?v=1"></script>
+  <script defer src="/js/git.js?v=1"></script>
   <!-- init.js 必须最后加载：它在执行时就会调用 initApp()，依赖前面所有脚本里的函数 -->
-  <script defer src="/js/init.js?v=31"></script>
+  <script defer src="/js/init.js?v=32"></script>
 </body>
 </html>

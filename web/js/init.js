@@ -120,6 +120,8 @@ function initApp() {
   initContentSearch();
   initMessageActions();
   initSlashCommands();
+  initChangesSheet();
+  initGitSheet();
 
   // iOS Alert Dialog: Rename Conversation
   document.getElementById("btn-alert-rename-cancel")?.addEventListener("click", closeRenameAlert);
@@ -205,23 +207,6 @@ function initApp() {
   updateModelSwitchUI();
 
   // Chips
-  document.getElementById("btn-commit-push")?.addEventListener("click", () => {
-    const input = document.getElementById("chat-input");
-    if (!input) return;
-    const toAppend = "Commit and Push";
-    if (!input.value.trim()) {
-      input.value = toAppend;
-    } else {
-      input.value += "\n" + toAppend;
-    }
-    input.focus();
-    if (activeCascadeId) {
-      DraftManager.set(activeCascadeId, input.value);
-    }
-    if (sendBtn && sendBtn.classList.contains("send-mode")) {
-      sendBtn.classList.add("active");
-    }
-  });
 
   document.getElementById("btn-continue")?.addEventListener("click", handleContinue);
   document.getElementById("btn-proceed")?.addEventListener("click", handleProceed);
