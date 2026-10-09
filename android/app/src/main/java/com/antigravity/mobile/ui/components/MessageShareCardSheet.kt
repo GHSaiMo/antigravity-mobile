@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
@@ -187,15 +188,30 @@ fun MessageShareCardSheet(
     val layer = rememberGraphicsLayer()
     val canIncludeQuestion = !isUserMessage && (shareContext.previousMessage?.hasQuestionContent() ?: false)
 
-    /** 将卡片录制为位图；超过像素上限时等比缩小，避免 OOM / 纹理超限。 */
+    val scaledLayer = rememberGraphicsLayer()
+    val density = androidx.compose.ui.platform.LocalDensity.current
+
+    /**
+     * 将卡片录制为位图。超过像素上限时先把图层按比例缩小录制到第二个图层再取位图，
+     * 避免整张超长图层直接超出 GPU 纹理上限而抛错（表现为"图片未就绪"）。
+     */
     suspend fun capture(): Bitmap? {
         return try {
-            val raw = layer.toImageBitmap().asAndroidBitmap()
-            if (raw.height > MAX_PIXEL_HEIGHT) {
-                val ratio = MAX_PIXEL_HEIGHT.toFloat() / raw.height
-                Bitmap.createScaledBitmap(raw, (raw.width * ratio).roundToInt().coerceAtLeast(1), MAX_PIXEL_HEIGHT, true)
-            } else raw
+            val size = layer.size
+            if (size.height > MAX_PIXEL_HEIGHT) {
+                val ratio = MAX_PIXEL_HEIGHT.toFloat() / size.height
+                val target = androidx.compose.ui.unit.IntSize((size.width * ratio).roundToInt().coerceAtLeast(1), MAX_PIXEL_HEIGHT)
+                scaledLayer.record(density, androidx.compose.ui.unit.LayoutDirection.Ltr, target) {
+                    scale(ratio, pivot = Offset.Zero) {
+                        drawLayer(layer)
+                    }
+                }
+                scaledLayer.toImageBitmap().asAndroidBitmap()
+            } else {
+                layer.toImageBitmap().asAndroidBitmap()
+            }
         } catch (e: Throwable) {
+            android.util.Log.e("MessageShareCard", "capture failed", e)
             null
         }
     }
