@@ -198,10 +198,16 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 				}
 			}
 		}
-		if images, ok := rawMap["images"].([]interface{}); ok {
-			for _, img := range images {
+		// Images arrive as media[].inlineData (current clients) and/or the legacy images[].base64Data.
+		hashedImages := 0
+		for _, field := range [...]struct{ list, data string }{{"media", "inlineData"}, {"images", "base64Data"}} {
+			if field.list == "images" && hashedImages > 0 {
+				break // the same images repeated in the legacy field add nothing
+			}
+			list, _ := rawMap[field.list].([]interface{})
+			for _, img := range list {
 				if imgMap, ok := img.(map[string]interface{}); ok {
-					if b64, ok := imgMap["base64Data"].(string); ok && len(b64) > 0 {
+					if b64, ok := imgMap[field.data].(string); ok && len(b64) > 0 {
 						prefix := b64
 						if len(prefix) > 1024 {
 							prefix = prefix[:1024]
@@ -210,8 +216,19 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 						imgTag := fmt.Sprintf(":img:%x", h[:8])
 						contentHasher.Write([]byte(imgTag))
 						contentLen += len(imgTag)
+						hashedImages++
 					}
 				}
+			}
+		}
+
+		// language_server only keeps media[]; the legacy images[] copy (older apps send both) just
+		// doubles what is forwarded upstream, so drop it whenever media is present.
+		imagesDropped := false
+		if media, ok := rawMap["media"].([]interface{}); ok && len(media) > 0 {
+			if _, hasImages := rawMap["images"]; hasImages {
+				delete(rawMap, "images")
+				imagesDropped = true
 			}
 		}
 
@@ -244,7 +261,7 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 		_, hasModel := rawMap["model"]
 		_, hasCfgRaw := rawMap["cascadeConfigRaw"]
 		_, hasText := rawMap["text"]
-		needsModification := targetModel != "" || hasModel || hasCfgRaw || hasText || attachmentsApplied || slashApplied || tagApplied
+		needsModification := targetModel != "" || hasModel || hasCfgRaw || hasText || attachmentsApplied || slashApplied || tagApplied || imagesDropped
 
 		if !needsModification {
 			// No changes required — forward original bytes as-is.
