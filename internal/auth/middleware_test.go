@@ -480,7 +480,7 @@ func TestSecurityHeadersMiddlewarePermissionsPolicy(t *testing.T) {
 	if policy == "" {
 		t.Errorf("expected Permissions-Policy header to be present")
 	}
-	if policy != "camera=(), microphone=(), geolocation=()" {
+	if policy != "camera=(self), microphone=(), geolocation=()" {
 		t.Errorf("unexpected Permissions-Policy: %q", policy)
 	}
 }

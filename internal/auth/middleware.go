@@ -305,7 +305,7 @@ var defaultSecurityHeaders = []staticHeaderItem{
 	{"X-Content-Type-Options", "nosniff"},
 	{"X-Frame-Options", "DENY"},
 	{"Referrer-Policy", "strict-origin-when-cross-origin"},
-	{"Permissions-Policy", "camera=(), microphone=(), geolocation=()"},
+	{"Permissions-Policy", "camera=(self), microphone=(), geolocation=()"}, // camera 仅本站可用：Web 配对页扫码需要
 	// S4: Security policy supporting both desktop Monaco workbench and mobile PWA with WebSocket
 	{"Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.gstatic.com https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https: ws: wss:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"},
 }

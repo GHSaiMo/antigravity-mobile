@@ -116,6 +116,8 @@ function initApp() {
     if (e.target === sheetPairing) closePairingSheet();
   });
 
+  if (typeof initPairingScan === "function") initPairingScan();
+
   // iOS Alert Dialog: Rename Conversation
   document.getElementById("btn-alert-rename-cancel")?.addEventListener("click", closeRenameAlert);
   document.getElementById("btn-alert-rename-save")?.addEventListener("click", submitRenameConversation);
