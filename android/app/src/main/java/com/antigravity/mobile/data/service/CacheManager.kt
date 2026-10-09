@@ -7,7 +7,10 @@ import com.antigravity.mobile.data.model.ConversationItem
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -30,7 +33,16 @@ class CacheManager(context: Context) {
     private val memSessions = ConcurrentHashMap<String, CachedChatSession>()
 
     /**
-     * Persist chat session to memory and asynchronously write to disk.
+     * Latest not-yet-written snapshot per session. The chat stream saves on every frame (several per
+     * second while an agent runs); disk writes are coalesced to one per [SESSION_WRITE_INTERVAL_MS].
+     */
+    private val pendingWrites = ConcurrentHashMap<String, CachedChatSession>()
+
+    /** Serialises session file operations so two writes never interleave on the same .tmp file. */
+    private val fileMutex = Mutex()
+
+    /**
+     * Persist chat session to memory immediately and to disk at most once per [SESSION_WRITE_INTERVAL_MS].
      */
     fun saveSession(session: CachedChatSession) {
         val cascadeId = session.cascadeId
@@ -38,7 +50,27 @@ class CacheManager(context: Context) {
 
         memSessions[cascadeId] = session
 
+        val alreadyScheduled = pendingWrites.put(cascadeId, session) != null
+        if (!alreadyScheduled) {
+            ioScope.launch {
+                delay(SESSION_WRITE_INTERVAL_MS)
+                writePendingSession(cascadeId)
+            }
+        }
+    }
+
+    /** Writes every pending session now (e.g. when the app leaves the foreground). */
+    fun flushPendingSessionWrites() {
+        val ids = pendingWrites.keys.toList()
+        if (ids.isEmpty()) return
         ioScope.launch {
+            ids.forEach { writePendingSession(it) }
+        }
+    }
+
+    private suspend fun writePendingSession(cascadeId: String) {
+        fileMutex.withLock {
+            val session = pendingWrites.remove(cascadeId) ?: return
             try {
                 val dataStr = json.encodeToString(session)
                 val targetFile = File(sessionsDir, "$cascadeId.json")
@@ -127,19 +159,22 @@ class CacheManager(context: Context) {
     fun deleteSession(cascadeId: String) {
         if (cascadeId.isBlank()) return
         memSessions.remove(cascadeId)
+        pendingWrites.remove(cascadeId)
 
         ioScope.launch {
-            try {
-                val file = File(sessionsDir, "$cascadeId.json")
-                if (file.exists()) {
-                    file.delete()
+            fileMutex.withLock {
+                try {
+                    val file = File(sessionsDir, "$cascadeId.json")
+                    if (file.exists()) {
+                        file.delete()
+                    }
+                    val tmpFile = File(sessionsDir, "$cascadeId.json.tmp")
+                    if (tmpFile.exists()) {
+                        tmpFile.delete()
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to delete session file $cascadeId: ${e.message}")
                 }
-                val tmpFile = File(sessionsDir, "$cascadeId.json.tmp")
-                if (tmpFile.exists()) {
-                    tmpFile.delete()
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to delete session file $cascadeId: ${e.message}")
             }
         }
     }
@@ -186,11 +221,14 @@ class CacheManager(context: Context) {
      */
     fun clearAllSessions() {
         memSessions.clear()
+        pendingWrites.clear()
         ioScope.launch {
-            try {
-                sessionsDir.listFiles()?.forEach { it.delete() }
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to clear sessions directory: ${e.message}")
+            fileMutex.withLock {
+                try {
+                    sessionsDir.listFiles()?.forEach { it.delete() }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to clear sessions directory: ${e.message}")
+                }
             }
         }
     }
@@ -198,5 +236,6 @@ class CacheManager(context: Context) {
     companion object {
         private const val TAG = "CacheManager"
         private const val MAX_CACHED_SESSIONS = 100
+        private const val SESSION_WRITE_INTERVAL_MS = 1500L
     }
 }
