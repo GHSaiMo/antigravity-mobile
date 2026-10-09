@@ -1064,6 +1064,32 @@ class ApiClient(
             }
         }
 
+    suspend fun getGitStatus(cascadeId: String): Result<GitStatusResponse> =
+        postGatewayJson(
+            "/gateway/git/status",
+            json.encodeToString(GitCascadeRequest(cascadeId = cascadeId)),
+            "获取 Git 状态失败"
+        ).mapCatching { json.decodeFromString<GitStatusResponse>(it) }
+
+    suspend fun gitCommit(
+        cascadeId: String,
+        message: String,
+        paths: List<String>,
+        push: Boolean
+    ): Result<GitCommitResponse> =
+        postGatewayJson(
+            "/gateway/git/commit",
+            json.encodeToString(GitCommitRequest(cascadeId = cascadeId, message = message, paths = paths, push = push)),
+            "提交失败"
+        ).mapCatching { json.decodeFromString<GitCommitResponse>(it) }
+
+    suspend fun gitPush(cascadeId: String): Result<GitCommitResponse> =
+        postGatewayJson(
+            "/gateway/git/push",
+            json.encodeToString(GitCascadeRequest(cascadeId = cascadeId)),
+            "推送失败"
+        ).mapCatching { json.decodeFromString<GitCommitResponse>(it) }
+
     /** 会话内容全文搜索（language_server SearchConversations，经网关透传）。 */
     suspend fun searchConversations(query: String): Result<List<ConversationSearchResult>> =
         postGatewayJson(

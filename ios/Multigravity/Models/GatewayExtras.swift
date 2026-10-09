@@ -1,5 +1,49 @@
 import Foundation
 
+// MARK: - Git
+
+public struct GitFileStatus: Codable, Sendable, Identifiable, Hashable {
+    public var id: String { path }
+    public let path: String
+    public let origPath: String?
+    public let index: String
+    public let worktree: String
+    public let staged: Bool
+    /// MODIFIED / ADDED / DELETED / RENAMED / UNTRACKED / CONFLICT
+    public let status: String
+}
+
+public struct GitStatusResponse: Codable, Sendable {
+    public let repoName: String
+    public let branch: String
+    public let upstream: String?
+    public let ahead: Int
+    public let behind: Int
+    public let detached: Bool
+    public let files: [GitFileStatus]
+    public let clean: Bool
+}
+
+struct GitCascadeRequest: Encodable {
+    let cascadeId: String
+}
+
+struct GitCommitRequest: Encodable {
+    let cascadeId: String
+    let message: String
+    let paths: [String]
+    let push: Bool
+}
+
+public struct GitCommitResponse: Codable, Sendable {
+    public var committed: Bool
+    public var pushed: Bool
+    public var commitId: String?
+    public var output: String?
+    /// 提交已成功但推送失败时有值，供客户端单独重试推送。
+    public var pushError: String?
+}
+
 // MARK: - 会话内容搜索 / 导出
 
 /// 命中区间，偏移量按 Unicode 码点（scalar）计，不是 UTF-16 单元。

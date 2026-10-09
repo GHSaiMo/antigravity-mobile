@@ -51,9 +51,13 @@ extension ChatView {
                     }
                     .buttonStyle(.plain)
                     
-                    // 3. Commit and Push Button
-                    Button(action: insertCommitAndPush) {
-                        Text("Commit and Push")
+                    // 3. Commit：打开 Git 提交浮窗（直接调用网关，不再消耗一轮 Agent 对话）
+                    Button {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        isInputFocused = false
+                        viewModel.openGitSheet()
+                    } label: {
+                        Text("Commit")
                             .font(.system(size: 13, weight: .medium))
                             .foregroundColor(.primary)
                             .padding(.horizontal, 14)

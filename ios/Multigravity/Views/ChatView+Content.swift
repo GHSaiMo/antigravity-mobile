@@ -36,6 +36,17 @@ extension ChatView {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: Binding(
+            get: { viewModel.gitSheet != nil },
+            set: { if !$0 { viewModel.closeGitSheet() } }
+        )) {
+            GitCommitSheet(viewModel: viewModel) {
+                viewModel.closeGitSheet()
+                insertCommitAndPush()
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
         .sheet(item: $viewModel.exportedMarkdownFile) { file in
             ShareSheetView(activityItems: [file.url])
                 .presentationDetents([.medium, .large])

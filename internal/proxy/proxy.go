@@ -441,6 +441,18 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		p.HandleCascadeRevertExecute(w, r)
 		return
 	}
+	if r.URL.Path == "/gateway/git/status" {
+		p.HandleGitStatus(w, r)
+		return
+	}
+	if r.URL.Path == "/gateway/git/commit" {
+		p.HandleGitCommit(w, r)
+		return
+	}
+	if r.URL.Path == "/gateway/git/push" {
+		p.HandleGitPush(w, r)
+		return
+	}
 
 	if r.URL.Path == "/gateway/rpc-mux" {
 		p.HandleRPCMux(w, r)

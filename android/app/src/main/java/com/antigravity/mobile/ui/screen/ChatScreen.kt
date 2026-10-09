@@ -73,7 +73,13 @@ import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.antigravity.mobile.ui.viewmodel.addImagesFromUris
 import com.antigravity.mobile.ui.viewmodel.cancelExecution
+import com.antigravity.mobile.ui.viewmodel.closeGitSheet
+import com.antigravity.mobile.ui.viewmodel.commitGit
+import com.antigravity.mobile.ui.viewmodel.delegateCommitToAgent
 import com.antigravity.mobile.ui.viewmodel.exportMarkdown
+import com.antigravity.mobile.ui.viewmodel.openGitSheet
+import com.antigravity.mobile.ui.viewmodel.refreshGitStatus
+import com.antigravity.mobile.ui.viewmodel.retryGitPush
 import com.antigravity.mobile.ui.viewmodel.confirmUndo
 import com.antigravity.mobile.ui.viewmodel.deleteQueuedMessage
 import com.antigravity.mobile.ui.viewmodel.downloadAndPreviewDocument
@@ -803,7 +809,10 @@ fun ChatScreen(
                                     dismissKeyboard()
                                     showAttachmentSheet = true
                                 },
-                                onCommitAndPush = { viewModel.insertCommitAndPush() },
+                                onCommitAndPush = {
+                                    dismissKeyboard()
+                                    viewModel.openGitSheet()
+                                },
                                 showContinue = uiState.isLatestMessageError,
                                 onContinue = {
                                     dismissKeyboard()
@@ -1075,6 +1084,18 @@ fun ChatScreen(
             file = docFile,
             title = uiState.previewDocumentTitle,
             onDismiss = { viewModel.closeDocumentPreview() }
+        )
+    }
+
+    // Git 直接提交
+    uiState.gitSheet?.let { sheet ->
+        GitCommitSheet(
+            state = sheet,
+            onRefresh = { viewModel.refreshGitStatus() },
+            onCommit = { message, paths, push -> viewModel.commitGit(message, paths, push) },
+            onRetryPush = { viewModel.retryGitPush() },
+            onDelegateToAgent = { viewModel.delegateCommitToAgent() },
+            onDismiss = { viewModel.closeGitSheet() }
         )
     }
 
