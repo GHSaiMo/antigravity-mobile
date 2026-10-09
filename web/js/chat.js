@@ -1005,6 +1005,7 @@ function generateItemHtml(item, isRunning, isLastItem) {
         </details>
       `;
     }
+    const bodyHtml = item.text ? getCachedMarkdown(item.text) : '<span style="color:var(--text-muted);">执行中...</span>';
     let artifactsHtml = "";
     if (Array.isArray(item.artifacts) && item.artifacts.length > 0) {
       artifactsHtml = `<div class="message-artifact-cards">` +
