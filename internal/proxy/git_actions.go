@@ -399,27 +399,9 @@ func workspaceURIsFromSummaries(body []byte, cascadeID string) []string {
 
 // resolveCascadeRepo finds the git repository that belongs to a cascade's workspace.
 func (p *Proxy) resolveCascadeRepo(ctx context.Context, cascadeID string, port int, token string) (string, error) {
-	apiURL := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories", port)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, strings.NewReader("{}"))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Connect-Protocol-Version", "1")
-	if token != "" {
-		req.Header.Set("x-codeium-csrf-token", token)
-	}
-	resp, err := p.mediumClient.Do(req)
+	body, err := p.fetchAllTrajectoriesRaw(ctx, port, token)
 	if err != nil {
 		return "", fmt.Errorf("查询会话工作区失败: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("查询会话工作区失败: HTTP %d", resp.StatusCode)
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 16*1024*1024))
-	if err != nil {
-		return "", err
 	}
 
 	uris := workspaceURIsFromSummaries(body, cascadeID)

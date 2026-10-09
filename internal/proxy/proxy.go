@@ -61,6 +61,9 @@ type Proxy struct {
 
 	slashCache slashCommandCache
 
+	// allTrajectories shares one GetAllCascadeTrajectories response across Watcher, list polls and lookups.
+	allTrajectories allTrajectoriesSnapshot
+
 	activeStreamMu        sync.RWMutex
 	activeStreamCascadeID string
 	activeStreamTitle     string

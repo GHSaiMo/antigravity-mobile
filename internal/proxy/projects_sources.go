@@ -685,40 +685,15 @@ type upstreamTrajectoriesResp struct {
 }
 
 func (p *Proxy) fetchTrajectoriesSummary(port int, token string) (map[string]upstreamTrajectorySummaryItem, error) {
-	url := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories", port)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader([]byte("{}")))
+	raw, err := p.fetchAllTrajectoriesRaw(ctx, port, token)
 	if err != nil {
 		return nil, err
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Connect-Protocol-Version", "1")
-	if token != "" {
-		req.Header.Set("x-codeium-csrf-token", token)
-	}
-
-	resp, err := p.mediumClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("upstream returned status %d", resp.StatusCode)
-	}
-
-	var reader io.Reader = resp.Body
-	if strings.EqualFold(resp.Header.Get("Content-Encoding"), "gzip") {
-		if gz, err := GetGzipReader(resp.Body); err == nil {
-			defer PutGzipReader(gz)
-			reader = gz
-		}
 	}
 
 	var data upstreamTrajectoriesResp
-	if err := json.NewDecoder(reader).Decode(&data); err != nil {
+	if err := json.Unmarshal(raw, &data); err != nil {
 		return nil, err
 	}
 

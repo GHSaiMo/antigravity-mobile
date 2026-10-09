@@ -355,26 +355,9 @@ func (p *Proxy) SyncHistoricalTrajectories(port int, token string) error {
 }
 
 func (p *Proxy) fetchTrajectoriesSummaryWithTitles(port int, token string) (map[string]string, error) {
-	url := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories", port)
-	req, err := http.NewRequest(http.MethodPost, url, strings.NewReader("{}"))
+	raw, err := p.fetchAllTrajectoriesRaw(context.Background(), port, token)
 	if err != nil {
 		return nil, err
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Connect-Protocol-Version", "1")
-	if token != "" {
-		req.Header.Set("x-codeium-csrf-token", token)
-	}
-
-	resp, err := p.shortClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("upstream returned status %d", resp.StatusCode)
 	}
 
 	var data struct {
@@ -386,7 +369,7 @@ func (p *Proxy) fetchTrajectoriesSummaryWithTitles(port int, token string) (map[
 		} `json:"trajectorySummaries"`
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+	if err := json.Unmarshal(raw, &data); err != nil {
 		return nil, err
 	}
 
@@ -550,31 +533,16 @@ func (p *Proxy) FetchRawCascadeSummaries() (map[string]map[string]interface{}, m
 		return nil, nil, fmt.Errorf("antigravity upstream not connected")
 	}
 
-	url := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories", port)
-	req, err := http.NewRequest(http.MethodPost, url, strings.NewReader("{}"))
+	// Always refresh: the Watcher needs current state, and doing so keeps the snapshot warm for client list polls.
+	raw, err := p.fetchAllTrajectoriesRawMaxAge(context.Background(), port, token, 0)
 	if err != nil {
 		return nil, nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Connect-Protocol-Version", "1")
-	if token != "" {
-		req.Header.Set("x-codeium-csrf-token", token)
-	}
-
-	resp, err := p.mediumClient.Do(req)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, nil, fmt.Errorf("upstream status %d", resp.StatusCode)
 	}
 
 	var envelope struct {
 		TrajectorySummaries map[string]map[string]interface{} `json:"trajectorySummaries"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&envelope); err != nil {
+	if err := json.Unmarshal(raw, &envelope); err != nil {
 		return nil, nil, err
 	}
 

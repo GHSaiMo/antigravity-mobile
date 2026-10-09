@@ -2,16 +2,22 @@ package web
 
 import (
 	"bufio"
+	"bytes"
 	"compress/gzip"
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"io/fs"
+	"mime"
 	"net"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 //go:embed index.html style.css js manifest.json sw.js icons mermaid.min.js favicon.ico
@@ -77,23 +83,116 @@ func (g *gzipResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return nil, nil, fmt.Errorf("response writer does not support hijacking")
 }
 
-// Handler returns an http.Handler that serves embedded web assets with gzip compression,
-// proper cache headers, and robust SPA fallback.
-func Handler() http.Handler {
-	fileServer := http.FileServer(http.FS(staticFiles))
+// staticAsset is one embedded file with its validator and (lazily built) gzip variant.
+// embed.FS reports a zero ModTime, so http.FileServer can never answer conditional
+// requests; we derive a content-hash ETag instead and compress each file only once.
+type staticAsset struct {
+	name     string
+	raw      []byte
+	etag     string
+	ctype    string
+	gzOnce   sync.Once
+	gzipBody []byte
+}
 
-	baseHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+var (
+	assetsMu sync.RWMutex
+	assets   = map[string]*staticAsset{}
+)
+
+// compressibleAsset reports whether gzip is worthwhile for the file extension.
+func compressibleAsset(ext string) bool {
+	switch ext {
+	case ".html", ".css", ".js", ".json", ".svg", ".ico", ".txt", ".xml":
+		return true
+	}
+	return false
+}
+
+func loadAsset(path string) (*staticAsset, bool) {
+	assetsMu.RLock()
+	a, ok := assets[path]
+	assetsMu.RUnlock()
+	if ok {
+		return a, true
+	}
+	raw, err := staticFiles.ReadFile(path)
+	if err != nil {
+		return nil, false
+	}
+	sum := sha256.Sum256(raw)
+	ext := strings.ToLower(filepath.Ext(path))
+	ctype := mime.TypeByExtension(ext)
+	if ctype == "" {
+		ctype = http.DetectContentType(raw)
+	}
+	a = &staticAsset{
+		name:  path,
+		raw:   raw,
+		etag:  `"` + hex.EncodeToString(sum[:8]) + `"`,
+		ctype: ctype,
+	}
+	assetsMu.Lock()
+	if existing, ok := assets[path]; ok {
+		a = existing
+	} else {
+		assets[path] = a
+	}
+	assetsMu.Unlock()
+	return a, true
+}
+
+// gzipped returns the cached gzip variant, or nil when it would not be smaller.
+func (a *staticAsset) gzipped() []byte {
+	a.gzOnce.Do(func() {
+		if !compressibleAsset(strings.ToLower(filepath.Ext(a.name))) || len(a.raw) < 1024 {
+			return
+		}
+		var buf bytes.Buffer
+		gw, _ := gzip.NewWriterLevel(&buf, gzip.BestCompression)
+		_, _ = gw.Write(a.raw)
+		_ = gw.Close()
+		if buf.Len() < len(a.raw) {
+			a.gzipBody = buf.Bytes()
+		}
+	})
+	return a.gzipBody
+}
+
+func serveAsset(w http.ResponseWriter, r *http.Request, a *staticAsset) {
+	h := w.Header()
+	h.Set("ETag", a.etag)
+	h.Set("Content-Type", a.ctype)
+	h.Add("Vary", "Accept-Encoding")
+
+	body := a.raw
+	// Range requests address the identity representation, so only use gzip for full-body GETs.
+	if r.Header.Get("Range") == "" && strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+		if gz := a.gzipped(); gz != nil {
+			body = gz
+			h.Set("Content-Encoding", "gzip")
+			// ServeContent only sets Content-Length for identity bodies.
+			h.Set("Content-Length", strconv.Itoa(len(gz)))
+			// Distinct validator per representation, as required for shared caches.
+			h.Set("ETag", strings.TrimSuffix(a.etag, `"`)+`-gz"`)
+		}
+	}
+	// ServeContent handles If-None-Match (304), HEAD, Range and Content-Length.
+	http.ServeContent(w, r, a.name, time.Time{}, bytes.NewReader(body))
+}
+
+// Handler returns an http.Handler that serves embedded web assets with content-hash ETags
+// (so revalidation costs a 304), pre-compressed gzip, proper cache headers, and robust SPA fallback.
+func Handler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/")
 		if path == "" {
 			path = "index.html"
 		}
 
-		// Try opening the requested file in the embedded FS
-		f, err := staticFiles.Open(path)
-		if err == nil {
-			f.Close()
+		if a, ok := loadAsset(path); ok {
 			setCacheHeaders(w, r, path)
-			fileServer.ServeHTTP(w, r)
+			serveAsset(w, r, a)
 			return
 		}
 
@@ -104,16 +203,15 @@ func Handler() http.Handler {
 
 		if !isStaticAsset {
 			// SPA route fallback to index.html
-			r.URL.Path = "/"
-			setCacheHeaders(w, r, "index.html")
-			fileServer.ServeHTTP(w, r)
-			return
+			if a, ok := loadAsset("index.html"); ok {
+				setCacheHeaders(w, r, "index.html")
+				serveAsset(w, r, a)
+				return
+			}
 		}
 
 		http.NotFound(w, r)
 	})
-
-	return GzipHandler(baseHandler)
 }
 
 // GzipHandler compresses HTTP responses with gzip if the client supports it.
