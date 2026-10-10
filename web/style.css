@@ -5563,3 +5563,38 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
   color: var(--ios-indigo);
   background: color-mix(in srgb, var(--ios-indigo) 12%, transparent);
 }
+
+/* ---- PWA（添加到主屏幕）适配 ----
+   独立模式下 100dvh 会比屏幕短一截（底部被截掉，悬浮搜索栏离底边距离不对），
+   改为固定铺满视口，env(safe-area-inset-*) 才与真实屏幕边缘对齐。 */
+#app {
+  position: fixed;
+  inset: 0;
+  width: auto;
+  height: auto;
+  max-width: none;
+}
+
+/* 顶栏：渐隐层只做实底，不再叠任何虚化；按钮用清晰边框和轻阴影 */
+.ios-navbar::before {
+  background: linear-gradient(to bottom, var(--ios-bg) 0%, var(--ios-bg) 70%, transparent 100%);
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
+.nav-btn {
+  background: var(--glass-bg-strong);
+  border: 1px solid color-mix(in srgb, var(--ios-secondary-label) 22%, transparent);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.14);
+}
+
+/* 额度栏：浅色模式下原先的半透明白底看不见，改为实底卡片 */
+.quota-status-capsule {
+  background: var(--ios-secondary-bg);
+  border: 1px solid color-mix(in srgb, var(--ios-secondary-label) 22%, transparent);
+}
+
+#view-conversations > .quota-status-bar,
+#view-conversations > .ios-large-title-bar {
+  flex-shrink: 0;
+}
