@@ -572,40 +572,13 @@ async function postGatewayJson(path, body) {
 
 
 // --- 视口适配（添加到主屏幕的独立模式）---
-// 独立模式下 innerHeight 可能比真实屏幕矮一截（底部被截掉），按屏幕高度撑满 #app。
-// 同时把关键数值写进设置页「视口」一行，便于在真机上对照排查。
-function readSafeInsets() {
-  const probe = document.createElement("div");
-  probe.style.cssText = "position:fixed;visibility:hidden;pointer-events:none;top:env(safe-area-inset-top,0px);bottom:env(safe-area-inset-bottom,0px)";
-  document.body.appendChild(probe);
-  const r = probe.getBoundingClientRect();
-  probe.remove();
-  return { top: Math.round(r.top), bottom: Math.round(window.innerHeight - r.bottom) };
-}
-
+// iOS 偶尔给独立模式的窗口比屏幕矮一截（实测差值恰好等于顶部安全区），超出部分系统直接裁掉，
+// 页面无法绘制。此时按实际窗口排版，并把底部安全区清零（Home 条在窗口之外），保证控件完整可见。
 function syncAppViewport() {
   const standalone = navigator.standalone === true || window.matchMedia("(display-mode: standalone)").matches;
-  const root = document.documentElement;
   const portraitPhone = Math.min(screen.width, screen.height) < 768 && window.innerHeight > window.innerWidth;
-  // iOS 偶尔给独立模式的窗口比屏幕矮一截（实测差值恰好等于顶部安全区），超出部分系统直接裁掉，
-  // 撑高页面没用。此时按实际窗口排版，并把底部安全区清零（Home 条在窗口之外），保证控件完整可见。
   const gap = Math.max(screen.width, screen.height) - window.innerHeight;
-  const clipped = standalone && portraitPhone && gap > 20;
-  // 实验模式 B：不信任 innerHeight，按屏幕高度铺满并取消根节点裁剪，看系统是否愿意绘制到屏幕底部
-  let mode = "a";
-  try { mode = localStorage.getItem("mgy_vp_mode") === "b" ? "b" : "a"; } catch (_) {}
-  const full = clipped && mode === "b";
-  root.toggleAttribute("data-clipped", clipped && !full);
-  root.toggleAttribute("data-vp-full", full);
-  if (full) root.style.setProperty("--app-h", Math.max(screen.width, screen.height) + "px");
-  else root.style.removeProperty("--app-h");
-  const modeEl = document.getElementById("settings-viewport-mode");
-  if (modeEl) modeEl.textContent = clipped ? (mode === "b" ? "B 铺满屏幕（点此切换）" : "A 按窗口排版（点此切换）") : "无需调整";
-  const si = readSafeInsets();
-  const el = document.getElementById("settings-viewport-info");
-  if (el) {
-    el.textContent = `${standalone ? "独立" : "浏览器"}${clipped ? "(窗口偏矮)" : ""} ${window.innerWidth}×${window.innerHeight} / 屏 ${screen.width}×${screen.height} / 安全区 ${si.top},${si.bottom}`;
-  }
+  document.documentElement.toggleAttribute("data-clipped", standalone && portraitPhone && gap > 20);
 }
 
 ["resize", "orientationchange", "pageshow"].forEach((ev) => window.addEventListener(ev, syncAppViewport));
@@ -613,11 +586,3 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") syncAppViewport();
 });
 window.addEventListener("DOMContentLoaded", syncAppViewport);
-
-document.addEventListener("click", (e) => {
-  if (!e.target.closest("#btn-viewport-mode")) return;
-  try {
-    localStorage.setItem("mgy_vp_mode", localStorage.getItem("mgy_vp_mode") === "b" ? "a" : "b");
-  } catch (_) {}
-  syncAppViewport();
-});
