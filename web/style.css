@@ -2842,16 +2842,6 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
   to { transform: rotate(360deg); }
 }
 
-/* Unified conversation list page scrolling */
-#view-conversations {
-  overflow-y: auto !important;
-  -webkit-overflow-scrolling: touch;
-}
-
-#view-conversations .conversations-list {
-  flex: none;
-  overflow-y: visible;
-}
 
 .quota-sheet-body {
   overflow-y: auto;
@@ -5411,5 +5401,49 @@ html[data-unavail~="models"] [data-feature="models"] {
 }
 
 .quick-actions-chips::-webkit-scrollbar {
+  display: none;
+}
+
+/* ---- 稳定优先（Web/PWA 是应急入口）----
+   1. 会话列表自己滚动，视图本身不滚：底部搜索栏是 #view-conversations 内的 absolute，
+      视图一旦成为滚动容器，它就会跟着内容滑走。
+   2. 去掉所有 backdrop-filter：移动端 Safari 上叠加 transform / 滚动时会闪烁、掉帧，
+      甚至吞掉点击；玻璃变量改为不透明底色。 */
+#view-conversations {
+  overflow: hidden;
+}
+
+#view-conversations .conversations-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+}
+
+#view-conversations .conversations-list > * {
+  flex-shrink: 0;
+}
+
+:root {
+  --glass-bg: #2c2c30;
+  --glass-bg-strong: #2c2c30;
+  --glass-filter: none;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --glass-bg: #ffffff;
+    --glass-bg-strong: #ffffff;
+    --glass-shadow: 0 4px 16px rgba(30, 30, 60, 0.16);
+  }
+}
+
+*, *::before, *::after {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.chat-bottom-stack::before {
   display: none;
 }
