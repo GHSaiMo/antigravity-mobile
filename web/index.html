@@ -14,7 +14,7 @@
   <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=4" />
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=4" />
   <link rel="manifest" href="/manifest.json" />
-  <link rel="stylesheet" href="/style.css?v=37" />
+  <link rel="stylesheet" href="/style.css?v=38" />
 </head>
 <body>
   <div id="app">
@@ -364,6 +364,10 @@
               <span class="cell-label">视口</span>
               <span id="settings-viewport-info" class="cell-value" style="font-size:12px"></span>
             </div>
+            <button id="btn-viewport-mode" class="ios-cell between" type="button" style="width:100%;background:none;border:none;text-align:left;font:inherit;color:inherit">
+              <span class="cell-label">视口布局（实验）</span>
+              <span id="settings-viewport-mode" class="cell-value"></span>
+            </button>
           </div>
         </div>
       </div>
@@ -620,7 +624,7 @@
     <input id="scan-file-gallery" type="file" accept="image/*" hidden>
   </div>
 
-  <script defer src="/js/core.js?v=36"></script>
+  <script defer src="/js/core.js?v=37"></script>
   <script defer src="/js/nav.js?v=36"></script>
   <script defer src="/js/chat.js?v=34"></script>
   <script defer src="/js/actions.js?v=31"></script>

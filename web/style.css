@@ -5799,3 +5799,27 @@ html[data-clipped] {
 .quota-sheet-card .sheet-grabber {
   background-color: var(--ios-quaternary-label);
 }
+
+/* 窗口偏矮（模式 A）：列表底部加一条与背景同色的实底，卡片不会被窗口边缘硬切 */
+html[data-clipped] #view-conversations::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 14px;
+  background: var(--ios-bg);
+  z-index: 29;
+  pointer-events: none;
+}
+
+/* 实验模式 B：按屏幕高度铺满，并取消根节点的裁剪 */
+html[data-vp-full],
+html[data-vp-full] body {
+  overflow: visible;
+}
+
+html[data-vp-full] #app {
+  height: var(--app-h);
+  bottom: auto;
+}
