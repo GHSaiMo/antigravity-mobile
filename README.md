@@ -124,10 +124,10 @@ mgy help           # 查看完整命令与启动参数帮助
 
 <table>
   <tr>
-    <td align="center" width="25%"><img src="images/screen_list.jpg" alt="会话列表" /><br/><b>全局视野</b><br/><sub>RUNNING / ERROR / ACTION 状态色，额度常驻顶部，对话内容全文搜索</sub></td>
-    <td align="center" width="25%"><img src="images/screen_question.jpg" alt="多题交互决策" /><br/><b>一触即决</b><br/><sub>Agent 的多题提问原生成卡片，分题点选、一次提交；高危命令一键审批</sub></td>
-    <td align="center" width="25%"><img src="images/screen_plan.jpg" alt="方案预览与 Proceed" /><br/><b>方案放行</b><br/><sub>方案原生预览（表格 / Mermaid / 代码高亮），底部一键 Proceed 开工</sub></td>
-    <td align="center" width="25%"><img src="images/screen_pdf.jpg" alt="交付物预览" /><br/><b>交付物直接看</b><br/><sub>PDF / 文档 / 图片原生预览，翻页缩放流畅</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/screen_list.jpg" alt="会话列表" /><br/><b>全局视野</b><br/><sub>状态色一目了然，额度常驻顶部</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/screen_question.jpg" alt="多题交互决策" /><br/><b>一触即决</b><br/><sub>多题点选一次提交，高危命令一键审批</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/screen_plan.jpg" alt="方案预览与 Proceed" /><br/><b>方案放行</b><br/><sub>方案原生预览，一键 Proceed 开工</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/screen_pdf.jpg" alt="交付物预览" /><br/><b>交付物直接看</b><br/><sub>PDF 文档图片原生预览，翻页缩放</sub></td>
   </tr>
 </table>
 
