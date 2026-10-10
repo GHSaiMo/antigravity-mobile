@@ -14,7 +14,7 @@
   <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=4" />
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=4" />
   <link rel="manifest" href="/manifest.json" />
-  <link rel="stylesheet" href="/style.css?v=34" />
+  <link rel="stylesheet" href="/style.css?v=36" />
 </head>
 <body>
   <div id="app">
@@ -99,7 +99,7 @@
         <div id="quota-status-bar" class="quota-status-bar" role="button" aria-label="查看全账号额度" style="display: none;">
           <div class="quota-status-capsule">
             <div class="quota-capsule-left">
-              <span class="quota-bolt-icon">⚡</span>
+              <svg id="quota-bolt-icon" class="quota-bolt-icon" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13.5 2 4 13.5h6.5L9.5 22 20 9.5h-6.7z"></path></svg>
               <span class="quota-metric-name">Gemini 5h</span>
               <span id="quota-status-percent" class="quota-status-percent">--%</span>
             </div>
@@ -360,6 +360,10 @@
               <span class="cell-label">版本</span>
               <span id="settings-app-version" class="cell-value">--</span>
             </div>
+            <div class="ios-cell between">
+              <span class="cell-label">视口</span>
+              <span id="settings-viewport-info" class="cell-value" style="font-size:12px"></span>
+            </div>
           </div>
         </div>
       </div>
@@ -436,22 +440,23 @@
           </button>
           <div class="sheet-title-group">
             <h2 class="sheet-title">Cockpit Tools</h2>
-            <span id="quota-last-updated" class="sheet-subtitle">--:--:--</span>
+            <span id="quota-last-updated" class="sheet-subtitle"></span>
           </div>
           <button id="btn-quota-close" class="sheet-header-btn primary">完成</button>
         </div>
         <div class="sheet-body quota-sheet-body">
           <!-- Pinned Current Account -->
-          <div class="quota-section-header">当前激活账号</div>
+          <div class="quota-section-header">当前使用账号</div>
           <div id="quota-current-card" class="quota-account-card current-account-card">
             <!-- Populated dynamically via JS -->
           </div>
 
           <!-- Other Accounts List -->
-          <div class="quota-section-header">备用账号池</div>
+          <div id="quota-other-header" class="quota-section-header">备用账号</div>
           <div id="quota-other-list" class="quota-accounts-list">
             <!-- Populated dynamically via JS -->
           </div>
+          <div id="quota-footer" class="quota-footer"></div>
         </div>
       </div>
     </div>
@@ -615,12 +620,12 @@
     <input id="scan-file-gallery" type="file" accept="image/*" hidden>
   </div>
 
-  <script defer src="/js/core.js?v=34"></script>
+  <script defer src="/js/core.js?v=35"></script>
   <script defer src="/js/nav.js?v=36"></script>
   <script defer src="/js/chat.js?v=34"></script>
   <script defer src="/js/actions.js?v=31"></script>
   <script defer src="/js/media.js?v=30"></script>
-  <script defer src="/js/cockpit.js?v=27"></script>
+  <script defer src="/js/cockpit.js?v=28"></script>
   <script defer src="/js/scan.js?v=2"></script>
   <script defer src="/js/msgmenu.js?v=3"></script>
   <script defer src="/js/slash.js?v=2"></script>

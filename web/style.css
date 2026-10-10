@@ -5598,3 +5598,205 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
 #view-conversations > .ios-large-title-bar {
   flex-shrink: 0;
 }
+
+html[data-standalone] #app {
+  height: var(--app-h);
+  bottom: auto;
+}
+
+/* ---- 额度：复刻原生 iOS（AccountQuotaSheet / QuotaStatusBarView）---- */
+:root {
+  --q-cell: #2c2c2e;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --q-cell: #f2f2f7;
+  }
+}
+
+.quota-bolt-icon {
+  color: var(--ios-green);
+  flex-shrink: 0;
+}
+
+.quota-bolt-icon.warning { color: var(--ios-orange); }
+.quota-bolt-icon.danger { color: var(--ios-red); }
+
+.quota-metric-name {
+  font-weight: 500;
+  color: var(--ios-label);
+}
+
+.quota-status-percent {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 700;
+}
+
+/* 弹层本体：不透明的 systemGroupedBackground */
+.quota-sheet-card {
+  background: var(--ios-bg);
+  border-top-left-radius: 14px;
+  border-top-right-radius: 14px;
+}
+
+.quota-sheet-card .sheet-header {
+  background: var(--ios-secondary-bg);
+  border-top-left-radius: 14px;
+  border-top-right-radius: 14px;
+  border-bottom: 0.5px solid var(--ios-separator);
+}
+
+.quota-sheet-card .sheet-subtitle:empty {
+  display: none;
+}
+
+.quota-sheet-body {
+  padding: 16px 16px 24px 16px;
+  gap: 0;
+}
+
+.quota-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 18px 4px 10px 4px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ios-secondary-label);
+}
+
+.quota-section-header:first-child {
+  margin-top: 0;
+}
+
+.quota-account-card {
+  background: var(--ios-secondary-bg);
+  border: 0.5px solid color-mix(in srgb, var(--ios-label) 6%, transparent);
+  border-radius: 14px;
+  padding: 14px;
+  margin-bottom: 12px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03);
+}
+
+.quota-account-card.current-account-card {
+  border: 1.5px solid color-mix(in srgb, var(--ios-blue) 35%, transparent);
+  background: var(--ios-secondary-bg);
+  box-shadow: none;
+}
+
+.quota-card-header {
+  padding-bottom: 12px;
+  border-bottom: 0.5px solid var(--ios-separator);
+}
+
+.quota-account-email {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ios-label);
+}
+
+.quota-active-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: none;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ios-blue);
+  background: color-mix(in srgb, var(--ios-blue) 12%, transparent);
+}
+
+.quota-active-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ios-blue);
+}
+
+.quota-switch-btn {
+  padding: 4px 10px;
+  border: none;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--ios-blue);
+}
+
+.quota-metrics-grid {
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.metric-box {
+  background: var(--q-cell);
+  border: none;
+  border-radius: 8px;
+  padding: 9px;
+  gap: 4px;
+}
+
+.metric-box-title,
+.metric-box-title.claude,
+.metric-box-title.gemini {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ios-secondary-label);
+}
+
+.metric-box-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.metric-box-value.good, .metric-mini-fill.good { color: var(--ios-green); }
+.metric-box-value.warning, .metric-mini-fill.warning { color: var(--ios-orange); }
+.metric-box-value.danger, .metric-mini-fill.danger { color: var(--ios-red); }
+.metric-mini-fill.good { background: var(--ios-green); }
+.metric-mini-fill.warning { background: var(--ios-orange); }
+.metric-mini-fill.danger { background: var(--ios-red); }
+
+.metric-mini-track {
+  height: 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ios-label) 8%, transparent);
+}
+
+.metric-mini-fill {
+  height: 100%;
+  border-radius: 999px;
+}
+
+.metric-box-reset {
+  font-size: 9.5px;
+  color: var(--ios-secondary-label);
+}
+
+.quota-footer {
+  margin-top: 4px;
+  text-align: center;
+  font-size: 11px;
+  color: color-mix(in srgb, var(--ios-secondary-label) 80%, transparent);
+}
+
+.quota-progress-track {
+  background: color-mix(in srgb, var(--ios-label) 8%, transparent);
+}
+
+#quota-current-card.quota-account-card {
+  background: none;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  margin: 0;
+}
+
+.quota-sheet-card .sheet-grabber {
+  background-color: var(--ios-quaternary-label);
+}
