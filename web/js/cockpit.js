@@ -70,7 +70,7 @@ async function fetchCockpitQuotas(isManual = false) {
 }
 
 function getQuotaStatusClass(percent) {
-  if (percent > 50) return "good";
+  if (percent >= 50) return "good";
   if (percent >= 20) return "warning";
   return "danger";
 }
@@ -133,6 +133,8 @@ function renderQuotaStatusBar(data) {
   const pct = current.gemini_5h.remaining_percent;
   const statusClass = getQuotaStatusClass(pct);
 
+  const boltEl = document.getElementById("quota-bolt-icon");
+  if (boltEl) boltEl.setAttribute("class", `quota-bolt-icon ${statusClass === "good" ? "" : statusClass}`);
   if (percentEl) percentEl.textContent = `${pct.toFixed(1)}%`;
   if (fillEl) {
     fillEl.style.width = `${Math.min(100, Math.max(0, pct))}%`;
@@ -194,14 +196,14 @@ function buildAccountQuotaCard(acc, isCurrent) {
       <div class="quota-card-identity">
         <span class="quota-account-email" title="${escapeHtml(acc.email)}">${escapeHtml(displayEmail)}</span>
       </div>
-      ${isCurrent ? `<span class="quota-active-tag">🟢 使用中</span>` : switchBtnHtml}
+      ${isCurrent ? `<span class="quota-active-tag"><i class="quota-active-dot"></i>使用中</span>` : switchBtnHtml}
     </div>
 
     <div class="quota-metrics-grid">
       <!-- 1. Left Top: Claude 5h -->
       <div class="metric-box">
         <div class="metric-box-header">
-          <span class="metric-box-title claude">🟣 Claude 5h</span>
+          <span class="metric-box-title claude">Claude 5h</span>
           <span class="metric-box-value ${getQuotaStatusClass(c5h.remaining_percent)}">${c5h.remaining_percent.toFixed(1)}%</span>
         </div>
         <div class="metric-mini-track">
@@ -213,7 +215,7 @@ function buildAccountQuotaCard(acc, isCurrent) {
       <!-- 2. Right Top: Gemini 5h -->
       <div class="metric-box">
         <div class="metric-box-header">
-          <span class="metric-box-title gemini">🔵 Gemini 5h</span>
+          <span class="metric-box-title gemini">Gemini 5h</span>
           <span class="metric-box-value ${getQuotaStatusClass(g5h.remaining_percent)}">${g5h.remaining_percent.toFixed(1)}%</span>
         </div>
         <div class="metric-mini-track">
@@ -225,7 +227,7 @@ function buildAccountQuotaCard(acc, isCurrent) {
       <!-- 3. Left Bottom: Claude Weekly -->
       <div class="metric-box">
         <div class="metric-box-header">
-          <span class="metric-box-title claude">🟣 Claude Weekly</span>
+          <span class="metric-box-title claude">Claude Weekly</span>
           <span class="metric-box-value ${getQuotaStatusClass(cWk.remaining_percent)}">${cWk.remaining_percent.toFixed(1)}%</span>
         </div>
         <div class="metric-mini-track">
@@ -237,7 +239,7 @@ function buildAccountQuotaCard(acc, isCurrent) {
       <!-- 4. Right Bottom: Gemini Weekly -->
       <div class="metric-box">
         <div class="metric-box-header">
-          <span class="metric-box-title gemini">🔵 Gemini Weekly</span>
+          <span class="metric-box-title gemini">Gemini Weekly</span>
           <span class="metric-box-value ${getQuotaStatusClass(gWk.remaining_percent)}">${gWk.remaining_percent.toFixed(1)}%</span>
         </div>
         <div class="metric-mini-track">
@@ -312,10 +314,9 @@ async function switchCockpitAccount(accountId, accountEmail, btn) {
 function renderQuotaSheet(data) {
   if (!data) return;
 
-  const lastUpEl = document.getElementById("quota-last-updated");
-  if (lastUpEl && data.updated_at) {
-    const dt = new Date(data.updated_at);
-    lastUpEl.textContent = `更新于 ${dt.toLocaleTimeString()}`;
+  const footerEl = document.getElementById("quota-footer");
+  if (footerEl && data.updated_at) {
+    footerEl.textContent = `配额数据更新于 ${new Date(data.updated_at).toLocaleTimeString()}`;
   }
 
   const currentContainer = document.getElementById("quota-current-card");
@@ -332,8 +333,13 @@ function renderQuotaSheet(data) {
     const otherAccounts = (data.accounts || []).filter(
       (a) => !data.current_account || a.id !== data.current_account.id
     );
+    const otherHeader = document.getElementById("quota-other-header");
+    if (otherHeader) {
+      otherHeader.textContent = `备用账号 (${otherAccounts.length})`;
+      otherHeader.style.display = otherAccounts.length ? "" : "none";
+    }
     if (otherAccounts.length === 0) {
-      otherContainer.innerHTML = `<div style="text-align:center;color:var(--ios-tertiary-label);padding:16px;">无其他备用账号</div>`;
+      otherContainer.innerHTML = "";
     } else {
       otherAccounts.forEach((acc) => {
         otherContainer.appendChild(buildAccountQuotaCard(acc, false));

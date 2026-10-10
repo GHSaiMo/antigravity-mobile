@@ -569,3 +569,40 @@ async function postGatewayJson(path, body) {
   }
   return data || {};
 }
+
+
+// --- 视口适配（添加到主屏幕的独立模式）---
+// 独立模式下 innerHeight 可能比真实屏幕矮一截（底部被截掉），按屏幕高度撑满 #app。
+// 同时把关键数值写进设置页「视口」一行，便于在真机上对照排查。
+function readSafeInsets() {
+  const probe = document.createElement("div");
+  probe.style.cssText = "position:fixed;visibility:hidden;pointer-events:none;top:env(safe-area-inset-top,0px);bottom:env(safe-area-inset-bottom,0px)";
+  document.body.appendChild(probe);
+  const r = probe.getBoundingClientRect();
+  probe.remove();
+  return { top: Math.round(r.top), bottom: Math.round(window.innerHeight - r.bottom) };
+}
+
+function syncAppViewport() {
+  const standalone = navigator.standalone === true || window.matchMedia("(display-mode: standalone)").matches;
+  const root = document.documentElement;
+  const portraitPhone = Math.min(screen.width, screen.height) < 768 && window.innerHeight > window.innerWidth;
+  if (standalone && portraitPhone) {
+    root.setAttribute("data-standalone", "");
+    root.style.setProperty("--app-h", Math.max(window.innerHeight, Math.max(screen.width, screen.height)) + "px");
+  } else {
+    root.removeAttribute("data-standalone");
+    root.style.removeProperty("--app-h");
+  }
+  const el = document.getElementById("settings-viewport-info");
+  if (el) {
+    const si = readSafeInsets();
+    el.textContent = `${standalone ? "独立" : "浏览器"} ${window.innerWidth}×${window.innerHeight} / 屏 ${screen.width}×${screen.height} / 安全区 ${si.top},${si.bottom}`;
+  }
+}
+
+["resize", "orientationchange", "pageshow"].forEach((ev) => window.addEventListener(ev, syncAppViewport));
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") syncAppViewport();
+});
+window.addEventListener("DOMContentLoaded", syncAppViewport);
