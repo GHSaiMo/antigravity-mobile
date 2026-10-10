@@ -580,6 +580,12 @@ window.handleThumbnailError = function(img) {
   }
 };
 
+// 属性值里的 ` * _ ~ 会被后面的行内代码 / 粗斜体 / 删除线正则当成标记，把标签切坏
+// （例如链接文字是 `abc` 时 data-md-title 里的反引号会吞掉 ">"）。转成实体后浏览器解码结果不变。
+function protectMdAttr(v) {
+  return String(v).replace(/[`*_~]/g, (c) => `&#${c.charCodeAt(0)};`);
+}
+
 function renderInlineMarkdown(text) {
   if (!text) return "";
   if (text.includes("implementation_plan.md") && !text.includes("[implementation_plan.md]") && !text.includes("](implementation_plan.md)")) {
@@ -632,11 +638,12 @@ function renderInlineMarkdown(text) {
     const isPlan = lower.includes("implementation_plan") || linkText.toLowerCase().includes("implementation_plan") || lower.includes("walkthrough") || linkText.toLowerCase().includes("walkthrough");
     const extraClass = isPlan ? " plan-btn-link" : (isMd ? " markdown-file-link" : "");
     const arrowSvg = isPlan ? '<svg class="plan-btn-arrow" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>' : '';
-    const href = escapeHtml(rawUrl);
+    const href = protectMdAttr(escapeHtml(rawUrl));
+    const titleAttr = protectMdAttr(escapeHtml(linkText));
     if (icon) {
-      return `<a href="${href}" class="file-link${extraClass}" data-md-url="${href}" data-md-title="${escapeHtml(linkText)}"><img src="/icons/files/${icon}.svg" class="file-icon" alt="" /><span>${linkText}</span>${arrowSvg}</a>`;
+      return `<a href="${href}" class="file-link${extraClass}" data-md-url="${href}" data-md-title="${titleAttr}"><img src="/icons/files/${icon}.svg" class="file-icon" alt="" /><span>${linkText}</span>${arrowSvg}</a>`;
     }
-    return `<a href="${href}" class="text-link${extraClass}" data-md-url="${href}" data-md-title="${escapeHtml(linkText)}"><span>${linkText}</span>${arrowSvg}</a>`;
+    return `<a href="${href}" class="text-link${extraClass}" data-md-url="${href}" data-md-title="${titleAttr}"><span>${linkText}</span>${arrowSvg}</a>`;
   });
 
   // Inline code (e.g. `foo`)
@@ -644,9 +651,9 @@ function renderInlineMarkdown(text) {
 
   // Bold & Italic
   html = html.replace(/\*\*((?:[^*]|\*(?!\*))+?)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/__((?:[^_]|_(?!_))+?)__/g, '<strong>$1</strong>');
+  html = html.replace(/(?<![A-Za-z0-9_])__((?:[^_]|_(?!_))+?)__(?![A-Za-z0-9_])/g, '<strong>$1</strong>');
   html = html.replace(/(?<!\*)\*([^*\n]+?)\*(?!\*)/g, '<em>$1</em>');
-  html = html.replace(/(?<!_)_([^_\n]+?)_(?!_)/g, '<em>$1</em>');
+  html = html.replace(/(?<![A-Za-z0-9_])_([^_\n]+?)_(?![A-Za-z0-9_])/g, '<em>$1</em>');
 
   // Strikethrough
   html = html.replace(/~~((?:[^~]|~(?!~))+?)~~/g, '<del>$1</del>');
