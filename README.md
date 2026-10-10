@@ -129,11 +129,6 @@ mgy help           # 查看完整命令与启动参数帮助
     <td align="center" width="25%"><img src="images/screen_plan.jpg" alt="方案预览与 Proceed" /><br/><b>方案放行</b><br/><sub>方案原生预览（表格 / Mermaid / 代码高亮），底部一键 Proceed 开工</sub></td>
     <td align="center" width="25%"><img src="images/screen_pdf.jpg" alt="交付物预览" /><br/><b>交付物直接看</b><br/><sub>PDF / 文档 / 图片原生预览，翻页缩放流畅</sub></td>
   </tr>
-  <tr>
-    <td align="center"><img src="images/screen_share.jpg" alt="一键保存与分享" /><br/><b>一键保存 / 分享</b><br/><sub>顶部两个按钮：存到「文件」，或调起系统分享面板发给别人</sub></td>
-    <td align="center"><img src="images/screen_cockpit.jpg" alt="Cockpit 配额看板" /><br/><b>配额罗盘</b><br/><sub>Claude / Gemini 5h 与周额度四象限，多账号池一键热切、失败自动回滚</sub></td>
-    <td align="center" colspan="2"><img src="images/screen_ipad.jpg" alt="iPad 分栏" width="520" /><br/><b>iPad 分栏体验</b><br/><sub>会话列表与对话并排，图表、表格、长代码一屏尽览</sub></td>
-  </tr>
 </table>
 
 > 以上截图均来自 iOS 客户端内置的**演示模式**（数据为虚构），可在未配对时直接体验。
