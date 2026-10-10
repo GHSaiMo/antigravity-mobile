@@ -9,7 +9,7 @@ on:
       tag:
         description: 'Release Tag'
         required: false
-        default: 'v1.0.7'
+        default: 'v1.0.8'
 
 permissions:
   contents: write
@@ -78,7 +78,7 @@ jobs:
           mkdir -p dist
           TAG_NAME="$REF_NAME"
           if [ -z "$TAG_NAME" ] || [ "$TAG_NAME" = "main" ]; then
-            TAG_NAME="${INPUT_TAG:-v1.0.7}"
+            TAG_NAME="${INPUT_TAG:-v1.0.8}"
           fi
           APK_PATH=$(find android/app/build/outputs/apk/release -name "*.apk" | head -n 1)
           if [ -z "$APK_PATH" ]; then
@@ -127,7 +127,7 @@ jobs:
           mkdir -p dist/arm64 dist/amd64 dist/universal
           TAG_NAME="$REF_NAME"
           if [ -z "$TAG_NAME" ] || [ "$TAG_NAME" = "main" ]; then
-            TAG_NAME="${INPUT_TAG:-1.0.7}"
+            TAG_NAME="${INPUT_TAG:-1.0.8}"
           fi
           VERSION_NUM="${TAG_NAME#v}"
 
@@ -178,7 +178,7 @@ jobs:
           mkdir -p dist/amd64 dist/out
           TAG_NAME="$REF_NAME"
           if [ -z "$TAG_NAME" ] || [ "$TAG_NAME" = "main" ]; then
-            TAG_NAME="${INPUT_TAG:-1.0.7}"
+            TAG_NAME="${INPUT_TAG:-1.0.8}"
           fi
           VERSION_NUM="${TAG_NAME#v}"
 
@@ -215,7 +215,7 @@ jobs:
           mkdir -p dist/amd64 dist/out
           TAG_NAME="$REF_NAME"
           if [ -z "$TAG_NAME" ] || [ "$TAG_NAME" = "main" ]; then
-            TAG_NAME="${INPUT_TAG:-1.0.7}"
+            TAG_NAME="${INPUT_TAG:-1.0.8}"
           fi
           VERSION_NUM="${TAG_NAME#v}"
 
@@ -269,8 +269,8 @@ jobs:
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: release-assets/*
-          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag || 'v1.0.7' }}
-          name: "Multigravity ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag || 'v1.0.7' }}"
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag || 'v1.0.8' }}
+          name: "Multigravity ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag || 'v1.0.8' }}"
           body_path: .github/release_notes.md
           draft: false
           prerelease: false
