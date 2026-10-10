@@ -512,7 +512,7 @@ function closeOtherCards(exceptCard) {
 }
 
 function initConversationCardDelegation() {
-  const listEl = document.getElementById("conversation-list");
+  const listEl = document.getElementById("conversations-list");
   if (!listEl || convDelegationInitialized) return;
   convDelegationInitialized = true;
 
