@@ -587,17 +587,15 @@ function syncAppViewport() {
   const standalone = navigator.standalone === true || window.matchMedia("(display-mode: standalone)").matches;
   const root = document.documentElement;
   const portraitPhone = Math.min(screen.width, screen.height) < 768 && window.innerHeight > window.innerWidth;
-  if (standalone && portraitPhone) {
-    root.setAttribute("data-standalone", "");
-    root.style.setProperty("--app-h", Math.max(window.innerHeight, Math.max(screen.width, screen.height)) + "px");
-  } else {
-    root.removeAttribute("data-standalone");
-    root.style.removeProperty("--app-h");
-  }
+  // iOS 偶尔给独立模式的窗口比屏幕矮一截（实测差值恰好等于顶部安全区），超出部分系统直接裁掉，
+  // 撑高页面没用。此时按实际窗口排版，并把底部安全区清零（Home 条在窗口之外），保证控件完整可见。
+  const gap = Math.max(screen.width, screen.height) - window.innerHeight;
+  const clipped = standalone && portraitPhone && gap > 20;
+  root.toggleAttribute("data-clipped", clipped);
+  const si = readSafeInsets();
   const el = document.getElementById("settings-viewport-info");
   if (el) {
-    const si = readSafeInsets();
-    el.textContent = `${standalone ? "独立" : "浏览器"} ${window.innerWidth}×${window.innerHeight} / 屏 ${screen.width}×${screen.height} / 安全区 ${si.top},${si.bottom}`;
+    el.textContent = `${standalone ? "独立" : "浏览器"}${clipped ? "(窗口偏矮)" : ""} ${window.innerWidth}×${window.innerHeight} / 屏 ${screen.width}×${screen.height} / 安全区 ${si.top},${si.bottom}`;
   }
 }
 

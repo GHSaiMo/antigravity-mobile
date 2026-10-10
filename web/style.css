@@ -5599,9 +5599,8 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
   flex-shrink: 0;
 }
 
-html[data-standalone] #app {
-  height: var(--app-h);
-  bottom: auto;
+html[data-clipped] {
+  --safe-bottom: 0px;
 }
 
 /* ---- 额度：复刻原生 iOS（AccountQuotaSheet / QuotaStatusBarView）---- */
