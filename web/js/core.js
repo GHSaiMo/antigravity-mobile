@@ -458,7 +458,7 @@ async function checkGatewayStatus() {
   }
 
   const versionEl = document.getElementById("settings-app-version");
-  if (versionEl && !versionEl.textContent.trim()) {
+  if (versionEl) {
     fetch("/api/v1/version")
       .then(r => r.json())
       .then(d => { if (d && d.version) versionEl.textContent = d.version; })
