@@ -5444,8 +5444,17 @@ html[data-unavail~="models"] [data-feature="models"] {
   -webkit-backdrop-filter: none !important;
 }
 
+/* 底栏背后铺实底（无模糊）：消息从下面滑过时不会透到按钮和输入框后面 */
 .chat-bottom-stack::before {
-  display: none;
+  content: "";
+  display: block;
+  position: absolute;
+  inset: -18px 0 0 0;
+  z-index: -1;
+  background: linear-gradient(to top, var(--ios-bg) 0%, var(--ios-bg) 80%, transparent 100%);
+  -webkit-mask-image: none;
+  mask-image: none;
+  pointer-events: none;
 }
 
 /* ---- 聊天页修正 ----
