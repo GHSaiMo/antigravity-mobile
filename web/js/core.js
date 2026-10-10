@@ -220,7 +220,7 @@ const DraftManager = {
 
 // Active model & Image attachments state
 let activeModel = localStorage.getItem("agy_active_model") || "gemini-3.8-flash-high";
-let pendingImages = []; // [{ id, name, mimeType, base64Data, dataUrl }]
+let pendingImages = []; // [{ id, name, mimeType, base64Data, previewUrl }]
 
 // iOS Haptic Simulation & App Badge helpers
 function triggerHaptic(type = "light") {

@@ -146,7 +146,11 @@ async function sendMessage() {
   let imgHtml = "";
   if (imagesToSend.length > 0) {
     imgHtml = `<div class="user-message-images">` +
-      imagesToSend.map(img => `<img src="${img.dataUrl}" class="bubble-image" onclick="window.open('${img.dataUrl}')" alt="上传图片" />`).join("") +
+      imagesToSend.map(img => {
+        // Attached images carry a blob preview URL plus the base64 payload (there is no dataUrl).
+        const src = img.previewUrl || `data:${img.mimeType || "image/jpeg"};base64,${img.base64Data}`;
+        return `<img src="${src}" class="bubble-image" data-action="open-image" alt="上传图片" />`;
+      }).join("") +
       `</div>`;
   }
   const textHtml = displayText ? `<div>${escapeHtml(displayText)}</div>` : "";
