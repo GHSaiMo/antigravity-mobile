@@ -5812,3 +5812,33 @@ html[data-clipped] #view-conversations::after {
   z-index: 29;
   pointer-events: none;
 }
+
+/* 弹层跟随实际视口（100vh 在窗口偏矮的独立模式下会比可见区域高，把弹层底部推出屏幕）；
+   内容区允许收缩，超出时自己滚动 */
+.ios-sheet-overlay {
+  inset: 0;
+  width: auto;
+  height: auto;
+}
+
+.ios-sheet-card {
+  max-height: 88%;
+}
+
+.ios-sheet-card > .sheet-body,
+.ios-sheet-card .sheet-body {
+  min-height: 0;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 内容区是纵向 flex：子项不能被压扁，超出时整体滚动 */
+.sheet-body > * {
+  flex-shrink: 0;
+}
+
+/* Cockpit Tools：表头与弹层同底色，不再多出一块白色矩形 */
+.quota-sheet-card .sheet-header {
+  background: transparent;
+  border-radius: 0;
+}
