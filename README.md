@@ -16,12 +16,18 @@
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 
 <p align="center">
-  <img src="images/ipad_overview.jpg" alt="Multigravity iPad 会话列表与实时对话" width="720" />
+  <img src="images/hero.jpg" alt="Multigravity —— Google Antigravity 的原生移动伴侣" width="760" />
 </p>
+
+<p align="center">
+  🌐 <b>官网</b>：<a href="https://mgy.jiuge.space">mgy.jiuge.space</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新版 v1.0.8</a>
+</p>
+
+https://github.com/user-attachments/assets/37360cde-3875-45bf-947e-7774e800094c
 
 ---
 
-## ⚡ 极速开始 (v1.0.7 正式版)
+## ⚡ 极速开始 (v1.0.8 正式版)
 
 ### 1. 🍎 macOS / 🐧 Linux / 🪟 Windows 服务端一键安装 (推荐)
 
@@ -63,8 +69,8 @@ irm https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/in
 > - 🔒 **平滑部署**：macOS / Linux 免 sudo 部署至 `~/.local/bin/mgy` 并自动配置全局快捷方式；Windows 自动注册至用户 PATH 及 WindowsApps 目录，开箱即用免重启终端。
 
 ### 2. 📱 Android 手机客户端安装
-前往 [GitHub Releases v1.0.7](https://github.com/GHSaiMo/antigravity-mobile/releases/latest)，下载：
-- **`Multigravity-v1.0.7.apk`**
+前往 [GitHub Releases v1.0.8](https://github.com/GHSaiMo/antigravity-mobile/releases/latest)，下载：
+- **`Multigravity-v1.0.8.apk`**
 - *安装包已配置标准签名，任何安卓手机下载后均可直接点击安装，零编译门槛。*
 - *安全提示：为保证覆盖安装，Release 签名密钥库 `android/app/release.jks` 与默认口令随仓库公开。因此 APK 签名只代表「同一发布线」，不能证明来源可信，请仅从本仓库 Releases 页面下载。如需自行分发，请用 `MGY_KEYSTORE_PASSWORD` 等环境变量与自己的密钥库重新签名。*
 
@@ -111,6 +117,26 @@ mgy help           # 查看完整命令与启动参数帮助
   ```
 *(本地执行可直接运行 `./scripts/uninstall.sh`，支持 `--keep-config` 仅保留配置或 `--keep-cf` 保留 Cloudflare 引擎)*
 </details>
+
+---
+
+## 🖼️ 界面一览
+
+<table>
+  <tr>
+    <td align="center" width="25%"><img src="images/screen_list.jpg" alt="会话列表" /><br/><b>全局视野</b><br/><sub>RUNNING / ERROR / ACTION 状态色，额度常驻顶部，对话内容全文搜索</sub></td>
+    <td align="center" width="25%"><img src="images/screen_question.jpg" alt="多题交互决策" /><br/><b>一触即决</b><br/><sub>Agent 的多题提问原生成卡片，分题点选、一次提交；高危命令一键审批</sub></td>
+    <td align="center" width="25%"><img src="images/screen_plan.jpg" alt="方案预览与 Proceed" /><br/><b>方案放行</b><br/><sub>方案原生预览（表格 / Mermaid / 代码高亮），底部一键 Proceed 开工</sub></td>
+    <td align="center" width="25%"><img src="images/screen_pdf.jpg" alt="交付物预览" /><br/><b>交付物直接看</b><br/><sub>PDF / 文档 / 图片原生预览，翻页缩放流畅</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="images/screen_share.jpg" alt="一键保存与分享" /><br/><b>一键保存 / 分享</b><br/><sub>顶部两个按钮：存到「文件」，或调起系统分享面板发给别人</sub></td>
+    <td align="center"><img src="images/screen_cockpit.jpg" alt="Cockpit 配额看板" /><br/><b>配额罗盘</b><br/><sub>Claude / Gemini 5h 与周额度四象限，多账号池一键热切、失败自动回滚</sub></td>
+    <td align="center" colspan="2"><img src="images/screen_ipad.jpg" alt="iPad 分栏" width="520" /><br/><b>iPad 分栏体验</b><br/><sub>会话列表与对话并排，图表、表格、长代码一屏尽览</sub></td>
+  </tr>
+</table>
+
+> 以上截图均来自 iOS 客户端内置的**演示模式**（数据为虚构），可在未配对时直接体验。
 
 ---
 
@@ -183,6 +209,7 @@ mgy help           # 查看完整命令与启动参数帮助
 - **音频附件支持 (v1.0.7)**：附件扩展支持 MP3 / M4A / WAV / AAC / FLAC 等常见音频格式的上传与跨端流转；
 - **方案产物浮窗与 Proceed 推进闭环**：会话内 Markdown 链接即刻展开原生浮窗，逆向解析 Brain 伴生元数据摘要，底部常驻 Proceed 一键推进闭环；
 - **PPTX 幻灯片原生渲染与下载**：原生支持幻灯片文档预览，提供统一文件预览工具栏并支持本地一键下载导出。
+- **传输与缓存性能优化 (v1.0.8)**：WebSocket 增量帧（`delta=1`）+ 内容哈希校验，大步骤 / 长代码块只推变化部分；图片在轨迹中改为缩略图 + 原图按需加载，不再每帧下发整张 base64；Cloudflare 隧道与明文中继支持 gzip 与长连接复用；会话缓存写盘合并为每 1.5 秒一次，退到后台时即时落盘；Markdown 表格按内容自适应紧凑列宽。
 
 ---
 
@@ -259,7 +286,7 @@ mgy help           # 查看完整命令与启动参数帮助
 - **升级自检**：网关每连上一个新的 Antigravity 实例就读取其接口清单，Antigravity 升级后若某个接口消失，手机端自动隐藏对应入口（搜索 / 导出 / Changes / 撤回 / 斜杠命令）；基础能力缺失时首页顶部提示升级网关。读不到时按"未知"处理，不会误隐藏。
 - **子代理可见**：父会话派发的子代理以卡片显示（角色、状态、步数），点开查看子会话（只读），运行中的可单独关停。
 - **Web 扫码配对**：Web 配对页新增「扫描配对二维码」。HTTPS（如 Cloudflare 隧道域名）或 localhost 下直接打开摄像头实时识别；局域网 `http://` 下浏览器不允许实时摄像头，会自动改为「拍照识别 / 从相册选择」，仍可手动输入配对码。二维码识别库 jsQR 自托管（`web/js/vendor`），不走外部 CDN。
-- **Web 端功能对齐**：Web（PWA）补齐了对话内容全文搜索、导出 Markdown（点气泡展开操作条）、斜杠命令、本会话改动 diff、Git 提交面板、动态模型列表与默认模型、子代理（内联卡片 / 运行中浮层 / 只读子会话 / 关停）、升级自检提示。手机版 PWA 访问 `/?view=pwa`。
+- **Web 端功能对齐与 Liquid Glass (v1.0.8)**：Web 控制台整体升级为 Liquid Glass 毛玻璃风格，与 iOS 原生体验对齐；同时补齐了对话内容全文搜索、导出 Markdown（点气泡展开操作条）、斜杠命令、本会话改动 diff、Git 提交面板、动态模型列表与默认模型、子代理（内联卡片 / 运行中浮层 / 只读子会话 / 关停）、升级自检提示。手机版 PWA 访问 `/?view=pwa`。
 
 ---
 
