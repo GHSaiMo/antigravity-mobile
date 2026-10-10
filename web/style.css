@@ -5447,3 +5447,43 @@ html[data-unavail~="models"] [data-feature="models"] {
 .chat-bottom-stack::before {
   display: none;
 }
+
+/* ---- 聊天页修正 ----
+   行内代码原先 nowrap，一长串就把气泡撑出屏幕；改为可折行。 */
+code.inline-code, .markdown-body code:not(.code-block-pre code) {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.messages-container {
+  overflow-x: hidden;
+}
+
+.message-row > *, .bubble, .bubble-col {
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* 快捷按钮：对齐 iOS（圆角 10 的实底胶囊，无阴影）。
+   容器 overflow-x:auto 会把阴影裁成一块突兀的灰色矩形，所以去掉阴影与容器背景。 */
+.quick-actions-chips {
+  background: transparent;
+  padding: 0;
+}
+
+.chip-pill {
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 10px;
+  background: var(--ios-secondary-bg);
+  border: 1px solid color-mix(in srgb, var(--ios-secondary-label) 25%, transparent);
+  box-shadow: none;
+}
+
+.chip-pill.hidden {
+  display: none;
+}
+
+.chip-continue, .chip-proceed {
+  box-shadow: none;
+}

@@ -69,6 +69,9 @@ function renderRoute() {
     if (wsText) wsText.textContent = wsName ? `📁 ${wsName}` : "";
 
     if (changed) {
+      document.getElementById("btn-commit-push")?.classList.add("hidden");
+      document.getElementById("btn-changes")?.classList.add("hidden");
+      if (typeof refreshActionAvailability === "function") refreshActionAvailability();
       hasInitiallyAligned = false;
       prevWasRunning = false;
       updatePendingInteraction(null, false);

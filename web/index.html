@@ -14,7 +14,7 @@
   <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=4" />
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=4" />
   <link rel="manifest" href="/manifest.json" />
-  <link rel="stylesheet" href="/style.css?v=30" />
+  <link rel="stylesheet" href="/style.css?v=31" />
 </head>
 <body>
   <div id="app">
@@ -213,11 +213,11 @@
               <span id="model-switch-text" class="model-switch-text">Gemini</span>
             </button>
 
-            <button id="btn-changes" class="chip-pill" type="button" data-feature="changes" title="本会话改动">
+            <button id="btn-changes" class="chip-pill hidden" type="button" data-feature="changes" title="本会话改动">
               <span>Changes</span>
             </button>
-            <button id="btn-commit-push" class="chip-pill" type="button">
-              <span>Commit and Push</span>
+            <button id="btn-commit-push" class="chip-pill hidden" type="button" title="Git 提交">
+              <span>Commit</span>
             </button>
             <button id="btn-continue" class="chip-pill chip-continue hidden" type="button">
               <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
@@ -616,8 +616,8 @@
   </div>
 
   <script defer src="/js/core.js?v=33"></script>
-  <script defer src="/js/nav.js?v=35"></script>
-  <script defer src="/js/chat.js?v=33"></script>
+  <script defer src="/js/nav.js?v=36"></script>
+  <script defer src="/js/chat.js?v=34"></script>
   <script defer src="/js/actions.js?v=31"></script>
   <script defer src="/js/media.js?v=28"></script>
   <script defer src="/js/cockpit.js?v=26"></script>
@@ -625,7 +625,7 @@
   <script defer src="/js/msgmenu.js?v=3"></script>
   <script defer src="/js/slash.js?v=2"></script>
   <script defer src="/js/changes.js?v=1"></script>
-  <script defer src="/js/git.js?v=1"></script>
+  <script defer src="/js/git.js?v=2"></script>
   <script defer src="/js/models.js?v=1"></script>
   <script defer src="/js/subagents.js?v=3"></script>
   <!-- init.js 必须最后加载：它在执行时就会调用 initApp()，依赖前面所有脚本里的函数 -->

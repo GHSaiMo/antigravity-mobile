@@ -241,3 +241,25 @@ function initGitSheet() {
     });
   });
 }
+
+// 与 iOS 对齐：Commit / Changes 两个快捷按钮只在有内容时出现（探测失败一律当作没有）。
+let actionProbeSeq = 0;
+async function refreshActionAvailability() {
+  const commitBtn = document.getElementById("btn-commit-push");
+  const changesBtn = document.getElementById("btn-changes");
+  const id = activeCascadeId;
+  const seq = ++actionProbeSeq;
+  const isDraft = !id || id.startsWith("local_draft_") || id.startsWith("draft_");
+  if (isDraft) {
+    commitBtn?.classList.add("hidden");
+    changesBtn?.classList.add("hidden");
+    return;
+  }
+  const [git, changes] = await Promise.all([
+    postGatewayJson("/gateway/git/status", { cascadeId: id }).catch(() => null),
+    postGatewayJson("/gateway/cascade/changes", { cascadeId: id }).catch(() => null),
+  ]);
+  if (seq !== actionProbeSeq || id !== activeCascadeId) return;
+  commitBtn?.classList.toggle("hidden", !(git && (git.files || []).length > 0));
+  changesBtn?.classList.toggle("hidden", !(changes && changes.hasChanges));
+}

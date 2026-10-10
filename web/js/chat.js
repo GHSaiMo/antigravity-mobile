@@ -1385,6 +1385,7 @@ function renderMessages(steps, isRunning = false) {
 
   if (justFinished) {
     LocalQueueManager.onAgentCompleted();
+    if (typeof refreshActionAvailability === "function") refreshActionAvailability();
     if (userIsNearBottom && !isUserTouching) {
       streamEl.scrollTop = streamEl.scrollHeight;
     }
