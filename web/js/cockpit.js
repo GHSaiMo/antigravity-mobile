@@ -119,7 +119,12 @@ function getQuotaResetDisplayText(bucket) {
 function renderQuotaStatusBar(data) {
   if (!data) return;
   const current = data.current_account || (data.accounts && data.accounts[0]);
-  if (!current || !current.gemini_5h) return;
+  const statusBar = document.getElementById("quota-status-bar");
+  if (!current || !current.gemini_5h) {
+    if (statusBar) statusBar.style.display = "none";
+    return;
+  }
+  if (statusBar) statusBar.style.display = "";
 
   const percentEl = document.getElementById("quota-status-percent");
   const fillEl = document.getElementById("quota-status-fill");
