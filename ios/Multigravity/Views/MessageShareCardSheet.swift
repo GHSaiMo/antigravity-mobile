@@ -31,7 +31,7 @@ struct ShareCardContext: Equatable {
         }
         var source: ChatMessage?
         if target.isUser {
-            if let idx = messages.firstIndex(where: { $0.id == target.id }) {
+            if let idx = messages.firstIndex(where: { $0.id == target.id }), idx + 1 < messages.count {
                 for next in messages[(idx + 1)...] {
                     if next.isUser { break }
                     if nameOf(next) != nil { source = next; break }
