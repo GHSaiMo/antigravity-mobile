@@ -268,8 +268,8 @@ extension ChatView {
                 emptyStateView
             }
             
-            ForEach(Array(viewModel.messages.enumerated()), id: \.element.id) { index, message in
-                messageRow(index: index, message: message, proxy: proxy)
+            ForEach(viewModel.messages) { message in
+                messageRow(message: message, proxy: proxy)
             }
             
             if shouldShowThinkingBubble {
@@ -309,10 +309,10 @@ extension ChatView {
     }
     
     @ViewBuilder
-    func messageRow(index: Int, message: ChatMessage, proxy: ScrollViewProxy) -> some View {
-        let isLast = (index == viewModel.messages.count - 1)
+    func messageRow(message: ChatMessage, proxy: ScrollViewProxy) -> some View {
+        let isLast = (message.id == viewModel.messages.last?.id)
         let isActive = isLast && (viewModel.isRunning || viewModel.isAwaitingResponse)
-        let shareCtx = shareContext(forMessageAt: index)
+        let shareCtx = shareContext(for: message)
         let bubble: (ChatMessage) -> MessageBubbleView = { msg in
             MessageBubbleView(
                 message: msg,
@@ -335,20 +335,22 @@ extension ChatView {
             }
         }
         .id(message.id)
-        .onAppear { if index == viewModel.messages.count - 1 { lastRowMaterialized = true } }
-        .onDisappear { if index == viewModel.messages.count - 1 { lastRowMaterialized = false } }
+        .onAppear { if message.id == viewModel.messages.last?.id { lastRowMaterialized = true } }
+        .onDisappear { if message.id == viewModel.messages.last?.id { lastRowMaterialized = false } }
     }
     
-    func shareContext(forMessageAt index: Int) -> ShareCardContext {
+    func shareContext(for message: ChatMessage) -> ShareCardContext {
         var question: ChatMessage?
-        for candidate in viewModel.messages[..<index].reversed() {
-            if case .user = candidate.sender {
-                question = candidate.hasQuestionContent ? candidate : nil
-                break
+        if let idx = viewModel.messages.firstIndex(where: { $0.id == message.id }) {
+            for candidate in viewModel.messages[..<idx].reversed() {
+                if case .user = candidate.sender {
+                    question = candidate.hasQuestionContent ? candidate : nil
+                    break
+                }
             }
         }
         let badge = ShareCardContext.resolveModel(
-            for: viewModel.messages[index],
+            for: message,
             in: viewModel.messages,
             activeModel: viewModel.activeModel,
             activeModelName: viewModel.activeModelName
