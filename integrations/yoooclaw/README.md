@@ -14,6 +14,7 @@
 
 ### 部署路径
 运行环境中对应的物理文件路径为：
-`~/.hermes/hermes-agent/venv/lib/python3.11/site-packages/yoooclaw_app/`
+`~/.hermes/plugins/yoooclaw_app/`（软链接至当前激活环境的 site-packages）
 修改后通过 launchd 重启生效：
 `launchctl kickstart -k gui/$(id -u)/ai.hermes.gateway`
+
