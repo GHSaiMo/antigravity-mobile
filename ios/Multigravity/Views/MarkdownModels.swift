@@ -22,6 +22,44 @@ public enum TableColumnAlignment: Sendable, Equatable {
     }
 }
 
+public enum MarkdownAlertType: String, Sendable, CaseIterable {
+    case note
+    case tip
+    case important
+    case warning
+    case caution
+    
+    public var title: String {
+        switch self {
+        case .note: return "Note"
+        case .tip: return "Tip"
+        case .important: return "Important"
+        case .warning: return "Warning"
+        case .caution: return "Caution"
+        }
+    }
+    
+    public var systemImage: String {
+        switch self {
+        case .note: return "info.circle.fill"
+        case .tip: return "lightbulb.fill"
+        case .important: return "exclamationmark.circle.fill"
+        case .warning: return "exclamationmark.triangle.fill"
+        case .caution: return "octagon.fill"
+        }
+    }
+    
+    public var accentColor: Color {
+        switch self {
+        case .note: return Color(red: 10/255, green: 132/255, blue: 255/255)       // #0A84FF
+        case .tip: return Color(red: 48/255, green: 209/255, blue: 88/255)         // #30D158
+        case .important: return Color(red: 191/255, green: 90/255, blue: 242/255) // #BF5AF2
+        case .warning: return Color(red: 255/255, green: 159/255, blue: 10/255)    // #FF9F0A
+        case .caution: return Color(red: 255/255, green: 69/255, blue: 58/255)     // #FF453A
+        }
+    }
+}
+
 public enum MarkdownBlock: Identifiable {
     case frontmatter(id: String, rawContent: String, lineCount: Int)
     case heading(id: String, level: Int, text: String)
@@ -30,6 +68,8 @@ public enum MarkdownBlock: Identifiable {
     case table(id: String, headers: [String], rows: [[String]], alignments: [TableColumnAlignment] = [])
     case list(id: String, items: [String])
     case orderedList(id: String, startIndex: Int, items: [String])
+    case alert(id: String, type: MarkdownAlertType, content: String)
+    case blockquote(id: String, content: String)
     case paragraph(id: String, text: String)
     case image(id: String, alt: String, url: String)
     case agentEmbed(id: String, src: String)
@@ -44,6 +84,8 @@ public enum MarkdownBlock: Identifiable {
         case .table(let id, _, _, _): return id
         case .list(let id, _): return id
         case .orderedList(let id, _, _): return id
+        case .alert(let id, _, _): return id
+        case .blockquote(let id, _): return id
         case .paragraph(let id, _): return id
         case .image(let id, _, _): return id
         case .agentEmbed(let id, _): return id

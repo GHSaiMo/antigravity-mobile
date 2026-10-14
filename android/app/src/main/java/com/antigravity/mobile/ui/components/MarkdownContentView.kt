@@ -114,6 +114,27 @@ fun MarkdownContentView(
                     )
                 }
 
+                is MarkdownBlock.Alert -> {
+                    AlertBlockView(
+                        type = block.type,
+                        content = block.content,
+                        colors = colors,
+                        onPlanClick = onPlanClick,
+                        urlResolver = urlResolver,
+                        onImageClick = onImageClick
+                    )
+                }
+
+                is MarkdownBlock.Blockquote -> {
+                    BlockquoteBlockView(
+                        content = block.content,
+                        colors = colors,
+                        onPlanClick = onPlanClick,
+                        urlResolver = urlResolver,
+                        onImageClick = onImageClick
+                    )
+                }
+
                 is MarkdownBlock.Paragraph -> {
                     ParagraphBlockView(
                         text = block.text,

@@ -29,6 +29,11 @@ public enum MarkdownPlainText {
                 parts.append(items.map { "• " + inline($0) }.joined(separator: "\n"))
             case .orderedList(_, let start, let items):
                 parts.append(items.enumerated().map { "\(start + $0.offset). " + inline($0.element) }.joined(separator: "\n"))
+            case .alert(_, let type, let content):
+                let inner = convert(content)
+                parts.append(inner.isEmpty ? "[\(type.title)]" : "[\(type.title)]\n\(inner)")
+            case .blockquote(_, let content):
+                parts.append(convert(content))
             case .paragraph(_, let text):
                 parts.append(inline(text))
             case .image(_, let alt, _):

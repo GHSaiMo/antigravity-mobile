@@ -163,6 +163,53 @@ extension MarkdownContentView {
         }
     }
     
+    @ViewBuilder
+    func alertView(type: MarkdownAlertType, content: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: type.systemImage)
+                    .font(.system(size: 13, weight: .semibold))
+                Text(type.title)
+                    .font(.system(size: 12.5, weight: .bold))
+            }
+            .foregroundColor(type.accentColor)
+            
+            if !content.isEmpty {
+                MarkdownContentView(content: content, onImageTap: onImageTap)
+            }
+        }
+        .padding(.leading, 12)
+        .padding(.trailing, 10)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(type.accentColor.opacity(0.08))
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(type.accentColor)
+                .frame(width: 3.5)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+    
+    @ViewBuilder
+    func blockquoteView(content: String) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if !content.isEmpty {
+                MarkdownContentView(content: content, onImageTap: onImageTap)
+            }
+        }
+        .padding(.leading, 12)
+        .padding(.trailing, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.secondary.opacity(0.06))
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(Color.secondary.opacity(0.4))
+                .frame(width: 3.5)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
 }
 
 

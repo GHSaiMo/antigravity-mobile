@@ -24,6 +24,11 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.PriorityHigh
+import androidx.compose.material.icons.filled.Report
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -370,6 +375,121 @@ internal fun OrderedListBlockView(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+internal fun AlertBlockView(
+    type: MarkdownAlertType,
+    content: String,
+    colors: AppColors,
+    modifier: Modifier = Modifier,
+    onPlanClick: ((String, String) -> Unit)? = null,
+    urlResolver: ((String) -> String)? = null,
+    onImageClick: ((String) -> Unit)? = null
+) {
+    val accentColor = when (type) {
+        MarkdownAlertType.NOTE -> Color(0xFF0A84FF)
+        MarkdownAlertType.TIP -> Color(0xFF30D158)
+        MarkdownAlertType.IMPORTANT -> Color(0xFFBF5AF2)
+        MarkdownAlertType.WARNING -> Color(0xFFFF9F0A)
+        MarkdownAlertType.CAUTION -> Color(0xFFFF453A)
+    }
+
+    val iconVector = when (type) {
+        MarkdownAlertType.NOTE -> Icons.Default.Info
+        MarkdownAlertType.TIP -> Icons.Default.Lightbulb
+        MarkdownAlertType.IMPORTANT -> Icons.Default.PriorityHigh
+        MarkdownAlertType.WARNING -> Icons.Default.Warning
+        MarkdownAlertType.CAUTION -> Icons.Default.Report
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(accentColor.copy(alpha = 0.08f))
+            .drawBehind {
+                val strokeWidth = 3.5.dp.toPx()
+                drawLine(
+                    color = accentColor,
+                    start = Offset(strokeWidth / 2, 0f),
+                    end = Offset(strokeWidth / 2, size.height),
+                    strokeWidth = strokeWidth
+                )
+            }
+            .padding(start = 14.dp, end = 12.dp, top = 9.dp, bottom = 9.dp)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Icon(
+                    imageVector = iconVector,
+                    contentDescription = null,
+                    tint = accentColor,
+                    modifier = Modifier.size(15.dp)
+                )
+                Text(
+                    text = type.title,
+                    color = accentColor,
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            if (content.isNotEmpty()) {
+                MarkdownContentView(
+                    content = content,
+                    onPlanClick = onPlanClick,
+                    urlResolver = urlResolver,
+                    onImageClick = onImageClick
+                )
+            }
+        }
+    }
+}
+
+@Composable
+internal fun BlockquoteBlockView(
+    content: String,
+    colors: AppColors,
+    modifier: Modifier = Modifier,
+    onPlanClick: ((String, String) -> Unit)? = null,
+    urlResolver: ((String) -> String)? = null,
+    onImageClick: ((String) -> Unit)? = null
+) {
+    val barColor = colors.textSecondary.copy(alpha = 0.45f)
+    val bgColor = colors.surfaceVariant.copy(alpha = 0.4f)
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(bgColor)
+            .drawBehind {
+                val strokeWidth = 3.5.dp.toPx()
+                drawLine(
+                    color = barColor,
+                    start = Offset(strokeWidth / 2, 0f),
+                    end = Offset(strokeWidth / 2, size.height),
+                    strokeWidth = strokeWidth
+                )
+            }
+            .padding(start = 14.dp, end = 12.dp, top = 8.dp, bottom = 8.dp)
+    ) {
+        if (content.isNotEmpty()) {
+            MarkdownContentView(
+                content = content,
+                onPlanClick = onPlanClick,
+                urlResolver = urlResolver,
+                onImageClick = onImageClick
+            )
         }
     }
 }

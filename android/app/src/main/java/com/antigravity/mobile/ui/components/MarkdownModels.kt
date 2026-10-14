@@ -9,6 +9,20 @@ enum class TableColumnAlignment {
     LEADING, CENTER, TRAILING
 }
 
+enum class MarkdownAlertType(val title: String) {
+    NOTE("Note"),
+    TIP("Tip"),
+    IMPORTANT("Important"),
+    WARNING("Warning"),
+    CAUTION("Caution");
+
+    companion object {
+        fun fromTag(tag: String): MarkdownAlertType? {
+            return entries.firstOrNull { it.name.equals(tag.trim(), ignoreCase = true) }
+        }
+    }
+}
+
 sealed class MarkdownBlock {
     data class Frontmatter(val id: String, val rawContent: String, val lineCount: Int) : MarkdownBlock()
     data class Heading(val id: String, val level: Int, val text: String) : MarkdownBlock()
@@ -22,6 +36,15 @@ sealed class MarkdownBlock {
     ) : MarkdownBlock()
     data class BulletList(val id: String, val items: List<String>) : MarkdownBlock()
     data class OrderedList(val id: String, val startIndex: Int, val items: List<String>) : MarkdownBlock()
+    data class Alert(
+        val id: String,
+        val type: MarkdownAlertType,
+        val content: String
+    ) : MarkdownBlock()
+    data class Blockquote(
+        val id: String,
+        val content: String
+    ) : MarkdownBlock()
     data class Paragraph(val id: String, val text: String) : MarkdownBlock()
     data class Image(val id: String, val alt: String, val url: String) : MarkdownBlock()
     data class AgentEmbed(val id: String, val src: String) : MarkdownBlock()
