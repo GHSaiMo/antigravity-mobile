@@ -264,13 +264,74 @@ public enum MarkdownParser {
                 continue
             }
             
+            // Blockquote & GitHub Alert (> [!NOTE], > [!TIP], > ...)
+            if trimmed.hasPrefix(">") {
+                var quoteLines: [String] = []
+                while i < lines.count {
+                    let curLine = lines[i]
+                    let curTrimmed = curLine.trimmingCharacters(in: .whitespaces)
+                    if curTrimmed.hasPrefix(">") {
+                        var lineWithoutQuote = curTrimmed
+                        lineWithoutQuote.removeFirst()
+                        if lineWithoutQuote.hasPrefix(" ") {
+                            lineWithoutQuote.removeFirst()
+                        }
+                        quoteLines.append(lineWithoutQuote)
+                        i += 1
+                    } else {
+                        break
+                    }
+                }
+                
+                if !quoteLines.isEmpty {
+                    let firstLine = quoteLines[0].trimmingCharacters(in: .whitespaces)
+                    let alertPattern = #"^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\](?:\s*(.*))?$"#
+                    if let regex = try? NSRegularExpression(pattern: alertPattern, options: [.caseInsensitive]),
+                       let match = regex.firstMatch(in: firstLine, options: [], range: NSRange(location: 0, length: (firstLine as NSString).length)) {
+                        let nsFirstLine = firstLine as NSString
+                        let tag = nsFirstLine.substring(with: match.range(at: 1)).lowercased()
+                        let alertType: MarkdownAlertType = {
+                            switch tag {
+                            case "tip": return .tip
+                            case "important": return .important
+                            case "warning": return .warning
+                            case "caution": return .caution
+                            default: return .note
+                            }
+                        }()
+                        
+                        var remainder = ""
+                        if match.numberOfRanges > 2 && match.range(at: 2).location != NSNotFound {
+                            remainder = nsFirstLine.substring(with: match.range(at: 2)).trimmingCharacters(in: .whitespaces)
+                        }
+                        
+                        var contentLines: [String] = []
+                        if !remainder.isEmpty {
+                            contentLines.append(remainder)
+                        }
+                        if quoteLines.count > 1 {
+                            contentLines.append(contentsOf: quoteLines.dropFirst())
+                        }
+                        let innerContent = contentLines.joined(separator: "\n").trimmingCharacters(in: .newlines)
+                        blocks.append(.alert(id: "block-\(blockIdx)", type: alertType, content: innerContent))
+                        blockIdx += 1
+                        continue
+                    } else {
+                        let innerContent = quoteLines.joined(separator: "\n").trimmingCharacters(in: .newlines)
+                        blocks.append(.blockquote(id: "block-\(blockIdx)", content: innerContent))
+                        blockIdx += 1
+                        continue
+                    }
+                }
+            }
+            
             // Paragraph
             var paraLines: [String] = [line]
             i += 1
             while i < lines.count {
                 let nextLine = lines[i]
                 let nTrimmed = nextLine.trimmingCharacters(in: .whitespaces)
-                if nTrimmed.isEmpty || nTrimmed.hasPrefix("```") || nTrimmed.hasPrefix("#") || nTrimmed == "---" || (nTrimmed.hasPrefix("|") && nTrimmed.hasSuffix("|")) || nTrimmed.hasPrefix("- ") || nTrimmed.hasPrefix("* ") || nTrimmed.hasPrefix("• ") || parseOrderedListItem(nTrimmed) != nil || parseStandaloneImage(nTrimmed) != nil || parseStandaloneAgentEmbed(nTrimmed) != nil {
+                if nTrimmed.isEmpty || nTrimmed.hasPrefix(">") || nTrimmed.hasPrefix("```") || nTrimmed.hasPrefix("#") || nTrimmed == "---" || (nTrimmed.hasPrefix("|") && nTrimmed.hasSuffix("|")) || nTrimmed.hasPrefix("- ") || nTrimmed.hasPrefix("* ") || nTrimmed.hasPrefix("• ") || parseOrderedListItem(nTrimmed) != nil || parseStandaloneImage(nTrimmed) != nil || parseStandaloneAgentEmbed(nTrimmed) != nil {
                     break
                 }
                 paraLines.append(nextLine)

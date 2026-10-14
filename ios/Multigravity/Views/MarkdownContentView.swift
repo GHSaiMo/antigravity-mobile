@@ -57,6 +57,12 @@ public struct MarkdownContentView: View {
                 case .orderedList(_, let startIndex, let items):
                     orderedListView(startIndex: startIndex, items: items)
                     
+                case .alert(_, let type, let alertContent):
+                    alertView(type: type, content: alertContent)
+                    
+                case .blockquote(_, let quoteContent):
+                    blockquoteView(content: quoteContent)
+                    
                 case .paragraph(_, let text):
                     paragraphView(text: text, size: 15)
                     

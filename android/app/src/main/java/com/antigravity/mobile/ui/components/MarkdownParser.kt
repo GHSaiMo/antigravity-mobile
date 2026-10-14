@@ -6,6 +6,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.text.*
 
 internal val ORDERED_LIST_REGEX = Regex("""^(\d{1,9})[.)]\s+(.*)$""")
+internal val ALERT_REGEX = Regex("""^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\](?:\s*(.*))?$""", RegexOption.IGNORE_CASE)
 
 /**
  * 1:1 Markdown parser replicating iOS MarkdownContentView.swift AST generation.
@@ -218,6 +219,48 @@ object MarkdownParser {
                 continue
             }
 
+            // 6c. Blockquote & GitHub Alerts (> [!NOTE], > [!TIP], > ...)
+            if (trimmed.startsWith(">")) {
+                val quoteLines = mutableListOf<String>()
+                while (i < lines.size) {
+                    val curTrimmed = lines[i].trim()
+                    if (curTrimmed.startsWith(">")) {
+                        var lineWithoutQuote = curTrimmed.removePrefix(">")
+                        if (lineWithoutQuote.startsWith(" ")) {
+                            lineWithoutQuote = lineWithoutQuote.removePrefix(" ")
+                        }
+                        quoteLines.add(lineWithoutQuote)
+                        i++
+                    } else {
+                        break
+                    }
+                }
+
+                if (quoteLines.isNotEmpty()) {
+                    val firstLine = quoteLines[0].trim()
+                    val match = ALERT_REGEX.find(firstLine)
+                    if (match != null) {
+                        val tag = match.groups[1]?.value ?: "NOTE"
+                        val alertType = MarkdownAlertType.fromTag(tag) ?: MarkdownAlertType.NOTE
+                        val remainder = match.groups[2]?.value?.trim() ?: ""
+                        val contentLines = mutableListOf<String>()
+                        if (remainder.isNotEmpty()) {
+                            contentLines.add(remainder)
+                        }
+                        if (quoteLines.size > 1) {
+                            contentLines.addAll(quoteLines.subList(1, quoteLines.size))
+                        }
+                        val innerContent = contentLines.joinToString("\n").trim('\n')
+                        blocks.add(MarkdownBlock.Alert("block-${blockIdx++}", alertType, innerContent))
+                        continue
+                    } else {
+                        val innerContent = quoteLines.joinToString("\n").trim('\n')
+                        blocks.add(MarkdownBlock.Blockquote("block-${blockIdx++}", innerContent))
+                        continue
+                    }
+                }
+            }
+
             // 7. Paragraph
             val paraLines = mutableListOf<String>()
             paraLines.add(line)
@@ -226,6 +269,7 @@ object MarkdownParser {
                 val nextLine = lines[i]
                 val nTrimmed = nextLine.trim()
                 if (nTrimmed.isEmpty() ||
+                    nTrimmed.startsWith(">") ||
                     nTrimmed.startsWith("```") ||
                     nTrimmed.startsWith("#") ||
                     nTrimmed == "---" ||

@@ -46,6 +46,11 @@ object MarkdownPlainText {
                 is MarkdownBlock.BulletList -> block.items.joinToString("\n") { "• " + inline(it) }
                 is MarkdownBlock.OrderedList -> block.items.withIndex()
                     .joinToString("\n") { (i, s) -> "${block.startIndex + i}. " + inline(s) }
+                is MarkdownBlock.Alert -> {
+                    val inner = convert(block.content)
+                    if (inner.isEmpty()) "[${block.type.title}]" else "[${block.type.title}]\n$inner"
+                }
+                is MarkdownBlock.Blockquote -> convert(block.content)
                 is MarkdownBlock.Paragraph -> inline(block.text)
                 is MarkdownBlock.Image -> block.alt.takeIf { it.isNotBlank() }
                 is MarkdownBlock.AgentEmbed -> "[交互组件: ${block.src.substringAfterLast('/')}]"
