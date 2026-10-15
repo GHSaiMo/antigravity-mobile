@@ -18,7 +18,6 @@ public struct QuickLookPreviewSheet: View {
     @State private var isShowingDocumentPicker: Bool = false
     @State private var toastSuccessMessage: String? = nil
     @State private var toastErrorMessage: String? = nil
-    @StateObject private var videoCoordinator = VideoPlayerCoordinator()
     
     public init(url: URL, title: String = "", onDismiss: @escaping () -> Void) {
         self.url = url
@@ -117,7 +116,7 @@ public struct QuickLookPreviewSheet: View {
                     HighResolutionImageViewer(url: url)
                         .ignoresSafeArea(edges: .bottom)
                 } else if isVideo(url: url) {
-                    NativeVideoPlayerViewer(url: url, coordinator: videoCoordinator)
+                    NativeVideoPlayerViewer(url: url)
                         .ignoresSafeArea(edges: .bottom)
                 } else {
                     QuickLookControllerRepresentable(url: url)
@@ -131,26 +130,11 @@ public struct QuickLookPreviewSheet: View {
                     saveButton
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    HStack(spacing: 12) {
-                        if isVideo(url: url) {
-                            playbackSpeedMenu
-                        }
-                        ShareLink(item: url, preview: SharePreview(title)) {
-                            Image(systemName: "square.and.arrow.up")
-                                .font(.system(size: 16, weight: .semibold))
-                        }
-                        .accessibilityLabel("分享")
-                        
-                        Button {
-                            onDismiss()
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 18))
-                                .symbolRenderingMode(.hierarchical)
-                                .foregroundColor(.secondary)
-                        }
-                        .accessibilityLabel("关闭")
+                    ShareLink(item: url, preview: SharePreview(title)) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 16, weight: .semibold))
                     }
+                    .accessibilityLabel("分享")
                 }
             }
             .sheet(isPresented: $isShowingDocumentPicker) {
@@ -264,63 +248,6 @@ public struct QuickLookPreviewSheet: View {
             if videoExtensions.contains(uriExt) { return true }
         }
         return false
-    }
-    
-    @ViewBuilder
-    private var playbackSpeedMenu: some View {
-        Menu {
-            ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 2.0], id: \.self) { speed in
-                Button {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    videoCoordinator.setRate(Float(speed))
-                } label: {
-                    HStack {
-                        Text(speedTitle(speed))
-                        if abs(videoCoordinator.currentRate - Float(speed)) < 0.05 {
-                            Image(systemName: "checkmark")
-                        }
-                    }
-                }
-            }
-        } label: {
-            HStack(spacing: 3) {
-                Image(systemName: "gauge.with.needle")
-                    .font(.system(size: 12, weight: .semibold))
-                Text(speedText(videoCoordinator.currentRate))
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(Color.secondary.opacity(0.14))
-            .clipShape(Capsule())
-        }
-        .accessibilityLabel("倍速播放: \(speedText(videoCoordinator.currentRate))")
-    }
-    
-    private func speedTitle(_ speed: Double) -> String {
-        if abs(speed - 1.0) < 0.05 {
-            return "1.0× (正常速度)"
-        }
-        if speed == 0.5 {
-            return "0.5×"
-        }
-        if speed == Double(Int(speed)) {
-            return String(format: "%.1f×", speed)
-        }
-        return "\(speed)×"
-    }
-    
-    private func speedText(_ speed: Float) -> String {
-        if abs(speed - 1.0) < 0.05 {
-            return "1.0×"
-        }
-        if speed == 0.5 {
-            return "0.5×"
-        }
-        if speed == Float(Int(speed)) {
-            return String(format: "%.1f×", speed)
-        }
-        return String(format: "%.2g×", speed)
     }
     
     private func saveVideoToPhotosAlbum() {
@@ -462,58 +389,14 @@ public struct QuickLookPreviewSheet: View {
     }
 }
 
-// MARK: - Video Player Coordinator & Native Video Player Viewer
-
-public final class VideoPlayerCoordinator: ObservableObject {
-    @Published public var currentRate: Float = 1.0
-    public weak var player: AVPlayer? = nil
-    private var rateObservation: NSKeyValueObservation?
-    
-    public init() {}
-    
-    public func attach(player: AVPlayer) {
-        self.player = player
-        rateObservation?.invalidate()
-        rateObservation = player.observe(\.rate, options: [.new]) { [weak self] p, change in
-            guard let self = self, let newRate = change.newValue, newRate > 0 else { return }
-            DispatchQueue.main.async {
-                if abs(self.currentRate - newRate) > 0.05 {
-                    self.currentRate = newRate
-                }
-            }
-        }
-        if currentRate != 1.0 {
-            player.defaultRate = currentRate
-            if player.timeControlStatus == .playing {
-                player.rate = currentRate
-            }
-        }
-    }
-    
-    public func detach() {
-        rateObservation?.invalidate()
-        rateObservation = nil
-        self.player = nil
-    }
-    
-    public func setRate(_ rate: Float) {
-        currentRate = rate
-        guard let player = player else { return }
-        player.defaultRate = rate
-        if player.timeControlStatus == .playing {
-            player.rate = rate
-        }
-    }
-}
+// MARK: - Native Video Player Viewer
 
 public struct NativeVideoPlayerViewer: View {
     public let url: URL
-    @ObservedObject public var coordinator: VideoPlayerCoordinator
     @State private var player: AVPlayer? = nil
     
-    public init(url: URL, coordinator: VideoPlayerCoordinator) {
+    public init(url: URL) {
         self.url = url
-        self.coordinator = coordinator
     }
     
     public var body: some View {
@@ -547,7 +430,6 @@ public struct NativeVideoPlayerViewer: View {
         let p = AVPlayer(url: url)
         p.actionAtItemEnd = .pause
         self.player = p
-        coordinator.attach(player: p)
         
         NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
@@ -562,7 +444,6 @@ public struct NativeVideoPlayerViewer: View {
     
     private func tearDownPlayer() {
         player?.pause()
-        coordinator.detach()
         player = nil
         NotificationCenter.default.removeObserver(self, name: .AVPlayerItemDidPlayToEndTime, object: nil)
     }
