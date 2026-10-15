@@ -720,7 +720,11 @@ fun ChatScreen(
                                         },
                                         urlResolver = { raw -> viewModel.resolveMediaUrl(raw) },
                                         onImageClick = { url, bitmap ->
-                                            viewModel.openImageViewer(bitmap = bitmap, url = url)
+                                            if (!url.isNullOrEmpty() && com.antigravity.mobile.data.service.FileIconResolver.isVideo(url)) {
+                                                handleFileOrLinkClick(url, "")
+                                            } else {
+                                                viewModel.openImageViewer(bitmap = bitmap, url = url)
+                                            }
                                         },
                                         onImageGroupClick = { items, index ->
                                             viewModel.openImageViewer(items = items, initialIndex = index)
@@ -1189,7 +1193,13 @@ fun ChatScreen(
             onProceed = { viewModel.proceedFromViewer() },
             onDismiss = { viewModel.closeMarkdownViewer() },
             urlResolver = { raw -> viewModel.resolveMediaUrl(raw) },
-            onImageClick = { url -> viewModel.openImageViewer(url = url) }
+            onImageClick = { url ->
+                if (com.antigravity.mobile.data.service.FileIconResolver.isVideo(url)) {
+                    handleFileOrLinkClick(url, "")
+                } else {
+                    viewModel.openImageViewer(url = url)
+                }
+            }
         )
     }
 

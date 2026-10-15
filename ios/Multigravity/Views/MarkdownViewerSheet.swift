@@ -14,6 +14,8 @@ public struct MarkdownViewerSheet: View {
     @State private var previewImage: IdentifiableImage? = nil
     @State private var isShowingDocumentPicker: Bool = false
     @State private var toastSuccessMessage: String? = nil
+    @State private var previewQuickLookURL: URL? = nil
+    @State private var previewQuickLookTitle: String = ""
     
     public init(
         data: MarkdownFileViewerData,
@@ -206,6 +208,45 @@ public struct MarkdownViewerSheet: View {
             ImageViewerSheet(item: item)
                 .presentationBackground(.clear)
                 .ignoresSafeArea()
+        }
+        .environment(\.openURL, OpenURLAction { url in
+            let clean = url.absoluteString.trimmingCharacters(in: .whitespacesAndNewlines)
+            let unescaped = clean.removingPercentEncoding ?? clean
+            let lower = unescaped.lowercased()
+            let pathLower = url.path.lowercased()
+            let uriParam = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "uri" })?.value
+            let decodedFileName: String = {
+                if let param = uriParam, !param.isEmpty {
+                    let fn = (param as NSString).lastPathComponent.removingPercentEncoding ?? (param as NSString).lastPathComponent
+                    if !fn.isEmpty && fn != "raw" { return fn }
+                }
+                if let last = url.lastPathComponent.removingPercentEncoding, !last.isEmpty, last != "raw" {
+                    return last
+                }
+                return (unescaped as NSString).lastPathComponent
+            }()
+            
+            let videoExtensions = [".mp4", ".mov", ".m4v", ".webm", ".avi", ".mkv", ".3gp"]
+            let isVideo = videoExtensions.contains { ext in
+                lower.hasSuffix(ext) || pathLower.hasSuffix(ext) || (uriParam?.lowercased().hasSuffix(ext) ?? false)
+            }
+            if isVideo {
+                previewQuickLookTitle = decodedFileName
+                previewQuickLookURL = url
+                return .handled
+            }
+            return .systemAction
+        })
+        .sheet(isPresented: Binding(
+            get: { previewQuickLookURL != nil },
+            set: { if !$0 { previewQuickLookURL = nil } }
+        )) {
+            if let qlURL = previewQuickLookURL {
+                QuickLookPreviewSheet(url: qlURL, title: previewQuickLookTitle) {
+                    previewQuickLookURL = nil
+                }
+                .presentationDragIndicator(.visible)
+            }
         }
     }
 }

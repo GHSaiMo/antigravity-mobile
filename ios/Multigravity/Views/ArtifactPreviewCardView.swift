@@ -18,9 +18,10 @@ public struct ArtifactPreviewCardView: View {
             }
         } label: {
             VStack(alignment: .leading, spacing: 6) {
+                let isVideo = isVideoURL(artifact.uri) || isVideoURL(artifact.title)
                 // Header: Document Icon + Title
                 HStack(alignment: .center, spacing: 7) {
-                    Text("📄")
+                    Text(isVideo ? "🎬" : "📄")
                         .font(.system(size: 15))
                     
                     Text(artifact.title.isEmpty ? "文档详情" : artifact.title)
@@ -29,6 +30,16 @@ public struct ArtifactPreviewCardView: View {
                         .lineLimit(1)
                     
                     Spacer()
+                    
+                    if isVideo {
+                        Text("MP4 视频")
+                            .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                            .foregroundColor(.secondary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.secondary.opacity(0.12))
+                            .clipShape(Capsule())
+                    }
                 }
                 
                 // Summary text if available

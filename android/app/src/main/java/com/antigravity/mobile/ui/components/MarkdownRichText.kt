@@ -262,7 +262,8 @@ internal fun buildRichTextRenderData(
             val clean = rawPath.trim('`', '"', '\'', '(', ')', '[', ']', '<', '>')
             val fn = clean.substringAfterLast('/')
             val linkTarget = if (clean.startsWith("file://") || clean.startsWith("http://") || clean.startsWith("https://")) clean else "file://$clean"
-            "\n[点击放大查看图片 ($fn)]($linkTarget)"
+            val actionText = if (com.antigravity.mobile.data.service.FileIconResolver.isVideo(clean)) "点击预览并播放视频" else "点击放大查看图片"
+            "\n[$actionText ($fn)]($linkTarget)"
         }
     }
 

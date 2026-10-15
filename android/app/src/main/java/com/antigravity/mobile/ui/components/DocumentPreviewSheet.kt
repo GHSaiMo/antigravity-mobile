@@ -22,6 +22,7 @@ import java.util.zip.ZipFile
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -60,7 +61,19 @@ import coil.request.ImageRequest
 import com.antigravity.mobile.ui.theme.AppColors
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 import com.antigravity.mobile.ui.util.rememberHaptic
+import android.graphics.SurfaceTexture
+import android.media.AudioAttributes
+import android.media.MediaPlayer
+import android.view.Surface
+import android.view.TextureView
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.graphics.Brush
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -183,6 +196,9 @@ fun DocumentPreviewSheet(
                     }
                     "png", "jpg", "jpeg", "webp", "gif" -> {
                         ImageDocumentViewer(file = file, colors = colors)
+                    }
+                    "mp4", "mov", "m4v", "webm", "3gp", "mkv", "avi" -> {
+                        VideoDocumentViewer(file = file, colors = colors)
                     }
                     "html", "htm" -> {
                         HtmlDocumentViewer(file = file)
@@ -333,6 +349,378 @@ private fun ImageDocumentViewer(file: File, colors: AppColors) {
             }
         )
     }
+}
+
+/**
+ * Android Native Video Document Viewer using MediaPlayer and TextureView.
+ * Supports variable speed playback (0.5×, 0.75×, 1.0×, 1.25×, 1.5×, 2.0×),
+ * draggable progress scrubber Slider with timestamps, 10s rewind/forward,
+ * and auto-hiding controls overlay.
+ */
+@Composable
+private fun VideoDocumentViewer(file: File, colors: AppColors) {
+    var isPlaying by remember { mutableStateOf(false) }
+    var currentPosition by remember { mutableLongStateOf(0L) }
+    var duration by remember { mutableLongStateOf(0L) }
+    var currentSpeed by remember { mutableFloatStateOf(1.0f) }
+    var controlsVisible by remember { mutableStateOf(true) }
+    var isDragging by remember { mutableStateOf(false) }
+    var dragPosition by remember { mutableFloatStateOf(0f) }
+    var isCompleted by remember { mutableStateOf(false) }
+    var showSpeedMenu by remember { mutableStateOf(false) }
+    var videoWidth by remember { mutableIntStateOf(0) }
+    var videoHeight by remember { mutableIntStateOf(0) }
+    var mediaPlayerRef by remember { mutableStateOf<MediaPlayer?>(null) }
+    var currentSurface by remember { mutableStateOf<Surface?>(null) }
+
+    DisposableEffect(file) {
+        val player = MediaPlayer().apply {
+            setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
+                    .build()
+            )
+            try {
+                setDataSource(file.absolutePath)
+                setOnPreparedListener { mp ->
+                    duration = mp.duration.toLong().coerceAtLeast(0L)
+                    videoWidth = mp.videoWidth
+                    videoHeight = mp.videoHeight
+                    currentSurface?.let { s ->
+                        if (s.isValid) {
+                            mp.setSurface(s)
+                        }
+                    }
+                    mp.start()
+                    isPlaying = true
+                }
+                setOnCompletionListener {
+                    isPlaying = false
+                    isCompleted = true
+                    controlsVisible = true
+                }
+                setOnVideoSizeChangedListener { _, w, h ->
+                    if (w > 0 && h > 0) {
+                        videoWidth = w
+                        videoHeight = h
+                    }
+                }
+                setOnErrorListener { _, _, _ ->
+                    true
+                }
+                prepareAsync()
+            } catch (_: Exception) {}
+        }
+        mediaPlayerRef = player
+
+        onDispose {
+            try {
+                player.stop()
+            } catch (_: Exception) {}
+            try {
+                player.release()
+            } catch (_: Exception) {}
+            mediaPlayerRef = null
+            currentSurface?.release()
+            currentSurface = null
+        }
+    }
+
+    // Periodic progress updater
+    LaunchedEffect(isPlaying, isDragging) {
+        while (isActive && isPlaying && !isDragging) {
+            mediaPlayerRef?.let { mp ->
+                try {
+                    if (mp.isPlaying) {
+                        currentPosition = mp.currentPosition.toLong()
+                    }
+                } catch (_: Exception) {}
+            }
+            delay(250)
+        }
+    }
+
+    // Auto-hide controls after 3.5s of playback
+    LaunchedEffect(controlsVisible, isPlaying) {
+        if (controlsVisible && isPlaying) {
+            delay(3500)
+            controlsVisible = false
+        }
+    }
+
+    val changeSpeed: (Float) -> Unit = { newSpeed ->
+        currentSpeed = newSpeed
+        mediaPlayerRef?.let { mp ->
+            try {
+                val wasPlaying = mp.isPlaying
+                val params = mp.playbackParams
+                params.speed = newSpeed
+                mp.playbackParams = params
+                if (!wasPlaying) {
+                    mp.pause()
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
+    val aspectRatio = if (videoWidth > 0 && videoHeight > 0) {
+        videoWidth.toFloat() / videoHeight.toFloat()
+    } else {
+        16f / 9f
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) {
+                controlsVisible = !controlsVisible
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        // Video Surface
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(aspectRatio)
+                .clip(RectangleShape)
+        ) {
+            AndroidView(
+                factory = { ctx ->
+                    TextureView(ctx).apply {
+                        surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                            override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
+                                val s = Surface(surface)
+                                currentSurface = s
+                                mediaPlayerRef?.setSurface(s)
+                            }
+                            override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {}
+                            override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
+                                currentSurface?.release()
+                                currentSurface = null
+                                mediaPlayerRef?.setSurface(null)
+                                return true
+                            }
+                            override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
+                        }
+                    }
+                },
+                update = { textureView ->
+                    if (textureView.isAvailable && textureView.surfaceTexture != null) {
+                        val s = currentSurface ?: Surface(textureView.surfaceTexture).also { currentSurface = it }
+                        mediaPlayerRef?.setSurface(s)
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        // Overlay Controls
+        AnimatedVisibility(
+            visible = controlsVisible,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.35f))
+            ) {
+                // Center Play/Pause/Rewind/Forward Controls
+                Row(
+                    modifier = Modifier.align(Alignment.Center),
+                    horizontalArrangement = Arrangement.spacedBy(28.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Rewind 10s
+                    IconButton(
+                        onClick = {
+                            val target = (currentPosition - 10000L).coerceAtLeast(0L)
+                            mediaPlayerRef?.seekTo(target.toInt())
+                            currentPosition = target
+                            if (isCompleted) isCompleted = false
+                        },
+                        modifier = Modifier
+                            .size(46.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.5f))
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Replay10,
+                            contentDescription = "快退10秒",
+                            tint = Color.White,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+
+                    // Main Play/Pause Button
+                    IconButton(
+                        onClick = {
+                            mediaPlayerRef?.let { mp ->
+                                if (isCompleted) {
+                                    mp.seekTo(0)
+                                    mp.start()
+                                    isPlaying = true
+                                    isCompleted = false
+                                } else if (mp.isPlaying) {
+                                    mp.pause()
+                                    isPlaying = false
+                                } else {
+                                    mp.start()
+                                    isPlaying = true
+                                }
+                            }
+                        },
+                        modifier = Modifier
+                            .size(64.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.65f))
+                            .border(1.2.dp, Color.White.copy(alpha = 0.45f), CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = when {
+                                isCompleted -> Icons.Default.Replay
+                                isPlaying -> Icons.Default.Pause
+                                else -> Icons.Default.PlayArrow
+                            },
+                            contentDescription = if (isPlaying) "暂停" else "播放",
+                            tint = Color.White,
+                            modifier = Modifier
+                                .size(36.dp)
+                                .offset(x = if (!isPlaying && !isCompleted) 2.dp else 0.dp)
+                        )
+                    }
+
+                    // Forward 10s
+                    IconButton(
+                        onClick = {
+                            val target = (currentPosition + 10000L).coerceAtMost(duration)
+                            mediaPlayerRef?.seekTo(target.toInt())
+                            currentPosition = target
+                        },
+                        modifier = Modifier
+                            .size(46.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.5f))
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Forward10,
+                            contentDescription = "快进10秒",
+                            tint = Color.White,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+                }
+
+                // Bottom Scrubber Bar & Speed Selector
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.BottomCenter)
+                        .background(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f))
+                            )
+                        )
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = formatVideoTime(if (isDragging) dragPosition.toLong() else currentPosition),
+                        color = Color.White.copy(alpha = 0.95f),
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+
+                    Slider(
+                        value = if (isDragging) dragPosition else currentPosition.toFloat().coerceIn(0f, maxOf(1f, duration.toFloat())),
+                        onValueChange = { newVal ->
+                            isDragging = true
+                            dragPosition = newVal
+                        },
+                        onValueChangeFinished = {
+                            val targetMs = dragPosition.toInt()
+                            mediaPlayerRef?.seekTo(targetMs)
+                            currentPosition = targetMs.toLong()
+                            if (isCompleted && targetMs < duration) isCompleted = false
+                            isDragging = false
+                        },
+                        valueRange = 0f..maxOf(1f, duration.toFloat()),
+                        colors = SliderDefaults.colors(
+                            thumbColor = colors.accentIndigo,
+                            activeTrackColor = colors.accentIndigo,
+                            inactiveTrackColor = Color.White.copy(alpha = 0.35f)
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 8.dp)
+                    )
+
+                    Text(
+                        text = formatVideoTime(duration),
+                        color = Color.White.copy(alpha = 0.95f),
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+
+                    Spacer(modifier = Modifier.width(10.dp))
+
+                    // Speed Pill & Dropdown Menu
+                    Box {
+                        Surface(
+                            onClick = { showSpeedMenu = !showSpeedMenu },
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color.White.copy(alpha = 0.2f),
+                            border = androidx.compose.foundation.BorderStroke(0.6.dp, Color.White.copy(alpha = 0.4f))
+                        ) {
+                            Text(
+                                text = "${if (currentSpeed == currentSpeed.toInt().toFloat()) "${currentSpeed.toInt()}" else "$currentSpeed"}×",
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+
+                        DropdownMenu(
+                            expanded = showSpeedMenu,
+                            onDismissRequest = { showSpeedMenu = false },
+                            modifier = Modifier.background(colors.surface)
+                        ) {
+                            listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f).forEach { spd ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = "${spd}×",
+                                            color = if (currentSpeed == spd) colors.accentIndigo else colors.textPrimary,
+                                            fontWeight = if (currentSpeed == spd) FontWeight.Bold else FontWeight.Normal
+                                        )
+                                    },
+                                    onClick = {
+                                        changeSpeed(spd)
+                                        showSpeedMenu = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun formatVideoTime(ms: Long): String {
+    val totalSeconds = (ms / 1000).coerceAtLeast(0)
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+    return "%02d:%02d".format(minutes, seconds)
 }
 
 @Composable
@@ -1146,15 +1534,16 @@ suspend fun saveFileToDownloads(context: Context, file: File, displayName: Strin
         try {
             val mimeType = getMimeType(file)
             val isImage = mimeType.startsWith("image/")
+            val isVideo = mimeType.startsWith("video/")
             val resolver = context.contentResolver
             val contentValues = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
                 put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    val relativePath = if (isImage) {
-                        Environment.DIRECTORY_PICTURES + "/Antigravity"
-                    } else {
-                        Environment.DIRECTORY_DOWNLOADS + "/Antigravity"
+                    val relativePath = when {
+                        isImage -> Environment.DIRECTORY_PICTURES + "/Antigravity"
+                        isVideo -> Environment.DIRECTORY_MOVIES + "/Antigravity"
+                        else -> Environment.DIRECTORY_DOWNLOADS + "/Antigravity"
                     }
                     put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
                     put(MediaStore.MediaColumns.IS_PENDING, 1)
@@ -1162,9 +1551,17 @@ suspend fun saveFileToDownloads(context: Context, file: File, displayName: Strin
             }
 
             val collectionUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                if (isImage) MediaStore.Images.Media.EXTERNAL_CONTENT_URI else MediaStore.Downloads.EXTERNAL_CONTENT_URI
+                when {
+                    isImage -> MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+                    isVideo -> MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                    else -> MediaStore.Downloads.EXTERNAL_CONTENT_URI
+                }
             } else {
-                if (isImage) MediaStore.Images.Media.EXTERNAL_CONTENT_URI else MediaStore.Files.getContentUri("external")
+                when {
+                    isImage -> MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+                    isVideo -> MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                    else -> MediaStore.Files.getContentUri("external")
+                }
             }
 
             val itemUri = resolver.insert(collectionUri, contentValues)
@@ -1180,17 +1577,29 @@ suspend fun saveFileToDownloads(context: Context, file: File, displayName: Strin
                     resolver.update(itemUri, contentValues, null, null)
                 }
                 withContext(Dispatchers.Main) {
-                    val destDesc = if (isImage) "相册" else "下载目录"
+                    val destDesc = when {
+                        isImage -> "相册"
+                        isVideo -> "视频相册"
+                        else -> "下载目录"
+                    }
                     Toast.makeText(context, "已保存到$destDesc", Toast.LENGTH_SHORT).show()
                 }
             } else {
                 val targetDir = Environment.getExternalStoragePublicDirectory(
-                    if (isImage) Environment.DIRECTORY_PICTURES else Environment.DIRECTORY_DOWNLOADS
+                    when {
+                        isImage -> Environment.DIRECTORY_PICTURES
+                        isVideo -> Environment.DIRECTORY_MOVIES
+                        else -> Environment.DIRECTORY_DOWNLOADS
+                    }
                 )
                 val destFile = File(targetDir, displayName)
                 file.copyTo(destFile, overwrite = true)
                 withContext(Dispatchers.Main) {
-                    val destDesc = if (isImage) "相册" else "下载目录"
+                    val destDesc = when {
+                        isImage -> "相册"
+                        isVideo -> "视频相册"
+                        else -> "下载目录"
+                    }
                     Toast.makeText(context, "已保存到$destDesc", Toast.LENGTH_SHORT).show()
                 }
             }
@@ -1217,6 +1626,13 @@ private fun getMimeType(file: File): String {
         "jpg", "jpeg" -> "image/jpeg"
         "webp" -> "image/webp"
         "gif" -> "image/gif"
+        "mp4" -> "video/mp4"
+        "mov" -> "video/quicktime"
+        "m4v" -> "video/x-m4v"
+        "webm" -> "video/webm"
+        "3gp" -> "video/3gpp"
+        "mkv" -> "video/x-matroska"
+        "avi" -> "video/x-msvideo"
         "txt", "log", "csv" -> "text/plain"
         "json" -> "application/json"
         "md" -> "text/markdown"
