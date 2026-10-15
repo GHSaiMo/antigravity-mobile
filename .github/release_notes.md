@@ -1,6 +1,11 @@
 # 🚀 Multigravity v1.0.8
 
 ### ✨ 新功能与核心体验
+- 🎬 **原生 MP4 视频预览与多端播放体验**（iOS / Android）：
+  - 双端全面接入系统原生视频播放引擎（iOS AVKit / AVPlayer，Android MediaPlayer + TextureView），自适应视频原生宽高比。
+  - 支持 `0.5×`、`0.75×`、`1.0×`、`1.25×`、`1.5×`、`2.0×` 多档位平滑倍速播放与进度条毫秒级拖拽定位（Scrubbing）。
+  - 支持视频一键保存至系统相册（iOS Photos 相册，Android MediaStore Movies/Antigravity）与系统原生多渠道分享。
+  - 消息气泡与 Markdown 中自动提取封面生成 16:9 质感视频预览卡片与时长 Badge，点击即刻呼出原生沉浸式播放器。
 - 🤖 **多智能体深度协同（Subagent 可见性）**（iOS / Android / Web）：
   - 消息流中内联展示子代理任务卡片（对齐桌面端），实时反馈子代理运行阶段与执行进度。
   - 支持穿透进入只读子会话轨迹，随时查看子智能体的思考脉络与工具调用细节。
