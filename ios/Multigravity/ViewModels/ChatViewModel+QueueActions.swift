@@ -551,6 +551,25 @@ extension ChatViewModel {
     public func downloadAndPreviewDocument(uri: String, fileName: String, isHTML: Bool) {
         documentDownloadTask?.cancel()
         
+        // 0. Fast-path: If uri is already a local file path
+        let localPath: String = {
+            if uri.hasPrefix("file://") {
+                return (URL(string: uri)?.path ?? String(uri.dropFirst(7)))
+            }
+            return uri
+        }()
+        if FileManager.default.fileExists(atPath: localPath) {
+            let localURL = URL(fileURLWithPath: localPath)
+            if isHTML {
+                self.htmlPreviewTitle = fileName
+                self.htmlPreviewURL = localURL
+            } else {
+                self.quickLookTitle = fileName
+                self.quickLookURL = localURL
+            }
+            return
+        }
+        
         // 1. Fast-path: Check persistent local cache first
         if let cachedURL = DocumentCacheManager.shared.getCachedFile(for: uri, fileName: fileName) {
             if isHTML {

@@ -34,7 +34,23 @@ object FileIconResolver {
         ".png", ".jpg", ".jpeg", ".webp", ".gif", ".heic", ".heif", ".bmp", ".svg", ".ico", ".tiff", ".tif"
     )
 
-    private val allPreviewExtensions = documentExtensions + imageExtensions
+    private val videoExtensions = listOf(
+        ".mp4", ".mov", ".m4v", ".webm", ".avi", ".mkv", ".3gp", ".ts", ".flv"
+    )
+
+    private val allPreviewExtensions = documentExtensions + imageExtensions + videoExtensions
+
+    /**
+     * Checks whether a file path or URL represents a video file.
+     */
+    fun isVideo(pathOrName: String): Boolean {
+        var str = pathOrName.trim().trim('`', '\'', '"')
+        if (str.isEmpty()) return false
+        val lower = str.lowercase()
+        return videoExtensions.any { ext ->
+            lower.endsWith(ext) || lower.contains("$ext?") || lower.contains("$ext#")
+        }
+    }
 
     /**
      * Resolves the asset image name for a given file name, path, or URL (1:1 with iOS FileIconResolver.resolveIcon).

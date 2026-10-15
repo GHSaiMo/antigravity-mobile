@@ -128,6 +128,20 @@ internal fun ChatViewModel.downloadAndPreviewDocument(uri: String, fileName: Str
     val decodedFileName = try { URLDecoder.decode(fileName, "UTF-8") } catch (_: Exception) { fileName }
     val cascadeId = _uiState.value.cascadeId
 
+    // 0. If uri is already a local file, preview immediately without network request
+    val localCandidate = when {
+        uri.startsWith("file://") -> java.io.File(uri.removePrefix("file://"))
+        uri.startsWith("/") -> java.io.File(uri)
+        else -> null
+    }
+    if (localCandidate != null && localCandidate.exists() && localCandidate.length() > 0) {
+        _uiState.value = _uiState.value.copy(
+            previewDocumentFile = localCandidate,
+            previewDocumentTitle = decodedFileName.ifEmpty { localCandidate.name }
+        )
+        return
+    }
+
     // 1. Check local cache first
     val cached = documentCacheManager?.getCachedFile(uri, decodedFileName, cascadeId)
     if (cached != null && cached.exists() && cached.length() > 0) {

@@ -4,8 +4,11 @@ import QuickLookThumbnailing
 import WebKit
 import Photos
 import LinkPresentation
+import AVKit
+import AVFoundation
+import Combine
 
-// MARK: - Native QuickLook Presentation Sheet (PPTX, DOCX, XLSX, PDF, KEY, SVG, Images)
+// MARK: - Native QuickLook Presentation Sheet (PPTX, DOCX, XLSX, PDF, KEY, SVG, Images, Videos)
 
 public struct QuickLookPreviewSheet: View {
     public let url: URL
@@ -15,6 +18,7 @@ public struct QuickLookPreviewSheet: View {
     @State private var isShowingDocumentPicker: Bool = false
     @State private var toastSuccessMessage: String? = nil
     @State private var toastErrorMessage: String? = nil
+    @StateObject private var videoCoordinator = VideoPlayerCoordinator()
     
     public init(url: URL, title: String = "", onDismiss: @escaping () -> Void) {
         self.url = url
@@ -71,6 +75,29 @@ public struct QuickLookPreviewSheet: View {
             }
             .disabled(isSavingPhoto)
             .accessibilityLabel("保存到文件或相册")
+        } else if isVideo(url: url) {
+            Menu {
+                Button(action: saveVideoToPhotosAlbum) {
+                    Label("保存到相册", systemImage: "video")
+                }
+                Button(action: {
+                    isShowingDocumentPicker = true
+                }) {
+                    Label("存储到“文件”", systemImage: "folder")
+                }
+            } label: {
+                if isSavingPhoto {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                } else {
+                    Image(systemName: "square.and.arrow.down")
+                        .font(.system(size: 16, weight: .semibold))
+                }
+            } primaryAction: {
+                saveVideoToPhotosAlbum()
+            }
+            .disabled(isSavingPhoto)
+            .accessibilityLabel("保存视频到相册或文件")
         } else {
             Button(action: {
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -89,6 +116,9 @@ public struct QuickLookPreviewSheet: View {
                 if isRasterImage(url: url) {
                     HighResolutionImageViewer(url: url)
                         .ignoresSafeArea(edges: .bottom)
+                } else if isVideo(url: url) {
+                    NativeVideoPlayerViewer(url: url, coordinator: videoCoordinator)
+                        .ignoresSafeArea(edges: .bottom)
                 } else {
                     QuickLookControllerRepresentable(url: url)
                         .ignoresSafeArea(edges: .bottom)
@@ -101,11 +131,26 @@ public struct QuickLookPreviewSheet: View {
                     saveButton
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    ShareLink(item: url, preview: SharePreview(title)) {
-                        Image(systemName: "square.and.arrow.up")
-                            .font(.system(size: 16, weight: .semibold))
+                    HStack(spacing: 12) {
+                        if isVideo(url: url) {
+                            playbackSpeedMenu
+                        }
+                        ShareLink(item: url, preview: SharePreview(title)) {
+                            Image(systemName: "square.and.arrow.up")
+                                .font(.system(size: 16, weight: .semibold))
+                        }
+                        .accessibilityLabel("分享")
+                        
+                        Button {
+                            onDismiss()
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 18))
+                                .symbolRenderingMode(.hierarchical)
+                                .foregroundColor(.secondary)
+                        }
+                        .accessibilityLabel("关闭")
                     }
-                    .accessibilityLabel("分享")
                 }
             }
             .sheet(isPresented: $isShowingDocumentPicker) {
@@ -209,6 +254,130 @@ public struct QuickLookPreviewSheet: View {
         return false
     }
     
+    private func isVideo(url: URL) -> Bool {
+        let ext = url.pathExtension.lowercased()
+        let videoExtensions = ["mp4", "mov", "m4v", "webm", "avi", "mkv", "3gp", "ts", "flv"]
+        if videoExtensions.contains(ext) { return true }
+        if let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
+           let uri = comps.queryItems?.first(where: { $0.name == "uri" })?.value {
+            let uriExt = (uri as NSString).pathExtension.lowercased()
+            if videoExtensions.contains(uriExt) { return true }
+        }
+        return false
+    }
+    
+    @ViewBuilder
+    private var playbackSpeedMenu: some View {
+        Menu {
+            ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 2.0], id: \.self) { speed in
+                Button {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    videoCoordinator.setRate(Float(speed))
+                } label: {
+                    HStack {
+                        Text(speedTitle(speed))
+                        if abs(videoCoordinator.currentRate - Float(speed)) < 0.05 {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 3) {
+                Image(systemName: "gauge.with.needle")
+                    .font(.system(size: 12, weight: .semibold))
+                Text(speedText(videoCoordinator.currentRate))
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Color.secondary.opacity(0.14))
+            .clipShape(Capsule())
+        }
+        .accessibilityLabel("倍速播放: \(speedText(videoCoordinator.currentRate))")
+    }
+    
+    private func speedTitle(_ speed: Double) -> String {
+        if abs(speed - 1.0) < 0.05 {
+            return "1.0× (正常速度)"
+        }
+        if speed == 0.5 {
+            return "0.5×"
+        }
+        if speed == Double(Int(speed)) {
+            return String(format: "%.1f×", speed)
+        }
+        return "\(speed)×"
+    }
+    
+    private func speedText(_ speed: Float) -> String {
+        if abs(speed - 1.0) < 0.05 {
+            return "1.0×"
+        }
+        if speed == 0.5 {
+            return "0.5×"
+        }
+        if speed == Float(Int(speed)) {
+            return String(format: "%.1f×", speed)
+        }
+        return String(format: "%.2g×", speed)
+    }
+    
+    private func saveVideoToPhotosAlbum() {
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        isSavingPhoto = true
+        
+        PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+            guard status == .authorized || status == .limited else {
+                DispatchQueue.main.async {
+                    self.isSavingPhoto = false
+                    self.showErrorToast("未获得相册权限，请在系统设置中开启")
+                }
+                return
+            }
+            
+            let performSave: (URL) -> Void = { fileURL in
+                PHPhotoLibrary.shared().performChanges {
+                    let request = PHAssetCreationRequest.forAsset()
+                    request.addResource(with: .video, fileURL: fileURL, options: nil)
+                } completionHandler: { success, error in
+                    DispatchQueue.main.async {
+                        self.isSavingPhoto = false
+                        if success {
+                            UINotificationFeedbackGenerator().notificationOccurred(.success)
+                            self.showSuccessToast("视频已保存至相册")
+                        } else {
+                            UINotificationFeedbackGenerator().notificationOccurred(.error)
+                            self.showErrorToast("保存失败: \(error?.localizedDescription ?? "未知错误")")
+                        }
+                    }
+                }
+            }
+            
+            if self.url.isFileURL {
+                performSave(self.url)
+            } else {
+                Task {
+                    do {
+                        var request = URLRequest(url: self.url)
+                        request.timeoutInterval = 60
+                        let (tempURL, _) = try await URLSession.shared.download(for: request)
+                        let ext = self.url.pathExtension.isEmpty ? "mp4" : self.url.pathExtension
+                        let destURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension(ext)
+                        try? FileManager.default.removeItem(at: destURL)
+                        try FileManager.default.moveItem(at: tempURL, to: destURL)
+                        performSave(destURL)
+                    } catch {
+                        DispatchQueue.main.async {
+                            self.isSavingPhoto = false
+                            self.showErrorToast("下载视频失败: \(error.localizedDescription)")
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
     private func saveToPhotosAlbum() {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         isSavingPhoto = true
@@ -289,6 +458,146 @@ public struct QuickLookPreviewSheet: View {
                     }
                 }
             }
+        }
+    }
+}
+
+// MARK: - Video Player Coordinator & Native Video Player Viewer
+
+public final class VideoPlayerCoordinator: ObservableObject {
+    @Published public var currentRate: Float = 1.0
+    public weak var player: AVPlayer? = nil
+    private var rateObservation: NSKeyValueObservation?
+    
+    public init() {}
+    
+    public func attach(player: AVPlayer) {
+        self.player = player
+        rateObservation?.invalidate()
+        rateObservation = player.observe(\.rate, options: [.new]) { [weak self] p, change in
+            guard let self = self, let newRate = change.newValue, newRate > 0 else { return }
+            DispatchQueue.main.async {
+                if abs(self.currentRate - newRate) > 0.05 {
+                    self.currentRate = newRate
+                }
+            }
+        }
+        if currentRate != 1.0 {
+            player.defaultRate = currentRate
+            if player.timeControlStatus == .playing {
+                player.rate = currentRate
+            }
+        }
+    }
+    
+    public func detach() {
+        rateObservation?.invalidate()
+        rateObservation = nil
+        self.player = nil
+    }
+    
+    public func setRate(_ rate: Float) {
+        currentRate = rate
+        guard let player = player else { return }
+        player.defaultRate = rate
+        if player.timeControlStatus == .playing {
+            player.rate = rate
+        }
+    }
+}
+
+public struct NativeVideoPlayerViewer: View {
+    public let url: URL
+    @ObservedObject public var coordinator: VideoPlayerCoordinator
+    @State private var player: AVPlayer? = nil
+    
+    public init(url: URL, coordinator: VideoPlayerCoordinator) {
+        self.url = url
+        self.coordinator = coordinator
+    }
+    
+    public var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            
+            if let player = player {
+                AVPlayerViewControllerRepresentable(player: player)
+                    .ignoresSafeArea(edges: .bottom)
+            } else {
+                ProgressView()
+                    .tint(.white)
+            }
+        }
+        .onAppear {
+            setupPlayer()
+        }
+        .onDisappear {
+            tearDownPlayer()
+        }
+    }
+    
+    private func setupPlayer() {
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            print("Failed to set audio session category: \(error)")
+        }
+        
+        let p = AVPlayer(url: url)
+        p.actionAtItemEnd = .pause
+        self.player = p
+        coordinator.attach(player: p)
+        
+        NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: p.currentItem,
+            queue: .main
+        ) { [weak p] _ in
+            p?.seek(to: .zero)
+        }
+        
+        p.play()
+    }
+    
+    private func tearDownPlayer() {
+        player?.pause()
+        coordinator.detach()
+        player = nil
+        NotificationCenter.default.removeObserver(self, name: .AVPlayerItemDidPlayToEndTime, object: nil)
+    }
+}
+
+public struct AVPlayerViewControllerRepresentable: UIViewControllerRepresentable {
+    public let player: AVPlayer
+    
+    public init(player: AVPlayer) {
+        self.player = player
+    }
+    
+    public func makeUIViewController(context: Context) -> AVPlayerViewController {
+        let controller = AVPlayerViewController()
+        controller.player = player
+        controller.showsPlaybackControls = true
+        controller.allowsPictureInPicturePlayback = true
+        controller.updatesNowPlayingInfoCenter = false
+        controller.videoGravity = .resizeAspect
+        if #available(iOS 16.0, *) {
+            controller.speeds = [
+                AVPlaybackSpeed(rate: 0.5, localizedName: "0.5×"),
+                AVPlaybackSpeed(rate: 0.75, localizedName: "0.75×"),
+                AVPlaybackSpeed(rate: 1.0, localizedName: "1.0×"),
+                AVPlaybackSpeed(rate: 1.25, localizedName: "1.25×"),
+                AVPlaybackSpeed(rate: 1.5, localizedName: "1.5×"),
+                AVPlaybackSpeed(rate: 2.0, localizedName: "2.0×")
+            ]
+        }
+        return controller
+    }
+    
+    public func updateUIViewController(_ uiViewController: AVPlayerViewController, context: Context) {
+        if uiViewController.player !== player {
+            uiViewController.player = player
         }
     }
 }

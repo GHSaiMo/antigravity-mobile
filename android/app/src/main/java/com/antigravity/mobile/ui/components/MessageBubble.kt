@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -617,6 +618,8 @@ fun ArtifactPreviewCard(
 ) {
     val colors = AntigravityTheme.colors
     val haptic = rememberHaptic()
+    val isVideo = com.antigravity.mobile.data.service.FileIconResolver.isVideo(artifact.title) ||
+        com.antigravity.mobile.data.service.FileIconResolver.isVideo(artifact.uri)
 
     Column(
         modifier = modifier
@@ -633,21 +636,37 @@ fun ArtifactPreviewCard(
     ) {
         // Document icon + title
         Row(
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text(
-                text = "📄",
+                text = if (isVideo) "🎬" else "📄",
                 fontSize = 15.sp
             )
             Text(
-                text = artifact.title.ifBlank { "文档详情" },
+                text = artifact.title.ifBlank { if (isVideo) "MP4 视频" else "文档详情" },
                 color = colors.textPrimary,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
             )
+            if (isVideo) {
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = colors.accentIndigo.copy(alpha = 0.15f)
+                ) {
+                    Text(
+                        text = "MP4 视频",
+                        color = colors.accentIndigo,
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+            }
         }
 
         // Summary text if present

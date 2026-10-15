@@ -145,11 +145,12 @@ extension ChatView {
             return .handled
         }
         
-        // 2. Images, Presentations & Office documents (PNG, JPG, WEBP, GIF, PPTX, PPT, KEY, DOCX, XLSX, PDF, HTML, etc.)
+        // 2. Images, Presentations, Videos & Office documents (PNG, JPG, MP4, MOV, PPTX, PPT, KEY, DOCX, XLSX, PDF, HTML, etc.)
         let isHTML = lower.hasSuffix(".html") || lower.hasSuffix(".htm") || pathLower.hasSuffix(".html") || pathLower.hasSuffix(".htm")
         let documentExtensions = [".pptx", ".ppt", ".key", ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".numbers", ".pages", ".html", ".htm", ".txt", ".csv", ".json", ".log"]
         let imageExtensions = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".heic", ".heif", ".bmp", ".svg", ".ico", ".tiff", ".tif"]
-        let allPreviewExtensions = documentExtensions + imageExtensions
+        let videoExtensions = [".mp4", ".mov", ".m4v", ".webm", ".avi", ".mkv", ".3gp", ".ts", ".flv"]
+        let allPreviewExtensions = documentExtensions + imageExtensions + videoExtensions
         
         let uriLower = (uriParam ?? "").lowercased()
         let isPreviewableFile = allPreviewExtensions.contains { ext in
