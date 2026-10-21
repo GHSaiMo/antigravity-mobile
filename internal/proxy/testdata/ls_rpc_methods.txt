@@ -1,5 +1,5 @@
 # language_server RPC baseline
-# generated: 2026-10-09 ide_version: 2.22.0 count: 324
+# generated: 2026-10-21 ide_version: 2.25.0 count: 346
 AcceptTermsOfService
 AcknowledgeCascadeCodeEdit
 AcknowledgeCodeActionStep
@@ -33,6 +33,7 @@ CreateProject
 CreateScratchProjectFolder
 CreateTerminal
 CreateTrajectoryShare
+CreateTrigger
 CreateWorktree
 DeleteAgentMessage
 DeleteCascadeMemory
@@ -43,10 +44,12 @@ DeletePlugin
 DeleteProject
 DeleteQueuedUserInputStep
 DeleteSkill
+DeleteTrigger
 DeleteWorktree
 DetectBattleModeAutoTrigger
 DiscardFileChanges
 DisconnectMcpOAuth
+DisconnectRemotePlugin
 DownloadBuildWithGooglePlugin
 DumpFlightRecorder
 DumpPprof
@@ -117,6 +120,7 @@ GetLocalUserInfo
 GetMarketplaceBundles
 GetMarketplaceCustomization
 GetMatchingContextScopeItems
+GetMcpAppResource
 GetMcpPrompt
 GetMcpServerStates
 GetMcpServerTemplates
@@ -128,6 +132,7 @@ GetPlugin
 GetProfileData
 GetRemoteControlInfo
 GetRepoInfos
+GetResolvedCascadeConfig
 GetRevertPreview
 GetRevisionArtifact
 GetServerConfiguration
@@ -143,6 +148,7 @@ GetTeamOrganizationalControls
 GetTermsOfService
 GetTokenBase
 GetTrajectoryFileDiffs
+GetTrajectoryTurn
 GetTranscription
 GetTurnDiff
 GetUnleashData
@@ -191,7 +197,11 @@ JjCommit
 JjSquash
 JjSync
 JjUpload
+LaunchMcpApp
+ListAvailableResources
+ListContextProviders
 ListCustomizationPathsByFile
+ListEnvironments
 ListGobRepos
 ListLicenses
 ListMcpPrompts
@@ -199,8 +209,13 @@ ListMcpResources
 ListPages
 ListPluginAuthProviders
 ListProfiles
+ListProjects
+ListRemotePlugins
+ListResourceProviders
 ListSidecarLogFiles
 ListTerminals
+ListTriggerOptions
+ListTriggers
 LoadReplayConversation
 LoadSharedTrajectory
 LoadTrajectory
@@ -242,6 +257,8 @@ RepoSync
 RepoUpload
 RequestAgentStatePageUpdate
 ResetOnboarding
+ResolveCommandPlugin
+ResolveContextUri
 ResolveFolder
 ResolveOutstandingSteps
 ResolveSidecarConfig
@@ -255,6 +272,7 @@ SaveMediaAsArtifact
 SaveScreenRecording
 ScanSkillsConfigFile
 SearchCode
+SearchContext
 SearchConversations
 SearchDriveFiles
 SearchFiles
@@ -274,6 +292,8 @@ SendUserCascadeMessage
 SetBaseExperiments
 SetBrowserOpenConversation
 SetCloudCodeURL
+SetDefaultPluginAuthAccount
+SetMendelFlagOverrides
 SetOrVerifyStaticConfig
 SetUserInfo
 SetUserSettings
@@ -316,10 +336,12 @@ UpdateDevExperiments
 UpdateEnterpriseExperimentsFromUrl
 UpdatePRForWorktree
 UpdateProject
+UpdateTrigger
 UploadToDrive
 ValidateProject
 ValidateTerminalSetupScript
 WaitForConversationFullyIdle
+WarmUpAgentProcess
 WatchDirectory
 WatchVersionControlState
 WellSupportedLanguages

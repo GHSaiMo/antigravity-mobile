@@ -70,7 +70,7 @@ case "$MODE" in
     { echo "# language_server RPC baseline"
       echo "# generated: $(date +%F) ide_version: $(version_line) count: $(echo "$cur" | wc -l | tr -d ' ')"
       echo "$cur"; } > "$BASELINE"
-    echo "已更新基线：$BASELINE（$(echo "$cur" | wc -l | tr -d ' ') 个方法）"
+    echo "已更新基线：${BASELINE}（$(echo "$cur" | wc -l | tr -d ' ') 个方法）"
     ;;
   --diff)
     [[ -f "$BASELINE" ]] || { echo "基线不存在，先执行 --update" >&2; exit 3; }

@@ -1,6 +1,6 @@
 # language_server RPC 接入说明（实测版）
 
-> 实测环境：Antigravity 2.22.0（macOS，standalone hub 模式），2026-10-09。
+> 实测环境：Antigravity 2.25.0（macOS，standalone hub 模式），2026-10-21（基线更新：346 个 RPC）。
 > 方法清单与形状均来自对本机真实运行的 language_server 的**只读探测**（`scripts/ls-rpc-probe.sh`），
 > 字段以实测为准；未实测的标为「未验证」。升级后请先跑 `scripts/ls-rpc-snapshot.sh` 再对照本文。
 
@@ -8,7 +8,7 @@
 
 | 工具 | 作用 |
 |---|---|
-| `scripts/ls-rpc-snapshot.sh` | 从二进制抽取 `LanguageServerServiceHandler.<Method>` 清单（324 个），与基线 `internal/proxy/testdata/ls_rpc_methods.txt` 比对：列出新增/消失，**已使用的 RPC 消失时退出码为 1**。升级核对完后 `--update` 刷新基线 |
+| `scripts/ls-rpc-snapshot.sh` | 从二进制抽取 `LanguageServerServiceHandler.<Method>` 清单（346 个），与基线 `internal/proxy/testdata/ls_rpc_methods.txt` 比对：列出新增/消失，**已使用的 RPC 消失时退出码为 1**。升级核对完后 `--update` 刷新基线 |
 | `internal/proxy/ls_rpc_contract_test.go` | 离线契约测试：Go/Web/Android/iOS 源码里引用的 RPC 名必须在基线中，拼错或被移除会让 `go test` 失败 |
 | `scripts/ls-rpc-probe.sh` | 对本机 language_server 发 ConnectRPC(JSON) 请求，用于探测形状；只探测只读方法 |
 
@@ -202,3 +202,34 @@
   stream / messages 响应新增 `subagents[]`、`parentConversationId`、`subagentRole`。功能表登记为 `subagents`（依赖 `ForceStopCascadeTree`），
   缺失时客户端只隐藏关停按钮，查看不受影响。
 - 范围：只读查看 + 关停；不做给子代理发消息。
+
+### 5.9 底层架构：Host Bridge 通信与无感更新升级（2.25.0 实测逆向）
+
+在 Antigravity 2.25.0 中，桌面宿主与后台服务之间的通信架构发生了重要演进，引入了独立的反向桥接服务 **`HostBridgeService`**：
+
+1. **反向桥接通信机制 (Reverse Connect-RPC)**
+   - **服务角色对调**：在既有架构中，Electron 宿主仅作为客户端单向请求后台 `LanguageServerService`。但渲染层（Renderer）随时可能随窗口关闭而销毁，导致后台 LS 无法主动向宿主请求环境能力。
+   - **监听与启动**：2.25.0 中 Electron 主进程（`app.asar/dist/hostBridgeServer.js`）在本地启动了一个轻量 Connect-RPC 服务（基于 `@connectrpc/connect-node`），绑定 `127.0.0.1` 的临时随机端口。在拉起后台 `language_server` 时，通过参数显式注入：
+     ```bash
+     --host_bridge_url=http://127.0.0.1:<port>
+     --host_bridge_token=<32-bytes-random-hex-token>
+     ```
+   - **服务协议定义**：`exa.host_bridge_pb.HostBridgeService`，定义于 `proto/host_bridge.proto`（Go 侧包名为 `google3/third_party/jetski/host_bridge_pb/host_bridge_go_proto`）。Language Server 在启动时初始化 `NewConnectHostBridge` 客户端，按需向 Electron 主进程发起反向调用。
+
+2. **解耦更新与生命周期 (Decoupled Updates & Hot Restart)**
+   - **核心接口**：
+     - `GetUpdateStatus(GetUpdateStatusRequest) -> GetUpdateStatusResponse { status: UpdateStatus }`：返回 `current_version`、`latest_version`、`update_available`，实现后台平滑轮询检查，无需唤醒 UI 渲染。
+     - `ApplyUpdate(ApplyUpdateRequest) -> ApplyUpdateResponse { accepted: bool }`：安全触发更新安装流程。
+   - **热重启与锁冲突规避**：在桌面模式下调用 `electron-updater` 的 `quitAndInstall()`；在无头/Daemon 模式下通过专用 `headlessQuitAndInstall` 流程，在进程退出后由外部守护替换可执行文件并带原参数重启，彻底规避了过去自动升级过程中的文件锁占用、更新中断与假死问题。
+
+3. **双 Token 物理安全隔离 (Dual-Token Security Boundary)**
+   - **物理隔离**：外部客户端与 Web 前端与 Language Server 通信使用常规的 `--csrf_token`（UUID 格式）；而 Host Bridge 使用单独由 Node.js `crypto.randomBytes(32)` 生成的高熵 Hex Token（`--host_bridge_token`），该 Token 仅在主进程内存与后台 LS 命令行之间传递，绝不暴露给前端渲染层。杜绝了恶意 Web 脚本注入或前端漏洞借由 Bridge 伪造系统级更新与重启操作。
+   - **严格安全防御**：
+     - **环回限制**：Socket 层严格只认 `127.0.0.1`、`::1`、`::ffff:127.0.0.1`。
+     - **DNS 重新绑定防御**：强校验 HTTP `Host` 请求头必须精确匹配本地监听地址。
+     - **常量时间比对**：使用 `crypto.timingSafeEqual` 校验 Bearer Token，免疫时序侧信道攻击。
+   - **认证通道代理**：协议内还声明内嵌了 `GetOAuthToken` 代理通道，为后台进程直接获取宿主端代理凭据预留了标准通道。
+
+4. **对 Multigravity (网关/移动端) 的影响边界**
+   - **职责分离**：Multigravity 移动网关专注于与 `LanguageServerService` 通信，不需要亦不应挂载或直接访问 `HostBridgeService`。
+   - **脱敏合规**：网关在遍历或探查本机 `language_server` 进程时，必须将 `--host_bridge_token` 视同 `--csrf_token` 进行日志脱敏，绝不输出到日志或外部状态 API。
