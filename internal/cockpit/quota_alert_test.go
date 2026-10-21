@@ -86,20 +86,6 @@ func TestFriendlyDuration(t *testing.T) {
 	}
 }
 
-func TestMaskEmail(t *testing.T) {
-	cases := map[string]string{
-		"taojiuzhen@gmail.com": "t***n@gmail.com",
-		"ab@x.io":              "a***@x.io",
-		"a@x.io":               "a***@x.io",
-		"no-at-sign":           "no-at-sign",
-	}
-	for in, want := range cases {
-		if got := maskEmail(in); got != want {
-			t.Errorf("maskEmail(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
 // ---- alerter ------------------------------------------------------------------
 
 func quotaFor(id, email string, frac float64, updated time.Time, reset time.Time) *CockpitQuotaResponse {
@@ -240,7 +226,7 @@ func TestAlertFollowsLiveAccount(t *testing.T) {
 	q := &CockpitQuotaResponse{CurrentAccount: &a1, Accounts: []AccountQuota{a1, a2}}
 	// Cockpit 记录的当前账号是 a，但 language_server 实际在用 b：以实际在用的为准
 	h.a.Observe(q, "B@x.com")
-	if len(h.sent) != 1 || !strings.Contains(h.sent[0].Body, "b***@x.com") || strings.Contains(h.sent[0].Body, "a***") {
+	if len(h.sent) != 1 || !strings.Contains(h.sent[0].Body, "账号 b@x.com") || strings.Contains(h.sent[0].Body, "a@x.com") {
 		t.Errorf("expected an alert for the live account b@x.com only, got %+v", h.sent)
 	}
 }
@@ -269,8 +255,8 @@ func TestAlertMessageContent(t *testing.T) {
 	if a.Title != "⚠️ Gemini 5h 额度仅剩 18%" {
 		t.Errorf("title = %q", a.Title)
 	}
-	if !strings.Contains(a.Body, "t***n@gmail.com") || strings.Contains(a.Body, "taojiuzhen") {
-		t.Errorf("email must be masked in push body: %q", a.Body)
+	if !strings.Contains(a.Body, "账号 taojiuzhen@gmail.com") {
+		t.Errorf("email must be shown in full in push body: %q", a.Body)
 	}
 	// 最后一次读数在 t0+40min，重置在 t0+4h → 还剩 3h 20m，且按当前时间现算而不是用快照里的文本
 	if !strings.Contains(a.Body, "3h 20m后重置（12:00）") {

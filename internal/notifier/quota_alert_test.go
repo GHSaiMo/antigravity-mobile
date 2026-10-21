@@ -28,7 +28,7 @@ func newQuotaTestNotifier() (*Notifier, *captureSender) {
 
 func TestNotifyQuotaAlertWarnIsQuiet(t *testing.T) {
 	n, s := newQuotaTestNotifier()
-	if err := n.NotifyQuotaAlert("acc|2026-10-09T10:00:00Z", "⚠️ Gemini 5h 额度仅剩 18%", "账号 t***n@gmail.com", false); err != nil {
+	if err := n.NotifyQuotaAlert("acc|2026-10-09T10:00:00Z", "⚠️ Gemini 5h 额度仅剩 18%", "账号 taojiuzhen@gmail.com", false); err != nil {
 		t.Fatal(err)
 	}
 	if len(s.sent) != 1 {

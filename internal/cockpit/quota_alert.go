@@ -262,7 +262,7 @@ func alertTitle(level string, fraction float64) string {
 func alertBody(acc *AccountQuota, m *QuotaMetric, reset time.Time, eta time.Time, hasEta bool, now time.Time) string {
 	var parts []string
 	if acc.Email != "" {
-		parts = append(parts, "账号 "+maskEmail(acc.Email))
+		parts = append(parts, "账号 "+acc.Email)
 	}
 	if !reset.IsZero() {
 		// 倒计时按当前时间现算：Cockpit 快照里的 reset_friendly 最多滞后一个刷新周期
@@ -290,24 +290,6 @@ func friendlyDuration(d time.Duration) string {
 		return fmt.Sprintf("%dh %dm", mins/60, mins%60)
 	}
 	return fmt.Sprintf("%dm", mins)
-}
-
-// maskEmail keeps the push (which passes through third-party push services) free of full addresses.
-func maskEmail(email string) string {
-	at := strings.LastIndex(email, "@")
-	if at <= 0 {
-		return email
-	}
-	local, domain := email[:at], email[at:]
-	r := []rune(local)
-	switch len(r) {
-	case 1:
-		return string(r) + "***" + domain
-	case 2:
-		return string(r[:1]) + "***" + domain
-	default:
-		return string(r[:1]) + "***" + string(r[len(r)-1:]) + domain
-	}
 }
 
 // predictExhaustion extrapolates the consumption speed of the last predictWindow with a least-squares fit.
