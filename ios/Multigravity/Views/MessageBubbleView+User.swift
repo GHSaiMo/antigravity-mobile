@@ -215,74 +215,104 @@ extension MessageBubbleView {
     }
     
     func userAsyncImageBubble(for url: URL, placeholder: UIImage? = nil, gallery: [IdentifiableImage] = [], index: Int = 0) -> some View {
-        AsyncImage(url: url) { phase in
-            switch phase {
-            case .empty:
-                if let placeholder = placeholder {
-                    Image(uiImage: placeholder)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxWidth: 240, maxHeight: 220, alignment: .trailing)
-                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .stroke(Color.primary.opacity(0.12), lineWidth: 0.8)
-                        )
-                } else {
-                    ProgressView()
-                        .frame(width: 140, height: 140)
-                        .background(Color(uiColor: .secondarySystemBackground))
-                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                }
-            case .success(let image):
+        UserAsyncImageBubbleView(
+            url: url,
+            placeholder: placeholder,
+            gallery: gallery,
+            index: index
+        ) { effectiveItems, effectiveIndex in
+            previewGallery = ImageGalleryData(items: effectiveItems, initialIndex: effectiveIndex)
+        }
+    }
+}
+
+// MARK: - User Async Image Bubble View
+
+private struct UserAsyncImageBubbleView: View {
+    let url: URL
+    let placeholder: UIImage?
+    let gallery: [IdentifiableImage]
+    let index: Int
+    let onTap: ([IdentifiableImage], Int) -> Void
+    
+    @State private var uiImage: UIImage?
+    @State private var isLoading: Bool = false
+    @State private var hasFailed: Bool = false
+    
+    init(
+        url: URL,
+        placeholder: UIImage? = nil,
+        gallery: [IdentifiableImage] = [],
+        index: Int = 0,
+        onTap: @escaping ([IdentifiableImage], Int) -> Void
+    ) {
+        self.url = url
+        self.placeholder = placeholder
+        self.gallery = gallery
+        self.index = index
+        self.onTap = onTap
+        _uiImage = State(initialValue: placeholder ?? MarkdownImageCache.shared.image(for: url))
+    }
+    
+    var body: some View {
+        Group {
+            if let displayImg = uiImage {
+                let maxDisplayWidth: CGFloat = 240
+                let maxDisplayHeight: CGFloat = 220
+                let imgWidth = displayImg.size.width
+                let imgHeight = displayImg.size.height
+                
+                let fittedSize: CGSize = {
+                    guard imgWidth > 0, imgHeight > 0 else {
+                        return CGSize(width: maxDisplayWidth, height: maxDisplayHeight)
+                    }
+                    let scale = min(maxDisplayWidth / imgWidth, maxDisplayHeight / imgHeight)
+                    return CGSize(
+                        width: max(40, imgWidth * scale),
+                        height: max(30, imgHeight * scale)
+                    )
+                }()
+                
+                let effectiveGallery: [IdentifiableImage] = {
+                    if gallery.isEmpty {
+                        return [IdentifiableImage(image: displayImg, url: url)]
+                    }
+                    return gallery.enumerated().map { i, item in
+                        if i == index {
+                            return IdentifiableImage(image: displayImg, url: item.url ?? url)
+                        }
+                        return item
+                    }
+                }()
+                
                 Button(action: {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    let effectiveItems = gallery.isEmpty ? [IdentifiableImage(image: placeholder, url: url)] : gallery
-                    previewGallery = ImageGalleryData(items: effectiveItems, initialIndex: index)
+                    onTap(effectiveGallery, index)
                 }) {
-                    image
+                    Image(uiImage: displayImg)
                         .resizable()
                         .scaledToFit()
+                        .frame(width: fittedSize.width, height: fittedSize.height)
+                        .background(Color(uiColor: .secondarySystemBackground))
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                         .overlay(
                             RoundedRectangle(cornerRadius: 14, style: .continuous)
                                 .stroke(Color.primary.opacity(0.12), lineWidth: 0.8)
                         )
                         .shadow(color: Color.black.opacity(0.06), radius: 3, x: 0, y: 1.5)
-                        .frame(maxWidth: 240, maxHeight: 220, alignment: .trailing)
                 }
                 .buttonStyle(.plain)
-                .imageContextMenu(item: IdentifiableImage(image: placeholder, url: url)) {
-                    let effectiveItems = gallery.isEmpty ? [IdentifiableImage(image: placeholder, url: url)] : gallery
-                    previewGallery = ImageGalleryData(items: effectiveItems, initialIndex: index)
+                .imageContextMenu(item: IdentifiableImage(image: displayImg, url: url)) {
+                    onTap(effectiveGallery, index)
                 }
-            case .failure:
-                if let placeholder = placeholder {
-                    Button(action: {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        let effectiveItems = gallery.isEmpty ? [IdentifiableImage(image: placeholder, url: url)] : gallery
-                        previewGallery = ImageGalleryData(items: effectiveItems, initialIndex: index)
-                    }) {
-                        Image(uiImage: placeholder)
-                            .resizable()
-                            .scaledToFit()
-                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .stroke(Color.primary.opacity(0.12), lineWidth: 0.8)
-                            )
-                            .shadow(color: Color.black.opacity(0.06), radius: 3, x: 0, y: 1.5)
-                            .frame(maxWidth: 240, maxHeight: 220, alignment: .trailing)
-                    }
-                    .buttonStyle(.plain)
-                    .imageContextMenu(item: IdentifiableImage(image: placeholder, url: url)) {
-                        let effectiveItems = gallery.isEmpty ? [IdentifiableImage(image: placeholder, url: url)] : gallery
-                        previewGallery = ImageGalleryData(items: effectiveItems, initialIndex: index)
-                    }
-                } else {
+            } else if hasFailed {
+                Button(action: {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    Task { await loadImage() }
+                }) {
                     HStack(spacing: 6) {
                         Image(systemName: "photo")
-                        Text("图片加载失败")
+                        Text("图片加载失败，点击重试")
                     }
                     .font(.footnote)
                     .foregroundColor(.secondary)
@@ -291,10 +321,75 @@ extension MessageBubbleView {
                     .background(Color(uiColor: .secondarySystemBackground))
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
-            @unknown default:
-                EmptyView()
+                .buttonStyle(.plain)
+            } else {
+                ProgressView()
+                    .frame(width: 80, height: 80)
+                    .background(Color(uiColor: .secondarySystemBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(Color.primary.opacity(0.12), lineWidth: 0.8)
+                    )
+                    .task(id: url) {
+                        await loadImage()
+                    }
+            }
+        }
+        .onAppear {
+            if uiImage == nil && !hasFailed {
+                if let cached = MarkdownImageCache.shared.image(for: url) {
+                    uiImage = cached
+                } else {
+                    var request = URLRequest(url: url)
+                    request.cachePolicy = .returnCacheDataElseLoad
+                    if let cachedData = URLCache.shared.cachedResponse(for: request)?.data,
+                       let cached = UIImage(data: cachedData) {
+                        MarkdownImageCache.shared.insert(cached, for: url)
+                        uiImage = cached
+                    }
+                }
             }
         }
     }
     
+    private func loadImage() async {
+        if let cached = MarkdownImageCache.shared.image(for: url) {
+            uiImage = cached
+            return
+        }
+        var request = URLRequest(url: url)
+        request.cachePolicy = .returnCacheDataElseLoad
+        if let cachedData = URLCache.shared.cachedResponse(for: request)?.data,
+           let cached = UIImage(data: cachedData) {
+            MarkdownImageCache.shared.insert(cached, for: url)
+            uiImage = cached
+            return
+        }
+        if isLoading { return }
+        isLoading = true
+        defer { isLoading = false }
+        
+        do {
+            var req = URLRequest(url: url)
+            req.cachePolicy = .returnCacheDataElseLoad
+            req.timeoutInterval = 15
+            let (data, response) = try await URLSession.shared.data(for: req)
+            if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
+                hasFailed = true
+                return
+            }
+            if let decoded = UIImage(data: data) {
+                MarkdownImageCache.shared.insert(decoded, for: url)
+                uiImage = decoded
+                hasFailed = false
+            } else {
+                hasFailed = true
+            }
+        } catch {
+            if !Task.isCancelled {
+                hasFailed = true
+            }
+        }
+    }
 }

@@ -64,9 +64,8 @@ for i in 1 2 3 4 5 6; do
 done
 [ "\$ok" = "1" ] || { echo "❌ 无法从 ${NAS_GOPROXY} 下载 Go 工具链" >&2; exit 4; }
 rm -rf toolchain && mkdir toolchain
-docker run --rm -v '${NAS_WORKDIR}:/work' '${NAS_IMAGE}' unzip -q /work/go-toolchain.zip -d /work/toolchain
+docker run --rm -v '${NAS_WORKDIR}:/work' '${NAS_IMAGE}' sh -c 'unzip -q /work/go-toolchain.zip -d /work/toolchain && chmod -R a+rX /work/toolchain'
 rm -f go-toolchain.zip
-chmod -R a+rX toolchain
 test -x '${TOOLCHAIN_DIR}/bin/go'
 EOF
 fi
