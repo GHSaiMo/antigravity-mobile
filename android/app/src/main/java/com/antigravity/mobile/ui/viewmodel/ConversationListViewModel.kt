@@ -77,7 +77,7 @@ class ConversationListViewModel(
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
     private val deletedCascadeIds = mutableSetOf<String>()
-    private var rawConversations = loadInitialConversations()
+    private var rawConversations = emptyList<ConversationItem>()
     private var pollJob: kotlinx.coroutines.Job? = null
     private var eventsJob: kotlinx.coroutines.Job? = null
 
@@ -85,6 +85,7 @@ class ConversationListViewModel(
     private val eventsClient = ConversationEventsClient(prefs) { apiClient.currentBaseUrl }
 
     init {
+        rawConversations = loadInitialConversations()
         if (prefs.isPaired()) {
             loadConversations()
             loadQuotas()
@@ -92,6 +93,15 @@ class ConversationListViewModel(
         } else {
             _uiState.value = ConversationListUiState.Success(emptyList())
         }
+    }
+
+    private fun sortConversations(items: List<ConversationItem>): List<ConversationItem> {
+        val pinnedIds = prefs.getPinnedConversationIds()
+        return items.map { it.copy(isPinned = pinnedIds.contains(it.id)) }
+            .sortedWith(
+                compareByDescending<ConversationItem> { it.isPinned }
+                    .thenByDescending { it.lastModifiedEpochMs }
+            )
     }
 
     fun reloadFromCache() {
@@ -115,10 +125,10 @@ class ConversationListViewModel(
         }
         val all = drafts + serverNonDrafts
         if (all.isNotEmpty()) {
-            rawConversations = all
+            rawConversations = sortConversations(all)
             applyFilter()
-            cacheManager?.prewarmSessions(all.take(15).map { it.id })
-            liveActivityManager?.syncWithConversations(all)
+            cacheManager?.prewarmSessions(rawConversations.take(15).map { it.id })
+            liveActivityManager?.syncWithConversations(rawConversations)
         }
     }
 
@@ -182,12 +192,13 @@ class ConversationListViewModel(
             emptyList()
         }
         val all = drafts + serverItems
-        if (all.isNotEmpty()) {
-            _uiState.value = ConversationListUiState.Success(all)
-            cacheManager?.prewarmSessions(all.take(15).map { it.id })
-            liveActivityManager?.syncWithConversations(all)
+        val sorted = sortConversations(all)
+        if (sorted.isNotEmpty()) {
+            _uiState.value = ConversationListUiState.Success(sorted)
+            cacheManager?.prewarmSessions(sorted.take(15).map { it.id })
+            liveActivityManager?.syncWithConversations(sorted)
         }
-        return all
+        return sorted
     }
 
     private fun persistConversationsToCache(list: List<ConversationItem>) {
@@ -261,7 +272,7 @@ class ConversationListViewModel(
 
         // Server list is authoritative for server conversations.
         // Any conversation deleted on computer is immediately removed.
-        return drafts + enrichedServerItems
+        return sortConversations(drafts + enrichedServerItems)
     }
 
     suspend fun loadInitialData(): Boolean {
@@ -494,6 +505,13 @@ class ConversationListViewModel(
                 loadConversations()
             }
         }
+    }
+
+    fun togglePinConversation(cascadeId: String) {
+        prefs.togglePin(cascadeId)
+        rawConversations = sortConversations(rawConversations)
+        persistConversationsToCache(rawConversations)
+        applyFilter()
     }
 
     fun renameConversation(cascadeId: String, newTitle: String) {

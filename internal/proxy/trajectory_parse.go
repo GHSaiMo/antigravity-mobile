@@ -263,6 +263,26 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 					Subagent:  &sa,
 				})
 			}
+		} else if extractToolNameFromStep(s) == "run_workflow" {
+			// Antigravity 2.26+ 动态多智能体工作流：内联独立呈现工作流阶段卡片与结构化产物
+			flushTools()
+			wf := parseWorkflowFromStep(s, idx)
+			if wf != nil {
+				stepIdx := idx
+				label := wf.Description
+				if label == "" {
+					label = "动态工作流任务"
+				}
+				allMessages = append(allMessages, CascadeMessageItem{
+					ID:        fmt.Sprintf("workflow-step-%d", idx),
+					Type:      "workflow",
+					Role:      "assistant",
+					Text:      label,
+					Content:   label,
+					StepIndex: &stepIdx,
+					Workflow:  wf,
+				})
+			}
 		} else if stepType == "CORTEX_STEP_TYPE_ERROR_MESSAGE" {
 			if !isUserVisibleError(s) {
 				continue
@@ -893,17 +913,40 @@ func buildPendingInteraction(rawResp *upstreamTrajectoryResp, steps []Trajectory
 				pi.Target = req.Permission.Resource.Target
 				pi.Description = req.Permission.ActionDescription
 
-				actionLower := strings.ToLower(pi.Action)
-				if strings.Contains(actionLower, "read") {
-					pi.Title = "Allow read access to this path?"
-				} else if strings.Contains(actionLower, "command") {
-					pi.Title = "Allow executing this command?"
-				} else if strings.Contains(actionLower, "write") || strings.Contains(actionLower, "edit") {
-					pi.Title = "Allow write access to this path?"
-				} else if pi.Description != "" {
-					pi.Title = "Allow: " + pi.Description + "?"
+				if pg := parsePermissionGrant(pi.Action, pi.Target, pi.Description); pg != nil {
+					pi.PermissionGrant = pg
+					if pg.Binary == "git" {
+						if pg.Branch != "" {
+							pi.Title = fmt.Sprintf("Git 权限申请：允许向分支 %s 执行 %s？", pg.Branch, pg.Action)
+						} else {
+							pi.Title = fmt.Sprintf("Git 权限申请：允许执行 %s？", pg.Action)
+						}
+					} else if pg.Binary == "gh" {
+						repoStr := pg.Repo
+						if pg.Org != "" && pg.Repo != "" {
+							repoStr = pg.Org + "/" + pg.Repo
+						}
+						if repoStr != "" {
+							pi.Title = fmt.Sprintf("GitHub 权限申请：针对 %s 执行 %s？", repoStr, pg.Action)
+						} else {
+							pi.Title = fmt.Sprintf("GitHub 权限申请：允许 %s 操作？", pg.Action)
+						}
+					} else {
+						pi.Title = fmt.Sprintf("安全权限申请：%s (%s)", pi.Action, pi.Target)
+					}
 				} else {
-					pi.Title = fmt.Sprintf("Allow %s access?", pi.Action)
+					actionLower := strings.ToLower(pi.Action)
+					if strings.Contains(actionLower, "read") {
+						pi.Title = "Allow read access to this path?"
+					} else if strings.Contains(actionLower, "command") {
+						pi.Title = "Allow executing this command?"
+					} else if strings.Contains(actionLower, "write") || strings.Contains(actionLower, "edit") {
+						pi.Title = "Allow write access to this path?"
+					} else if pi.Description != "" {
+						pi.Title = "Allow: " + pi.Description + "?"
+					} else {
+						pi.Title = fmt.Sprintf("Allow %s access?", pi.Action)
+					}
 				}
 
 				applyPermissionOptions(pi)
@@ -1118,4 +1161,137 @@ func applyPermissionOptions(pi *PendingInteraction) {
 		{ID: "5", Text: "No", IsDeny: true},
 	}
 	applyDenyWriteIn(pi)
+}
+
+func parsePermissionGrant(action, target, desc string) *PermissionGrantDetails {
+	action = strings.TrimSpace(action)
+	target = strings.TrimSpace(target)
+	parts := strings.SplitN(action, ".", 2)
+	binary := ""
+	act := ""
+	if len(parts) == 2 {
+		binary = strings.ToLower(parts[0])
+		act = parts[1]
+	} else {
+		if strings.HasPrefix(action, "git") {
+			binary = "git"
+		} else if strings.HasPrefix(action, "gh") {
+			binary = "gh"
+		}
+	}
+
+	if binary != "git" && binary != "gh" && !strings.HasPrefix(target, "{") {
+		return nil
+	}
+
+	pg := &PermissionGrantDetails{
+		Protocol: "PERMISSION_GRANTS_V2",
+		Binary:   binary,
+		Action:   act,
+		RawScope: target,
+	}
+
+	// Try unmarshaling JSON target
+	if strings.HasPrefix(target, "{") {
+		var m map[string]interface{}
+		if err := json.Unmarshal([]byte(target), &m); err == nil {
+			if v, ok := m["org"].(string); ok {
+				pg.Org = v
+			}
+			if v, ok := m["repo"].(string); ok {
+				pg.Repo = v
+			}
+			if v, ok := m["branch"].(string); ok {
+				pg.Branch = v
+			}
+			if v, ok := m["pr"].(string); ok {
+				pg.PR = v
+			}
+			if v, ok := m["path"].(string); ok {
+				pg.Path = v
+			}
+			if v, ok := m["ref"].(string); ok {
+				pg.Ref = v
+			}
+		}
+	}
+
+	return pg
+}
+
+func parseWorkflowFromStep(s TrajectoryStep, idx int) *WorkflowItem {
+	tcArgs := ""
+	if s.ToolCall != nil {
+		tcArgs = s.ToolCall.ArgumentsJson
+	} else if s.Metadata.ToolCall != nil {
+		tcArgs = s.Metadata.ToolCall.ArgumentsJson
+	}
+
+	wf := &WorkflowItem{
+		Status: "done",
+	}
+
+	if s.Status == "CORTEX_STEP_STATUS_RUNNING" {
+		wf.Status = "running"
+	} else if s.Status == "CORTEX_STEP_STATUS_ERROR" {
+		wf.Status = "error"
+	}
+
+	if tcArgs != "" {
+		var args struct {
+			Description string `json:"Description"`
+			Script      string `json:"Script"`
+			ScriptPath  string `json:"ScriptPath"`
+		}
+		if err := json.Unmarshal([]byte(tcArgs), &args); err == nil {
+			wf.Description = strings.TrimSpace(args.Description)
+			wf.Script = args.Script
+			wf.ScriptPath = args.ScriptPath
+		}
+	}
+
+	// Extract step observation / response output
+	outText := ""
+	if s.PlannerResponse != nil {
+		outText = s.PlannerResponse.Response
+	}
+	if outText == "" && s.Content != "" {
+		outText = s.Content
+	}
+	wf.Output = strings.TrimSpace(outText)
+
+	// Parse phases and logs from output
+	if wf.Output != "" {
+		lines := strings.Split(wf.Output, "\n")
+		var currentPhase *WorkflowPhaseItem
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			if strings.HasPrefix(line, "[phase:") && strings.HasSuffix(line, "]") {
+				pName := strings.TrimSuffix(strings.TrimPrefix(line, "[phase:"), "]")
+				pName = strings.TrimSpace(pName)
+				wf.Phases = append(wf.Phases, WorkflowPhaseItem{
+					Name:   pName,
+					Status: "done",
+				})
+				currentPhase = &wf.Phases[len(wf.Phases)-1]
+			} else if currentPhase != nil {
+				currentPhase.Logs = append(currentPhase.Logs, line)
+			} else {
+				wf.Logs = append(wf.Logs, line)
+			}
+
+			// Check for JSON schema result
+			if strings.HasPrefix(line, "{") && strings.HasSuffix(line, "}") && wf.ResultJSON == "" {
+				var js json.RawMessage
+				if err := json.Unmarshal([]byte(line), &js); err == nil {
+					wf.ResultJSON = line
+				}
+			}
+		}
+	}
+
+	return wf
 }

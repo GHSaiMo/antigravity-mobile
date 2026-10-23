@@ -531,6 +531,44 @@ class PreferencesManager(context: Context) {
         map[cascadeId] = now
         val cleaned = map.filter { now - it.value < deletedTombstoneTTL }
         prefs.edit().putString(KEY_DELETED_CONVERSATIONS, draftJson.encodeToString(cleaned)).apply()
+
+        val pinned = getPinnedConversationIds()
+        if (pinned.contains(cascadeId)) {
+            val updated = pinned.toMutableSet()
+            updated.remove(cascadeId)
+            prefs.edit().putStringSet(KEY_PINNED_CONVERSATIONS, updated).apply()
+        }
+    }
+
+    fun getPinnedConversationIds(): Set<String> {
+        return prefs.getStringSet(KEY_PINNED_CONVERSATIONS, emptySet()) ?: emptySet()
+    }
+
+    fun isPinned(cascadeId: String): Boolean {
+        if (cascadeId.isBlank()) return false
+        return getPinnedConversationIds().contains(cascadeId)
+    }
+
+    fun setPinned(cascadeId: String, pinned: Boolean) {
+        if (cascadeId.isBlank()) return
+        val current = getPinnedConversationIds().toMutableSet()
+        val changed = if (pinned) current.add(cascadeId) else current.remove(cascadeId)
+        if (changed) {
+            prefs.edit().putStringSet(KEY_PINNED_CONVERSATIONS, current).apply()
+        }
+    }
+
+    fun togglePin(cascadeId: String): Boolean {
+        if (cascadeId.isBlank()) return false
+        val current = getPinnedConversationIds().toMutableSet()
+        val willPin = !current.contains(cascadeId)
+        if (willPin) {
+            current.add(cascadeId)
+        } else {
+            current.remove(cascadeId)
+        }
+        prefs.edit().putStringSet(KEY_PINNED_CONVERSATIONS, current).apply()
+        return willPin
     }
 
     fun isDeletedConversation(cascadeId: String): Boolean {
@@ -586,5 +624,6 @@ class PreferencesManager(context: Context) {
         private const val KEY_CACHED_CONVERSATIONS = "cached_conversations_json"
         private const val KEY_DRAFT_SESSIONS = "cached_draft_sessions_json"
         private const val KEY_DELETED_CONVERSATIONS = "ag_deleted_conversations"
+        private const val KEY_PINNED_CONVERSATIONS = "ag_pinned_conversations"
     }
 }

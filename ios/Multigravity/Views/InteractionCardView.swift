@@ -103,6 +103,9 @@ public struct InteractionCardView: View {
     }
     
     private var headerIconName: String {
+        if interaction.permissionGrant != nil {
+            return "lock.shield.fill"
+        }
         switch interaction.type {
         case "permission", "file_permission":
             return "hand.raised.fill"
@@ -116,6 +119,9 @@ public struct InteractionCardView: View {
     }
     
     private var headerIconColor: Color {
+        if interaction.permissionGrant != nil {
+            return .orange
+        }
         switch interaction.type {
         case "permission", "file_permission":
             return .blue
@@ -246,7 +252,41 @@ public struct InteractionCardView: View {
     
     @ViewBuilder
     private var targetBoxView: some View {
-        if let target = interaction.target, !target.isEmpty {
+        if let pg = interaction.permissionGrant {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Text(pg.binary.uppercased())
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.orange)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.orange.opacity(0.18))
+                        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    
+                    Text("操作: \(pg.action)")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.primary)
+                }
+                
+                if let repo = pg.repo, !repo.isEmpty {
+                    let repoText = (pg.org != nil && !pg.org!.isEmpty) ? "\(pg.org!)/\(repo)" : repo
+                    Text("仓库: \(repoText)")
+                        .font(.system(size: 11.5, design: .monospaced))
+                        .foregroundColor(.secondary)
+                }
+                
+                if let branch = pg.branch, !branch.isEmpty {
+                    Text("目标分支: \(branch)")
+                        .font(.system(size: 11.5, design: .monospaced))
+                        .foregroundColor(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(Color(uiColor: .tertiarySystemFill).opacity(0.8))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        } else if let target = interaction.target, !target.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
                 Text(target)
                     .font(.system(size: 11.5, design: .monospaced))

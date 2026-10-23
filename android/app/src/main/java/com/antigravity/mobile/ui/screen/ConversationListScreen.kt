@@ -116,6 +116,7 @@ fun ConversationListScreen(
     var renamingItem by remember { mutableStateOf<ConversationItem?>(null) }
     var renameText by remember { mutableStateOf("") }
     var deletingItem by remember { mutableStateOf<ConversationItem?>(null) }
+    var pinningItem by remember { mutableStateOf<ConversationItem?>(null) }
     var editingAliasProject by remember { mutableStateOf<ProjectItem?>(null) }
     var aliasInputText by remember { mutableStateOf("") }
 
@@ -311,6 +312,9 @@ fun ConversationListScreen(
                             },
                             onDelete = { item ->
                                 deletingItem = item
+                            },
+                            onPin = { item ->
+                                pinningItem = item
                             }
                         )
                     }
@@ -654,6 +658,40 @@ fun ConversationListScreen(
             containerColor = colors.surface
         )
     }
+
+    // Pin / Unpin Confirmation Dialog
+    pinningItem?.let { item ->
+        val isCurrentlyPinned = item.isPinned
+        val pinTitle = if (isCurrentlyPinned) "取消置顶" else "置顶会话"
+        val pinMessage = if (isCurrentlyPinned) {
+            "确定取消置顶此会话吗？"
+        } else {
+            "确定置顶此会话吗？\n置顶后该会话将固定显示在会话列表顶部。"
+        }
+        AlertDialog(
+            onDismissRequest = { pinningItem = null },
+            title = { Text(pinTitle, color = colors.textPrimary, fontWeight = FontWeight.Bold) },
+            text = { Text(pinMessage, color = colors.textSecondary) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        haptic.medium()
+                        viewModel.togglePinConversation(item.id)
+                        pinningItem = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = colors.accentOrange)
+                ) {
+                    Text(if (isCurrentlyPinned) "取消置顶" else "置顶")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pinningItem = null }) {
+                    Text("取消", color = colors.textSecondary)
+                }
+            },
+            containerColor = colors.surface
+        )
+    }
 }
 
 /** 升级自检提示条：当前 Antigravity 版本缺少基础接口，需要升级网关。 */
@@ -698,7 +736,8 @@ private fun ConversationListContent(
     hasDraftFor: (String) -> Boolean,
     onSelect: (cascadeId: String, title: String, isNew: Boolean, isUnread: Boolean, status: com.antigravity.mobile.data.model.ConversationStatus, lastModifiedTime: String?) -> Unit,
     onRename: (ConversationItem) -> Unit,
-    onDelete: (ConversationItem) -> Unit
+    onDelete: (ConversationItem) -> Unit,
+    onPin: (ConversationItem) -> Unit
 ) {
     val colors = AntigravityTheme.colors
 
@@ -807,7 +846,8 @@ private fun ConversationListContent(
                     hasDraft = hasDraft,
                     onClick = { onSelect(conversation.id, conversation.displayTitle, false, conversation.isUnread, conversation.status, conversation.lastModifiedTime) },
                     onLongClick = { onRename(conversation) },
-                    onDelete = { onDelete(conversation) }
+                    onDelete = { onDelete(conversation) },
+                    onPin = { onPin(conversation) }
                 )
             }
         }
@@ -901,7 +941,8 @@ private fun SwipeableConversationCard(
     hasDraft: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onPin: () -> Unit
 ) {
     val colors = AntigravityTheme.colors
     val density = LocalDensity.current
@@ -914,9 +955,44 @@ private fun SwipeableConversationCard(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp)),
-        contentAlignment = Alignment.CenterEnd
+        contentAlignment = Alignment.Center
     ) {
-        // Background: iOS-style circular red delete button (appears on transparent background)
+        // Background Left: iOS-style circular orange pin button (revealed by swiping right)
+        Box(
+            modifier = Modifier.matchParentSize(),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(72.dp)
+                    .fillMaxHeight(),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(if (conversation.isPinned) colors.textMuted else colors.accentOrange)
+                        .clickable {
+                            haptic.medium()
+                            coroutineScope.launch {
+                                offsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
+                            }
+                            onPin()
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PushPin,
+                        contentDescription = if (conversation.isPinned) "Unpin" else "Pin",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+        }
+
+        // Background Right: iOS-style circular red delete button (revealed by swiping left)
         Box(
             modifier = Modifier.matchParentSize(),
             contentAlignment = Alignment.CenterEnd
@@ -959,18 +1035,23 @@ private fun SwipeableConversationCard(
                 .draggable(
                     state = rememberDraggableState { delta ->
                         coroutineScope.launch {
-                            val newOffset = (offsetX.value + delta).coerceIn(-maxRevealPx, 0f)
+                            val newOffset = (offsetX.value + delta).coerceIn(-maxRevealPx, maxRevealPx)
                             offsetX.snapTo(newOffset)
                         }
                     },
                     orientation = Orientation.Horizontal,
                     onDragStopped = { velocity ->
                         coroutineScope.launch {
-                            val targetOffset = if (velocity < -500f || offsetX.value < -maxRevealPx / 2) {
-                                haptic.light()
-                                -maxRevealPx
-                            } else {
-                                0f
+                            val targetOffset = when {
+                                velocity < -500f || offsetX.value < -maxRevealPx / 2 -> {
+                                    haptic.light()
+                                    -maxRevealPx
+                                }
+                                velocity > 500f || offsetX.value > maxRevealPx / 2 -> {
+                                    haptic.light()
+                                    maxRevealPx
+                                }
+                                else -> 0f
                             }
                             offsetX.animateTo(targetOffset, spring(stiffness = Spring.StiffnessMediumLow))
                         }
@@ -1011,10 +1092,12 @@ fun ConversationCard(
     modifier: Modifier = Modifier
 ) {
     val colors = AntigravityTheme.colors
+    val indentPadding = (conversation.nestingDepth.coerceAtMost(3) * 14).dp
 
     Card(
         modifier = modifier
             .fillMaxWidth()
+            .padding(start = indentPadding)
             .shadow(
                 elevation = 1.5.dp,
                 shape = RoundedCornerShape(14.dp),
@@ -1039,15 +1122,36 @@ fun ConversationCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text(
-                    text = conversation.displayTitle,
-                    color = colors.textPrimary,
-                    fontSize = 15.5.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f).padding(end = 8.dp)
-                )
+                Row(
+                    modifier = Modifier.weight(1f).padding(end = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    if (conversation.isPinned) {
+                        Icon(
+                            imageVector = Icons.Default.PushPin,
+                            contentDescription = "Pinned",
+                            tint = colors.accentOrange,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+                    if (conversation.nestingDepth > 0 || !conversation.parentConversationId.isNullOrBlank()) {
+                        Icon(
+                            imageVector = Icons.Default.SubdirectoryArrowRight,
+                            contentDescription = "Subagent",
+                            tint = colors.accentIndigo,
+                            modifier = Modifier.size(15.dp)
+                        )
+                    }
+                    Text(
+                        text = conversation.displayTitle,
+                        color = colors.textPrimary,
+                        fontSize = 15.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
 
                 if (conversation.status.isRunning || conversation.status.needsAction || conversation.status.isError) {
                     StatusBadge(status = conversation.status)

@@ -202,6 +202,24 @@ public struct QuestionResponse: Codable, Sendable, Hashable {
     }
 }
 
+public struct PermissionGrantDetails: Codable, Sendable, Hashable {
+    public let protocolName: String
+    public let binary: String
+    public let action: String
+    public let org: String?
+    public let repo: String?
+    public let branch: String?
+    public let pr: String?
+    public let path: String?
+    public let ref: String?
+    public let rawScope: String?
+    
+    enum CodingKeys: String, CodingKey {
+        case protocolName = "protocol"
+        case binary, action, org, repo, branch, pr, path, ref, rawScope
+    }
+}
+
 public struct PendingInteraction: Codable, Sendable, Identifiable, Hashable {
     public var id: String { "\(trajectoryId):\(stepIndex)" }
     public let type: String
@@ -211,6 +229,7 @@ public struct PendingInteraction: Codable, Sendable, Identifiable, Hashable {
     public let target: String?
     public let action: String?
     public let description: String?
+    public let permissionGrant: PermissionGrantDetails?
     public let options: [InteractionOption]
     public let isMultiSelect: Bool?
     public let defaultOptionId: String?
@@ -227,6 +246,7 @@ public struct PendingInteraction: Codable, Sendable, Identifiable, Hashable {
         target: String? = nil,
         action: String? = nil,
         description: String? = nil,
+        permissionGrant: PermissionGrantDetails? = nil,
         options: [InteractionOption] = [],
         isMultiSelect: Bool? = nil,
         defaultOptionId: String? = nil,
@@ -242,6 +262,7 @@ public struct PendingInteraction: Codable, Sendable, Identifiable, Hashable {
         self.target = target
         self.action = action
         self.description = description
+        self.permissionGrant = permissionGrant
         self.options = options
         self.isMultiSelect = isMultiSelect
         self.defaultOptionId = defaultOptionId
@@ -252,7 +273,7 @@ public struct PendingInteraction: Codable, Sendable, Identifiable, Hashable {
     }
     
     enum CodingKeys: String, CodingKey {
-        case type, trajectoryId, stepIndex, title, target, action, description
+        case type, trajectoryId, stepIndex, title, target, action, description, permissionGrant
         case options, isMultiSelect, defaultOptionId, hasWriteIn, writeInLabel, writeInPlaceholder, questions
     }
     
@@ -265,6 +286,7 @@ public struct PendingInteraction: Codable, Sendable, Identifiable, Hashable {
         self.target = try container.decodeIfPresent(String.self, forKey: .target)
         self.action = try container.decodeIfPresent(String.self, forKey: .action)
         self.description = try container.decodeIfPresent(String.self, forKey: .description)
+        self.permissionGrant = try container.decodeIfPresent(PermissionGrantDetails.self, forKey: .permissionGrant)
         self.options = try container.decodeIfPresent([InteractionOption].self, forKey: .options) ?? []
         self.isMultiSelect = try container.decodeIfPresent(Bool.self, forKey: .isMultiSelect)
         self.defaultOptionId = try container.decodeIfPresent(String.self, forKey: .defaultOptionId)
@@ -413,6 +435,55 @@ public struct ArtifactItem: Hashable, Sendable, Codable {
     }
 }
 
+public struct WorkflowPhaseItem: Codable, Sendable, Hashable, Identifiable {
+    public var id: String { name }
+    public let name: String
+    public let logs: [String]
+    public let subagents: [SubagentItem]
+    public let status: String
+    
+    public init(name: String, logs: [String] = [], subagents: [SubagentItem] = [], status: String = "done") {
+        self.name = name
+        self.logs = logs
+        self.subagents = subagents
+        self.status = status
+    }
+}
+
+public struct WorkflowItem: Codable, Sendable, Hashable {
+    public let description: String?
+    public let scriptPath: String?
+    public let script: String?
+    public let phases: [WorkflowPhaseItem]
+    public let logs: [String]
+    public let output: String?
+    public let resultJson: String?
+    public let status: String
+    public let duration: String?
+    
+    public init(
+        description: String? = nil,
+        scriptPath: String? = nil,
+        script: String? = nil,
+        phases: [WorkflowPhaseItem] = [],
+        logs: [String] = [],
+        output: String? = nil,
+        resultJson: String? = nil,
+        status: String = "done",
+        duration: String? = nil
+    ) {
+        self.description = description
+        self.scriptPath = scriptPath
+        self.script = script
+        self.phases = phases
+        self.logs = logs
+        self.output = output
+        self.resultJson = resultJson
+        self.status = status
+        self.duration = duration
+    }
+}
+
 // Clean model for SwiftUI chat view
 public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
     public let id: String
@@ -432,6 +503,8 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
     public let modelName: String?
     /// sender == .subagent 时的子代理信息；卡片内联在「调用子代理」的位置。
     public let subagent: SubagentItem?
+    /// sender == .workflow 时的动态工作流信息 (Antigravity 2.26+)。
+    public let workflow: WorkflowItem?
     
     public enum MessageSender: Hashable, Sendable, Codable {
         case user
@@ -439,6 +512,7 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
         case toolBatch(count: Int, tools: [String])
         case error
         case subagent
+        case workflow
         
         private enum CodingKeys: String, CodingKey {
             case type, count, tools
@@ -459,6 +533,8 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
                 try container.encode("error", forKey: .type)
             case .subagent:
                 try container.encode("subagent", forKey: .type)
+            case .workflow:
+                try container.encode("workflow", forKey: .type)
             }
         }
         
@@ -472,6 +548,8 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
                 self = .error
             case "subagent":
                 self = .subagent
+            case "workflow":
+                self = .workflow
             case "toolBatch":
                 let count = try container.decodeIfPresent(Int.self, forKey: .count) ?? 1
                 let tools = try container.decodeIfPresent([String].self, forKey: .tools) ?? []
@@ -497,11 +575,13 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
         maxAttempts: Int? = nil,
         model: String? = nil,
         modelName: String? = nil,
-        subagent: SubagentItem? = nil
+        subagent: SubagentItem? = nil,
+        workflow: WorkflowItem? = nil
     ) {
         self.model = model
         self.modelName = modelName
         self.subagent = subagent
+        self.workflow = workflow
         self.id = id
         self.sender = sender
         self.content = content
@@ -551,6 +631,11 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
     public var isSubagent: Bool {
         if case .subagent = sender { return true }
         return false
+    }
+
+    public var isWorkflow: Bool {
+        if case .workflow = sender { return true }
+        return workflow != nil
     }
 
     public var localizedToolNames: [String] {

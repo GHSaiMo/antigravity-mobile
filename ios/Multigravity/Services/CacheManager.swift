@@ -90,6 +90,55 @@ public final class CacheManager: @unchecked Sendable {
     private var memDraftDates: [String: Date] = [:]
     private var memDeletedConversations: [String: Date] = [:]
     private let deletedTombstoneTTL: TimeInterval = 600.0 // 10 minutes
+    private var memPinnedConversations: Set<String>?
+
+    public func getPinnedConversationIDs() -> Set<String> {
+        lock.lock()
+        defer { lock.unlock() }
+        if let mem = memPinnedConversations {
+            return mem
+        }
+        let arr = UserDefaults.standard.stringArray(forKey: "ag_pinned_conversations") ?? []
+        let set = Set(arr)
+        memPinnedConversations = set
+        return set
+    }
+
+    public func isPinned(cascadeId: String) -> Bool {
+        guard !cascadeId.isEmpty else { return false }
+        return getPinnedConversationIDs().contains(cascadeId)
+    }
+
+    public func setPinned(cascadeId: String, pinned: Bool) {
+        guard !cascadeId.isEmpty else { return }
+        lock.lock()
+        var set = getPinnedConversationIDs()
+        if pinned {
+            set.insert(cascadeId)
+        } else {
+            set.remove(cascadeId)
+        }
+        memPinnedConversations = set
+        UserDefaults.standard.set(Array(set), forKey: "ag_pinned_conversations")
+        lock.unlock()
+    }
+
+    @discardableResult
+    public func togglePin(cascadeId: String) -> Bool {
+        guard !cascadeId.isEmpty else { return false }
+        lock.lock()
+        var set = getPinnedConversationIDs()
+        let willPin = !set.contains(cascadeId)
+        if willPin {
+            set.insert(cascadeId)
+        } else {
+            set.remove(cascadeId)
+        }
+        memPinnedConversations = set
+        UserDefaults.standard.set(Array(set), forKey: "ag_pinned_conversations")
+        lock.unlock()
+        return willPin
+    }
 
     public func recordConversationTouch(cascadeId: String, at date: Date = Date()) {
         guard !cascadeId.isEmpty else { return }
@@ -109,7 +158,10 @@ public final class CacheManager: @unchecked Sendable {
                     lastModified: date,
                     isSubagent: old.isSubagent,
                     isUnread: false,
-                    draftProject: old.draftProject
+                    draftProject: old.draftProject,
+                    parentConversationId: old.parentConversationId,
+                    nestingDepth: old.nestingDepth,
+                    isPinned: old.isPinned
                 )
                 items.insert(updated, at: 0)
                 memConversations = items
@@ -143,7 +195,10 @@ public final class CacheManager: @unchecked Sendable {
                     lastModified: date,
                     isSubagent: old.isSubagent,
                     isUnread: false,
-                    draftProject: old.draftProject
+                    draftProject: old.draftProject,
+                    parentConversationId: old.parentConversationId,
+                    nestingDepth: old.nestingDepth,
+                    isPinned: old.isPinned
                 )
                 items.insert(updated, at: 0)
                 self.lock.lock()
@@ -194,6 +249,11 @@ public final class CacheManager: @unchecked Sendable {
         guard !cascadeId.isEmpty else { return }
         lock.lock()
         memDeletedConversations[cascadeId] = Date()
+        if var set = memPinnedConversations, set.contains(cascadeId) {
+            set.remove(cascadeId)
+            memPinnedConversations = set
+            UserDefaults.standard.set(Array(set), forKey: "ag_pinned_conversations")
+        }
         lock.unlock()
 
         var dict = UserDefaults.standard.dictionary(forKey: "ag_deleted_conversations") as? [String: Double] ?? [:]

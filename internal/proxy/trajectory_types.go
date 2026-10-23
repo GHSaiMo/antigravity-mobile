@@ -35,6 +35,8 @@ type CascadeMessageItem struct {
 	// Subagent is set for Type "subagent": one card per subagent a invoke_subagent step dispatched,
 	// shown inline at that step's position (like the desktop client). Status is filled live before sending.
 	Subagent *SubagentItem `json:"subagent,omitempty"`
+	// Workflow is set for Type "workflow": represents dynamic multi-agent workflows (run_workflow) in Antigravity 2.26+.
+	Workflow *WorkflowItem `json:"workflow,omitempty"`
 }
 
 // QueuedMessageItem represents a pending follow-up user message queued for execution.
@@ -94,21 +96,57 @@ type InteractionQuestion struct {
 	WriteInPlaceholder string              `json:"writeInPlaceholder,omitempty"`
 }
 
+// WorkflowPhaseItem represents a staged execution phase within a dynamic workflow.
+type WorkflowPhaseItem struct {
+	Name      string         `json:"name"`
+	Logs      []string       `json:"logs,omitempty"`
+	Subagents []SubagentItem `json:"subagents,omitempty"`
+	Status    string         `json:"status,omitempty"` // "running", "done", "failed"
+}
+
+// WorkflowItem represents dynamic multi-agent workflow orchestration via run_workflow in Antigravity 2.26+.
+type WorkflowItem struct {
+	Description string              `json:"description,omitempty"`
+	ScriptPath  string              `json:"scriptPath,omitempty"`
+	Script      string              `json:"script,omitempty"`
+	Phases      []WorkflowPhaseItem `json:"phases,omitempty"`
+	Logs        []string            `json:"logs,omitempty"`
+	Output      string              `json:"output,omitempty"`
+	ResultJSON  string              `json:"resultJson,omitempty"` // finish(schema) structured return
+	Status      string              `json:"status"`               // "running", "done", "error"
+	Duration    string              `json:"duration,omitempty"`
+}
+
+// PermissionGrantDetails represents structured permission declarations under PERMISSION_GRANTS_V2 (Antigravity 2.26+).
+type PermissionGrantDetails struct {
+	Protocol string `json:"protocol,omitempty"` // "PERMISSION_GRANTS_V2"
+	Binary   string `json:"binary,omitempty"`   // "git", "gh", etc.
+	Action   string `json:"action,omitempty"`   // "create", "update", "push", "merge", "dispatch", etc.
+	Org      string `json:"org,omitempty"`
+	Repo     string `json:"repo,omitempty"`
+	Branch   string `json:"branch,omitempty"`
+	PR       string `json:"pr,omitempty"`
+	Path     string `json:"path,omitempty"`
+	Ref      string `json:"ref,omitempty"`
+	RawScope string `json:"rawScope,omitempty"`
+}
+
 type PendingInteraction struct {
-	Type               string                `json:"type"` // "permission", "ask_question", "file_permission", "run_command"
-	TrajectoryID       string                `json:"trajectoryId"`
-	StepIndex          int                   `json:"stepIndex"`
-	Title              string                `json:"title"`
-	Target             string                `json:"target,omitempty"`
-	Action             string                `json:"action,omitempty"`
-	Description        string                `json:"description,omitempty"`
-	Options            []InteractionOption   `json:"options"`
-	IsMultiSelect      bool                  `json:"isMultiSelect,omitempty"`
-	DefaultOptionID    string                `json:"defaultOptionId,omitempty"`
-	HasWriteIn         bool                  `json:"hasWriteIn"`
-	WriteInLabel       string                `json:"writeInLabel,omitempty"`
-	WriteInPlaceholder string                `json:"writeInPlaceholder,omitempty"`
-	Questions          []InteractionQuestion `json:"questions,omitempty"`
+	Type               string                  `json:"type"` // "permission", "ask_question", "file_permission", "run_command"
+	TrajectoryID       string                  `json:"trajectoryId"`
+	StepIndex          int                     `json:"stepIndex"`
+	Title              string                  `json:"title"`
+	Target             string                  `json:"target,omitempty"`
+	Action             string                  `json:"action,omitempty"`
+	Description        string                  `json:"description,omitempty"`
+	PermissionGrant    *PermissionGrantDetails `json:"permissionGrant,omitempty"`
+	Options            []InteractionOption     `json:"options"`
+	IsMultiSelect      bool                    `json:"isMultiSelect,omitempty"`
+	DefaultOptionID    string                  `json:"defaultOptionId,omitempty"`
+	HasWriteIn         bool                    `json:"hasWriteIn"`
+	WriteInLabel       string                  `json:"writeInLabel,omitempty"`
+	WriteInPlaceholder string                  `json:"writeInPlaceholder,omitempty"`
+	Questions          []InteractionQuestion   `json:"questions,omitempty"`
 }
 
 type CascadeMessagesResponse struct {

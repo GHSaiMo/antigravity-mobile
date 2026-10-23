@@ -43,9 +43,9 @@ public final class ConversationListViewModel {
         let draftIds = Set(drafts.map(\.id))
         let nonDraftCached = cached.filter { !draftIds.contains($0.id) }
         if !nonDraftCached.isEmpty || !drafts.isEmpty {
-            self.conversations = (drafts + nonDraftCached).sorted { a, b in
-                a.effectiveLastModified > b.effectiveLastModified
-            }
+            let pinnedIds = self.cacheManager.getPinnedConversationIDs()
+            let all = (drafts + nonDraftCached).map { $0.withPinned(pinnedIds.contains($0.id)) }
+            self.conversations = Self.sortItems(all)
             self.cacheManager.prewarmSessions(for: nonDraftCached.prefix(15).map(\.id))
         }
         
@@ -156,6 +156,15 @@ public final class ConversationListViewModel {
         }
     }
 
+    public static func sortItems(_ items: [ConversationItem]) -> [ConversationItem] {
+        items.sorted { a, b in
+            if a.isPinned != b.isPinned {
+                return a.isPinned && !b.isPinned
+            }
+            return a.effectiveLastModified > b.effectiveLastModified
+        }
+    }
+
     public var filteredConversations: [ConversationItem] {
         let q = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let nonSubagents = visibleConversations
@@ -173,9 +182,9 @@ public final class ConversationListViewModel {
         let draftIds = Set(drafts.map(\.id))
         let nonDraftCached = cached.filter { !draftIds.contains($0.id) }
         if !nonDraftCached.isEmpty || !drafts.isEmpty {
-            self.conversations = (drafts + nonDraftCached).sorted { a, b in
-                a.effectiveLastModified > b.effectiveLastModified
-            }
+            let pinnedIds = cacheManager.getPinnedConversationIDs()
+            let all = (drafts + nonDraftCached).map { $0.withPinned(pinnedIds.contains($0.id)) }
+            self.conversations = Self.sortItems(all)
         }
     }
     
@@ -334,10 +343,9 @@ public final class ConversationListViewModel {
                     let drafts = cacheManager.loadLocalDraftConversations()
                     let draftIds = Set(drafts.map(\.id))
                     let nonDraftEnriched = enriched.filter { !draftIds.contains($0.id) && !$0.isDraft }
-                    let all = (drafts + nonDraftEnriched).sorted { a, b in
-                        a.effectiveLastModified > b.effectiveLastModified
-                    }
-                    self.conversations = all
+                    let pinnedIds = cacheManager.getPinnedConversationIDs()
+                    let all = (drafts + nonDraftEnriched).map { $0.withPinned(pinnedIds.contains($0.id)) }
+                    self.conversations = Self.sortItems(all)
                     cacheManager.saveConversations(nonDraftEnriched)
                     cacheManager.prewarmSessions(for: all.prefix(15).map(\.id))
                     self.isLoading = false
@@ -419,10 +427,22 @@ public final class ConversationListViewModel {
     @MainActor
     public func upsertConversation(_ item: ConversationItem) {
         guard !item.isSubagent && !item.isDraft && !pendingDeleteCascadeIDs.contains(item.id) && recentlyDeletedIDs[item.id] == nil else { return }
-        if let idx = conversations.firstIndex(where: { $0.id == item.id }) {
-            conversations[idx] = item
+        let resolved = item.withPinned(cacheManager.isPinned(cascadeId: item.id))
+        if let idx = conversations.firstIndex(where: { $0.id == resolved.id }) {
+            conversations[idx] = resolved
         } else {
-            conversations.insert(item, at: 0)
+            conversations.append(resolved)
+        }
+        conversations = Self.sortItems(conversations)
+    }
+    
+    @MainActor
+    public func togglePin(item: ConversationItem) {
+        let newPinned = cacheManager.togglePin(cascadeId: item.id)
+        if let idx = conversations.firstIndex(where: { $0.id == item.id }) {
+            conversations[idx] = conversations[idx].withPinned(newPinned)
+            conversations = Self.sortItems(conversations)
+            cacheManager.saveConversations(conversations.filter { !$0.isDraft && !$0.isSubagent })
         }
     }
     

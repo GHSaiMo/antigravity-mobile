@@ -47,6 +47,10 @@ public struct MessageBubbleView: View {
                 if let sa = message.subagent {
                     SubagentInlineCardView(item: sa)
                 }
+            case .workflow:
+                if let wf = message.workflow {
+                    WorkflowStageCardView(workflow: wf)
+                }
             }
         }
         .padding(.horizontal, 16)

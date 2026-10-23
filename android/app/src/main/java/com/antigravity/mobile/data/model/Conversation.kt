@@ -43,10 +43,13 @@ data class TrajectorySummary(
     val trajectoryMetadata: TrajectoryMetadata? = null,
     val needsInput: Boolean? = null,
     val hasError: Boolean? = null,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val parentConversationId: String? = null,
+    val nestingDepth: Int? = null
 ) {
     val isSubagent: Boolean
         get() {
+            if (!parentConversationId.isNullOrBlank() || (nestingDepth ?: 0) > 0) return true
             val meta = trajectoryMetadata ?: return false
             if (!meta.parentConversationId.isNullOrBlank()) return true
             if (meta.isBattleModeFork == true) return true
@@ -82,7 +85,10 @@ data class ConversationItem(
     val lastModifiedTime: String? = null,
     val isSubagent: Boolean = false,
     val isUnread: Boolean = false,
-    val draftProject: ProjectItem? = null
+    val draftProject: ProjectItem? = null,
+    val parentConversationId: String? = null,
+    val nestingDepth: Int = 0,
+    val isPinned: Boolean = false
 ) {
     val displayTitle: String
         get() = title.ifBlank { "未命名会话" }
@@ -167,6 +173,9 @@ data class ConversationItem(
                 }
             }
 
+            val parentId = summary.parentConversationId ?: summary.trajectoryMetadata?.parentConversationId
+            val depth = summary.nestingDepth ?: summary.trajectoryMetadata?.nestingDepth ?: 0
+
             return ConversationItem(
                 id = id,
                 title = resolvedTitle,
@@ -175,7 +184,9 @@ data class ConversationItem(
                 workspaceName = workspaceName,
                 lastModifiedTime = resolvedTime,
                 isSubagent = summary.isSubagent,
-                isUnread = unread
+                isUnread = unread,
+                parentConversationId = parentId,
+                nestingDepth = depth
             )
         }
 
