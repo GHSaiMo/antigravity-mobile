@@ -20,14 +20,14 @@
 </p>
 
 <p align="center">
-  🌐 <b>官网</b>：<a href="https://mgy.jiuge.space">mgy.jiuge.space</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新版 v1.0.8</a>
+  🌐 <b>官网</b>：<a href="https://mgy.jiuge.space">mgy.jiuge.space</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新版 v1.0.9</a>
 </p>
 
 https://github.com/user-attachments/assets/37360cde-3875-45bf-947e-7774e800094c
 
 ---
 
-## ⚡ 极速开始 (v1.0.8 正式版)
+## ⚡ 极速开始 (v1.0.9 正式版)
 
 ### 1. 🍎 macOS / 🐧 Linux / 🪟 Windows 服务端一键安装 (推荐)
 
@@ -69,8 +69,8 @@ irm https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/in
 > - 🔒 **平滑部署**：macOS / Linux 免 sudo 部署至 `~/.local/bin/mgy` 并自动配置全局快捷方式；Windows 自动注册至用户 PATH 及 WindowsApps 目录，开箱即用免重启终端。
 
 ### 2. 📱 Android 手机客户端安装
-前往 [GitHub Releases v1.0.8](https://github.com/GHSaiMo/antigravity-mobile/releases/latest)，下载：
-- **`Multigravity-v1.0.8.apk`**
+前往 [GitHub Releases v1.0.9](https://github.com/GHSaiMo/antigravity-mobile/releases/latest)，下载：
+- **`Multigravity-v1.0.9.apk`**
 - *安装包已配置标准签名，任何安卓手机下载后均可直接点击安装，零编译门槛。*
 - *安全提示：为保证覆盖安装，Release 签名密钥库 `android/app/release.jks` 与默认口令随仓库公开。因此 APK 签名只代表「同一发布线」，不能证明来源可信，请仅从本仓库 Releases 页面下载。如需自行分发，请用 `MGY_KEYSTORE_PASSWORD` 等环境变量与自己的密钥库重新签名。*
 
@@ -150,8 +150,8 @@ mgy help           # 查看完整命令与启动参数帮助
 
 | 层级 | 核心组件 | 关键职责与技术特性 |
 | :--- | :--- | :--- |
-| **📱 移动访问层** | **Android 原生客户端** (Compose) | **全功能旗舰体验**：Kotlin 1.9+、Jetpack Compose Material 3 纯黑美学、Edge-to-Edge 全面屏沉浸显示、IME 软键盘自适应防遮挡与聚焦触底平滑滚动；OkHttp + WebSocket 实时打字机流分发、多步工具折叠胶囊；**原生选择题交互卡片与多题决策** (自适应高度无留白 / 全屏半屏平滑切换 / 选项与问题多行完整呈现 / 活力橙视觉统一 / 软键盘智能避让)；**多模态生图直出渲染**与 `ImageViewerSheet` 全手势大图缩放；**网络设置一键并发探活测速与智能路由选路**；**Cockpit Tools 四象限配额看板与多账号池无感热切**；方案产物原生浮窗 (Markdown / PPTX 幻灯片渲染 / Brain 元数据逆向解析 / 本地一键下载导出) 与 Proceed 推进闭环；**消息撤回与代码修改方案回滚**；**会话全文搜索、导出 Markdown、斜杠命令与技能、本会话改动累计 Diff、原生 Git 提交/推送、精美长图分享（深浅主题 / 一键定向微信）、默认模型配置**；排队追问面板、后台任务感知与终止、工程快捷动作胶囊、ZXing 离线二维码秒级配对、`EncryptedSharedPreferences` 硬件密钥持久化、全态分类信号 |
-| | **iOS 原生客户端** (SwiftUI 5) | **Swift 6 严格并发**：零数据竞态、丝滑流畅；**原生选择题交互卡片深度优化** (自适应高度 / 选项与问题多行完整呈现 / 全屏半屏平滑伸缩 / 活力橙视觉统一 / 动态绑定 MARKETING_VERSION)；单趟 O(N) LaTeX 渲染、Markdown 富媒体与多模态生图直出、`ImageViewerSheet` 双指捏合无级缩放与系统分享保存；方案产物浮窗与 Proceed 闭环；统一文件预览工具栏与 PPTX 幻灯片渲染；**Cockpit Tools 四象限额度看板与多账号热切**；**网络设置一键并发探活与智能选路**；**消息撤回与代码修改回滚**（毛玻璃材质浮窗）；**会话全文搜索、导出 Markdown、斜杠命令与技能、本会话改动累计 Diff、原生 Git 提交/推送、精美长图分享、默认模型配置、iPad 现代列表与大标题折叠**；排队追问队列与自适应输入；交互式命令审批卡片；交互式侧滑返回（Swipe-Back）原生手势体验；全态分类信号 (`RUNNING` / `ERROR` / `ACTION` / 未读呼吸小蓝点)；0ms 会话焦点上报、灵动岛 (Live Activity) |
+| **📱 移动访问层** | **Android 原生客户端** (Compose) | **全功能旗舰体验**：Kotlin 1.9+、Jetpack Compose Material 3 纯黑美学、Edge-to-Edge 全面屏沉浸显示、IME 软键盘自适应防遮挡与聚焦触底平滑滚动；OkHttp + WebSocket 实时打字机流分发、多步工具折叠胶囊；**对话列表右滑置顶（Pin）与二次弹窗确认 (v1.0.9)**；**Antigravity 2.26 动态多智能体工作流阶段卡片 (Dynamic Workflows / run_workflow) 与类型化产物透视 (v1.0.9)**；**精细化 Git/GitHub 沙箱权限审批卡片 (PERMISSION_GRANTS_V2) (v1.0.9)**；**父子会话家族树层级标记 (v1.0.9)**；**原生选择题交互卡片与多题决策** (自适应高度无留白 / 全屏半屏平滑切换 / 选项与问题多行完整呈现 / 活力橙视觉统一 / 软键盘智能避让)；**多模态生图直出渲染**与 `ImageViewerSheet` 全手势大图缩放；**网络设置一键并发探活测速与智能路由选路**；**Cockpit Tools 四象限配额看板与多账号池无感热切**；方案产物原生浮窗 (Markdown / PPTX 幻灯片渲染 / Brain 元数据逆向解析 / 本地一键下载导出) 与 Proceed 推进闭环；**消息撤回与代码修改方案回滚**；**会话全文搜索、导出 Markdown、斜杠命令与技能、本会话改动累计 Diff、原生 Git 提交/推送、精美长图分享（深浅主题 / 一键定向微信）、默认模型配置**；排队追问面板、后台任务感知与终止、工程快捷动作胶囊、ZXing 离线二维码秒级配对、`EncryptedSharedPreferences` 硬件密钥持久化、全态分类信号 |
+| | **iOS 原生客户端** (SwiftUI 5) | **Swift 6 严格并发**：零数据竞态、丝滑流畅；**对话列表右滑置顶（Pin）与二次弹窗确认 (v1.0.9)**；**Antigravity 2.26 动态多智能体工作流阶段卡片 (Dynamic Workflows / run_workflow) 与 JSON Schema 产物查看 (v1.0.9)**；**精细化 Git/GitHub 沙箱权限审批卡片 (PERMISSION_GRANTS_V2) (v1.0.9)**；**父子会话家族树层级缩进与徽标 (v1.0.9)**；**原生选择题交互卡片深度优化** (自适应高度 / 选项与问题多行完整呈现 / 全屏半屏平滑伸缩 / 活力橙视觉统一 / 动态绑定 MARKETING_VERSION)；单趟 O(N) LaTeX 渲染、Markdown 富媒体与多模态生图直出、`ImageViewerSheet` 双指捏合无级缩放与系统分享保存；方案产物浮窗与 Proceed 闭环；统一文件预览工具栏与 PPTX 幻灯片渲染；**Cockpit Tools 四象限额度看板与多账号热切**；**网络设置一键并发探活与智能选路**；**消息撤回与代码修改回滚**（毛玻璃材质浮窗）；**会话全文搜索、导出 Markdown、斜杠命令与技能、本会话改动累计 Diff、原生 Git 提交/推送、精美长图分享、默认模型配置、iPad 现代列表与大标题折叠**；排队追问队列与自适应输入；交互式命令审批卡片；交互式侧滑返回（Swipe-Back）原生手势体验；全态分类信号 (`RUNNING` / `ERROR` / `ACTION` / 未读呼吸小蓝点)；0ms 会话焦点上报、灵动岛 (Live Activity) |
 | | **移动端 PWA / Web** (Vanilla JS) | 零构建打包、嵌入 Go 二进制 (`embed.FS`)、全面对齐 iOS 原生设计系统与 NavigationStack 导航、列表滚动/侧滑手势消抖（防误触进入）、居中对称标题与 38px 悬浮垃圾桶删除、自适应安全区与键盘防遮挡、**同步支持多题交互确认与选项多行自适应排版**、Markdown 浮窗与方案 Proceed 推进、排队消息与后台任务同步、添加到主屏幕 |
 | **🎯 跨端游标与焦点层** | **随人而动游标引擎 (Follow-Me Cursor Engine)** | 毫秒级多端焦点仲裁：活跃长连接流 (Active Stream) > 移动端黏性焦点 (Mobile Sticky 30m) > 桌面端 IDE 活跃焦点 (Desktop Focus) > 磁盘最后活跃会话兜底；提供 0ms 会话焦点上报与预热；防自反保护机制 (Anti-Reflection 1.5s 抑制期) 彻底消除已读回环误判；幽灵会话三重防御过滤 |
 | **🦞 物理外设网桥层** | **YoooClaw 物理硬件网桥 (`integrations/yoooclaw/`)** | 随身外设按键录音 ➔ ASR ➔ Gateway-First 代理直连注入活跃 Cascade 会话；双层协同分流（第一层 Hermes 业务守卫放行，第二层统一游标精准定位目标会话）；四色交织 RGB 流光动效与 OLED 屏幕状态回显 |
@@ -161,9 +161,9 @@ mgy help           # 查看完整命令与启动参数帮助
 | | **二维码扫码配对 (QR Pairing)** | 终端或 `mgy pair` 自动生成一次性 `agy://pair` 配对二维码，扫码秒级签发独占 Device Token，存入系统安全存储 (Keychain / EncryptedSharedPreferences)，与 IP 完全解耦；支持高级手动大小写不敏感配对 |
 | | **Tailscale / 私有 Mesh VPN (备选)** | 点对点加密 WireGuard 网络，无公网 IP 时安全组网互联 |
 | **🖥️ 本地网关层** | **自愈实例探测器 (Inspector)** | **原生支持 macOS、Linux 与 Windows**：深度逆向自动嗅探各平台 `language_server` 进程、实时捕获动态端口与鉴权令牌、原生支持 Linux Headless/Daemon Discovery 协议即时发现与免 CSRF 令牌连通、具备 `lsof` 与 `ss` 双模端口探测、进程重启零感知毫秒级自愈；离线状态具备指数退避 (5s→10s→20s→40s) 防 CPU 空转 |
-| | **ConnectRPC & WebSocket 代理** | 双向流式转发与长连接保活、**原生解析 `askQuestion` 多题交互列表与 `questionResponses` 聚合提交**、自动注入 `x-codeium-csrf-token`、免二次编码大图透传优化 (`needsModification`)、单 IP 60次/分 WS Ticket 限流加固、安全沙箱文件代理 (`/api/v1/files/content`) 与 Brain 伴生元数据解析、内置提供 Web 静态资产与排队追问代理 |
+| | **ConnectRPC & WebSocket 代理** | 双向流式转发与长连接保活、**原生解析 `askQuestion` 多题交互列表与 `questionResponses` 聚合提交**、自动注入 `x-codeium-csrf-token`、免二次编码大图透传优化 (`needsModification`)、单 IP 60次/分 WS Ticket 限流加固、安全沙箱文件代理 (`/api/v1/files/content`) 与 Brain 伴生元数据解析、内置提供 Web 静态资产与排队追问代理；**Proto + SQLite FTS5 轨迹存储双引擎与毫秒级本地全文搜索 (v1.0.9)** |
 | | **Cockpit 配额引擎 (Cockpit Engine)** | 实时提取多账号配额数据、支持双模型 5h/Weekly 四象限监控与精准重置时间倒计时、多账号池一键无感热切与邮箱脱敏遮罩、**自动校准应用配置并自愈补全缺失的 state.vscdb / IDE 软链接，切号失败自动回滚保障** |
-| | **Bark 实时推送守护 (Notification Watcher)** | 后台持续监听 Agent 状态，任务完成/失败/审批拦截/提问/Proceed 自动触发 Bark 实时推送与 DeepLink 唤醒 |
+| | **Bark 实时推送守护 (Notification Watcher)** | 后台持续监听 Agent 状态，任务完成/失败/审批拦截/提问/Proceed 自动触发 Bark 实时推送与 DeepLink 唤醒；**配额阶梯预警展示完整账号邮箱 (v1.0.9)** |
 | **⚙️ 核心引擎层** | **Antigravity Core** | `language_server` 核心智能体进程，运行于 macOS、Linux (NAS/无头服务) 或 Windows 本地回环 |
 
 ---
@@ -297,6 +297,20 @@ mgy help           # 查看完整命令与启动参数帮助
 - **iPad 体验优化**：iPad 会话列表与侧边栏对齐现代样式，滚动时大标题平滑折叠为行内标题；
 - **Markdown 产物卡片门禁**：对齐桌面端展示规范，排除源码与隐藏文件，拦截通配符与畸形标题，避免无效卡片干扰；
 - 网关新增 `GET /gateway/slash-commands`、`GET /gateway/models`、`POST /gateway/cascade/changes`、`/gateway/git/status|commit|push`；工作区由网关按会话解析，路径需在当前变更列表内，推送不带 `--force`。详见 ➔ [language_server RPC 接入说明](docs/ls_rpc_integration_notes.md)。
+
+---
+
+### 13. 📌 对话右滑置顶与 Antigravity 2.26 架构升级 (v1.0.9)
+- **对话列表右滑置顶（Pin）**：
+  - **对称双向手势**：在 Android 与 iOS 客户端中支持向右滑动卡片呼出活力橙质感图钉按钮，操作手感与向左滑动删除高度对称；
+  - **防误触二次确认**：点击置顶/取消置顶即刻弹出二次确认弹窗，明确区分“置顶会话”与“取消置顶”语义，杜绝误触；
+  - **本地持久化与智能排序**：置顶会话自动持久化保存于本地存储中，置顶项始终固定在列表最顶部，标题前附带醒目的橙色图钉（📌）徽标；删除会话时自动解除置顶。
+- **Antigravity 2.26.0 深度架构适配**：
+  - **动态多智能体工作流（Dynamic Workflows / run_workflow）**：原生支持解析与展示工作流的多阶段执行流程（Phases / Steps）、并发（parallel）与流水线（pipeline）状态，以及结构化结果契约绑定（JSON Schema 与 finish 类型化产物透视）；
+  - **精细化沙箱权限审批卡片（PERMISSION_GRANTS_V2）**：细粒度 Git/GitHub（代码推送、PR 审批/合并、Issue 管理等）操作请求统一卡片呈现，支持一键批准或拒绝；
+  - **本地轨迹索引与 FTS5 秒搜**：网关引入 Proto + SQLite FTS5 引擎，实现本地毫秒级全文秒搜与零停机 Zero-RPC fallback；
+  - **父子会话家族树**：列表与详情中直观呈现智能体父子层级关系（`arrow.turn.down.right` 缩进与子智能体徽标）。
+- **通知推送优化**：Bark 额度阶梯预警通知展示完整账号邮箱，多账号资费与可用额度清晰直观。
 
 ---
 
