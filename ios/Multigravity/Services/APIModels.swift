@@ -127,6 +127,8 @@ public struct PaginatedMessagesResponse: Codable, Sendable {
         public let modelName: String?
         /// type == "subagent" 时的子代理卡片数据（状态由网关实时补全）。
         public let subagent: SubagentItem?
+        /// type == "workflow" 时的动态多智能体工作流数据 (Antigravity 2.26+)。
+        public let workflow: WorkflowItem?
     }
 }
 

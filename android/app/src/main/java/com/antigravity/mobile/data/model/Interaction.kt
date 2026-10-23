@@ -32,6 +32,20 @@ data class QuestionResponse(
 )
 
 @Serializable
+data class PermissionGrantDetails(
+    val protocol: String = "PERMISSION_GRANTS_V2",
+    val binary: String = "",
+    val action: String = "",
+    val org: String? = null,
+    val repo: String? = null,
+    val branch: String? = null,
+    val pr: String? = null,
+    val path: String? = null,
+    val ref: String? = null,
+    val rawScope: String? = null
+)
+
+@Serializable
 data class PendingInteraction(
     val type: String = "", // "permission", "ask_question", "file_permission", "run_command"
     val trajectoryId: String = "",
@@ -40,6 +54,7 @@ data class PendingInteraction(
     val target: String? = null,
     val action: String? = null,
     val description: String? = null,
+    val permissionGrant: PermissionGrantDetails? = null,
     val options: List<InteractionOption> = emptyList(),
     val isMultiSelect: Boolean = false,
     val defaultOptionId: String? = null,

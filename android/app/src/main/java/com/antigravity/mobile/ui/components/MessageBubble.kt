@@ -83,6 +83,12 @@ fun MessageBubble(
         return
     }
 
+    // 动态多智能体工作流卡片 (Antigravity 2.26+)
+    message.workflow?.takeIf { message.isWorkflow }?.let { wf ->
+        WorkflowStageCard(workflow = wf, modifier = modifier)
+        return
+    }
+
     // Standalone tool message
     if (message.isTools) {
         val toolText = message.effectiveText.ifBlank { "已思考并执行工具操作" }

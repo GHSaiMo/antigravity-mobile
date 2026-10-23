@@ -45,6 +45,18 @@ func (p *Proxy) handleRpcProxy(w http.ResponseWriter, r *http.Request) {
 	token := p.activeToken
 	p.mu.RUnlock()
 
+	reqPath := strings.TrimPrefix(r.URL.Path, "/api")
+	if verboseRPC {
+		slog.Info(fmt.Sprintf("[Proxy] RPC: %s %s", r.Method, reqPath))
+	}
+	if strings.HasSuffix(reqPath, "/SearchConversations") && r.Method == http.MethodPost {
+		p.handleSearchConversations(w, r, rp, reqPath)
+		return
+	}
+	if strings.HasSuffix(reqPath, "/GetAllCascadeTrajectories") && r.Method == http.MethodPost {
+		p.handleGetAllCascadeTrajectories(w, r, port, token)
+		return
+	}
 	if rp == nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
@@ -55,11 +67,6 @@ func (p *Proxy) handleRpcProxy(w http.ResponseWriter, r *http.Request) {
 			slog.Warn("[Proxy] handleRpcProxy: failed to encode error response", "err", err)
 		}
 		return
-	}
-
-	reqPath := strings.TrimPrefix(r.URL.Path, "/api")
-	if verboseRPC {
-		slog.Info(fmt.Sprintf("[Proxy] RPC: %s %s", r.Method, reqPath))
 	}
 	if strings.HasSuffix(reqPath, "/SendUserCascadeMessage") && r.Method == http.MethodPost {
 		p.handleSendUserCascadeMessage(w, r, rp, reqPath, port, token)
@@ -489,10 +496,16 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 		// Unfiltered list: share one upstream call with the Watcher and other clients.
 		snap, err := p.fetchAllTrajectoriesRaw(listCtx, port, token)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
-			return
-		}
-		if err := json.Unmarshal(snap, &rawMap); err != nil {
+			// Zero-RPC Fallback to Antigravity 2.26 local SQLite store
+			if localSummaries, lerr := FetchLocalConversationSummaries(listCtx); lerr == nil && len(localSummaries) > 0 {
+				localRaw, _ := json.Marshal(map[string]interface{}{"trajectorySummaries": localSummaries})
+				_ = json.Unmarshal(localRaw, &rawMap)
+				w.Header().Set("X-Gateway-Fallback", "sqlite")
+			} else {
+				http.Error(w, err.Error(), http.StatusBadGateway)
+				return
+			}
+		} else if err := json.Unmarshal(snap, &rawMap); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -511,23 +524,28 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 
 		resp, err := p.mediumClient.Do(req)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
-			return
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			for k, v := range resp.Header {
-				w.Header()[k] = v
+			if localSummaries, lerr := FetchLocalConversationSummaries(listCtx); lerr == nil && len(localSummaries) > 0 {
+				localRaw, _ := json.Marshal(map[string]interface{}{"trajectorySummaries": localSummaries})
+				_ = json.Unmarshal(localRaw, &rawMap)
+				w.Header().Set("X-Gateway-Fallback", "sqlite")
+			} else {
+				http.Error(w, err.Error(), http.StatusBadGateway)
+				return
 			}
-			w.WriteHeader(resp.StatusCode)
-			io.Copy(w, resp.Body)
-			return
-		}
-
-		if err := json.NewDecoder(resp.Body).Decode(&rawMap); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
+		} else {
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				for k, v := range resp.Header {
+					w.Header()[k] = v
+				}
+				w.WriteHeader(resp.StatusCode)
+				io.Copy(w, resp.Body)
+				return
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&rawMap); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 		}
 	}
 
@@ -549,6 +567,20 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 		w.WriteHeader(http.StatusOK)
 		w.Write(respBytes)
 		return
+	}
+
+	// Enrich hierarchy metadata (parent-child relationship) from Antigravity 2.26 local store
+	if localSummaries, err := FetchLocalConversationSummaries(listCtx); err == nil {
+		for id, s := range summaries {
+			if loc, ok := localSummaries[id]; ok {
+				if pid, ok := loc["parentConversationId"].(string); ok && pid != "" {
+					s["parentConversationId"] = pid
+				}
+				if depth, ok := loc["nestingDepth"].(int); ok && depth > 0 {
+					s["nestingDepth"] = depth
+				}
+			}
+		}
 	}
 
 	// Enrich missing titles, filter out subagent sessions, deleted sessions, and stale abandoned drafts
@@ -991,4 +1023,49 @@ func normalizeFileTypes(body []byte) []byte {
 func isReadOnlyRPC(path string) bool {
 	name := path[strings.LastIndex(path, "/")+1:]
 	return strings.HasPrefix(name, "Get") || strings.HasPrefix(name, "List")
+}
+
+// handleSearchConversations handles SearchConversations RPC with instant FTS5 SQLite query.
+func (p *Proxy) handleSearchConversations(w http.ResponseWriter, r *http.Request, rp http.Handler, reqPath string) {
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+
+	var req struct {
+		Query string `json:"query"`
+		Limit int    `json:"limit"`
+	}
+	_ = json.Unmarshal(bodyBytes, &req)
+
+	query := strings.TrimSpace(req.Query)
+	if query != "" {
+		// Fast Path: Try local FTS5 SQLite query first (<10ms)
+		if results, err := SearchConversationsFTS5(r.Context(), query, req.Limit); err == nil && len(results) > 0 {
+			respBytes, _ := json.Marshal(ConversationSearchResponse{Results: results})
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("X-Gateway-Search", "FTS5")
+			w.Header().Set("Content-Length", strconv.Itoa(len(respBytes)))
+			w.WriteHeader(http.StatusOK)
+			w.Write(respBytes)
+			return
+		}
+	}
+
+	// Fallback to upstream if available
+	if rp != nil {
+		fwdReq := r.Clone(r.Context())
+		fwdReq.URL.Path = reqPath
+		fwdReq.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		rp.ServeHTTP(w, fwdReq)
+		return
+	}
+
+	// If upstream not available and FTS5 returned empty, return empty results
+	respBytes, _ := json.Marshal(ConversationSearchResponse{Results: []ConversationSearchResult{}})
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(respBytes)
 }

@@ -1641,6 +1641,66 @@ func TestParseTrajectoryDetails_WildcardsAndAsteriskExcluded(t *testing.T) {
 	}
 }
 
+func TestParsePermissionGrantV2(t *testing.T) {
+	// 1. git.update permission
+	pg1 := parsePermissionGrant("git.update", `{"branch":"feature/auth","repo":"antigravity-mobile"}`, "push to branch")
+	if pg1 == nil {
+		t.Fatalf("expected non-nil permission grant")
+	}
+	if pg1.Binary != "git" || pg1.Action != "update" || pg1.Branch != "feature/auth" || pg1.Repo != "antigravity-mobile" {
+		t.Errorf("unexpected grant details: %+v", pg1)
+	}
+
+	// 2. gh.create PR permission
+	pg2 := parsePermissionGrant("gh.create", `{"org":"GHSaiMo","repo":"antigravity-mobile","pr":"*"}`, "create pull request")
+	if pg2 == nil {
+		t.Fatalf("expected non-nil permission grant for gh.create")
+	}
+	if pg2.Binary != "gh" || pg2.Action != "create" || pg2.Org != "GHSaiMo" || pg2.PR != "*" {
+		t.Errorf("unexpected grant details for gh: %+v", pg2)
+	}
+
+	// 3. Regular path permission (should return nil)
+	pg3 := parsePermissionGrant("read", "/etc/hosts", "")
+	if pg3 != nil {
+		t.Errorf("expected nil for regular file read, got %+v", pg3)
+	}
+}
+
+func TestParseWorkflowItem(t *testing.T) {
+	stepJSON := `{
+		"type": "CORTEX_STEP_TYPE_TOOL_CALL",
+		"status": "CORTEX_STEP_STATUS_DONE",
+		"toolCall": {
+			"name": "run_workflow",
+			"argumentsJson": "{\"Description\":\"Security audit across modules\",\"Script\":\"# python script\"}"
+		},
+		"plannerResponse": {
+			"response": "Workflow started.\n[phase: code_review]\nStarting security review subagents...\nLogs: all passed\n{\"audit_status\":\"clean\",\"issues\":0}"
+		}
+	}`
+
+	var s TrajectoryStep
+	if err := json.Unmarshal([]byte(stepJSON), &s); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+
+	wf := parseWorkflowFromStep(s, 10)
+	if wf == nil {
+		t.Fatalf("expected non-nil workflow item")
+	}
+	if wf.Description != "Security audit across modules" {
+		t.Errorf("unexpected description: %s", wf.Description)
+	}
+	if len(wf.Phases) != 1 || wf.Phases[0].Name != "code_review" {
+		t.Errorf("unexpected phases: %+v", wf.Phases)
+	}
+	if wf.ResultJSON == "" {
+		t.Errorf("expected resultJson to be extracted, got empty")
+	}
+}
+
+
 
 
 

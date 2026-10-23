@@ -78,17 +78,20 @@ fun InteractionCard(
         mutableStateMapOf<Int, String>()
     }
 
-    val headerIcon = when (interaction.type) {
-        "permission", "file_permission" -> Icons.Default.Lock
-        "ask_question" -> Icons.AutoMirrored.Filled.HelpOutline
-        "run_command" -> Icons.Default.Terminal
+    val pg = interaction.permissionGrant
+    val headerIcon = when {
+        pg != null -> Icons.Default.Lock
+        interaction.type == "permission" || interaction.type == "file_permission" -> Icons.Default.Lock
+        interaction.type == "ask_question" -> Icons.AutoMirrored.Filled.HelpOutline
+        interaction.type == "run_command" -> Icons.Default.Terminal
         else -> Icons.Default.Warning
     }
 
-    val headerColor = when (interaction.type) {
-        "permission", "file_permission" -> colors.accentBlue
-        "ask_question" -> colors.accentOrange
-        "run_command" -> colors.accentOrange
+    val headerColor = when {
+        pg != null -> colors.accentOrange
+        interaction.type == "permission" || interaction.type == "file_permission" -> colors.accentBlue
+        interaction.type == "ask_question" -> colors.accentOrange
+        interaction.type == "run_command" -> colors.accentOrange
         else -> colors.accentOrange
     }
 
@@ -199,23 +202,81 @@ fun InteractionCard(
                 }
             }
 
-            // Target / Command Monospace Preview Box
-            val targetText = interaction.target ?: interaction.command
-            if (!targetText.isNullOrBlank()) {
+            // Structured Permission Grant Preview (Antigravity 2.26+)
+            if (pg != null) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(colors.surfaceVariant)
-                        .padding(8.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(colors.surfaceVariant.copy(alpha = 0.7f))
+                        .border(0.5.dp, colors.border, RoundedCornerShape(10.dp))
+                        .padding(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text(
-                        text = targetText,
-                        color = colors.textPrimary,
-                        fontSize = 11.5.sp,
-                        fontFamily = FontFamily.Monospace,
-                        maxLines = if (isExpanded) 8 else 3
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(colors.accentOrange.copy(alpha = 0.2f))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = pg.binary.uppercase(),
+                                color = colors.accentOrange,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        Text(
+                            text = "操作: ${pg.action}",
+                            color = colors.textPrimary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+
+                    if (!pg.repo.isNullOrBlank() || !pg.org.isNullOrBlank()) {
+                        val repoText = if (!pg.org.isNullOrBlank() && !pg.repo.isNullOrBlank()) "${pg.org}/${pg.repo}" else (pg.repo ?: "")
+                        Text(
+                            text = "仓库: $repoText",
+                            color = colors.textSecondary,
+                            fontSize = 11.5.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+
+                    if (!pg.branch.isNullOrBlank()) {
+                        Text(
+                            text = "目标分支: ${pg.branch}",
+                            color = colors.textSecondary,
+                            fontSize = 11.5.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+            } else {
+                // Target / Command Monospace Preview Box
+                val targetText = interaction.target ?: interaction.command
+                if (!targetText.isNullOrBlank()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(colors.surfaceVariant)
+                            .padding(8.dp)
+                    ) {
+                        Text(
+                            text = targetText,
+                            color = colors.textPrimary,
+                            fontSize = 11.5.sp,
+                            fontFamily = FontFamily.Monospace,
+                            maxLines = if (isExpanded) 8 else 3
+                        )
+                    }
                 }
             }
 

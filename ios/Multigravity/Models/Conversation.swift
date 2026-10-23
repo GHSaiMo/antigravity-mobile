@@ -16,8 +16,16 @@ public struct TrajectorySummary: Codable, Sendable {
     public let needsInput: Bool?
     public let hasError: Bool?
     public let errorMessage: String?
+    public let parentConversationId: String?
+    public let nestingDepth: Int?
     
     public var isSubagent: Bool {
+        if let parent = parentConversationId, !parent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return true
+        }
+        if let depth = nestingDepth, depth > 0 {
+            return true
+        }
         if let meta = trajectoryMetadata {
             if let parent = meta.parentConversationId, !parent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 return true
@@ -126,6 +134,9 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
     public let isSubagent: Bool
     public let isUnread: Bool
     public let draftProject: ProjectItem?
+    public let parentConversationId: String?
+    public let nestingDepth: Int
+    public let isPinned: Bool
     
     public var isDraft: Bool {
         id.hasPrefix("local_draft_") || id.hasPrefix("draft_") || draftProject != nil
@@ -145,6 +156,9 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         case isSubagent
         case isUnread
         case draftProject
+        case parentConversationId
+        case nestingDepth
+        case isPinned
     }
     
     public init(from decoder: Decoder) throws {
@@ -158,6 +172,9 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         self.isSubagent = try container.decodeIfPresent(Bool.self, forKey: .isSubagent) ?? false
         self.isUnread = try container.decodeIfPresent(Bool.self, forKey: .isUnread) ?? false
         self.draftProject = try container.decodeIfPresent(ProjectItem.self, forKey: .draftProject)
+        self.parentConversationId = try container.decodeIfPresent(String.self, forKey: .parentConversationId)
+        self.nestingDepth = try container.decodeIfPresent(Int.self, forKey: .nestingDepth) ?? 0
+        self.isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
     }
     
     public func encode(to encoder: Encoder) throws {
@@ -171,6 +188,9 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         try container.encode(isSubagent, forKey: .isSubagent)
         try container.encode(isUnread, forKey: .isUnread)
         try container.encodeIfPresent(draftProject, forKey: .draftProject)
+        try container.encodeIfPresent(parentConversationId, forKey: .parentConversationId)
+        try container.encode(nestingDepth, forKey: .nestingDepth)
+        try container.encode(isPinned, forKey: .isPinned)
     }
     
     public enum ConversationStatus: String, Sendable, Codable {
@@ -203,7 +223,27 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
             lastModified: self.lastModified,
             isSubagent: self.isSubagent,
             isUnread: self.isUnread,
-            draftProject: self.draftProject
+            draftProject: self.draftProject,
+            parentConversationId: self.parentConversationId,
+            nestingDepth: self.nestingDepth,
+            isPinned: self.isPinned
+        )
+    }
+
+    public func withPinned(_ pinned: Bool) -> ConversationItem {
+        ConversationItem(
+            id: self.id,
+            title: self.title,
+            status: self.status,
+            stepCount: self.stepCount,
+            workspaceName: self.workspaceName,
+            lastModified: self.lastModified,
+            isSubagent: self.isSubagent,
+            isUnread: self.isUnread,
+            draftProject: self.draftProject,
+            parentConversationId: self.parentConversationId,
+            nestingDepth: self.nestingDepth,
+            isPinned: pinned
         )
     }
     
@@ -293,6 +333,9 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
             }
         }
         self.isUnread = unread
+        self.parentConversationId = summary.parentConversationId ?? summary.trajectoryMetadata?.parentConversationId
+        self.nestingDepth = summary.nestingDepth ?? summary.trajectoryMetadata?.nestingDepth ?? 0
+        self.isPinned = CacheManager.shared.isPinned(cascadeId: id)
     }
     
     public init(
@@ -304,7 +347,10 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         lastModified: Date? = Date(),
         isSubagent: Bool = false,
         isUnread: Bool = false,
-        draftProject: ProjectItem? = nil
+        draftProject: ProjectItem? = nil,
+        parentConversationId: String? = nil,
+        nestingDepth: Int = 0,
+        isPinned: Bool = false
     ) {
         self.id = id
         self.title = title
@@ -315,6 +361,9 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         self.isSubagent = isSubagent
         self.isUnread = isUnread
         self.draftProject = draftProject
+        self.parentConversationId = parentConversationId
+        self.nestingDepth = nestingDepth
+        self.isPinned = isPinned
     }
     
     public var effectiveLastModified: Date {

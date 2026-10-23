@@ -24,9 +24,30 @@ data class ArtifactItem(
 )
 
 @Serializable
+data class WorkflowPhaseItem(
+    val name: String = "",
+    val logs: List<String> = emptyList(),
+    val subagents: List<SubagentItem> = emptyList(),
+    val status: String = "done" // "running", "done", "failed"
+)
+
+@Serializable
+data class WorkflowItem(
+    val description: String? = null,
+    val scriptPath: String? = null,
+    val script: String? = null,
+    val phases: List<WorkflowPhaseItem> = emptyList(),
+    val logs: List<String> = emptyList(),
+    val output: String? = null,
+    val resultJson: String? = null,
+    val status: String = "done", // "running", "done", "error"
+    val duration: String? = null
+)
+
+@Serializable
 data class GatewayMessageItem(
     val id: String = "",
-    val type: String = "user", // "user", "agent", "tools", "error", "subagent"
+    val type: String = "user", // "user", "agent", "tools", "error", "subagent", "workflow"
     val role: String = "", // "user", "assistant", "system"
     val text: String = "",
     val content: String = "",
@@ -47,6 +68,8 @@ data class GatewayMessageItem(
     @SerialName("reasoning_content") val reasoningContent: String? = null,
     /** type == "subagent" 时的子代理卡片数据（状态由网关实时补全）。 */
     val subagent: SubagentItem? = null,
+    /** type == "workflow" 时的动态多智能体工作流数据 (Antigravity 2.26+)。 */
+    val workflow: WorkflowItem? = null,
     @kotlinx.serialization.Transient val imageDataList: List<ByteArray> = emptyList()
 ) {
     val effectiveRole: String
@@ -75,8 +98,11 @@ data class GatewayMessageItem(
     val isSubagent: Boolean
         get() = type.equals("subagent", ignoreCase = true) && subagent != null
 
+    val isWorkflow: Boolean
+        get() = type.equals("workflow", ignoreCase = true) && workflow != null
+
     val isAgent: Boolean
-        get() = !isUser && !isTools && !isError && !isSubagent
+        get() = !isUser && !isTools && !isError && !isSubagent && !isWorkflow
 
     val effectiveImageDataList: List<ByteArray>
         get() {

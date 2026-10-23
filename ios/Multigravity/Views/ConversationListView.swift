@@ -19,6 +19,8 @@ public struct ConversationListView: View {
     
     @State private var conversationToDelete: ConversationItem?
     @State private var showDeleteConfirm = false
+    @State private var conversationToPin: ConversationItem?
+    @State private var showPinConfirm = false
     @State private var conversationToRename: ConversationItem?
     @State private var renameText = ""
     @State private var showRenameAlert = false
@@ -561,6 +563,17 @@ public struct ConversationListView: View {
                     .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
+                    .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                        Button {
+                            conversationToPin = item
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                                showPinConfirm = true
+                            }
+                        } label: {
+                            Image(uiImage: Self.pinActionImage(isPinned: item.isPinned))
+                        }
+                        .tint(.clear)
+                    }
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button {
                             conversationToDelete = item
@@ -571,6 +584,33 @@ public struct ConversationListView: View {
                             Image(uiImage: Self.trashActionImage)
                         }
                         .tint(.clear)
+                    }
+
+                    .confirmationDialog(
+                        (conversationToPin?.isPinned == true)
+                            ? "确定取消置顶此会话吗？"
+                            : "确定置顶此会话吗？\n置顶后该会话将固定显示在会话列表顶部。",
+                        isPresented: Binding(
+                            get: { showPinConfirm && conversationToPin?.id == item.id },
+                            set: { if !$0 {
+                                showPinConfirm = false
+                                conversationToPin = nil
+                            } }
+                        ),
+                        titleVisibility: .visible
+                    ) {
+                        Button((conversationToPin?.isPinned == true) ? "取消置顶" : "置顶会话") {
+                            showPinConfirm = false
+                            if let target = conversationToPin {
+                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                viewModel.togglePin(item: target)
+                            }
+                            conversationToPin = nil
+                        }
+                        Button("取消", role: .cancel) {
+                            showPinConfirm = false
+                            conversationToPin = nil
+                        }
                     }
 
                     .confirmationDialog(
@@ -819,8 +859,24 @@ public struct ConversationListView: View {
         let _ = draftsVersion
         let hasDraft = item.isDraft || CacheManager.shared.hasDraft(for: item.id)
         
+        let indent = CGFloat(min(item.nestingDepth, 3) * 14)
+        
         return VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top) {
+            HStack(alignment: .top, spacing: 6) {
+                if item.isPinned {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(.orange)
+                        .padding(.top, 3)
+                }
+                
+                if item.nestingDepth > 0 || (item.parentConversationId != nil && !item.parentConversationId!.isEmpty) {
+                    Image(systemName: "arrow.turn.down.right")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(.indigo)
+                        .padding(.top, 2)
+                }
+                
                 Text(item.title)
                     .font(.system(size: 15.5, weight: .semibold))
                     .lineLimit(1)
@@ -913,6 +969,7 @@ public struct ConversationListView: View {
         .padding(14)
         .background(Color(uiColor: .secondarySystemBackground))
         .cornerRadius(14)
+        .padding(.leading, indent)
         .overlay {
             if usesSplitLayout && selectedConversationID == item.id {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -951,11 +1008,41 @@ public struct ConversationListView: View {
         }
         return img.withRenderingMode(.alwaysOriginal)
     }()
+
+    private static func pinActionImage(isPinned: Bool) -> UIImage {
+        let size: CGFloat = 40
+        let circleDiameter: CGFloat = 38
+        
+        let format = UIGraphicsImageRendererFormat()
+        format.opaque = false
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: size, height: size), format: format)
+        
+        let img = renderer.image { ctx in
+            let circleOffset = (size - circleDiameter) / 2
+            let circleRect = CGRect(x: circleOffset, y: circleOffset, width: circleDiameter, height: circleDiameter)
+            if isPinned {
+                UIColor.systemGray.setFill()
+            } else {
+                UIColor.systemOrange.setFill()
+            }
+            ctx.cgContext.fillEllipse(in: circleRect)
+            
+            let iconName = isPinned ? "pin.slash.fill" : "pin.fill"
+            let config = UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold)
+            if let baseSymbol = UIImage(systemName: iconName, withConfiguration: config) {
+                let symbol = baseSymbol.withTintColor(.white, renderingMode: .alwaysOriginal)
+                let iconX = (size - symbol.size.width) / 2
+                let iconY = (size - symbol.size.height) / 2
+                symbol.draw(at: CGPoint(x: iconX, y: iconY))
+            }
+        }
+        return img.withRenderingMode(.alwaysOriginal)
+    }
 }
 
 private enum SwipeActionAdjuster {
     static let activateOnce: Void = {
-        // Center swipe action button in card's vacated area by shifting 16pt left (compensating for 16pt card margin)
+        // Center swipe action button in card's vacated area by shifting 16pt (compensating for 16pt card margin)
         if let dynamicCls = NSClassFromString("_UISwipeActionDynamicButtonView") {
             let orig = #selector(UIView.layoutSubviews)
             let swiz = #selector(UIView.agy_swipeDynamicButtonViewLayoutSubviews)
@@ -975,9 +1062,16 @@ private enum SwipeActionAdjuster {
 }
 
 private extension UIView {
+    private func agy_computeSwipeButtonOffset() -> CGFloat {
+        if let pullView = self.superview, pullView.frame.minX < 50 {
+            return 16
+        }
+        return -16
+    }
+
     @objc func agy_swipeDynamicButtonViewLayoutSubviews() {
         agy_swipeDynamicButtonViewLayoutSubviews()
-        let targetTransform = CGAffineTransform(translationX: -16, y: 0)
+        let targetTransform = CGAffineTransform(translationX: agy_computeSwipeButtonOffset(), y: 0)
         if self.transform != targetTransform {
             self.transform = targetTransform
         }
@@ -985,7 +1079,7 @@ private extension UIView {
     
     @objc func agy_swipeActionButtonLayoutSubviews() {
         agy_swipeActionButtonLayoutSubviews()
-        let targetTransform = CGAffineTransform(translationX: -16, y: 0)
+        let targetTransform = CGAffineTransform(translationX: agy_computeSwipeButtonOffset(), y: 0)
         if self.transform != targetTransform {
             self.transform = targetTransform
         }
