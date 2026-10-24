@@ -410,7 +410,12 @@ function renderConversationList(summaries) {
   const items = Object.entries(summaries)
     .filter(([, info]) => !isSubagentSummary(info))
     .map(([id, info]) => ({ id, ...info }))
-    .sort((a, b) => new Date(b.lastModifiedTime || 0) - new Date(a.lastModifiedTime || 0))
+    .sort((a, b) => {
+      const aPinned = Boolean(a.annotations?.pinned);
+      const bPinned = Boolean(b.annotations?.pinned);
+      if (aPinned !== bPinned) return aPinned ? -1 : 1;
+      return new Date(b.lastModifiedTime || 0) - new Date(a.lastModifiedTime || 0);
+    })
     .filter((item) => {
       if (!query) return true;
       const title = formatConversationTitle(item.annotations, item.summary, "").toLowerCase();
@@ -449,6 +454,10 @@ function renderConversationList(summaries) {
               ? `<span class="badge badge-draft">DRAFT</span>`
               : unreadDotHtml)));
       const title = formatConversationTitle(item.annotations, item.summary, "未命名会话");
+      const isPinned = Boolean(item.annotations?.pinned);
+      const pinIconHtml = isPinned
+        ? `<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" class="conv-pin-icon" title="已置顶" style="color: #f59e0b; margin-right: 4px; flex-shrink: 0;"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>`
+        : "";
       const wsUri = item.workspaceUris?.[0] || item.workspaces?.[0]?.workspaceFolderAbsoluteUri || "";
       const wsName = wsUri.split("/").filter(Boolean).pop() || "Chat";
       const timeStr = formatRelativeTime(item.lastModifiedTime);
@@ -465,7 +474,7 @@ function renderConversationList(summaries) {
           </div>
           <div class="conv-card" data-id="${item.id}" data-title="${escapeHtml(title)}">
             <div class="conv-card-top">
-              <div class="conv-title">${escapeHtml(title)}</div>
+              <div class="conv-title">${pinIconHtml}${escapeHtml(title)}</div>
               ${badgeHtml}
             </div>
             <div class="conv-card-bottom">

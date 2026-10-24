@@ -304,9 +304,7 @@ public final class ConversationListViewModel {
             let drafts = cacheManager.loadLocalDraftConversations()
             let draftIds = Set(drafts.map(\.id))
             let nonDraftEnriched = enriched.filter { !draftIds.contains($0.id) && !$0.isDraft }
-            let all = (drafts + nonDraftEnriched).sorted { a, b in
-                a.effectiveLastModified > b.effectiveLastModified
-            }
+            let all = Self.sortItems(drafts + nonDraftEnriched)
             self.conversations = all
             cacheManager.saveConversations(nonDraftEnriched)
             cacheManager.prewarmSessions(for: all.prefix(15).map(\.id))
@@ -443,6 +441,11 @@ public final class ConversationListViewModel {
             conversations[idx] = conversations[idx].withPinned(newPinned)
             conversations = Self.sortItems(conversations)
             cacheManager.saveConversations(conversations.filter { !$0.isDraft && !$0.isSubagent })
+        }
+        
+        guard let url = settings.serverURL, settings.isPaired else { return }
+        Task {
+            try? await apiClient.setConversationPinned(cascadeId: item.id, pinned: newPinned, baseURL: url)
         }
     }
     

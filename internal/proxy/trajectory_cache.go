@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -374,3 +375,34 @@ func writeAnnotationTitle(cascadeID, title string) {
 	}
 	defaultTrajCache.annotationTitleCacheMu.Unlock()
 }
+
+var pinnedRegex = regexp.MustCompile(`pinned:\s*(true|false)`)
+
+func writeAnnotationPinned(cascadeID string, pinned bool) {
+	if cascadeID == "" {
+		return
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	dir := filepath.Join(home, ".gemini", "antigravity", "annotations")
+	_ = os.MkdirAll(dir, 0700)
+	p := filepath.Join(dir, cascadeID+".pbtxt")
+	b, err := os.ReadFile(p)
+	pinnedStr := fmt.Sprintf("pinned:%t", pinned)
+	if err != nil {
+		// SEC-8: 0600 — annotation files contain conversation metadata, owner-only.
+		_ = os.WriteFile(p, []byte(pinnedStr+"\n"), 0600)
+	} else {
+		s := string(b)
+		if pinnedRegex.MatchString(s) {
+			newContent := pinnedRegex.ReplaceAllString(s, pinnedStr)
+			_ = os.WriteFile(p, []byte(newContent), 0600)
+		} else {
+			newContent := strings.TrimRight(s, "\n") + " " + pinnedStr + "\n"
+			_ = os.WriteFile(p, []byte(newContent), 0600)
+		}
+	}
+}
+

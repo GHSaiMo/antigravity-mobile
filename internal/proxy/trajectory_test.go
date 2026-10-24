@@ -1014,6 +1014,36 @@ func TestAnnotationTitle_WriteAndRead(t *testing.T) {
 	}
 }
 
+func TestAnnotationPinned_WriteAndRead(t *testing.T) {
+	testID := "test-annotation-pinned-xyz"
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("no home dir")
+	}
+	p := filepath.Join(home, ".gemini", "antigravity", "annotations", testID+".pbtxt")
+	defer func() {
+		_ = os.Remove(p)
+	}()
+
+	writeAnnotationPinned(testID, true)
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatalf("failed to read annotation file: %v", err)
+	}
+	if !strings.Contains(string(b), "pinned:true") && !strings.Contains(string(b), "pinned: true") {
+		t.Errorf("expected pinned:true in file, got %q", string(b))
+	}
+
+	writeAnnotationPinned(testID, false)
+	b, err = os.ReadFile(p)
+	if err != nil {
+		t.Fatalf("failed to read annotation file after unpin: %v", err)
+	}
+	if !strings.Contains(string(b), "pinned:false") && !strings.Contains(string(b), "pinned: false") {
+		t.Errorf("expected pinned:false in file, got %q", string(b))
+	}
+}
+
 func TestExtractImageURLsFromText(t *testing.T) {
 	input := `
 长图已成功发送至 **陶九镇** 微信！

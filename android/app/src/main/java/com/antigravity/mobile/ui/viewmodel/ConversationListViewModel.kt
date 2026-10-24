@@ -97,11 +97,16 @@ class ConversationListViewModel(
 
     private fun sortConversations(items: List<ConversationItem>): List<ConversationItem> {
         val pinnedIds = prefs.getPinnedConversationIds()
-        return items.map { it.copy(isPinned = pinnedIds.contains(it.id)) }
-            .sortedWith(
-                compareByDescending<ConversationItem> { it.isPinned }
-                    .thenByDescending { it.lastModifiedEpochMs }
-            )
+        return items.map { item ->
+            val pinned = item.isPinned || pinnedIds.contains(item.id)
+            if (item.isPinned && !pinnedIds.contains(item.id)) {
+                prefs.setPinned(item.id, true)
+            }
+            item.copy(isPinned = pinned)
+        }.sortedWith(
+            compareByDescending<ConversationItem> { it.isPinned }
+                .thenByDescending { it.lastModifiedEpochMs }
+        )
     }
 
     fun reloadFromCache() {
@@ -508,10 +513,17 @@ class ConversationListViewModel(
     }
 
     fun togglePinConversation(cascadeId: String) {
-        prefs.togglePin(cascadeId)
+        val willPin = prefs.togglePin(cascadeId)
+        rawConversations = rawConversations.map { item ->
+            if (item.id == cascadeId) item.copy(isPinned = willPin) else item
+        }
         rawConversations = sortConversations(rawConversations)
         persistConversationsToCache(rawConversations)
         applyFilter()
+
+        viewModelScope.launch {
+            apiClient.setConversationPinned(cascadeId, willPin)
+        }
     }
 
     fun renameConversation(cascadeId: String, newTitle: String) {

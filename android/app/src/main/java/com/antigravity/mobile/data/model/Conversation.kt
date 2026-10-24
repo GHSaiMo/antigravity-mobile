@@ -17,7 +17,8 @@ data class Annotations(
     val title: String? = null,
     val lastUserViewTime: String? = null,
     val markedAsUnread: Boolean? = null,
-    val archived: Boolean? = null
+    val archived: Boolean? = null,
+    val pinned: Boolean? = null
 )
 
 @Serializable
@@ -186,7 +187,8 @@ data class ConversationItem(
                 isSubagent = summary.isSubagent,
                 isUnread = unread,
                 parentConversationId = parentId,
-                nestingDepth = depth
+                nestingDepth = depth,
+                isPinned = summary.annotations?.pinned == true
             )
         }
 

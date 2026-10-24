@@ -481,6 +481,38 @@ class ApiClient(
     }
 
     /**
+     * Update pinned state of a conversation in upstream language_server
+     */
+    suspend fun setConversationPinned(cascadeId: String, pinned: Boolean): Result<Unit> = withContext(Dispatchers.IO) {
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val url = "$baseUrl/api/exa.language_server_pb.LanguageServerService/UpdateConversationAnnotations"
+
+        val payload = buildJsonObject {
+            put("cascadeIds", buildJsonArray { add(JsonPrimitive(cascadeId)) })
+            put("annotations", buildJsonObject {
+                put("pinned", pinned)
+            })
+            put("mergeAnnotations", true)
+        }
+
+        try {
+            val req = buildAuthorizedRequest(url)
+                .post(payload.toString().toRequestBody(jsonMediaType))
+                .build()
+
+            client.newCall(req).await().use { response ->
+                if (response.isSuccessful) {
+                    Result.success(Unit)
+                } else {
+                    Result.failure(RuntimeException("设置置顶状态失败: HTTP ${response.code}"))
+                }
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
      * Fetch paginated messages for a cascade session
      */
     suspend fun fetchMessages(
