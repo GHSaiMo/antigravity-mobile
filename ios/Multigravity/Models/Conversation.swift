@@ -53,6 +53,7 @@ public struct Annotations: Codable, Sendable {
     public let lastUserViewTime: String?
     public let markedAsUnread: Bool?
     public let archived: Bool?
+    public let pinned: Bool?
 }
 
 public struct TrajectoryMetadata: Codable, Sendable {
@@ -335,7 +336,12 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         self.isUnread = unread
         self.parentConversationId = summary.parentConversationId ?? summary.trajectoryMetadata?.parentConversationId
         self.nestingDepth = summary.nestingDepth ?? summary.trajectoryMetadata?.nestingDepth ?? 0
-        self.isPinned = CacheManager.shared.isPinned(cascadeId: id)
+        if let serverPinned = summary.annotations?.pinned {
+            self.isPinned = serverPinned
+            CacheManager.shared.setPinned(cascadeId: id, pinned: serverPinned)
+        } else {
+            self.isPinned = CacheManager.shared.isPinned(cascadeId: id)
+        }
     }
     
     public init(

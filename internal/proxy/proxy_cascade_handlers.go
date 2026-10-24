@@ -622,6 +622,7 @@ func (p *Proxy) handleUpdateConversationAnnotations(w http.ResponseWriter, r *ht
 			Title            string `json:"title"`
 			MarkedAsUnread   *bool  `json:"markedAsUnread,omitempty"`
 			LastUserViewTime string `json:"lastUserViewTime,omitempty"`
+			Pinned           *bool  `json:"pinned,omitempty"`
 		} `json:"annotations"`
 		MergeAnnotations *bool `json:"mergeAnnotations,omitempty"`
 	}
@@ -655,6 +656,14 @@ func (p *Proxy) handleUpdateConversationAnnotations(w http.ResponseWriter, r *ht
 				}
 			}
 			defaultTrajCache.cascadeTitlesMu.Unlock()
+		}
+
+		if payload.Annotations.Pinned != nil {
+			for _, cid := range activeIDs {
+				if cid != "" {
+					writeAnnotationPinned(cid, *payload.Annotations.Pinned)
+				}
+			}
 		}
 
 		// Backward compatibility: normalize legacy SetCascadeTrajectoryMetadata for upstream

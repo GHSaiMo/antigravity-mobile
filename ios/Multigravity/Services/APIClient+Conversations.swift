@@ -127,6 +127,25 @@ extension APIClient {
         struct EmptyResp: Decodable {}
         _ = try await rpc(method: "UpdateConversationAnnotations", body: body, baseURL: baseURL) as EmptyResp
     }
+
+    // Update pinned state of a conversation in upstream language_server
+    public func setConversationPinned(cascadeId: String, pinned: Bool, baseURL: URL) async throws {
+        struct AnnotationsPayload: Encodable {
+            let pinned: Bool
+        }
+        struct UpdateReq: Encodable {
+            let cascadeIds: [String]
+            let annotations: AnnotationsPayload
+            let mergeAnnotations: Bool
+        }
+        let body = UpdateReq(
+            cascadeIds: [cascadeId],
+            annotations: AnnotationsPayload(pinned: pinned),
+            mergeAnnotations: true
+        )
+        struct EmptyResp: Decodable {}
+        _ = try await rpc(method: "UpdateConversationAnnotations", body: body, baseURL: baseURL) as EmptyResp
+    }
     
     /// Unpairs this device from the gateway and cleans up server-side state.
     public func unpair(
