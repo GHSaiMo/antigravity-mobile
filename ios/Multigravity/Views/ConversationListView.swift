@@ -1063,9 +1063,45 @@ private enum SwipeActionAdjuster {
 
 private extension UIView {
     private func agy_computeSwipeButtonOffset() -> CGFloat {
-        if let pullView = self.superview, pullView.frame.minX < 50 {
-            return 16
+        // Find ancestor PullView
+        var current: UIView? = self.superview
+        while let v = current {
+            // Layer 1: Check cellEdge property on pull view
+            // UIRectEdge.left (2) -> leading (+16), UIRectEdge.right (8) -> trailing (-16)
+            if v.responds(to: NSSelectorFromString("cellEdge")) {
+                if let edge = v.value(forKey: "cellEdge") as? UInt {
+                    if edge == 2 {
+                        return 16
+                    } else if edge == 8 {
+                        return -16
+                    }
+                }
+            }
+            
+            // Layer 2: Check pull view frame relative to its superview / cell
+            let className = String(describing: type(of: v))
+            if className.contains("PullView") {
+                if let parent = v.superview {
+                    let midX = v.frame.midX
+                    let parentMidX = parent.bounds.midX
+                    if parentMidX > 0 {
+                        return midX < parentMidX ? 16 : -16
+                    }
+                }
+            }
+            
+            current = v.superview
         }
+        
+        // Layer 3: Check window coordinate
+        if let window = self.window {
+            let midX = self.convert(self.bounds, to: window).midX
+            let winMidX = window.bounds.midX
+            if winMidX > 0 {
+                return midX < winMidX ? 16 : -16
+            }
+        }
+        
         return -16
     }
 
