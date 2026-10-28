@@ -132,6 +132,13 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 
 	details := p.ParseTrajectoryDetails(rawResp)
 	details.Subagents = p.enrichSubagents(details.Subagents)
+	for _, sa := range details.Subagents {
+		if sa.Status == subagentStatusRunning {
+			details.Status = "CASCADE_RUN_STATUS_RUNNING"
+			details.HasRunningSubagents = true
+			break
+		}
+	}
 	details.AllMessages = p.enrichSubagentMessages(details.AllMessages)
 	if details.Title == "" || details.Title == "未命名会话" {
 		if t := p.lookupCascadeTitle(cascadeID, port, token); t != "" {

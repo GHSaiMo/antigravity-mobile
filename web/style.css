@@ -4648,6 +4648,15 @@ html[data-unavail~="models"] [data-feature="models"] {
 .diff-line.ins { background: color-mix(in srgb, var(--ios-green) 16%, transparent); }
 .diff-line.del { background: color-mix(in srgb, var(--ios-red) 16%, transparent); }
 
+.diff-token-ins {
+  background: color-mix(in srgb, var(--ios-green) 38%, transparent);
+  border-radius: 2px;
+}
+.diff-token-del {
+  background: color-mix(in srgb, var(--ios-red) 38%, transparent);
+  border-radius: 2px;
+}
+
 .diff-sign {
   flex: 0 0 22px;
   text-align: center;

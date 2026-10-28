@@ -583,6 +583,7 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 		}
 	}
 
+	runningSubagentParents := make(map[string]bool)
 	// Enrich missing titles, filter out subagent sessions, deleted sessions, and stale abandoned drafts
 	for id, s := range summaries {
 		// Filter out recently deleted sessions (tombstone protection against upstream sync delays)
@@ -591,8 +592,22 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 			continue
 		}
 
-		// Filter out internal subagent sessions completely
+		// Filter out internal subagent sessions completely while recording running subagents
 		if isSubagentTrajectoryMap(s, id) {
+			status, _ := s["status"].(string)
+			if status == "CASCADE_RUN_STATUS_RUNNING" {
+				parent := ""
+				if pid, ok := s["parentConversationId"].(string); ok && strings.TrimSpace(pid) != "" {
+					parent = strings.TrimSpace(pid)
+				} else if meta, ok := s["trajectoryMetadata"].(map[string]interface{}); ok {
+					if pid, ok := meta["parentConversationId"].(string); ok && strings.TrimSpace(pid) != "" {
+						parent = strings.TrimSpace(pid)
+					}
+				}
+				if parent != "" {
+					runningSubagentParents[parent] = true
+				}
+			}
 			delete(summaries, id)
 			continue
 		}
@@ -715,6 +730,14 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 		}
 	}
 
+	// Propagate running status from subagents up to parent conversations
+	for parentID := range runningSubagentParents {
+		if parent, ok := summaries[parentID]; ok {
+			parent["status"] = "CASCADE_RUN_STATUS_RUNNING"
+			parent["hasRunningSubagents"] = true
+		}
+	}
+
 	// 1. In-memory fast inspection: check sessions already cached in trajCache (instant, zero network cost)
 	defaultTrajCache.trajCacheMu.RLock()
 	type snapEntry struct {
@@ -738,6 +761,14 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 			if details.HasError {
 				s["hasError"] = true
 				s["errorMessage"] = details.ErrorMessage
+			}
+			if len(details.RunningTasks) > 0 {
+				s["hasRunningTasks"] = true
+				s["runningTaskCount"] = len(details.RunningTasks)
+			}
+			if details.HasRunningSubagents {
+				s["hasRunningSubagents"] = true
+				s["status"] = "CASCADE_RUN_STATUS_RUNNING"
 			}
 		}
 	}

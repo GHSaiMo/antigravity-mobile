@@ -44,7 +44,7 @@ final class RecentPhotosModel: NSObject, ObservableObject, PHPhotoLibraryChangeO
         let options = PHFetchOptions()
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
         options.fetchLimit = Self.limit
-        let fetched = PHAsset.fetchAssets(with: .image, options: options)
+        let fetched = PHAsset.fetchAssets(with: options)
         result = fetched
         var list: [PHAsset] = []
         fetched.enumerateObjects { asset, _, _ in list.append(asset) }
@@ -63,33 +63,92 @@ private struct PhotoThumbnail: View {
     @State private var image: UIImage?
     
     var body: some View {
-        GeometryReader { geo in
-            ZStack {
-                Color(uiColor: .secondarySystemBackground)
+        Color(uiColor: .secondarySystemBackground)
+            .aspectRatio(1, contentMode: .fit)
+            .overlay {
                 if let image {
                     Image(uiImage: image)
                         .resizable()
                         .scaledToFill()
-                        .frame(width: geo.size.width, height: geo.size.height)
-                        .clipped()
                 }
             }
-            .onAppear { load(side: geo.size.width) }
-        }
-        .aspectRatio(1, contentMode: .fit)
+            .clipped()
+            .contentShape(Rectangle())
+            .onAppear { load() }
     }
     
-    private func load(side: CGFloat) {
+    private func load() {
         guard image == nil else { return }
         let scale = UIScreen.main.scale
-        let target = CGSize(width: max(side, 80) * scale, height: max(side, 80) * scale)
+        let targetSide = 120 * scale
+        let target = CGSize(width: targetSide, height: targetSide)
         let options = PHImageRequestOptions()
         options.deliveryMode = .opportunistic
         options.resizeMode = .fast
         options.isNetworkAccessAllowed = true
         manager.requestImage(for: asset, targetSize: target, contentMode: .aspectFill, options: options) { img, _ in
-            if let img { DispatchQueue.main.async { image = img } }
+            if let img {
+                DispatchQueue.main.async { image = img }
+            }
         }
+    }
+}
+
+/// A single cell in the photo grid with selection badge and clean touch boundaries.
+private struct PhotoGridCell: View {
+    let asset: PHAsset
+    let isSelected: Bool
+    let selectionOrder: Int?
+    let imageManager: PHCachingImageManager
+    let onToggle: () -> Void
+    
+    var body: some View {
+        Button(action: onToggle) {
+            PhotoThumbnail(asset: asset, manager: imageManager)
+                .overlay(Color.black.opacity(isSelected ? 0.25 : 0))
+                .overlay(alignment: .topTrailing) {
+                    ZStack {
+                        if let selectionOrder {
+                            Circle()
+                                .fill(Color.indigo)
+                            Circle()
+                                .stroke(Color.white, lineWidth: 1.5)
+                            Text("\(selectionOrder + 1)")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundColor(.white)
+                        } else {
+                            Circle()
+                                .fill(Color.black.opacity(0.35))
+                            Circle()
+                                .stroke(Color.white.opacity(0.9), lineWidth: 1.5)
+                        }
+                    }
+                    .frame(width: 22, height: 22)
+                    .shadow(color: Color.black.opacity(0.35), radius: 2, x: 0, y: 1)
+                    .padding(6)
+                }
+                .overlay(alignment: .bottomLeading) {
+                    if asset.mediaType == .video {
+                        let sec = Int(asset.duration)
+                        let text = String(format: "%d:%02d", sec / 60, sec % 60)
+                        HStack(spacing: 3) {
+                            Image(systemName: "video.fill")
+                                .font(.system(size: 8))
+                            Text(text)
+                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 2)
+                        .background(Color.black.opacity(0.6))
+                        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                        .padding(5)
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -147,7 +206,22 @@ struct AttachmentPickerSheet: View {
                         permissionTile
                     }
                     ForEach(photos.assets, id: \.localIdentifier) { asset in
-                        photoCell(asset)
+                        let order = selected.firstIndex(of: asset.localIdentifier)
+                        PhotoGridCell(
+                            asset: asset,
+                            isSelected: order != nil,
+                            selectionOrder: order,
+                            imageManager: imageManager
+                        ) {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            if let order {
+                                selected.remove(at: order)
+                            } else if selected.count < remainingImageSlots {
+                                selected.append(asset.localIdentifier)
+                            } else {
+                                UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+                            }
+                        }
                     }
                 }
                 .padding(.horizontal, 12)
@@ -251,39 +325,6 @@ struct AttachmentPickerSheet: View {
         .buttonStyle(.plain)
     }
     
-    private func photoCell(_ asset: PHAsset) -> some View {
-        let order = selected.firstIndex(of: asset.localIdentifier)
-        return Button {
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            if let order {
-                selected.remove(at: order)
-            } else if selected.count < remainingImageSlots {
-                selected.append(asset.localIdentifier)
-            } else {
-                UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
-            }
-        } label: {
-            PhotoThumbnail(asset: asset, manager: imageManager)
-                .overlay(Color.black.opacity(order != nil ? 0.25 : 0))
-                .overlay(alignment: .topTrailing) {
-                    ZStack {
-                        Circle()
-                            .fill(order != nil ? Color.indigo : Color.black.opacity(0.18))
-                        Circle()
-                            .stroke(Color.white, lineWidth: 1.5)
-                        if let order {
-                            Text("\(order + 1)")
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundColor(.white)
-                        }
-                    }
-                    .frame(width: 22, height: 22)
-                    .padding(6)
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        }
-        .buttonStyle(.plain)
-    }
     
     private var footer: some View {
         Button {
@@ -326,6 +367,7 @@ enum PhotoAssetLoader {
     
     private static func loadImage(_ asset: PHAsset, maxDimension: CGFloat) async -> UIImage? {
         await withCheckedContinuation { cont in
+            var hasResumed = false
             let options = PHImageRequestOptions()
             options.deliveryMode = .highQualityFormat   // single callback
             options.resizeMode = .exact
@@ -333,7 +375,10 @@ enum PhotoAssetLoader {
             let scale = min(1, maxDimension / CGFloat(max(asset.pixelWidth, asset.pixelHeight, 1)))
             let target = CGSize(width: CGFloat(asset.pixelWidth) * scale, height: CGFloat(asset.pixelHeight) * scale)
             PHImageManager.default().requestImage(for: asset, targetSize: target, contentMode: .aspectFit, options: options) { img, _ in
-                cont.resume(returning: img)
+                if !hasResumed {
+                    hasResumed = true
+                    cont.resume(returning: img)
+                }
             }
         }
     }

@@ -21,6 +21,7 @@ import com.antigravity.mobile.ui.theme.AntigravityTheme
 @Composable
 fun StatusBadge(
     status: ConversationStatus,
+    hasRunningTasks: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val colors = AntigravityTheme.colors
@@ -28,18 +29,21 @@ fun StatusBadge(
         status.needsAction -> Triple(
             colors.accentBlue.copy(alpha = 0.15f),
             colors.accentBlue,
-            status.raw
+            "Action required"
         )
         status.isError -> Triple(
             colors.accentRed.copy(alpha = 0.15f),
             colors.accentRed,
-            "ERROR"
+            "Error"
         )
-        status.isRunning -> Triple(
-            colors.accentGreen.copy(alpha = 0.15f),
-            colors.accentGreen,
-            "RUNNING"
-        )
+        status.isRunning -> {
+            val txt = if (hasRunningTasks) "Running command" else "Working"
+            Triple(
+                colors.accentGreen.copy(alpha = 0.15f),
+                colors.accentGreen,
+                txt
+            )
+        }
         else -> Triple(
             colors.surfaceVariant,
             colors.textMuted,

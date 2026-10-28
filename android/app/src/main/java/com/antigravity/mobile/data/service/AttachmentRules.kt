@@ -33,18 +33,11 @@ object AttachmentRules {
         "less", "ipynb", "dockerfile", "makefile"
     )
 
-    fun isAllowedName(name: String): Boolean {
-        val lower = name.lowercase(Locale.ROOT)
-        val ext = lower.substringAfterLast('.', missingDelimiterValue = lower)
-        return ext in allowedExtensions
-    }
+    fun isAllowedName(name: String): Boolean = true
 
     /** Returns a user-facing rejection reason, or null when the file may be attached. */
     fun validate(name: String, size: Long, existing: List<AttachmentFile>): String? {
-        if (!isAllowedName(name)) {
-            val ext = name.substringAfterLast('.', "").ifBlank { "无扩展名" }
-            return "不支持的文件类型（$ext）：$name"
-        }
+        if (name.isBlank()) return "文件名无效"
         if (size <= 0) return "文件为空：$name"
         if (size > MAX_FILE_BYTES) return "文件超过 ${MAX_FILE_BYTES / 1024 / 1024}MB：$name"
         if (existing.size >= MAX_FILES_PER_MESSAGE) return "一条消息最多附带 $MAX_FILES_PER_MESSAGE 个文件"

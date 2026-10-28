@@ -46,7 +46,10 @@ data class TrajectorySummary(
     val hasError: Boolean? = null,
     val errorMessage: String? = null,
     val parentConversationId: String? = null,
-    val nestingDepth: Int? = null
+    val nestingDepth: Int? = null,
+    val hasRunningTasks: Boolean? = null,
+    val runningTaskCount: Int? = null,
+    val hasRunningSubagents: Boolean? = null
 ) {
     val isSubagent: Boolean
         get() {
@@ -89,7 +92,9 @@ data class ConversationItem(
     val draftProject: ProjectItem? = null,
     val parentConversationId: String? = null,
     val nestingDepth: Int = 0,
-    val isPinned: Boolean = false
+    val isPinned: Boolean = false,
+    val hasRunningTasks: Boolean = false,
+    val hasRunningSubagents: Boolean = false
 ) {
     val displayTitle: String
         get() = title.ifBlank { "未命名会话" }
@@ -137,10 +142,13 @@ data class ConversationItem(
                 else -> "未命名会话"
             }
 
+            val hasRunningTasks = summary.hasRunningTasks == true || (summary.runningTaskCount ?: 0) > 0
+            val hasRunningSubagents = summary.hasRunningSubagents == true
+
             val status = when {
                 summary.needsInput == true || summary.status?.contains("WAITING", ignoreCase = true) == true -> ConversationStatus.ACTION
                 summary.hasError == true || summary.status.equals("CASCADE_RUN_STATUS_ERROR", ignoreCase = true) || summary.status.equals("ERROR", ignoreCase = true) || summary.status.equals("CASCADE_RUN_STATUS_FAILED", ignoreCase = true) -> ConversationStatus.ERROR
-                summary.status.equals("CASCADE_RUN_STATUS_RUNNING", ignoreCase = true) || summary.status.equals("RUNNING", ignoreCase = true) -> ConversationStatus.RUNNING
+                summary.status.equals("CASCADE_RUN_STATUS_RUNNING", ignoreCase = true) || summary.status.equals("RUNNING", ignoreCase = true) || hasRunningSubagents -> ConversationStatus.RUNNING
                 summary.status.equals("CASCADE_RUN_STATUS_IDLE", ignoreCase = true) || summary.status.equals("IDLE", ignoreCase = true) || summary.status.equals("CASCADE_RUN_STATUS_DONE", ignoreCase = true) || summary.status.equals("CASCADE_RUN_STATUS_COMPLETED", ignoreCase = true) -> ConversationStatus.IDLE
                 else -> ConversationStatus.UNKNOWN
             }
@@ -188,7 +196,9 @@ data class ConversationItem(
                 isUnread = unread,
                 parentConversationId = parentId,
                 nestingDepth = depth,
-                isPinned = summary.annotations?.pinned == true
+                isPinned = summary.annotations?.pinned == true,
+                hasRunningTasks = hasRunningTasks,
+                hasRunningSubagents = hasRunningSubagents
             )
         }
 

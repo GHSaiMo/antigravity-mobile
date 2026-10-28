@@ -18,6 +18,9 @@ public struct TrajectorySummary: Codable, Sendable {
     public let errorMessage: String?
     public let parentConversationId: String?
     public let nestingDepth: Int?
+    public let hasRunningTasks: Bool?
+    public let runningTaskCount: Int?
+    public let hasRunningSubagents: Bool?
     
     public var isSubagent: Bool {
         if let parent = parentConversationId, !parent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -138,6 +141,8 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
     public let parentConversationId: String?
     public let nestingDepth: Int
     public let isPinned: Bool
+    public let hasRunningTasks: Bool
+    public let hasRunningSubagents: Bool
     
     public var isDraft: Bool {
         id.hasPrefix("local_draft_") || id.hasPrefix("draft_") || draftProject != nil
@@ -160,6 +165,8 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         case parentConversationId
         case nestingDepth
         case isPinned
+        case hasRunningTasks
+        case hasRunningSubagents
     }
     
     public init(from decoder: Decoder) throws {
@@ -176,6 +183,8 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         self.parentConversationId = try container.decodeIfPresent(String.self, forKey: .parentConversationId)
         self.nestingDepth = try container.decodeIfPresent(Int.self, forKey: .nestingDepth) ?? 0
         self.isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
+        self.hasRunningTasks = try container.decodeIfPresent(Bool.self, forKey: .hasRunningTasks) ?? false
+        self.hasRunningSubagents = try container.decodeIfPresent(Bool.self, forKey: .hasRunningSubagents) ?? false
     }
     
     public func encode(to encoder: Encoder) throws {
@@ -192,6 +201,8 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         try container.encodeIfPresent(parentConversationId, forKey: .parentConversationId)
         try container.encode(nestingDepth, forKey: .nestingDepth)
         try container.encode(isPinned, forKey: .isPinned)
+        try container.encode(hasRunningTasks, forKey: .hasRunningTasks)
+        try container.encode(hasRunningSubagents, forKey: .hasRunningSubagents)
     }
     
     public enum ConversationStatus: String, Sendable, Codable {
@@ -227,7 +238,9 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
             draftProject: self.draftProject,
             parentConversationId: self.parentConversationId,
             nestingDepth: self.nestingDepth,
-            isPinned: self.isPinned
+            isPinned: self.isPinned,
+            hasRunningTasks: self.hasRunningTasks,
+            hasRunningSubagents: self.hasRunningSubagents
         )
     }
 
@@ -244,7 +257,9 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
             draftProject: self.draftProject,
             parentConversationId: self.parentConversationId,
             nestingDepth: self.nestingDepth,
-            isPinned: pinned
+            isPinned: pinned,
+            hasRunningTasks: self.hasRunningTasks,
+            hasRunningSubagents: self.hasRunningSubagents
         )
     }
     
@@ -282,11 +297,14 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         }
         self.title = resolvedTitle.isEmpty ? "未命名会话" : resolvedTitle
         
+        self.hasRunningTasks = summary.hasRunningTasks == true || (summary.runningTaskCount ?? 0) > 0
+        self.hasRunningSubagents = summary.hasRunningSubagents == true
+        
         if summary.needsInput == true {
             self.status = .action
         } else if summary.hasError == true || summary.status == "CASCADE_RUN_STATUS_ERROR" {
             self.status = .error
-        } else if summary.status == "CASCADE_RUN_STATUS_RUNNING" {
+        } else if summary.status == "CASCADE_RUN_STATUS_RUNNING" || self.hasRunningSubagents {
             self.status = .running
         } else if summary.status == "CASCADE_RUN_STATUS_IDLE" {
             self.status = .idle
@@ -356,7 +374,9 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         draftProject: ProjectItem? = nil,
         parentConversationId: String? = nil,
         nestingDepth: Int = 0,
-        isPinned: Bool = false
+        isPinned: Bool = false,
+        hasRunningTasks: Bool = false,
+        hasRunningSubagents: Bool = false
     ) {
         self.id = id
         self.title = title
@@ -370,6 +390,8 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         self.parentConversationId = parentConversationId
         self.nestingDepth = nestingDepth
         self.isPinned = isPinned
+        self.hasRunningTasks = hasRunningTasks
+        self.hasRunningSubagents = hasRunningSubagents
     }
     
     public var effectiveLastModified: Date {

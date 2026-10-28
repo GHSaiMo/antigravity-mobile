@@ -886,7 +886,7 @@ public struct ConversationListView: View {
                 Spacer()
                 
                 if item.status.needsAction {
-                    Text(item.status.rawValue)
+                    Text("Action required")
                         .font(.system(size: 11, weight: .bold))
                         .foregroundColor(.blue)
                         .padding(.horizontal, 7)
@@ -894,7 +894,7 @@ public struct ConversationListView: View {
                         .background(Color.blue.opacity(0.15))
                         .cornerRadius(6)
                 } else if item.status.isError {
-                    Text("ERROR")
+                    Text("Error")
                         .font(.system(size: 11, weight: .bold))
                         .foregroundColor(.red)
                         .padding(.horizontal, 7)
@@ -902,13 +902,19 @@ public struct ConversationListView: View {
                         .background(Color.red.opacity(0.15))
                         .cornerRadius(6)
                 } else if item.status.isRunning {
-                    Text(item.status.rawValue)
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundColor(.green)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(Color.green.opacity(0.15))
-                        .cornerRadius(6)
+                    let label = item.hasRunningTasks ? "Running command" : "Working"
+                    HStack(spacing: 4) {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .tint(.green)
+                        Text(label)
+                    }
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(.green)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(Color.green.opacity(0.15))
+                    .cornerRadius(6)
                 } else if hasDraft {
                     Text("DRAFT")
                         .font(.system(size: 11, weight: .bold))

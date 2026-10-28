@@ -14,7 +14,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -24,14 +27,20 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.RunningTaskItem
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 import com.antigravity.mobile.ui.util.rememberHaptic
+import kotlinx.coroutines.delay
 
 @Composable
 fun RunningTasksCard(
@@ -42,13 +51,23 @@ fun RunningTasksCard(
 ) {
     if (tasks.isEmpty()) return
 
-    var isExpanded by remember { mutableStateOf(true) }
+    var isCardExpanded by remember { mutableStateOf(true) }
+    var expandedTaskIds by remember { mutableStateOf(setOf<String>()) }
+    var copiedTaskId by remember { mutableStateOf<String?>(null) }
+
     val colors = AntigravityTheme.colors
     val haptic = rememberHaptic()
+    val clipboardManager = LocalClipboardManager.current
 
-    // iOS 对齐：展开时箭头朝下(0度)，折叠时箭头朝上(180度)，弹性动画旋转
+    LaunchedEffect(copiedTaskId) {
+        if (copiedTaskId != null) {
+            delay(1500)
+            copiedTaskId = null
+        }
+    }
+
     val arrowRotation by animateFloatAsState(
-        targetValue = if (isExpanded) 0f else 180f,
+        targetValue = if (isCardExpanded) 0f else 180f,
         animationSpec = spring(
             dampingRatio = 0.82f,
             stiffness = Spring.StiffnessMediumLow
@@ -75,8 +94,8 @@ fun RunningTasksCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable {
-                        isExpanded = !isExpanded
-                        onToggleExpand?.invoke(isExpanded)
+                        isCardExpanded = !isCardExpanded
+                        onToggleExpand?.invoke(isCardExpanded)
                     },
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
@@ -116,7 +135,7 @@ fun RunningTasksCard(
 
                 Icon(
                     imageVector = Icons.Default.KeyboardArrowDown,
-                    contentDescription = if (isExpanded) "折叠任务" else "展开任务",
+                    contentDescription = if (isCardExpanded) "折叠任务" else "展开任务",
                     tint = colors.textSecondary,
                     modifier = Modifier
                         .size(20.dp)
@@ -125,7 +144,7 @@ fun RunningTasksCard(
             }
 
             AnimatedVisibility(
-                visible = isExpanded,
+                visible = isCardExpanded,
                 enter = expandVertically(
                     animationSpec = spring(
                         dampingRatio = 0.82f,
@@ -147,76 +166,146 @@ fun RunningTasksCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     tasks.forEachIndexed { index, task ->
                         val desc = task.displayTitle
-                        val cmdText = task.displayCommand
+                        val rawCmd = task.commandLine.ifBlank { task.displayCommand }
+                        val isCmdExpanded = expandedTaskIds.contains(task.id)
+                        val isCopied = copiedTaskId == task.id
+                        val isLong = rawCmd.length > 100 || rawCmd.lines().size > 3
 
-                        Row(
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            verticalAlignment = Alignment.Bottom,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                .padding(vertical = 2.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Column(
-                                modifier = Modifier.weight(1f),
-                                verticalArrangement = Arrangement.spacedBy(3.dp)
+                            // Top bar of task row: summary + copy + stop
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                if (desc.isNotBlank() && desc != cmdText) {
+                                if (desc.isNotBlank() && desc != rawCmd) {
                                     Text(
                                         text = desc,
                                         color = colors.textPrimary,
                                         fontSize = 12.sp,
-                                        fontWeight = FontWeight.Medium,
+                                        fontWeight = FontWeight.SemiBold,
                                         maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f)
                                     )
+                                } else {
+                                    Spacer(modifier = Modifier.weight(1f))
                                 }
 
-                                val bubbleText = cmdText.ifBlank { desc.ifBlank { "运行终端命令" } }
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(colors.surfaceVariant)
-                                        .padding(horizontal = 6.dp, vertical = 3.dp)
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Text(
-                                        text = bubbleText,
-                                        color = colors.textSecondary,
-                                        fontSize = 12.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
+                                    // Copy Command Button
+                                    Row(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(colors.surfaceVariant)
+                                            .clickable {
+                                                haptic.light()
+                                                clipboardManager.setText(AnnotatedString(rawCmd))
+                                                copiedTaskId = task.id
+                                            }
+                                            .padding(horizontal = 6.dp, vertical = 3.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = if (isCopied) Icons.Default.Check else Icons.Outlined.ContentCopy,
+                                            contentDescription = "复制命令行",
+                                            tint = if (isCopied) Color(0xFF4CAF50) else colors.textSecondary,
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                        Text(
+                                            text = if (isCopied) "已复制" else "复制",
+                                            fontSize = 10.sp,
+                                            color = if (isCopied) Color(0xFF4CAF50) else colors.textSecondary,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+
+                                    // Stop Task Button
+                                    Box(
+                                        modifier = Modifier
+                                            .size(28.dp)
+                                            .clip(CircleShape)
+                                            .clickable {
+                                                haptic.medium()
+                                                onStopTask(task)
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(20.dp)
+                                                .clip(CircleShape)
+                                                .background(colors.accentRed.copy(alpha = 0.9f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(7.dp)
+                                                    .clip(RoundedCornerShape(1.dp))
+                                                    .background(colors.surface)
+                                            )
+                                        }
+                                    }
                                 }
                             }
 
-                            // Stop Task Button (对齐 iOS: 缩小并放置在命令气泡外部，外层触摸区域扩展至 36dp)
-                            Box(
+                            // Terminal-style command bubble
+                            Column(
                                 modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .clickable {
-                                        haptic.medium()
-                                        onStopTask(task)
-                                    },
-                                contentAlignment = Alignment.Center
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(colors.surfaceVariant.copy(alpha = 0.7f))
+                                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(22.dp)
-                                        .clip(CircleShape)
-                                        .background(colors.accentRed.copy(alpha = 0.9f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Box(
+                                Text(
+                                    text = highlightCommand(rawCmd, colors.accentIndigo, colors.textPrimary),
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    maxLines = if (isCmdExpanded) Int.MAX_VALUE else 3,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+
+                                if (isLong) {
+                                    Row(
                                         modifier = Modifier
-                                            .size(7.5.dp)
-                                            .clip(RoundedCornerShape(1.5.dp))
-                                            .background(colors.surface)
-                                    )
+                                            .clickable {
+                                                expandedTaskIds = if (isCmdExpanded) {
+                                                    expandedTaskIds - task.id
+                                                } else {
+                                                    expandedTaskIds + task.id
+                                                }
+                                            }
+                                            .padding(top = 2.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                    ) {
+                                        Text(
+                                            text = if (isCmdExpanded) "收起" else "展开完整命令",
+                                            color = colors.accentIndigo,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        Icon(
+                                            imageVector = if (isCmdExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                            contentDescription = null,
+                                            tint = colors.accentIndigo,
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -228,6 +317,43 @@ fun RunningTasksCard(
                                 color = colors.border.copy(alpha = 0.4f)
                             )
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun highlightCommand(command: String, accentColor: Color, defaultTextColor: Color): AnnotatedString {
+    return buildAnnotatedString {
+        withStyle(SpanStyle(color = Color(0xFF4CAF50), fontWeight = FontWeight.Bold)) {
+            append("$ ")
+        }
+        val parts = command.split(" ")
+        var isFirstWord = true
+        parts.forEachIndexed { idx, part ->
+            if (idx > 0) append(" ")
+            when {
+                part.startsWith("-") -> {
+                    withStyle(SpanStyle(color = Color(0xFFFF9800))) {
+                        append(part)
+                    }
+                }
+                part in listOf("&&", "||", "|", ";") -> {
+                    withStyle(SpanStyle(color = Color(0xFFBA68C8))) {
+                        append(part)
+                    }
+                    isFirstWord = true
+                }
+                isFirstWord && part.isNotEmpty() -> {
+                    withStyle(SpanStyle(color = accentColor, fontWeight = FontWeight.SemiBold)) {
+                        append(part)
+                    }
+                    isFirstWord = false
+                }
+                else -> {
+                    withStyle(SpanStyle(color = defaultTextColor.copy(alpha = 0.85f))) {
+                        append(part)
                     }
                 }
             }

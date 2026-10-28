@@ -32,18 +32,19 @@ import (
 // identical uploads deduplicate naturally.
 
 const (
-	defaultMaxUploadMB   = 50
-	defaultInboxQuotaMB  = 2048
-	defaultInboxTTLDays  = 30
-	maxAttachmentsPerMsg = 5
-	maxAttachmentsTotal  = 100 * 1024 * 1024
-	maxAttachmentNameLen = 120
-	attachmentIDLen      = 16
+	defaultMaxUploadMB        = 50
+	defaultInboxQuotaMB       = 2048
+	defaultInboxTTLDays       = 30
+	maxAttachmentsPerMsg      = 5
+	maxAttachmentsTotal       = 100 * 1024 * 1024
+	maxAttachmentNameLen      = 120
+	attachmentIDLen           = 16
+	maxNativeAttachmentBytes  = 20 * 1024 * 1024 // 20 MB (Antigravity 2.28 native attachment threshold)
 )
 
 var attachmentIDPattern = regexp.MustCompile(`^[0-9a-f]{16}$`)
 
-// attachmentExts is the allow-list of file extensions (lower-case, without dot) and their kind.
+// attachmentExts maps known file extensions (lower-case, without dot) to their human category.
 var attachmentExts = buildAttachmentExts()
 
 func buildAttachmentExts() map[string]string {
@@ -57,6 +58,9 @@ func buildAttachmentExts() map[string]string {
 	add("spreadsheet", "xls", "xlsx", "xlsm", "csv", "tsv", "ods", "numbers")
 	add("presentation", "ppt", "pptx", "pps", "ppsx", "odp", "key")
 	add("audio", "mp3", "m4a", "wav", "aac", "flac", "ogg", "oga", "opus", "aif", "aiff", "wma", "amr", "caf")
+	add("video", "mp4", "mov", "mkv", "webm", "avi", "flv", "wmv", "m4v", "3gp")
+	add("design", "psd", "ai", "fig", "sketch", "xd", "blend")
+	add("program", "exe", "dll", "dylib", "so", "bin", "apk", "deb", "rpm", "msi", "app", "dmg")
 	add("archive", "zip", "tar", "gz", "tgz", "7z")
 	add("code",
 		"py", "js", "mjs", "cjs", "ts", "tsx", "jsx", "go", "rs", "java", "kt", "kts", "swift", "m", "mm",
@@ -67,18 +71,24 @@ func buildAttachmentExts() map[string]string {
 	return m
 }
 
-// attachmentKind returns the kind for a file name, or "" when the extension is not allowed.
+// attachmentKind returns the category for a file name. With Antigravity 2.28, all file types are allowed.
 func attachmentKind(name string) string {
 	ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(name), "."))
 	if ext == "" {
-		// Extension-less well-known names (Dockerfile, Makefile).
+		// Extension-less well-known names (Dockerfile, Makefile, README).
 		ext = strings.ToLower(name)
 	}
-	return attachmentExts[ext]
+	if k, ok := attachmentExts[ext]; ok {
+		return k
+	}
+	if ext != "" {
+		return ext
+	}
+	return "file"
 }
 
 // looksLikeExecutable reports whether the head of a file carries a native-executable magic
-// number (PE, ELF, Mach-O, dex). It blocks binaries renamed to an allowed extension.
+// number (PE, ELF, Mach-O, dex). It is retained for classification/informational purposes.
 func looksLikeExecutable(head []byte) bool {
 	switch {
 	case bytes.HasPrefix(head, []byte("MZ")),
@@ -244,11 +254,6 @@ func (p *Proxy) HandleAttachmentUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	name := sanitizeAttachmentName(rawName)
 	kind := attachmentKind(name)
-	if kind == "" {
-		writeAttachmentError(w, http.StatusUnsupportedMediaType, "unsupported_type",
-			"不支持的文件类型: "+filepath.Ext(name))
-		return
-	}
 
 	maxBytes := int64(envInt("MGY_MAX_UPLOAD_MB", defaultMaxUploadMB)) * 1024 * 1024
 	if r.ContentLength > maxBytes {
@@ -304,11 +309,6 @@ func (p *Proxy) HandleAttachmentUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	if n == 0 {
 		writeAttachmentError(w, http.StatusBadRequest, "empty_file", "文件为空")
-		return
-	}
-	if looksLikeExecutable(head.buf) {
-		slog.Warn("[Attachments] rejected executable payload", "name", name)
-		writeAttachmentError(w, http.StatusUnsupportedMediaType, "executable_rejected", "不允许上传可执行文件")
 		return
 	}
 	if err := tmp.Close(); err != nil {
@@ -456,45 +456,85 @@ func applyAttachmentsToMessage(rawMap map[string]interface{}) (bool, error) {
 	if len(atts) == 0 {
 		return true, nil
 	}
-	block := formatAttachmentBlock(atts)
 
-	appendBlock := func(s string) string {
-		if strings.TrimSpace(s) == "" {
-			return block
+	var smallAtts []Attachment
+	var largeAtts []Attachment
+	for _, a := range atts {
+		if a.Size <= maxNativeAttachmentBytes {
+			smallAtts = append(smallAtts, a)
+		} else {
+			largeAtts = append(largeAtts, a)
 		}
-		return strings.TrimRight(s, "\n") + "\n\n" + block
 	}
 
-	handled := false
-	if items, ok := rawMap["items"].([]interface{}); ok && len(items) > 0 {
-		// 文本块并入第一个「文本条目」；斜杠命令等 scope 条目（带 item 字段）不能同时再带 text。
-		for _, it := range items {
-			m, ok := it.(map[string]interface{})
-			if !ok {
-				continue
+	if len(smallAtts) > 0 {
+		var mediaList []interface{}
+		if existing, ok := rawMap["media"].([]interface{}); ok {
+			mediaList = existing
+		}
+		for _, a := range smallAtts {
+			mimeType := a.Mime
+			if mimeType == "" {
+				mimeType = "application/octet-stream"
 			}
-			if _, isScopeItem := m["item"]; isScopeItem {
-				continue
+			mediaList = append(mediaList, map[string]interface{}{
+				"uri":      "file://" + a.Path,
+				"mimeType": mimeType,
+			})
+		}
+		rawMap["media"] = mediaList
+	}
+
+	if len(largeAtts) > 0 {
+		block := formatAttachmentBlock(largeAtts)
+		appendBlock := func(s string) string {
+			if strings.TrimSpace(s) == "" {
+				return block
 			}
-			if t, ok := m["text"].(string); ok || m["text"] == nil {
-				m["text"] = appendBlock(t)
+			return strings.TrimRight(s, "\n") + "\n\n" + block
+		}
+
+		handled := false
+		if items, ok := rawMap["items"].([]interface{}); ok && len(items) > 0 {
+			// 文本块并入第一个「文本条目」；斜杠命令等 scope 条目（带 item 字段）不能同时再带 text。
+			for _, it := range items {
+				m, ok := it.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				if _, isScopeItem := m["item"]; isScopeItem {
+					continue
+				}
+				if t, ok := m["text"].(string); ok || m["text"] == nil {
+					m["text"] = appendBlock(t)
+					handled = true
+				}
+				break
+			}
+			if !handled {
+				// 只有 scope 条目（例如单独一个斜杠命令）：补一个文本条目承载附件块
+				rawMap["items"] = append(items, map[string]interface{}{"text": block})
 				handled = true
 			}
-			break
 		}
-		if !handled {
-			// 只有 scope 条目（例如单独一个斜杠命令）：补一个文本条目承载附件块
-			rawMap["items"] = append(items, map[string]interface{}{"text": block})
+		if t, ok := rawMap["text"].(string); ok {
+			rawMap["text"] = appendBlock(t)
 			handled = true
 		}
-	}
-	if t, ok := rawMap["text"].(string); ok {
-		rawMap["text"] = appendBlock(t)
-		handled = true
-	}
-	if !handled {
-		rawMap["items"] = []interface{}{map[string]interface{}{"text": block}}
-		rawMap["text"] = block
+		if !handled {
+			rawMap["items"] = []interface{}{map[string]interface{}{"text": block}}
+			rawMap["text"] = block
+		}
+	} else if len(smallAtts) > 0 {
+		if items, ok := rawMap["items"].([]interface{}); !ok || len(items) == 0 {
+			txt := ""
+			if t, ok := rawMap["text"].(string); ok {
+				txt = t
+			} else {
+				rawMap["text"] = ""
+			}
+			rawMap["items"] = []interface{}{map[string]interface{}{"text": txt}}
+		}
 	}
 	return true, nil
 }
