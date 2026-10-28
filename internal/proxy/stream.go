@@ -31,6 +31,7 @@ type StreamUpdatePayload struct {
 	QueuedMessages     []QueuedMessageItem  `json:"queuedMessages"`
 	RunningTasks       []RunningTaskItem    `json:"runningTasks,omitempty"`
 	Subagents          []SubagentItem       `json:"subagents,omitempty"`
+	HasRunningSubagents bool                `json:"hasRunningSubagents,omitempty"`
 	ParentConversation string               `json:"parentConversationId,omitempty"`
 	SubagentRole       string               `json:"subagentRole,omitempty"`
 	IsFullSnapshot     bool                 `json:"isFullSnapshot"`
@@ -329,6 +330,13 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			slog.Debug("stream perf: slow ParseTrajectoryDetails", "cascade_id", cascadeID, "took", time.Since(t2))
 		}
 		details.Subagents = p.enrichSubagents(details.Subagents)
+		for _, sa := range details.Subagents {
+			if sa.Status == subagentStatusRunning {
+				details.Status = "CASCADE_RUN_STATUS_RUNNING"
+				details.HasRunningSubagents = true
+				break
+			}
+		}
 		details.AllMessages = p.enrichSubagentMessages(details.AllMessages)
 		lastDetails = details
 		if details.Title != "" && details.Title != "未命名会话" {
@@ -379,6 +387,7 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			QueuedMessages:     details.QueuedMessages,
 			RunningTasks:       details.RunningTasks,
 			Subagents:          details.Subagents,
+			HasRunningSubagents: details.HasRunningSubagents,
 			ParentConversation: details.ParentConversation,
 			SubagentRole:       details.SubagentRole,
 			IsFullSnapshot:     !hasMore,

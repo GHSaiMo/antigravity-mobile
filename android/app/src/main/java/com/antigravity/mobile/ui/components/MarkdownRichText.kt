@@ -197,20 +197,20 @@ internal fun unwrapBacktickBold(text: String): String {
     }
 }
 
-internal val BOLD_PAIR_REGEX = Regex("""(?<!\*)(\*{2,3})((?:[^\*]|\*(?!\*))+?)\1(?!\*)""")
+internal val DELIMITER_SPACE_REGEX = Regex("""(?<!\*)(\*{2,3}|_{2}|~~)((?:[^\*_\~]|\*(?!\*)|\_(?!\_)|~(?!~))+?)\1(?!\*|~|_)""")
 
 internal fun normalizeBoldSpaces(text: String): String {
-    if (!text.contains("**")) return text
-    return BOLD_PAIR_REGEX.replace(text) { match ->
-        val stars = match.groups[1]?.value.orEmpty()
+    if (!text.contains("**") && !text.contains("__") && !text.contains("~~")) return text
+    return DELIMITER_SPACE_REGEX.replace(text) { match ->
+        val delim = match.groups[1]?.value.orEmpty()
         val inner = match.groups[2]?.value.orEmpty()
-        val trimmed = inner.trim(' ', '\t')
+        val trimmed = inner.trim(' ', '\t', '\u3000')
         if (trimmed.isEmpty()) {
             match.value
         } else {
-            val leading = inner.takeWhile { it == ' ' || it == '\t' }
-            val trailing = inner.takeLastWhile { it == ' ' || it == '\t' }
-            "$leading$stars$trimmed$stars$trailing"
+            val leading = inner.takeWhile { it == ' ' || it == '\t' || it == '\u3000' }
+            val trailing = inner.takeLastWhile { it == ' ' || it == '\t' || it == '\u3000' }
+            "$leading$delim$trimmed$delim$trailing"
         }
     }
 }

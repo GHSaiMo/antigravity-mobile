@@ -417,25 +417,45 @@ extension MarkdownContentView {
                 let lastInner = innerText.last
                 
                 var prefixMarker = ""
+                var openMarker = ""
+                var closeMarker = ""
                 var suffixMarker = ""
                 
-                // Opening rule: if firstInner is punct, and prevChar is non-punct non-whitespace
-                if let fi = firstInner, isPunctOrSymbol(fi) {
-                    if let p = prevChar, !p.isWhitespace && !isPunctOrSymbol(p) {
-                        prefixMarker = cjkDelimiterMarker
-                        hasMarkers = true
+                // 1. Opening delimiter flanking fixes:
+                if let fi = firstInner {
+                    if isPunctOrSymbol(fi) {
+                        // If fi is punct, and prevChar is letter -> need punct before openDelim
+                        if let p = prevChar, !p.isWhitespace && !isPunctOrSymbol(p) {
+                            prefixMarker = cjkDelimiterMarker
+                            hasMarkers = true
+                        }
+                    } else if !fi.isWhitespace {
+                        // If fi is letter, and prevChar is punct -> need punct after openDelim
+                        if let p = prevChar, isPunctOrSymbol(p) {
+                            openMarker = cjkDelimiterMarker
+                            hasMarkers = true
+                        }
                     }
                 }
                 
-                // Closing rule: if lastInner is punct, and nextChar is non-punct non-whitespace
-                if let li = lastInner, isPunctOrSymbol(li) {
-                    if let n = nextChar, !n.isWhitespace && !isPunctOrSymbol(n) {
-                        suffixMarker = cjkDelimiterMarker
-                        hasMarkers = true
+                // 2. Closing delimiter flanking fixes:
+                if let li = lastInner {
+                    if isPunctOrSymbol(li) {
+                        // If li is punct, and nextChar is letter -> need punct after closeDelim
+                        if let n = nextChar, !n.isWhitespace && !isPunctOrSymbol(n) {
+                            suffixMarker = cjkDelimiterMarker
+                            hasMarkers = true
+                        }
+                    } else if !li.isWhitespace {
+                        // If li is letter, and nextChar is punct -> need punct before closeDelim
+                        if let n = nextChar, isPunctOrSymbol(n) {
+                            closeMarker = cjkDelimiterMarker
+                            hasMarkers = true
+                        }
                     }
                 }
                 
-                modified += prefixMarker + openDelim + innerText + closeDelim + suffixMarker
+                modified += prefixMarker + openDelim + openMarker + innerText + closeMarker + closeDelim + suffixMarker
                 lastEnd = fullRange.location + fullRange.length
             }
             

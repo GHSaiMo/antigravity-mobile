@@ -74,22 +74,25 @@ func TestAttachmentUploadDeduplicates(t *testing.T) {
 
 func TestAttachmentUploadRejects(t *testing.T) {
 	setupInbox(t)
-	cases := []struct {
-		name   string
-		file   string
-		body   []byte
-		status int
-	}{
-		{"unsupported ext", "tool.exe", []byte("hi"), http.StatusUnsupportedMediaType},
-		{"no ext", "README", []byte("hi"), http.StatusUnsupportedMediaType},
-		{"empty", "a.txt", nil, http.StatusBadRequest},
-		{"elf renamed", "run.txt", []byte("\x7fELF\x02\x01"), http.StatusUnsupportedMediaType},
-		{"pe renamed", "run.pdf", []byte("MZ\x90\x00"), http.StatusUnsupportedMediaType},
-		{"macho renamed", "run.zip", []byte{0xcf, 0xfa, 0xed, 0xfe, 0, 0}, http.StatusUnsupportedMediaType},
+	// Empty files are rejected
+	if rec := upload(t, "empty.txt", nil); rec.Code != http.StatusBadRequest {
+		t.Errorf("empty file status = %d, want 400", rec.Code)
 	}
-	for _, c := range cases {
-		if rec := upload(t, c.file, c.body); rec.Code != c.status {
-			t.Errorf("%s: status = %d, want %d (%s)", c.name, rec.Code, c.status, rec.Body.String())
+
+	// Arbitrary files, extensions, and binaries are now allowed
+	allowedCases := []struct {
+		name string
+		file string
+		body []byte
+	}{
+		{"tool exe", "tool.exe", []byte("MZ\x90\x00")},
+		{"no ext", "README", []byte("hello readme")},
+		{"elf binary", "run.bin", []byte("\x7fELF\x02\x01")},
+		{"macho binary", "app.dylib", []byte{0xcf, 0xfa, 0xed, 0xfe, 0, 0}},
+	}
+	for _, c := range allowedCases {
+		if rec := upload(t, c.file, c.body); rec.Code != http.StatusOK {
+			t.Errorf("%s: status = %d, want 200 (%s)", c.name, rec.Code, rec.Body.String())
 		}
 	}
 }
@@ -162,7 +165,7 @@ func TestSanitizeAttachmentName(t *testing.T) {
 	}
 }
 
-func TestApplyAttachmentsToMessage(t *testing.T) {
+func TestApplySmallAttachmentUsesNativeMedia(t *testing.T) {
 	setupInbox(t)
 	a := decodeAttachment(t, upload(t, "plan.md", []byte("# plan")))
 
@@ -179,9 +182,44 @@ func TestApplyAttachmentsToMessage(t *testing.T) {
 	if _, still := msg["attachments"]; still {
 		t.Error("attachments key must be removed before forwarding")
 	}
+	// Small files (<= 20MB) are passed as native media items, keeping prompt text clean
+	if gotText := msg["text"].(string); gotText != "看看这个" {
+		t.Errorf("prompt text should remain clean for native media, got: %q", gotText)
+	}
+	media, ok := msg["media"].([]interface{})
+	if !ok || len(media) != 1 {
+		t.Fatalf("expected 1 media entry, got: %v", msg["media"])
+	}
+	mItem := media[0].(map[string]interface{})
+	if mItem["uri"] != "file://"+a.Path {
+		t.Errorf("expected uri file://%s, got %v", a.Path, mItem["uri"])
+	}
+}
+
+func TestApplyLargeAttachmentUsesTextBlock(t *testing.T) {
+	setupInbox(t)
+	a := decodeAttachment(t, upload(t, "large.zip", []byte("PK\x03\x04dummy")))
+	// Expand file size to 25MB (> 20MB threshold)
+	if err := os.Truncate(a.Path, 25*1024*1024); err != nil {
+		t.Fatal(err)
+	}
+
+	msg := map[string]interface{}{
+		"cascadeId":   "c1",
+		"text":        "看看这个大文件",
+		"items":       []interface{}{map[string]interface{}{"text": "看看这个大文件"}},
+		"attachments": []interface{}{map[string]interface{}{"id": a.ID}},
+	}
+	changed, err := applyAttachmentsToMessage(msg)
+	if err != nil || !changed {
+		t.Fatalf("changed=%v err=%v", changed, err)
+	}
+	if _, hasMedia := msg["media"]; hasMedia {
+		t.Errorf("large file (> 20MB) should not be placed in native media, got %v", msg["media"])
+	}
 	itemText := msg["items"].([]interface{})[0].(map[string]interface{})["text"].(string)
 	for _, got := range []string{msg["text"].(string), itemText} {
-		if !strings.HasPrefix(got, "看看这个\n\n"+attachmentHeader) || !strings.Contains(got, "- "+a.Path+" (md, 6 B)") {
+		if !strings.HasPrefix(got, "看看这个大文件\n\n"+attachmentHeader) || !strings.Contains(got, a.Path) {
 			t.Errorf("unexpected text: %q", got)
 		}
 	}
@@ -191,10 +229,13 @@ func slashItem(name string) map[string]interface{} {
 	return map[string]interface{}{"item": map[string]interface{}{"slashCommand": map[string]interface{}{"info": map[string]interface{}{"name": name}}}}
 }
 
-// 斜杠命令条目排在最前时，附件块必须并入后面的文本条目，而不是塞进命令条目（text 与 item 是互斥分支）。
+// 斜杠命令条目排在最前时，大文件附件块必须并入后面的文本条目，而不是塞进命令条目（text 与 item 是互斥分支）。
 func TestApplyAttachmentsWithSlashCommandFirst(t *testing.T) {
 	setupInbox(t)
-	a := decodeAttachment(t, upload(t, "plan.md", []byte("# plan")))
+	a := decodeAttachment(t, upload(t, "plan.bin", []byte("bin-data")))
+	if err := os.Truncate(a.Path, 25*1024*1024); err != nil {
+		t.Fatal(err)
+	}
 	msg := map[string]interface{}{
 		"cascadeId":   "c1",
 		"items":       []interface{}{slashItem("plan"), map[string]interface{}{"text": " 看这个"}},
@@ -219,6 +260,9 @@ func TestApplyAttachmentsWithSlashCommandFirst(t *testing.T) {
 func TestApplyAttachmentsWithSlashCommandOnly(t *testing.T) {
 	setupInbox(t)
 	a := decodeAttachment(t, upload(t, "x.csv", []byte("a,b")))
+	if err := os.Truncate(a.Path, 25*1024*1024); err != nil {
+		t.Fatal(err)
+	}
 	msg := map[string]interface{}{
 		"cascadeId":   "c1",
 		"items":       []interface{}{slashItem("plan")},
@@ -246,9 +290,14 @@ func TestApplyAttachmentsOnlyNoText(t *testing.T) {
 	if _, err := applyAttachmentsToMessage(msg); err != nil {
 		t.Fatal(err)
 	}
-	items := msg["items"].([]interface{})
-	if len(items) != 1 || !strings.Contains(items[0].(map[string]interface{})["text"].(string), a.Path) {
-		t.Errorf("items not synthesized: %v", msg)
+	// Small attachment without text produces media entry and synthesized empty items
+	media, ok := msg["media"].([]interface{})
+	if !ok || len(media) != 1 {
+		t.Fatalf("expected 1 media entry, got: %v", msg["media"])
+	}
+	items, ok := msg["items"].([]interface{})
+	if !ok || len(items) != 1 {
+		t.Fatalf("items not synthesized: %v", msg)
 	}
 }
 

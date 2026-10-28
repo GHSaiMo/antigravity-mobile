@@ -1154,7 +1154,7 @@ fun ConversationCard(
                 }
 
                 if (conversation.status.isRunning || conversation.status.needsAction || conversation.status.isError) {
-                    StatusBadge(status = conversation.status)
+                    StatusBadge(status = conversation.status, hasRunningTasks = conversation.hasRunningTasks)
                 } else if (hasDraft || conversation.isDraft) {
                     DraftBadge()
                 } else if (conversation.isUnread) {

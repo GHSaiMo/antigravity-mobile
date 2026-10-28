@@ -12,13 +12,17 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -27,6 +31,17 @@ import com.antigravity.mobile.data.model.RevertDiffLine
 import com.antigravity.mobile.data.model.RevertPreviewFile
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 
+data class DiffSpan(
+    val text: String,
+    val isChanged: Boolean
+)
+
+data class ProcessedDiffLine(
+    val id: Int,
+    val line: RevertDiffLine,
+    val spans: List<DiffSpan>
+)
+
 @Composable
 fun DiffViewerDialog(
     file: RevertPreviewFile,
@@ -34,6 +49,7 @@ fun DiffViewerDialog(
     modifier: Modifier = Modifier
 ) {
     val colors = AntigravityTheme.colors
+    val processedLines = remember(file.diffLines) { processDiffLines(file.diffLines) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -145,8 +161,8 @@ fun DiffViewerDialog(
                             .horizontalScroll(horizontalScrollState)
                             .padding(vertical = 4.dp)
                     ) {
-                        itemsIndexed(file.diffLines) { _, line ->
-                            DiffLineRow(line = line)
+                        itemsIndexed(processedLines) { _, item ->
+                            DiffLineRow(item = item)
                         }
                     }
                 }
@@ -183,10 +199,11 @@ private fun ActionTypeBadge(
 
 @Composable
 private fun DiffLineRow(
-    line: RevertDiffLine,
+    item: ProcessedDiffLine,
     modifier: Modifier = Modifier
 ) {
     val colors = AntigravityTheme.colors
+    val line = item.line
     val isInsert = line.type.equals("INSERT", ignoreCase = true)
     val isDelete = line.type.equals("DELETE", ignoreCase = true)
 
@@ -208,6 +225,24 @@ private fun DiffLineRow(
         else -> " "
     }
 
+    val highlightBg = when {
+        isInsert -> Color(0x594CAF50)
+        isDelete -> Color(0x59F44336)
+        else -> Color.Transparent
+    }
+
+    val annotatedString = buildAnnotatedString {
+        for (span in item.spans) {
+            if (span.isChanged) {
+                withStyle(SpanStyle(background = highlightBg)) {
+                    append(span.text)
+                }
+            } else {
+                append(span.text)
+            }
+        }
+    }
+
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -224,11 +259,131 @@ private fun DiffLineRow(
             modifier = Modifier.width(16.dp)
         )
         Text(
-            text = if (line.text.isEmpty()) " " else line.text,
+            text = annotatedString,
             fontFamily = FontFamily.Monospace,
             fontSize = 12.sp,
             color = textColor,
             softWrap = false
         )
     }
+}
+
+fun processDiffLines(lines: List<RevertDiffLine>): List<ProcessedDiffLine> {
+    val result = mutableListOf<ProcessedDiffLine>()
+    var i = 0
+    val n = lines.size
+    while (i < n) {
+        val type = lines[i].type.uppercase()
+        if (type == "DELETE") {
+            var delEnd = i
+            while (delEnd < n && lines[delEnd].type.uppercase() == "DELETE") {
+                delEnd++
+            }
+            var insEnd = delEnd
+            while (insEnd < n && lines[insEnd].type.uppercase() == "INSERT") {
+                insEnd++
+            }
+
+            val delCount = delEnd - i
+            val insCount = insEnd - delEnd
+
+            if (insCount > 0) {
+                val pairCount = minOf(delCount, insCount)
+                for (k in 0 until pairCount) {
+                    val (delSpans, _) = computeTokenDiff(lines[i + k].text, lines[delEnd + k].text)
+                    result.add(ProcessedDiffLine(i + k, lines[i + k], delSpans))
+                }
+                for (k in pairCount until delCount) {
+                    val text = lines[i + k].text.ifEmpty { " " }
+                    result.add(ProcessedDiffLine(i + k, lines[i + k], listOf(DiffSpan(text, false))))
+                }
+                for (k in 0 until pairCount) {
+                    val (_, insSpans) = computeTokenDiff(lines[i + k].text, lines[delEnd + k].text)
+                    result.add(ProcessedDiffLine(delEnd + k, lines[delEnd + k], insSpans))
+                }
+                for (k in pairCount until insCount) {
+                    val text = lines[delEnd + k].text.ifEmpty { " " }
+                    result.add(ProcessedDiffLine(delEnd + k, lines[delEnd + k], listOf(DiffSpan(text, false))))
+                }
+                i = insEnd
+                continue
+            }
+        }
+
+        val text = lines[i].text.ifEmpty { " " }
+        result.add(ProcessedDiffLine(i, lines[i], listOf(DiffSpan(text, false))))
+        i++
+    }
+    return result
+}
+
+fun tokenize(text: String): List<String> {
+    if (text.isEmpty()) return listOf(" ")
+    val tokens = mutableListOf<String>()
+    var current = StringBuilder()
+    var currentKind = 0 // 1: word, 2: space, 3: other
+
+    for (ch in text) {
+        val kind = when {
+            ch.isWhitespace() -> 2
+            ch.isLetterOrDigit() || ch == '_' -> 1
+            else -> 3
+        }
+        if (kind == currentKind && kind != 3) {
+            current.append(ch)
+        } else {
+            if (current.isNotEmpty()) {
+                tokens.add(current.toString())
+            }
+            current = StringBuilder().append(ch)
+            currentKind = kind
+        }
+    }
+    if (current.isNotEmpty()) {
+        tokens.add(current.toString())
+    }
+    return tokens
+}
+
+fun computeTokenDiff(oldText: String, newText: String): Pair<List<DiffSpan>, List<DiffSpan>> {
+    val tokensA = tokenize(if (oldText.isEmpty()) " " else oldText)
+    val tokensB = tokenize(if (newText.isEmpty()) " " else newText)
+    val m = tokensA.size
+    val n = tokensB.size
+
+    val dp = Array(m + 1) { IntArray(n + 1) }
+    for (i in 1..m) {
+        for (j in 1..n) {
+            if (tokensA[i - 1] == tokensB[j - 1]) {
+                dp[i][j] = dp[i - 1][j - 1] + 1
+            } else {
+                dp[i][j] = maxOf(dp[i - 1][j], dp[i][j - 1])
+            }
+        }
+    }
+
+    val commonA = mutableSetOf<Int>()
+    val commonB = mutableSetOf<Int>()
+    var i = m
+    var j = n
+    while (i > 0 && j > 0) {
+        if (tokensA[i - 1] == tokensB[j - 1]) {
+            commonA.add(i - 1)
+            commonB.add(j - 1)
+            i--
+            j--
+        } else if (dp[i - 1][j] >= dp[i][j - 1]) {
+            i--
+        } else {
+            j--
+        }
+    }
+
+    val spansA = tokensA.mapIndexed { idx, tok ->
+        DiffSpan(tok, isChanged = idx !in commonA)
+    }
+    val spansB = tokensB.mapIndexed { idx, tok ->
+        DiffSpan(tok, isChanged = idx !in commonB)
+    }
+    return spansA to spansB
 }

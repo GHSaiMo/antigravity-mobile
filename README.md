@@ -150,9 +150,9 @@ mgy help           # 查看完整命令与启动参数帮助
 
 | 层级 | 核心组件 | 关键职责与技术特性 |
 | :--- | :--- | :--- |
-| **📱 移动访问层** | **Android 原生客户端** (Compose) | **全功能旗舰体验**：Kotlin 1.9+、Jetpack Compose Material 3 纯黑美学、Edge-to-Edge 全面屏沉浸显示、IME 软键盘自适应防遮挡与聚焦触底平滑滚动；OkHttp + WebSocket 实时打字机流分发、多步工具折叠胶囊；**对话列表右滑置顶（Pin）与二次弹窗确认 (v1.0.9)**；**Antigravity 2.26 动态多智能体工作流阶段卡片 (Dynamic Workflows / run_workflow) 与类型化产物透视 (v1.0.9)**；**精细化 Git/GitHub 沙箱权限审批卡片 (PERMISSION_GRANTS_V2) (v1.0.9)**；**父子会话家族树层级标记 (v1.0.9)**；**原生选择题交互卡片与多题决策** (自适应高度无留白 / 全屏半屏平滑切换 / 选项与问题多行完整呈现 / 活力橙视觉统一 / 软键盘智能避让)；**多模态生图直出渲染**与 `ImageViewerSheet` 全手势大图缩放；**网络设置一键并发探活测速与智能路由选路**；**Cockpit Tools 四象限配额看板与多账号池无感热切**；方案产物原生浮窗 (Markdown / PPTX 幻灯片渲染 / Brain 元数据逆向解析 / 本地一键下载导出) 与 Proceed 推进闭环；**消息撤回与代码修改方案回滚**；**会话全文搜索、导出 Markdown、斜杠命令与技能、本会话改动累计 Diff、原生 Git 提交/推送、精美长图分享（深浅主题 / 一键定向微信）、默认模型配置**；排队追问面板、后台任务感知与终止、工程快捷动作胶囊、ZXing 离线二维码秒级配对、`EncryptedSharedPreferences` 硬件密钥持久化、全态分类信号 |
-| | **iOS 原生客户端** (SwiftUI 5) | **Swift 6 严格并发**：零数据竞态、丝滑流畅；**对话列表右滑置顶（Pin）与二次弹窗确认 (v1.0.9)**；**Antigravity 2.26 动态多智能体工作流阶段卡片 (Dynamic Workflows / run_workflow) 与 JSON Schema 产物查看 (v1.0.9)**；**精细化 Git/GitHub 沙箱权限审批卡片 (PERMISSION_GRANTS_V2) (v1.0.9)**；**父子会话家族树层级缩进与徽标 (v1.0.9)**；**原生选择题交互卡片深度优化** (自适应高度 / 选项与问题多行完整呈现 / 全屏半屏平滑伸缩 / 活力橙视觉统一 / 动态绑定 MARKETING_VERSION)；单趟 O(N) LaTeX 渲染、Markdown 富媒体与多模态生图直出、`ImageViewerSheet` 双指捏合无级缩放与系统分享保存；方案产物浮窗与 Proceed 闭环；统一文件预览工具栏与 PPTX 幻灯片渲染；**Cockpit Tools 四象限额度看板与多账号热切**；**网络设置一键并发探活与智能选路**；**消息撤回与代码修改回滚**（毛玻璃材质浮窗）；**会话全文搜索、导出 Markdown、斜杠命令与技能、本会话改动累计 Diff、原生 Git 提交/推送、精美长图分享、默认模型配置、iPad 现代列表与大标题折叠**；排队追问队列与自适应输入；交互式命令审批卡片；交互式侧滑返回（Swipe-Back）原生手势体验；全态分类信号 (`RUNNING` / `ERROR` / `ACTION` / 未读呼吸小蓝点)；0ms 会话焦点上报、灵动岛 (Live Activity) |
-| | **移动端 PWA / Web** (Vanilla JS) | 零构建打包、嵌入 Go 二进制 (`embed.FS`)、全面对齐 iOS 原生设计系统与 NavigationStack 导航、列表滚动/侧滑手势消抖（防误触进入）、居中对称标题与 38px 悬浮垃圾桶删除、自适应安全区与键盘防遮挡、**同步支持多题交互确认与选项多行自适应排版**、Markdown 浮窗与方案 Proceed 推进、排队消息与后台任务同步、添加到主屏幕 |
+| **📱 移动访问层** | **Android 原生客户端** (Compose) | **全功能旗舰体验**：Kotlin 1.9+、Jetpack Compose Material 3 纯黑美学、Edge-to-Edge 全面屏沉浸显示、IME 软键盘自适应防遮挡与聚焦触底平滑滚动；OkHttp + WebSocket 实时打字机流分发、多步工具折叠胶囊；**对话列表右滑置顶（Pin）与二次弹窗确认 (v1.0.9)**；**Antigravity 2.26 动态多智能体工作流阶段卡片 (Dynamic Workflows / run_workflow) 与类型化产物透视 (v1.0.9)**；**代码 Diff 词级与字符级高亮 (v1.0.9)**；**后台命令（Running Tasks）卡片重构（前3行折叠/长命令展开/一键复制/终端高亮）(v1.0.9)**；**细分状态徽标（Working/Running command/Action required/Error/Unread）(v1.0.9)**；**任意格式文件附件选择与上传 (v1.0.9)**；**精细化 Git/GitHub 沙箱权限审批卡片 (PERMISSION_GRANTS_V2) (v1.0.9)**；**父子会话家族树层级标记 (v1.0.9)**；**原生选择题交互卡片与多题决策** (自适应高度无留白 / 全屏半屏平滑切换 / 选项与问题多行完整呈现 / 活力橙视觉统一 / 软键盘智能避让)；**多模态生图直出渲染**与 `ImageViewerSheet` 全手势大图缩放；**网络设置一键并发探活测速与智能路由选路**；**Cockpit Tools 四象限配额看板与多账号池无感热切**；方案产物原生浮窗 (Markdown / PPTX 幻灯片渲染 / Brain 元数据逆向解析 / 本地一键下载导出) 与 Proceed 推进闭环；**消息撤回与代码修改方案回滚**；**会话全文搜索、导出 Markdown、斜杠命令与技能、本会话改动累计 Diff、原生 Git 提交/推送、精美长图分享（深浅主题 / 一键定向微信）、默认模型配置**；排队追问面板、后台任务感知与终止、工程快捷动作胶囊、ZXing 离线二维码秒级配对、`EncryptedSharedPreferences` 硬件密钥持久化、全态分类信号 |
+| | **iOS 原生客户端** (SwiftUI 5) | **Swift 6 严格并发**：零数据竞态、丝滑流畅；**对话列表右滑置顶（Pin）与二次弹窗确认 (v1.0.9)**；**Antigravity 2.26 动态多智能体工作流阶段卡片 (Dynamic Workflows / run_workflow) 与 JSON Schema 产物查看 (v1.0.9)**；**代码 Diff 词级与字符级高亮 (v1.0.9)**；**后台命令（Running Tasks）卡片重构（前3行折叠/长命令展开/一键复制/终端高亮）(v1.0.9)**；**细分状态徽标（Working/Running command/Action required/Error/Unread）(v1.0.9)**；**CommonMark 0.30 CJK 标点容错修复 (v1.0.9)**；**全格式文件与相册视频选择 (v1.0.9)**；**精细化 Git/GitHub 沙箱权限审批卡片 (PERMISSION_GRANTS_V2) (v1.0.9)**；**父子会话家族树层级缩进与徽标 (v1.0.9)**；**原生选择题交互卡片深度优化** (自适应高度 / 选项与问题多行完整呈现 / 全屏半屏平滑伸缩 / 活力橙视觉统一 / 动态绑定 MARKETING_VERSION)；单趟 O(N) LaTeX 渲染、Markdown 富媒体与多模态生图直出、`ImageViewerSheet` 双指捏合无级缩放与系统分享保存；方案产物浮窗与 Proceed 闭环；统一文件预览工具栏与 PPTX 幻灯片渲染；**Cockpit Tools 四象限额度看板与多账号热切**；**网络设置一键并发探活与智能选路**；**消息撤回与代码修改回滚**（毛玻璃材质浮窗）；**会话全文搜索、导出 Markdown、斜杠命令与技能、本会话改动累计 Diff、原生 Git 提交/推送、精美长图分享、默认模型配置、iPad 现代列表与大标题折叠**；排队追问队列与自适应输入；交互式命令审批卡片；交互式侧滑返回（Swipe-Back）原生手势体验；全态分类信号 (`RUNNING` / `ERROR` / `ACTION` / 未读呼吸小蓝点)；0ms 会话焦点上报、灵动岛 (Live Activity) |
+| | **移动端 PWA / Web** (Vanilla JS) | 零构建打包、嵌入 Go 二进制 (`embed.FS`)、全面对齐 iOS 原生设计系统与 NavigationStack 导航、列表滚动/侧滑手势消抖（防误触进入）、居中对称标题与 38px 悬浮垃圾桶删除、自适应安全区与键盘防遮挡、**同步支持多题交互确认与选项多行自适应排版**、**Token-level 词级代码 Diff 高亮 (v1.0.9)**、Markdown 浮窗与方案 Proceed 推进、排队消息与后台任务同步、添加到主屏幕 |
 | **🎯 跨端游标与焦点层** | **随人而动游标引擎 (Follow-Me Cursor Engine)** | 毫秒级多端焦点仲裁：活跃长连接流 (Active Stream) > 移动端黏性焦点 (Mobile Sticky 30m) > 桌面端 IDE 活跃焦点 (Desktop Focus) > 磁盘最后活跃会话兜底；提供 0ms 会话焦点上报与预热；防自反保护机制 (Anti-Reflection 1.5s 抑制期) 彻底消除已读回环误判；幽灵会话三重防御过滤 |
 | **🦞 物理外设网桥层** | **YoooClaw 物理硬件网桥 (`integrations/yoooclaw/`)** | 随身外设按键录音 ➔ ASR ➔ Gateway-First 代理直连注入活跃 Cascade 会话；双层协同分流（第一层 Hermes 业务守卫放行，第二层统一游标精准定位目标会话）；四色交织 RGB 流光动效与 OLED 屏幕状态回显 |
 | **⚡ 远程连接与鉴权层** | **智能路由与一键并发测速 (Smart Multi-Channel Routing)** | 移动端动态管理 Wi-Fi 局域网 (LAN IPv4) 与 Cloudflare 专属 HTTPS 隧道；提供一键并发探活，秒级测速回显并自动优选延迟最低链路，支持客户端手动动态切换端点 |
@@ -311,6 +311,31 @@ mgy help           # 查看完整命令与启动参数帮助
   - **本地轨迹索引与 FTS5 秒搜**：网关引入 Proto + SQLite FTS5 引擎，实现本地毫秒级全文秒搜与零停机 Zero-RPC fallback；
   - **父子会话家族树**：列表与详情中直观呈现智能体父子层级关系（`arrow.turn.down.right` 缩进与子智能体徽标）。
 - **通知推送优化**：Bark 额度阶梯预警通知展示完整账号邮箱，多账号资费与可用额度清晰直观。
+
+---
+
+### 14. ⚡ Antigravity 2.28 深度对齐与多端体验全面升级 (v1.0.9 增强版)
+- **网关层附件放宽与智能双轨分流**：
+  - **解除文件扩展名白名单**：放宽为“任意类型文件”（代码文件、音视频、文档、压缩包、二进制等），保持单文件 50MB 上限；
+  - **智能双轨分流传输**：
+    - **$\le$ 20MB**：作为原生多模态附件直连传输（写入 `rawMap["media"]`，携带本地 `file://` URI 与准确 MIME Type），完美保留模型原生多模态上下文理解能力；
+    - **> 20MB 且 $\le$ 50MB**：自动降级为安全文件路径引用提示词注入（`[Attached File: <name> (Path: <path>, Size: <size>)]`），兼顾大文件引用便利与通信稳定性；
+  - **移动端多媒体选择升级**：iOS/Android 文件选择器支持全类型选取；iOS 相册选择器全面放开全格式照片与视频多选，并贴心提供分秒时长角标。
+- **代码 Diff 词级与字符级高亮（Intra-line Word-level Diff）**：
+  - 双端（iOS / Android）及 Web 控制台全面引入 Tokenize 词法分析与动态规划最长公共子序列（LCS）算法；
+  - 变动行由以往单一整行底色升级为行内精细词级高亮（`Token-level` 增删背景着色对比），极大提升移动端查看代码变更的阅读效率。
+- **后台长命令（Running Tasks）卡片全面重构**：
+  - **自适应折叠**：终端输出默认仅展示前 3 行最新日志，超长命令自适应单行截断，支持一键展开/折叠完整日志与命令；
+  - **一键复制命令行**：卡片头部新增独立复制按钮，集成触感震动反馈与 1.5 秒“已复制”状态提示；
+  - **终端语法高亮**：对命令行等宽着色（提示符 `$` 绿色、命令蓝色、参数橙色、重定向/管道紫色）。
+- **子代理（Subagents）运行状态向上聚合**：
+  - 网关底层在会话轨迹与流式事件中引入活动子代理探测（`HasRunningSubagents`），任一子代理处于 `running` 状态期间，父会话强制维持在 `CASCADE_RUN_STATUS_RUNNING`；
+  - 移动端与 Web 端实时保持 “Working” 状态，杜绝子代理工作期间主会话状态脱节或过早标记休眠。
+- **细分状态徽标（Status Badges）原生对齐**：
+  - 双端会话列表与详情顶部统一细化为 5 类明确状态徽标：**Working**（思考生成中）、**Running command**（后台命令执行中）、**Action required**（等待用户确认/决策）、**Error**（异常报错）与 **Unread**（未读红点/气泡）。
+- **Markdown 细节与 CJK 标点容错修复**：
+  - **iOS 端 CommonMark Flanking 容错**：补全 CJK flanking 边界规则，通过 Unicode 标点标记注入与后处理消除，彻底根治全角中文标点紧贴粗体/斜体/删除线（如 `**重点**：`、`（**重点**）`）时解析器无法识别右定界符而暴露原生语法的问题；
+  - **Android 端 Markdown 规整**：完善 `__`、`~~` 及全角空格 `\u3000` 的前置容错规整。
 
 ---
 

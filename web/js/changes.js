@@ -11,6 +11,90 @@ function changesActionBadge(action) {
   return '<span class="diff-badge modify">修改</span>';
 }
 
+function tokenizeDiffText(text) {
+  if (!text) return [" "];
+  const tokens = [];
+  const re = /[a-zA-Z0-9_]+|\s+|[^\s\w]/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    tokens.push(m[0]);
+  }
+  return tokens.length ? tokens : [text];
+}
+
+function computeTokenDiff(oldText, newText) {
+  const tokensA = tokenizeDiffText(oldText || " ");
+  const tokensB = tokenizeDiffText(newText || " ");
+  const m = tokensA.length;
+  const n = tokensB.length;
+  const dp = Array.from({ length: m + 1 }, () => new Uint16Array(n + 1));
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (tokensA[i - 1] === tokensB[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1] + 1;
+      } else {
+        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+      }
+    }
+  }
+  const commonA = new Set();
+  const commonB = new Set();
+  let i = m, j = n;
+  while (i > 0 && j > 0) {
+    if (tokensA[i - 1] === tokensB[j - 1]) {
+      commonA.add(i - 1);
+      commonB.add(j - 1);
+      i--; j--;
+    } else if (dp[i - 1][j] >= dp[i][j - 1]) {
+      i--;
+    } else {
+      j--;
+    }
+  }
+  const spansA = tokensA.map((t, idx) => ({ text: t, isChanged: !commonA.has(idx) }));
+  const spansB = tokensB.map((t, idx) => ({ text: t, isChanged: !commonB.has(idx) }));
+  return [spansA, spansB];
+}
+
+function processDiffLines(lines) {
+  const result = [];
+  let i = 0;
+  const n = lines.length;
+  while (i < n) {
+    const type = String(lines[i].type || "").toUpperCase();
+    if (type === "DELETE") {
+      let delEnd = i;
+      while (delEnd < n && String(lines[delEnd].type || "").toUpperCase() === "DELETE") delEnd++;
+      let insEnd = delEnd;
+      while (insEnd < n && String(lines[insEnd].type || "").toUpperCase() === "INSERT") insEnd++;
+      const delCount = delEnd - i;
+      const insCount = insEnd - delEnd;
+      if (insCount > 0) {
+        const pairCount = Math.min(delCount, insCount);
+        for (let k = 0; k < pairCount; k++) {
+          const [delSpans] = computeTokenDiff(lines[i + k].text, lines[delEnd + k].text);
+          result.push({ line: lines[i + k], spans: delSpans });
+        }
+        for (let k = pairCount; k < delCount; k++) {
+          result.push({ line: lines[i + k], spans: [{ text: lines[i + k].text || " ", isChanged: false }] });
+        }
+        for (let k = 0; k < pairCount; k++) {
+          const [, insSpans] = computeTokenDiff(lines[i + k].text, lines[delEnd + k].text);
+          result.push({ line: lines[delEnd + k], spans: insSpans });
+        }
+        for (let k = pairCount; k < insCount; k++) {
+          result.push({ line: lines[delEnd + k], spans: [{ text: lines[delEnd + k].text || " ", isChanged: false }] });
+        }
+        i = insEnd;
+        continue;
+      }
+    }
+    result.push({ line: lines[i], spans: [{ text: lines[i].text || " ", isChanged: false }] });
+    i++;
+  }
+  return result;
+}
+
 function renderChangesSheet() {
   const body = document.getElementById("changes-body");
   const title = document.getElementById("changes-title");
@@ -26,12 +110,19 @@ function renderChangesSheet() {
     closeBtn.classList.add("hidden");
     const lines = Array.isArray(f.diffLines) ? f.diffLines : [];
     const shown = lines.slice(0, DIFF_MAX_LINES);
-    const rows = shown
-      .map((l) => {
+    const processed = processDiffLines(shown);
+    const rows = processed
+      .map(({ line: l, spans }) => {
         const t = String(l.type || "").toUpperCase();
         const cls = t === "INSERT" ? "ins" : t === "DELETE" ? "del" : "ctx";
         const sign = t === "INSERT" ? "+" : t === "DELETE" ? "−" : " ";
-        return `<div class="diff-line ${cls}"><span class="diff-sign">${sign}</span><span class="diff-text">${escapeHtml(l.text || "") || "&nbsp;"}</span></div>`;
+        const spanHtml = spans.map(s => {
+          const escaped = escapeHtml(s.text);
+          if (!s.isChanged) return escaped;
+          const tokenCls = t === "INSERT" ? "diff-token-ins" : "diff-token-del";
+          return `<span class="${tokenCls}">${escaped}</span>`;
+        }).join("");
+        return `<div class="diff-line ${cls}"><span class="diff-sign">${sign}</span><span class="diff-text">${spanHtml || "&nbsp;"}</span></div>`;
       })
       .join("");
     const truncated = lines.length > shown.length ? `<div class="diff-truncated">仅显示前 ${DIFF_MAX_LINES} 行，共 ${lines.length} 行</div>` : "";

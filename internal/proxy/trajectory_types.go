@@ -165,6 +165,7 @@ type CascadeMessagesResponse struct {
 	QueuedMessages     []QueuedMessageItem  `json:"queuedMessages"`
 	RunningTasks       []RunningTaskItem    `json:"runningTasks,omitempty"`
 	Subagents          []SubagentItem       `json:"subagents,omitempty"`
+	HasRunningSubagents bool                `json:"hasRunningSubagents,omitempty"`
 	ParentConversation string               `json:"parentConversationId,omitempty"`
 	SubagentRole       string               `json:"subagentRole,omitempty"`
 	ActiveModel        string               `json:"activeModel,omitempty"`
@@ -390,6 +391,7 @@ type TrajectoryDetails struct {
 	QueuedMessages     []QueuedMessageItem  `json:"queuedMessages"`
 	RunningTasks       []RunningTaskItem    `json:"runningTasks,omitempty"`
 	Subagents          []SubagentItem       `json:"subagents,omitempty"`
+	HasRunningSubagents bool                `json:"hasRunningSubagents,omitempty"`
 	ParentConversation string               `json:"parentConversationId,omitempty"`
 	SubagentRole       string               `json:"subagentRole,omitempty"`
 	ActiveModel        string               `json:"activeModel,omitempty"`

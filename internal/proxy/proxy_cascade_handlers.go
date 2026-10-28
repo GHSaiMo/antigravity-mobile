@@ -217,6 +217,10 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 						contentHasher.Write([]byte(imgTag))
 						contentLen += len(imgTag)
 						hashedImages++
+					} else if uri, ok := imgMap["uri"].(string); ok && len(uri) > 0 {
+						contentHasher.Write([]byte(":uri:" + uri))
+						contentLen += len(uri)
+						hashedImages++
 					}
 				}
 			}

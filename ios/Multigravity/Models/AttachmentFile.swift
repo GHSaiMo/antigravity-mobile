@@ -92,17 +92,12 @@ public enum AttachmentRules {
     ]
     
     public static func isAllowedName(_ name: String) -> Bool {
-        let lower = name.lowercased()
-        let ext = lower.contains(".") ? (lower as NSString).pathExtension : lower
-        return allowedExtensions.contains(ext)
+        return true
     }
     
     /// Returns a user-facing rejection reason, or nil when the file may be attached.
     public static func validate(name: String, size: Int64, existing: [DraftFile]) -> String? {
-        guard isAllowedName(name) else {
-            let ext = (name as NSString).pathExtension
-            return "不支持的文件类型（\(ext.isEmpty ? "无扩展名" : ext)）：\(name)"
-        }
+        if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "文件名无效" }
         if size <= 0 { return "文件为空：\(name)" }
         if size > maxFileBytes { return "文件超过 \(maxFileBytes / 1024 / 1024)MB：\(name)" }
         if existing.count >= maxFilesPerMessage { return "一条消息最多附带 \(maxFilesPerMessage) 个文件" }
