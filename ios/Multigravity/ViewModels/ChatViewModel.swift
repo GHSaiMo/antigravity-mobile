@@ -75,6 +75,17 @@ public final class ChatViewModel {
     var isInitializing: Bool = true
     
     public var messages: [ChatMessage] = []
+    
+    /// 当前会话按问答轮次自动聚合的结构列表（对齐 Antigravity 2.28.1 对话步骤导轨规范）
+    public var turns: [ConversationTurn] {
+        ConversationTurnBuilder.buildTurns(from: messages, isRunning: isRunning, isAwaitingResponse: isAwaitingResponse)
+    }
+    
+    /// 超长会话自动拆分的章节列表
+    public var chapters: [ConversationChapter] {
+        ConversationTurnBuilder.buildChapters(from: turns)
+    }
+    
     public var selectedImageData: [Data] = []
     /// Non-image attachments (documents, archives, source files) of the current draft.
     public var selectedFiles: [DraftFile] = []
