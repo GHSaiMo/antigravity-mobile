@@ -163,9 +163,11 @@ extension ChatView {
             return .handled
         }
         
-        // 3. External Web links
+        // 3. External Web links (Open in immersive in-app Safari)
         if url.scheme == "http" || url.scheme == "https" {
-            return .systemAction
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            viewModel.openInAppBrowser(url: url)
+            return .handled
         }
         
         return .handled

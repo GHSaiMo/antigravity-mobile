@@ -113,6 +113,9 @@ dependencies {
     // Push Notifications (Firebase Cloud Messaging)
     implementation("com.google.firebase:firebase-messaging:23.4.1")
 
+    // In-App Browser (Chrome Custom Tabs)
+    implementation("androidx.browser:browser:1.8.0")
+
     // Testing
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
