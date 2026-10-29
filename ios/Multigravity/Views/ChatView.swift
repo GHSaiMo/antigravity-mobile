@@ -27,6 +27,10 @@ public struct ChatView: View {
     @State var showCameraPermissionAlert = false
     @State var previewDraftGallery: ImageGalleryData? = nil
     @State var showAttachmentSheet = false
+    @State var showNavigatorSheet = false
+    @State var currentVisibleTurnIndex: Int = 1
+    @State var highlightedTurnMessageId: String? = nil
+    @State var targetScrollTurnId: String? = nil
     let shouldAutoFocus: Bool
     let initialConversation: ConversationItem?
     let initialIsUnread: Bool
@@ -132,6 +136,55 @@ public struct ChatView: View {
                         Image(systemName: "chevron.left")
                             .font(.system(size: 16, weight: .semibold))
                     }
+                }
+            }
+            
+            ToolbarItem(placement: .principal) {
+                if viewModel.turns.count >= 2 {
+                    Button(action: {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        showNavigatorSheet = true
+                    }) {
+                        VStack(spacing: 2) {
+                            Text(viewModel.currentTitle)
+                                .font(.system(size: 14.5, weight: .semibold))
+                                .foregroundColor(.primary)
+                                .lineLimit(1)
+                            
+                            HStack(spacing: 3) {
+                                Text("第 \(currentVisibleTurnIndex)/\(viewModel.turns.count) 轮")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundColor(.indigo)
+                                Image(systemName: "chevron.down")
+                                    .font(.system(size: 7.5, weight: .bold))
+                                    .foregroundColor(.indigo.opacity(0.8))
+                            }
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 1.5)
+                            .background(Color.indigo.opacity(0.09))
+                            .clipShape(Capsule())
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("当前第 \(currentVisibleTurnIndex) 轮，共 \(viewModel.turns.count) 轮，点击打开步骤大纲")
+                } else {
+                    Text(viewModel.currentTitle)
+                        .font(.system(size: 16, weight: .semibold))
+                        .lineLimit(1)
+                }
+            }
+            
+            if viewModel.turns.count >= 2 {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(action: {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        showNavigatorSheet = true
+                    }) {
+                        Image(systemName: "list.bullet.indent")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(.indigo)
+                    }
+                    .accessibilityLabel("打开对话大纲与步骤导轨")
                 }
             }
         }
@@ -254,6 +307,29 @@ public struct ChatView: View {
                 }
                 .presentationDragIndicator(.visible)
             }
+        }
+        .sheet(isPresented: $showNavigatorSheet) {
+            ConversationNavigatorSheet(
+                turns: viewModel.turns,
+                chapters: viewModel.chapters,
+                currentTurnIndex: currentVisibleTurnIndex,
+                onSelectTurn: { turn in
+                    targetScrollTurnId = turn.firstMessageId
+                    currentVisibleTurnIndex = turn.turnIndex
+                },
+                onJumpToTop: {
+                    if let firstId = viewModel.messages.first?.id {
+                        targetScrollTurnId = firstId
+                        currentVisibleTurnIndex = 1
+                    }
+                },
+                onJumpToBottom: {
+                    targetScrollTurnId = "BOTTOM_ANCHOR"
+                    currentVisibleTurnIndex = viewModel.turns.last?.turnIndex ?? 1
+                }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
         }
         .overlay {
             if viewModel.isDownloadingDocument {

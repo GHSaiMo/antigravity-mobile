@@ -238,6 +238,28 @@ extension ChatView {
                 isInputFocused = true
             }
         }
+        .onChange(of: targetScrollTurnId) { _, targetId in
+            guard let targetId = targetId else { return }
+            hasUserInteracted = false
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                if targetId == "BOTTOM_ANCHOR" {
+                    proxy.scrollTo("BOTTOM_ANCHOR", anchor: .bottom)
+                } else {
+                    proxy.scrollTo(targetId, anchor: .top)
+                }
+            }
+            highlightedTurnMessageId = targetId
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                targetScrollTurnId = nil
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
+                if highlightedTurnMessageId == targetId {
+                    withAnimation(.easeOut(duration: 0.3)) {
+                        highlightedTurnMessageId = nil
+                    }
+                }
+            }
+        }
     }
     
     var canScheduleAutoFocus: Bool {
@@ -335,7 +357,23 @@ extension ChatView {
             }
         }
         .id(message.id)
-        .onAppear { if message.id == viewModel.messages.last?.id { lastRowMaterialized = true } }
+        .overlay(
+            Group {
+                if highlightedTurnMessageId == message.id {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(Color.indigo, lineWidth: 2)
+                        .shadow(color: Color.indigo.opacity(0.35), radius: 6)
+                        .padding(.horizontal, 2)
+                        .transition(.opacity)
+                }
+            }
+        )
+        .onAppear {
+            if message.id == viewModel.messages.last?.id { lastRowMaterialized = true }
+            if let turn = viewModel.turns.first(where: { $0.messages.contains(where: { $0.id == message.id }) }) {
+                currentVisibleTurnIndex = turn.turnIndex
+            }
+        }
         .onDisappear { if message.id == viewModel.messages.last?.id { lastRowMaterialized = false } }
     }
     

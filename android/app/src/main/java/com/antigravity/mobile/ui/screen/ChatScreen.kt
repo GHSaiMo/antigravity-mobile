@@ -30,7 +30,11 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.LinearScale
 import androidx.compose.material.icons.filled.Warning
+import com.antigravity.mobile.data.model.ConversationTurnBuilder
+import com.antigravity.mobile.ui.components.ConversationNavigatorSheet
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
@@ -159,6 +163,31 @@ fun ChatScreen(
     var isProgrammaticScrolling by remember { mutableStateOf(false) }
     var isInputFocused by remember { mutableStateOf(false) }
     val isImeVisible = WindowInsets.isImeVisible
+
+    // 对话导轨与章节大纲状态 (Antigravity 2.28.1 对齐)
+    var showNavigatorSheet by remember { mutableStateOf(false) }
+    val turns = remember(uiState.messages, uiState.isRunning, uiState.isAwaitingResponse) {
+        ConversationTurnBuilder.buildTurns(uiState.messages, uiState.isRunning, uiState.isAwaitingResponse)
+    }
+    val chapters = remember(turns) {
+        ConversationTurnBuilder.buildChapters(turns)
+    }
+    val currentTurnIndex by remember(turns, listState.firstVisibleItemIndex) {
+        derivedStateOf {
+            val firstIndex = listState.firstVisibleItemIndex
+            if (turns.isEmpty() || firstIndex >= uiState.messages.size) {
+                turns.lastOrNull()?.turnIndex ?: 1
+            } else {
+                val visibleMsg = uiState.messages.getOrNull(firstIndex)
+                if (visibleMsg != null) {
+                    turns.firstOrNull { turn -> turn.messages.any { it.id == visibleMsg.id } }?.turnIndex
+                        ?: turns.firstOrNull()?.turnIndex ?: 1
+                } else {
+                    1
+                }
+            }
+        }
+    }
 
     // Scroll state tracking: distinguish initial logical entry alignment vs in-session incremental scroll
     // 对齐 iOS preserveScrollOnReturn：压入子页面（如子代理会话）后返回，保持原滚动位置，不重新对齐到底部。
@@ -591,14 +620,57 @@ fun ChatScreen(
                     indication = null
                 ) { focusManager.clearFocus() },
                 title = {
-                    Text(
-                        text = uiState.title,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 16.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        color = colors.textPrimary
-                    )
+                    if (turns.size >= 2) {
+                        Column(
+                            modifier = Modifier.clickable(
+                                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                haptic.light()
+                                showNavigatorSheet = true
+                            }
+                        ) {
+                            Text(
+                                text = uiState.title,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 15.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                color = colors.textPrimary
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(colors.accentIndigo.copy(alpha = 0.09f))
+                                    .padding(horizontal = 6.dp, vertical = 1.5.dp)
+                            ) {
+                                Text(
+                                    text = "第 $currentTurnIndex/${turns.size} 轮",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = colors.accentIndigo
+                                )
+                                Spacer(modifier = Modifier.width(2.dp))
+                                Icon(
+                                    imageVector = Icons.Default.KeyboardArrowDown,
+                                    contentDescription = null,
+                                    tint = colors.accentIndigo,
+                                    modifier = Modifier.size(11.dp)
+                                )
+                            }
+                        }
+                    } else {
+                        Text(
+                            text = uiState.title,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 16.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            color = colors.textPrimary
+                        )
+                    }
                 },
                 navigationIcon = {
                     IconButton(onClick = handleBackNavigation) {
@@ -607,6 +679,20 @@ fun ChatScreen(
                             contentDescription = "Back",
                             tint = colors.accentIndigo
                         )
+                    }
+                },
+                actions = {
+                    if (turns.size >= 2) {
+                        IconButton(onClick = {
+                            haptic.light()
+                            showNavigatorSheet = true
+                        }) {
+                            Icon(
+                                imageVector = Icons.Default.LinearScale,
+                                contentDescription = "对话大纲与步骤导轨",
+                                tint = colors.accentIndigo
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -1161,6 +1247,39 @@ fun ChatScreen(
             }
             }
         }
+    }
+
+    // 对话导轨与大纲导航抽屉 (Antigravity 2.28.1 对齐)
+    if (showNavigatorSheet) {
+        ConversationNavigatorSheet(
+            turns = turns,
+            chapters = chapters,
+            currentTurnIndex = currentTurnIndex,
+            onSelectTurn = { turn ->
+                showNavigatorSheet = false
+                val targetIndex = uiState.messages.indexOfFirst { it.id == turn.firstMessageId }
+                if (targetIndex >= 0) {
+                    coroutineScope.launch {
+                        listState.animateScrollToItem(targetIndex)
+                    }
+                }
+            },
+            onJumpToTop = {
+                showNavigatorSheet = false
+                coroutineScope.launch {
+                    listState.animateScrollToItem(0)
+                }
+            },
+            onJumpToBottom = {
+                showNavigatorSheet = false
+                coroutineScope.launch {
+                    if (uiState.messages.isNotEmpty()) {
+                        listState.animateScrollToItem(uiState.messages.size - 1)
+                    }
+                }
+            },
+            onDismiss = { showNavigatorSheet = false }
+        )
     }
 
     // "+" attachment panel (camera, recent photos, add file)
