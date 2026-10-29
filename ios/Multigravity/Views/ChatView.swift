@@ -331,6 +331,15 @@ public struct ChatView: View {
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }
+        .sheet(item: Binding<IdentifiableURL?>(
+            get: { viewModel.inAppBrowserURL.map { IdentifiableURL(url: $0) } },
+            set: { _ in viewModel.closeInAppBrowser() }
+        )) { item in
+            SafariWebViewSheet(url: item.url) {
+                viewModel.closeInAppBrowser()
+            }
+            .ignoresSafeArea()
+        }
         .overlay {
             if viewModel.isDownloadingDocument {
                 ZStack {

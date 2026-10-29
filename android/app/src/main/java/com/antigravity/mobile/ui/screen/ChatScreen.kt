@@ -597,13 +597,9 @@ fun ChatScreen(
                 haptic.medium()
                 viewModel.downloadAndPreviewDocument(clean, decodedFileName)
             } else if (clean.startsWith("http://") || clean.startsWith("https://")) {
-                // 3. External Web links
-                try {
-                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(clean)).apply {
-                        flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
-                    }
-                    context.startActivity(intent)
-                } catch (_: Exception) {}
+                // 3. External Web links (Open in immersive in-app Chrome Custom Tabs)
+                haptic.light()
+                com.antigravity.mobile.ui.util.InAppBrowserUtils.openUrl(context, clean)
             }
         }
     }
