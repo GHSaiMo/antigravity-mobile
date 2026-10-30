@@ -2,6 +2,7 @@ import SwiftUI
 import PhotosUI
 import AVFoundation
 import Photos
+import VisionKit
 
 extension ChatView {
     func handleCancel() {
@@ -120,6 +121,46 @@ extension ChatView {
             showCameraPermissionAlert = true
         @unknown default:
             showCameraPicker = true
+        }
+    }
+    
+    func handleScannedImages(_ images: [UIImage]) {
+        let maxSlots = max(0, 5 - viewModel.selectedImageData.count)
+        let toProcess = Array(images.prefix(maxSlots))
+        var datas: [Data] = []
+        for img in toProcess {
+            if let data = compressAndResizeImage(img) {
+                datas.append(data)
+            }
+        }
+        if !datas.isEmpty {
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            viewModel.appendDraftImages(datas)
+        }
+    }
+    
+    func handleDocumentScannerAction() {
+        guard VNDocumentCameraViewController.isSupported else {
+            showCameraUnavailableAlert = true
+            return
+        }
+        
+        let status = AVCaptureDevice.authorizationStatus(for: .video)
+        switch status {
+        case .authorized:
+            showDocumentScanner = true
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .video) { granted in
+                DispatchQueue.main.async {
+                    if granted {
+                        showDocumentScanner = true
+                    }
+                }
+            }
+        case .denied, .restricted:
+            showCameraPermissionAlert = true
+        @unknown default:
+            showDocumentScanner = true
         }
     }
     

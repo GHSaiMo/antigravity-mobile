@@ -4,6 +4,7 @@ import Photos
 import PhotosUI
 import UIKit
 import UniformTypeIdentifiers
+import VisionKit
 
 /// Observes the photo library and exposes the most recent photos for the "+" panel grid.
 @MainActor
@@ -160,6 +161,7 @@ struct AttachmentPickerSheet: View {
     /// Called with the selected photos (in selection order); the sheet dismisses itself first.
     let onPhotosPicked: ([PHAsset]) -> Void
     let onOpenCamera: () -> Void
+    let onOpenDocumentScanner: () -> Void
     let onFilesPicked: ([URL]) -> Void
     
     @Environment(\.dismiss) private var dismiss
@@ -202,6 +204,9 @@ struct AttachmentPickerSheet: View {
                 LazyVGrid(columns: columns, spacing: 6) {
                     fileTile
                     cameraTile
+                    if VNDocumentCameraViewController.isSupported {
+                        documentScannerTile
+                    }
                     if !photos.hasAccess {
                         permissionTile
                     }
@@ -301,6 +306,28 @@ struct AttachmentPickerSheet: View {
         .buttonStyle(.plain)
     }
     
+    private var documentScannerTile: some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            dismiss()
+            onOpenDocumentScanner()
+        } label: {
+            VStack(spacing: 4) {
+                Image(systemName: "doc.viewfinder")
+                    .font(.system(size: 26, weight: .regular))
+                    .frame(height: 32)
+                Text("扫描文稿")
+                    .font(.system(size: 13, weight: .medium))
+            }
+            .foregroundColor(.primary)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(uiColor: .secondarySystemBackground))
+            .aspectRatio(1, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+    
     private var permissionTile: some View {
         Button {
             if photos.authorization == .notDetermined {
@@ -324,7 +351,6 @@ struct AttachmentPickerSheet: View {
         }
         .buttonStyle(.plain)
     }
-    
     
     private var footer: some View {
         Button {

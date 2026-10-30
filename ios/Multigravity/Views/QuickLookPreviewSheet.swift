@@ -74,6 +74,15 @@ public struct QuickLookPreviewSheet: View {
             }
             .disabled(isSavingPhoto)
             .accessibilityLabel("保存到文件或相册")
+        } else if isWebM(url: url) {
+            Button(action: {
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                isShowingDocumentPicker = true
+            }) {
+                Image(systemName: "square.and.arrow.down")
+                    .font(.system(size: 16, weight: .semibold))
+            }
+            .accessibilityLabel("存储 WebM 录屏到“文件”")
         } else if isVideo(url: url) {
             Menu {
                 Button(action: saveVideoToPhotosAlbum) {
@@ -250,6 +259,17 @@ public struct QuickLookPreviewSheet: View {
         return false
     }
     
+    private func isWebM(url: URL) -> Bool {
+        let ext = url.pathExtension.lowercased()
+        if ext == "webm" { return true }
+        if let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
+           let uri = comps.queryItems?.first(where: { $0.name == "uri" })?.value {
+            let uriExt = (uri as NSString).pathExtension.lowercased()
+            if uriExt == "webm" { return true }
+        }
+        return false
+    }
+    
     private func saveVideoToPhotosAlbum() {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         isSavingPhoto = true
@@ -389,21 +409,29 @@ public struct QuickLookPreviewSheet: View {
     }
 }
 
-// MARK: - Native Video Player Viewer
+// MARK: - Native Video Player Viewer (With WebM & Error Hardware Acceleration Fallback)
 
 public struct NativeVideoPlayerViewer: View {
     public let url: URL
     @State private var player: AVPlayer? = nil
+    @State private var useWebMFallback: Bool = false
+    @State private var statusObserver: NSKeyValueObservation? = nil
     
     public init(url: URL) {
         self.url = url
+        let ext = url.pathExtension.lowercased()
+        let isWebM = ext == "webm" || url.absoluteString.lowercased().contains(".webm")
+        _useWebMFallback = State(initialValue: isWebM)
     }
     
     public var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
             
-            if let player = player {
+            if useWebMFallback {
+                WebMVideoPlayerViewer(url: url)
+                    .ignoresSafeArea(edges: .bottom)
+            } else if let player = player {
                 AVPlayerViewControllerRepresentable(player: player)
                     .ignoresSafeArea(edges: .bottom)
             } else {
@@ -412,7 +440,9 @@ public struct NativeVideoPlayerViewer: View {
             }
         }
         .onAppear {
-            setupPlayer()
+            if !useWebMFallback {
+                setupPlayer()
+            }
         }
         .onDisappear {
             tearDownPlayer()
@@ -427,13 +457,22 @@ public struct NativeVideoPlayerViewer: View {
             print("Failed to set audio session category: \(error)")
         }
         
-        let p = AVPlayer(url: url)
+        let item = AVPlayerItem(url: url)
+        statusObserver = item.observe(\.status, options: [.new]) { observedItem, _ in
+            if observedItem.status == .failed {
+                DispatchQueue.main.async {
+                    self.useWebMFallback = true
+                }
+            }
+        }
+        
+        let p = AVPlayer(playerItem: item)
         p.actionAtItemEnd = .pause
         self.player = p
         
         NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
-            object: p.currentItem,
+            object: item,
             queue: .main
         ) { [weak p] _ in
             p?.seek(to: .zero)
@@ -443,9 +482,78 @@ public struct NativeVideoPlayerViewer: View {
     }
     
     private func tearDownPlayer() {
+        statusObserver?.invalidate()
+        statusObserver = nil
         player?.pause()
         player = nil
         NotificationCenter.default.removeObserver(self, name: .AVPlayerItemDidPlayToEndTime, object: nil)
+    }
+}
+
+// MARK: - WebM Screencast Video Player Viewer (WebKit Hardware Accelerated)
+
+public struct WebMVideoPlayerViewer: View {
+    public let url: URL
+    
+    public init(url: URL) {
+        self.url = url
+    }
+    
+    public var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            WebMWebViewRepresentable(url: url)
+                .ignoresSafeArea(edges: .bottom)
+        }
+    }
+}
+
+public struct WebMWebViewRepresentable: UIViewRepresentable {
+    public let url: URL
+    
+    public init(url: URL) {
+        self.url = url
+    }
+    
+    public func makeUIView(context: Context) -> WKWebView {
+        let config = WKWebViewConfiguration()
+        config.allowsInlineMediaPlayback = true
+        config.mediaTypesRequiringUserActionForPlayback = []
+        config.allowsPictureInPictureMediaPlayback = true
+        
+        let webView = WKWebView(frame: .zero, configuration: config)
+        webView.isOpaque = false
+        webView.backgroundColor = .black
+        webView.scrollView.backgroundColor = .black
+        webView.scrollView.isScrollEnabled = false
+        webView.scrollView.contentInsetAdjustmentBehavior = .never
+        
+        loadVideo(in: webView)
+        return webView
+    }
+    
+    public func updateUIView(_ uiView: WKWebView, context: Context) {}
+    
+    private func loadVideo(in webView: WKWebView) {
+        let parentDir = url.deletingLastPathComponent()
+        let fileName = url.lastPathComponent
+        let html = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body, html { width: 100%; height: 100%; background: #000; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+          video { width: 100%; height: 100%; max-width: 100vw; max-height: 100vh; object-fit: contain; background: #000; }
+        </style>
+        </head>
+        <body>
+          <video src="\(fileName)" controls playsinline autoplay></video>
+        </body>
+        </html>
+        """
+        webView.loadHTMLString(html, baseURL: parentDir)
     }
 }
 
