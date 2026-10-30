@@ -96,6 +96,10 @@ tmux send-keys -t mgy "mgy" Enter
   - 严禁通过 `run_command` (IsDaemon=true) 直接在 Agent 环境中独立拉起 `mgy` 常驻，避免导致用户在终端 attached 的 `mgy` 会话中执行时报 `bind: address already in use` 端口冲突。
   - 本机常驻与调试统一归属 `mgy` tmux 会话。
 
+### 7. Release 版本号变更提醒规范（⭐）
+- **版本号变更提醒**：凡是在执行 Release、发布标签或修改代码时**更新了版本号**（Bump version，如发布新版 tag、更新版本号常量或发布说明），在任务完成或交付时，**必须主动提醒用户是否需要修改 groupchat runtime zzjs 的知识库内容**（对应配置：`groupchat-runtime/config/instances/zzjs/self-knowledge.md` 中关于 Multigravity / mgy 的最新版本号及核心亮点说明），确保群聊机器人的自指事实与最新发版保持一致。
+- **同版本号覆盖免提示**：如果是对**同一个版本号**进行覆盖构建、重打同名 tag 或局部修复覆盖（版本号未发生递增变更），则**不需要**提示。
+
 ---
 
 ## 🛠️ 本机 Android 开发与验证环境
@@ -122,3 +126,4 @@ tmux send-keys -t mgy "mgy" Enter
    - Go（推送前，对齐 CI）: `scripts/test-on-nas.sh`
 4. **提交与推送**：只有当上述对应模块的本地编译校验全部成功后，方可进行 `git commit` 与后续交付；涉及 Go 代码的推送还需通过 Linux 验证（第 5 节），推送后核对 CI 结果。
 5. **本机网关重启**：交付或验证需要重新拉起网关时，一律通过 `tmux send-keys -t mgy "mgy" Enter` 在 `mgy` 会话中拉起。
+6. **Release 发版联动提醒**：若发版流程中更新了版本号，必须主动提醒用户是否同步修改 groupchat runtime zzjs 知识库（若是同一个版本号覆盖则不需要提示）。
