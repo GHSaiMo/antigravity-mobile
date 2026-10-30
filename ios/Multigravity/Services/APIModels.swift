@@ -24,6 +24,10 @@ public struct EmptyResponse: Codable, Sendable {
     public init() {}
 }
 
+public struct EmptyRequest: Codable, Sendable {
+    public init() {}
+}
+
 public struct FileContentResponse: Codable, Sendable {
     public let uri: String
     public let filename: String

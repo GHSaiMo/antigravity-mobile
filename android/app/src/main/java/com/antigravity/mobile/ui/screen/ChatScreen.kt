@@ -29,6 +29,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.LinearScale
@@ -166,6 +167,7 @@ fun ChatScreen(
 
     // 对话导轨与章节大纲状态 (Antigravity 2.28.1 对齐)
     var showNavigatorSheet by remember { mutableStateOf(false) }
+    var showMcpSkillsSheet by remember { mutableStateOf(false) }
     val turns = remember(uiState.messages, uiState.isRunning, uiState.isAwaitingResponse) {
         ConversationTurnBuilder.buildTurns(uiState.messages, uiState.isRunning, uiState.isAwaitingResponse)
     }
@@ -689,6 +691,16 @@ fun ChatScreen(
                                 tint = colors.accentIndigo
                             )
                         }
+                    }
+                    IconButton(onClick = {
+                        haptic.light()
+                        showMcpSkillsSheet = true
+                    }) {
+                        Icon(
+                            imageVector = Icons.Default.Build,
+                            contentDescription = "MCP 工具与技能看板",
+                            tint = colors.textSecondary
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -1276,6 +1288,11 @@ fun ChatScreen(
             },
             onDismiss = { showNavigatorSheet = false }
         )
+    }
+
+    // MCP 工具与技能看板 (Phase 3 对齐)
+    if (showMcpSkillsSheet) {
+        McpSkillsSheet(onDismiss = { showMcpSkillsSheet = false })
     }
 
     // "+" attachment panel (camera, recent photos, add file)

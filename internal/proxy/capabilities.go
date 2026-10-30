@@ -51,6 +51,7 @@ var Features = []Feature{
 	{ID: "manage", RPCs: []string{"DeleteCascadeTrajectory", "UpdateConversationAnnotations", "LoadTrajectory"}},
 	{ID: "projects", RPCs: []string{"ReadDir", "ReadProjects", "StatUri"}},
 	{ID: "account", RPCs: []string{"GetUserStatus", "GetAuthStatus", "GetCascadeNuxes", "RetrieveUserQuotaSummary"}},
+	{ID: "mcp", RPCs: []string{"GetMcpServerStates", "GetAllSkills"}},
 }
 
 // Compatibility is the result of comparing the running language_server with what the gateway needs.

@@ -1215,6 +1215,22 @@ class ApiClient(
             "导出失败"
         ).mapCatching { json.decodeFromString<MarkdownExportResponse>(it).markdown }
 
+    /** 获取当前挂载的所有 MCP 服务状态及工具清单（language_server GetMcpServerStates，经网关透传）。 */
+    suspend fun fetchMcpServerStates(): Result<List<McpServerState>> =
+        postGatewayJson(
+            "/api/exa.language_server_pb.LanguageServerService/GetMcpServerStates",
+            "{}",
+            "获取 MCP 服务状态失败"
+        ).mapCatching { json.decodeFromString<GetMcpServerStatesResponse>(it).states ?: emptyList() }
+
+    /** 获取当前挂载的所有技能清单（language_server GetAllSkills，经网关透传）。 */
+    suspend fun fetchAllSkills(): Result<List<SkillInfo>> =
+        postGatewayJson(
+            "/api/exa.language_server_pb.LanguageServerService/GetAllSkills",
+            "{}",
+            "获取技能清单失败"
+        ).mapCatching { json.decodeFromString<GetAllSkillsResponse>(it).skills ?: emptyList() }
+
     // endregion
 
     /**

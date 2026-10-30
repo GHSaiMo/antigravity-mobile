@@ -9,6 +9,7 @@ public struct SettingsSheet: View {
     @State private var lanAddress: String = ""
     @State private var customAddress: String = ""
     @State private var modelCatalog = ModelCatalogStore.shared
+    @State private var showMcpSkillsSheet: Bool = false
     
     public init() {}
     
@@ -130,6 +131,26 @@ public struct SettingsSheet: View {
                     defaultModelPicker(title: "Claude", provider: "claude", selection: $settings.defaultClaudeModel)
                 }
                 
+                // MARK: - 4c. MCP 工具与技能看板
+                Section(
+                    header: Text("扩展与能力"),
+                    footer: Text("查看当前已连接的 MCP 工具服务、运行健康状态与可调用的扩展技能。")
+                ) {
+                    Button(action: {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        showMcpSkillsSheet = true
+                    }) {
+                        HStack {
+                            Label("MCP 工具与技能看板", systemImage: "wrench.and.screwdriver.fill")
+                                .foregroundColor(.primary)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+                
                 // MARK: - 5. 本地缓存
                 Section(
                     header: Text("存储"),
@@ -212,6 +233,9 @@ public struct SettingsSheet: View {
             }
         } message: {
             Text("本地缓存的会话消息、方案及离线文档将被清理，下次访问时将从网关重新拉取。")
+        }
+        .sheet(isPresented: $showMcpSkillsSheet) {
+            McpSkillsSheet()
         }
     }
 }
