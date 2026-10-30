@@ -14,6 +14,7 @@ object GatewayFeature {
     const val REVERT = "revert"
     const val SLASH = "slash"
     const val SUBAGENTS = "subagents"
+    const val MCP = "mcp"
 }
 
 /**

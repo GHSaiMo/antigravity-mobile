@@ -154,4 +154,24 @@ extension APIClient {
         )
         return resp.markdown
     }
+
+    /// 获取当前挂载的所有 MCP 服务状态及工具清单（language_server GetMcpServerStates，经网关透传）。
+    public func fetchMcpServerStates(baseURL: URL) async throws -> [McpServerState] {
+        let resp: GetMcpServerStatesResponse = try await rpc(
+            method: "GetMcpServerStates",
+            body: EmptyRequest(),
+            baseURL: baseURL
+        )
+        return resp.states ?? []
+    }
+
+    /// 获取当前挂载的所有技能清单（language_server GetAllSkills，经网关透传）。
+    public func fetchAllSkills(baseURL: URL) async throws -> [SkillInfo] {
+        let resp: GetAllSkillsResponse = try await rpc(
+            method: "GetAllSkills",
+            body: EmptyRequest(),
+            baseURL: baseURL
+        )
+        return resp.skills ?? []
+    }
 }

@@ -29,6 +29,7 @@ public struct ChatView: View {
     @State var previewDraftGallery: ImageGalleryData? = nil
     @State var showAttachmentSheet = false
     @State var showNavigatorSheet = false
+    @State var showMcpSkillsSheet = false
     @State var currentVisibleTurnIndex: Int = 1
     @State var highlightedTurnMessageId: String? = nil
     @State var targetScrollTurnId: String? = nil
@@ -175,17 +176,29 @@ public struct ChatView: View {
                 }
             }
             
-            if viewModel.turns.count >= 2 {
-                ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: .topBarTrailing) {
+                HStack(spacing: 12) {
+                    if viewModel.turns.count >= 2 {
+                        Button(action: {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            showNavigatorSheet = true
+                        }) {
+                            Image(systemName: "list.bullet.indent")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundColor(.indigo)
+                        }
+                        .accessibilityLabel("打开对话大纲与步骤导轨")
+                    }
+                    
                     Button(action: {
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        showNavigatorSheet = true
+                        showMcpSkillsSheet = true
                     }) {
-                        Image(systemName: "list.bullet.indent")
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundColor(.indigo)
+                        Image(systemName: "wrench.and.screwdriver")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.secondary)
                     }
-                    .accessibilityLabel("打开对话大纲与步骤导轨")
+                    .accessibilityLabel("打开已连接工具与技能看板")
                 }
             }
         }
@@ -343,6 +356,9 @@ public struct ChatView: View {
                 viewModel.closeInAppBrowser()
             }
             .ignoresSafeArea()
+        }
+        .sheet(isPresented: $showMcpSkillsSheet) {
+            McpSkillsSheet()
         }
         .overlay {
             if viewModel.isDownloadingDocument {

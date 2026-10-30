@@ -58,6 +58,7 @@ fun SettingsSheet(
 ) {
     var showUnpairAlert by remember { mutableStateOf(false) }
     var showClearCacheAlert by remember { mutableStateOf(false) }
+    var showMcpSkillsSheet by remember { mutableStateOf(false) }
     val colors = AntigravityTheme.colors
     val context = LocalContext.current
     val connectionManager = remember { ConnectionManager(context) }
@@ -140,6 +141,7 @@ fun SettingsSheet(
                     onThemeModeChange = onThemeModeChange,
                     onPromptUnpair = { showUnpairAlert = true },
                     onPromptClearCache = { showClearCacheAlert = true },
+                    onOpenMcpSkills = { showMcpSkillsSheet = true },
                     onLoadModels = onLoadModels
                 )
             }
@@ -221,6 +223,10 @@ fun SettingsSheet(
             containerColor = colors.surface
         )
     }
+
+    if (showMcpSkillsSheet) {
+        McpSkillsSheet(onDismiss = { showMcpSkillsSheet = false })
+    }
 }
 
 @Composable
@@ -231,6 +237,7 @@ private fun MainSettingsContent(
     onThemeModeChange: (String) -> Unit,
     onPromptUnpair: () -> Unit,
     onPromptClearCache: () -> Unit,
+    onOpenMcpSkills: () -> Unit,
     onLoadModels: suspend () -> Result<ModelsResponse>
 ) {
     val colors = AntigravityTheme.colors
@@ -564,6 +571,44 @@ private fun MainSettingsContent(
 
         // MARK: - 4b. 默认模型
         DefaultModelSection(prefs = prefs, onLoadModels = onLoadModels)
+
+        // MARK: - 4c. MCP 工具与技能看板
+        SettingsSection(
+            title = "扩展与能力",
+            footer = "查看当前已连接的 MCP 工具服务、运行健康状态与可调用的扩展技能。"
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(colors.surface)
+                    .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
+                    .clickable { onOpenMcpSkills() }
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Build,
+                    contentDescription = null,
+                    tint = colors.accentIndigo,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = "MCP 工具与技能看板",
+                    color = colors.textPrimary,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Spacer(modifier = Modifier.weight(1f))
+                Icon(
+                    imageVector = Icons.Default.ChevronRight,
+                    contentDescription = null,
+                    tint = colors.textMuted,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
 
         // MARK: - 5. 存储
         SettingsSection(
