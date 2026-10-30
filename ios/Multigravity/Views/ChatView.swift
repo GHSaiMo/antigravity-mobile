@@ -23,6 +23,7 @@ public struct ChatView: View {
     @State var lastRowMaterialized = false
     @State var lastFollowScrollAt: Date = .distantPast
     @State var showCameraPicker = false
+    @State var showDocumentScanner = false
     @State var showCameraUnavailableAlert = false
     @State var showCameraPermissionAlert = false
     @State var previewDraftGallery: ImageGalleryData? = nil
@@ -269,6 +270,9 @@ public struct ChatView: View {
                     // Wait for the sheet to finish dismissing before presenting the camera.
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { handleCameraAction() }
                 },
+                onOpenDocumentScanner: {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { handleDocumentScannerAction() }
+                },
                 onFilesPicked: { urls in viewModel.addFiles(from: urls) }
             )
         }
@@ -378,6 +382,17 @@ public struct ChatView: View {
             CameraPickerView { capturedImage in
                 handleCapturedImage(capturedImage)
             }
+            .ignoresSafeArea()
+        }
+        .fullScreenCover(isPresented: $showDocumentScanner) {
+            DocumentScannerView(
+                onScanned: { scannedImages in
+                    handleScannedImages(scannedImages)
+                },
+                onCancel: {
+                    showDocumentScanner = false
+                }
+            )
             .ignoresSafeArea()
         }
         .alert("无法使用相机", isPresented: $showCameraUnavailableAlert) {
