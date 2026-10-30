@@ -34,7 +34,7 @@ import (
 )
 
 // Version represents the Multigravity Gateway release version.
-var Version = "1.0.9"
+var Version = "1.1.0"
 
 // envDisabled reports whether an opt-out switch is explicitly turned off ("0", "false", "off", "no").
 func envDisabled(name string) bool {
