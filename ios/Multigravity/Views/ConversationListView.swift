@@ -901,12 +901,17 @@ public struct ConversationListView: View {
                         .padding(.vertical, 3)
                         .background(Color.red.opacity(0.15))
                         .cornerRadius(6)
-                } else if item.status.isRunning {
-                    let label = item.hasRunningTasks ? "Running command" : "Working"
+                } else if item.isWorking {
+                    let isTerminal = item.hasRunningTasks
+                    let label = isTerminal ? "Running command" : "Working"
                     HStack(spacing: 4) {
-                        ProgressView()
-                            .controlSize(.mini)
-                            .tint(.green)
+                        if isTerminal {
+                            TerminalRunningIndicator(size: 12, color: .green)
+                        } else {
+                            ProgressView()
+                                .controlSize(.mini)
+                                .tint(.green)
+                        }
                         Text(label)
                     }
                     .font(.system(size: 11, weight: .bold))
@@ -1368,6 +1373,44 @@ private struct ConversationSearch: ViewModifier {
             }
         } else {
             content.searchable(text: $text, prompt: prompt)
+        }
+    }
+}
+
+/// 原样复刻电脑端 (status-task-running) 终端指令动效指示器
+/// - 视口: 16x16
+/// - 提示符 >: M3.7 5.2L6.7 8L3.7 10.8 (strokeWidth 1.4, round cap/join)
+/// - 光标下划线 _: M8.3 10.8H12.3
+/// - 动画: 1.05s 周期, 0~55% 显示, 56~100% 隐藏
+struct TerminalRunningIndicator: View {
+    var size: CGFloat = 12
+    var color: Color = .green
+    
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.1)) { timeline in
+            let elapsed = timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.05)
+            let isCaretVisible = elapsed <= 0.5775 // 55% of 1.05s
+            
+            Canvas { context, canvasSize in
+                let scale = canvasSize.width / 16.0
+                let stroke = StrokeStyle(lineWidth: 1.4 * scale, lineCap: .round, lineJoin: .round)
+                
+                // 1. 终端提示符 >
+                var prompt = Path()
+                prompt.move(to: CGPoint(x: 3.7 * scale, y: 5.2 * scale))
+                prompt.addLine(to: CGPoint(x: 6.7 * scale, y: 8.0 * scale))
+                prompt.addLine(to: CGPoint(x: 3.7 * scale, y: 10.8 * scale))
+                context.stroke(prompt, with: .color(color), style: stroke)
+                
+                // 2. 下划线光标 _
+                if isCaretVisible {
+                    var caret = Path()
+                    caret.move(to: CGPoint(x: 8.3 * scale, y: 10.8 * scale))
+                    caret.addLine(to: CGPoint(x: 12.3 * scale, y: 10.8 * scale))
+                    context.stroke(caret, with: .color(color), style: stroke)
+                }
+            }
+            .frame(width: size, height: size)
         }
     }
 }

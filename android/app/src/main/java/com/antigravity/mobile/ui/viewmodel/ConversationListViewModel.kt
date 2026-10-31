@@ -96,14 +96,7 @@ class ConversationListViewModel(
     }
 
     private fun sortConversations(items: List<ConversationItem>): List<ConversationItem> {
-        val pinnedIds = prefs.getPinnedConversationIds()
-        return items.map { item ->
-            val pinned = item.isPinned || pinnedIds.contains(item.id)
-            if (item.isPinned && !pinnedIds.contains(item.id)) {
-                prefs.setPinned(item.id, true)
-            }
-            item.copy(isPinned = pinned)
-        }.sortedWith(
+        return items.sortedWith(
             compareByDescending<ConversationItem> { it.isPinned }
                 .thenByDescending { it.lastModifiedEpochMs }
         )

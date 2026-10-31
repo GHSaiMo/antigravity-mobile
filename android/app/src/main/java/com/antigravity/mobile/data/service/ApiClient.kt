@@ -223,7 +223,19 @@ class ApiClient(
                 val list = summaries.mapNotNull { (id, summary) ->
                     if (summary.isSubagent) return@mapNotNull null
                     val localViewTime = prefs.getLastViewTime(id)
-                    val item = ConversationItem.fromSummary(id, summary, localViewTime = localViewTime)
+                    val serverPinned = summary.annotations?.pinned
+                    val isPinned = if (serverPinned != null) {
+                        prefs.setPinned(id, serverPinned)
+                        serverPinned
+                    } else {
+                        prefs.isPinned(id)
+                    }
+                    val item = ConversationItem.fromSummary(
+                        id = id,
+                        summary = summary,
+                        localViewTime = localViewTime,
+                        isPinned = isPinned
+                    )
                     if (item.isSubagent) return@mapNotNull null
                     item
                 }.sortedWith(

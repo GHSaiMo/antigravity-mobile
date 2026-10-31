@@ -765,6 +765,7 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 			if len(details.RunningTasks) > 0 {
 				s["hasRunningTasks"] = true
 				s["runningTaskCount"] = len(details.RunningTasks)
+				s["status"] = "CASCADE_RUN_STATUS_RUNNING"
 			}
 			if details.HasRunningSubagents {
 				s["hasRunningSubagents"] = true

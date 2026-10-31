@@ -21,6 +21,8 @@ public struct TrajectorySummary: Codable, Sendable {
     public let hasRunningTasks: Bool?
     public let runningTaskCount: Int?
     public let hasRunningSubagents: Bool?
+    public let notFullyIdle: Bool?
+    public let backgroundTaskCount: Int?
     
     public var isSubagent: Bool {
         if let parent = parentConversationId, !parent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -150,6 +152,10 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
     
     public var isPureChat: Bool {
         workspaceName == "Chat" || workspaceName.isEmpty || draftProject?.isPureChat == true
+    }
+
+    public var isWorking: Bool {
+        status.isRunning || hasRunningTasks
     }
     
     enum CodingKeys: String, CodingKey {
@@ -297,7 +303,10 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         }
         self.title = resolvedTitle.isEmpty ? "未命名会话" : resolvedTitle
         
-        self.hasRunningTasks = summary.hasRunningTasks == true || (summary.runningTaskCount ?? 0) > 0
+        self.hasRunningTasks = summary.hasRunningTasks == true ||
+            (summary.runningTaskCount ?? 0) > 0 ||
+            (summary.backgroundTaskCount ?? 0) > 0 ||
+            summary.notFullyIdle == true
         self.hasRunningSubagents = summary.hasRunningSubagents == true
         
         if summary.needsInput == true {
