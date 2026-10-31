@@ -41,6 +41,20 @@ object FileIconResolver {
     private val allPreviewExtensions = documentExtensions + imageExtensions + videoExtensions
 
     /**
+     * Checks whether a file path or URL represents a previewable binary document, image, or video
+     * (e.g. PDF, Office documents, JPEG/PNG images, MP4 videos).
+     * These must be previewed via downloadAndPreviewDocument rather than the text-based Markdown viewer.
+     */
+    fun isPreviewableDocument(pathOrName: String): Boolean {
+        var str = pathOrName.trim().trim('`', '\'', '"')
+        if (str.isEmpty()) return false
+        val lower = str.lowercase()
+        return allPreviewExtensions.any { ext ->
+            lower.endsWith(ext) || lower.contains("$ext?") || lower.contains("$ext#")
+        }
+    }
+
+    /**
      * Checks whether a file path or URL represents a video file.
      */
     fun isVideo(pathOrName: String): Boolean {

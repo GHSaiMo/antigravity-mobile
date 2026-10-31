@@ -559,6 +559,17 @@ function enableSheetPullToDismiss(sheetEl, closeCallback) {
   cardEl?.addEventListener("touchcancel", onEnd, { passive: true });
 }
 
+function isPreviewableBinary(url) {
+  if (!url) return false;
+  const clean = url.split("?")[0].split("#")[0].toLowerCase();
+  const binaryExts = [
+    ".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg", ".bmp", ".ico", ".heic",
+    ".pdf", ".pptx", ".ppt", ".key", ".docx", ".doc", ".xlsx", ".xls",
+    ".mp4", ".mov", ".m4v", ".webm", ".avi", ".zip", ".tar", ".gz"
+  ];
+  return binaryExts.some(ext => clean.endsWith(ext));
+}
+
 function initMarkdownViewer() {
   const sheet = document.getElementById("sheet-markdown-viewer");
   const retryBtn = document.getElementById("btn-md-viewer-retry");
@@ -608,7 +619,7 @@ function initMarkdownViewer() {
       const lower = href.toLowerCase();
       const isHttp = lower.startsWith("http://") || lower.startsWith("https://");
       const isExternal = isHttp && !lower.includes(window.location.host);
-      if (!isExternal) {
+      if (!isExternal && !isPreviewableBinary(href)) {
         if (lower.endsWith(".md") || lower.endsWith(".markdown") || lower.includes("/brain/") || lower.includes("/static/artifacts/")) {
           isLocalMd = true;
         }

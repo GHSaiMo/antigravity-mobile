@@ -235,6 +235,18 @@ public struct MarkdownViewerSheet: View {
                 previewQuickLookURL = url
                 return .handled
             }
+            
+            let imageExtensions = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".heic", ".heif", ".bmp", ".svg", ".ico", ".tiff", ".tif"]
+            let isImage = imageExtensions.contains { ext in
+                lower.hasSuffix(ext) || pathLower.hasSuffix(ext) || (uriParam?.lowercased().hasSuffix(ext) ?? false)
+            }
+            if isImage {
+                let resolved = APIClient.shared.resolveMediaURL(clean, baseURL: AppSettings.shared.serverURL ?? URL(string: "http://127.0.0.1:58900")!)
+                if let imgURL = URL(string: resolved) {
+                    previewImage = IdentifiableImage(url: imgURL)
+                    return .handled
+                }
+            }
             return .systemAction
         })
         .sheet(isPresented: Binding(
