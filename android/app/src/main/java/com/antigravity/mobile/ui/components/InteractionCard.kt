@@ -306,11 +306,7 @@ fun InteractionCard(
                     val singleHasWriteIn = interaction.hasWriteIn && interaction.options.none { it.id == "__write_in__" || it.isDeny }
                     val displayOptions = remember(interaction) {
                         if (singleHasWriteIn) {
-                            val label = if (!interaction.writeInLabel.isNullOrBlank() && interaction.writeInLabel != "Other") {
-                                interaction.writeInLabel
-                            } else {
-                                "Write in"
-                            }
+                            val label = resolveWriteInLabel(interaction.writeInLabel)
                             interaction.options + InteractionOption(id = "__write_in__", text = label)
                         } else {
                             interaction.options
@@ -342,12 +338,16 @@ fun InteractionCard(
                             enter = fadeIn() + expandVertically(),
                             exit = fadeOut() + shrinkVertically()
                         ) {
+                            val placeholderText = resolveWriteInPlaceholder(
+                                interaction.writeInPlaceholder,
+                                isDeny = selectedOpt?.isDeny == true || selectedOptionId == "5"
+                            )
                             OutlinedTextField(
                                 value = singleWriteInText,
                                 onValueChange = { singleWriteInText = it },
                                 placeholder = {
                                     Text(
-                                        interaction.writeInPlaceholder ?: "(告诉 Agent 应该怎么做)",
+                                        placeholderText,
                                         fontSize = 12.sp
                                     )
                                 },
@@ -386,7 +386,7 @@ fun InteractionCard(
                     ),
                     shape = RoundedCornerShape(10.dp)
                 ) {
-                    Text("Skip (跳过)")
+                    Text("跳过")
                 }
 
                 Button(
@@ -415,7 +415,7 @@ fun InteractionCard(
                     ),
                     shape = RoundedCornerShape(10.dp)
                 ) {
-                    Text("Submit ↵ (提交)")
+                    Text("提交")
                 }
             }
         }
@@ -436,11 +436,7 @@ private fun QuestionSection(
     val hasWriteIn = question.hasWriteIn && question.options.none { it.id == "__write_in__" || it.isDeny }
     val displayOptions = remember(question) {
         if (hasWriteIn) {
-            val label = if (!question.writeInLabel.isNullOrBlank() && question.writeInLabel != "Other") {
-                question.writeInLabel
-            } else {
-                "Write in"
-            }
+            val label = resolveWriteInLabel(question.writeInLabel)
             question.options + InteractionOption(id = "__write_in__", text = label)
         } else {
             question.options
@@ -492,12 +488,13 @@ private fun QuestionSection(
         // Inline write-in if deny / other
         val isDenyOrOther = selectedOptionId == "5" || selectedOptionId == "__write_in__" || selectedOptionId.equals("other", ignoreCase = true)
         if (question.hasWriteIn && isDenyOrOther) {
+            val placeholderText = resolveWriteInPlaceholder(question.writeInPlaceholder, isDeny = false)
             OutlinedTextField(
                 value = writeInText,
                 onValueChange = onWriteInChange,
                 placeholder = {
                     Text(
-                        question.writeInPlaceholder ?: "(输入自定义说明)",
+                        placeholderText,
                         fontSize = 11.5.sp
                     )
                 },
@@ -676,5 +673,26 @@ fun ProceedBanner(
                 Text("Proceed")
             }
         }
+    }
+}
+
+private fun resolveWriteInLabel(raw: String?): String {
+    if (raw.isNullOrBlank()) return "自定义输入"
+    val lower = raw.trim().lowercase()
+    return when {
+        lower == "other" || lower == "write in" || lower == "write in..." -> "自定义输入"
+        else -> raw
+    }
+}
+
+private fun resolveWriteInPlaceholder(raw: String?, isDeny: Boolean): String {
+    if (raw.isNullOrBlank()) {
+        return if (isDeny) "告诉 Agent 应该怎么做..." else "输入自定义回答..."
+    }
+    val lower = raw.trim().lowercase()
+    return when {
+        lower.contains("write in your response") || lower.contains("write in") -> "输入自定义回答..."
+        lower.contains("tell the agent") || lower.contains("what to do instead") -> "告诉 Agent 应该怎么做..."
+        else -> raw
     }
 }
