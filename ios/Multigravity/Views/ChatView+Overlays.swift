@@ -129,23 +129,7 @@ extension ChatView {
             return fn.isEmpty ? "文档详情" : fn
         }()
         
-        // 1. Markdown & Plan Artifacts
-        if lower.hasSuffix(".md") || lower.hasSuffix(".markdown") ||
-           lower.contains("/brain/") || lower.contains("/static/artifacts/") ||
-           lower.contains("implementation_plan") || lower.contains("walkthrough") {
-            let docTitle: String = {
-                if lower.contains("walkthrough") {
-                    return "Walkthrough"
-                } else if lower.contains("implementation_plan") {
-                    return "Implementation Plan"
-                }
-                return decodedFileName
-            }()
-            viewModel.openMarkdownViewer(uri: unescaped, title: docTitle)
-            return .handled
-        }
-        
-        // 2. Images, Presentations, Videos & Office documents (PNG, JPG, MP4, MOV, PPTX, PPT, KEY, DOCX, XLSX, PDF, HTML, etc.)
+        // 1. Images, Presentations, Videos & Office documents (PNG, JPG, MP4, MOV, PPTX, PPT, KEY, DOCX, XLSX, PDF, HTML, etc.)
         let isHTML = lower.hasSuffix(".html") || lower.hasSuffix(".htm") || pathLower.hasSuffix(".html") || pathLower.hasSuffix(".htm")
         let documentExtensions = [".pptx", ".ppt", ".key", ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".numbers", ".pages", ".html", ".htm", ".txt", ".csv", ".json", ".log"]
         let imageExtensions = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".heic", ".heif", ".bmp", ".svg", ".ico", ".tiff", ".tif"]
@@ -160,6 +144,24 @@ extension ChatView {
         if isPreviewableFile {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             viewModel.downloadAndPreviewDocument(uri: unescaped, fileName: decodedFileName, isHTML: isHTML)
+            return .handled
+        }
+        
+        // 2. Markdown & Plan Artifacts
+        let isMarkdownArtifact = lower.hasSuffix(".md") || lower.hasSuffix(".markdown") ||
+            pathLower.hasSuffix(".md") || pathLower.hasSuffix(".markdown") ||
+            lower.contains("implementation_plan") || lower.contains("walkthrough") ||
+            lower.contains("/brain/") || lower.contains("/static/artifacts/")
+        if isMarkdownArtifact {
+            let docTitle: String = {
+                if lower.contains("walkthrough") {
+                    return "Walkthrough"
+                } else if lower.contains("implementation_plan") {
+                    return "Implementation Plan"
+                }
+                return decodedFileName
+            }()
+            viewModel.openMarkdownViewer(uri: unescaped, title: docTitle)
             return .handled
         }
         

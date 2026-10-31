@@ -355,6 +355,17 @@ function isImageResource(url) {
          clean.endsWith(".webp") || clean.endsWith(".gif") || clean.endsWith(".svg") ||
          clean.endsWith(".bmp") || clean.endsWith(".ico") || clean.startsWith("data:image/");
 }
+window.isImageResource = isImageResource;
+
+function isPreviewableDocumentResource(url) {
+  if (!url) return false;
+  const clean = url.split("?")[0].split("#")[0].toLowerCase();
+  const docExts = [
+    ".pdf", ".pptx", ".ppt", ".key", ".docx", ".doc", ".xlsx", ".xls",
+    ".numbers", ".pages", ".mp4", ".mov", ".m4v", ".webm", ".avi", ".zip", ".tar", ".gz"
+  ];
+  return docExts.some(ext => clean.endsWith(ext));
+}
 
 /**
  * Generates the HTML for an image thumbnail card.
@@ -634,16 +645,18 @@ function renderInlineMarkdown(text) {
     }
     const icon = resolveFileIcon(htmlUnescape(linkText)) || resolveFileIcon(rawUrl);
     const lower = rawUrl.toLowerCase();
-    const isMd = lower.endsWith(".md") || lower.endsWith(".markdown") || lower.includes("/brain/") || lower.includes("implementation_plan") || lower.includes("walkthrough");
-    const isPlan = lower.includes("implementation_plan") || linkText.toLowerCase().includes("implementation_plan") || lower.includes("walkthrough") || linkText.toLowerCase().includes("walkthrough");
+    const isDoc = isPreviewableDocumentResource(rawUrl);
+    const isMd = !isDoc && (lower.endsWith(".md") || lower.endsWith(".markdown") || lower.includes("/brain/") || lower.includes("implementation_plan") || lower.includes("walkthrough"));
+    const isPlan = !isDoc && (lower.includes("implementation_plan") || linkText.toLowerCase().includes("implementation_plan") || lower.includes("walkthrough") || linkText.toLowerCase().includes("walkthrough"));
     const extraClass = isPlan ? " plan-btn-link" : (isMd ? " markdown-file-link" : "");
     const arrowSvg = isPlan ? '<svg class="plan-btn-arrow" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>' : '';
     const href = protectMdAttr(escapeHtml(rawUrl));
     const titleAttr = protectMdAttr(escapeHtml(linkText));
+    const mdAttrs = isMd ? ` data-md-url="${href}" data-md-title="${titleAttr}"` : "";
     if (icon) {
-      return `<a href="${href}" class="file-link${extraClass}" data-md-url="${href}" data-md-title="${titleAttr}"><img src="/icons/files/${icon}.svg" class="file-icon" alt="" /><span>${linkText}</span>${arrowSvg}</a>`;
+      return `<a href="${href}" class="file-link${extraClass}"${mdAttrs}><img src="/icons/files/${icon}.svg" class="file-icon" alt="" /><span>${linkText}</span>${arrowSvg}</a>`;
     }
-    return `<a href="${href}" class="text-link${extraClass}" data-md-url="${href}" data-md-title="${titleAttr}"><span>${linkText}</span>${arrowSvg}</a>`;
+    return `<a href="${href}" class="text-link${extraClass}"${mdAttrs}><span>${linkText}</span>${arrowSvg}</a>`;
   });
 
   // Inline code (e.g. `foo`)

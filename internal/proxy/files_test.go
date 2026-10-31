@@ -450,3 +450,54 @@ func TestIsSafeFilePath_MoreCredentialStores(t *testing.T) {
 		t.Error("ordinary Desktop file must stay readable")
 	}
 }
+
+func TestGetFileContent_RejectsBinaryFiles(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	brainBase := filepath.Join(home, ".gemini", "antigravity", "brain")
+	if err := os.MkdirAll(brainBase, 0755); err != nil {
+		t.Fatal(err)
+	}
+	tmpDir, err := os.MkdirTemp(brainBase, "antigravity-bin-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	jpgFile := filepath.Join(tmpDir, "sample.jpg")
+	// Write dummy JPEG magic bytes
+	if err := os.WriteFile(jpgFile, []byte("\xFF\xD8\xFF\xE0\x00\x10JFIF\x00\x01\x01"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. GetFileContent must reject .jpg
+	_, err = GetFileContent(jpgFile, "")
+	if err == nil {
+		t.Fatalf("expected GetFileContent to reject binary .jpg file, got nil error")
+	}
+	if !strings.Contains(err.Error(), "binary file") {
+		t.Errorf("expected error mentioning binary file, got: %v", err)
+	}
+
+	// 2. HandleFileContent HTTP handler must return 404/error instead of 200
+	proxy := &Proxy{}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/files/content?uri="+jpgFile, nil)
+	rr := httptest.NewRecorder()
+	proxy.HandleFileContent(rr, req)
+	if rr.Code == http.StatusOK {
+		t.Fatalf("expected HTTP error for binary file content request, got 200: %s", rr.Body.String())
+	}
+
+	// 3. HandleFileRaw must still succeed and stream the image
+	rawReq := httptest.NewRequest(http.MethodGet, "/api/v1/files/raw?uri="+jpgFile, nil)
+	rawRR := httptest.NewRecorder()
+	proxy.HandleFileRaw(rawRR, rawReq)
+	if rawRR.Code != http.StatusOK {
+		t.Fatalf("expected 200 for HandleFileRaw on .jpg, got %d", rawRR.Code)
+	}
+	if ct := rawRR.Header().Get("Content-Type"); ct != "image/jpeg" {
+		t.Errorf("expected Content-Type image/jpeg, got: %s", ct)
+	}
+}

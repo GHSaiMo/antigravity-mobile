@@ -1,10 +1,10 @@
 package proxy
 
 import (
-	"log/slog"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unicode/utf8"
 )
 
 // FileContentResult represents the structured response of file reading.
@@ -293,6 +294,22 @@ func isPrivateKeyFileHeader(f *os.File) bool {
 		strings.Contains(sample, "PRIVATE KEY")
 }
 
+// isBinaryContentExtension reports whether an extension represents binary files (images, audio, video, archives, compiled docs)
+// that cannot be displayed as plain text in the markdown/artifact content viewer.
+func isBinaryContentExtension(ext string) bool {
+	switch strings.ToLower(ext) {
+	case ".png", ".jpg", ".jpeg", ".webp", ".gif", ".heic", ".heif", ".bmp", ".ico", ".tiff", ".tif",
+		".mp4", ".mov", ".m4v", ".webm", ".avi", ".mkv", ".3gp", ".ts", ".flv",
+		".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg",
+		".pdf", ".pptx", ".ppt", ".key", ".docx", ".doc", ".xlsx", ".xls",
+		".zip", ".tar", ".gz", ".7z", ".rar", ".zst", ".bz2", ".xz",
+		".exe", ".dll", ".so", ".dylib", ".bin":
+		return true
+	default:
+		return false
+	}
+}
+
 // GetFileContent retrieves the file content and companion metadata if present.
 func GetFileContent(rawURI, cascadeID string) (*FileContentResult, error) {
 	if strings.TrimSpace(rawURI) == "" && strings.TrimSpace(cascadeID) != "" {
@@ -330,9 +347,18 @@ func GetFileContent(rawURI, cascadeID string) (*FileContentResult, error) {
 		return nil, fmt.Errorf("file size exceeds 10MB limit")
 	}
 
+	ext := strings.ToLower(filepath.Ext(filePath))
+	if isBinaryContentExtension(ext) {
+		return nil, fmt.Errorf("binary file %s cannot be viewed as text", filepath.Base(filePath))
+	}
+
 	contentBytes, err := io.ReadAll(io.LimitReader(f, maxReadSizeBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file")
+	}
+
+	if !utf8.Valid(contentBytes) {
+		return nil, fmt.Errorf("file contains binary data and cannot be displayed as text")
 	}
 
 	res := &FileContentResult{

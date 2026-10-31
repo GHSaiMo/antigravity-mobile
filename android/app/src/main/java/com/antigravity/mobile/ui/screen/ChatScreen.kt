@@ -579,11 +579,17 @@ fun ChatScreen(
         if (!com.antigravity.mobile.data.service.FileIconResolver.isScriptFile(clean) &&
             !com.antigravity.mobile.data.service.FileIconResolver.isScriptFile(decodedFileName)
         ) {
-            // 1. Markdown & Plan Artifacts
-            if (lower.endsWith(".md") || lower.endsWith(".markdown") ||
+            // 1. Office Documents, Presentations, PDFs & Images (matching iOS allPreviewExtensions)
+            if (com.antigravity.mobile.data.service.FileIconResolver.isPreviewableDocument(clean) ||
+                com.antigravity.mobile.data.service.FileIconResolver.isPreviewableDocument(decodedFileName)
+            ) {
+                haptic.medium()
+                viewModel.downloadAndPreviewDocument(clean, decodedFileName)
+            } else if (lower.endsWith(".md") || lower.endsWith(".markdown") ||
                 lower.contains("/brain/") || lower.contains("/static/artifacts/") ||
                 lower.contains("implementation_plan") || lower.contains("walkthrough")
             ) {
+                // 2. Markdown & Plan Artifacts
                 val docTitle = when {
                     title.isNotBlank() && !title.endsWith(".md", ignoreCase = true) && !title.endsWith(".markdown", ignoreCase = true) -> title
                     lower.contains("walkthrough") -> "Walkthrough"
@@ -592,12 +598,6 @@ fun ChatScreen(
                     else -> decodedFileName
                 }
                 viewModel.openMarkdownViewer(clean, docTitle)
-            } else if (com.antigravity.mobile.data.service.FileIconResolver.isAccessibleDocument(clean) ||
-                com.antigravity.mobile.data.service.FileIconResolver.isAccessibleDocument(decodedFileName)
-            ) {
-                // 2. Office Documents, Presentations, PDFs & Images (matching iOS allPreviewExtensions)
-                haptic.medium()
-                viewModel.downloadAndPreviewDocument(clean, decodedFileName)
             } else if (clean.startsWith("http://") || clean.startsWith("https://")) {
                 // 3. External Web links (Open in immersive in-app Chrome Custom Tabs)
                 haptic.light()
