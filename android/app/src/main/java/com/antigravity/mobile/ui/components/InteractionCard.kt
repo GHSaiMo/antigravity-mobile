@@ -303,12 +303,25 @@ fun InteractionCard(
                         )
                     }
                 } else {
-                    val options = interaction.options
-                    if (options.isNotEmpty()) {
+                    val singleHasWriteIn = interaction.hasWriteIn && interaction.options.none { it.id == "__write_in__" || it.isDeny }
+                    val displayOptions = remember(interaction) {
+                        if (singleHasWriteIn) {
+                            val label = if (!interaction.writeInLabel.isNullOrBlank() && interaction.writeInLabel != "Other") {
+                                interaction.writeInLabel
+                            } else {
+                                "Write in"
+                            }
+                            interaction.options + InteractionOption(id = "__write_in__", text = label)
+                        } else {
+                            interaction.options
+                        }
+                    }
+
+                    if (displayOptions.isNotEmpty()) {
                         Column(
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            options.forEach { opt ->
+                            displayOptions.forEachIndexed { optIdx, opt ->
                                 val isSelected = selectedOptionId == opt.id
                                 OptionRow(
                                     option = opt,
@@ -316,12 +329,13 @@ fun InteractionCard(
                                     onClick = {
                                         haptic.light()
                                         selectedOptionId = opt.id
-                                    }
+                                    },
+                                    displayIndex = optIdx
                                 )
                             }
                         }
 
-                        val selectedOpt = options.find { it.id == selectedOptionId }
+                        val selectedOpt = displayOptions.find { it.id == selectedOptionId }
                         val isDenyOrOther = selectedOpt?.isDeny == true || selectedOptionId == "5" || selectedOptionId == "__write_in__"
                         AnimatedVisibility(
                             visible = (interaction.hasWriteIn || isDenyOrOther) && isDenyOrOther,
@@ -419,6 +433,20 @@ private fun QuestionSection(
 ) {
     val colors = AntigravityTheme.colors
 
+    val hasWriteIn = question.hasWriteIn && question.options.none { it.id == "__write_in__" || it.isDeny }
+    val displayOptions = remember(question) {
+        if (hasWriteIn) {
+            val label = if (!question.writeInLabel.isNullOrBlank() && question.writeInLabel != "Other") {
+                question.writeInLabel
+            } else {
+                "Write in"
+            }
+            question.options + InteractionOption(id = "__write_in__", text = label)
+        } else {
+            question.options
+        }
+    }
+
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         // Question title with Q[index] badge
         Row(
@@ -451,11 +479,12 @@ private fun QuestionSection(
 
         // Options for this question
         Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            question.options.forEach { opt ->
+            displayOptions.forEachIndexed { optIdx, opt ->
                 OptionRow(
                     option = opt,
                     isSelected = selectedOptionId == opt.id,
-                    onClick = { onSelectOption(opt.id) }
+                    onClick = { onSelectOption(opt.id) },
+                    displayIndex = optIdx
                 )
             }
         }
@@ -487,7 +516,8 @@ private fun QuestionSection(
 private fun OptionRow(
     option: InteractionOption,
     isSelected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    displayIndex: Int = -1
 ) {
     val colors = AntigravityTheme.colors
 
@@ -506,6 +536,12 @@ private fun OptionRow(
             .clickable(onClick = onClick)
             .padding(horizontal = 9.dp, vertical = 8.dp)
     ) {
+        val badgeText = when {
+            option.id == "__write_in__" -> if (displayIndex >= 0) "${displayIndex + 1}" else "✎"
+            option.id.length <= 3 -> option.id
+            else -> option.id.take(2)
+        }
+
         // Number badge [1], [2], etc.
         Box(
             modifier = Modifier
@@ -516,9 +552,9 @@ private fun OptionRow(
             contentAlignment = Alignment.Center
         ) {
             Text(
-                text = option.id,
+                text = badgeText,
                 color = if (isSelected) Color.White else colors.textSecondary,
-                fontSize = 11.sp,
+                fontSize = if (badgeText == "✎") 12.sp else 11.sp,
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.Monospace
             )
