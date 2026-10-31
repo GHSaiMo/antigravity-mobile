@@ -512,7 +512,7 @@ class PreferencesManager(context: Context) {
             val text = getDraftText(session.id).ifBlank { session.draftText }
             val hasImages = hasDraftImages(session.id)
             if (text.isBlank() && !hasImages) return@mapNotNull null
-            session.copy(draftText = text).toConversationItem(hasImages = hasImages)
+            session.copy(draftText = text).toConversationItem(hasImages = hasImages, isPinned = isPinned(session.id))
         }.sortedByDescending { it.lastModifiedEpochMs }
     }
 

@@ -117,6 +117,7 @@ fun ConversationListScreen(
     var renameText by remember { mutableStateOf("") }
     var deletingItem by remember { mutableStateOf<ConversationItem?>(null) }
     var pinningItem by remember { mutableStateOf<ConversationItem?>(null) }
+    var swipedConversationId by remember { mutableStateOf<String?>(null) }
     var editingAliasProject by remember { mutableStateOf<ProjectItem?>(null) }
     var aliasInputText by remember { mutableStateOf("") }
 
@@ -127,9 +128,14 @@ fun ConversationListScreen(
     val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(searchQuery) {
+        swipedConversationId = null
         if (listState.firstVisibleItemIndex > 0) {
             listState.scrollToItem(0)
         }
+    }
+
+    LaunchedEffect(uiState) {
+        swipedConversationId = null
     }
 
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
@@ -300,22 +306,30 @@ fun ConversationListScreen(
                             largeTitleAlpha = largeTitleAlpha,
                             topPadding = topBarHeight,
                             onEasterEggTap = handleEasterEggTap,
-                            onQuotaTap = { showQuotaSheet = true },
+                            onQuotaTap = {
+                                swipedConversationId = null
+                                showQuotaSheet = true
+                            },
                             onRefresh = { viewModel.loadConversations() },
                             hasDraftFor = { viewModel.prefs.hasDraft(it) },
                             onSelect = onSelectConversation,
                             onRename = { item ->
+                                swipedConversationId = null
                                 if (!item.isDraft) {
                                     renamingItem = item
                                     renameText = item.title
                                 }
                             },
                             onDelete = { item ->
+                                swipedConversationId = null
                                 deletingItem = item
                             },
                             onPin = { item ->
+                                swipedConversationId = null
                                 pinningItem = item
-                            }
+                            },
+                            swipedConversationId = swipedConversationId,
+                            onSwipedConversationIdChange = { swipedConversationId = it }
                         )
                     }
                 }
@@ -346,7 +360,10 @@ fun ConversationListScreen(
                     )
                     BasicTextField(
                         value = searchQuery,
-                        onValueChange = { viewModel.onSearchQueryChanged(it) },
+                        onValueChange = {
+                            swipedConversationId = null
+                            viewModel.onSearchQueryChanged(it)
+                        },
                         singleLine = true,
                         textStyle = TextStyle(
                             color = colors.textPrimary,
@@ -373,7 +390,10 @@ fun ConversationListScreen(
                             modifier = Modifier
                                 .size(18.dp)
                                 .clip(CircleShape)
-                                .combinedClickable(onClick = { viewModel.onSearchQueryChanged("") })
+                                .combinedClickable(onClick = {
+                                    swipedConversationId = null
+                                    viewModel.onSearchQueryChanged("")
+                                })
                         )
                     }
                 }
@@ -398,7 +418,10 @@ fun ConversationListScreen(
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
-                        onClick = { showSettingsSheet = true }
+                        onClick = {
+                            swipedConversationId = null
+                            showSettingsSheet = true
+                        }
                     ),
                 contentAlignment = Alignment.Center
             ) {
@@ -451,6 +474,7 @@ fun ConversationListScreen(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
                         onClick = {
+                            swipedConversationId = null
                             viewModel.loadProjects()
                             showNewConvSheet = true
                         }
@@ -737,9 +761,17 @@ private fun ConversationListContent(
     onSelect: (cascadeId: String, title: String, isNew: Boolean, isUnread: Boolean, status: com.antigravity.mobile.data.model.ConversationStatus, lastModifiedTime: String?) -> Unit,
     onRename: (ConversationItem) -> Unit,
     onDelete: (ConversationItem) -> Unit,
-    onPin: (ConversationItem) -> Unit
+    onPin: (ConversationItem) -> Unit,
+    swipedConversationId: String?,
+    onSwipedConversationIdChange: (String?) -> Unit
 ) {
     val colors = AntigravityTheme.colors
+
+    LaunchedEffect(listState.isScrollInProgress) {
+        if (listState.isScrollInProgress && swipedConversationId != null) {
+            onSwipedConversationIdChange(null)
+        }
+    }
 
     LazyColumn(
         state = listState,
@@ -844,10 +876,43 @@ private fun ConversationListContent(
                 SwipeableConversationCard(
                     conversation = conversation,
                     hasDraft = hasDraft,
-                    onClick = { onSelect(conversation.id, conversation.displayTitle, false, conversation.isUnread, conversation.status, conversation.lastModifiedTime) },
+                    isSwiped = (swipedConversationId == conversation.id),
+                    onSwipeOpened = {
+                        onSwipedConversationIdChange(conversation.id)
+                    },
+                    onSwipeClosed = {
+                        if (swipedConversationId == conversation.id) {
+                            onSwipedConversationIdChange(null)
+                        }
+                    },
+                    onStartDrag = {
+                        if (swipedConversationId != null && swipedConversationId != conversation.id) {
+                            onSwipedConversationIdChange(null)
+                        }
+                    },
+                    onClick = {
+                        if (swipedConversationId != null) {
+                            onSwipedConversationIdChange(null)
+                        } else {
+                            onSelect(
+                                conversation.id,
+                                conversation.displayTitle,
+                                false,
+                                conversation.isUnread,
+                                conversation.status,
+                                conversation.lastModifiedTime
+                            )
+                        }
+                    },
                     onLongClick = { onRename(conversation) },
-                    onDelete = { onDelete(conversation) },
-                    onPin = { onPin(conversation) }
+                    onDelete = {
+                        onSwipedConversationIdChange(null)
+                        onDelete(conversation)
+                    },
+                    onPin = {
+                        onSwipedConversationIdChange(null)
+                        onPin(conversation)
+                    }
                 )
             }
         }
@@ -876,7 +941,16 @@ private fun ConversationListContent(
                 }
             }
             items(contentResults, key = { "hit_${it.cascadeId}" }) { hit ->
-                ContentHitCard(hit = hit, onClick = { onSelectContentHit(hit) })
+                ContentHitCard(
+                    hit = hit,
+                    onClick = {
+                        if (swipedConversationId != null) {
+                            onSwipedConversationIdChange(null)
+                        } else {
+                            onSelectContentHit(hit)
+                        }
+                    }
+                )
             }
         }
     }
@@ -939,6 +1013,10 @@ private fun ContentHitCard(
 private fun SwipeableConversationCard(
     conversation: ConversationItem,
     hasDraft: Boolean,
+    isSwiped: Boolean,
+    onSwipeOpened: () -> Unit,
+    onSwipeClosed: () -> Unit,
+    onStartDrag: () -> Unit,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onDelete: () -> Unit,
@@ -950,6 +1028,12 @@ private fun SwipeableConversationCard(
     val maxRevealPx = with(density) { 72.dp.toPx() }
     val offsetX = remember { Animatable(0f) }
     val haptic = com.antigravity.mobile.ui.util.rememberHaptic()
+
+    LaunchedEffect(isSwiped) {
+        if (!isSwiped && offsetX.value != 0f) {
+            offsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -975,6 +1059,7 @@ private fun SwipeableConversationCard(
                         .background(if (conversation.isPinned) colors.textMuted else colors.accentOrange)
                         .clickable {
                             haptic.medium()
+                            onSwipeClosed()
                             coroutineScope.launch {
                                 offsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
                             }
@@ -1010,6 +1095,7 @@ private fun SwipeableConversationCard(
                         .background(colors.accentRed)
                         .clickable {
                             haptic.medium()
+                            onSwipeClosed()
                             coroutineScope.launch {
                                 offsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
                             }
@@ -1034,12 +1120,16 @@ private fun SwipeableConversationCard(
                 .offset { IntOffset(offsetX.value.roundToInt(), 0) }
                 .draggable(
                     state = rememberDraggableState { delta ->
+                        onStartDrag()
                         coroutineScope.launch {
                             val newOffset = (offsetX.value + delta).coerceIn(-maxRevealPx, maxRevealPx)
                             offsetX.snapTo(newOffset)
                         }
                     },
                     orientation = Orientation.Horizontal,
+                    onDragStarted = {
+                        onStartDrag()
+                    },
                     onDragStopped = { velocity ->
                         coroutineScope.launch {
                             val targetOffset = when {
@@ -1053,6 +1143,11 @@ private fun SwipeableConversationCard(
                                 }
                                 else -> 0f
                             }
+                            if (targetOffset != 0f) {
+                                onSwipeOpened()
+                            } else {
+                                onSwipeClosed()
+                            }
                             offsetX.animateTo(targetOffset, spring(stiffness = Spring.StiffnessMediumLow))
                         }
                     }
@@ -1063,16 +1158,21 @@ private fun SwipeableConversationCard(
                 hasDraft = hasDraft,
                 onClick = {
                     if (offsetX.value != 0f) {
+                        onSwipeClosed()
                         coroutineScope.launch {
                             offsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
                         }
                     } else {
-                        haptic.light()
                         onClick()
                     }
                 },
                 onLongClick = {
-                    if (!conversation.isDraft) {
+                    if (offsetX.value != 0f) {
+                        onSwipeClosed()
+                        coroutineScope.launch {
+                            offsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
+                        }
+                    } else if (!conversation.isDraft) {
                         haptic.longPress()
                         onLongClick()
                     }
@@ -1153,7 +1253,7 @@ fun ConversationCard(
                     )
                 }
 
-                if (conversation.status.isRunning || conversation.status.needsAction || conversation.status.isError) {
+                if (conversation.isWorking || conversation.status.needsAction || conversation.status.isError) {
                     StatusBadge(status = conversation.status, hasRunningTasks = conversation.hasRunningTasks)
                 } else if (hasDraft || conversation.isDraft) {
                     DraftBadge()

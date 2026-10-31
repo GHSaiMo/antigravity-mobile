@@ -49,7 +49,9 @@ data class TrajectorySummary(
     val nestingDepth: Int? = null,
     val hasRunningTasks: Boolean? = null,
     val runningTaskCount: Int? = null,
-    val hasRunningSubagents: Boolean? = null
+    val hasRunningSubagents: Boolean? = null,
+    val notFullyIdle: Boolean? = null,
+    val backgroundTaskCount: Int? = null
 ) {
     val isSubagent: Boolean
         get() {
@@ -120,6 +122,9 @@ data class ConversationItem(
     val isPureChat: Boolean
         get() = workspaceName == "Chat" || workspaceName.isEmpty() || draftProject?.isPureChat == true
 
+    val isWorking: Boolean
+        get() = status.isRunning || hasRunningTasks
+
     val isDraft: Boolean
         get() = id.startsWith("local_draft_") || id.startsWith("draft_") || draftProject != null
 
@@ -131,7 +136,13 @@ data class ConversationItem(
             return if (firstLine.length > 36) firstLine.take(36) + "..." else firstLine
         }
 
-        fun fromSummary(id: String, summary: TrajectorySummary, localViewTime: Long = 0): ConversationItem {
+        fun fromSummary(
+            id: String,
+            summary: TrajectorySummary,
+            localTitle: String? = null,
+            localViewTime: Long = 0,
+            isPinned: Boolean = summary.annotations?.pinned == true
+        ): ConversationItem {
             val annotationTitle = summary.annotations?.title
             val summaryText = summary.summary
             val resolvedTitle = when {
@@ -142,7 +153,10 @@ data class ConversationItem(
                 else -> "未命名会话"
             }
 
-            val hasRunningTasks = summary.hasRunningTasks == true || (summary.runningTaskCount ?: 0) > 0
+            val hasRunningTasks = summary.hasRunningTasks == true ||
+                (summary.runningTaskCount ?: 0) > 0 ||
+                (summary.backgroundTaskCount ?: 0) > 0 ||
+                summary.notFullyIdle == true
             val hasRunningSubagents = summary.hasRunningSubagents == true
 
             val status = when {
@@ -196,7 +210,7 @@ data class ConversationItem(
                 isUnread = unread,
                 parentConversationId = parentId,
                 nestingDepth = depth,
-                isPinned = summary.annotations?.pinned == true,
+                isPinned = isPinned,
                 hasRunningTasks = hasRunningTasks,
                 hasRunningSubagents = hasRunningSubagents
             )
@@ -239,7 +253,7 @@ data class LocalDraftSession(
     val createdAtEpochMs: Long = System.currentTimeMillis(),
     var updatedAtEpochMs: Long = System.currentTimeMillis()
 ) {
-    fun toConversationItem(hasImages: Boolean = false): ConversationItem {
+    fun toConversationItem(hasImages: Boolean = false, isPinned: Boolean = false): ConversationItem {
         val trimmed = draftText.trim()
         val firstLine = trimmed.lines().firstOrNull { it.isNotBlank() }?.trim() ?: ""
         val isPure = project.isPureChat
@@ -261,6 +275,7 @@ data class LocalDraftSession(
             lastModifiedTime = nowIso,
             isSubagent = false,
             isUnread = false,
+            isPinned = isPinned,
             draftProject = project
         )
     }
