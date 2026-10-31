@@ -103,6 +103,21 @@ function updatePendingInteraction(interaction, isRunning) {
 let multiQuestionSelections = {};
 let multiQuestionWriteIns = {};
 
+function resolveWriteInLabel(raw) {
+  if (!raw || !raw.trim()) return "自定义输入";
+  const lower = raw.trim().toLowerCase();
+  if (lower === "other" || lower === "write in" || lower === "write in...") return "自定义输入";
+  return raw;
+}
+
+function resolveWriteInPlaceholder(raw, isDeny) {
+  if (!raw || !raw.trim()) return isDeny ? "告诉 Agent 应该怎么做..." : "输入自定义回答...";
+  const lower = raw.trim().toLowerCase();
+  if (lower.includes("write in your response") || lower.includes("write in")) return "输入自定义回答...";
+  if (lower.includes("tell the agent") || lower.includes("what to do instead")) return "告诉 Agent 应该怎么做...";
+  return raw;
+}
+
 function renderInteractionCard() {
   const container = document.getElementById("interaction-card-container");
   if (!container || !currentPendingInteraction) return;
@@ -121,7 +136,7 @@ function renderInteractionCard() {
       <div class="interaction-multi-questions-list" style="max-height: 280px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; margin-bottom: 8px; padding-right: 4px;">
         ${interaction.questions.map((q, qIdx) => {
           const hasWriteIn = q.hasWriteIn && !(q.options || []).some(o => o.id === '__write_in__' || o.isDeny);
-          const writeInLabel = (q.writeInLabel && q.writeInLabel !== 'Other') ? q.writeInLabel : 'Write in';
+          const writeInLabel = resolveWriteInLabel(q.writeInLabel);
           const opts = hasWriteIn
             ? [...(q.options || []), { id: '__write_in__', text: writeInLabel }]
             : (q.options || []);
@@ -152,7 +167,7 @@ function renderInteractionCard() {
               </div>
               ${q.hasWriteIn && isDenySelected ? `
                 <div style="margin-top: 6px;">
-                  <input type="text" class="interaction-multi-write-in-input" data-q-idx="${qIdx}" placeholder="${escapeHtml(q.writeInPlaceholder || '输入说明...')}" value="${escapeHtml(multiQuestionWriteIns[qIdx] || '')}" style="width: 100%; font-size: 12px; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary);" />
+                  <input type="text" class="interaction-multi-write-in-input" data-q-idx="${qIdx}" placeholder="${escapeHtml(resolveWriteInPlaceholder(q.writeInPlaceholder, false))}" value="${escapeHtml(multiQuestionWriteIns[qIdx] || '')}" style="width: 100%; font-size: 12px; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary);" />
                 </div>
               ` : ''}
             </div>
@@ -162,7 +177,7 @@ function renderInteractionCard() {
     `;
   } else {
     const hasWriteIn = interaction.hasWriteIn && !(interaction.options || []).some(o => o.id === '__write_in__' || o.isDeny);
-    const writeInLabel = (interaction.writeInLabel && interaction.writeInLabel !== 'Other') ? interaction.writeInLabel : 'Write in';
+    const writeInLabel = resolveWriteInLabel(interaction.writeInLabel);
     const displayOptions = hasWriteIn
       ? [...(interaction.options || []), { id: '__write_in__', text: writeInLabel }]
       : (interaction.options || []);
@@ -189,7 +204,7 @@ function renderInteractionCard() {
       </div>
 
       <div id="interaction-write-in-wrap" class="interaction-write-in-wrap ${isDenyOrWriteIn ? '' : 'hidden'}" style="margin-top: 8px;">
-        <input type="text" id="interaction-write-in-input" class="interaction-write-in-input" placeholder="${escapeHtml(interaction.writeInPlaceholder || '输入说明或拒绝原因...')}" style="width: 100%; font-size: 12px; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary);" />
+        <input type="text" id="interaction-write-in-input" class="interaction-write-in-input" placeholder="${escapeHtml(resolveWriteInPlaceholder(interaction.writeInPlaceholder, isDenyOrWriteIn))}" style="width: 100%; font-size: 12px; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary);" />
       </div>
     `;
   }
@@ -220,10 +235,9 @@ function renderInteractionCard() {
           </button>
         ` : ''}
         <div style="flex: 1;"></div>
-        <button type="button" id="btn-interaction-skip" class="btn-interaction-skip" ${isSubmittingInteraction ? 'disabled' : ''} style="padding: 6px 14px; border-radius: 8px; border: 1px solid var(--border-color); background: transparent; color: var(--text-secondary); cursor: pointer;">Skip</button>
+        <button type="button" id="btn-interaction-skip" class="btn-interaction-skip" ${isSubmittingInteraction ? 'disabled' : ''} style="padding: 6px 14px; border-radius: 8px; border: 1px solid var(--border-color); background: transparent; color: var(--text-secondary); cursor: pointer;">跳过</button>
         <button type="button" id="btn-interaction-submit" class="btn-interaction-submit" ${isSubmittingInteraction ? 'disabled' : ''} style="padding: 6px 16px; border-radius: 8px; border: none; background: #2563eb; color: white; font-weight: 600; cursor: pointer;">
-          <span>${isSubmittingInteraction ? '提交中...' : 'Submit'}</span>
-          <span class="interaction-submit-key">↵</span>
+          <span>${isSubmittingInteraction ? '提交中...' : '提交'}</span>
         </button>
       </div>
     </div>

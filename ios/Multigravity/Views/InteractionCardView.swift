@@ -134,27 +134,42 @@ public struct InteractionCardView: View {
         }
     }
     
+    private func resolveWriteInLabel(_ raw: String?) -> String {
+        guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+            return "自定义输入"
+        }
+        let lower = raw.lowercased()
+        if lower == "other" || lower == "write in" || lower == "write in..." {
+            return "自定义输入"
+        }
+        return raw
+    }
+
+    private func resolveWriteInPlaceholder(_ raw: String?, isDeny: Bool) -> String {
+        guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+            return isDeny ? "告诉 Agent 应该怎么做..." : "输入自定义回答..."
+        }
+        let lower = raw.lowercased()
+        if lower.contains("write in your response") || lower.contains("write in") {
+            return "输入自定义回答..."
+        }
+        if lower.contains("tell the agent") || lower.contains("what to do instead") {
+            return "告诉 Agent 应该怎么做..."
+        }
+        return raw
+    }
+
     private func displayOptions(for q: InteractionQuestion) -> [InteractionOption] {
         let hasWriteIn = (q.hasWriteIn == true) && !q.options.contains(where: { $0.id == "__write_in__" || $0.isDeny == true })
         guard hasWriteIn else { return q.options }
-        let label: String = {
-            if let custom = q.writeInLabel, !custom.isEmpty, custom != "Other" {
-                return custom
-            }
-            return "Write in"
-        }()
+        let label = resolveWriteInLabel(q.writeInLabel)
         return q.options + [InteractionOption(id: "__write_in__", text: label)]
     }
 
     private var singleDisplayOptions: [InteractionOption] {
         let hasWriteIn = (interaction.hasWriteIn == true) && !interaction.options.contains(where: { $0.id == "__write_in__" || $0.isDeny == true })
         guard hasWriteIn else { return interaction.options }
-        let label: String = {
-            if let custom = interaction.writeInLabel, !custom.isEmpty, custom != "Other" {
-                return custom
-            }
-            return "Write in"
-        }()
+        let label = resolveWriteInLabel(interaction.writeInLabel)
         return interaction.options + [InteractionOption(id: "__write_in__", text: label)]
     }
 
@@ -410,7 +425,7 @@ public struct InteractionCardView: View {
                     set: { writeInByQuestion[qIdx] = $0 }
                 )
                 TextField(
-                    q.writeInPlaceholder ?? "(输入自定义说明)",
+                    resolveWriteInPlaceholder(q.writeInPlaceholder, isDeny: false),
                     text: binding
                 )
                 .font(.system(size: 12))
@@ -474,7 +489,7 @@ public struct InteractionCardView: View {
         if interaction.hasWriteIn == true && isDenySelected {
             VStack(alignment: .leading, spacing: 4) {
                 TextField(
-                    interaction.writeInPlaceholder ?? "(告诉 Agent 应该怎么做)",
+                    resolveWriteInPlaceholder(interaction.writeInPlaceholder, isDeny: isDenySelected),
                     text: $writeInText,
                     axis: .vertical
                 )
@@ -517,7 +532,7 @@ public struct InteractionCardView: View {
             Spacer()
             
             Button(action: handleSkip) {
-                Text("Skip (跳过)")
+                Text("跳过")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(.secondary)
                     .padding(.horizontal, 14)
@@ -535,7 +550,7 @@ public struct InteractionCardView: View {
                             .tint(.white)
                             .scaleEffect(0.8)
                     } else {
-                        Text("Submit ↵ (提交)")
+                        Text("提交")
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundColor(.white)
                     }

@@ -22,9 +22,10 @@
 - 💻 **终端指令执行动态指示胶囊 (Terminal Running Indicator)**：
   - 双端（Android & iOS）100% 原样复刻 Antigravity 官方桌面端 `status-task-running` 终端运行指示器。
   - 采用 16x16 矢量轮廓（右尖括号 `>` 与下划线光标 `_`）以及 1.05s 严格周期阶跃闪烁动效，实时直观提示正在运行中的终端命令与后台任务，挂起等待状态下不再漏显。
-- ✍️ **交互卡片对齐官方 IDE `Write in` 自定义手填规范 (Grill-Me & Ask-Question)**：
-  - 完美复刻桌面端 Antigravity IDE 规范，在 `ask_question` / `/grill-me` 选择题交互卡片末尾自动追加 `Write in` 自定义选项。
+- ✍️ **交互卡片对齐官方 IDE 手填规范与全中文界面适配 (Grill-Me & Ask-Question)**：
+  - 完美复刻桌面端 Antigravity IDE 规范，在 `ask_question` / `/grill-me` 选择题交互卡片末尾自动追加「自定义输入」可选项。
   - 用户选中后平滑展开输入框，支持在移动端（Android、iOS）及 Web 控制台自由输入并提交自定义决策。
+  - 交互卡片输入提示与操作按钮全面实现纯中文化（“跳过”、“提交”、“输入自定义回答...”），去除中英混排。
 
 ### 🛡️ 架构稳固与细节优化
 - 🖼️ **修复移动端产物图片预览解析**：
