@@ -102,6 +102,7 @@ function updatePendingInteraction(interaction, isRunning) {
 
 let multiQuestionSelections = {};
 let multiQuestionWriteIns = {};
+let singleWriteInText = "";
 
 function resolveWriteInLabel(raw) {
   if (!raw || !raw.trim()) return "自定义输入";
@@ -154,22 +155,22 @@ function renderInteractionCard() {
                   const isSelected = opt.id === selectedId;
                   const label = opt.text || opt.label || "";
                   const badge = opt.id === '__write_in__' ? (isNumeric ? String(optIdx + 1) : '✎') : (opt.id || String(optIdx + 1));
+                  const isWriteIn = opt.id === '__write_in__' || (q.hasWriteIn && (opt.isDeny || opt.id === '5' || opt.id.toLowerCase() === 'other'));
                   return `
                     <div class="interaction-option-item ${isSelected ? 'selected' : ''}" data-q-idx="${qIdx}" data-opt-id="${escapeHtml(opt.id)}" style="display: flex; align-items: center; gap: 8px; padding: 6px 9px; border-radius: 6px; cursor: pointer; background: ${isSelected ? 'rgba(59,130,246,0.12)' : 'var(--bg-tertiary, rgba(255,255,255,0.04))'}; border: 1px solid ${isSelected ? '#3b82f6' : 'transparent'};">
                       <span class="interaction-option-radio" style="width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid ${isSelected ? '#3b82f6' : 'var(--text-secondary)'}; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
                         ${isSelected ? '<span style="width: 6px; height: 6px; border-radius: 50%; background: #3b82f6;"></span>' : ''}
                       </span>
                       <span class="interaction-option-badge" style="font-size: 11px; font-weight: bold; font-family: monospace; color: ${isSelected ? '#3b82f6' : 'var(--text-secondary)'}; flex-shrink: 0;">[${escapeHtml(badge)}]</span>
-                      <span class="interaction-option-label" style="font-size: 12.5px; color: ${isSelected ? 'var(--text-primary)' : 'var(--text-secondary)'}; overflow-x: auto; white-space: nowrap; flex: 1; scrollbar-width: none;">${escapeHtml(label)}</span>
+                      ${isWriteIn && isSelected ? `
+                        <input type="text" class="interaction-multi-write-in-input" data-q-idx="${qIdx}" placeholder="${escapeHtml(resolveWriteInPlaceholder(q.writeInPlaceholder, false))}" value="${escapeHtml(multiQuestionWriteIns[qIdx] || '')}" style="flex: 1; font-size: 12.5px; border: none; background: transparent; color: var(--text-primary); outline: none; padding: 0;" />
+                      ` : `
+                        <span class="interaction-option-label" style="font-size: 12.5px; color: ${isSelected ? 'var(--text-primary)' : 'var(--text-secondary)'}; overflow-x: auto; white-space: nowrap; flex: 1; scrollbar-width: none;">${escapeHtml(isWriteIn && multiQuestionWriteIns[qIdx] ? multiQuestionWriteIns[qIdx] : label)}</span>
+                      `}
                     </div>
                   `;
                 }).join('')}
               </div>
-              ${q.hasWriteIn && isDenySelected ? `
-                <div style="margin-top: 6px;">
-                  <input type="text" class="interaction-multi-write-in-input" data-q-idx="${qIdx}" placeholder="${escapeHtml(resolveWriteInPlaceholder(q.writeInPlaceholder, false))}" value="${escapeHtml(multiQuestionWriteIns[qIdx] || '')}" style="width: 100%; font-size: 12px; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary);" />
-                </div>
-              ` : ''}
             </div>
           `;
         }).join('')}
@@ -191,20 +192,21 @@ function renderInteractionCard() {
           const isSelected = opt.id === selectedInteractionOptionId;
           const label = opt.text || opt.label || "";
           const badge = opt.id === '__write_in__' ? (isNumeric ? String(idx + 1) : '✎') : (opt.id || String(idx + 1));
+          const isWriteIn = opt.id === '__write_in__' || (interaction.hasWriteIn && (opt.isDeny || opt.id === '5'));
           return `
             <div class="interaction-option-item ${isSelected ? 'selected' : ''}" data-opt-id="${escapeHtml(opt.id)}" style="display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; cursor: pointer; background: ${isSelected ? 'rgba(59,130,246,0.12)' : 'var(--bg-tertiary, rgba(255,255,255,0.04))'}; border: 1px solid ${isSelected ? '#3b82f6' : 'transparent'};">
               <span class="interaction-option-radio" style="width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid ${isSelected ? '#3b82f6' : 'var(--text-secondary)'}; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
                 ${isSelected ? '<span style="width: 8px; height: 8px; border-radius: 50%; background: #3b82f6;"></span>' : ''}
               </span>
               <span class="interaction-option-badge" style="font-size: 11px; font-weight: bold; font-family: monospace; color: ${isSelected ? '#3b82f6' : 'var(--text-secondary)'}; flex-shrink: 0;">[${escapeHtml(badge)}]</span>
-              <span class="interaction-option-label" style="font-size: 13px; color: ${isSelected ? 'var(--text-primary)' : 'var(--text-secondary)'}; overflow-x: auto; white-space: nowrap; flex: 1; scrollbar-width: none;">${escapeHtml(label)}</span>
+              ${isWriteIn && isSelected ? `
+                <input type="text" id="interaction-write-in-input" class="interaction-write-in-input" placeholder="${escapeHtml(resolveWriteInPlaceholder(interaction.writeInPlaceholder, isDenyOrWriteIn))}" value="${escapeHtml(singleWriteInText)}" style="flex: 1; font-size: 13px; border: none; background: transparent; color: var(--text-primary); outline: none; padding: 0;" />
+              ` : `
+                <span class="interaction-option-label" style="font-size: 13px; color: ${isSelected ? 'var(--text-primary)' : 'var(--text-secondary)'}; overflow-x: auto; white-space: nowrap; flex: 1; scrollbar-width: none;">${escapeHtml(isWriteIn && singleWriteInText ? singleWriteInText : label)}</span>
+              `}
             </div>
           `;
         }).join('')}
-      </div>
-
-      <div id="interaction-write-in-wrap" class="interaction-write-in-wrap ${isDenyOrWriteIn ? '' : 'hidden'}" style="margin-top: 8px;">
-        <input type="text" id="interaction-write-in-input" class="interaction-write-in-input" placeholder="${escapeHtml(resolveWriteInPlaceholder(interaction.writeInPlaceholder, isDenyOrWriteIn))}" style="width: 100%; font-size: 12px; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary);" />
       </div>
     `;
   }
@@ -234,9 +236,8 @@ function renderInteractionCard() {
             <span>⚡️ ${autoApprovePermissions ? '自动审批: 开' : '自动审批: 关'}</span>
           </button>
         ` : ''}
-        <div style="flex: 1;"></div>
-        <button type="button" id="btn-interaction-skip" class="btn-interaction-skip" ${isSubmittingInteraction ? 'disabled' : ''} style="padding: 6px 14px; border-radius: 8px; border: 1px solid var(--border-color); background: transparent; color: var(--text-secondary); cursor: pointer;">跳过</button>
-        <button type="button" id="btn-interaction-submit" class="btn-interaction-submit" ${isSubmittingInteraction ? 'disabled' : ''} style="padding: 6px 16px; border-radius: 8px; border: none; background: #2563eb; color: white; font-weight: 600; cursor: pointer;">
+        <button type="button" id="btn-interaction-skip" class="btn-interaction-skip" ${isSubmittingInteraction ? 'disabled' : ''} style="flex: 1; text-align: center; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border-color); background: transparent; color: var(--text-secondary); cursor: pointer;">跳过</button>
+        <button type="button" id="btn-interaction-submit" class="btn-interaction-submit" ${isSubmittingInteraction ? 'disabled' : ''} style="flex: 1; text-align: center; padding: 8px 16px; border-radius: 8px; border: none; background: #2563eb; color: white; font-weight: 600; cursor: pointer;">
           <span>${isSubmittingInteraction ? '提交中...' : '提交'}</span>
         </button>
       </div>
@@ -247,12 +248,24 @@ function renderInteractionCard() {
 
   // Multi-question option click handlers
   container.querySelectorAll(".interaction-option-item[data-q-idx]").forEach(item => {
-    item.addEventListener("click", () => {
+    item.addEventListener("click", (e) => {
+      if (e.target && e.target.classList.contains("interaction-multi-write-in-input")) {
+        return;
+      }
       const qIdx = parseInt(item.dataset.qIdx, 10);
       const optId = item.dataset.optId;
       if (optId) {
         multiQuestionSelections[qIdx] = optId;
         renderInteractionCard();
+        if (optId === "__write_in__" || optId === "5") {
+          setTimeout(() => {
+            const input = container.querySelector(`.interaction-multi-write-in-input[data-q-idx="${qIdx}"]`);
+            if (input) {
+              input.focus();
+              input.selectionStart = input.selectionEnd = input.value.length;
+            }
+          }, 30);
+        }
       }
     });
   });
@@ -267,11 +280,23 @@ function renderInteractionCard() {
 
   // Single-question option click handlers
   container.querySelectorAll(".interaction-option-item:not([data-q-idx])").forEach(item => {
-    item.addEventListener("click", () => {
+    item.addEventListener("click", (e) => {
+      if (e.target && e.target.id === "interaction-write-in-input") {
+        return;
+      }
       const optId = item.dataset.optId;
-      if (optId && optId !== selectedInteractionOptionId) {
+      if (optId) {
         selectedInteractionOptionId = optId;
         renderInteractionCard();
+        if (optId === "__write_in__" || optId === "5") {
+          setTimeout(() => {
+            const input = container.querySelector("#interaction-write-in-input");
+            if (input) {
+              input.focus();
+              input.selectionStart = input.selectionEnd = input.value.length;
+            }
+          }, 30);
+        }
       }
     });
   });
@@ -293,6 +318,9 @@ function renderInteractionCard() {
 
   const writeInInput = container.querySelector("#interaction-write-in-input");
   if (writeInInput) {
+    writeInInput.addEventListener("input", (e) => {
+      singleWriteInText = e.target.value;
+    });
     writeInInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
@@ -375,6 +403,7 @@ async function handleInteractionSubmit(isSkip) {
     // Success: clear pending interaction
     multiQuestionSelections = {};
     multiQuestionWriteIns = {};
+    singleWriteInText = "";
     updatePendingInteraction(null, false);
     if (activeCascadeId && currentTrajectories[activeCascadeId]) {
       currentTrajectories[activeCascadeId].needsInput = false;

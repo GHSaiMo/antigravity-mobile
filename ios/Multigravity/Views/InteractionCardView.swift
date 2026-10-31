@@ -18,6 +18,8 @@ public struct InteractionCardView: View {
     @State private var writeInText: String = ""
     @State private var targetText: String
     @State private var settings = AppSettings.shared
+    @FocusState private var isSingleWriteInFocused: Bool
+    @FocusState private var focusedMultiQuestionIndex: Int?
     
     // Multi-question state: questionIndex -> selectedOptionId, questionIndex -> writeInText
     @State private var selectedOptionsByQuestion: [Int: String] = [:]
@@ -377,6 +379,7 @@ public struct InteractionCardView: View {
             VStack(spacing: 6) {
                 ForEach(Array(opts.enumerated()), id: \.element.id) { optIdx, option in
                     let isSelected = (selectedOptionsByQuestion[qIdx] ?? q.defaultOptionId ?? "1") == option.id
+                    let isWriteIn = (option.id == "__write_in__" || (q.hasWriteIn == true && (option.isDeny == true || option.id == "5" || option.id.lowercased() == "other")))
                     
                     HStack(alignment: .top, spacing: 8) {
                         Text(badgeText(for: option, in: opts, index: optIdx))
@@ -387,12 +390,32 @@ public struct InteractionCardView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
                             .padding(.top, 1)
                         
-                        Text(option.text)
-                            .font(.system(size: 12.5, weight: isSelected ? .medium : .regular))
-                            .foregroundColor(isSelected ? .primary : .secondary)
-                            .lineSpacing(2)
-                            .multilineTextAlignment(.leading)
+                        if isWriteIn && isSelected {
+                            let binding = Binding<String>(
+                                get: { writeInByQuestion[qIdx] ?? "" },
+                                set: { writeInByQuestion[qIdx] = $0 }
+                            )
+                            TextField(
+                                resolveWriteInPlaceholder(q.writeInPlaceholder, isDeny: false),
+                                text: binding,
+                                axis: .vertical
+                            )
+                            .font(.system(size: 12.5, weight: .regular))
+                            .foregroundColor(.primary)
                             .frame(maxWidth: .infinity, alignment: .leading)
+                            .focused($focusedMultiQuestionIndex, equals: qIdx)
+                            .onAppear {
+                                focusedMultiQuestionIndex = qIdx
+                            }
+                        } else {
+                            let currentText = writeInByQuestion[qIdx] ?? ""
+                            Text(isWriteIn && !currentText.isEmpty ? currentText : option.text)
+                                .font(.system(size: 12.5, weight: isSelected ? .medium : .regular))
+                                .foregroundColor(isSelected ? .primary : .secondary)
+                                .lineSpacing(2)
+                                .multilineTextAlignment(.leading)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
                         
                         Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
                             .font(.system(size: 14))
@@ -415,24 +438,15 @@ public struct InteractionCardView: View {
                         withAnimation(.easeInOut(duration: 0.15)) {
                             selectedOptionsByQuestion[qIdx] = option.id
                         }
+                        if isWriteIn {
+                            focusedMultiQuestionIndex = qIdx
+                        } else {
+                            if focusedMultiQuestionIndex == qIdx {
+                                focusedMultiQuestionIndex = nil
+                            }
+                        }
                     }
                 }
-            }
-            
-            if q.hasWriteIn == true && isQuestionDenySelected(qIdx: qIdx, q: q) {
-                let binding = Binding<String>(
-                    get: { writeInByQuestion[qIdx] ?? "" },
-                    set: { writeInByQuestion[qIdx] = $0 }
-                )
-                TextField(
-                    resolveWriteInPlaceholder(q.writeInPlaceholder, isDeny: false),
-                    text: binding
-                )
-                .font(.system(size: 12))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .background(Color(uiColor: .tertiarySystemFill))
-                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
             }
         }
         .padding(.bottom, 4)
@@ -444,6 +458,7 @@ public struct InteractionCardView: View {
         VStack(spacing: 6) {
             ForEach(Array(opts.enumerated()), id: \.element.id) { optIdx, option in
                 let isSelected = selectedOptionId == option.id
+                let isWriteIn = (option.id == "__write_in__" || (interaction.hasWriteIn == true && (option.isDeny == true || option.id == "5")))
                 
                 HStack(alignment: .top, spacing: 9) {
                     Text(badgeText(for: option, in: opts, index: optIdx))
@@ -454,12 +469,27 @@ public struct InteractionCardView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
                         .padding(.top, 1)
                     
-                    Text(option.text)
-                        .font(.system(size: 13, weight: isSelected ? .medium : .regular))
-                        .foregroundColor(isSelected ? .primary : .secondary)
-                        .lineSpacing(2)
-                        .multilineTextAlignment(.leading)
+                    if isWriteIn && isSelected {
+                        TextField(
+                            resolveWriteInPlaceholder(interaction.writeInPlaceholder, isDeny: isDenySelected),
+                            text: $writeInText,
+                            axis: .vertical
+                        )
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundColor(.primary)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .focused($isSingleWriteInFocused)
+                        .onAppear {
+                            isSingleWriteInFocused = true
+                        }
+                    } else {
+                        Text(isWriteIn && !writeInText.isEmpty ? writeInText : option.text)
+                            .font(.system(size: 13, weight: isSelected ? .medium : .regular))
+                            .foregroundColor(isSelected ? .primary : .secondary)
+                            .lineSpacing(2)
+                            .multilineTextAlignment(.leading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                     
                     Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
                         .font(.system(size: 15))
@@ -482,87 +512,74 @@ public struct InteractionCardView: View {
                     withAnimation(.easeInOut(duration: 0.15)) {
                         selectedOptionId = option.id
                     }
+                    if isWriteIn {
+                        isSingleWriteInFocused = true
+                    } else {
+                        isSingleWriteInFocused = false
+                    }
                 }
             }
-        }
-        
-        if interaction.hasWriteIn == true && isDenySelected {
-            VStack(alignment: .leading, spacing: 4) {
-                TextField(
-                    resolveWriteInPlaceholder(interaction.writeInPlaceholder, isDeny: isDenySelected),
-                    text: $writeInText,
-                    axis: .vertical
-                )
-                .font(.system(size: 12.5))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .background(Color(uiColor: .tertiarySystemFill))
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
-                )
-            }
-            .padding(.horizontal, 10)
-            .transition(.opacity.combined(with: .move(edge: .top)))
         }
     }
     
     @ViewBuilder
     private var bottomActionBar: some View {
-        HStack(spacing: 8) {
+        VStack(spacing: 8) {
             if isPermissionType {
-                Button(action: toggleAutoApprove) {
-                    HStack(spacing: 4) {
-                        Image(systemName: settings.autoApprovePermissions ? "bolt.fill" : "bolt")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(settings.autoApprovePermissions ? .yellow : .secondary)
-                        Text(settings.autoApprovePermissions ? "自动审批: 开" : "自动审批: 关")
-                            .font(.system(size: 11.5, weight: .medium))
-                            .foregroundColor(settings.autoApprovePermissions ? .primary : .secondary)
+                HStack {
+                    Button(action: toggleAutoApprove) {
+                        HStack(spacing: 4) {
+                            Image(systemName: settings.autoApprovePermissions ? "bolt.fill" : "bolt")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(settings.autoApprovePermissions ? .yellow : .secondary)
+                            Text(settings.autoApprovePermissions ? "自动审批: 开" : "自动审批: 关")
+                                .font(.system(size: 11.5, weight: .medium))
+                                .foregroundColor(settings.autoApprovePermissions ? .primary : .secondary)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(settings.autoApprovePermissions ? Color.yellow.opacity(0.15) : Color(uiColor: .tertiarySystemFill))
+                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
-                    .background(settings.autoApprovePermissions ? Color.yellow.opacity(0.15) : Color(uiColor: .tertiarySystemFill))
-                    .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    .buttonStyle(.plain)
+                    Spacer()
+                }
+            }
+            
+            HStack(spacing: 10) {
+                Button(action: handleSkip) {
+                    Text("跳过")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background(Color(uiColor: .tertiarySystemFill))
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
                 .buttonStyle(.plain)
-            }
-            
-            Spacer()
-            
-            Button(action: handleSkip) {
-                Text("跳过")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 7)
-                    .background(Color(uiColor: .tertiarySystemFill))
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .disabled(isSubmitting)
-            
-            Button(action: handleSubmit) {
-                HStack(spacing: 5) {
-                    if isSubmitting {
-                        ProgressView()
-                            .tint(.white)
-                            .scaleEffect(0.8)
-                    } else {
-                        Text("提交")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(.white)
+                .disabled(isSubmitting)
+                
+                Button(action: handleSubmit) {
+                    HStack(spacing: 5) {
+                        if isSubmitting {
+                            ProgressView()
+                                .tint(.white)
+                                .scaleEffect(0.8)
+                        } else {
+                            Text("提交")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(.white)
+                        }
                     }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                    .background(Color.blue)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .shadow(color: Color.blue.opacity(0.3), radius: 3, x: 0, y: 1.5)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 7)
-                .background(Color.blue)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .shadow(color: Color.blue.opacity(0.3), radius: 3, x: 0, y: 1.5)
+                .buttonStyle(.plain)
+                .disabled(isSubmitting)
             }
-            .buttonStyle(.plain)
-            .disabled(isSubmitting)
         }
         .padding(.top, 2)
     }
