@@ -120,8 +120,14 @@ function renderInteractionCard() {
     contentHtml = `
       <div class="interaction-multi-questions-list" style="max-height: 280px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; margin-bottom: 8px; padding-right: 4px;">
         ${interaction.questions.map((q, qIdx) => {
-          const selectedId = multiQuestionSelections[qIdx] || q.defaultOptionId || q.options?.[0]?.id || "1";
+          const hasWriteIn = q.hasWriteIn && !(q.options || []).some(o => o.id === '__write_in__' || o.isDeny);
+          const writeInLabel = (q.writeInLabel && q.writeInLabel !== 'Other') ? q.writeInLabel : 'Write in';
+          const opts = hasWriteIn
+            ? [...(q.options || []), { id: '__write_in__', text: writeInLabel }]
+            : (q.options || []);
+          const selectedId = multiQuestionSelections[qIdx] || q.defaultOptionId || opts[0]?.id || "1";
           const isDenySelected = selectedId === "5" || selectedId === "__write_in__" || selectedId.toLowerCase() === "other";
+          const isNumeric = (q.options || []).length > 0 && (q.options || []).every(o => !isNaN(parseInt(o.id, 10)));
           return `
             <div class="interaction-question-block" style="border: 1px solid var(--border-color, rgba(255,255,255,0.08)); border-radius: 8px; padding: 10px; background: rgba(0,0,0,0.15);">
               <div style="display: flex; align-items: flex-start; gap: 6px; margin-bottom: 8px;">
@@ -129,15 +135,16 @@ function renderInteractionCard() {
                 <span style="font-size: 13px; font-weight: 600; color: var(--text-primary); line-height: 1.3;">${escapeHtml(q.question)}</span>
               </div>
               <div class="interaction-options-list" style="display: flex; flex-direction: column; gap: 5px;">
-                ${(q.options || []).map(opt => {
+                ${opts.map((opt, optIdx) => {
                   const isSelected = opt.id === selectedId;
                   const label = opt.text || opt.label || "";
+                  const badge = opt.id === '__write_in__' ? (isNumeric ? String(optIdx + 1) : '✎') : (opt.id || String(optIdx + 1));
                   return `
                     <div class="interaction-option-item ${isSelected ? 'selected' : ''}" data-q-idx="${qIdx}" data-opt-id="${escapeHtml(opt.id)}" style="display: flex; align-items: center; gap: 8px; padding: 6px 9px; border-radius: 6px; cursor: pointer; background: ${isSelected ? 'rgba(59,130,246,0.12)' : 'var(--bg-tertiary, rgba(255,255,255,0.04))'}; border: 1px solid ${isSelected ? '#3b82f6' : 'transparent'};">
                       <span class="interaction-option-radio" style="width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid ${isSelected ? '#3b82f6' : 'var(--text-secondary)'}; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
                         ${isSelected ? '<span style="width: 6px; height: 6px; border-radius: 50%; background: #3b82f6;"></span>' : ''}
                       </span>
-                      <span class="interaction-option-badge" style="font-size: 11px; font-weight: bold; font-family: monospace; color: ${isSelected ? '#3b82f6' : 'var(--text-secondary)'}; flex-shrink: 0;">[${escapeHtml(opt.id)}]</span>
+                      <span class="interaction-option-badge" style="font-size: 11px; font-weight: bold; font-family: monospace; color: ${isSelected ? '#3b82f6' : 'var(--text-secondary)'}; flex-shrink: 0;">[${escapeHtml(badge)}]</span>
                       <span class="interaction-option-label" style="font-size: 12.5px; color: ${isSelected ? 'var(--text-primary)' : 'var(--text-secondary)'}; overflow-x: auto; white-space: nowrap; flex: 1; scrollbar-width: none;">${escapeHtml(label)}</span>
                     </div>
                   `;
@@ -154,20 +161,27 @@ function renderInteractionCard() {
       </div>
     `;
   } else {
-    const selectedOpt = (interaction.options || []).find(o => o.id === selectedInteractionOptionId) || interaction.options?.[0];
-    const isDenyOrWriteIn = selectedOpt?.isDeny || selectedOpt?.id === "5" || selectedOpt?.id === "no" || selectedOpt?.id?.toLowerCase().includes("deny");
+    const hasWriteIn = interaction.hasWriteIn && !(interaction.options || []).some(o => o.id === '__write_in__' || o.isDeny);
+    const writeInLabel = (interaction.writeInLabel && interaction.writeInLabel !== 'Other') ? interaction.writeInLabel : 'Write in';
+    const displayOptions = hasWriteIn
+      ? [...(interaction.options || []), { id: '__write_in__', text: writeInLabel }]
+      : (interaction.options || []);
+    const selectedOpt = displayOptions.find(o => o.id === selectedInteractionOptionId) || displayOptions[0];
+    const isDenyOrWriteIn = selectedOpt?.isDeny || selectedInteractionOptionId === "5" || selectedInteractionOptionId === "__write_in__" || selectedOpt?.id === "no" || selectedOpt?.id?.toLowerCase().includes("deny");
+    const isNumeric = (interaction.options || []).length > 0 && (interaction.options || []).every(o => !isNaN(parseInt(o.id, 10)));
 
     contentHtml = `
       <div class="interaction-options-list" style="display: flex; flex-direction: column; gap: 6px;">
-        ${(interaction.options || []).map((opt, idx) => {
+        ${displayOptions.map((opt, idx) => {
           const isSelected = opt.id === selectedInteractionOptionId;
           const label = opt.text || opt.label || "";
+          const badge = opt.id === '__write_in__' ? (isNumeric ? String(idx + 1) : '✎') : (opt.id || String(idx + 1));
           return `
             <div class="interaction-option-item ${isSelected ? 'selected' : ''}" data-opt-id="${escapeHtml(opt.id)}" style="display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; cursor: pointer; background: ${isSelected ? 'rgba(59,130,246,0.12)' : 'var(--bg-tertiary, rgba(255,255,255,0.04))'}; border: 1px solid ${isSelected ? '#3b82f6' : 'transparent'};">
               <span class="interaction-option-radio" style="width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid ${isSelected ? '#3b82f6' : 'var(--text-secondary)'}; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
                 ${isSelected ? '<span style="width: 8px; height: 8px; border-radius: 50%; background: #3b82f6;"></span>' : ''}
               </span>
-              <span class="interaction-option-badge" style="font-size: 11px; font-weight: bold; font-family: monospace; color: ${isSelected ? '#3b82f6' : 'var(--text-secondary)'}; flex-shrink: 0;">[${escapeHtml(opt.id || String(idx + 1))}]</span>
+              <span class="interaction-option-badge" style="font-size: 11px; font-weight: bold; font-family: monospace; color: ${isSelected ? '#3b82f6' : 'var(--text-secondary)'}; flex-shrink: 0;">[${escapeHtml(badge)}]</span>
               <span class="interaction-option-label" style="font-size: 13px; color: ${isSelected ? 'var(--text-primary)' : 'var(--text-secondary)'}; overflow-x: auto; white-space: nowrap; flex: 1; scrollbar-width: none;">${escapeHtml(label)}</span>
             </div>
           `;

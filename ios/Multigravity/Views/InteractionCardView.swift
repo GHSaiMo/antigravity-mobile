@@ -134,8 +134,44 @@ public struct InteractionCardView: View {
         }
     }
     
+    private func displayOptions(for q: InteractionQuestion) -> [InteractionOption] {
+        let hasWriteIn = (q.hasWriteIn == true) && !q.options.contains(where: { $0.id == "__write_in__" || $0.isDeny == true })
+        guard hasWriteIn else { return q.options }
+        let label: String = {
+            if let custom = q.writeInLabel, !custom.isEmpty, custom != "Other" {
+                return custom
+            }
+            return "Write in"
+        }()
+        return q.options + [InteractionOption(id: "__write_in__", text: label)]
+    }
+
+    private var singleDisplayOptions: [InteractionOption] {
+        let hasWriteIn = (interaction.hasWriteIn == true) && !interaction.options.contains(where: { $0.id == "__write_in__" || $0.isDeny == true })
+        guard hasWriteIn else { return interaction.options }
+        let label: String = {
+            if let custom = interaction.writeInLabel, !custom.isEmpty, custom != "Other" {
+                return custom
+            }
+            return "Write in"
+        }()
+        return interaction.options + [InteractionOption(id: "__write_in__", text: label)]
+    }
+
+    private func badgeText(for option: InteractionOption, in options: [InteractionOption], index: Int) -> String {
+        if option.id == "__write_in__" {
+            let nonWriteIn = options.filter { $0.id != "__write_in__" }
+            let isNumeric = !nonWriteIn.isEmpty && nonWriteIn.allSatisfy { Int($0.id) != nil }
+            if isNumeric {
+                return "\(index + 1)"
+            }
+            return "✎"
+        }
+        return option.id
+    }
+
     private var isDenySelected: Bool {
-        if let opt = interaction.options.first(where: { $0.id == selectedOptionId }) {
+        if let opt = singleDisplayOptions.first(where: { $0.id == selectedOptionId }) {
             return opt.isDeny == true || opt.id == "5" || opt.id == "__write_in__"
         }
         return selectedOptionId == "5" || selectedOptionId == "__write_in__"
@@ -143,7 +179,8 @@ public struct InteractionCardView: View {
     
     private func isQuestionDenySelected(qIdx: Int, q: InteractionQuestion) -> Bool {
         let optId = selectedOptionsByQuestion[qIdx] ?? ""
-        if let opt = q.options.first(where: { $0.id == optId }) {
+        let opts = displayOptions(for: q)
+        if let opt = opts.first(where: { $0.id == optId }) {
             return opt.isDeny == true || opt.id == "5" || opt.id == "__write_in__" || opt.id.lowercased() == "other"
         }
         return optId == "5" || optId == "__write_in__" || optId.lowercased() == "other"
@@ -303,6 +340,7 @@ public struct InteractionCardView: View {
     
     @ViewBuilder
     private func multiQuestionSection(qIdx: Int, q: InteractionQuestion) -> some View {
+        let opts = displayOptions(for: q)
         VStack(alignment: .leading, spacing: 7) {
             HStack(alignment: .top, spacing: 6) {
                 Text("Q\(qIdx + 1)")
@@ -322,11 +360,11 @@ public struct InteractionCardView: View {
             }
             
             VStack(spacing: 6) {
-                ForEach(q.options) { option in
+                ForEach(Array(opts.enumerated()), id: \.element.id) { optIdx, option in
                     let isSelected = (selectedOptionsByQuestion[qIdx] ?? q.defaultOptionId ?? "1") == option.id
                     
                     HStack(alignment: .top, spacing: 8) {
-                        Text(option.id)
+                        Text(badgeText(for: option, in: opts, index: optIdx))
                             .font(.system(size: 11, weight: .bold, design: .monospaced))
                             .foregroundColor(isSelected ? .white : .secondary)
                             .frame(width: 20, height: 20)
@@ -387,12 +425,13 @@ public struct InteractionCardView: View {
     
     @ViewBuilder
     private var singleQuestionOptions: some View {
+        let opts = singleDisplayOptions
         VStack(spacing: 6) {
-            ForEach(interaction.options) { option in
+            ForEach(Array(opts.enumerated()), id: \.element.id) { optIdx, option in
                 let isSelected = selectedOptionId == option.id
                 
                 HStack(alignment: .top, spacing: 9) {
-                    Text(option.id)
+                    Text(badgeText(for: option, in: opts, index: optIdx))
                         .font(.system(size: 11, weight: .bold, design: .monospaced))
                         .foregroundColor(isSelected ? .white : .secondary)
                         .frame(width: 20, height: 20)
