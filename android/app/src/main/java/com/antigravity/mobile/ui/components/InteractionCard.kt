@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
@@ -31,10 +32,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -319,6 +323,11 @@ fun InteractionCard(
                         ) {
                             displayOptions.forEachIndexed { optIdx, opt ->
                                 val isSelected = selectedOptionId == opt.id
+                                val isWriteIn = opt.id == "__write_in__" || (interaction.hasWriteIn && (opt.isDeny || opt.id == "5"))
+                                val placeholderText = resolveWriteInPlaceholder(
+                                    interaction.writeInPlaceholder,
+                                    isDeny = opt.isDeny || opt.id == "5"
+                                )
                                 OptionRow(
                                     option = opt,
                                     isSelected = isSelected,
@@ -326,38 +335,13 @@ fun InteractionCard(
                                         haptic.light()
                                         selectedOptionId = opt.id
                                     },
-                                    displayIndex = optIdx
+                                    displayIndex = optIdx,
+                                    isWriteIn = isWriteIn,
+                                    writeInText = singleWriteInText,
+                                    onWriteInChange = { singleWriteInText = it },
+                                    placeholderText = placeholderText
                                 )
                             }
-                        }
-
-                        val selectedOpt = displayOptions.find { it.id == selectedOptionId }
-                        val isDenyOrOther = selectedOpt?.isDeny == true || selectedOptionId == "5" || selectedOptionId == "__write_in__"
-                        AnimatedVisibility(
-                            visible = (interaction.hasWriteIn || isDenyOrOther) && isDenyOrOther,
-                            enter = fadeIn() + expandVertically(),
-                            exit = fadeOut() + shrinkVertically()
-                        ) {
-                            val placeholderText = resolveWriteInPlaceholder(
-                                interaction.writeInPlaceholder,
-                                isDeny = selectedOpt?.isDeny == true || selectedOptionId == "5"
-                            )
-                            OutlinedTextField(
-                                value = singleWriteInText,
-                                onValueChange = { singleWriteInText = it },
-                                placeholder = {
-                                    Text(
-                                        placeholderText,
-                                        fontSize = 12.sp
-                                    )
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 4.dp),
-                                shape = RoundedCornerShape(8.dp),
-                                singleLine = false,
-                                maxLines = 3
-                            )
                         }
                     }
                 }
@@ -476,35 +460,20 @@ private fun QuestionSection(
         // Options for this question
         Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
             displayOptions.forEachIndexed { optIdx, opt ->
+                val isSelected = selectedOptionId == opt.id
+                val isWriteIn = opt.id == "__write_in__" || (question.hasWriteIn && (opt.isDeny || opt.id == "5" || opt.id.equals("other", ignoreCase = true)))
+                val placeholderText = resolveWriteInPlaceholder(question.writeInPlaceholder, isDeny = false)
                 OptionRow(
                     option = opt,
-                    isSelected = selectedOptionId == opt.id,
+                    isSelected = isSelected,
                     onClick = { onSelectOption(opt.id) },
-                    displayIndex = optIdx
+                    displayIndex = optIdx,
+                    isWriteIn = isWriteIn,
+                    writeInText = writeInText,
+                    onWriteInChange = onWriteInChange,
+                    placeholderText = placeholderText
                 )
             }
-        }
-
-        // Inline write-in if deny / other
-        val isDenyOrOther = selectedOptionId == "5" || selectedOptionId == "__write_in__" || selectedOptionId.equals("other", ignoreCase = true)
-        if (question.hasWriteIn && isDenyOrOther) {
-            val placeholderText = resolveWriteInPlaceholder(question.writeInPlaceholder, isDeny = false)
-            OutlinedTextField(
-                value = writeInText,
-                onValueChange = onWriteInChange,
-                placeholder = {
-                    Text(
-                        placeholderText,
-                        fontSize = 11.5.sp
-                    )
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 2.dp),
-                shape = RoundedCornerShape(7.dp),
-                singleLine = false,
-                maxLines = 2
-            )
         }
     }
 }
@@ -514,9 +483,20 @@ private fun OptionRow(
     option: InteractionOption,
     isSelected: Boolean,
     onClick: () -> Unit,
-    displayIndex: Int = -1
+    displayIndex: Int = -1,
+    isWriteIn: Boolean = false,
+    writeInText: String = "",
+    onWriteInChange: (String) -> Unit = {},
+    placeholderText: String = "输入自定义回答..."
 ) {
     val colors = AntigravityTheme.colors
+    val focusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(isSelected, isWriteIn) {
+        if (isSelected && isWriteIn) {
+            focusRequester.requestFocus()
+        }
+    }
 
     Row(
         verticalAlignment = Alignment.Top,
@@ -557,17 +537,47 @@ private fun OptionRow(
             )
         }
 
-        // Multi-line Option Text - Fully visible without horizontal scrolling
-        Text(
-            text = option.text,
-            color = if (isSelected) colors.textPrimary else colors.textSecondary,
-            fontSize = 12.5.sp,
-            fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
-            lineHeight = 17.sp,
-            modifier = Modifier
-                .weight(1f)
-                .padding(vertical = 1.dp)
-        )
+        // Multi-line Option Text or Inline TextField when writeIn is selected
+        if (isWriteIn && isSelected) {
+            BasicTextField(
+                value = writeInText,
+                onValueChange = onWriteInChange,
+                textStyle = TextStyle(
+                    color = colors.textPrimary,
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.Normal,
+                    lineHeight = 17.sp
+                ),
+                cursorBrush = SolidColor(colors.accentBlue),
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(vertical = 1.dp)
+                    .focusRequester(focusRequester),
+                decorationBox = { innerTextField ->
+                    if (writeInText.isEmpty()) {
+                        Text(
+                            text = placeholderText,
+                            color = colors.textSecondary.copy(alpha = 0.7f),
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.Normal,
+                            lineHeight = 17.sp
+                        )
+                    }
+                    innerTextField()
+                }
+            )
+        } else {
+            Text(
+                text = if (isWriteIn && writeInText.isNotBlank()) writeInText else option.text,
+                color = if (isSelected) colors.textPrimary else colors.textSecondary,
+                fontSize = 12.5.sp,
+                fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
+                lineHeight = 17.sp,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(vertical = 1.dp)
+            )
+        }
 
         // Radio indicator
         Box(
