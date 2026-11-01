@@ -10,9 +10,9 @@
 - 🎬 **WebM 录屏视频硬件加速播放与智能容错**：
   - 原生支持 Antigravity Agent 执行浏览器或自动化任务生成的 `.webm` 录屏视频回放。
   - iOS 端深度融合 WebKit 硬件加速渲染与 AVPlayer 双轨容错回退机制，彻底解决移动端解码 WebM 导致的卡顿与黑屏；Android 端依托 ExoPlayer 硬件加速播放。
-- 📷 **VisionKit 智能文稿扫描相机 (Document Scanner)**：
-  - iOS 端接入 Apple 原生 `VNDocumentCameraViewController` 智能文稿扫描。
-  - 自动识别边缘轮廓、透视几何矫正与文档滤波增强，拍摄的代码草稿、设计图纸或纸质发票可一键高清直传给 Agent 进行深度多模态分析。
+- 📷 **智能文稿扫描与拍摄流体验升级 (Document Scanner & Camera Flow)**：
+  - **双端原生边缘识别与矫正**：iOS 端接入 Apple 原生 `VNDocumentCameraViewController` 智能文稿扫描；Android 端自适应接入 Google ML Kit Document Scanner 原生能力，智能识别边缘、自动几何校正、四角吸附微调与滤镜优化，无 GMS 环境安全平滑降级。
+  - **附件流交互优化**：移动端附件选择器将「扫描文稿」入口前置于「相机」前面，更符合移动端拍摄文档与笔记的高频操作动线。拍摄草稿、设计图纸或发票统一高清直传 Agent 深度分析。
 - 🛠️ **已连接 MCP 工具集与技能健康看板 (MCP & Skills Inspector)**：
   - 双端与网关无缝接入 Antigravity 2.28.2 `GetMcpServerStates` 与 `GetAllSkills` 接口，提供全局可视化看板。
   - 实时呈现 MCP 服务的运行健康度（🟢 就绪/🔴 异常/🟡 启动中）、版本、进程命令与说明。
