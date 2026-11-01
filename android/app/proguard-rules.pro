@@ -81,3 +81,13 @@
 # Image Loading: Coil & SVG Decoder
 # ==============================================================================
 -dontwarn coil.**
+
+# ==============================================================================
+# Google Play Services & ML Kit Document Scanner
+# ==============================================================================
+-keep class com.google.android.gms.internal.mlkit_document_scanner.** { *; }
+-keep class com.google.mlkit.vision.documentscanner.** { *; }
+-keep class com.google.mlkit.common.** { *; }
+-keep class com.google.android.gms.common.** { *; }
+-dontwarn com.google.mlkit.**
+-dontwarn com.google.android.gms.**

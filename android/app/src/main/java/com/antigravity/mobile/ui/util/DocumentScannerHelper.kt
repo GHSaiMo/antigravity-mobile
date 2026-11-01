@@ -14,7 +14,12 @@ object DocumentScannerHelper {
     fun isSupported(context: Context): Boolean {
         return try {
             val availability = GoogleApiAvailability.getInstance()
-            availability.isGooglePlayServicesAvailable(context) == ConnectionResult.SUCCESS
+            if (availability.isGooglePlayServicesAvailable(context) != ConnectionResult.SUCCESS) {
+                return false
+            }
+            // Ensure ML Kit Document Scanner classes are present and loaded
+            Class.forName("com.google.mlkit.vision.documentscanner.GmsDocumentScanning")
+            true
         } catch (_: Throwable) {
             false
         }
