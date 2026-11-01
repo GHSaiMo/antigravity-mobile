@@ -1,6 +1,7 @@
 package com.antigravity.mobile.ui.components
 
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -506,7 +507,8 @@ private fun buildQrBitmap(text: String, size: Int = 320): Bitmap? = try {
 
 private fun com.antigravity.mobile.data.model.GatewayMessageItem.hasQuestionContent(): Boolean {
     val (body, files) = com.antigravity.mobile.data.service.AttachmentRules.parseBlock(effectiveText)
-    return body.isNotBlank() || files.isNotEmpty() || !imageUrls.isNullOrEmpty() || effectiveImageDataList.isNotEmpty()
+    val hasImages = !imageUrls?.filter { com.antigravity.mobile.data.service.FileIconResolver.isImage(it) }.isNullOrEmpty() || effectiveImageDataList.isNotEmpty()
+    return body.isNotBlank() || files.isNotEmpty() || hasImages
 }
 
 /** 复刻电脑端的提问样式：图片 / 文件 / 文字整体放进一个带底色的圆角矩形，与下面的回答区分开。 */
@@ -522,12 +524,18 @@ private fun QuestionBubble(
         com.antigravity.mobile.data.service.AttachmentRules.parseBlock(message.effectiveText)
     }
     val imageItems = remember(message, urlResolver) {
-        if (!message.imageUrls.isNullOrEmpty()) {
-            message.imageUrls.mapIndexed { idx, raw ->
+        val validUrls = message.imageUrls?.filter { com.antigravity.mobile.data.service.FileIconResolver.isImage(it) }
+        if (!validUrls.isNullOrEmpty()) {
+            validUrls.mapIndexed { idx, raw ->
                 ImageViewerItem(url = urlResolver?.invoke(raw) ?: raw, bytes = message.effectiveImageDataList.getOrNull(idx))
             }
         } else {
-            message.effectiveImageDataList.map { ImageViewerItem(bytes = it) }
+            message.effectiveImageDataList.mapNotNull { bytes ->
+                try {
+                    val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    if (bmp != null) ImageViewerItem(bytes = bytes, bitmap = bmp) else null
+                } catch (_: Exception) { null }
+            }
         }
     }
 

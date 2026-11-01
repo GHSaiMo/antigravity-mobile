@@ -161,16 +161,22 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 				}
 			}
 
+			var nonImageMediaFiles []string
 			if s.UserInput != nil {
 				if len(s.UserInput.Media) > 0 {
 					for _, m := range s.UserInput.Media {
-						if m.URI != "" {
-							addImageURL(m.URI)
-						}
-						if m.Thumbnail != "" {
-							addMedia(m.Thumbnail)
-						} else if m.InlineData != "" {
-							addMedia(m.InlineData)
+						isImg := isImageMedia(m.URI, m.MimeType) || m.Thumbnail != "" || m.InlineData != ""
+						if isImg {
+							if m.URI != "" && isImageMedia(m.URI, m.MimeType) {
+								addImageURL(m.URI)
+							}
+							if m.Thumbnail != "" {
+								addMedia(m.Thumbnail)
+							} else if m.InlineData != "" {
+								addMedia(m.InlineData)
+							}
+						} else if m.URI != "" {
+							nonImageMediaFiles = append(nonImageMediaFiles, m.URI)
 						}
 					}
 				}
@@ -183,6 +189,28 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 				}
 			}
 
+			// If text does not already contain an attachment block, but non-image media files exist,
+			// synthesize the attachment block so clients parse them as file cards!
+			if len(nonImageMediaFiles) > 0 && !strings.Contains(text, attachmentHeader) {
+				var lines []string
+				lines = append(lines, attachmentHeader)
+				for _, rawURI := range nonImageMediaFiles {
+					filePath := strings.TrimPrefix(rawURI, "file://")
+					base := filepath.Base(filePath)
+					ext := strings.TrimPrefix(strings.ToLower(filepath.Ext(base)), ".")
+					sizeStr := "已上传"
+					if st, err := os.Stat(filePath); err == nil && st.Size() > 0 {
+						sizeStr = humanSize(st.Size())
+					}
+					lines = append(lines, fmt.Sprintf("- %s (%s, %s)", filePath, ext, sizeStr))
+				}
+				if strings.TrimSpace(text) == "" {
+					text = strings.Join(lines, "\n")
+				} else {
+					text = strings.TrimRight(text, "\n") + "\n\n" + strings.Join(lines, "\n")
+				}
+			}
+
 			// Also extract any image URLs or MEDIA: tags from user input text
 			for _, u := range extractImageURLsFromText(text) {
 				addImageURL(u)
@@ -191,7 +219,7 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 			trimmed := strings.TrimSpace(text)
 			isSystemApproval := strings.HasPrefix(trimmed, "Comments on artifact URI:") || strings.Contains(trimmed, "The user has approved this document")
 
-			if (trimmed != "" && !isSystemApproval) || len(mediaList) > 0 || len(userImageURLs) > 0 {
+			if (trimmed != "" && !isSystemApproval) || len(mediaList) > 0 || len(userImageURLs) > 0 || len(nonImageMediaFiles) > 0 {
 				stepIdx := idx
 				allMessages = append(allMessages, CascadeMessageItem{
 					ID:        fmt.Sprintf("step-%d", idx),

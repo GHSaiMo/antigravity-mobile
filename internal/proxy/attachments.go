@@ -485,56 +485,44 @@ func applyAttachmentsToMessage(rawMap map[string]interface{}) (bool, error) {
 		rawMap["media"] = mediaList
 	}
 
-	if len(largeAtts) > 0 {
-		block := formatAttachmentBlock(largeAtts)
-		appendBlock := func(s string) string {
-			if strings.TrimSpace(s) == "" {
-				return block
-			}
-			return strings.TrimRight(s, "\n") + "\n\n" + block
+	block := formatAttachmentBlock(atts)
+	appendBlock := func(s string) string {
+		if strings.TrimSpace(s) == "" {
+			return block
 		}
+		return strings.TrimRight(s, "\n") + "\n\n" + block
+	}
 
-		handled := false
-		if items, ok := rawMap["items"].([]interface{}); ok && len(items) > 0 {
-			// 文本块并入第一个「文本条目」；斜杠命令等 scope 条目（带 item 字段）不能同时再带 text。
-			for _, it := range items {
-				m, ok := it.(map[string]interface{})
-				if !ok {
-					continue
-				}
-				if _, isScopeItem := m["item"]; isScopeItem {
-					continue
-				}
-				if t, ok := m["text"].(string); ok || m["text"] == nil {
-					m["text"] = appendBlock(t)
-					handled = true
-				}
-				break
+	handled := false
+	if items, ok := rawMap["items"].([]interface{}); ok && len(items) > 0 {
+		// 文本块并入第一个「文本条目」；斜杠命令等 scope 条目（带 item 字段）不能同时再带 text。
+		for _, it := range items {
+			m, ok := it.(map[string]interface{})
+			if !ok {
+				continue
 			}
-			if !handled {
-				// 只有 scope 条目（例如单独一个斜杠命令）：补一个文本条目承载附件块
-				rawMap["items"] = append(items, map[string]interface{}{"text": block})
+			if _, isScopeItem := m["item"]; isScopeItem {
+				continue
+			}
+			if t, ok := m["text"].(string); ok || m["text"] == nil {
+				m["text"] = appendBlock(t)
 				handled = true
 			}
-		}
-		if t, ok := rawMap["text"].(string); ok {
-			rawMap["text"] = appendBlock(t)
-			handled = true
+			break
 		}
 		if !handled {
-			rawMap["items"] = []interface{}{map[string]interface{}{"text": block}}
-			rawMap["text"] = block
+			// 只有 scope 条目（例如单独一个斜杠命令）：补一个文本条目承载附件块
+			rawMap["items"] = append(items, map[string]interface{}{"text": block})
+			handled = true
 		}
-	} else if len(smallAtts) > 0 {
-		if items, ok := rawMap["items"].([]interface{}); !ok || len(items) == 0 {
-			txt := ""
-			if t, ok := rawMap["text"].(string); ok {
-				txt = t
-			} else {
-				rawMap["text"] = ""
-			}
-			rawMap["items"] = []interface{}{map[string]interface{}{"text": txt}}
-		}
+	}
+	if t, ok := rawMap["text"].(string); ok {
+		rawMap["text"] = appendBlock(t)
+		handled = true
+	}
+	if !handled {
+		rawMap["items"] = []interface{}{map[string]interface{}{"text": block}}
+		rawMap["text"] = block
 	}
 	return true, nil
 }

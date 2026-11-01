@@ -529,7 +529,7 @@ func extractQueuedMessageMedia(pam upstreamAgentMessage) ([]string, []string) {
 	}
 	addImageURL := func(u string) {
 		u = strings.TrimSpace(u)
-		if u != "" && !seenURL[u] {
+		if u != "" && isImageMedia(u, "") && !seenURL[u] {
 			seenURL[u] = true
 			imageURLs = append(imageURLs, u)
 		}

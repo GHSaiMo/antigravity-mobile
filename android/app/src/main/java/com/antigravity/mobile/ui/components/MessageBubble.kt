@@ -58,6 +58,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.text.style.TextOverflow
 import com.antigravity.mobile.data.service.AttachmentRules
+import com.antigravity.mobile.data.service.FileIconResolver
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -317,21 +318,31 @@ fun MessageBubble(
         if (isUser) {
             // Consolidated attached user images (aligning with iOS / Web: use imageUrls as primary with bytes as thumbnail, fallback to bytes)
             val allUserImages = remember(message, urlResolver) {
-                if (!message.imageUrls.isNullOrEmpty()) {
-                    val list = message.imageUrls.mapIndexed { idx, rawUrl ->
+                val validImageUrls = message.imageUrls?.filter { FileIconResolver.isImage(it) }
+                if (!validImageUrls.isNullOrEmpty()) {
+                    val list = validImageUrls.mapIndexed { idx, rawUrl ->
                         val resolvedUrl = urlResolver?.invoke(rawUrl) ?: rawUrl
                         val bytes = message.effectiveImageDataList.getOrNull(idx)
                         ImageViewerItem(url = resolvedUrl, bytes = bytes)
                     }.toMutableList()
-                    if (message.effectiveImageDataList.size > message.imageUrls.size) {
-                        for (i in message.imageUrls.size until message.effectiveImageDataList.size) {
-                            list.add(ImageViewerItem(bytes = message.effectiveImageDataList[i]))
+                    if (message.effectiveImageDataList.size > validImageUrls.size) {
+                        for (i in validImageUrls.size until message.effectiveImageDataList.size) {
+                            val bytes = message.effectiveImageDataList[i]
+                            val bmp = try {
+                                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                            } catch (_: Exception) { null }
+                            if (bmp != null) {
+                                list.add(ImageViewerItem(bytes = bytes, bitmap = bmp))
+                            }
                         }
                     }
                     list
                 } else {
-                    message.effectiveImageDataList.map { bytes ->
-                        ImageViewerItem(bytes = bytes)
+                    message.effectiveImageDataList.mapNotNull { bytes ->
+                        try {
+                            val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                            if (bmp != null) ImageViewerItem(bytes = bytes, bitmap = bmp) else null
+                        } catch (_: Exception) { null }
                     }
                 }
             }

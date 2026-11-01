@@ -182,9 +182,9 @@ func TestApplySmallAttachmentUsesNativeMedia(t *testing.T) {
 	if _, still := msg["attachments"]; still {
 		t.Error("attachments key must be removed before forwarding")
 	}
-	// Small files (<= 20MB) are passed as native media items, keeping prompt text clean
-	if gotText := msg["text"].(string); gotText != "看看这个" {
-		t.Errorf("prompt text should remain clean for native media, got: %q", gotText)
+	// Small files (<= 20MB) are passed as native media items AND retain attachment block in prompt text
+	if gotText := msg["text"].(string); !strings.HasPrefix(gotText, "看看这个\n\n"+attachmentHeader) || !strings.Contains(gotText, a.Path) {
+		t.Errorf("prompt text should include attachment block, got: %q", gotText)
 	}
 	media, ok := msg["media"].([]interface{})
 	if !ok || len(media) != 1 {
@@ -340,5 +340,37 @@ func TestCleanupInbox(t *testing.T) {
 	}
 	if _, err := os.Stat(b.Path); err != nil {
 		t.Error("fresh file must remain")
+	}
+}
+
+func TestBuildTrajectoryMessages_NonImageMediaDoesNotBecomeImageURL(t *testing.T) {
+	step := TrajectoryStep{
+		Type: "CORTEX_STEP_TYPE_USER_INPUT",
+		UserInput: &TrajectoryUserInput{
+			UserResponse: "请分析这段录音",
+			Media: []TrajectoryMediaItem{
+				{
+					URI:      "file:///path/to/record.m4a",
+					MimeType: "audio/x-m4a",
+				},
+				{
+					URI:      "https://example.com/photo.png",
+					MimeType: "image/png",
+				},
+			},
+		},
+	}
+	msgs, _ := buildTrajectoryMessages([]TrajectoryStep{step})
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(msgs))
+	}
+	msg := msgs[0]
+	// ImageURLs must ONLY contain the image, NOT the m4a audio!
+	if len(msg.ImageURLs) != 1 || msg.ImageURLs[0] != "https://example.com/photo.png" {
+		t.Errorf("expected ImageURLs to only contain photo.png, got %+v", msg.ImageURLs)
+	}
+	// The text must contain the attachment block for record.m4a
+	if !strings.Contains(msg.Text, attachmentHeader) || !strings.Contains(msg.Text, "record.m4a") {
+		t.Errorf("expected Text to contain synthesized attachment block for record.m4a, got %q", msg.Text)
 	}
 }

@@ -61,6 +61,8 @@
 	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>Multigravity 需要使用相机扫描配对二维码以及拍照发送图片</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Multigravity 需要访问麦克风以录制语音指令并发送给 Agent</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Multigravity 需要访问局域网以直连电脑网关并同步会话</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>

@@ -117,6 +117,8 @@ import com.antigravity.mobile.ui.viewmodel.addAttachmentsFromUris
 import com.antigravity.mobile.ui.viewmodel.consumeAttachmentNotice
 import com.antigravity.mobile.ui.components.AttachmentPickerSheet
 import com.antigravity.mobile.ui.components.AttachmentFileChip
+import com.antigravity.mobile.ui.components.AudioRecordingCard
+import com.antigravity.mobile.ui.util.AudioRecorderManager
 import com.antigravity.mobile.ui.viewmodel.requestUndo
 import com.antigravity.mobile.ui.viewmodel.retryLoadMessages
 import com.antigravity.mobile.ui.viewmodel.saveDraftFor
@@ -371,6 +373,42 @@ fun ChatScreen(
         } catch (t: Throwable) {
             android.util.Log.e("ChatScreen", "初始化文档扫描异常", t)
             android.widget.Toast.makeText(context, "当前设备暂不支持原生文档扫描", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val audioRecorder = remember { AudioRecorderManager(context) }
+    val isRecordingAudio by audioRecorder.isRecording.collectAsState()
+    val audioPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            showAttachmentSheet = false
+            val success = audioRecorder.startRecording()
+            if (!success) {
+                android.widget.Toast.makeText(context, "无法启动录音", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            android.widget.Toast.makeText(context, "需要麦克风权限以录制音频", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+    val launchAudioRecording: () -> Unit = {
+        if (androidx.core.content.ContextCompat.checkSelfPermission(
+                context, android.Manifest.permission.RECORD_AUDIO
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            showAttachmentSheet = false
+            val success = audioRecorder.startRecording()
+            if (!success) {
+                android.widget.Toast.makeText(context, "无法启动录音", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            audioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            audioRecorder.cancelRecording()
         }
     }
 
@@ -940,13 +978,14 @@ fun ChatScreen(
                 }
             }
 
-            // Floating Cards (RunningTasksCard, QueuedMessagesCard, InteractionCard) 对齐 iOS floatingCards
+            // Floating Cards (RunningTasksCard, QueuedMessagesCard, InteractionCard, AudioRecordingCard) 对齐 iOS floatingCards
             // 底部只放仍在运行的子代理（方便随时关停）；已结束的留在消息流里的内联卡片中，不占底部位置
             val runningSubagents = uiState.subagents.filter { it.isRunning }
             val hasFloatingCards = uiState.runningTasks.isNotEmpty() ||
                     runningSubagents.isNotEmpty() ||
                     uiState.queuedMessages.isNotEmpty() ||
-                    uiState.pendingInteraction != null
+                    uiState.pendingInteraction != null ||
+                    isRecordingAudio
 
             if (hasFloatingCards) {
                 Column(
@@ -956,6 +995,21 @@ fun ChatScreen(
                         .padding(bottom = 6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
+                    if (isRecordingAudio) {
+                        AudioRecordingCard(
+                            recorder = audioRecorder,
+                            onCancel = {
+                                audioRecorder.cancelRecording()
+                            },
+                            onDone = {
+                                val uri = audioRecorder.stopRecording()
+                                if (uri != null) {
+                                    viewModel.addAttachmentsFromUris(context, listOf(uri))
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
 
                     if (uiState.runningTasks.isNotEmpty()) {
                         RunningTasksCard(
@@ -1361,6 +1415,7 @@ fun ChatScreen(
             },
             isDocumentScannerSupported = isDocumentScannerSupported,
             onScanDocument = launchDocumentScanner,
+            onRecordAudio = launchAudioRecording,
             onOpenCamera = {
                 if (androidx.core.content.ContextCompat.checkSelfPermission(
                         context, android.Manifest.permission.CAMERA

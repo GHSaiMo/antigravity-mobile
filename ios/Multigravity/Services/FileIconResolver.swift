@@ -1087,4 +1087,19 @@ public enum FileIconResolver {
 
         return nil
     }
+
+    private static let imageExtensionsSet: Set<String> = [
+        "png", "jpg", "jpeg", "webp", "gif", "heic", "heif", "bmp", "svg", "ico", "tiff", "tif"
+    ]
+
+    /// Checks whether a given path, URL or filename represents an image format.
+    public static func isImage(for pathOrName: String) -> Bool {
+        var str = pathOrName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !str.isEmpty else { return false }
+        str = str.trimmingCharacters(in: CharacterSet(charactersIn: "`'\""))
+        if let hashIdx = str.firstIndex(of: "#") { str = String(str[..<hashIdx]) }
+        if let queryIdx = str.firstIndex(of: "?") { str = String(str[..<queryIdx]) }
+        let ext = (str as NSString).pathExtension.lowercased()
+        return imageExtensionsSet.contains(ext)
+    }
 }

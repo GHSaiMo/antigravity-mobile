@@ -43,7 +43,9 @@ extension APIClient {
                     
                     let resolvedImageUrls: [String] = {
                         let rawList = item.imageUrls ?? []
-                        return rawList.map { self.resolveMediaURL($0, baseURL: baseURL) }
+                        return rawList
+                            .filter { FileIconResolver.isImage(for: $0) }
+                            .map { self.resolveMediaURL($0, baseURL: baseURL) }
                     }()
                     
                     return ChatMessage(
@@ -167,15 +169,22 @@ extension APIClient {
                 
                 var images: [Data] = []
                 var imageUrls: [String] = []
+                var nonImageMediaFiles: [String] = []
                 if let mediaList = step.userInput?.media {
                     for media in mediaList {
                         if let u = media.uri, !u.isEmpty {
-                            imageUrls.append(resolveMediaURL(u, baseURL: baseURL))
+                            if FileIconResolver.isImage(for: u) {
+                                imageUrls.append(resolveMediaURL(u, baseURL: baseURL))
+                            } else {
+                                nonImageMediaFiles.append(u)
+                            }
                         }
                         if let thumb = media.thumbnail, !thumb.isEmpty, let data = Data(base64Encoded: thumb) {
                             images.append(data)
                         } else if let inline = media.inlineData, !inline.isEmpty, let data = Data(base64Encoded: inline) {
-                            images.append(data)
+                            if media.mimeType?.lowercased().hasPrefix("image/") != false {
+                                images.append(data)
+                            }
                         }
                     }
                 }
@@ -187,18 +196,41 @@ extension APIClient {
                     }
                 }
                 
-                for u in extractImageURLs(from: text) {
+                var effectiveText = text
+                if !nonImageMediaFiles.isEmpty && !effectiveText.contains(AttachmentRules.blockHeader) {
+                    var lines: [String] = [AttachmentRules.blockHeader]
+                    for rawURI in nonImageMediaFiles {
+                        let path = rawURI.hasPrefix("file://") ? String(rawURI.dropFirst(7)) : rawURI
+                        let ext = (path as NSString).pathExtension.lowercased()
+                        let sizeStr: String = {
+                            if let attr = try? FileManager.default.attributesOfItem(atPath: path), let s = attr[.size] as? Int64, s > 0 {
+                                return formatFileSize(s)
+                            }
+                            return "已上传"
+                        }()
+                        lines.append("- \(path) (\(ext), \(sizeStr))")
+                    }
+                    if effectiveText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        effectiveText = lines.joined(separator: "\n")
+                    } else {
+                        var base = effectiveText
+                        while base.hasSuffix("\n") { base.removeLast() }
+                        effectiveText = base + "\n\n" + lines.joined(separator: "\n")
+                    }
+                }
+                
+                for u in extractImageURLs(from: effectiveText) {
                     let resolved = resolveMediaURL(u, baseURL: baseURL)
                     if !imageUrls.contains(resolved) {
                         imageUrls.append(resolved)
                     }
                 }
                 
-                if (!trimmed.isEmpty && !isSystemApproval) || !images.isEmpty || !imageUrls.isEmpty {
+                if (!trimmed.isEmpty && !isSystemApproval) || !images.isEmpty || !imageUrls.isEmpty || !nonImageMediaFiles.isEmpty {
                     messages.append(ChatMessage(
                         id: "step-\(idx)",
                         sender: .user,
-                        content: text,
+                        content: effectiveText,
                         imageDataList: images,
                         imageUrls: imageUrls,
                         stepIndex: idx

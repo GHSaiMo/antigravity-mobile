@@ -39,6 +39,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.DocumentScanner
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -141,6 +142,7 @@ fun AttachmentPickerSheet(
     onPhotosPicked: (List<Uri>) -> Unit,
     isDocumentScannerSupported: Boolean = false,
     onScanDocument: () -> Unit = {},
+    onRecordAudio: () -> Unit = {},
     onOpenCamera: () -> Unit,
     onPickFiles: () -> Unit
 ) {
@@ -245,33 +247,58 @@ fun AttachmentPickerSheet(
                             }
                         }
                     }
+                    item(key = "record") {
+                        TileFrame(
+                            modifier = Modifier
+                                .background(colors.surfaceVariant)
+                                .clickable {
+                                    haptic.light()
+                                    onRecordAudio()
+                                }
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxSize(),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Mic,
+                                    contentDescription = "录音",
+                                    tint = colors.textPrimary,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text("录音", color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                            }
+                        }
+                    }
                     if (isDocumentScannerSupported) {
                         item(key = "document_scanner") {
                             TileFrame(
                                 modifier = Modifier
-                                    .background(colors.surfaceVariant)
-                                    .clickable {
-                                        haptic.light()
-                                        onScanDocument()
-                                    }
-                            ) {
-                                Column(
-                                    modifier = Modifier.fillMaxSize(),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.DocumentScanner,
-                                        contentDescription = "扫描文稿",
-                                        tint = colors.textPrimary,
-                                        modifier = Modifier.size(28.dp)
-                                    )
-                                    Spacer(Modifier.height(4.dp))
-                                    Text("扫描文稿", color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                .background(colors.surfaceVariant)
+                                .clickable {
+                                    haptic.light()
+                                    onScanDocument()
                                 }
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxSize(),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.DocumentScanner,
+                                    contentDescription = "文稿",
+                                    tint = colors.textPrimary,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text("文稿", color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                             }
                         }
                     }
+                }
                     item(key = "camera") {
                         TileFrame(
                             modifier = Modifier
