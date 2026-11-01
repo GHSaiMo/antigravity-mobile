@@ -164,6 +164,14 @@ extension ChatView {
         }
     }
     
+    func handleAudioRecordAction() {
+        audioRecorder.startRecording { granted in
+            if !granted {
+                showMicrophonePermissionAlert = true
+            }
+        }
+    }
+    
     func insertCommitAndPush() {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         let toAppend = "Commit and Push"

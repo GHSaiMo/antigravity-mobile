@@ -160,6 +160,7 @@ struct AttachmentPickerSheet: View {
     let remainingImageSlots: Int
     /// Called with the selected photos (in selection order); the sheet dismisses itself first.
     let onPhotosPicked: ([PHAsset]) -> Void
+    let onOpenAudioRecorder: () -> Void
     let onOpenCamera: () -> Void
     let onOpenDocumentScanner: () -> Void
     let onFilesPicked: ([URL]) -> Void
@@ -203,6 +204,7 @@ struct AttachmentPickerSheet: View {
                 }
                 LazyVGrid(columns: columns, spacing: 6) {
                     fileTile
+                    recordAudioTile
                     if VNDocumentCameraViewController.isSupported {
                         documentScannerTile
                     }
@@ -284,6 +286,28 @@ struct AttachmentPickerSheet: View {
         .buttonStyle(.plain)
     }
     
+    private var recordAudioTile: some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            dismiss()
+            onOpenAudioRecorder()
+        } label: {
+            VStack(spacing: 4) {
+                Image(systemName: "mic")
+                    .font(.system(size: 26, weight: .regular))
+                    .frame(height: 32)
+                Text("录音")
+                    .font(.system(size: 13, weight: .medium))
+            }
+            .foregroundColor(.primary)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(uiColor: .secondarySystemBackground))
+            .aspectRatio(1, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+    
     private var documentScannerTile: some View {
         Button {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -294,7 +318,7 @@ struct AttachmentPickerSheet: View {
                 Image(systemName: "doc.viewfinder")
                     .font(.system(size: 26, weight: .regular))
                     .frame(height: 32)
-                Text("扫描文稿")
+                Text("文稿")
                     .font(.system(size: 13, weight: .medium))
             }
             .foregroundColor(.primary)

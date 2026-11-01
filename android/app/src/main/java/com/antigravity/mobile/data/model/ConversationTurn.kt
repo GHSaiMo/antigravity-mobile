@@ -62,7 +62,9 @@ object ConversationTurnBuilder {
 
             val summary: String = run {
                 if (userMsg != null) {
-                    val clean = userMsg.effectiveText.trim()
+                    val (userBody, attachedFiles) = com.antigravity.mobile.data.service.AttachmentRules.parseBlock(userMsg.effectiveText)
+                    val clean = userBody.trim()
+                    val validImageUrls = userMsg.imageUrls?.filter { com.antigravity.mobile.data.service.FileIconResolver.isImage(it) }
                     if (clean.isNotEmpty()) {
                         val lines = clean.lines()
                             .map { it.trim() }
@@ -73,8 +75,15 @@ object ConversationTurnBuilder {
                         } else {
                             combined
                         }
-                    } else if (userMsg.effectiveImageDataList.isNotEmpty() || !userMsg.imageUrls.isNullOrEmpty()) {
-                        val count = maxOf(userMsg.effectiveImageDataList.size, userMsg.imageUrls?.size ?: 0)
+                    } else if (attachedFiles.isNotEmpty()) {
+                        val firstFile = attachedFiles.first().name
+                        if (attachedFiles.size == 1) {
+                            "[附件: $firstFile]"
+                        } else {
+                            "[附件: $firstFile 等 ${attachedFiles.size} 个文件]"
+                        }
+                    } else if (userMsg.effectiveImageDataList.isNotEmpty() || !validImageUrls.isNullOrEmpty()) {
+                        val count = maxOf(userMsg.effectiveImageDataList.size, validImageUrls?.size ?: 0)
                         "[包含 $count 张图片]"
                     } else {
                         "用户消息"

@@ -58,6 +58,21 @@ extension ChatView {
             .transition(.move(edge: .bottom).combined(with: .opacity))
         }
         
+        if audioRecorder.isRecording {
+            AudioRecordingCardView(
+                recorder: audioRecorder,
+                onCancel: {
+                    audioRecorder.cancelRecording()
+                },
+                onDone: {
+                    if let fileURL = audioRecorder.stopRecording() {
+                        viewModel.addFiles(from: [fileURL])
+                    }
+                }
+            )
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+        
         if let interaction = viewModel.pendingInteraction {
             InteractionCardView(
                 interaction: interaction,
@@ -129,12 +144,13 @@ extension ChatView {
             return fn.isEmpty ? "文档详情" : fn
         }()
         
-        // 1. Images, Presentations, Videos & Office documents (PNG, JPG, MP4, MOV, PPTX, PPT, KEY, DOCX, XLSX, PDF, HTML, etc.)
+        // 1. Images, Presentations, Videos, Audio & Office documents (PNG, JPG, MP4, MOV, M4A, MP3, PPTX, PPT, KEY, DOCX, XLSX, PDF, HTML, etc.)
         let isHTML = lower.hasSuffix(".html") || lower.hasSuffix(".htm") || pathLower.hasSuffix(".html") || pathLower.hasSuffix(".htm")
         let documentExtensions = [".pptx", ".ppt", ".key", ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".numbers", ".pages", ".html", ".htm", ".txt", ".csv", ".json", ".log"]
         let imageExtensions = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".heic", ".heif", ".bmp", ".svg", ".ico", ".tiff", ".tif"]
         let videoExtensions = [".mp4", ".mov", ".m4v", ".webm", ".avi", ".mkv", ".3gp", ".ts", ".flv"]
-        let allPreviewExtensions = documentExtensions + imageExtensions + videoExtensions
+        let audioExtensions = [".m4a", ".mp3", ".wav", ".aac", ".caf", ".flac", ".ogg", ".wma"]
+        let allPreviewExtensions = documentExtensions + imageExtensions + videoExtensions + audioExtensions
         
         let uriLower = (uriParam ?? "").lowercased()
         let isPreviewableFile = allPreviewExtensions.contains { ext in

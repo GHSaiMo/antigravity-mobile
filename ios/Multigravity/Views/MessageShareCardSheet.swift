@@ -123,8 +123,9 @@ struct ShareCardQuestion {
 extension ChatMessage {
     /// 用户消息里的图片附件（优先 imageUrls，缩略图来自 imageDataList）。
     var attachmentImages: [IdentifiableImage] {
-        if !imageUrls.isEmpty {
-            return imageUrls.enumerated().compactMap { idx, urlString in
+        let validImageUrls = imageUrls.filter { FileIconResolver.isImage(for: $0) }
+        if !validImageUrls.isEmpty {
+            return validImageUrls.enumerated().compactMap { idx, urlString in
                 guard let url = URL(string: urlString) else { return nil }
                 let thumb = idx < imageDataList.count ? UIImage(data: imageDataList[idx]) : nil
                 return IdentifiableImage(image: thumb, url: url)

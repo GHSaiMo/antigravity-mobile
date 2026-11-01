@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -54,6 +55,24 @@ func extractImageURLsFromText(text string) []string {
 		}
 	}
 	return imgURLs
+}
+
+// isImageMedia determines whether a given URI or mimeType represents an image file.
+func isImageMedia(uri, mimeType string) bool {
+	mimeType = strings.ToLower(strings.TrimSpace(mimeType))
+	if strings.HasPrefix(mimeType, "image/") {
+		return true
+	}
+	clean := strings.ToLower(strings.TrimSpace(uri))
+	if i := strings.IndexAny(clean, "?#"); i >= 0 {
+		clean = clean[:i]
+	}
+	ext := filepath.Ext(clean)
+	switch ext {
+	case ".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg", ".bmp", ".heic", ".heif", ".ico", ".tiff", ".tif":
+		return true
+	}
+	return false
 }
 
 func isArtifactApproval(status interface{}) bool {

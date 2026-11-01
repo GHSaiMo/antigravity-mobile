@@ -26,6 +26,8 @@ public struct ChatView: View {
     @State var showDocumentScanner = false
     @State var showCameraUnavailableAlert = false
     @State var showCameraPermissionAlert = false
+    @State var showMicrophonePermissionAlert = false
+    @StateObject var audioRecorder = AudioRecorderManager()
     @State var previewDraftGallery: ImageGalleryData? = nil
     @State var showAttachmentSheet = false
     @State var showNavigatorSheet = false
@@ -279,6 +281,9 @@ public struct ChatView: View {
             AttachmentPickerSheet(
                 remainingImageSlots: max(0, 5 - viewModel.selectedImageData.count),
                 onPhotosPicked: { assets in handlePickedAssets(assets) },
+                onOpenAudioRecorder: {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { handleAudioRecordAction() }
+                },
                 onOpenCamera: {
                     // Wait for the sheet to finish dismissing before presenting the camera.
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { handleCameraAction() }
@@ -425,6 +430,16 @@ public struct ChatView: View {
             Button("取消", role: .cancel) {}
         } message: {
             Text("请在系统设置中允许 Multigravity 访问相机以拍照。")
+        }
+        .alert("需要麦克风权限", isPresented: $showMicrophonePermissionAlert) {
+            Button("前往设置") {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("请在系统设置中允许 Multigravity 访问麦克风以录制语音。")
         }
     }
 }

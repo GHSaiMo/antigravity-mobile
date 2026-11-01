@@ -38,7 +38,37 @@ object FileIconResolver {
         ".mp4", ".mov", ".m4v", ".webm", ".avi", ".mkv", ".3gp", ".ts", ".flv"
     )
 
-    private val allPreviewExtensions = documentExtensions + imageExtensions + videoExtensions
+    private val audioExtensions = listOf(
+        ".m4a", ".mp3", ".wav", ".aac", ".caf", ".flac", ".ogg", ".wma"
+    )
+
+    private val allPreviewExtensions = documentExtensions + imageExtensions + videoExtensions + audioExtensions
+
+    /**
+     * Checks whether a file path or URL represents an image format.
+     */
+    fun isImage(pathOrName: String): Boolean {
+        var str = pathOrName.trim().trim('`', '\'', '"')
+        if (str.isEmpty()) return false
+        if (str.contains('#')) str = str.substringBefore('#')
+        if (str.contains('?')) str = str.substringBefore('?')
+        str = str.replace(lineSuffixRegex, "").trim()
+        val lower = str.lowercase()
+        return imageExtensions.any { ext -> lower.endsWith(ext) }
+    }
+
+    /**
+     * Checks whether a file path or URL represents an audio format.
+     */
+    fun isAudio(pathOrName: String): Boolean {
+        var str = pathOrName.trim().trim('`', '\'', '"')
+        if (str.isEmpty()) return false
+        if (str.contains('#')) str = str.substringBefore('#')
+        if (str.contains('?')) str = str.substringBefore('?')
+        str = str.replace(lineSuffixRegex, "").trim()
+        val lower = str.lowercase()
+        return audioExtensions.any { ext -> lower.endsWith(ext) }
+    }
 
     /**
      * Checks whether a file path or URL represents a previewable binary document, image, or video

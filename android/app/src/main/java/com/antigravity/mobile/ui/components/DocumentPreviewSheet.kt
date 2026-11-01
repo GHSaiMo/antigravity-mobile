@@ -197,7 +197,7 @@ fun DocumentPreviewSheet(
                     "png", "jpg", "jpeg", "webp", "gif" -> {
                         ImageDocumentViewer(file = file, colors = colors)
                     }
-                    "mp4", "mov", "m4v", "webm", "3gp", "mkv", "avi" -> {
+                    "mp4", "mov", "m4v", "webm", "3gp", "mkv", "avi", "m4a", "mp3", "wav", "aac", "caf", "flac", "ogg", "wma" -> {
                         VideoDocumentViewer(file = file, colors = colors)
                     }
                     "html", "htm" -> {
@@ -482,41 +482,60 @@ private fun VideoDocumentViewer(file: File, colors: AppColors) {
             },
         contentAlignment = Alignment.Center
     ) {
-        // Video Surface
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(aspectRatio)
-                .clip(RectangleShape)
-        ) {
-            AndroidView(
-                factory = { ctx ->
-                    TextureView(ctx).apply {
-                        surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                            override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
-                                val s = Surface(surface)
-                                currentSurface = s
-                                mediaPlayerRef?.setSurface(s)
+        // Media Surface or Audio Artwork
+        if (videoWidth > 0 && videoHeight > 0) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(aspectRatio)
+                    .clip(RectangleShape)
+            ) {
+                AndroidView(
+                    factory = { ctx ->
+                        TextureView(ctx).apply {
+                            surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                                override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
+                                    val s = Surface(surface)
+                                    currentSurface = s
+                                    mediaPlayerRef?.setSurface(s)
+                                }
+                                override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {}
+                                override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
+                                    currentSurface?.release()
+                                    currentSurface = null
+                                    mediaPlayerRef?.setSurface(null)
+                                    return true
+                                }
+                                override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
                             }
-                            override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {}
-                            override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
-                                currentSurface?.release()
-                                currentSurface = null
-                                mediaPlayerRef?.setSurface(null)
-                                return true
-                            }
-                            override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
                         }
-                    }
-                },
-                update = { textureView ->
-                    if (textureView.isAvailable && textureView.surfaceTexture != null) {
-                        val s = currentSurface ?: Surface(textureView.surfaceTexture).also { currentSurface = it }
-                        mediaPlayerRef?.setSurface(s)
-                    }
-                },
-                modifier = Modifier.fillMaxSize()
-            )
+                    },
+                    update = { textureView ->
+                        if (textureView.isAvailable && textureView.surfaceTexture != null) {
+                            val s = currentSurface ?: Surface(textureView.surfaceTexture).also { currentSurface = it }
+                            mediaPlayerRef?.setSurface(s)
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        } else {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+                modifier = Modifier.padding(32.dp)
+            ) {
+                FileTypeBadge(fileName = file.name, size = 64.dp)
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = file.name,
+                    color = Color.White,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
 
         // Overlay Controls
