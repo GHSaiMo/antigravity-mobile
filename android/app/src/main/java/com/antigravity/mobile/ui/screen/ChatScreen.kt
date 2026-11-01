@@ -328,40 +328,49 @@ fun ChatScreen(
     val documentScannerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartIntentSenderForResult()
     ) { activityResult ->
-        if (activityResult.resultCode == android.app.Activity.RESULT_OK) {
-            val result = GmsDocumentScanningResult.fromActivityResultIntent(activityResult.data)
-            val pageUris = result?.pages?.mapNotNull { it.imageUri } ?: emptyList()
-            if (pageUris.isNotEmpty()) {
-                showAttachmentSheet = false
-                viewModel.addImagesFromUris(context, pageUris)
+        try {
+            if (activityResult.resultCode == android.app.Activity.RESULT_OK) {
+                val result = GmsDocumentScanningResult.fromActivityResultIntent(activityResult.data)
+                val pageUris = result?.pages?.mapNotNull { it.imageUri } ?: emptyList()
+                if (pageUris.isNotEmpty()) {
+                    showAttachmentSheet = false
+                    viewModel.addImagesFromUris(context, pageUris)
+                }
             }
+        } catch (t: Throwable) {
+            android.util.Log.e("ChatScreen", "解析文档扫描结果异常", t)
         }
     }
     val launchDocumentScanner: () -> Unit = {
-        val activity = DocumentScannerHelper.findActivity(context)
-        if (activity != null) {
-            val remainingSlots = (9 - uiState.selectedImages.size).coerceIn(1, 9)
-            val options = GmsDocumentScannerOptions.Builder()
-                .setGalleryImportAllowed(false)
-                .setPageLimit(remainingSlots)
-                .setResultFormats(GmsDocumentScannerOptions.RESULT_FORMAT_JPEG)
-                .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_FULL)
-                .build()
-            val scanner = GmsDocumentScanning.getClient(options)
-            scanner.getStartScanIntent(activity)
-                .addOnSuccessListener { intentSender ->
-                    try {
-                        val request = IntentSenderRequest.Builder(intentSender).build()
-                        documentScannerLauncher.launch(request)
-                    } catch (e: Exception) {
-                        android.widget.Toast.makeText(context, "无法启动文档扫描", android.widget.Toast.LENGTH_SHORT).show()
+        try {
+            val activity = DocumentScannerHelper.findActivity(context)
+            if (activity != null) {
+                val remainingSlots = (9 - uiState.selectedImages.size).coerceIn(1, 9)
+                val options = GmsDocumentScannerOptions.Builder()
+                    .setGalleryImportAllowed(false)
+                    .setPageLimit(remainingSlots)
+                    .setResultFormats(GmsDocumentScannerOptions.RESULT_FORMAT_JPEG)
+                    .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_FULL)
+                    .build()
+                val scanner = GmsDocumentScanning.getClient(options)
+                scanner.getStartScanIntent(activity)
+                    .addOnSuccessListener { intentSender ->
+                        try {
+                            val request = IntentSenderRequest.Builder(intentSender).build()
+                            documentScannerLauncher.launch(request)
+                        } catch (e: Exception) {
+                            android.widget.Toast.makeText(context, "无法启动文档扫描", android.widget.Toast.LENGTH_SHORT).show()
+                        }
                     }
-                }
-                .addOnFailureListener { e ->
-                    android.widget.Toast.makeText(context, "启动文档扫描失败: ${e.localizedMessage ?: "服务不可用"}", android.widget.Toast.LENGTH_SHORT).show()
-                }
-        } else {
-            android.widget.Toast.makeText(context, "无法获取界面上下文", android.widget.Toast.LENGTH_SHORT).show()
+                    .addOnFailureListener { e ->
+                        android.widget.Toast.makeText(context, "启动文档扫描失败: ${e.localizedMessage ?: "服务不可用"}", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+            } else {
+                android.widget.Toast.makeText(context, "无法获取界面上下文", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        } catch (t: Throwable) {
+            android.util.Log.e("ChatScreen", "初始化文档扫描异常", t)
+            android.widget.Toast.makeText(context, "当前设备暂不支持原生文档扫描", android.widget.Toast.LENGTH_SHORT).show()
         }
     }
 
