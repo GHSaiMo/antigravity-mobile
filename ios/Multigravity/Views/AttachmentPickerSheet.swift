@@ -203,10 +203,10 @@ struct AttachmentPickerSheet: View {
                 }
                 LazyVGrid(columns: columns, spacing: 6) {
                     fileTile
-                    cameraTile
                     if VNDocumentCameraViewController.isSupported {
                         documentScannerTile
                     }
+                    cameraTile
                     if !photos.hasAccess {
                         permissionTile
                     }
@@ -284,28 +284,6 @@ struct AttachmentPickerSheet: View {
         .buttonStyle(.plain)
     }
     
-    private var cameraTile: some View {
-        Button {
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            dismiss()
-            onOpenCamera()
-        } label: {
-            VStack(spacing: 4) {
-                Image(systemName: "camera")
-                    .font(.system(size: 26, weight: .regular))
-                    .frame(height: 32)
-                Text("相机")
-                    .font(.system(size: 13, weight: .medium))
-            }
-            .foregroundColor(.primary)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(uiColor: .secondarySystemBackground))
-            .aspectRatio(1, contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        }
-        .buttonStyle(.plain)
-    }
-    
     private var documentScannerTile: some View {
         Button {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -317,6 +295,28 @@ struct AttachmentPickerSheet: View {
                     .font(.system(size: 26, weight: .regular))
                     .frame(height: 32)
                 Text("扫描文稿")
+                    .font(.system(size: 13, weight: .medium))
+            }
+            .foregroundColor(.primary)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(uiColor: .secondarySystemBackground))
+            .aspectRatio(1, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+    
+    private var cameraTile: some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            dismiss()
+            onOpenCamera()
+        } label: {
+            VStack(spacing: 4) {
+                Image(systemName: "camera")
+                    .font(.system(size: 26, weight: .regular))
+                    .frame(height: 32)
+                Text("相机")
                     .font(.system(size: 13, weight: .medium))
             }
             .foregroundColor(.primary)
