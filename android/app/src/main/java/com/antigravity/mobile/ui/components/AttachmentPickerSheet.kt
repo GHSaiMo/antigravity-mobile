@@ -38,6 +38,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.DocumentScanner
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -138,6 +139,8 @@ fun AttachmentPickerSheet(
     remainingImageSlots: Int,
     onDismiss: () -> Unit,
     onPhotosPicked: (List<Uri>) -> Unit,
+    isDocumentScannerSupported: Boolean = false,
+    onScanDocument: () -> Unit = {},
     onOpenCamera: () -> Unit,
     onPickFiles: () -> Unit
 ) {
@@ -239,6 +242,33 @@ fun AttachmentPickerSheet(
                                 )
                                 Spacer(Modifier.height(4.dp))
                                 Text("文件", color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                            }
+                        }
+                    }
+                    if (isDocumentScannerSupported) {
+                        item(key = "document_scanner") {
+                            TileFrame(
+                                modifier = Modifier
+                                    .background(colors.surfaceVariant)
+                                    .clickable {
+                                        haptic.light()
+                                        onScanDocument()
+                                    }
+                            ) {
+                                Column(
+                                    modifier = Modifier.fillMaxSize(),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.DocumentScanner,
+                                        contentDescription = "扫描文稿",
+                                        tint = colors.textPrimary,
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+                                    Text("扫描文稿", color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                }
                             }
                         }
                     }

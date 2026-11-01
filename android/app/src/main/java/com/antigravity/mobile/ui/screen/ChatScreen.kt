@@ -6,6 +6,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -45,6 +46,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import android.net.Uri
 import com.antigravity.mobile.ui.util.rememberHaptic
+import com.antigravity.mobile.ui.util.DocumentScannerHelper
+import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
@@ -318,6 +323,47 @@ fun ChatScreen(
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted -> if (granted) launchCamera() }
+
+    val isDocumentScannerSupported = remember(context) { DocumentScannerHelper.isSupported(context) }
+    val documentScannerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { activityResult ->
+        if (activityResult.resultCode == android.app.Activity.RESULT_OK) {
+            val result = GmsDocumentScanningResult.fromActivityResultIntent(activityResult.data)
+            val pageUris = result?.pages?.mapNotNull { it.imageUri } ?: emptyList()
+            if (pageUris.isNotEmpty()) {
+                showAttachmentSheet = false
+                viewModel.addImagesFromUris(context, pageUris)
+            }
+        }
+    }
+    val launchDocumentScanner: () -> Unit = {
+        val activity = DocumentScannerHelper.findActivity(context)
+        if (activity != null) {
+            val remainingSlots = (9 - uiState.selectedImages.size).coerceIn(1, 9)
+            val options = GmsDocumentScannerOptions.Builder()
+                .setGalleryImportAllowed(false)
+                .setPageLimit(remainingSlots)
+                .setResultFormats(GmsDocumentScannerOptions.RESULT_FORMAT_JPEG)
+                .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_FULL)
+                .build()
+            val scanner = GmsDocumentScanning.getClient(options)
+            scanner.getStartScanIntent(activity)
+                .addOnSuccessListener { intentSender ->
+                    try {
+                        val request = IntentSenderRequest.Builder(intentSender).build()
+                        documentScannerLauncher.launch(request)
+                    } catch (e: Exception) {
+                        android.widget.Toast.makeText(context, "无法启动文档扫描", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }
+                .addOnFailureListener { e ->
+                    android.widget.Toast.makeText(context, "启动文档扫描失败: ${e.localizedMessage ?: "服务不可用"}", android.widget.Toast.LENGTH_SHORT).show()
+                }
+        } else {
+            android.widget.Toast.makeText(context, "无法获取界面上下文", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
 
     LaunchedEffect(uiState.attachmentNotice) {
         uiState.attachmentNotice?.let {
@@ -1304,6 +1350,8 @@ fun ChatScreen(
                 showAttachmentSheet = false
                 viewModel.addImagesFromUris(context, uris)
             },
+            isDocumentScannerSupported = isDocumentScannerSupported,
+            onScanDocument = launchDocumentScanner,
             onOpenCamera = {
                 if (androidx.core.content.ContextCompat.checkSelfPermission(
                         context, android.Manifest.permission.CAMERA

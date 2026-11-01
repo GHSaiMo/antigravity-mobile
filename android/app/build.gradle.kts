@@ -110,6 +110,9 @@ dependencies {
     // QR Code Scanning (ZXing embedded, zero-GMS dependency)
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
 
+    // ML Kit Document Scanner (Dynamic Google Play Services capability)
+    implementation("com.google.android.gms:play-services-mlkit-document-scanner:16.0.0")
+
     // Push Notifications (Firebase Cloud Messaging)
     implementation("com.google.firebase:firebase-messaging:23.4.1")
 
