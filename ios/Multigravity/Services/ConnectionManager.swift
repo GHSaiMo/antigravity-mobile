@@ -257,7 +257,7 @@ public final class ConnectionManager {
         
         // 3. Primary Cloud (Cloudflare tunnel HTTPS - ultimate fallback)
         if selected == nil, let cloud = settings.primaryCloudURL?.trimmingCharacters(in: .whitespacesAndNewlines), !cloud.isEmpty {
-            let isLan = NetworkTransport.isLocalOrPrivateHost(cloud)
+            let isLan = NetworkTransport.isLanOnlyHost(cloud)
             if !isCellularNow || !isLan {
                 let cleanCloud = cloud.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
                 selected = reachable.first(where: { $0.urlString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) == cleanCloud })?.urlString ?? cloud
