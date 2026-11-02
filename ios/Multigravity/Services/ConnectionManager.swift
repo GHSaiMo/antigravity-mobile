@@ -157,7 +157,7 @@ public final class ConnectionManager {
         
         let custom = settings.customServerURL?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let custom = custom, !custom.isEmpty {
-            let isLan = NetworkTransport.isLocalOrPrivateHost(custom)
+            let isLan = NetworkTransport.isLanOnlyHost(custom)
             if !isCellularNow || !isLan {
                 endpointsToTest.append(custom)
             }
@@ -165,14 +165,14 @@ public final class ConnectionManager {
         
         let cloud = settings.primaryCloudURL?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let cloud = cloud, !cloud.isEmpty {
-            let isLan = NetworkTransport.isLocalOrPrivateHost(cloud)
+            let isLan = NetworkTransport.isLanOnlyHost(cloud)
             if !isCellularNow || !isLan {
                 endpointsToTest.append(cloud)
             }
         }
-        
+
         if endpointsToTest.isEmpty, !settings.rawServerURL.isEmpty {
-            let isLan = NetworkTransport.isLocalOrPrivateHost(settings.rawServerURL)
+            let isLan = NetworkTransport.isLanOnlyHost(settings.rawServerURL)
             if !isCellularNow || !isLan {
                 endpointsToTest.append(settings.rawServerURL)
             }
@@ -246,9 +246,9 @@ public final class ConnectionManager {
             }
         }
         
-        // 2. Custom (if configured and reachable, and not LAN on cellular)
+        // 2. Custom (if configured and reachable; LAN-only hosts skipped on cellular, Tailscale allowed)
         if selected == nil, let custom = custom, !custom.isEmpty {
-            let isLan = NetworkTransport.isLocalOrPrivateHost(custom)
+            let isLan = NetworkTransport.isLanOnlyHost(custom)
             let cleanCustom = custom.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             if (!isCellularNow || !isLan) && reachable.contains(where: { $0.urlString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) == cleanCustom }) {
                 selected = custom
