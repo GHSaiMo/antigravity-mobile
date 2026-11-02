@@ -115,8 +115,8 @@ public final class NetworkTransport: Sendable {
                 return true
             }
         }
-        // Tailscale CGNAT range (100.64.0.0/10) or any Tailscale virtual node
-        if clean.hasPrefix("100.") || clean.hasSuffix(".ts.net") {
+        // Tailscale CGNAT range (100.64.0.0/10) or any Tailscale virtual node (*.ts.net)
+        if isTailscaleHost(clean) {
             return true
         }
         return false
@@ -130,8 +130,11 @@ public final class NetworkTransport: Sendable {
         if clean.hasSuffix(".ts.net") { return true }
         // Tailscale CGNAT range 100.64.0.0/10
         let parts = clean.split(separator: ".")
-        if parts.count == 4, let first = Int(parts[0]), first == 100,
-           let second = Int(parts[1]), second >= 64, second <= 127 {
+        if parts.count == 4,
+           let first = Int(parts[0]), first == 100,
+           let second = Int(parts[1]), second >= 64, second <= 127,
+           let third = Int(parts[2]), third >= 0, third <= 255,
+           let fourth = Int(parts[3]), fourth >= 0, fourth <= 255 {
             return true
         }
         return false
@@ -185,12 +188,12 @@ public final class NetworkTransport: Sendable {
         return (data, decorateResponse(response, url: req.url))
     }
     
-    /// ATS blocks cleartext HTTP to public hosts (NSAllowsArbitraryLoads is false).
-    /// Cloud HTTP relays must still work, so those go through Network.framework.
+    /// ATS blocks cleartext HTTP to non-LAN hosts (NSAllowsLocalNetworking only exempts RFC1918/loopback/.local).
+    /// Tailscale (100.64.0.0/10, *.ts.net) and public relays must use Network.framework NWConnection to bypass ATS.
     nonisolated public static func requiresCleartextATSBypass(_ url: URL?) -> Bool {
         guard let url, url.scheme?.lowercased() == "http" else { return false }
         let host = (url.host ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-        return !isLocalOrPrivateHost(host)
+        return !isLanOnlyHost(host)
     }
     
     // MARK: - Accelerated Connection Pool

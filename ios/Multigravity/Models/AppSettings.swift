@@ -212,8 +212,8 @@ public final class AppSettings {
         }
         let clean = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
         
-        let isLAN = NetworkTransport.isLocalOrPrivateHost(clean)
-        let isTailscale = clean.hasPrefix("100.") || clean.contains("ts.net")
+        let isLAN = NetworkTransport.isLanOnlyHost(clean)
+        let isTailscale = NetworkTransport.isTailscaleHost(clean)
         
         if isLAN {
             return "Wi-Fi 局域网直连"
@@ -228,31 +228,7 @@ public final class AppSettings {
     
     /// HTTP is allowed only for loopback, RFC1918, Tailscale CGNAT (100.x), and .local.
     public static func allowsCleartextHTTP(_ hostPort: String) -> Bool {
-        var host = hostPort.lowercased()
-        if host.hasPrefix("[") {
-            if let end = host.firstIndex(of: "]") {
-                host = String(host[host.index(after: host.startIndex)..<end])
-            }
-        } else if let colon = host.lastIndex(of: ":"),
-                  host[colon...].dropFirst().allSatisfy({ $0.isNumber }) {
-            host = String(host[..<colon])
-        }
-        if host == "localhost" || host == "127.0.0.1" {
-            return true
-        }
-        if host.hasSuffix(".local") {
-            return true
-        }
-        if host.hasPrefix("192.168.") || host.hasPrefix("10.") || host.hasPrefix("100.") {
-            return true
-        }
-        if host.hasPrefix("172.") {
-            let parts = host.split(separator: ".")
-            if parts.count >= 2, let second = Int(parts[1]), (16...31).contains(second) {
-                return true
-            }
-        }
-        return false
+        NetworkTransport.isLocalOrPrivateHost(hostPort)
     }
     
     public static func normalize(raw: String) -> URL? {
@@ -302,7 +278,7 @@ public final class AppSettings {
             
             // Priority 3: Primary Cloudflare HTTPS Domain (default fallback on cellular)
             if let cloud = primaryCloudURL, let url = Self.normalize(raw: cloud) {
-                if !NetworkTransport.isLanOnlyHost(url.absoluteString) {
+                if !NetworkTransport.isLanOnlyHost(url.host ?? "") {
                     return url
                 }
             }
