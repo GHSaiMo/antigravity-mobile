@@ -122,6 +122,27 @@ public final class NetworkTransport: Sendable {
         return false
     }
 
+    /// Tailscale virtual IPs / MagicDNS hosts: reachable from ANY network (Wi-Fi or cellular)
+    /// because the WireGuard tunnel stays up across interface changes.
+    nonisolated public static func isTailscaleHost(_ host: String) -> Bool {
+        let clean = extractHost(from: host)
+        if clean.isEmpty { return false }
+        if clean.hasSuffix(".ts.net") { return true }
+        // Tailscale CGNAT range 100.64.0.0/10
+        let parts = clean.split(separator: ".")
+        if parts.count == 4, let first = Int(parts[0]), first == 100,
+           let second = Int(parts[1]), second >= 64, second <= 127 {
+            return true
+        }
+        return false
+    }
+
+    /// Hosts reachable ONLY on the same physical LAN (RFC1918 / loopback / .local),
+    /// excluding Tailscale virtual addresses which work on cellular too.
+    nonisolated public static func isLanOnlyHost(_ host: String) -> Bool {
+        isLocalOrPrivateHost(host) && !isTailscaleHost(host)
+    }
+
     /// Determines whether a request mutates server state and must never be silently retried on timeout/failure
     nonisolated public static func isNonIdempotentRequest(method: String, path: String) -> Bool {
         let m = method.uppercased()

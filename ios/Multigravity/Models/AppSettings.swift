@@ -284,31 +284,32 @@ public final class AppSettings {
         let isCell = NetworkStatus.shared.isCellular || !NetworkStatus.shared.isWifi
         
         if isCell {
-            // Cellular mode: Strictly avoid LAN addresses (192.168.x.x, 10.x.x.x, etc.) to prevent timeouts
-            // Priority 1: Dynamic activeServerURL (if established and not LAN)
+            // Cellular mode: Strictly avoid LAN-only addresses (192.168.x.x, 10.x.x.x, etc.) to prevent timeouts.
+            // Tailscale virtual IPs (100.64/10, *.ts.net) are allowed: the WireGuard tunnel works on cellular.
+            // Priority 1: Dynamic activeServerURL (if established and not LAN-only)
             if let active = activeServerURL, let url = Self.normalize(raw: active) {
-                if !NetworkTransport.isLocalOrPrivateHost(url.host ?? "") {
+                if !NetworkTransport.isLanOnlyHost(url.host ?? "") {
                     return url
                 }
             }
             
-            // Priority 2: Custom (if configured and not LAN)
+            // Priority 2: Custom (if configured and not LAN-only)
             if let custom = customServerURL, let url = Self.normalize(raw: custom) {
-                if !NetworkTransport.isLocalOrPrivateHost(url.host ?? "") {
+                if !NetworkTransport.isLanOnlyHost(url.host ?? "") {
                     return url
                 }
             }
             
             // Priority 3: Primary Cloudflare HTTPS Domain (default fallback on cellular)
             if let cloud = primaryCloudURL, let url = Self.normalize(raw: cloud) {
-                if !NetworkTransport.isLocalOrPrivateHost(url.absoluteString) {
+                if !NetworkTransport.isLanOnlyHost(url.absoluteString) {
                     return url
                 }
             }
             
-            // Priority 4: rawServerURL only if not LAN
+            // Priority 4: rawServerURL only if not LAN-only
             if let raw = Self.normalize(raw: rawServerURL) {
-                if !NetworkTransport.isLocalOrPrivateHost(raw.host ?? "") {
+                if !NetworkTransport.isLanOnlyHost(raw.host ?? "") {
                     return raw
                 }
             }
