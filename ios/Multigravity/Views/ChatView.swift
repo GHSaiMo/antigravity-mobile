@@ -27,7 +27,8 @@ public struct ChatView: View {
     @State var showCameraUnavailableAlert = false
     @State var showCameraPermissionAlert = false
     @State var showMicrophonePermissionAlert = false
-    @StateObject var audioRecorder = AudioRecorderManager()
+    @State var showOtherSessionRecordingAlert = false
+    @ObservedObject var audioRecorder = AudioRecorderManager.shared
     @State var previewDraftGallery: ImageGalleryData? = nil
     @State var showAttachmentSheet = false
     @State var showNavigatorSheet = false
@@ -215,6 +216,7 @@ public struct ChatView: View {
             }
             viewModel.restoreDraftsIfNeeded()
             consumeSharedFiles()
+            checkPendingLiveRecording()
             if shouldAutoFocus && viewModel.pendingInteraction == nil {
                 scheduleAutoFocus(delay: 0.45)
             }
@@ -256,6 +258,26 @@ public struct ChatView: View {
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
             viewModel.saveCurrentDraft()
             viewModel.handleAppBackground()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .audioRecordingDidFinishFromLiveActivity)) { notif in
+            guard let userInfo = notif.userInfo,
+                  let targetCascadeId = userInfo["cascadeId"] as? String,
+                  targetCascadeId == viewModel.draftKey,
+                  let fileURL = userInfo["url"] as? URL else { return }
+            
+            audioRecorder.pendingLiveRecording = nil
+            let sendImmediately = userInfo["sendImmediately"] as? Bool ?? false
+            viewModel.addFiles(from: [fileURL])
+            viewModel.saveCurrentDraft()
+            if sendImmediately {
+                Task {
+                    for _ in 0..<100 {
+                        if viewModel.selectedFiles.allSatisfy({ $0.isUploaded }) { break }
+                        try? await Task.sleep(nanoseconds: 100_000_000)
+                    }
+                    handleSend()
+                }
+            }
         }
         .onDisappear {
             isViewAppeared = false
@@ -440,6 +462,34 @@ public struct ChatView: View {
             Button("取消", role: .cancel) {}
         } message: {
             Text("请在系统设置中允许 Multigravity 访问麦克风以录制语音。")
+        }
+        .alert("已有会话正在录音", isPresented: $showOtherSessionRecordingAlert) {
+            Button("前往该会话") {
+                let targetId = audioRecorder.currentCascadeId
+                if !targetId.isEmpty, let url = URL(string: "antigravity://cascade/\(targetId)") {
+                    UIApplication.shared.open(url)
+                }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("当前已有另一个会话正在使用麦克风录音，请先结束该录音后再开启新录音。")
+        }
+    }
+    
+    private func checkPendingLiveRecording() {
+        if let pending = audioRecorder.pendingLiveRecording, pending.cascadeId == viewModel.draftKey {
+            audioRecorder.pendingLiveRecording = nil
+            viewModel.addFiles(from: [pending.url])
+            viewModel.saveCurrentDraft()
+            if pending.sendImmediately {
+                Task {
+                    for _ in 0..<100 {
+                        if viewModel.selectedFiles.allSatisfy({ $0.isUploaded }) { break }
+                        try? await Task.sleep(nanoseconds: 100_000_000)
+                    }
+                    handleSend()
+                }
+            }
         }
     }
 }

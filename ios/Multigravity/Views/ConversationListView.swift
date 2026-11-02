@@ -25,6 +25,7 @@ public struct ConversationListView: View {
     @State private var renameText = ""
     @State private var showRenameAlert = false
     @State private var draftsVersion: Int = 0
+    @ObservedObject private var audioRecorder = AudioRecorderManager.shared
     @State private var pendingPairing: PairingInfo?
     @State private var showPairingConfirm = false
     @State private var pairingErrorMessage: String?
@@ -811,6 +812,28 @@ public struct ConversationListView: View {
             return
         }
         
+        // Handle recording action deep link (e.g. from Dynamic Island / Lock Screen Live Activity)
+        if url.host == "recording" {
+            let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            let action = components?.queryItems?.first(where: { $0.name == "action" })?.value ?? "stop"
+            let cascadeId = components?.queryItems?.first(where: { $0.name == "cascadeId" })?.value ?? ""
+            let sendImmediately = (action == "send")
+            
+            _ = AudioRecorderManager.shared.finishRecordingFromLiveActivity(
+                sendImmediately: sendImmediately,
+                targetCascadeId: cascadeId
+            )
+            
+            if !cascadeId.isEmpty && navigationPath.last?.id != cascadeId {
+                if let item = viewModel.conversations.first(where: { $0.id == cascadeId }) {
+                    navigationPath = [item]
+                } else if let draft = CacheManager.shared.getLocalDraftSession(id: cascadeId)?.toConversationItem() {
+                    navigationPath = [draft]
+                }
+            }
+            return
+        }
+        
         let cascadeId: String
         if url.host == "cascade" {
             cascadeId = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
@@ -837,6 +860,8 @@ public struct ConversationListView: View {
         let targetItem: ConversationItem
         if let existing = viewModel.conversations.first(where: { $0.id == cascadeId }) {
             targetItem = existing
+        } else if let draft = CacheManager.shared.getLocalDraftSession(id: cascadeId)?.toConversationItem() {
+            targetItem = draft
         } else if let cached = CacheManager.shared.loadConversations().first(where: { $0.id == cascadeId }) {
             targetItem = cached
         } else {
@@ -858,6 +883,7 @@ public struct ConversationListView: View {
     private func conversationCard(for item: ConversationItem) -> some View {
         let _ = draftsVersion
         let hasDraft = item.isDraft || CacheManager.shared.hasDraft(for: item.id)
+        let isRecording = audioRecorder.isRecording && audioRecorder.currentCascadeId == item.id
         
         let indent = CGFloat(min(item.nestingDepth, 3) * 14)
         
@@ -919,6 +945,19 @@ public struct ConversationListView: View {
                     .padding(.horizontal, 7)
                     .padding(.vertical, 3)
                     .background(Color.green.opacity(0.15))
+                    .cornerRadius(6)
+                } else if isRecording {
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(Color.red)
+                            .frame(width: 6, height: 6)
+                        Text("录音中")
+                    }
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(.red)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(Color.red.opacity(0.15))
                     .cornerRadius(6)
                 } else if hasDraft {
                     Text("DRAFT")

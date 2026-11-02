@@ -4,19 +4,22 @@ public struct AudioRecordingCardView: View {
     @ObservedObject var recorder: AudioRecorderManager
     let onCancel: () -> Void
     let onDone: () -> Void
+    var onSend: (() -> Void)? = nil
     
     public init(
         recorder: AudioRecorderManager,
         onCancel: @escaping () -> Void,
-        onDone: @escaping () -> Void
+        onDone: @escaping () -> Void,
+        onSend: (() -> Void)? = nil
     ) {
         self.recorder = recorder
         self.onCancel = onCancel
         self.onDone = onDone
+        self.onSend = onSend
     }
     
     public var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             // Recording status & timer
             HStack(spacing: 6) {
                 Circle()
@@ -27,10 +30,10 @@ public struct AudioRecordingCardView: View {
                     .font(.system(size: 13, weight: .semibold, design: .monospaced))
                     .foregroundColor(.primary)
             }
-            .frame(width: 64, alignment: .leading)
+            .frame(width: 60, alignment: .leading)
             
             // Audio dynamic waveform bars
-            HStack(spacing: 2.5) {
+            HStack(spacing: 2) {
                 ForEach(0..<recorder.soundLevels.count, id: \.self) { index in
                     let level = recorder.soundLevels[index]
                     RoundedRectangle(cornerRadius: 1.5)
@@ -43,16 +46,16 @@ public struct AudioRecordingCardView: View {
             .frame(height: 28)
             
             // Control buttons
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 // Cancel (Trash)
                 Button {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     onCancel()
                 } label: {
                     Image(systemName: "trash")
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundColor(.secondary)
-                        .frame(width: 30, height: 30)
+                        .frame(width: 28, height: 28)
                         .background(Color(uiColor: .tertiarySystemFill))
                         .clipShape(Circle())
                 }
@@ -64,27 +67,43 @@ public struct AudioRecordingCardView: View {
                     recorder.togglePause()
                 } label: {
                     Image(systemName: recorder.isPaused ? "play.fill" : "pause.fill")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(.primary)
-                        .frame(width: 30, height: 30)
+                        .frame(width: 28, height: 28)
                         .background(Color(uiColor: .tertiarySystemFill))
                         .clipShape(Circle())
                 }
                 .buttonStyle(.plain)
                 
-                // Done (Checkmark)
+                // Done (Checkmark - Save to draft)
                 Button {
                     UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                     onDone()
                 } label: {
                     Image(systemName: "checkmark")
-                        .font(.system(size: 14, weight: .bold))
+                        .font(.system(size: 13, weight: .bold))
                         .foregroundColor(.white)
-                        .frame(width: 30, height: 30)
-                        .background(Color.indigo)
+                        .frame(width: 28, height: 28)
+                        .background(Color.secondary.opacity(0.6))
                         .clipShape(Circle())
                 }
                 .buttonStyle(.plain)
+                
+                // Send immediately (Arrow up - Stop & Send)
+                if let onSend = onSend {
+                    Button {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        onSend()
+                    } label: {
+                        Image(systemName: "arrow.up")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(.white)
+                            .frame(width: 28, height: 28)
+                            .background(Color.indigo)
+                            .clipShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
         .padding(.horizontal, 14)

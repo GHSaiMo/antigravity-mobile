@@ -165,9 +165,19 @@ extension ChatView {
     }
     
     func handleAudioRecordAction() {
-        audioRecorder.startRecording { granted in
+        let currentKey = viewModel.draftKey
+        if audioRecorder.isRecording && audioRecorder.currentCascadeId != currentKey {
+            showOtherSessionRecordingAlert = true
+            return
+        }
+        audioRecorder.startRecording(
+            cascadeId: currentKey,
+            conversationTitle: viewModel.currentTitle
+        ) { granted in
             if !granted {
                 showMicrophonePermissionAlert = true
+            } else {
+                viewModel.saveCurrentDraft()
             }
         }
     }
