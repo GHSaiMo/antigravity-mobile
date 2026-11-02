@@ -482,12 +482,18 @@ public struct LocalDraftSession: Codable, Sendable, Identifiable, Hashable {
         let trimmed = draftText.trimmingCharacters(in: .whitespacesAndNewlines)
         let firstLine = trimmed.components(separatedBy: .newlines).first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let hasImages = !draftImages.isEmpty || CacheManager.shared.hasDraftImages(for: id)
+        let hasFiles = DraftFileStore.shared.hasFiles(for: id)
+        let isRecording = AudioRecorderManager.shared.isRecording && AudioRecorderManager.shared.currentCascadeId == id
         let isPure = project.isPureChat
         let displayTitle: String
         if !firstLine.isEmpty {
             displayTitle = firstLine
+        } else if isRecording {
+            displayTitle = isPure ? "[录音中] 新对话" : "[录音中] \(project.name)"
         } else if hasImages {
             displayTitle = isPure ? "[图片] 新对话" : "[图片] \(project.name)"
+        } else if hasFiles {
+            displayTitle = isPure ? "[文件] 新对话" : "[文件] \(project.name)"
         } else {
             displayTitle = isPure ? "新对话" : project.name
         }

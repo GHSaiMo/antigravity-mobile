@@ -753,7 +753,11 @@ public final class CacheManager: @unchecked Sendable {
     }
     
     public func hasDraft(for key: String) -> Bool {
-        return !getDraft(for: key).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || hasDraftImages(for: key) || DraftFileStore.shared.hasFiles(for: key)
+        let hasText = !getDraft(for: key).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasImgs = hasDraftImages(for: key)
+        let hasFiles = DraftFileStore.shared.hasFiles(for: key)
+        let isRecording = AudioRecorderManager.shared.isRecording && AudioRecorderManager.shared.currentCascadeId == key
+        return hasText || hasImgs || hasFiles || isRecording
     }
     
     public func saveDraft(key: String, text: String) {
@@ -1058,7 +1062,9 @@ public final class CacheManager: @unchecked Sendable {
         ensureLocalDraftSessionsLoaded()
         let trimmed = session.draftText.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasImages = !session.draftImages.isEmpty || hasDraftImages(for: session.id)
-        if trimmed.isEmpty && !hasImages {
+        let hasFiles = DraftFileStore.shared.hasFiles(for: session.id)
+        let isRecording = AudioRecorderManager.shared.isRecording && AudioRecorderManager.shared.currentCascadeId == session.id
+        if trimmed.isEmpty && !hasImages && !hasFiles && !isRecording {
             memLocalDraftSessions?.removeValue(forKey: session.id)
         } else {
             var toSave = session
@@ -1093,7 +1099,9 @@ public final class CacheManager: @unchecked Sendable {
         return dict.values.filter { session in
             let text = memDrafts[session.id] ?? UserDefaults.standard.string(forKey: "ag_draft_\(session.id)") ?? session.draftText
             let hasImages = !session.draftImages.isEmpty || hasDraftImages(for: session.id)
-            return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || hasImages
+            let hasFiles = DraftFileStore.shared.hasFiles(for: session.id)
+            let isRecording = AudioRecorderManager.shared.isRecording && AudioRecorderManager.shared.currentCascadeId == session.id
+            return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || hasImages || hasFiles || isRecording
         }.sorted { $0.updatedAt > $1.updatedAt }
     }
     

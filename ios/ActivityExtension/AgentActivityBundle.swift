@@ -5,5 +5,6 @@ import WidgetKit
 struct AgentActivityBundle: WidgetBundle {
     var body: some Widget {
         AgentActivityWidget()
+        AudioRecordingActivityWidget()
     }
 }

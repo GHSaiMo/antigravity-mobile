@@ -245,4 +245,93 @@ public final class ActivityManager {
             }
         }
     }
+    
+    // MARK: - Audio Recording Live Activity
+    
+    private var _recordingActivity: Activity<AudioRecordingActivityAttributes>?
+    
+    public var currentRecordingActivity: Activity<AudioRecordingActivityAttributes>? {
+        if let act = _recordingActivity, act.activityState == .active {
+            return act
+        }
+        let active = Activity<AudioRecordingActivityAttributes>.activities.first(where: { $0.activityState == .active })
+        _recordingActivity = active
+        return active
+    }
+    
+    public func startRecordingActivity(
+        cascadeId: String,
+        title: String,
+        startDate: Date = Date()
+    ) {
+        guard isLiveActivityEnabled else { return }
+        cleanUpRecordingActivities()
+        
+        let attributes = AudioRecordingActivityAttributes(cascadeId: cascadeId)
+        let initialContentState = AudioRecordingActivityAttributes.ContentState(
+            recordingStartDate: startDate,
+            isPaused: false,
+            pausedDuration: 0,
+            conversationTitle: title,
+            cascadeId: cascadeId
+        )
+        
+        do {
+            let activity = try Activity.request(
+                attributes: attributes,
+                content: .init(state: initialContentState, staleDate: nil, relevanceScore: 100.0)
+            )
+            self._recordingActivity = activity
+        } catch {
+            print("[LiveActivity] Failed to start recording activity: \(error)")
+        }
+    }
+    
+    public func updateRecordingActivity(
+        isPaused: Bool,
+        pausedDuration: TimeInterval,
+        title: String? = nil
+    ) {
+        guard let activity = currentRecordingActivity, activity.activityState == .active else { return }
+        
+        let startDate: Date
+        if isPaused {
+            startDate = activity.content.state.recordingStartDate
+        } else {
+            startDate = Date().addingTimeInterval(-pausedDuration)
+        }
+        
+        let resolvedTitle = title ?? activity.content.state.conversationTitle
+        let updatedState = AudioRecordingActivityAttributes.ContentState(
+            recordingStartDate: startDate,
+            isPaused: isPaused,
+            pausedDuration: pausedDuration,
+            conversationTitle: resolvedTitle,
+            cascadeId: activity.attributes.cascadeId
+        )
+        
+        Task {
+            await activity.update(.init(state: updatedState, staleDate: nil, relevanceScore: 100.0))
+        }
+    }
+    
+    public func endRecordingActivity() {
+        let activeActivities = Activity<AudioRecordingActivityAttributes>.activities.filter { $0.activityState == .active }
+        self._recordingActivity = nil
+        for activity in activeActivities {
+            Task {
+                await activity.end(nil, dismissalPolicy: .immediate)
+            }
+        }
+    }
+    
+    public func cleanUpRecordingActivities() {
+        let activeActivities = Activity<AudioRecordingActivityAttributes>.activities.filter { $0.activityState == .active }
+        for activity in activeActivities {
+            Task {
+                await activity.end(nil, dismissalPolicy: .immediate)
+            }
+        }
+        self._recordingActivity = nil
+    }
 }

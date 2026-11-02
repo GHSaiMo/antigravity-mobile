@@ -58,15 +58,30 @@ extension ChatView {
             .transition(.move(edge: .bottom).combined(with: .opacity))
         }
         
-        if audioRecorder.isRecording {
+        if audioRecorder.isRecording && audioRecorder.currentCascadeId == viewModel.draftKey {
             AudioRecordingCardView(
                 recorder: audioRecorder,
                 onCancel: {
                     audioRecorder.cancelRecording()
+                    viewModel.saveCurrentDraft()
                 },
                 onDone: {
                     if let fileURL = audioRecorder.stopRecording() {
                         viewModel.addFiles(from: [fileURL])
+                        viewModel.saveCurrentDraft()
+                    }
+                },
+                onSend: {
+                    if let fileURL = audioRecorder.stopRecording() {
+                        viewModel.addFiles(from: [fileURL])
+                        viewModel.saveCurrentDraft()
+                        Task {
+                            for _ in 0..<100 {
+                                if viewModel.selectedFiles.allSatisfy({ $0.isUploaded }) { break }
+                                try? await Task.sleep(nanoseconds: 100_000_000)
+                            }
+                            handleSend()
+                        }
                     }
                 }
             )
