@@ -37,11 +37,6 @@ public struct McpSkillsSheet: View {
                 .padding(.top, 10)
                 .padding(.bottom, 8)
                 
-                // Summary bar
-                summaryHeader
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 8)
-                
                 // Content
                 if isLoading && mcpServers.isEmpty && skills.isEmpty {
                     Spacer()
@@ -68,14 +63,6 @@ public struct McpSkillsSheet: View {
             }
             .navigationTitle("工具与技能看板")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("完成") {
-                        dismiss()
-                    }
-                    .font(.system(size: 16, weight: .semibold))
-                }
-            }
             .sheet(item: $viewingSkill) { skill in
                 skillDetailSheet(skill)
             }
@@ -83,56 +70,8 @@ public struct McpSkillsSheet: View {
                 await loadData()
             }
         }
-    }
-    
-    // MARK: - Summary Header
-    
-    private var summaryHeader: some View {
-        HStack(spacing: 12) {
-            let readyCount = mcpServers.filter { $0.isReady }.count
-            let totalTools = mcpServers.reduce(0) { $0 + $1.toolCount }
-            
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(readyCount > 0 ? Color.green : Color.orange)
-                    .frame(width: 8, height: 8)
-                Text("\(readyCount)/\(mcpServers.count) 服务就绪")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(.primary)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(Color(.secondarySystemBackground))
-            .clipShape(Capsule())
-            
-            HStack(spacing: 4) {
-                Image(systemName: "wrench.and.screwdriver")
-                    .font(.system(size: 11))
-                    .foregroundColor(.indigo)
-                Text("\(totalTools) 个工具")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(.secondary)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(Color(.secondarySystemBackground))
-            .clipShape(Capsule())
-            
-            HStack(spacing: 4) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 11))
-                    .foregroundColor(.purple)
-                Text("\(skills.count) 个技能")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(.secondary)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(Color(.secondarySystemBackground))
-            .clipShape(Capsule())
-            
-            Spacer()
-        }
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
     }
     
     // MARK: - MCP Servers Section
@@ -573,10 +512,6 @@ public struct McpSkillsSheet: View {
             let (mcpResult, skillsResult) = try await (fetchMcp, fetchSkills)
             self.mcpServers = mcpResult
             self.skills = skillsResult
-            // Expand all by default if there are fewer than 6 servers
-            if mcpServers.count <= 6 {
-                self.expandedServerNames = Set(mcpServers.map { $0.spec.serverName })
-            }
         } catch {
             if settings.isDemoMode {
                 applyDemoData()
@@ -623,6 +558,5 @@ public struct McpSkillsSheet: View {
             SkillInfo(name: "sql-inspector", description: "SQL 查询调优与执行计划诊断", path: "builtin/skills/sql-inspector/SKILL.md", content: "# SQL Inspector\n分析 SQL 慢查询并提出索引优化方案"),
             SkillInfo(name: "jiuge-market-analysis", description: "首席宏观研判与市场逻辑观点体系", path: "config/skills/jiuge-market-analysis/SKILL.md", content: "# Jiuge Market Analysis\n宏观与大宗商品核心驱动逻辑")
         ]
-        self.expandedServerNames = Set(mcpServers.map { $0.spec.serverName })
     }
 }

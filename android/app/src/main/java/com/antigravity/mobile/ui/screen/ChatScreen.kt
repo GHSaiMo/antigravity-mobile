@@ -773,18 +773,6 @@ fun ChatScreen(
                     }
                 },
                 actions = {
-                    if (turns.size >= 2) {
-                        IconButton(onClick = {
-                            haptic.light()
-                            showNavigatorSheet = true
-                        }) {
-                            Icon(
-                                imageVector = Icons.Default.LinearScale,
-                                contentDescription = "对话大纲与步骤导轨",
-                                tint = colors.accentIndigo
-                            )
-                        }
-                    }
                     IconButton(onClick = {
                         haptic.light()
                         showMcpSkillsSheet = true
@@ -792,7 +780,7 @@ fun ChatScreen(
                         Icon(
                             imageVector = Icons.Default.Build,
                             contentDescription = "MCP 工具与技能看板",
-                            tint = colors.textSecondary
+                            tint = colors.accentBlue
                         )
                     }
                 },

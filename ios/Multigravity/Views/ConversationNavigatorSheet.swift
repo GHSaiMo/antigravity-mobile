@@ -67,39 +67,9 @@ public struct ConversationNavigatorSheet: View {
             }
             .navigationTitle("对话大纲与步骤导轨")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("关闭") {
-                        dismiss()
-                    }
-                    .font(.system(size: 15))
-                }
-                
-                ToolbarItem(placement: .topBarTrailing) {
-                    HStack(spacing: 12) {
-                        Button(action: {
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            dismiss()
-                            onJumpToTop()
-                        }) {
-                            Image(systemName: "arrow.up.to.line")
-                                .font(.system(size: 14, weight: .semibold))
-                        }
-                        .accessibilityLabel("跳到会话开头")
-                        
-                        Button(action: {
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            dismiss()
-                            onJumpToBottom()
-                        }) {
-                            Image(systemName: "arrow.down.to.line")
-                                .font(.system(size: 14, weight: .semibold))
-                        }
-                        .accessibilityLabel("跳到最新回复")
-                    }
-                }
-            }
         }
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
     }
     
     // MARK: - Summary Banner
@@ -411,10 +381,10 @@ public struct ConversationNavigatorSheet: View {
                                 Text("\(turn.totalTools) 次工具调用")
                                     .font(.system(size: 10.5, weight: .medium))
                             }
-                            .foregroundColor(.purple)
+                            .foregroundColor(.green)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(Color.purple.opacity(0.1))
+                            .background(Color.green.opacity(0.12))
                             .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
                         }
                         
