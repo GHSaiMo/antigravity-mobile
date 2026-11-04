@@ -215,9 +215,11 @@ public struct ConversationNavigatorSheet: View {
             
             if !isCollapsed {
                 turnsTimelineList(turns: chapter.turns)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .clipped()
+                    .transition(.opacity)
             }
         }
+        .clipped()
     }
     
     // MARK: - Timeline List

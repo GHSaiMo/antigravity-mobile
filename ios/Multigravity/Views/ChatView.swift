@@ -186,7 +186,7 @@ public struct ChatView: View {
                 }) {
                     Image(systemName: "wrench.and.screwdriver")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(.blue)
+                        .foregroundColor(.indigo)
                 }
                 .accessibilityLabel("打开已连接工具与技能看板")
             }

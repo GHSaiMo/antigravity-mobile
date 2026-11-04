@@ -139,6 +139,8 @@ extension ChatView {
     /// 偏移会停在内容末尾之后，底部出现大片空白。检测到“内容比视口长、底部锚点却悬在视口中间”
     /// 且稳定一小会儿后，主动重新贴底。
     func scheduleBlankSpaceHeal(anchorMaxY: CGFloat, viewportHeight: CGFloat, proxy: ScrollViewProxy) {
+        // 仅在用户期望贴底时执行底部自愈，用户手动翻阅或浏览历史轮次时绝不强行贴底
+        guard !hasUserInteracted || isNearBottom else { return }
         let hasBlank = messagesContentHeight > viewportHeight + 1
             && viewportHeight > 0
             && anchorMaxY < viewportHeight - 40
@@ -149,7 +151,7 @@ extension ChatView {
         }
         blankHealTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 250_000_000)
-            guard !Task.isCancelled, !isUserDragging else { return }
+            guard !Task.isCancelled, !isUserDragging, (!hasUserInteracted || isNearBottom) else { return }
             scrollToBottom(proxy: proxy, animated: false)
         }
     }
@@ -157,11 +159,13 @@ extension ChatView {
     /// 滚动偏移越过内容末尾（视口底部出现大片空白）且稳定一小会儿后，主动重新贴底。
     /// 用户正在拖动、或下拉/上拉回弹的小幅越界不处理。
     func scheduleOvershootHeal(overshoot: CGFloat, proxy: ScrollViewProxy) {
+        // 仅在用户期望贴底时执行底部自愈
+        guard !hasUserInteracted || isNearBottom else { return }
         guard overshoot > 120 else { return }
         blankHealTask?.cancel()
         blankHealTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 250_000_000)
-            guard !Task.isCancelled, !isUserDragging else { return }
+            guard !Task.isCancelled, !isUserDragging, (!hasUserInteracted || isNearBottom) else { return }
             scrollToBottom(proxy: proxy, animated: false)
         }
     }
