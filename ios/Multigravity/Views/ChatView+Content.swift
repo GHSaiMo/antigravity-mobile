@@ -240,12 +240,31 @@ extension ChatView {
         }
         .onChange(of: targetScrollTurnId) { _, targetId in
             guard let targetId = targetId else { return }
-            hasUserInteracted = false
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                if targetId == "BOTTOM_ANCHOR" {
+            if targetId == "BOTTOM_ANCHOR" {
+                hasUserInteracted = false
+                isNearBottom = true
+                withAnimation(.easeOut(duration: 0.2)) {
                     proxy.scrollTo("BOTTOM_ANCHOR", anchor: .bottom)
-                } else {
-                    proxy.scrollTo(targetId, anchor: .top)
+                }
+            } else {
+                hasUserInteracted = true
+                isNearBottom = false
+                blankHealTask?.cancel()
+                blankHealTask = nil
+                
+                // 1. 若目标为首条消息或首轮，先对齐顶部锚点唤醒顶部区域渲染
+                if targetId == viewModel.messages.first?.id || targetId == "TOP_ANCHOR" {
+                    proxy.scrollTo("TOP_ANCHOR", anchor: .top)
+                }
+                
+                // 2. 立即跳转至目标消息行
+                proxy.scrollTo(targetId, anchor: .top)
+                
+                // 3. 在 Sheet 转场关闭及 Lazy 视图实例化阶段做多级微调校准，避免大跨度跳转下的空白
+                for delay in [0.08, 0.22, 0.4] {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                        proxy.scrollTo(targetId, anchor: .top)
+                    }
                 }
             }
             highlightedTurnMessageId = targetId
@@ -268,11 +287,11 @@ extension ChatView {
         return viewModel.messages.isEmpty && viewModel.stepCount == 0
     }
     
-    /// 消息不多时用普通 VStack：LazyVStack 在程序化滚到底后可能不创建底部的行，整屏空白、要滑一下才出现。
-    /// 长会话仍用 LazyVStack 控制内存与首屏开销，靠 `healUnmaterializedBottom` 兜底。
+    /// 消息不多时用普通 VStack：LazyVStack 在程序化大幅跳转或滚到底后可能不创建行，整屏空白。
+    /// 现代设备将普通 VStack 阈值扩充至 100 条消息（覆盖绝大多数 15-25 轮常规会话），免除虚拟化抖动与空白。
     @ViewBuilder
     func messagesStack<C: View>(@ViewBuilder _ content: () -> C) -> some View {
-        if viewModel.messages.count <= 40 {
+        if viewModel.messages.count <= 100 {
             VStack(spacing: 8) { content() }
         } else {
             LazyVStack(spacing: 8) { content() }
@@ -282,6 +301,11 @@ extension ChatView {
     @ViewBuilder
     func messagesList(proxy: ScrollViewProxy) -> some View {
         messagesStack {
+            Color.clear
+                .frame(maxWidth: .infinity)
+                .frame(height: 1)
+                .id("TOP_ANCHOR")
+            
             if viewModel.hasMore && !viewModel.messages.contains(where: { $0.id == "step-0" || $0.effectiveStepIndex == 0 }) {
                 loadOlderMessagesButton(proxy: proxy)
             }
