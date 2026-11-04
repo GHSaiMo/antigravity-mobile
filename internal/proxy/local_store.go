@@ -108,17 +108,40 @@ func SearchConversationsFTS5(ctx context.Context, query string, limit int) ([]Co
 	}
 
 	pyScript := `
-import os, sqlite3, json, sys
+import os, sqlite3, json, sys, time
 
 db_path = sys.argv[1]
 query = sys.argv[2]
 limit = int(sys.argv[3])
 
-try:
-    conn = sqlite3.connect(f'file:{db_path}?mode=ro', uri=True)
-except Exception:
-    conn = sqlite3.connect(db_path)
+def open_db(path):
+    last_err = None
+    for attempt in range(3):
+        for uri_flag, conn_str in [(True, f'file:{path}?mode=ro'), (False, path)]:
+            conn = None
+            try:
+                conn = sqlite3.connect(conn_str, uri=uri_flag, timeout=3.0)
+                try:
+                    conn.execute('PRAGMA busy_timeout = 2500')
+                    if not uri_flag:
+                        conn.execute('PRAGMA query_only = ON')
+                except Exception:
+                    pass
+                test_cur = conn.cursor()
+                test_cur.execute('SELECT 1 FROM sqlite_master LIMIT 1')
+                test_cur.close()
+                return conn
+            except Exception as e:
+                last_err = e
+                if conn:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+        time.sleep(0.1)
+    raise last_err or sqlite3.OperationalError(f'unable to open database file: {path}')
 
+conn = open_db(db_path)
 cur = conn.cursor()
 sql = '''
 SELECT f.conversation_id, COALESCE(NULLIF(c.title, ''), f.title), f.workspace, 
@@ -130,7 +153,11 @@ WHERE conversations_fts MATCH ?
 ORDER BY rank
 LIMIT ?
 '''
-cur.execute(sql, (query, limit))
+try:
+    cur.execute(sql, (query, limit))
+except sqlite3.OperationalError:
+    safe_query = '"' + query.replace('"', '""') + '"'
+    cur.execute(sql, (safe_query, limit))
 rows = cur.fetchall()
 results = []
 for r in rows:
@@ -199,27 +226,58 @@ func FetchLocalConversationSummaries(ctx context.Context) (map[string]map[string
 		localStoreMu.RUnlock()
 		return res, nil
 	}
+	fallbackCache := cachedSummariesMap
 	localStoreMu.RUnlock()
 
 	dbPath := getAntigravityDBPath()
 	if dbPath == "" {
+		if fallbackCache != nil {
+			return fallbackCache, nil
+		}
 		return nil, fmt.Errorf("antigravity conversation database not found")
 	}
 
 	pyBin, err := findPythonExecutable()
 	if err != nil {
+		if fallbackCache != nil {
+			return fallbackCache, nil
+		}
 		return nil, fmt.Errorf("python runtime required: %w", err)
 	}
 
 	pyScript := `
-import os, sqlite3, json, sys
+import os, sqlite3, json, sys, time
 
 db_path = sys.argv[1]
-try:
-    conn = sqlite3.connect(f'file:{db_path}?mode=ro', uri=True)
-except Exception:
-    conn = sqlite3.connect(db_path)
 
+def open_db(path):
+    last_err = None
+    for attempt in range(3):
+        for uri_flag, conn_str in [(True, f'file:{path}?mode=ro'), (False, path)]:
+            conn = None
+            try:
+                conn = sqlite3.connect(conn_str, uri=uri_flag, timeout=3.0)
+                try:
+                    conn.execute('PRAGMA busy_timeout = 2500')
+                    if not uri_flag:
+                        conn.execute('PRAGMA query_only = ON')
+                except Exception:
+                    pass
+                test_cur = conn.cursor()
+                test_cur.execute('SELECT 1 FROM sqlite_master LIMIT 1')
+                test_cur.close()
+                return conn
+            except Exception as e:
+                last_err = e
+                if conn:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+        time.sleep(0.1)
+    raise last_err or sqlite3.OperationalError(f'unable to open database file: {path}')
+
+conn = open_db(db_path)
 cur = conn.cursor()
 sql = '''
 SELECT conversation_id, title, preview, step_count, last_modified_time, 
@@ -266,12 +324,19 @@ print(json.dumps(summaries, ensure_ascii=False))
 	cmd.Stderr = &errBuf
 
 	if err := cmd.Run(); err != nil {
+		if fallbackCache != nil {
+			slog.Debug("[LocalStore] Fetch summaries failed, serving stale cache", "err", err)
+			return fallbackCache, nil
+		}
 		slog.Warn("[LocalStore] Fetch summaries failed", "err", err, "stderr", errBuf.String())
 		return nil, fmt.Errorf("fetch summaries error: %v (%s)", err, errBuf.String())
 	}
 
 	var res map[string]map[string]interface{}
 	if err := json.Unmarshal(outBuf.Bytes(), &res); err != nil {
+		if fallbackCache != nil {
+			return fallbackCache, nil
+		}
 		return nil, fmt.Errorf("failed to decode summaries json: %w", err)
 	}
 
@@ -283,11 +348,21 @@ print(json.dumps(summaries, ensure_ascii=False))
 	return res, nil
 }
 
+var (
+	pyBinOnce   sync.Once
+	cachedPyBin string
+	cachedPyErr error
+)
+
 func findPythonExecutable() (string, error) {
-	for _, bin := range []string{"python3", "python"} {
-		if path, err := exec.LookPath(bin); err == nil {
-			return path, nil
+	pyBinOnce.Do(func() {
+		for _, bin := range []string{"python3", "python"} {
+			if path, err := exec.LookPath(bin); err == nil {
+				cachedPyBin = path
+				return
+			}
 		}
-	}
-	return "", fmt.Errorf("neither python3 nor python found in PATH")
+		cachedPyErr = fmt.Errorf("neither python3 nor python found in PATH")
+	})
+	return cachedPyBin, cachedPyErr
 }
