@@ -587,13 +587,6 @@ private fun MainSettingsContent(
                     .padding(horizontal = 16.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Default.Build,
-                    contentDescription = null,
-                    tint = colors.accentIndigo,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(12.dp))
                 Text(
                     text = "MCP 工具与技能看板",
                     color = colors.textPrimary,

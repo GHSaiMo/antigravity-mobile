@@ -186,15 +186,28 @@ internal fun RichTextRenderer(
     )
 }
 
-internal val BACKTICK_BOLD_REGEX = Regex("""`+(\*{2,3})\s*([^\*`\n]+?)\s*\1`+""")
-
 internal fun unwrapBacktickBold(text: String): String {
     if (!text.contains('`') || !text.contains("**")) return text
-    return BACKTICK_BOLD_REGEX.replace(text) { match ->
-        val stars = match.groups[1]?.value.orEmpty()
-        val inner = match.groups[2]?.value.orEmpty()
-        "$stars$inner$stars"
+    val segments = splitCodeSpans(text)
+    val sb = java.lang.StringBuilder()
+    for ((content, isCode) in segments) {
+        if (!isCode) {
+            sb.append(content)
+        } else {
+            val trimmed = content.trim('`')
+            val innerTrimmed = trimmed.trim(' ', '\t')
+            if (innerTrimmed.startsWith("***") && innerTrimmed.endsWith("***") && innerTrimmed.length >= 6) {
+                val boldContent = innerTrimmed.substring(3, innerTrimmed.length - 3).trim(' ', '\t')
+                sb.append("***$boldContent***")
+            } else if (innerTrimmed.startsWith("**") && innerTrimmed.endsWith("**") && innerTrimmed.length >= 4) {
+                val boldContent = innerTrimmed.substring(2, innerTrimmed.length - 2).trim(' ', '\t')
+                sb.append("**$boldContent**")
+            } else {
+                sb.append(content)
+            }
+        }
     }
+    return sb.toString()
 }
 
 internal val DELIMITER_SPACE_REGEX = Regex("""(?<!\*)(\*{2,3}|_{2}|~~)((?:[^\*_\~]|\*(?!\*)|\_(?!\_)|~(?!~))+?)\1(?!\*|~|_)""")

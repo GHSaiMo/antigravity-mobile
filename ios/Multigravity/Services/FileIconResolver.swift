@@ -36,6 +36,7 @@ public enum FileIconResolver {
         ".git-blame-ignore": "file_icon_git",
         ".gitattributes": "file_icon_git",
         ".gitconfig": "file_icon_git",
+        ".github": "file_icon_github",
         ".gitignore": "file_icon_git",
         ".gitignore-global": "file_icon_git",
         ".gitignore_global": "file_icon_git",
@@ -258,6 +259,8 @@ public enum FileIconResolver {
         "gatsby-ssr.js": "file_icon_gatsby",
         "gatsby-ssr.tsx": "file_icon_gatsby",
         "git-history": "file_icon_git",
+        "github": "file_icon_github",
+        "github-issues": "file_icon_github",
         "gitlab-ci.yml": "file_icon_gitlab",
         "go.mod": "file_icon_go_mod",
         "go.sum": "file_icon_go_mod",
@@ -1045,6 +1048,12 @@ public enum FileIconResolver {
 
         // Strip enclosing backticks or quotes: `foo.swift`, "foo.swift", 'foo.swift'
         str = str.trimmingCharacters(in: CharacterSet(charactersIn: "`'\""))
+        guard !str.isEmpty else { return nil }
+
+        let lower = str.lowercased()
+        if lower.contains("github.com") || lower.contains("raw.githubusercontent.com") || lower.hasPrefix("git@github.com:") || lower == "github" || lower == ".github" || lower == "github-issues" {
+            return "file_icon_github"
+        }
 
         // Strip URL scheme if present (e.g. file:///path/to/file.go -> /path/to/file.go)
         if str.hasPrefix("file://") {

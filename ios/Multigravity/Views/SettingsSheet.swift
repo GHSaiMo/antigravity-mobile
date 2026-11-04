@@ -141,7 +141,7 @@ public struct SettingsSheet: View {
                         showMcpSkillsSheet = true
                     }) {
                         HStack {
-                            Label("MCP 工具与技能看板", systemImage: "wrench.and.screwdriver.fill")
+                            Text("MCP 工具与技能看板")
                                 .foregroundColor(.primary)
                             Spacer()
                             Image(systemName: "chevron.right")
