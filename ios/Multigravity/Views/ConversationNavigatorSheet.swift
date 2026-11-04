@@ -10,6 +10,13 @@ public struct ConversationNavigatorSheet: View {
     public let onJumpToTop: () -> Void
     public let onJumpToBottom: () -> Void
     
+    @State private var collapsedChapterIds: Set<String> = []
+    
+    private var allCollapsed: Bool {
+        guard chapters.count > 1 else { return false }
+        return chapters.allSatisfy { collapsedChapterIds.contains($0.id) }
+    }
+    
     public init(
         turns: [ConversationTurn],
         chapters: [ConversationChapter],
@@ -118,6 +125,32 @@ public struct ConversationNavigatorSheet: View {
             }
             
             Spacer()
+            
+            if chapters.count > 1 {
+                Button(action: {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        if allCollapsed {
+                            collapsedChapterIds.removeAll()
+                        } else {
+                            collapsedChapterIds = Set(chapters.map(\.id))
+                        }
+                    }
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: allCollapsed ? "chevron.down.2" : "chevron.up.2")
+                            .font(.system(size: 10, weight: .semibold))
+                        Text(allCollapsed ? "展开全部" : "折叠全部")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .foregroundColor(.indigo)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .background(Color.indigo.opacity(0.1))
+                    .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -129,21 +162,91 @@ public struct ConversationNavigatorSheet: View {
     
     @ViewBuilder
     private func chapterSection(chapter: ConversationChapter) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
-                Image(systemName: "bookmark.fill")
-                    .font(.system(size: 11))
-                    .foregroundColor(.indigo)
-                Text(chapter.title)
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(.secondary)
-                    .textCase(.uppercase)
-                Spacer()
+        let isCollapsed = collapsedChapterIds.contains(chapter.id)
+        let containsCurrent = chapter.turns.contains(where: { $0.turnIndex == currentTurnIndex })
+        let containsError = chapter.turns.contains(where: { $0.hasError })
+        let containsActive = chapter.turns.contains(where: { $0.isActive })
+        
+        VStack(alignment: .leading, spacing: 8) {
+            // 可折叠章节卡片头部
+            Button(action: {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                withAnimation(.easeInOut(duration: 0.22)) {
+                    if isCollapsed {
+                        collapsedChapterIds.remove(chapter.id)
+                    } else {
+                        collapsedChapterIds.insert(chapter.id)
+                    }
+                }
+            }) {
+                HStack(spacing: 8) {
+                    Image(systemName: chapter.dateText != nil ? "calendar" : "bookmark.fill")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(containsCurrent ? .indigo : .secondary)
+                    
+                    Text(chapter.title)
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(containsCurrent ? .primary : .secondary)
+                        .lineLimit(1)
+                    
+                    Spacer()
+                    
+                    // 状态与轮次胶囊
+                    HStack(spacing: 5) {
+                        if containsCurrent {
+                            Text("当前")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.indigo)
+                                .clipShape(Capsule())
+                        }
+                        if containsActive {
+                            Text("进行中")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundColor(.blue)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.blue.opacity(0.12))
+                                .clipShape(Capsule())
+                        }
+                        if containsError {
+                            Text("异常")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundColor(.orange)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.orange.opacity(0.12))
+                                .clipShape(Capsule())
+                        }
+                        
+                        Text("\(chapter.turns.count) 轮")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.secondary)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 2)
+                            .background(Color(uiColor: .tertiarySystemGroupedBackground))
+                            .clipShape(Capsule())
+                    }
+                    
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.secondary)
+                        .rotationEffect(.degrees(isCollapsed ? 0 : 90))
+                        .animation(.easeInOut(duration: 0.22), value: isCollapsed)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(Color(uiColor: .secondarySystemGroupedBackground).opacity(isCollapsed ? 0.9 : 0.6))
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
-            .padding(.leading, 4)
-            .padding(.top, 4)
+            .buttonStyle(.plain)
             
-            turnsTimelineList(turns: chapter.turns)
+            if !isCollapsed {
+                turnsTimelineList(turns: chapter.turns)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
         }
     }
     

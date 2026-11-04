@@ -505,6 +505,8 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
     public let subagent: SubagentItem?
     /// sender == .workflow 时的动态工作流信息 (Antigravity 2.26+)。
     public let workflow: WorkflowItem?
+    /// 消息/步骤创建时间戳 (RFC3339)
+    public let timestamp: String?
     
     public enum MessageSender: Hashable, Sendable, Codable {
         case user
@@ -576,12 +578,14 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
         model: String? = nil,
         modelName: String? = nil,
         subagent: SubagentItem? = nil,
-        workflow: WorkflowItem? = nil
+        workflow: WorkflowItem? = nil,
+        timestamp: String? = nil
     ) {
         self.model = model
         self.modelName = modelName
         self.subagent = subagent
         self.workflow = workflow
+        self.timestamp = timestamp
         self.id = id
         self.sender = sender
         self.content = content

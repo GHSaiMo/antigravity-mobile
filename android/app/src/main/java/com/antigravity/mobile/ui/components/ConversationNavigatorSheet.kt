@@ -1,5 +1,7 @@
 package com.antigravity.mobile.ui.components
 
+import androidx.compose.animation.*
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -11,10 +13,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -38,6 +41,8 @@ fun ConversationNavigatorSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
     val colors = AntigravityTheme.colors
+    var collapsedChapterIds by remember { mutableStateOf(setOf<String>()) }
+    val allCollapsed = chapters.isNotEmpty() && chapters.all { it.id in collapsedChapterIds }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -121,7 +126,7 @@ fun ConversationNavigatorSheet(
 
                 Spacer(modifier = Modifier.width(12.dp))
 
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     val summaryText = if (chapters.size > 1) {
                         "共 ${chapters.size} 个章节 · ${turns.size} 轮问答"
                     } else {
@@ -139,6 +144,35 @@ fun ConversationNavigatorSheet(
                         color = colors.textSecondary
                     )
                 }
+
+                if (chapters.size > 1) {
+                    Surface(
+                        onClick = {
+                            collapsedChapterIds = if (allCollapsed) emptySet() else chapters.map { it.id }.toSet()
+                        },
+                        shape = RoundedCornerShape(16.dp),
+                        color = colors.accentIndigo.copy(alpha = 0.12f)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = if (allCollapsed) Icons.Default.UnfoldMore else Icons.Default.UnfoldLess,
+                                contentDescription = null,
+                                tint = colors.accentIndigo,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (allCollapsed) "展开全部" else "折叠全部",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = colors.accentIndigo
+                            )
+                        }
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(14.dp))
@@ -152,21 +186,133 @@ fun ConversationNavigatorSheet(
             ) {
                 if (chapters.size > 1) {
                     chapters.forEach { chapter ->
-                        Text(
-                            text = chapter.title,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = colors.textSecondary,
-                            modifier = Modifier.padding(start = 6.dp, top = 8.dp, bottom = 8.dp)
-                        )
-                        TurnsTimelineList(
-                            turns = chapter.turns,
-                            currentTurnIndex = currentTurnIndex,
-                            onSelectTurn = {
-                                onDismiss()
-                                onSelectTurn(it)
+                        val isCollapsed = chapter.id in collapsedChapterIds
+                        val containsCurrent = chapter.turns.any { it.turnIndex == currentTurnIndex }
+                        val containsError = chapter.turns.any { it.hasError }
+                        val containsActive = chapter.turns.any { it.isActive }
+                        val chevronRotation by animateFloatAsState(targetValue = if (isCollapsed) -90f else 0f)
+
+                        // 可折叠章节卡片头部
+                        Surface(
+                            onClick = {
+                                collapsedChapterIds = if (isCollapsed) {
+                                    collapsedChapterIds - chapter.id
+                                } else {
+                                    collapsedChapterIds + chapter.id
+                                }
+                            },
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (isCollapsed) colors.surfaceVariant.copy(alpha = 0.7f) else colors.surfaceVariant.copy(alpha = 0.4f),
+                            border = androidx.compose.foundation.BorderStroke(0.6.dp, colors.border.copy(alpha = 0.4f)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 10.dp, bottom = 6.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = if (chapter.dateText != null) Icons.Default.CalendarToday else Icons.Default.Bookmark,
+                                    contentDescription = null,
+                                    tint = if (containsCurrent) colors.accentIndigo else colors.textSecondary,
+                                    modifier = Modifier.size(14.dp)
+                                )
+
+                                Spacer(modifier = Modifier.width(8.dp))
+
+                                Text(
+                                    text = chapter.title,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (containsCurrent) colors.textPrimary else colors.textSecondary,
+                                    modifier = Modifier.weight(1f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+
+                                if (containsCurrent) {
+                                    Text(
+                                        text = "当前",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Color.White,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(colors.accentIndigo)
+                                            .padding(horizontal = 5.dp, vertical = 2.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                }
+
+                                if (containsActive) {
+                                    Text(
+                                        text = "进行中",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = colors.accentBlue,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(colors.accentBlue.copy(alpha = 0.12f))
+                                            .padding(horizontal = 5.dp, vertical = 2.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                }
+
+                                if (containsError) {
+                                    Text(
+                                        text = "异常",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = colors.accentOrange,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(colors.accentOrange.copy(alpha = 0.12f))
+                                            .padding(horizontal = 5.dp, vertical = 2.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                }
+
+                                Text(
+                                    text = "${chapter.turns.size} 轮",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = colors.textSecondary,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(colors.surface)
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+
+                                Spacer(modifier = Modifier.width(4.dp))
+
+                                Icon(
+                                    imageVector = Icons.Default.ExpandMore,
+                                    contentDescription = if (isCollapsed) "展开" else "折叠",
+                                    tint = colors.textSecondary,
+                                    modifier = Modifier
+                                        .size(18.dp)
+                                        .rotate(chevronRotation)
+                                )
                             }
-                        )
+                        }
+
+                        AnimatedVisibility(
+                            visible = !isCollapsed,
+                            enter = expandVertically() + fadeIn(),
+                            exit = shrinkVertically() + fadeOut()
+                        ) {
+                            TurnsTimelineList(
+                                turns = chapter.turns,
+                                currentTurnIndex = currentTurnIndex,
+                                onSelectTurn = {
+                                    onDismiss()
+                                    onSelectTurn(it)
+                                }
+                            )
+                        }
                     }
                 } else {
                     TurnsTimelineList(

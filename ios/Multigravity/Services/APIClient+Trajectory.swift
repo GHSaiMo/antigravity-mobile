@@ -63,7 +63,8 @@ extension APIClient {
                         model: item.model,
                         modelName: item.modelName,
                         subagent: item.subagent,
-                        workflow: item.workflow
+                        workflow: item.workflow,
+                        timestamp: item.timestamp
                     )
                 }
                 
