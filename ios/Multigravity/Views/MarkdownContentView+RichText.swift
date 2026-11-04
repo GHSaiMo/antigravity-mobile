@@ -86,8 +86,8 @@ extension MarkdownContentView {
         
         let attr = renderInlineMarkdown(text, size: size, weight: weight)
         
-        // Fast-path: If text does not contain markdown link signature `](`, return Text(attr) directly
-        guard text.contains("[") && text.contains("](") else {
+        // Fast-path: If text does not contain markdown link signature `](` or URL scheme, return Text(attr) directly
+        guard (text.contains("[") && text.contains("](")) || text.contains("http://") || text.contains("https://") || text.contains("file://") else {
             return Text(attr)
         }
         
@@ -272,15 +272,25 @@ extension MarkdownContentView {
     // Unwraps bold text mistakenly wrapped in inline code backticks,
     // e.g. "`** BUILD SUCCEEDED **`" -> "**BUILD SUCCEEDED**"
     // so it parses and renders as true bold text rather than raw code with asterisks.
-    static let backtickBoldRegex = try? NSRegularExpression(
-        pattern: #"`+(\*{2,3})\s*([^\*`\n]+?)\s*\1`+"#
-    )
-    
+    // Uses splitCodeSpans to avoid matching across distinct code span boundaries (e.g. `code1`**、**`code2`).
     public static func unwrapBacktickBold(in text: String) -> String {
-        guard text.contains("`") && text.contains("**"), let regex = backtickBoldRegex else { return text }
-        let nsText = text as NSString
-        let range = NSRange(location: 0, length: nsText.length)
-        return regex.stringByReplacingMatches(in: text, options: [], range: range, withTemplate: "$1$2$1")
+        guard text.contains("`") && text.contains("**") else { return text }
+        let segments = splitCodeSpans(in: text)
+        return segments.map { segment in
+            guard segment.isCode else { return segment.content }
+            var trimmed = segment.content
+            while trimmed.hasPrefix("`") { trimmed.removeFirst() }
+            while trimmed.hasSuffix("`") { trimmed.removeLast() }
+            let innerTrimmed = trimmed.trimmingCharacters(in: .whitespaces)
+            if innerTrimmed.hasPrefix("***") && innerTrimmed.hasSuffix("***") && innerTrimmed.count >= 6 {
+                let boldContent = innerTrimmed.dropFirst(3).dropLast(3).trimmingCharacters(in: .whitespaces)
+                return "***\(boldContent)***"
+            } else if innerTrimmed.hasPrefix("**") && innerTrimmed.hasSuffix("**") && innerTrimmed.count >= 4 {
+                let boldContent = innerTrimmed.dropFirst(2).dropLast(2).trimmingCharacters(in: .whitespaces)
+                return "**\(boldContent)**"
+            }
+            return segment.content
+        }.joined()
     }
     
     // Normalizes inner whitespace in bold markdown, e.g. "** text **" -> " **text** "

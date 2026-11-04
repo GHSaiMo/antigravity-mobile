@@ -103,6 +103,11 @@ object FileIconResolver {
         var str = pathOrName.trim().trim('`', '\'', '"')
         if (str.isEmpty()) return null
 
+        val lower = str.lowercase()
+        if (lower.contains("github.com") || lower.contains("raw.githubusercontent.com") || lower.startsWith("git@github.com:") || lower == "github" || lower == ".github" || lower == "github-issues") {
+            return "file_icon_github"
+        }
+
         // Strip URL scheme if present (e.g. file:///path/to/file.go -> /path/to/file.go)
         if (str.startsWith("file://")) {
             str = str.removePrefix("file://")
@@ -680,6 +685,7 @@ object FileIconResolver {
         ".git-blame-ignore" to "file_icon_git",
         ".gitattributes" to "file_icon_git",
         ".gitconfig" to "file_icon_git",
+        ".github" to "file_icon_github",
         ".gitignore" to "file_icon_git",
         ".gitignore-global" to "file_icon_git",
         ".gitignore_global" to "file_icon_git",
@@ -902,6 +908,8 @@ object FileIconResolver {
         "gatsby-ssr.js" to "file_icon_gatsby",
         "gatsby-ssr.tsx" to "file_icon_gatsby",
         "git-history" to "file_icon_git",
+        "github" to "file_icon_github",
+        "github-issues" to "file_icon_github",
         "gitlab-ci.yml" to "file_icon_gitlab",
         "go.mod" to "file_icon_go_mod",
         "go.sum" to "file_icon_go_mod",
