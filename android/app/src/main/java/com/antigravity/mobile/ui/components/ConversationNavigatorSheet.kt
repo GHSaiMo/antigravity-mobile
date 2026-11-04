@@ -19,8 +19,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.ConversationChapter
@@ -47,30 +50,58 @@ fun ConversationNavigatorSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = colors.background,
-        dragHandle = { BottomSheetDefaults.DragHandle() },
+        sheetMaxWidth = Dp.Unspecified,
+        containerColor = Color.Transparent,
+        shape = RectangleShape,
+        tonalElevation = 0.dp,
+        dragHandle = null,
+        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
         modifier = modifier
+            .fillMaxWidth()
+            .fillMaxHeight()
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-        ) {
-            // Header bar
-            Row(
+        TallSheetBody(containerColor = colors.background, onDismiss = onDismiss) {
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .fillMaxHeight()
             ) {
+                // Floating grab handle hinting pull-down dismissal (matching iOS Capsule 38x5 / NewConversationSheet)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 10.dp, bottom = 18.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(width = 38.dp, height = 5.dp)
+                            .clip(CircleShape)
+                            .background(colors.textMuted.copy(alpha = 0.35f))
+                    )
+                }
+
+                // Header title: Centered, no icon, aligned with NewConversationSheet
                 Text(
                     text = "对话大纲与步骤导轨",
-                    fontSize = 17.sp,
+                    fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     color = colors.textPrimary,
-                    modifier = Modifier.weight(1f)
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp)
                 )
-            }
+
+                HorizontalDivider(thickness = 0.5.dp, color = colors.border)
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(horizontal = 16.dp)
+                        .padding(top = 14.dp)
+                ) {
 
             // Summary banner
             Row(
@@ -153,6 +184,7 @@ fun ConversationNavigatorSheet(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .weight(1f)
                     .verticalScroll(rememberScrollState())
                     .padding(bottom = 32.dp)
             ) {
@@ -300,6 +332,8 @@ fun ConversationNavigatorSheet(
         }
     }
 }
+}
+}
 
 @Composable
 private fun TurnsTimelineList(
@@ -307,33 +341,35 @@ private fun TurnsTimelineList(
     currentTurnIndex: Int?,
     onSelectTurn: (ConversationTurn) -> Unit
 ) {
-    turns.forEachIndexed { index, turn ->
-        val isCurrent = (turn.turnIndex == currentTurnIndex)
-        val isFirst = (index == 0)
-        val isLast = (index == turns.lastIndex)
+    Column(modifier = Modifier.fillMaxWidth()) {
+        turns.forEachIndexed { index, turn ->
+            val isCurrent = (turn.turnIndex == currentTurnIndex)
+            val isFirst = (index == 0)
+            val isLast = (index == turns.lastIndex)
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 2.dp),
-            verticalAlignment = Alignment.Top
-        ) {
-            // Timeline Node and Track
-            TimelineTrackNode(
-                turn = turn,
-                isCurrent = isCurrent,
-                isFirst = isFirst,
-                isLast = isLast
-            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 2.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                // Timeline Node and Track
+                TimelineTrackNode(
+                    turn = turn,
+                    isCurrent = isCurrent,
+                    isFirst = isFirst,
+                    isLast = isLast
+                )
 
-            Spacer(modifier = Modifier.width(10.dp))
+                Spacer(modifier = Modifier.width(10.dp))
 
-            // Turn Card
-            TurnCardItem(
-                turn = turn,
-                isCurrent = isCurrent,
-                onClick = { onSelectTurn(turn) }
-            )
+                // Turn Card
+                TurnCardItem(
+                    turn = turn,
+                    isCurrent = isCurrent,
+                    onClick = { onSelectTurn(turn) }
+                )
+            }
         }
     }
 }
