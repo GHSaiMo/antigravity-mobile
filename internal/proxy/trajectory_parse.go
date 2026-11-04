@@ -230,6 +230,7 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 					StepIndex: &stepIdx,
 					Media:     mediaList,
 					ImageURLs: userImageURLs,
+					Timestamp: s.Metadata.CreatedAt,
 				})
 			}
 		} else if stepType == "CORTEX_STEP_TYPE_PLANNER_RESPONSE" {
@@ -269,6 +270,7 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 					Artifacts: msgArtifacts,
 					Model:     modelID,
 					ModelName: modelName,
+					Timestamp: s.Metadata.CreatedAt,
 				})
 			}
 		} else if stepType == stepTypeInvokeSubagent {
@@ -289,6 +291,7 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 					Content:   label,
 					StepIndex: &stepIdx,
 					Subagent:  &sa,
+					Timestamp: s.Metadata.CreatedAt,
 				})
 			}
 		} else if extractToolNameFromStep(s) == "run_workflow" {
@@ -309,6 +312,7 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 					Content:   label,
 					StepIndex: &stepIdx,
 					Workflow:  wf,
+					Timestamp: s.Metadata.CreatedAt,
 				})
 			}
 		} else if stepType == "CORTEX_STEP_TYPE_ERROR_MESSAGE" {
@@ -339,6 +343,7 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 				Content:      formatted,
 				AttemptCount: parsed.attempt,
 				MaxAttempts:  parsed.maxAttempts,
+				Timestamp:    s.Metadata.CreatedAt,
 			})
 		} else if strings.HasPrefix(stepType, "CORTEX_STEP_TYPE_") && stepType != "CORTEX_STEP_TYPE_SYSTEM_MESSAGE" && stepType != "CORTEX_STEP_TYPE_ERROR_MESSAGE" {
 			pendingTools++

@@ -16,7 +16,8 @@
         "role": "user",
         "text": "a",
         "content": "a",
-        "stepIndex": 0
+        "stepIndex": 0,
+        "timestamp": "not-a-time"
       },
       {
         "id": "step-1",
@@ -24,7 +25,8 @@
         "role": "assistant",
         "text": "b",
         "content": "b",
-        "stepIndex": 1
+        "stepIndex": 1,
+        "timestamp": "2026-01-01T10:00:00Z"
       },
       {
         "id": "step-2",
@@ -32,7 +34,8 @@
         "role": "assistant",
         "text": "c",
         "content": "c",
-        "stepIndex": 2
+        "stepIndex": 2,
+        "timestamp": "2026-01-01T10:00:45Z"
       },
       {
         "id": "step-3",
@@ -40,7 +43,8 @@
         "role": "assistant",
         "text": "d",
         "content": "d",
-        "stepIndex": 3
+        "stepIndex": 3,
+        "timestamp": "garbage"
       }
     ],
     "queuedMessages": [],

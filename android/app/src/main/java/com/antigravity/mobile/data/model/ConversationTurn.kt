@@ -25,7 +25,9 @@ data class ConversationTurn(
     /** 本轮是否包含正在进行或等待中的任务 */
     val isActive: Boolean,
     /** 本轮使用的模型名称（若有） */
-    val modelName: String?
+    val modelName: String?,
+    /** 本轮创建时间戳 (RFC3339) */
+    val timestamp: String? = null
 )
 
 /**
@@ -35,7 +37,8 @@ data class ConversationChapter(
     val id: String,
     val title: String,
     val rangeText: String,
-    val turns: List<ConversationTurn>
+    val turns: List<ConversationTurn>,
+    val dateText: String? = null
 )
 
 object ConversationTurnBuilder {
@@ -112,6 +115,7 @@ object ConversationTurnBuilder {
             val isActive = isLastTurn && (isRunning || isAwaitingResponse)
 
             val model = currentMessages.asReversed().firstNotNullOfOrNull { it.modelName ?: it.model }
+            val turnTimestamp = userMsg?.timestamp ?: currentMessages.firstNotNullOfOrNull { it.timestamp }
 
             turns.add(
                 ConversationTurn(
@@ -126,7 +130,8 @@ object ConversationTurnBuilder {
                     artifacts = uniqueArtifacts,
                     hasError = hasError,
                     isActive = isActive,
-                    modelName = model
+                    modelName = model,
+                    timestamp = turnTimestamp
                 )
             )
 
@@ -154,14 +159,119 @@ object ConversationTurnBuilder {
         return turns
     }
 
+    private fun parseTurnDate(str: String?): java.time.LocalDate? {
+        if (str.isNullOrBlank()) return null
+        return try {
+            java.time.OffsetDateTime.parse(str).toLocalDate()
+        } catch (_: Exception) {
+            try {
+                java.time.Instant.parse(str).atZone(java.time.ZoneId.systemDefault()).toLocalDate()
+            } catch (_: Exception) {
+                null
+            }
+        }
+    }
+
+    private fun formatDateLabel(date: java.time.LocalDate): String {
+        val today = java.time.LocalDate.now()
+        return when {
+            date == today -> "今天"
+            date == today.minusDays(1) -> "昨天"
+            date.year == today.year -> "${date.monthValue}月${date.dayOfMonth}日"
+            else -> "${date.year}年${date.monthValue}月${date.dayOfMonth}日"
+        }
+    }
+
     fun buildChapters(turns: List<ConversationTurn>, chunkSize: Int = 10): List<ConversationChapter> {
         if (turns.isEmpty()) return emptyList()
 
-        if (turns.size <= 12) {
-            val range = if (turns.size == 1) "第 1 轮" else "第 1–${turns.size} 轮"
-            return listOf(ConversationChapter("chapter-all", "全部轮次", range, turns))
+        // 尝试按日期跨度分组（跨天长会话自动激活日期章节）
+        val turnsWithDates = turns.mapNotNull { turn ->
+            val date = parseTurnDate(turn.timestamp)
+            if (date != null) Triple(turn, date, date.toString()) else null
         }
 
+        val uniqueDays = turnsWithDates.map { it.third }.toSet()
+        if (uniqueDays.size > 1 && turnsWithDates.size == turns.size) {
+            val dateChapters = mutableListOf<ConversationChapter>()
+            var currentDayKey = ""
+            var currentDayTurns = mutableListOf<ConversationTurn>()
+            var currentDayDate: java.time.LocalDate? = null
+            var chapterIdx = 1
+
+            fun flushDay() {
+                val d = currentDayDate ?: return
+                if (currentDayTurns.isEmpty()) return
+                val label = formatDateLabel(d)
+
+                if (currentDayTurns.size <= 12) {
+                    val firstTurn = currentDayTurns.firstOrNull()?.turnIndex ?: 1
+                    val lastTurn = currentDayTurns.lastOrNull()?.turnIndex ?: firstTurn
+                    val range = if (firstTurn == lastTurn) "第 ${firstTurn} 轮" else "第 ${firstTurn}–${lastTurn} 轮"
+                    val title = "$label · $range"
+                    dateChapters.add(
+                        ConversationChapter(
+                            id = "chapter-date-$chapterIdx",
+                            title = title,
+                            rangeText = range,
+                            turns = currentDayTurns.toList(),
+                            dateText = label
+                        )
+                    )
+                    chapterIdx++
+                } else {
+                    // 单日超过 12 轮时，在日期内按 chunkSize 分段
+                    var start = 0
+                    var subIdx = 1
+                    while (start < currentDayTurns.size) {
+                        val end = minOf(start + chunkSize, currentDayTurns.size)
+                        val subTurns = currentDayTurns.subList(start, end)
+                        val firstTurn = subTurns.firstOrNull()?.turnIndex ?: (start + 1)
+                        val lastTurn = subTurns.lastOrNull()?.turnIndex ?: end
+                        val range = "第 ${firstTurn}–${lastTurn} 轮"
+                        val title = "$label (第 $subIdx 段) · $range"
+                        dateChapters.add(
+                            ConversationChapter(
+                                id = "chapter-date-$chapterIdx-$subIdx",
+                                title = title,
+                                rangeText = range,
+                                turns = subTurns.toList(),
+                                dateText = label
+                            )
+                        )
+                        start = end
+                        subIdx++
+                    }
+                    chapterIdx++
+                }
+                currentDayTurns = mutableListOf()
+                currentDayDate = null
+            }
+
+            for (item in turnsWithDates) {
+                if (item.third != currentDayKey) {
+                    flushDay()
+                    currentDayKey = item.third
+                    currentDayDate = item.second
+                }
+                currentDayTurns.add(item.first)
+            }
+            flushDay()
+
+            if (dateChapters.isNotEmpty()) {
+                return dateChapters
+            }
+        }
+
+        // 当总轮次不多时，直接作为一个主章节展示
+        if (turns.size <= 12) {
+            val range = if (turns.size == 1) "第 1 轮" else "第 1–${turns.size} 轮"
+            val dateLabel = turns.firstOrNull()?.timestamp?.let { parseTurnDate(it) }?.let { formatDateLabel(it) }
+            val title = if (dateLabel != null) "$dateLabel · $range" else "全部轮次"
+            return listOf(ConversationChapter("chapter-all", title, range, turns, dateLabel))
+        }
+
+        // 超过 12 轮时，按 chunkSize 自动拆分为 Chapters
         val chapters = mutableListOf<ConversationChapter>()
         var startIndex = 0
         var chapterNum = 1
@@ -173,14 +283,16 @@ object ConversationTurnBuilder {
             val lastTurn = chunkTurns.lastOrNull()?.turnIndex ?: endIndex
 
             val range = "第 ${firstTurn}–${lastTurn} 轮"
-            val title = "第 $chapterNum 章节 ($range)"
+            val chunkDate = chunkTurns.firstOrNull()?.timestamp?.let { parseTurnDate(it) }?.let { formatDateLabel(it) }
+            val title = if (chunkDate != null) "$chunkDate · 第 $chapterNum 章节 ($range)" else "第 $chapterNum 章节 ($range)"
 
             chapters.add(
                 ConversationChapter(
                     id = "chapter-$chapterNum",
                     title = title,
                     rangeText = range,
-                    turns = chunkTurns
+                    turns = chunkTurns,
+                    dateText = chunkDate
                 )
             )
 

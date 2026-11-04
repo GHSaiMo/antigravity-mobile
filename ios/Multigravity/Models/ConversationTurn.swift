@@ -24,6 +24,8 @@ public struct ConversationTurn: Identifiable, Sendable, Hashable {
     public let isActive: Bool
     /// 本轮使用的模型名称（若有）
     public let modelName: String?
+    /// 本轮创建时间戳 (RFC3339)
+    public let timestamp: String?
     
     public init(
         id: String,
@@ -37,7 +39,8 @@ public struct ConversationTurn: Identifiable, Sendable, Hashable {
         artifacts: [ArtifactItem],
         hasError: Bool,
         isActive: Bool,
-        modelName: String?
+        modelName: String?,
+        timestamp: String? = nil
     ) {
         self.id = id
         self.turnIndex = turnIndex
@@ -51,6 +54,7 @@ public struct ConversationTurn: Identifiable, Sendable, Hashable {
         self.hasError = hasError
         self.isActive = isActive
         self.modelName = modelName
+        self.timestamp = timestamp
     }
 }
 
@@ -59,12 +63,14 @@ public struct ConversationChapter: Identifiable, Sendable, Hashable {
     public let id: String
     public let title: String
     public let rangeText: String
+    public let dateText: String?
     public let turns: [ConversationTurn]
     
-    public init(id: String, title: String, rangeText: String, turns: [ConversationTurn]) {
+    public init(id: String, title: String, rangeText: String, dateText: String? = nil, turns: [ConversationTurn]) {
         self.id = id
         self.title = title
         self.rangeText = rangeText
+        self.dateText = dateText
         self.turns = turns
     }
 }
@@ -129,6 +135,8 @@ public enum ConversationTurnBuilder {
             let model = currentMessages.reversed().compactMap(\.modelName).first
                 ?? currentMessages.reversed().compactMap(\.model).first
             
+            let turnTimestamp = userMsg?.timestamp ?? currentMessages.compactMap(\.timestamp).first
+            
             turns.append(ConversationTurn(
                 id: turnId,
                 turnIndex: currentTurnIndex,
@@ -141,7 +149,8 @@ public enum ConversationTurnBuilder {
                 artifacts: uniqueArtifacts,
                 hasError: hasError,
                 isActive: isActive,
-                modelName: model
+                modelName: model,
+                timestamp: turnTimestamp
             ))
             
             currentTurnIndex += 1
@@ -169,13 +178,130 @@ public enum ConversationTurnBuilder {
         return turns
     }
     
+    private static let isoFormatterWithFraction: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+
+    private static let isoFormatterBasic: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
+
+    private static func parseTurnDate(from string: String?) -> Date? {
+        guard let s = string, !s.isEmpty else { return nil }
+        return isoFormatterWithFraction.date(from: s) ?? isoFormatterBasic.date(from: s)
+    }
+
+    private static func formatDateLabel(_ date: Date) -> String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) {
+            return "今天"
+        } else if calendar.isDateInYesterday(date) {
+            return "昨天"
+        }
+        
+        let nowYear = calendar.component(.year, from: Date())
+        let dateYear = calendar.component(.year, from: date)
+        let formatter = DateFormatter()
+        if nowYear == dateYear {
+            formatter.dateFormat = "M月d日"
+        } else {
+            formatter.dateFormat = "yyyy年M月d日"
+        }
+        return formatter.string(from: date)
+    }
+
     public static func buildChapters(from turns: [ConversationTurn], chunkSize: Int = 10) -> [ConversationChapter] {
         guard !turns.isEmpty else { return [] }
+        
+        // 尝试按日期跨度分组（跨天长会话自动激活日期章节）
+        var turnsWithDates: [(turn: ConversationTurn, date: Date, dayKey: String)] = []
+        let dayKeyFormatter = DateFormatter()
+        dayKeyFormatter.dateFormat = "yyyy-MM-dd"
+        
+        for turn in turns {
+            if let date = parseTurnDate(from: turn.timestamp) {
+                turnsWithDates.append((turn, date, dayKeyFormatter.string(from: date)))
+            }
+        }
+        
+        // 如果有时间戳且存在跨天（多个不同日期）
+        let uniqueDays = Set(turnsWithDates.map(\.dayKey))
+        if uniqueDays.count > 1 && turnsWithDates.count == turns.count {
+            var dateChapters: [ConversationChapter] = []
+            var currentDayKey = ""
+            var currentDayTurns: [ConversationTurn] = []
+            var currentDayDate: Date? = nil
+            var chapterIdx = 1
+            
+            func flushDay() {
+                guard !currentDayTurns.isEmpty, let d = currentDayDate else { return }
+                let label = formatDateLabel(d)
+                
+                if currentDayTurns.count <= 12 {
+                    let firstTurn = currentDayTurns.first?.turnIndex ?? 1
+                    let lastTurn = currentDayTurns.last?.turnIndex ?? firstTurn
+                    let range = firstTurn == lastTurn ? "第 \(firstTurn) 轮" : "第 \(firstTurn)–\(lastTurn) 轮"
+                    let title = "\(label) · \(range)"
+                    dateChapters.append(ConversationChapter(
+                        id: "chapter-date-\(chapterIdx)",
+                        title: title,
+                        rangeText: range,
+                        dateText: label,
+                        turns: currentDayTurns
+                    ))
+                    chapterIdx += 1
+                } else {
+                    // 单日超过 12 轮时，在日期内按 chunkSize 分段
+                    var start = 0
+                    var subIdx = 1
+                    while start < currentDayTurns.count {
+                        let end = min(start + chunkSize, currentDayTurns.count)
+                        let subTurns = Array(currentDayTurns[start..<end])
+                        let firstTurn = subTurns.first?.turnIndex ?? (start + 1)
+                        let lastTurn = subTurns.last?.turnIndex ?? end
+                        let range = "第 \(firstTurn)–\(lastTurn) 轮"
+                        let title = "\(label) (第 \(subIdx) 段) · \(range)"
+                        dateChapters.append(ConversationChapter(
+                            id: "chapter-date-\(chapterIdx)-\(subIdx)",
+                            title: title,
+                            rangeText: range,
+                            dateText: label,
+                            turns: subTurns
+                        ))
+                        start = end
+                        subIdx += 1
+                    }
+                    chapterIdx += 1
+                }
+                currentDayTurns = []
+                currentDayDate = nil
+            }
+            
+            for item in turnsWithDates {
+                if item.dayKey != currentDayKey {
+                    flushDay()
+                    currentDayKey = item.dayKey
+                    currentDayDate = item.date
+                }
+                currentDayTurns.append(item.turn)
+            }
+            flushDay()
+            
+            if !dateChapters.isEmpty {
+                return dateChapters
+            }
+        }
         
         // 当总轮次不多时，直接作为一个主章节展示
         if turns.count <= 12 {
             let range = turns.count == 1 ? "第 1 轮" : "第 1–\(turns.count) 轮"
-            return [ConversationChapter(id: "chapter-all", title: "全部轮次", rangeText: range, turns: turns)]
+            let dateLabel = turns.first?.timestamp.flatMap(parseTurnDate).map(formatDateLabel)
+            let title = dateLabel != nil ? "\(dateLabel!) · \(range)" : "全部轮次"
+            return [ConversationChapter(id: "chapter-all", title: title, rangeText: range, dateText: dateLabel, turns: turns)]
         }
         
         // 超过 12 轮时，按 chunkSize 自动拆分为 Chapters
@@ -190,12 +316,14 @@ public enum ConversationTurnBuilder {
             let lastTurn = chunkTurns.last?.turnIndex ?? endIndex
             
             let range = "第 \(firstTurn)–\(lastTurn) 轮"
-            let title = "第 \(chapterNum) 章节 (\(range))"
+            let chunkDate = chunkTurns.first?.timestamp.flatMap(parseTurnDate).map(formatDateLabel)
+            let title = chunkDate != nil ? "\(chunkDate!) · 第 \(chapterNum) 章节 (\(range))" : "第 \(chapterNum) 章节 (\(range))"
             
             chapters.append(ConversationChapter(
                 id: "chapter-\(chapterNum)",
                 title: title,
                 rangeText: range,
+                dateText: chunkDate,
                 turns: chunkTurns
             ))
             

@@ -37,6 +37,8 @@ type CascadeMessageItem struct {
 	Subagent *SubagentItem `json:"subagent,omitempty"`
 	// Workflow is set for Type "workflow": represents dynamic multi-agent workflows (run_workflow) in Antigravity 2.26+.
 	Workflow *WorkflowItem `json:"workflow,omitempty"`
+	// Timestamp is the RFC3339 timestamp when this step or turn was created.
+	Timestamp string `json:"timestamp,omitempty"`
 }
 
 // QueuedMessageItem represents a pending follow-up user message queued for execution.

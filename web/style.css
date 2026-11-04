@@ -1149,11 +1149,26 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
 }
 
 .code-block-lang {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 700;
   color: var(--ios-secondary-label);
-  letter-spacing: 0.5px;
+  letter-spacing: 0.3px;
+}
+
+.code-block-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.code-block-glyph {
+  font-size: 11px;
+  line-height: 1;
 }
 
 .code-copy-btn {

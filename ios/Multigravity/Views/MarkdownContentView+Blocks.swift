@@ -24,12 +24,23 @@ extension MarkdownContentView {
     
     @ViewBuilder
     func codeBlockView(lang: String, code: String) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
+        let info = FileIconResolver.resolve(for: lang)
+        
+        return VStack(alignment: .leading, spacing: 0) {
             // Header bar
-            HStack {
-                Text(lang.isEmpty ? "CODE" : lang.uppercased())
-                    .font(.system(size: 10.5, weight: .bold, design: .monospaced))
-                    .foregroundColor(.secondary)
+            HStack(spacing: 8) {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(info.color)
+                        .frame(width: 7, height: 7)
+                    if !info.glyph.isEmpty {
+                        Text(info.glyph)
+                            .font(.system(size: 11))
+                    }
+                    Text(info.displayName)
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .foregroundColor(info.color)
+                }
                 
                 Spacer()
                 

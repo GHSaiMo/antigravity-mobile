@@ -112,7 +112,8 @@ extension ChatViewModel {
                     maxAttempts: item.maxAttempts,
                     model: item.model,
                     modelName: item.modelName,
-                    subagent: item.subagent
+                    subagent: item.subagent,
+                    timestamp: item.timestamp
                 )
             }
             var mergedParsedMessages: [ChatMessage] = []
