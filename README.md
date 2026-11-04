@@ -20,14 +20,14 @@
 </p>
 
 <p align="center">
-  🌐 <b>官网</b>：<a href="https://mgy.jiuge.space">mgy.jiuge.space</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新版 v1.1.0</a>
+  🌐 <b>官网</b>：<a href="https://mgy.jiuge.space">mgy.jiuge.space</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新版 v1.1.1</a>
 </p>
 
 https://github.com/user-attachments/assets/37360cde-3875-45bf-947e-7774e800094c
 
 ---
 
-## ⚡ 极速开始 (v1.1.0 正式版)
+## ⚡ 极速开始 (v1.1.1 正式版)
 
 ### 1. 🍎 macOS / 🐧 Linux / 🪟 Windows 服务端一键安装 (推荐)
 
@@ -69,8 +69,8 @@ irm https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/in
 > - 🔒 **平滑部署**：macOS / Linux 免 sudo 部署至 `~/.local/bin/mgy` 并自动配置全局快捷方式；Windows 自动注册至用户 PATH 及 WindowsApps 目录，开箱即用免重启终端。
 
 ### 2. 📱 Android 手机客户端安装
-前往 [GitHub Releases v1.1.0](https://github.com/GHSaiMo/antigravity-mobile/releases/latest)，下载：
-- **`Multigravity-v1.1.0.apk`**
+前往 [GitHub Releases v1.1.1](https://github.com/GHSaiMo/antigravity-mobile/releases/latest)，下载：
+- **`Multigravity-v1.1.1.apk`**
 - *安装包已配置标准签名，任何安卓手机下载后均可直接点击安装，零编译门槛。*
 - *安全提示：为保证覆盖安装，Release 签名密钥库 `android/app/release.jks` 与默认口令随仓库公开。因此 APK 签名只代表「同一发布线」，不能证明来源可信，请仅从本仓库 Releases 页面下载。如需自行分发，请用 `MGY_KEYSTORE_PASSWORD` 等环境变量与自己的密钥库重新签名。*
 
@@ -358,6 +358,22 @@ mgy help           # 查看完整命令与启动参数帮助
   - 结构化工具参数解析看板：展开即可查看工具参数定义表（参数名、类型、必填红标、默认值与参数描述）；
   - 全量扩展技能浏览：直观查看内置技能与用户自定义技能分类，支持一键调出抽屉阅读完整 `SKILL.md` 规则定义；
   - 对话顶部导航栏与系统设置页常驻看板入口，支持全文字段实时检索。
+
+---
+
+### 16. 🧭 对话跨天折叠、180+ 语言高亮、录音灵动岛与网络漫游加固 (v1.1.1)
+- **对话步骤导轨跨天日期章节折叠 (Date Chapter Folding)**：
+  - 针对多天长周期复杂任务，步骤导轨大纲自动按自然日归组章节，支持一键折叠与平滑跳转；
+- **全端 180+ 语法高亮解析包 (180+ Syntax Highlighting Packages)**：
+  - iOS、Android、Web 与 Gateway 统一扩充并对齐 180+ 种主流及前沿语言的精准代码语法着色；
+- **iOS 录音灵动岛与会话草稿联动 (Live Activity for Voice Recording)**：
+  - 录音实时状态深度接入 iOS 灵动岛与锁屏实时活动，支持多会话切换下草稿状态平滑保持；
+- **Tailscale 蜂窝私网自动漫游与 ATS 放行 (Seamless Tailscale Roaming)**：
+  - 彻底解决出门切换蜂窝网络后 Tailscale 私网端点无法连通的问题，优化 ATS 针对 CGNAT HTTP 访问；
+- **服务端网关 SQLite WAL 锁争用优化与 FTS5 转义加固**：
+  - 优化高并发读写锁等待超时与并发事务，杜绝锁库；加固全文搜索特殊符号转义，防范异常查询语法崩溃；
+- **视觉语言统一与细节精调**：
+  - 统一全端弹窗 Sheet 设计语言，修复 iOS 图片选择器底部「添加」按钮偏色并对齐全局 `.indigo` 主题色，精简设置页 MCP 冗余图标。
 
 ---
 

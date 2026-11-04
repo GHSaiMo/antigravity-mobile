@@ -675,9 +675,9 @@ private fun MainSettingsContent(
                     @Suppress("DEPRECATION")
                     localContext.packageManager.getPackageInfo(localContext.packageName, 0)
                 }
-                packageInfo.versionName ?: "1.1.0"
+                packageInfo.versionName ?: "1.1.1"
             } catch (e: Exception) {
-                "1.1.0"
+                "1.1.1"
             }
         }
 
