@@ -18,6 +18,13 @@ func TestLocalStoreFTS5Search(t *testing.T) {
 			t.Errorf("result %d has empty CascadeID", i)
 		}
 	}
+
+	// Verify query with special FTS5 syntax does not crash
+	specialResults, err := SearchConversationsFTS5(ctx, `foo"bar* OR AND`, 5)
+	if err != nil {
+		t.Errorf("SearchConversationsFTS5 failed on special characters: %v", err)
+	}
+	t.Logf("Special characters query returned %d results safely", len(specialResults))
 }
 
 func TestLocalStoreFetchSummaries(t *testing.T) {
