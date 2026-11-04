@@ -38,7 +38,7 @@ fun McpSkillsSheet(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val colors = AntigravityTheme.colors
     val context = LocalContext.current
     val haptic = rememberHaptic()
@@ -117,7 +117,6 @@ fun McpSkillsSheet(
             SkillInfo(name = "sql-inspector", description = "SQL 查询调优与执行计划诊断", path = "builtin/skills/sql-inspector/SKILL.md", content = "# SQL Inspector\n分析 SQL 慢查询并提出索引优化方案"),
             SkillInfo(name = "jiuge-market-analysis", description = "首席宏观研判与市场逻辑观点体系", path = "config/skills/jiuge-market-analysis/SKILL.md", content = "# Jiuge Market Analysis\n宏观与大宗商品核心驱动逻辑")
         )
-        expandedServers = mcpServers.map { it.spec.serverName }.toSet()
     }
 
     fun loadData() {
@@ -130,7 +129,6 @@ fun McpSkillsSheet(
                 if (mcpRes.isSuccess && skillsRes.isSuccess) {
                     mcpServers = mcpRes.getOrNull() ?: emptyList()
                     skills = skillsRes.getOrNull() ?: emptyList()
-                    expandedServers = mcpServers.map { it.spec.serverName }.toSet()
                 } else {
                     applyDemoData()
                 }
@@ -156,7 +154,7 @@ fun McpSkillsSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.9f)
+                .fillMaxHeight()
                 .padding(horizontal = 16.dp)
         ) {
             // Header bar
@@ -179,14 +177,6 @@ fun McpSkillsSheet(
                     fontWeight = FontWeight.Bold,
                     color = colors.textPrimary
                 )
-                Spacer(modifier = Modifier.weight(1f))
-                IconButton(onClick = onDismiss) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Close",
-                        tint = colors.textSecondary
-                    )
-                }
             }
 
             // Tab Row
@@ -226,81 +216,6 @@ fun McpSkillsSheet(
                         )
                     }
                 )
-            }
-
-            // Summary row
-            val readyCount = mcpServers.count { it.isReady }
-            val totalTools = mcpServers.sumOf { it.toolCount }
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(colors.surface)
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(7.dp)
-                            .clip(CircleShape)
-                            .background(if (readyCount > 0) colors.accentGreen else colors.accentOrange)
-                    )
-                    Spacer(modifier = Modifier.width(5.dp))
-                    Text(
-                        text = "$readyCount/${mcpServers.size} 服务就绪",
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = colors.textPrimary
-                    )
-                }
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(colors.surface)
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Handyman,
-                        contentDescription = null,
-                        tint = colors.accentIndigo,
-                        modifier = Modifier.size(12.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "$totalTools 个工具",
-                        fontSize = 11.5.sp,
-                        color = colors.textSecondary
-                    )
-                }
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(colors.surface)
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.AutoAwesome,
-                        contentDescription = null,
-                        tint = colors.accentPurple,
-                        modifier = Modifier.size(12.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "${skills.size} 个技能",
-                        fontSize = 11.5.sp,
-                        color = colors.textSecondary
-                    )
-                }
             }
 
             // Search Bar
@@ -648,7 +563,7 @@ private fun McpServerCard(
             ) {
                 HorizontalDivider(color = colors.border.copy(alpha = 0.5f))
                 Text(
-                    text = "可用工具 (${server.toolCount})",
+                    text = "可用工具清单 (${server.toolCount})",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = colors.accentIndigo

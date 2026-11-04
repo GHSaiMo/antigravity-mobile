@@ -39,7 +39,7 @@ fun ConversationNavigatorSheet(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val colors = AntigravityTheme.colors
     var collapsedChapterIds by remember { mutableStateOf(setOf<String>()) }
     val allCollapsed = chapters.isNotEmpty() && chapters.all { it.id in collapsedChapterIds }
@@ -70,34 +70,6 @@ fun ConversationNavigatorSheet(
                     color = colors.textPrimary,
                     modifier = Modifier.weight(1f)
                 )
-
-                IconButton(
-                    onClick = {
-                        onDismiss()
-                        onJumpToTop()
-                    },
-                    modifier = Modifier.size(36.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.VerticalAlignTop,
-                        contentDescription = "跳到会话开头",
-                        tint = colors.accentIndigo
-                    )
-                }
-
-                IconButton(
-                    onClick = {
-                        onDismiss()
-                        onJumpToBottom()
-                    },
-                    modifier = Modifier.size(36.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.VerticalAlignBottom,
-                        contentDescription = "跳到最新回复",
-                        tint = colors.accentIndigo
-                    )
-                }
             }
 
             // Summary banner
@@ -546,21 +518,21 @@ private fun TurnCardItem(
                         Row(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(4.dp))
-                                .background(colors.accentPurple.copy(alpha = 0.1f))
+                                .background(colors.accentGreen.copy(alpha = 0.12f))
                                 .padding(horizontal = 6.dp, vertical = 2.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Build,
                                 contentDescription = null,
-                                tint = colors.accentPurple,
+                                tint = colors.accentGreen,
                                 modifier = Modifier.size(12.dp)
                             )
                             Spacer(modifier = Modifier.width(3.dp))
                             Text(
                                 text = "${turn.totalTools} 次工具调用",
                                 fontSize = 10.sp,
-                                color = colors.accentPurple,
+                                color = colors.accentGreen,
                                 fontWeight = FontWeight.Medium
                             )
                         }

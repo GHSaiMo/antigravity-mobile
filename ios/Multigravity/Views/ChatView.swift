@@ -180,29 +180,15 @@ public struct ChatView: View {
             }
             
             ToolbarItem(placement: .topBarTrailing) {
-                HStack(spacing: 12) {
-                    if viewModel.turns.count >= 2 {
-                        Button(action: {
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            showNavigatorSheet = true
-                        }) {
-                            Image(systemName: "list.bullet.indent")
-                                .font(.system(size: 15, weight: .medium))
-                                .foregroundColor(.indigo)
-                        }
-                        .accessibilityLabel("打开对话大纲与步骤导轨")
-                    }
-                    
-                    Button(action: {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        showMcpSkillsSheet = true
-                    }) {
-                        Image(systemName: "wrench.and.screwdriver")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(.secondary)
-                    }
-                    .accessibilityLabel("打开已连接工具与技能看板")
+                Button(action: {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    showMcpSkillsSheet = true
+                }) {
+                    Image(systemName: "wrench.and.screwdriver")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.blue)
                 }
+                .accessibilityLabel("打开已连接工具与技能看板")
             }
         }
         .background(SwipeBackEnabler())
@@ -372,7 +358,7 @@ public struct ChatView: View {
                     currentVisibleTurnIndex = viewModel.turns.last?.turnIndex ?? 1
                 }
             )
-            .presentationDetents([.medium, .large])
+            .presentationDetents([.large])
             .presentationDragIndicator(.visible)
         }
         .sheet(item: Binding<IdentifiableURL?>(
@@ -386,6 +372,8 @@ public struct ChatView: View {
         }
         .sheet(isPresented: $showMcpSkillsSheet) {
             McpSkillsSheet()
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
         }
         .overlay {
             if viewModel.isDownloadingDocument {
