@@ -389,7 +389,7 @@ struct AttachmentPickerSheet: View {
                 .foregroundStyle(.white)
                 .padding(.horizontal, 32)
                 .padding(.vertical, 13)
-                .glassEffect(.regular.tint(.blue).interactive(), in: .capsule)
+                .glassEffect(.regular.tint(.indigo).interactive(), in: .capsule)
         }
         .buttonStyle(.plain)
     }
