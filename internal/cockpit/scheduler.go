@@ -123,6 +123,21 @@ func StartQuotaAutoRefresher(ctx context.Context, defaultInterval time.Duration,
 				return
 			}
 
+			// If QueryReport failed, check and safely restore system proxy if local proxy is alive
+			if healed, hErr := EnsureSystemProxy(0); healed && hErr == nil {
+				slog.Info("[Cockpit] System proxy was restored; attempting direct native quota fetch")
+			}
+
+			// Direct native quota fetch fallback before entering GUI self-healing relaunch
+			if fErr := FetchAllRemoteQuotas(); fErr == nil {
+				InvalidateQuotaCache()
+				slog.Info("[Cockpit] Direct native quota fetch succeeded after Cockpit Tools query failure", "queryErr", queryErr)
+				schedulerMutex.Lock()
+				backoffUntil = time.Time{}
+				schedulerMutex.Unlock()
+				return
+			}
+
 			// On Linux / headless systems, Cockpit desktop app does not exist; skip GUI relaunch
 			if runtime.GOOS == "linux" {
 				schedulerMutex.Lock()
@@ -182,13 +197,26 @@ func StartQuotaAutoRefresher(ctx context.Context, defaultInterval time.Duration,
 				slog.Warn(fmt.Sprintf("[Cockpit] Round %d re-probe failed", round), "err", queryErr)
 			}
 
-			// Both rounds failed: notify via Bark and enter backoff cooldown
+			// Both rounds failed: attempt direct native quota fetch one last time before alerting
+			if fErr := FetchAllRemoteQuotas(); fErr == nil {
+				InvalidateQuotaCache()
+				slog.Info("[Cockpit] Direct native quota fetch succeeded as last resort; skipping error alert")
+				schedulerMutex.Lock()
+				backoffUntil = time.Time{}
+				schedulerMutex.Unlock()
+				return
+			}
+
+			// Both rounds failed and direct quota fetch also failed: notify via Bark and enter backoff cooldown
 			slog.Error("[Cockpit] ❌ Cockpit Tools failed to recover after 2 launch rounds", "err", queryErr)
 			if alertCallback != nil {
-				alertCallback(
-					"⚠️ 座舱助手未能启动",
-					fmt.Sprintf("Cockpit Tools 自动拉起 2 轮后仍无法连接 (127.0.0.1:%d)，账号配额自动刷新已暂停。", activePort),
-				)
+				alertTitle := "⚠️ 座舱助手未能启动"
+				alertMsg := fmt.Sprintf("Cockpit Tools 自动拉起 2 轮后仍无法连接 (127.0.0.1:%d)，账号配额自动刷新已暂停。", activePort)
+				if IsCockpitListening(activePort, 2*time.Second) {
+					alertTitle = "⚠️ 座舱助手响应超时"
+					alertMsg = fmt.Sprintf("Cockpit Tools (127.0.0.1:%d) 连续响应超时，账号配额自动刷新已暂停。", activePort)
+				}
+				alertCallback(alertTitle, alertMsg)
 			}
 
 			schedulerMutex.Lock()
