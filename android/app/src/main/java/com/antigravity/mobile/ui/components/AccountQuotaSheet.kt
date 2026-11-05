@@ -1,6 +1,7 @@
 package com.antigravity.mobile.ui.components
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -20,9 +21,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -386,6 +392,7 @@ private fun AccountQuotaCard(
             QuotaMetricCell(
                 title = "Gemini 4 Argon",
                 bucket = argon,
+                isArgon = true,
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -398,25 +405,86 @@ private fun TierBadge(tier: String?) {
     val colors = AntigravityTheme.colors
     when (norm) {
         "ULTRA" -> {
+            val badgeShape = RoundedCornerShape(5.5.dp)
             Spacer(modifier = Modifier.width(6.dp))
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(5.dp))
+                    .shadow(
+                        elevation = 4.dp,
+                        shape = badgeShape,
+                        ambientColor = Color(0xFFEA580C),
+                        spotColor = Color(0xFFF59E0B)
+                    )
+                    .clip(badgeShape)
                     .background(
                         Brush.linearGradient(
-                            colors = listOf(Color(0xFFF97316), Color(0xFFF59E0B))
+                            colorStops = arrayOf(
+                                0.0f to Color(0xFFC2410C),
+                                0.26f to Color(0xFFEA580C),
+                                0.58f to Color(0xFFF59E0B),
+                                0.80f to Color(0xFFFDE047),
+                                1.0f to Color(0xFFD97706)
+                            )
                         )
                     )
-                    .padding(horizontal = 6.dp, vertical = 2.5.dp),
+                    .background(
+                        Brush.verticalGradient(
+                            colorStops = arrayOf(
+                                0.0f to Color.White.copy(alpha = 0.34f),
+                                0.48f to Color.White.copy(alpha = 0.04f),
+                                1.0f to Color(0xFF782800).copy(alpha = 0.18f)
+                            )
+                        )
+                    )
+                    .border(
+                        0.8.dp,
+                        Brush.linearGradient(
+                            colors = listOf(
+                                Color(0xFFFEF08A).copy(alpha = 0.85f),
+                                Color(0xFFF59E0B).copy(alpha = 0.55f),
+                                Color(0xFFB45309).copy(alpha = 0.65f)
+                            )
+                        ),
+                        badgeShape
+                    )
+                    .padding(start = 5.5.dp, end = 6.5.dp, top = 2.5.dp, bottom = 2.5.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = "ULTRA",
-                    color = Color.White,
-                    fontSize = 9.5.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.4.sp
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    Canvas(modifier = Modifier.size(7.5.dp)) {
+                        val w = size.width
+                        val h = size.height
+                        val path = Path().apply {
+                            moveTo(w * 0.5f, 0f)
+                            lineTo(w * 0.62f, h * 0.38f)
+                            lineTo(w, h * 0.5f)
+                            lineTo(w * 0.62f, h * 0.62f)
+                            lineTo(w * 0.5f, h)
+                            lineTo(w * 0.38f, h * 0.62f)
+                            lineTo(0f, h * 0.5f)
+                            lineTo(w * 0.38f, h * 0.38f)
+                            close()
+                        }
+                        drawPath(path = path, color = Color(0xFFFEF08A))
+                    }
+                    Text(
+                        text = "ULTRA",
+                        color = Color(0xFFFFFBEB),
+                        fontSize = 9.5.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = 0.55.sp,
+                        style = TextStyle(
+                            shadow = Shadow(
+                                color = Color(0x997C2D12),
+                                offset = Offset(0f, 1.5f),
+                                blurRadius = 2f
+                            )
+                        )
+                    )
+                }
             }
         }
         "PRO" -> {
@@ -467,21 +535,51 @@ private fun TierBadge(tier: String?) {
 private fun QuotaMetricCell(
     title: String,
     bucket: CockpitQuotaBucket?,
+    isArgon: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val colors = AntigravityTheme.colors
     val percent = bucket?.remainingPercent?.coerceIn(0.0, 100.0) ?: 0.0
+    val argonAccent = if (colors.isDark) Color(0xFFFF9F0A) else Color(0xFFD97706)
+    val isDanger = percent < 20.0
     val color = when {
+        isArgon -> if (isDanger) colors.accentRed else argonAccent
         percent >= 50 -> colors.accentGreen
         percent >= 20 -> colors.accentOrange
         else -> colors.accentRed
     }
+    val cellShape = RoundedCornerShape(if (isArgon) 10.dp else 8.dp)
+    val cellModifier = if (isArgon) {
+        modifier
+            .clip(cellShape)
+            .background(
+                Brush.linearGradient(
+                    colors = listOf(
+                        Color(0xFFFF9F0A).copy(alpha = if (colors.isDark) 0.13f else 0.11f),
+                        Color(0xFFF97316).copy(alpha = if (colors.isDark) 0.06f else 0.05f)
+                    )
+                )
+            )
+            .border(
+                1.dp,
+                Brush.linearGradient(
+                    colors = listOf(
+                        Color(0xFFFFCA28).copy(alpha = if (colors.isDark) 0.42f else 0.48f),
+                        Color(0xFFFF9F0A).copy(alpha = if (colors.isDark) 0.22f else 0.28f)
+                    )
+                ),
+                cellShape
+            )
+            .padding(horizontal = 11.dp, vertical = 9.dp)
+    } else {
+        modifier
+            .clip(cellShape)
+            .background(colors.surfaceVariant.copy(alpha = 0.5f))
+            .padding(9.dp)
+    }
 
     Column(
-        modifier = modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(colors.surfaceVariant.copy(alpha = 0.5f))
-            .padding(9.dp),
+        modifier = cellModifier,
         verticalArrangement = Arrangement.spacedBy(5.dp)
     ) {
         Row(
@@ -491,9 +589,9 @@ private fun QuotaMetricCell(
         ) {
             Text(
                 text = title,
-                color = colors.textSecondary,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium
+                color = if (isArgon) argonAccent else colors.textSecondary,
+                fontSize = if (isArgon) 11.5.sp else 11.sp,
+                fontWeight = if (isArgon) FontWeight.SemiBold else FontWeight.Medium
             )
             Text(
                 text = String.format(Locale.US, "%.1f%%", percent),
@@ -510,14 +608,25 @@ private fun QuotaMetricCell(
                 .fillMaxWidth()
                 .height(5.dp)
                 .clip(CircleShape)
-                .background(colors.border.copy(alpha = 0.5f))
+                .background(
+                    if (isArgon) Color(0xFFFF9F0A).copy(alpha = if (colors.isDark) 0.16f else 0.18f)
+                    else colors.border.copy(alpha = 0.5f)
+                )
         ) {
+            val fillModifier = Modifier
+                .fillMaxWidth(fraction = (percent / 100.0).toFloat().coerceIn(0f, 1f))
+                .fillMaxHeight()
+                .clip(CircleShape)
             Box(
-                modifier = Modifier
-                    .fillMaxWidth(fraction = (percent / 100.0).toFloat().coerceIn(0f, 1f))
-                    .fillMaxHeight()
-                    .clip(CircleShape)
-                    .background(color)
+                modifier = if (isArgon && !isDanger) {
+                    fillModifier.background(
+                        Brush.horizontalGradient(
+                            colors = listOf(Color(0xFFFF9F0A), Color(0xFFFFD60A))
+                        )
+                    )
+                } else {
+                    fillModifier.background(color)
+                }
             )
         }
 

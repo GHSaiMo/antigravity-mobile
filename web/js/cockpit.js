@@ -181,7 +181,7 @@ function getTierBadgeHtml(tier) {
   if (!tier || typeof tier !== "string") return "";
   const norm = tier.trim().toUpperCase();
   if (norm === "ULTRA") {
-    return `<span class="quota-tier-badge ultra">ULTRA</span>`;
+    return `<span class="quota-tier-badge ultra"><svg class="ultra-spark-icon" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 0L7.35 4.65L12 6L7.35 7.35L6 12L4.65 7.35L0 6L4.65 4.65Z"/></svg><span>ULTRA</span></span>`;
   }
   if (norm === "PRO") {
     return `<span class="quota-tier-badge pro">PRO</span>`;
@@ -207,16 +207,19 @@ function buildAccountQuotaCard(acc, isCurrent) {
   const switchBtnHtml = (!isCurrent && isCockpitSwitchEnabled())
     ? `<button class="quota-switch-btn" data-id="${escapeHtml(acc.id)}" data-email="${escapeHtml(acc.email)}">切换</button>`
     : "";
+  const argonStatusClass = argon && typeof argon.remaining_percent === "number"
+    ? (argon.remaining_percent < 20 ? "danger" : "argon")
+    : "argon";
   const argonHtml = argon && typeof argon.remaining_percent === "number"
     ? `
       <!-- 5. Bottom Full Width: Gemini 4 Argon (dynamically shown only when available) -->
-      <div class="metric-box metric-box-full">
+      <div class="metric-box metric-box-full metric-box-argon">
         <div class="metric-box-header">
-          <span class="metric-box-title gemini">Gemini 4 Argon</span>
-          <span class="metric-box-value ${getQuotaStatusClass(argon.remaining_percent)}">${argon.remaining_percent.toFixed(1)}%</span>
+          <span class="metric-box-title argon">Gemini 4 Argon</span>
+          <span class="metric-box-value ${argonStatusClass}">${argon.remaining_percent.toFixed(1)}%</span>
         </div>
-        <div class="metric-mini-track">
-          <div class="metric-mini-fill ${getQuotaStatusClass(argon.remaining_percent)}" style="width: ${Math.min(100, Math.max(0, argon.remaining_percent))}%;"></div>
+        <div class="metric-mini-track argon-track">
+          <div class="metric-mini-fill ${argonStatusClass}" style="width: ${Math.min(100, Math.max(0, argon.remaining_percent))}%;"></div>
         </div>
         <span class="metric-box-reset" title="${escapeHtml(getQuotaResetDisplayText(argon))}">${escapeHtml(getQuotaResetDisplayText(argon))}</span>
       </div>`
