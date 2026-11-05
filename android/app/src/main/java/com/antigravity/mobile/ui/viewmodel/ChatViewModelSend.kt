@@ -269,13 +269,20 @@ internal fun ChatViewModel.sendMessage(
     // Optimistically add user bubble
     val optId = "opt_${System.currentTimeMillis()}"
     pendingOptimisticMessageId = optId
+    val optSlashMentions = if (!slashCommand.isNullOrBlank()) {
+        val matched = _uiState.value.slashCommands.firstOrNull { it.name == slashCommand }
+        val kind = matched?.kind ?: if (com.antigravity.mobile.data.model.SlashCommandIconCatalog.defaultSystemIcons.containsKey(slashCommand)) "system" else "skill"
+        val icon = com.antigravity.mobile.data.model.SlashCommandIconCatalog.resolveIcon(slashCommand, matched?.icon, kind)
+        listOf(com.antigravity.mobile.data.model.SlashCommandMention(name = slashCommand, icon = icon, kind = kind))
+    } else null
     val optimisticUserMsg = GatewayMessageItem(
         id = optId,
         type = "user",
         role = "user",
         text = displayText,
         content = displayText,
-        imageDataList = imageBytesList
+        imageDataList = imageBytesList,
+        slashCommands = optSlashMentions
     )
     _uiState.value = _uiState.value.copy(
         messages = _uiState.value.messages + optimisticUserMsg,

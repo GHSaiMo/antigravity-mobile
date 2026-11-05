@@ -175,11 +175,14 @@ struct MessageShareCardView: View {
             }
 
             if isUserMessage {
-                Text(content)
-                    .font(.system(size: 15.5))
-                    .foregroundColor(.primary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                SlashCommandTextRenderer.render(
+                    text: content,
+                    iconColor: UIColor.label.withAlphaComponent(0.8)
+                )
+                .font(.system(size: 15.5))
+                .foregroundColor(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 MarkdownContentView(content: content)
                     .frame(maxWidth: .infinity, alignment: .leading)

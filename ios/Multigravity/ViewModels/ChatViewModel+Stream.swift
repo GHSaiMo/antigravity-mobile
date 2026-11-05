@@ -113,7 +113,9 @@ extension ChatViewModel {
                     model: item.model,
                     modelName: item.modelName,
                     subagent: item.subagent,
-                    timestamp: item.timestamp
+                    workflow: item.workflow,
+                    timestamp: item.timestamp,
+                    slashCommands: item.slashCommands
                 )
             }
             var mergedParsedMessages: [ChatMessage] = []

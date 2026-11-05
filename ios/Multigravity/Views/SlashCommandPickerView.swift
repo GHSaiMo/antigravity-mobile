@@ -1,5 +1,75 @@
 import SwiftUI
 
+public struct SlashCommandShape: Shape {
+    public let iconKey: String
+
+    public func path(in rect: CGRect) -> Path {
+        let cgPath = SlashCommandIconCatalog.cachedCGPath(for: iconKey)
+        let scale = min(rect.width, rect.height) / 960.0
+        var transform = CGAffineTransform(scaleX: scale, y: scale)
+        let offsetX = (rect.width - 960.0 * scale) / 2.0
+        let offsetY = (rect.height - 960.0 * scale) / 2.0
+        transform = transform.concatenating(CGAffineTransform(translationX: offsetX, y: offsetY))
+        if let transformed = cgPath.copy(using: &transform) {
+            return Path(transformed)
+        }
+        return Path()
+    }
+}
+
+public struct SlashCommandIconView: View {
+    public let name: String
+    public var icon: String? = nil
+    public var kind: String? = nil
+    public var size: CGFloat = 16
+
+    public init(name: String, icon: String? = nil, kind: String? = nil, size: CGFloat = 16) {
+        self.name = name
+        self.icon = icon
+        self.kind = kind
+        self.size = size
+    }
+
+    public var body: some View {
+        let key = SlashCommandIconCatalog.resolveIcon(name: name, icon: icon, kind: kind)
+        SlashCommandShape(iconKey: key)
+            .fill(style: FillStyle(eoFill: false))
+            .frame(width: size, height: size)
+    }
+}
+
+public enum SlashCommandTextRenderer {
+    public static func render(
+        text: String,
+        mentions: [SlashCommandMention] = [],
+        availableCommands: [SlashCommandOption] = [],
+        iconColor: UIColor = .white,
+        iconSize: CGFloat = 15
+    ) -> Text {
+        let segments = SlashCommandTextTokenizer.tokenize(
+            text: text,
+            mentions: mentions,
+            availableCommands: availableCommands
+        )
+        guard !segments.isEmpty else { return Text(text) }
+
+        var result = Text("")
+        for seg in segments {
+            switch seg {
+            case .text(let str):
+                result = result + Text(str)
+            case .slash(let mention):
+                let iconKey = SlashCommandIconCatalog.resolveIcon(name: mention.name, icon: mention.icon, kind: mention.kind)
+                let img = SlashCommandIconCatalog.cachedImage(iconKey: iconKey, size: iconSize, color: iconColor)
+                let iconText = Text(Image(uiImage: img)).baselineOffset(-1.5)
+                let nameText = Text(verbatim: " \(mention.name)").fontWeight(.semibold)
+                result = result + iconText + nameText
+            }
+        }
+        return result
+    }
+}
+
 /// 输入框里键入 "/" 后弹出的命令列表（系统命令 + 技能），与桌面端的斜杠菜单同源。
 struct SlashCommandPickerView: View {
     let commands: [SlashCommandOption]
@@ -43,15 +113,23 @@ struct SlashCommandPickerView: View {
 
     private func row(_ command: SlashCommandOption) -> some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: command.kind == "skill" ? "sparkles" : "bolt.fill")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(command.kind == "skill" ? .orange : .indigo)
+            SlashCommandIconView(name: command.name, icon: command.icon, kind: command.kind, size: 16)
+                .foregroundColor(.secondary)
                 .frame(width: 18)
                 .padding(.top, 2)
             VStack(alignment: .leading, spacing: 2) {
-                Text("/\(command.name)")
-                    .font(.system(size: 14.5, weight: .semibold, design: .monospaced))
-                    .foregroundColor(.primary)
+                HStack(spacing: 6) {
+                    Text("/\(command.name)")
+                        .font(.system(size: 14.5, weight: .semibold, design: .monospaced))
+                        .foregroundColor(.primary)
+                    Text(command.kind == "skill" ? "技能" : "系统")
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1)
+                        .background(Color(uiColor: .tertiarySystemFill))
+                        .clipShape(Capsule())
+                }
                 let summary = command.description.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
                 if !summary.isEmpty {
                     Text(summary)
@@ -77,13 +155,15 @@ struct SlashCommandChipView: View {
     var body: some View {
         Button(action: onClear) {
             HStack(spacing: 6) {
-                Text("/\(command.name)")
+                SlashCommandIconView(name: command.name, icon: command.icon, kind: command.kind, size: 14)
+                    .opacity(0.85)
+                Text(command.name)
                     .font(.system(size: 13, weight: .semibold, design: .monospaced))
                 Image(systemName: "xmark")
                     .font(.system(size: 10, weight: .bold))
             }
             .foregroundColor(.indigo)
-            .padding(.leading, 10)
+            .padding(.leading, 8)
             .padding(.trailing, 8)
             .padding(.vertical, 5)
             .background(Color.indigo.opacity(0.12))

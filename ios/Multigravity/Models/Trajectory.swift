@@ -67,6 +67,34 @@ public struct UserInputPayload: Codable, Sendable {
     public let userResponse: String?
     public let media: [UserMediaItem]?
     public let images: [UserImageItem]?
+
+    public func extractTextAndSlashCommands() -> (text: String, slashCommands: [SlashCommandMention]) {
+        var slashCommands: [SlashCommandMention] = []
+        var parts: [String] = []
+        for it in items ?? [] {
+            if let scInfo = it.item?.slashCommand?.info,
+               let rawName = scInfo.name?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !rawName.isEmpty {
+                let rawType = scInfo.type ?? ""
+                let kind: String = {
+                    if rawType.contains("SKILL") { return "skill" }
+                    if SlashCommandIconCatalog.defaultSystemIcons[rawName] != nil { return "system" }
+                    return "skill"
+                }()
+                let icon = SlashCommandIconCatalog.resolveIcon(name: rawName, icon: scInfo.icon, kind: kind)
+                slashCommands.append(SlashCommandMention(name: rawName, icon: icon, kind: kind))
+                parts.append("/" + rawName)
+            } else if let text = it.text, !text.isEmpty {
+                parts.append(text)
+            } else if let chunk = it.item?.chunk?.text, !chunk.isEmpty {
+                parts.append(chunk)
+            }
+        }
+        if let resp = userResponse, !resp.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return (resp, slashCommands)
+        }
+        return (parts.joined().trimmingCharacters(in: .whitespacesAndNewlines), slashCommands)
+    }
 }
 
 public struct UserImageItem: Codable, Sendable {
@@ -84,6 +112,23 @@ public struct UserMediaItem: Codable, Sendable {
 
 public struct TextItem: Codable, Sendable {
     public let text: String?
+    public let item: UserInputScopeItem?
+
+    public struct UserInputScopeItem: Codable, Sendable {
+        public let slashCommand: UserInputSlashCommand?
+        public let chunk: UserInputChunk?
+    }
+    public struct UserInputSlashCommand: Codable, Sendable {
+        public let info: UserInputSlashCommandInfo?
+    }
+    public struct UserInputSlashCommandInfo: Codable, Sendable {
+        public let name: String?
+        public let type: String?
+        public let icon: String?
+    }
+    public struct UserInputChunk: Codable, Sendable {
+        public let text: String?
+    }
 }
 
 /// 发送消息时 `items[]` 的一个元素：文本，或带 scope 的条目（目前只用斜杠命令）。两个分支互斥。
@@ -507,6 +552,8 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
     public let workflow: WorkflowItem?
     /// 消息/步骤创建时间戳 (RFC3339)
     public let timestamp: String?
+    /// 用户消息里引用的斜杠命令 / 技能（可选，兼容旧版缓存解码）
+    public let slashCommands: [SlashCommandMention]?
     
     public enum MessageSender: Hashable, Sendable, Codable {
         case user
@@ -579,13 +626,15 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
         modelName: String? = nil,
         subagent: SubagentItem? = nil,
         workflow: WorkflowItem? = nil,
-        timestamp: String? = nil
+        timestamp: String? = nil,
+        slashCommands: [SlashCommandMention]? = nil
     ) {
         self.model = model
         self.modelName = modelName
         self.subagent = subagent
         self.workflow = workflow
         self.timestamp = timestamp
+        self.slashCommands = slashCommands
         self.id = id
         self.sender = sender
         self.content = content

@@ -224,3 +224,33 @@ func TestSlashDedupeDistinguishesCommands(t *testing.T) {
 	}
 	_ = first
 }
+
+func TestExtractUserInputSlashCommands(t *testing.T) {
+	raw := `{
+		"userResponse": "/grill-me \n/Users/hal9000/Projects/\n测试内容",
+		"items": [
+			{"item": {"slashCommand": {"info": {"name": "grill-me", "type": "SLASH_COMMAND_TYPE_SYSTEM", "icon": "forum"}}}},
+			{"text": " "},
+			{"text": "\n"},
+			{"text": "/Users/hal9000/Projects/\n测试内容"},
+			{"item": {"slashCommand": {"info": {"name": "vip-memory", "type": "SLASH_COMMAND_TYPE_SKILL"}}}}
+		]
+	}`
+	var ui TrajectoryUserInput
+	if err := json.Unmarshal([]byte(raw), &ui); err != nil {
+		t.Fatal(err)
+	}
+	text, cmds := ui.ExtractTextAndSlashCommands()
+	if !strings.HasPrefix(text, "/grill-me ") {
+		t.Fatalf("unexpected text: %q", text)
+	}
+	if len(cmds) != 2 {
+		t.Fatalf("expected 2 slash commands, got %+v", cmds)
+	}
+	if cmds[0].Name != "grill-me" || cmds[0].Icon != "forum" || cmds[0].Kind != "system" {
+		t.Errorf("unexpected cmd[0]: %+v", cmds[0])
+	}
+	if cmds[1].Name != "vip-memory" || cmds[1].Icon != "code_blocks" || cmds[1].Kind != "skill" {
+		t.Errorf("unexpected cmd[1]: %+v", cmds[1])
+	}
+}

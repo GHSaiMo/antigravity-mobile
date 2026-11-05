@@ -481,8 +481,16 @@ fun MessageBubble(
                         )
                         .padding(horizontal = 14.dp, vertical = 10.dp)
                 ) {
+                    val (userAnnotatedText, inlineContentMap) = remember(userBodyText, message.slashCommands) {
+                        SlashCommandTextRenderer.buildInlineText(
+                            text = userBodyText,
+                            mentions = message.slashCommands.orEmpty(),
+                            iconColor = colors.userBubbleText.copy(alpha = 0.85f)
+                        )
+                    }
                     Text(
-                        text = userBodyText,
+                        text = userAnnotatedText,
+                        inlineContent = inlineContentMap,
                         color = colors.userBubbleText,
                         fontSize = 15.5.sp,
                         lineHeight = 21.sp

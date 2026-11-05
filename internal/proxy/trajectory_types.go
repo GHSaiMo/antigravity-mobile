@@ -14,20 +14,28 @@ type ArtifactItem struct {
 	UserFacing      bool   `json:"userFacing,omitempty"`
 }
 
+// SlashCommandMention represents a slash command or skill invoked in a USER_INPUT step.
+type SlashCommandMention struct {
+	Name string `json:"name"`
+	Icon string `json:"icon,omitempty"`
+	Kind string `json:"kind,omitempty"` // "system" | "skill"
+}
+
 type CascadeMessageItem struct {
-	ID           string         `json:"id"`
-	Type         string         `json:"type"` // "user", "agent", "tools", "error", "subagent"
-	Role         string         `json:"role"`
-	Text         string         `json:"text"`
-	Content      string         `json:"content"`
-	StepIndex    *int           `json:"stepIndex,omitempty"`
-	ToolCount    int            `json:"toolCount,omitempty"`
-	ToolNames    []string       `json:"toolNames,omitempty"`
-	Media        []string       `json:"media,omitempty"`     // Base64 thumbnails
-	ImageURLs    []string       `json:"imageUrls,omitempty"` // Markdown image URLs
-	Artifacts    []ArtifactItem `json:"artifacts,omitempty"` // Linked/generated artifact cards
-	AttemptCount int            `json:"attemptCount,omitempty"`
-	MaxAttempts  int            `json:"maxAttempts,omitempty"`
+	ID            string                `json:"id"`
+	Type          string                `json:"type"` // "user", "agent", "tools", "error", "subagent"
+	Role          string                `json:"role"`
+	Text          string                `json:"text"`
+	Content       string                `json:"content"`
+	StepIndex     *int                  `json:"stepIndex,omitempty"`
+	ToolCount     int                   `json:"toolCount,omitempty"`
+	ToolNames     []string              `json:"toolNames,omitempty"`
+	Media         []string              `json:"media,omitempty"`         // Base64 thumbnails
+	ImageURLs     []string              `json:"imageUrls,omitempty"`     // Markdown image URLs
+	Artifacts     []ArtifactItem        `json:"artifacts,omitempty"`     // Linked/generated artifact cards
+	SlashCommands []SlashCommandMention `json:"slashCommands,omitempty"` // Slash commands / skills invoked in this user message
+	AttemptCount  int                   `json:"attemptCount,omitempty"`
+	MaxAttempts   int                   `json:"maxAttempts,omitempty"`
 	// Model / ModelName identify the model that actually generated an agent reply (from the step's
 	// generatorModel): Model is the model id, ModelName its display name. Empty when unknown.
 	Model     string `json:"model,omitempty"`
@@ -193,6 +201,15 @@ type TrajectoryUserInput struct {
 	UserResponse string `json:"userResponse"`
 	Items        []struct {
 		Text string `json:"text"`
+		Item *struct {
+			SlashCommand *struct {
+				Info *struct {
+					Name string `json:"name"`
+					Type string `json:"type,omitempty"`
+					Icon string `json:"icon,omitempty"`
+				} `json:"info"`
+			} `json:"slashCommand"`
+		} `json:"item,omitempty"`
 	} `json:"items"`
 	Images []struct {
 		Base64Data string `json:"base64Data"`
@@ -204,6 +221,78 @@ type TrajectoryUserInput struct {
 		ApprovalStatus interface{} `json:"approvalStatus"`
 		Comment        string      `json:"comment,omitempty"`
 	} `json:"artifactComments,omitempty"`
+}
+
+var defaultSystemSlashIcons = map[string]string{
+	"grill-me":   "forum",
+	"plan":       "ballot",
+	"goal":       "timer",
+	"compact":    "collapse_all",
+	"schedule":   "schedule",
+	"automation": "schedule",
+	"browser":    "language",
+	"teamwork":   "graph_2",
+	"learn":      "lightbulb_2",
+	"boost":      "bolt",
+	"btw":        "chat_add_on",
+}
+
+// ResolveSlashCommandIcon returns the desktop-aligned icon name for a slash command or skill.
+func ResolveSlashCommandIcon(name, icon, kind string) string {
+	icon = strings.TrimSpace(icon)
+	if icon != "" {
+		return icon
+	}
+	cleanName := strings.TrimPrefix(strings.TrimSpace(name), "/")
+	if sysIcon, ok := defaultSystemSlashIcons[cleanName]; ok {
+		return sysIcon
+	}
+	if kind == "skill" {
+		return "code_blocks"
+	}
+	return "code"
+}
+
+// ExtractTextAndSlashCommands returns the user input text and any structured slash-command mentions from Items.
+func (ui *TrajectoryUserInput) ExtractTextAndSlashCommands() (string, []SlashCommandMention) {
+	if ui == nil {
+		return "", nil
+	}
+	var mentions []SlashCommandMention
+	seen := make(map[string]bool)
+	var sb strings.Builder
+	for _, it := range ui.Items {
+		if it.Item != nil && it.Item.SlashCommand != nil && it.Item.SlashCommand.Info != nil {
+			info := it.Item.SlashCommand.Info
+			name := strings.TrimPrefix(strings.TrimSpace(info.Name), "/")
+			if name != "" {
+				kind := "system"
+				if strings.Contains(info.Type, "SKILL") {
+					kind = "skill"
+				}
+				icon := ResolveSlashCommandIcon(name, info.Icon, kind)
+				if !seen[name] {
+					seen[name] = true
+					mentions = append(mentions, SlashCommandMention{
+						Name: name,
+						Icon: icon,
+						Kind: kind,
+					})
+				}
+				sb.WriteString("/")
+				sb.WriteString(name)
+			}
+			continue
+		}
+		if it.Text != "" {
+			sb.WriteString(it.Text)
+		}
+	}
+	text := ui.UserResponse
+	if text == "" && sb.Len() > 0 {
+		text = sb.String()
+	}
+	return text, mentions
 }
 
 type TrajectoryStep struct {
