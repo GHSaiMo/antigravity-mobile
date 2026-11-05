@@ -1,27 +1,17 @@
-# 🚀 Multigravity v1.1.1
+# 🚀 Multigravity v1.1.2
 
 ### ✨ 新功能与核心体验
-- 🧭 **对话导轨跨天日期章节折叠 (Date Chapter Folding)**：
-  - 会话步骤导轨与轮次大纲（Conversation Navigator）全面支持跨天日期智能归组与折叠展开。
-  - 针对多天连续执行的长期任务与项目会话，轮次章节按日期清晰折叠，快速回溯与定位历史步骤更加轻便高效。
-- 🎨 **代码高亮全面扩充至 180+ 语言包 (180+ Syntax Highlighting Packages)**：
-  - 多端（iOS / Android / Web / Gateway）全量扩充并对齐 180+ 种主流及前沿编程语言、配置与 DSL 的语法高亮解析包。
-  - 覆盖 Rust、Go、Kotlin、Swift、Python、TypeScript、SQL、YAML、TOML、Docker、Protobuf 等各领域语言，提供一致的高辨识度语法着色。
-- 🎙️ **iOS 录音灵动岛与会话草稿深度联动 (Live Activity for Voice Recording)**：
-  - 移动端录音深度接入 iOS 灵动岛（Dynamic Island）与锁屏实时活动（Live Activities），录音计时与状态后台实时可见。
-  - 录音状态与当前会话草稿体系无缝绑定，多会话切换时状态平滑保持，避免串会话或录制状态丢失。
-- 🌐 **Tailscale 蜂窝私网自动漫游与 ATS 放行 (Seamless Tailscale Roaming)**：
-  - 彻底修复出门后由 Wi-Fi 切换至蜂窝移动网络时无法自动漫游连通 Tailscale / 私网端点的问题。
-  - 优化 iOS ATS 安全传输策略，对 Tailscale CGNAT 专属网段（`100.64.0.0/10`）放行明文 HTTP 通信，精准纠正蜂窝网络连接状态指示。
+- 🎨 **斜杠指令与扩展技能图标 100% 对齐桌面端 (Desktop-Matched Slash Command & Skill Icons)**：
+  - 全面提取并同步 Antigravity 官方桌面端原生 SVG 矢量图标资产（覆盖 `/grill-me` 互动问答、`/plan` 实施规划、`/browser` 网页浏览、`/goal` 长期目标、`/teamwork` 团队协作、`/compact` 压缩上下文、`/learn` 经验沉淀、`/schedule` 定时任务、`/boost` 深度推理等核心指令与扩展技能）。
+  - 双端（iOS / Android）与 Web 端全量支持内联斜杠指令胶囊药丸徽标（Inline Command Badge / Pill），包含微型技能图标与指令名称，告别朴素的纯文本或通用符号，视觉质感与官方桌面端完美对齐。
+  - 深度适配指令选择器（SlashCommandPicker）、用户提问消息气泡（MessageBubble）、消息分享长图卡片（MessageShareCardSheet）以及队列同步分词器，各终端交互动线统一。
+- ⚡ **Cockpit 驾驶舱新增 Gemini 4 Argon 额度进度条与套餐梯队徽标 (Dynamic Argon Quota Bar & Tier Badges)**：
+  - 驾驶舱全量接入 Gemini 4 Argon 额度实时探测与动态百分比进度条，直观展示剩余额度百分比、用量分布与 5 小时重置倒计时。
+  - 新增账号等级梯队（`ULTRA` / `PRO` / `FREE`）高辨识度徽标，多账号配额状态与健康度一目了然。
 
 ### 🛡️ 架构稳固与细节打磨
-- ⚡ **服务端网关 SQLite WAL 锁争用优化与 FTS5 转义加固**：
-  - 深度优化 SQLite WAL 模式下的高并发读写锁争用机制，配置健全的忙等待超时与并发事务隔离，杜绝数据库锁死。
-  - 全面加固 FTS5 全文搜索特殊符号转义逻辑，防范包含特殊字符或标点查询时的语法解析崩溃。
-- 💎 **全端设计语言统一与视觉细节打磨**：
-  - **抽屉与底板统一**：重构并统一各功能抽屉（Sheet）的圆角半径、层级阴影与拖拽手势；Android 端全量抽屉（工具看板、对话导轨、改动、提交与撤回）对齐「新建会话」设计语言，接入 `TallSheetBody` 顶部安全避让刘海屏，标题统一居中且移除冗余图标，规范顶部胶囊抓手与通栏分割线。
-  - **对话导轨多章节轮次渲染修复**：彻底修复跨天多章节折叠展开时因缺少纵向排列容器导致同章轮次卡片重叠遮挡、仅展示最后一轮的 UI 缺陷。
-  - **色彩体系对齐**：全面梳理高亮与指示色彩，消除偶发的洋红杂色，统一采用应用全局主题色；修复 iOS 会话页面右上角工具按钮与图片选择器底部「添加」按钮在特定状态下偏蓝的问题，与选中角标及全局主题色（`.indigo`）严格对齐。
-  - **对话导轨折叠幻影与早期轮次空白修复**：修复 iOS 对话大纲跨天章节折叠时的移动位移动画导致的半透明幻影浮现问题，引入 `.transition(.opacity)` 与双层 `.clipped()` 严格限制在折叠水平区域内；修复 iOS 长会话在导轨点击早期轮次时整屏空白问题（纠正历史跳转模式下的 `hasUserInteracted` 标记，拦截非贴底自愈任务冲突，扩充常规会话 `VStack` 阈值至 100 条并增加 `TOP_ANCHOR` 多级微步精准定位）。
-  - **设置项视觉精简**：移除设置页「MCP 工具与技能看板」行首冗余扳手图标，与页面其他标准配置项风格纯粹对齐。
-  - **富文本解析精度升级**：优化 Markdown 行内代码反引号与粗体语法混合嵌套时的解构算法，彻底杜绝跨代码块边界误匹配；扩充 GitHub 仓库、配置与相关路径专属文件图标映射。
+- 🔄 **驾驶舱额度查询超时降级与系统代理自愈 (Cockpit Quota Fallback & Sysproxy Self-Healing)**：
+  - 当 Cockpit Tools 外部查询接口超时或受阻时，无缝优雅回退至直连原生额度查询接口，确保多账号额度数据永不断连。
+  - 增强本地服务回环与系统代理白名单自愈机制，防止代理工具意外拦截局域网与本地开发握手流量。
+- 📱 **iOS 局域网无线连接与 CoreDevice 通道优化**：
+  - 强化局域网设备通信与系统代理白名单自适应策略（补齐 `*.coredevice.local`），保障 Xcode 及终端工具与 iPhone 物理真机无线通道的持续稳定。
