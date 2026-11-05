@@ -177,24 +177,56 @@ function maskEmail(email) {
   return `${maskPart(local)}@${maskPart(domain)}`;
 }
 
+function getTierBadgeHtml(tier) {
+  if (!tier || typeof tier !== "string") return "";
+  const norm = tier.trim().toUpperCase();
+  if (norm === "ULTRA") {
+    return `<span class="quota-tier-badge ultra">ULTRA</span>`;
+  }
+  if (norm === "PRO") {
+    return `<span class="quota-tier-badge pro">PRO</span>`;
+  }
+  if (norm === "FREE") {
+    return `<span class="quota-tier-badge free">FREE</span>`;
+  }
+  return "";
+}
+
 function buildAccountQuotaCard(acc, isCurrent) {
   const g5h = acc.gemini_5h || { remaining_percent: 0, reset_friendly: "未知" };
   const gWk = acc.gemini_weekly || { remaining_percent: 0, reset_friendly: "未知" };
   const c5h = acc.claude_5h || { remaining_percent: 0, reset_friendly: "未知" };
   const cWk = acc.claude_weekly || { remaining_percent: 0, reset_friendly: "未知" };
+  const argon = acc.gemini_4_argon || null;
 
   const card = document.createElement("div");
   card.className = `quota-account-card ${isCurrent ? "current-account-card" : ""}`;
 
   const displayEmail = isCockpitEmailMasked ? maskEmail(acc.email) : acc.email;
+  const tierBadgeHtml = getTierBadgeHtml(acc.subscription_tier);
   const switchBtnHtml = (!isCurrent && isCockpitSwitchEnabled())
     ? `<button class="quota-switch-btn" data-id="${escapeHtml(acc.id)}" data-email="${escapeHtml(acc.email)}">切换</button>`
+    : "";
+  const argonHtml = argon && typeof argon.remaining_percent === "number"
+    ? `
+      <!-- 5. Bottom Full Width: Gemini 4 Argon (dynamically shown only when available) -->
+      <div class="metric-box metric-box-full">
+        <div class="metric-box-header">
+          <span class="metric-box-title gemini">Gemini 4 Argon</span>
+          <span class="metric-box-value ${getQuotaStatusClass(argon.remaining_percent)}">${argon.remaining_percent.toFixed(1)}%</span>
+        </div>
+        <div class="metric-mini-track">
+          <div class="metric-mini-fill ${getQuotaStatusClass(argon.remaining_percent)}" style="width: ${Math.min(100, Math.max(0, argon.remaining_percent))}%;"></div>
+        </div>
+        <span class="metric-box-reset" title="${escapeHtml(getQuotaResetDisplayText(argon))}">${escapeHtml(getQuotaResetDisplayText(argon))}</span>
+      </div>`
     : "";
 
   card.innerHTML = `
     <div class="quota-card-header">
       <div class="quota-card-identity">
         <span class="quota-account-email" title="${escapeHtml(acc.email)}">${escapeHtml(displayEmail)}</span>
+        ${tierBadgeHtml}
       </div>
       ${isCurrent ? `<span class="quota-active-tag"><i class="quota-active-dot"></i>使用中</span>` : switchBtnHtml}
     </div>
@@ -247,6 +279,7 @@ function buildAccountQuotaCard(acc, isCurrent) {
         </div>
         <span class="metric-box-reset" title="${escapeHtml(getQuotaResetDisplayText(gWk))}">${escapeHtml(getQuotaResetDisplayText(gWk))}</span>
       </div>
+      ${argonHtml}
     </div>
   `;
 

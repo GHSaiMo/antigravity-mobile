@@ -60,14 +60,21 @@ type CockpitAccountDetail struct {
 }
 
 var (
-	cachedStorageKey   []byte
-	cachedStorageKeyMu sync.RWMutex
+	cachedStorageKey     []byte
+	cachedStorageKeyPath string
+	cachedStorageKeyMu   sync.RWMutex
 )
 
 // GetStorageKey reads the 32-byte AES-256 key from secure-account-storage.key, caching it in memory.
 func GetStorageKey() ([]byte, error) {
+	dataDir, err := GetCockpitDataDir()
+	if err != nil {
+		return nil, err
+	}
+	keyPath := filepath.Join(dataDir, storageKeyFile)
+
 	cachedStorageKeyMu.RLock()
-	if len(cachedStorageKey) == 32 {
+	if len(cachedStorageKey) == 32 && cachedStorageKeyPath == keyPath {
 		k := make([]byte, 32)
 		copy(k, cachedStorageKey)
 		cachedStorageKeyMu.RUnlock()
@@ -77,17 +84,12 @@ func GetStorageKey() ([]byte, error) {
 
 	cachedStorageKeyMu.Lock()
 	defer cachedStorageKeyMu.Unlock()
-	if len(cachedStorageKey) == 32 {
+	if len(cachedStorageKey) == 32 && cachedStorageKeyPath == keyPath {
 		k := make([]byte, 32)
 		copy(k, cachedStorageKey)
 		return k, nil
 	}
 
-	dataDir, err := GetCockpitDataDir()
-	if err != nil {
-		return nil, err
-	}
-	keyPath := filepath.Join(dataDir, storageKeyFile)
 	raw, err := os.ReadFile(keyPath)
 	if err != nil {
 		return nil, fmt.Errorf("read storage key file (%s): %w", keyPath, err)
@@ -100,6 +102,7 @@ func GetStorageKey() ([]byte, error) {
 		return nil, fmt.Errorf("invalid storage key length: %d (expected 32)", len(keyBytes))
 	}
 	cachedStorageKey = keyBytes
+	cachedStorageKeyPath = keyPath
 	k := make([]byte, 32)
 	copy(k, cachedStorageKey)
 	return k, nil

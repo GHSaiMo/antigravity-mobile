@@ -2921,6 +2921,38 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
   flex-shrink: 0;
 }
 
+.quota-tier-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 2.5px 6px;
+  border-radius: 5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+}
+
+.quota-tier-badge.ultra {
+  background: linear-gradient(135deg, #f97316, #f59e0b);
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(249, 115, 22, 0.3);
+}
+
+.quota-tier-badge.pro {
+  background: linear-gradient(135deg, #1d4ed8, #0ea5a5);
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(29, 78, 216, 0.25);
+}
+
+.quota-tier-badge.free {
+  background: rgba(148, 163, 184, 0.2);
+  color: var(--ios-secondary-label);
+  border: 0.5px solid rgba(148, 163, 184, 0.35);
+}
+
 .quota-active-tag {
   font-size: 10px;
   font-weight: 600;
@@ -2947,6 +2979,10 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.metric-box.metric-box-full {
+  grid-column: 1 / -1;
 }
 
 .metric-box-header {

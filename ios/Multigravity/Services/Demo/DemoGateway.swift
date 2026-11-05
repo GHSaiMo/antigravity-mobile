@@ -81,10 +81,12 @@ final class DemoGateway: @unchecked Sendable {
         let id: String
         let email: String
         let name: String
+        let subscriptionTier: String
         var claude5h: Double
         var claudeWeekly: Double
         var gemini5h: Double
         var geminiWeekly: Double
+        var gemini4Argon: Double?
         let reset5h: TimeInterval
         let resetWeekly: TimeInterval
     }
@@ -108,14 +110,14 @@ final class DemoGateway: @unchecked Sendable {
         files = [:]
         counter = 0
         quotaAccounts = [
-            QuotaAccount(id: "demo-acc-1", email: "alice@multigravity.app", name: "Alice（演示）",
-                         claude5h: 100, claudeWeekly: 96, gemini5h: 88, geminiWeekly: 64,
+            QuotaAccount(id: "demo-acc-1", email: "alice@multigravity.app", name: "Alice（演示）", subscriptionTier: "ULTRA",
+                         claude5h: 100, claudeWeekly: 96, gemini5h: 88, geminiWeekly: 64, gemini4Argon: 94,
                          reset5h: 4 * 3600 + 12 * 60, resetWeekly: 5 * 86400 + 2 * 3600),
-            QuotaAccount(id: "demo-acc-2", email: "bob@multigravity.app", name: "Bob（演示）",
-                         claude5h: 12, claudeWeekly: 41, gemini5h: 55, geminiWeekly: 23,
+            QuotaAccount(id: "demo-acc-2", email: "bob@multigravity.app", name: "Bob（演示）", subscriptionTier: "PRO",
+                         claude5h: 12, claudeWeekly: 41, gemini5h: 55, geminiWeekly: 23, gemini4Argon: nil,
                          reset5h: 1 * 3600 + 5 * 60, resetWeekly: 2 * 86400 + 20 * 3600),
-            QuotaAccount(id: "demo-acc-3", email: "carol@multigravity.app", name: "",
-                         claude5h: 78, claudeWeekly: 9, gemini5h: 100, geminiWeekly: 100,
+            QuotaAccount(id: "demo-acc-3", email: "carol@multigravity.app", name: "", subscriptionTier: "FREE",
+                         claude5h: 78, claudeWeekly: 9, gemini5h: 100, geminiWeekly: 100, gemini4Argon: nil,
                          reset5h: 3 * 3600 + 40 * 60, resetWeekly: 6 * 86400 + 11 * 3600)
         ]
         currentQuotaId = "demo-acc-1"
@@ -515,10 +517,18 @@ final class DemoGateway: @unchecked Sendable {
              "reset_time": iso(Date().addingTimeInterval(reset)), "reset_friendly": Self.friendly(reset)]
         }
         func account(_ a: QuotaAccount) -> [String: Any] {
-            ["id": a.id, "email": a.email, "name": a.name, "is_current": a.id == currentQuotaId,
-             "claude_5h": bucket(a.claude5h, a.reset5h), "claude_weekly": bucket(a.claudeWeekly, a.resetWeekly),
-             "gemini_5h": bucket(a.gemini5h, a.reset5h), "gemini_weekly": bucket(a.geminiWeekly, a.resetWeekly),
-             "updated_at": quotaUpdatedAt]
+            var dict: [String: Any] = [
+                "id": a.id, "email": a.email, "name": a.name,
+                "subscription_tier": a.subscriptionTier,
+                "is_current": a.id == currentQuotaId,
+                "claude_5h": bucket(a.claude5h, a.reset5h), "claude_weekly": bucket(a.claudeWeekly, a.resetWeekly),
+                "gemini_5h": bucket(a.gemini5h, a.reset5h), "gemini_weekly": bucket(a.geminiWeekly, a.resetWeekly),
+                "updated_at": quotaUpdatedAt
+            ]
+            if let argon = a.gemini4Argon {
+                dict["gemini_4_argon"] = bucket(argon, a.resetWeekly)
+            }
+            return dict
         }
         let all = quotaAccounts.map(account)
         let current = quotaAccounts.first { $0.id == currentQuotaId }.map(account) ?? all.first as Any

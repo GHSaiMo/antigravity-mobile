@@ -20,6 +20,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontFamily
@@ -314,22 +315,28 @@ private fun AccountQuotaCard(
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Header row: Email + iOS-style Switch button for non-current accounts
+        // Header row: Email + Tier Badge + iOS-style Switch button for non-current accounts
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            val displayEmail = if (isMasked) maskEmail(account.email) else account.email
-            Text(
-                text = displayEmail,
-                color = colors.textPrimary,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false)
-            )
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val displayEmail = if (isMasked) maskEmail(account.email) else account.email
+                Text(
+                    text = displayEmail,
+                    color = colors.textPrimary,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                TierBadge(tier = account.subscriptionTier)
+            }
 
             if (!isCurrent && onSwitch != null) {
                 Spacer(modifier = Modifier.width(8.dp))
@@ -372,6 +379,86 @@ private fun AccountQuotaCard(
                 bucket = account.geminiWeekly,
                 modifier = Modifier.weight(1f)
             )
+        }
+
+        // Row 3 (Optional): Dynamically display Gemini 4 Argon only when the account has it
+        account.gemini4Argon?.let { argon ->
+            QuotaMetricCell(
+                title = "Gemini 4 Argon",
+                bucket = argon,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
+
+@Composable
+private fun TierBadge(tier: String?) {
+    val norm = tier?.trim()?.uppercase(Locale.US) ?: return
+    val colors = AntigravityTheme.colors
+    when (norm) {
+        "ULTRA" -> {
+            Spacer(modifier = Modifier.width(6.dp))
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(5.dp))
+                    .background(
+                        Brush.linearGradient(
+                            colors = listOf(Color(0xFFF97316), Color(0xFFF59E0B))
+                        )
+                    )
+                    .padding(horizontal = 6.dp, vertical = 2.5.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "ULTRA",
+                    color = Color.White,
+                    fontSize = 9.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.4.sp
+                )
+            }
+        }
+        "PRO" -> {
+            Spacer(modifier = Modifier.width(6.dp))
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(5.dp))
+                    .background(
+                        Brush.linearGradient(
+                            colors = listOf(Color(0xFF1D4ED8), Color(0xFF0EA5A5))
+                        )
+                    )
+                    .padding(horizontal = 6.dp, vertical = 2.5.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "PRO",
+                    color = Color.White,
+                    fontSize = 9.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.4.sp
+                )
+            }
+        }
+        "FREE" -> {
+            Spacer(modifier = Modifier.width(6.dp))
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(5.dp))
+                    .background(colors.textSecondary.copy(alpha = 0.16f))
+                    .border(0.5.dp, colors.textSecondary.copy(alpha = 0.32f), RoundedCornerShape(5.dp))
+                    .padding(horizontal = 6.dp, vertical = 2.5.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "FREE",
+                    color = colors.textSecondary,
+                    fontSize = 9.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.4.sp
+                )
+            }
         }
     }
 }

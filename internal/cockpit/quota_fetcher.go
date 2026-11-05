@@ -17,7 +17,7 @@ import (
 
 const (
 	CloudCodeDailyBaseURL = "https://daily-cloudcode-pa.googleapis.com"
-	CloudCodeUserAgent    = "antigravity/1.20.5 darwin/arm64"
+	CloudCodeUserAgent    = "antigravity/2.25.0 (aidev_client; os_type=windows; arch=amd64; cl=1003475615)"
 )
 
 // FetchRemoteQuotaForAccount queries Google's Cloud Code APIs directly using the account's access token

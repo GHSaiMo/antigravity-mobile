@@ -236,14 +236,17 @@ public struct AccountQuotaSheet: View {
     @ViewBuilder
     private func accountCard(for acc: CockpitAccountQuota, isCurrent: Bool) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Header: Email only (no name) + Switch button for non-current accounts
-            HStack {
+            // Header: Email + Tier Badge + Switch button for non-current accounts
+            HStack(spacing: 6) {
                 let displayEmail = isMasked ? maskEmail(acc.email) : acc.email
                 Text(displayEmail)
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(.primary)
                     .lineLimit(1)
-                Spacer()
+                
+                tierBadge(for: acc.subscriptionTier)
+                
+                Spacer(minLength: 4)
                 
                 if !isCurrent && enableSwitchButton && onSwitch != nil {
                     Button(action: {
@@ -273,18 +276,25 @@ public struct AccountQuotaSheet: View {
             Divider()
                 .opacity(0.6)
             
-            // 4 Metrics Grid: Claude on Left, Gemini on Right, 5h on top, Weekly on bottom
-            LazyVGrid(columns: [
-                GridItem(.flexible(), spacing: 10),
-                GridItem(.flexible(), spacing: 10)
-            ], spacing: 10) {
-                // Row 1: Left Claude 5h, Right Gemini 5h
-                metricCell(title: "Claude 5h", bucket: acc.claude5h)
-                metricCell(title: "Gemini 5h", bucket: acc.gemini5h)
+            VStack(spacing: 10) {
+                // 4 Metrics Grid: Claude on Left, Gemini on Right, 5h on top, Weekly on bottom
+                LazyVGrid(columns: [
+                    GridItem(.flexible(), spacing: 10),
+                    GridItem(.flexible(), spacing: 10)
+                ], spacing: 10) {
+                    // Row 1: Left Claude 5h, Right Gemini 5h
+                    metricCell(title: "Claude 5h", bucket: acc.claude5h)
+                    metricCell(title: "Gemini 5h", bucket: acc.gemini5h)
+                    
+                    // Row 2: Left Claude Weekly, Right Gemini Weekly
+                    metricCell(title: "Claude Weekly", bucket: acc.claudeWeekly)
+                    metricCell(title: "Gemini Weekly", bucket: acc.geminiWeekly)
+                }
                 
-                // Row 2: Left Claude Weekly, Right Gemini Weekly
-                metricCell(title: "Claude Weekly", bucket: acc.claudeWeekly)
-                metricCell(title: "Gemini Weekly", bucket: acc.geminiWeekly)
+                // Dynamically display Gemini 4 Argon only when the account has it
+                if let argon = acc.gemini4Argon {
+                    metricCell(title: "Gemini 4 Argon", bucket: argon)
+                }
             }
         }
         .padding(14)
@@ -297,6 +307,61 @@ public struct AccountQuotaSheet: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(isCurrent ? Color.blue.opacity(0.35) : Color.primary.opacity(0.06), lineWidth: isCurrent ? 1.5 : 0.5)
         )
+    }
+    
+    @ViewBuilder
+    private func tierBadge(for rawTier: String?) -> some View {
+        let tier = rawTier?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() ?? ""
+        if tier == "ULTRA" {
+            Text("ULTRA")
+                .font(.system(size: 9.5, weight: .bold))
+                .tracking(0.4)
+                .foregroundColor(.white)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2.5)
+                .background(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 249.0 / 255.0, green: 115.0 / 255.0, blue: 22.0 / 255.0),
+                            Color(red: 245.0 / 255.0, green: 158.0 / 255.0, blue: 11.0 / 255.0)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+        } else if tier == "PRO" {
+            Text("PRO")
+                .font(.system(size: 9.5, weight: .bold))
+                .tracking(0.4)
+                .foregroundColor(.white)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2.5)
+                .background(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 29.0 / 255.0, green: 78.0 / 255.0, blue: 216.0 / 255.0),
+                            Color(red: 14.0 / 255.0, green: 165.0 / 255.0, blue: 165.0 / 255.0)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+        } else if tier == "FREE" {
+            Text("FREE")
+                .font(.system(size: 9.5, weight: .bold))
+                .tracking(0.4)
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2.5)
+                .background(Color.secondary.opacity(0.16))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .stroke(Color.secondary.opacity(0.32), lineWidth: 0.5)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+        }
     }
     
     @ViewBuilder

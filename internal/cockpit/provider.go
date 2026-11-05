@@ -28,17 +28,19 @@ type QuotaMetric struct {
 	ResetFriendly     string  `json:"reset_friendly"`
 }
 
-// AccountQuota represents an Antigravity account and its 4 key quota dimensions.
+// AccountQuota represents an Antigravity account and its quota dimensions.
 type AccountQuota struct {
-	ID           string       `json:"id"`
-	Email        string       `json:"email"`
-	Name         string       `json:"name"`
-	IsCurrent    bool         `json:"is_current"`
-	Claude5h     *QuotaMetric `json:"claude_5h"`
-	ClaudeWeekly *QuotaMetric `json:"claude_weekly"`
-	Gemini5h     *QuotaMetric `json:"gemini_5h"`
-	GeminiWeekly *QuotaMetric `json:"gemini_weekly"`
-	UpdatedAt    int64        `json:"updated_at"`
+	ID               string       `json:"id"`
+	Email            string       `json:"email"`
+	Name             string       `json:"name"`
+	SubscriptionTier string       `json:"subscription_tier,omitempty"`
+	IsCurrent        bool         `json:"is_current"`
+	Claude5h         *QuotaMetric `json:"claude_5h"`
+	ClaudeWeekly     *QuotaMetric `json:"claude_weekly"`
+	Gemini5h         *QuotaMetric `json:"gemini_5h"`
+	GeminiWeekly     *QuotaMetric `json:"gemini_weekly"`
+	Gemini4Argon     *QuotaMetric `json:"gemini_4_argon,omitempty"`
+	UpdatedAt        int64        `json:"updated_at"`
 }
 
 // CockpitQuotaResponse is the payload returned to mobile clients.
@@ -221,7 +223,8 @@ func GetAutoRefreshInterval(defaultInterval time.Duration) time.Duration {
 type cachePayload struct {
 	UpdatedAt int64 `json:"updatedAt"`
 	Payload   struct {
-		Models map[string]struct {
+		SubscriptionTier string `json:"subscription_tier,omitempty"`
+		Models           map[string]struct {
 			DisplayName string `json:"displayName"`
 			QuotaInfo   struct {
 				RemainingFraction *float64 `json:"remainingFraction"`
@@ -239,6 +242,55 @@ type cachePayload struct {
 			} `json:"groups"`
 		} `json:"quota_summary"`
 	} `json:"payload"`
+}
+
+type storedAccountQuota struct {
+	SubscriptionTier string `json:"subscription_tier"`
+	Models           []struct {
+		Name        string `json:"name"`
+		DisplayName string `json:"display_name"`
+		Percentage  *int   `json:"percentage"`
+		ResetTime   string `json:"reset_time"`
+	} `json:"models"`
+}
+
+func extractStoredAccountQuota(raw any) *storedAccountQuota {
+	if raw == nil {
+		return nil
+	}
+	b, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	var sq storedAccountQuota
+	if err := json.Unmarshal(b, &sq); err != nil {
+		return nil
+	}
+	return &sq
+}
+
+// normalizeSubscriptionTier maps Cockpit Tools' raw subscription_tier string
+// (e.g. "g1-ultra-tier", "g1-pro-tier", "free-tier") to "ULTRA", "PRO", "FREE", or "".
+func normalizeSubscriptionTier(raw string) string {
+	t := strings.ToLower(strings.TrimSpace(raw))
+	if t == "" || t == "unknown" {
+		return ""
+	}
+	if strings.Contains(t, "ultra") {
+		return "ULTRA"
+	}
+	if strings.Contains(t, "pro") {
+		return "PRO"
+	}
+	return "FREE"
+}
+
+func isArgonModelOrBucket(id string) bool {
+	lower := strings.ToLower(strings.TrimSpace(id))
+	if lower == "" || strings.HasSuffix(lower, "-disabled") || strings.HasSuffix(lower, "_disabled") {
+		return false
+	}
+	return strings.Contains(lower, "argon")
 }
 
 var (
@@ -484,6 +536,9 @@ func GetQuotas(activeEmails ...string) (*CockpitQuotaResponse, error) {
 				if cp.UpdatedAt > maxUpdatedAt {
 					maxUpdatedAt = cp.UpdatedAt
 				}
+				if item.SubscriptionTier == "" && cp.Payload.SubscriptionTier != "" {
+					item.SubscriptionTier = normalizeSubscriptionTier(cp.Payload.SubscriptionTier)
+				}
 
 				// 1. Check QuotaSummary buckets first
 				for _, g := range cp.Payload.QuotaSummary.Groups {
@@ -497,6 +552,10 @@ func GetQuotas(activeEmails ...string) (*CockpitQuotaResponse, error) {
 							item.Claude5h = makeMetric(b.RemainingFraction, b.ResetTime)
 						case "3p-weekly", "claude-weekly", "claude_weekly":
 							item.ClaudeWeekly = makeMetric(b.RemainingFraction, b.ResetTime)
+						default:
+							if item.Gemini4Argon == nil && isArgonModelOrBucket(b.BucketID) && b.RemainingFraction != nil {
+								item.Gemini4Argon = makeMetric(b.RemainingFraction, b.ResetTime)
+							}
 						}
 					}
 				}
@@ -514,10 +573,45 @@ func GetQuotas(activeEmails ...string) (*CockpitQuotaResponse, error) {
 						item.Gemini5h = makeMetric(m.QuotaInfo.RemainingFraction, m.QuotaInfo.ResetTime)
 					}
 				}
+				if item.Gemini4Argon == nil && len(cp.Payload.Models) > 0 {
+					for _, key := range []string{"gemini-4-argon-high", "gemini-4-argon-medium", "gemini-4-argon-low", "gemini-4-argon"} {
+						if m, ok := cp.Payload.Models[key]; ok && m.QuotaInfo.RemainingFraction != nil {
+							item.Gemini4Argon = makeMetric(m.QuotaInfo.RemainingFraction, m.QuotaInfo.ResetTime)
+							break
+						}
+					}
+					if item.Gemini4Argon == nil {
+						for k, m := range cp.Payload.Models {
+							if isArgonModelOrBucket(k) && m.QuotaInfo.RemainingFraction != nil {
+								item.Gemini4Argon = makeMetric(m.QuotaInfo.RemainingFraction, m.QuotaInfo.ResetTime)
+								break
+							}
+						}
+					}
+				}
 			}
 		}
 
-		// Ensure fallback defaults so UI doesn't crash if an account is brand new or unprobed
+		// 3. Read account detail from ~/.cockpit_tools/accounts/<id>.json for subscription_tier and model quota fallbacks
+		if detail, dErr := DecryptAccountDetail(acc.ID); dErr == nil && detail != nil {
+			if sq := extractStoredAccountQuota(detail.Quota); sq != nil {
+				if item.SubscriptionTier == "" && sq.SubscriptionTier != "" {
+					item.SubscriptionTier = normalizeSubscriptionTier(sq.SubscriptionTier)
+				}
+				if item.Gemini4Argon == nil {
+					for _, m := range sq.Models {
+						if isArgonModelOrBucket(m.Name) && m.Percentage != nil {
+							frac := float64(*m.Percentage) / 100.0
+							item.Gemini4Argon = makeMetric(&frac, m.ResetTime)
+							break
+						}
+					}
+				}
+			}
+		}
+
+		// Ensure fallback defaults for the 4 base buckets so UI doesn't crash if an account is brand new or unprobed.
+		// Note: Gemini4Argon intentionally remains nil when absent so clients dynamically hide it!
 		if item.Gemini5h == nil {
 			item.Gemini5h = &QuotaMetric{RemainingPercent: 100, ResetFriendly: "就绪"}
 		}

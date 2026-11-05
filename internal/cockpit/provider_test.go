@@ -23,10 +23,15 @@ func TestGetQuotas(t *testing.T) {
 	t.Logf("Current Account: %s (%s)", resp.CurrentAccount.Email, resp.CurrentAccount.Name)
 	t.Logf("Total Accounts: %d", len(resp.Accounts))
 	for i, a := range resp.Accounts {
-		t.Logf("[%d] %s (current: %v) | Gemini 5h: %.1f%% (%s) | Claude 5h: %.1f%% (%s)",
-			i, a.Email, a.IsCurrent,
+		argonStr := "—"
+		if a.Gemini4Argon != nil {
+			argonStr = a.Gemini4Argon.ResetFriendly
+		}
+		t.Logf("[%d] %s [tier=%s] (current: %v) | Gemini 5h: %.1f%% (%s) | Claude 5h: %.1f%% (%s) | Argon: %v (%s)",
+			i, a.Email, a.SubscriptionTier, a.IsCurrent,
 			a.Gemini5h.RemainingPercent, a.Gemini5h.ResetFriendly,
-			a.Claude5h.RemainingPercent, a.Claude5h.ResetFriendly)
+			a.Claude5h.RemainingPercent, a.Claude5h.ResetFriendly,
+			a.Gemini4Argon != nil, argonStr)
 		t.Logf("    Weekly -> Gemini: %.1f%% (%s) | Claude: %.1f%% (%s)",
 			a.GeminiWeekly.RemainingPercent, a.GeminiWeekly.ResetFriendly,
 			a.ClaudeWeekly.RemainingPercent, a.ClaudeWeekly.ResetFriendly)
@@ -221,4 +226,123 @@ func TestEnsureCockpitAntigravityConfig_NoConfig(t *testing.T) {
 		t.Fatalf("expected nil when config.json is absent, got: %v", err)
 	}
 }
+
+func TestGetQuotas_ArgonAndSubscriptionTier(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("COCKPIT_DATA_DIR", tmpDir)
+	t.Setenv("COCKPIT_TOOLS_DATA_DIR", tmpDir)
+	InvalidateQuotaCache()
+
+	accountsJSON := `{
+		"current_account_id": "acc-ultra",
+		"accounts": [
+			{"id": "acc-ultra", "email": "ultra@example.com", "name": "Ultra User"},
+			{"id": "acc-pro", "email": "pro@example.com", "name": "Pro User"},
+			{"id": "acc-free", "email": "free@example.com", "name": "Free User"}
+		]
+	}`
+	if err := os.WriteFile(filepath.Join(tmpDir, "accounts.json"), []byte(accountsJSON), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	accountsDir := filepath.Join(tmpDir, "accounts")
+	if err := os.MkdirAll(accountsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(accountsDir, "acc-ultra.json"), []byte(`{"id":"acc-ultra","email":"ultra@example.com","quota":{"subscription_tier":"g1-ultra-tier"}}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(accountsDir, "acc-pro.json"), []byte(`{"id":"acc-pro","email":"pro@example.com","quota":{"subscription_tier":"g1-pro-tier"}}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(accountsDir, "acc-free.json"), []byte(`{"id":"acc-free","email":"free@example.com","quota":{"subscription_tier":"free-tier"}}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cacheDir := filepath.Join(tmpDir, "cache", "quota_api_v1_desktop", "authorized")
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	writeCache := func(email, content string) {
+		h := sha256.Sum256([]byte(email))
+		hashHex := hex.EncodeToString(h[:])
+		if err := os.WriteFile(filepath.Join(cacheDir, hashHex+".json"), []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Ultra account: has gemini-4-argon-high in models
+	writeCache("ultra@example.com", `{
+		"updatedAt": 1720000100,
+		"payload": {
+			"models": {
+				"gemini-4-argon-high": {
+					"displayName": "Gemini 4 Argon (High)",
+					"quotaInfo": {"remainingFraction": 0.92, "resetTime": "2026-09-20T06:00:00Z"}
+				}
+			},
+			"quota_summary": {
+				"groups": [{
+					"buckets": [
+						{"bucketId": "gemini-5h", "remainingFraction": 1.0, "resetTime": "2026-09-14T20:00:00Z"}
+					]
+				}]
+			}
+		}
+	}`)
+
+	// Pro account: only has gemini-4-argon-disabled with empty quotaInfo (no Argon quota)
+	writeCache("pro@example.com", `{
+		"updatedAt": 1720000100,
+		"payload": {
+			"models": {
+				"gemini-4-argon-disabled": {
+					"displayName": "",
+					"quotaInfo": {}
+				}
+			},
+			"quota_summary": {
+				"groups": [{
+					"buckets": [
+						{"bucketId": "gemini-5h", "remainingFraction": 0.8, "resetTime": "2026-09-14T20:00:00Z"}
+					]
+				}]
+			}
+		}
+	}`)
+
+	resp, err := GetQuotas()
+	if err != nil {
+		t.Fatalf("GetQuotas failed: %v", err)
+	}
+	if len(resp.Accounts) != 3 {
+		t.Fatalf("expected 3 accounts, got %d", len(resp.Accounts))
+	}
+
+	ultra := resp.Accounts[0]
+	if ultra.SubscriptionTier != "ULTRA" {
+		t.Errorf("expected ultra tier ULTRA, got %q", ultra.SubscriptionTier)
+	}
+	if ultra.Gemini4Argon == nil || ultra.Gemini4Argon.RemainingPercent != 92.0 {
+		t.Errorf("expected ultra Gemini4Argon 92.0%%, got %+v", ultra.Gemini4Argon)
+	}
+
+	pro := resp.Accounts[1]
+	if pro.SubscriptionTier != "PRO" {
+		t.Errorf("expected pro tier PRO, got %q", pro.SubscriptionTier)
+	}
+	if pro.Gemini4Argon != nil {
+		t.Errorf("expected pro Gemini4Argon to be nil (dynamically hidden), got %+v", pro.Gemini4Argon)
+	}
+
+	freeAcc := resp.Accounts[2]
+	if freeAcc.SubscriptionTier != "FREE" {
+		t.Errorf("expected free tier FREE, got %q", freeAcc.SubscriptionTier)
+	}
+	if freeAcc.Gemini4Argon != nil {
+		t.Errorf("expected free Gemini4Argon to be nil, got %+v", freeAcc.Gemini4Argon)
+	}
+}
+
 
