@@ -40,11 +40,13 @@ data class CockpitAccountQuota(
     val id: String,
     val email: String = "",
     val name: String = "",
+    @SerialName("subscription_tier") val subscriptionTier: String? = null,
     @SerialName("is_current") val isCurrent: Boolean = false,
     @SerialName("claude_5h") val claude5h: CockpitQuotaBucket? = null,
     @SerialName("claude_weekly") val claudeWeekly: CockpitQuotaBucket? = null,
     @SerialName("gemini_5h") val gemini5h: CockpitQuotaBucket? = null,
     @SerialName("gemini_weekly") val geminiWeekly: CockpitQuotaBucket? = null,
+    @SerialName("gemini_4_argon") val gemini4Argon: CockpitQuotaBucket? = null,
     @SerialName("updated_at") val updatedAt: Long = 0
 ) {
     val displayName: String

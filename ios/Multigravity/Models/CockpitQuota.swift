@@ -16,20 +16,24 @@ public struct CockpitAccountQuota: Codable, Identifiable, Sendable {
     public let id: String
     public let email: String
     public let name: String
+    public let subscriptionTier: String?
     public let isCurrent: Bool
     public let claude5h: CockpitQuotaBucket?
     public let claudeWeekly: CockpitQuotaBucket?
     public let gemini5h: CockpitQuotaBucket?
     public let geminiWeekly: CockpitQuotaBucket?
+    public let gemini4Argon: CockpitQuotaBucket?
     public let updatedAt: Int64
     
     enum CodingKeys: String, CodingKey {
         case id, email, name
+        case subscriptionTier = "subscription_tier"
         case isCurrent = "is_current"
         case claude5h = "claude_5h"
         case claudeWeekly = "claude_weekly"
         case gemini5h = "gemini_5h"
         case geminiWeekly = "gemini_weekly"
+        case gemini4Argon = "gemini_4_argon"
         case updatedAt = "updated_at"
     }
     
