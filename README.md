@@ -20,14 +20,14 @@
 </p>
 
 <p align="center">
-  🌐 <b>官网</b>：<a href="https://mgy.jiuge.space">mgy.jiuge.space</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新版 v1.1.1</a>
+  🌐 <b>官网</b>：<a href="https://mgy.jiuge.space">mgy.jiuge.space</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新版 v1.1.2</a>
 </p>
 
 https://github.com/user-attachments/assets/37360cde-3875-45bf-947e-7774e800094c
 
 ---
 
-## ⚡ 极速开始 (v1.1.1 正式版)
+## ⚡ 极速开始 (v1.1.2 正式版)
 
 ### 1. 🍎 macOS / 🐧 Linux / 🪟 Windows 服务端一键安装 (推荐)
 
@@ -69,8 +69,8 @@ irm https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/in
 > - 🔒 **平滑部署**：macOS / Linux 免 sudo 部署至 `~/.local/bin/mgy` 并自动配置全局快捷方式；Windows 自动注册至用户 PATH 及 WindowsApps 目录，开箱即用免重启终端。
 
 ### 2. 📱 Android 手机客户端安装
-前往 [GitHub Releases v1.1.1](https://github.com/GHSaiMo/antigravity-mobile/releases/latest)，下载：
-- **`Multigravity-v1.1.1.apk`**
+前往 [GitHub Releases v1.1.2](https://github.com/GHSaiMo/antigravity-mobile/releases/latest)，下载：
+- **`Multigravity-v1.1.2.apk`**
 - *安装包已配置标准签名，任何安卓手机下载后均可直接点击安装，零编译门槛。*
 - *安全提示：为保证覆盖安装，Release 签名密钥库 `android/app/release.jks` 与默认口令随仓库公开。因此 APK 签名只代表「同一发布线」，不能证明来源可信，请仅从本仓库 Releases 页面下载。如需自行分发，请用 `MGY_KEYSTORE_PASSWORD` 等环境变量与自己的密钥库重新签名。*
 
@@ -374,6 +374,17 @@ mgy help           # 查看完整命令与启动参数帮助
   - 优化高并发读写锁等待超时与并发事务，杜绝锁库；加固全文搜索特殊符号转义，防范异常查询语法崩溃；
 - **视觉语言统一与细节精调**：
   - 统一全端弹窗 Sheet 设计语言，修复 iOS 图片选择器底部「添加」按钮偏色并对齐全局 `.indigo` 主题色，精简设置页 MCP 冗余图标。
+
+---
+
+### 17. 🎨 桌面端技能图标对齐、Gemini 4 Argon 额度看板与系统代理自愈 (v1.1.2)
+- **斜杠指令与扩展技能图标 100% 对齐桌面端 (Desktop-Matched Slash Command & Skill Icons)**：
+  - 双端（iOS / Android）与 Web 端全面提取并同步 Antigravity 官方桌面端原生 SVG 矢量图标（`/grill-me`, `/plan`, `/browser`, `/goal`, `/teamwork`, `/compact`, `/learn`, `/schedule`, `/boost` 等）；
+  - 输入框指令选择器、用户提问消息气泡及长图分享卡片统一呈现微型技能图标与圆角胶囊药丸（Inline Badge / Pill），交互动线高度统一；
+- **Cockpit 驾驶舱新增 Gemini 4 Argon 额度进度条与套餐梯队徽标 (Dynamic Argon Quota Bar & Tier Badges)**：
+  - 实时动态监控 Gemini 4 Argon 配额消耗进度与 5 小时重置倒计时，直观标注账号等级（`ULTRA` / `PRO` / `FREE`），多账号健康度一览无余；
+- **驾驶舱额度查询超时降级与系统代理自愈 (Cockpit Quota Fallback & Sysproxy Self-Healing)**：
+  - 外部额度接口超时自动平滑降级至直连原生查询，防止额度断连；自适应维护本地开发白名单与 iOS CoreDevice 局域网通道（补齐 `*.coredevice.local`），杜绝代理误拦截。
 
 ---
 
