@@ -447,7 +447,19 @@ private fun MessageShareCard(
             }
 
             if (isUserMessage) {
-                Text(content, color = colors.textPrimary, fontSize = 15.5.sp, lineHeight = 22.sp)
+                val (annotated, inlineMap) = remember(content) {
+                    SlashCommandTextRenderer.buildInlineText(
+                        text = content,
+                        iconColor = colors.textPrimary.copy(alpha = 0.85f)
+                    )
+                }
+                Text(
+                    text = annotated,
+                    inlineContent = inlineMap,
+                    color = colors.textPrimary,
+                    fontSize = 15.5.sp,
+                    lineHeight = 22.sp
+                )
             } else {
                 MarkdownContentView(content = content, urlResolver = urlResolver)
             }

@@ -390,7 +390,14 @@ extension ChatViewModel {
         // Optimistic update with unique client message id
         let clientMessageId = UUID().uuidString
         let optId = "optimistic-\(clientMessageId)"
-        messages.append(ChatMessage(id: optId, sender: .user, content: displayText, imageDataList: images ?? []))
+        let optSlashMentions: [SlashCommandMention]? = {
+            guard let slash = slashCommand, !slash.isEmpty else { return nil }
+            let matched = self.slashCommands.first(where: { $0.name == slash })
+            let kind = matched?.kind ?? (SlashCommandIconCatalog.defaultSystemIcons[slash] != nil ? "system" : "skill")
+            let icon = SlashCommandIconCatalog.resolveIcon(name: slash, icon: matched?.icon, kind: kind)
+            return [SlashCommandMention(name: slash, icon: icon, kind: kind)]
+        }()
+        messages.append(ChatMessage(id: optId, sender: .user, content: displayText, imageDataList: images ?? [], slashCommands: optSlashMentions))
         triggerScrollToBottom()
         self.pendingOptimisticMessageId = optId
         self.isAwaitingResponse = true

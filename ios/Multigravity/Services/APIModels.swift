@@ -134,6 +134,8 @@ public struct PaginatedMessagesResponse: Codable, Sendable {
         public let subagent: SubagentItem?
         /// type == "workflow" 时的动态多智能体工作流数据 (Antigravity 2.26+)。
         public let workflow: WorkflowItem?
+        /// type == "user" 时引用的斜杠命令 / 技能列表。
+        public let slashCommands: [SlashCommandMention]?
     }
 }
 

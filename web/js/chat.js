@@ -790,7 +790,11 @@ function groupSteps(steps) {
 
     if (type === "CORTEX_STEP_TYPE_USER_INPUT") {
       flushBatch();
-      const userText = (s.userInput?.userResponse || s.userInput?.items?.[0]?.text || "").trim();
+      const extracted = typeof extractUserInputTextAndSlashCommands === "function"
+        ? extractUserInputTextAndSlashCommands(s.userInput)
+        : { text: (s.userInput?.userResponse || s.userInput?.items?.[0]?.text || "").trim(), slashCommands: [] };
+      const userText = extracted.text;
+      const slashCommands = extracted.slashCommands;
       const hasMedia = Array.isArray(s.userInput?.media) && s.userInput.media.length > 0;
       const hasImages = Array.isArray(s.userInput?.images) && s.userInput.images.length > 0;
       const isArtifactApproval = Array.isArray(s.userInput?.artifactComments) && s.userInput.artifactComments.length > 0 && !userText;
@@ -816,6 +820,7 @@ function groupSteps(steps) {
           id: `item-user-${i}`,
           index: i,
           text: userText,
+          slashCommands: slashCommands,
           media: mediaList,
           imageUrls: imageUrls,
           step: s
@@ -973,7 +978,8 @@ function getItemFingerprint(item, isRunning, isLastItem) {
   if (!item) return "";
   if (item.type === "user") {
     const mediaLen = (item.media || []).length;
-    return `u:${item.text.length}:${item.text.slice(-10)}:m${mediaLen}`;
+    const scKey = (item.slashCommands || []).map(c => c.name).join(",");
+    return `u:${item.text.length}:${item.text.slice(-10)}:m${mediaLen}:sc${scKey}`;
   }
   if (item.type === "agent") {
     const thinkLen = (item.thinking || "").length;
@@ -1088,7 +1094,12 @@ function generateItemHtml(item, isRunning, isLastItem) {
           return `<img src="${src}" class="bubble-image" data-action="open-image" alt="上传图片" />`;
         }).join("") + `</div>`;
     }
-    const textHtml = item.text ? `<div>${escapeHtml(item.text)}</div>` : "";
+    const renderedUserText = item.text
+      ? (typeof renderUserTextWithSlashPills === "function"
+          ? renderUserTextWithSlashPills(item.text, item.slashCommands)
+          : escapeHtml(item.text))
+      : "";
+    const textHtml = renderedUserText ? `<div>${renderedUserText}</div>` : "";
     return `<div class="bubble-col"><div class="bubble">${imagesHtml}${textHtml}</div>${buildMessageActionsHtml("user")}</div>`;
   }
 

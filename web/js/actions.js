@@ -153,7 +153,12 @@ async function sendMessage() {
       }).join("") +
       `</div>`;
   }
-  const textHtml = displayText ? `<div>${escapeHtml(displayText)}</div>` : "";
+  const renderedDisplay = displayText
+    ? (typeof renderUserTextWithSlashPills === "function"
+        ? renderUserTextWithSlashPills(displayText, sentSlash ? [sentSlash] : [])
+        : escapeHtml(displayText))
+    : "";
+  const textHtml = renderedDisplay ? `<div>${renderedDisplay}</div>` : "";
   streamEl.insertAdjacentHTML("beforeend", `
     <div id="${tempId}" class="message-row user">
       <div class="bubble">${imgHtml}${textHtml}</div>

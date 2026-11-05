@@ -32,13 +32,17 @@ extension MessageBubbleView {
             }
             
             if !parsed.body.isEmpty {
-                Text(parsed.body)
-                    .font(.system(size: 15.5))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(Color.indigo)
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                SlashCommandTextRenderer.render(
+                    text: parsed.body,
+                    mentions: message.slashCommands ?? [],
+                    iconColor: .white.withAlphaComponent(0.85)
+                )
+                .font(.system(size: 15.5))
+                .foregroundColor(.white)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(Color.indigo)
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
         }
         .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 18, style: .continuous))

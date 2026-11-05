@@ -70,6 +70,8 @@ data class GatewayMessageItem(
     val subagent: SubagentItem? = null,
     /** type == "workflow" 时的动态多智能体工作流数据 (Antigravity 2.26+)。 */
     val workflow: WorkflowItem? = null,
+    /** type == "user" 时引用的斜杠命令 / 技能列表。 */
+    val slashCommands: List<SlashCommandMention>? = null,
     @kotlinx.serialization.Transient val imageDataList: List<ByteArray> = emptyList()
 ) {
     val effectiveRole: String

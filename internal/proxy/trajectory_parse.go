@@ -133,13 +133,7 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 			flushTools()
 			turnArtifacts = nil
 			seenArtifactURIs = make(map[string]bool)
-			text := ""
-			if s.UserInput != nil {
-				text = s.UserInput.UserResponse
-				if text == "" && len(s.UserInput.Items) > 0 {
-					text = s.UserInput.Items[0].Text
-				}
-			}
+			text, slashCommands := s.UserInput.ExtractTextAndSlashCommands()
 
 			var mediaList []string
 			var userImageURLs []string
@@ -222,15 +216,16 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 			if (trimmed != "" && !isSystemApproval) || len(mediaList) > 0 || len(userImageURLs) > 0 || len(nonImageMediaFiles) > 0 {
 				stepIdx := idx
 				allMessages = append(allMessages, CascadeMessageItem{
-					ID:        fmt.Sprintf("step-%d", idx),
-					Type:      "user",
-					Role:      "user",
-					Text:      text,
-					Content:   text,
-					StepIndex: &stepIdx,
-					Media:     mediaList,
-					ImageURLs: userImageURLs,
-					Timestamp: s.Metadata.CreatedAt,
+					ID:            fmt.Sprintf("step-%d", idx),
+					Type:          "user",
+					Role:          "user",
+					Text:          text,
+					Content:       text,
+					StepIndex:     &stepIdx,
+					Media:         mediaList,
+					ImageURLs:     userImageURLs,
+					SlashCommands: slashCommands,
+					Timestamp:     s.Metadata.CreatedAt,
 				})
 			}
 		} else if stepType == "CORTEX_STEP_TYPE_PLANNER_RESPONSE" {

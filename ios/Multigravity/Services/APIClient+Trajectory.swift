@@ -64,7 +64,8 @@ extension APIClient {
                         modelName: item.modelName,
                         subagent: item.subagent,
                         workflow: item.workflow,
-                        timestamp: item.timestamp
+                        timestamp: item.timestamp,
+                        slashCommands: item.slashCommands
                     )
                 }
                 
@@ -164,7 +165,9 @@ extension APIClient {
             
             if type == "CORTEX_STEP_TYPE_USER_INPUT" {
                 flushTools()
-                let text = step.userInput?.userResponse ?? step.userInput?.items?.first?.text ?? ""
+                let extracted = step.userInput?.extractTextAndSlashCommands() ?? (text: "", slashCommands: [])
+                let text = extracted.text
+                let slashCommands = extracted.slashCommands
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 let isSystemApproval = trimmed.hasPrefix("Comments on artifact URI:") || trimmed.contains("The user has approved this document")
                 
@@ -234,7 +237,8 @@ extension APIClient {
                         content: effectiveText,
                         imageDataList: images,
                         imageUrls: imageUrls,
-                        stepIndex: idx
+                        stepIndex: idx,
+                        slashCommands: slashCommands.isEmpty ? nil : slashCommands
                     ))
                 }
             } else if type == "CORTEX_STEP_TYPE_PLANNER_RESPONSE" {
