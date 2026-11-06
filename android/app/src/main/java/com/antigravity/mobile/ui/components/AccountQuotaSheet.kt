@@ -1,7 +1,6 @@
 package com.antigravity.mobile.ui.components
 
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -21,11 +20,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.TextStyle
@@ -405,86 +402,36 @@ private fun TierBadge(tier: String?) {
     val colors = AntigravityTheme.colors
     when (norm) {
         "ULTRA" -> {
-            val badgeShape = RoundedCornerShape(5.5.dp)
             Spacer(modifier = Modifier.width(6.dp))
             Box(
                 modifier = Modifier
-                    .shadow(
-                        elevation = 4.dp,
-                        shape = badgeShape,
-                        ambientColor = Color(0xFFEA580C),
-                        spotColor = Color(0xFFF59E0B)
-                    )
-                    .clip(badgeShape)
+                    .clip(RoundedCornerShape(5.dp))
                     .background(
-                        Brush.linearGradient(
-                            colorStops = arrayOf(
-                                0.0f to Color(0xFFC2410C),
-                                0.26f to Color(0xFFEA580C),
-                                0.58f to Color(0xFFF59E0B),
-                                0.80f to Color(0xFFFDE047),
-                                1.0f to Color(0xFFD97706)
-                            )
-                        )
-                    )
-                    .background(
-                        Brush.verticalGradient(
-                            colorStops = arrayOf(
-                                0.0f to Color.White.copy(alpha = 0.34f),
-                                0.48f to Color.White.copy(alpha = 0.04f),
-                                1.0f to Color(0xFF782800).copy(alpha = 0.18f)
-                            )
-                        )
-                    )
-                    .border(
-                        0.8.dp,
                         Brush.linearGradient(
                             colors = listOf(
-                                Color(0xFFFEF08A).copy(alpha = 0.85f),
-                                Color(0xFFF59E0B).copy(alpha = 0.55f),
-                                Color(0xFFB45309).copy(alpha = 0.65f)
-                            )
-                        ),
-                        badgeShape
-                    )
-                    .padding(start = 5.5.dp, end = 6.5.dp, top = 2.5.dp, bottom = 2.5.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(3.dp)
-                ) {
-                    Canvas(modifier = Modifier.size(7.5.dp)) {
-                        val w = size.width
-                        val h = size.height
-                        val path = Path().apply {
-                            moveTo(w * 0.5f, 0f)
-                            lineTo(w * 0.62f, h * 0.38f)
-                            lineTo(w, h * 0.5f)
-                            lineTo(w * 0.62f, h * 0.62f)
-                            lineTo(w * 0.5f, h)
-                            lineTo(w * 0.38f, h * 0.62f)
-                            lineTo(0f, h * 0.5f)
-                            lineTo(w * 0.38f, h * 0.38f)
-                            close()
-                        }
-                        drawPath(path = path, color = Color(0xFFFEF08A))
-                    }
-                    Text(
-                        text = "ULTRA",
-                        color = Color(0xFFFFFBEB),
-                        fontSize = 9.5.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        letterSpacing = 0.55.sp,
-                        style = TextStyle(
-                            shadow = Shadow(
-                                color = Color(0x997C2D12),
-                                offset = Offset(0f, 1.5f),
-                                blurRadius = 2f
+                                Color(0xFFD97706),
+                                Color(0xFFF59E0B),
+                                Color(0xFFEA580C)
                             )
                         )
                     )
-                }
+                    .padding(horizontal = 6.dp, vertical = 2.5.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "ULTRA",
+                    color = Color.White,
+                    fontSize = 9.5.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = 0.5.sp,
+                    style = TextStyle(
+                        shadow = Shadow(
+                            color = Color(0x557C2D12),
+                            offset = Offset(0f, 1f),
+                            blurRadius = 1.5f
+                        )
+                    )
+                )
             }
         }
         "PRO" -> {

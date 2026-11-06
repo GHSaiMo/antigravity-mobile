@@ -181,7 +181,7 @@ function getTierBadgeHtml(tier) {
   if (!tier || typeof tier !== "string") return "";
   const norm = tier.trim().toUpperCase();
   if (norm === "ULTRA") {
-    return `<span class="quota-tier-badge ultra"><svg class="ultra-spark-icon" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 0L7.35 4.65L12 6L7.35 7.35L6 12L4.65 7.35L0 6L4.65 4.65Z"/></svg><span>ULTRA</span></span>`;
+    return `<span class="quota-tier-badge ultra">ULTRA</span>`;
   }
   if (norm === "PRO") {
     return `<span class="quota-tier-badge pro">PRO</span>`;
