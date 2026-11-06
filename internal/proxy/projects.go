@@ -98,8 +98,10 @@ func (p *Proxy) GetProjects() ([]ProjectItem, error) {
 		if existing, exists := projectMap[norm]; exists {
 			if existing.ID == "" && prj.ID != "" {
 				existing.ID = prj.ID
-			}
-			if prj.ID != "" && prj.Name != "" {
+				if prj.Name != "" {
+					existing.Name = prj.Name
+				}
+			} else if (existing.ID == prj.ID || existing.Name == "") && prj.Name != "" {
 				existing.Name = prj.Name
 			}
 			if prj.IsWorkspace {
