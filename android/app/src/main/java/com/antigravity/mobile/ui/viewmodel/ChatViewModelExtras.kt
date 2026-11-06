@@ -205,9 +205,9 @@ fun ChatViewModel.ensureSlashCommands() {
     }
 }
 
-/** 选中命令：输入框里的 "/xx" 清掉，命令变成输入框上方的标签。 */
+/** 选中命令：仅剥离输入框末尾正在输入的 "/xx"，保留此前已输入的正文，命令变成快捷栏按钮。 */
 fun ChatViewModel.selectSlashCommand(command: SlashCommandOption) {
-    _inputText.value = ""
+    _inputText.value = com.antigravity.mobile.data.model.SlashCommandFilter.stripTrailingQuery(_inputText.value)
     _uiState.value = _uiState.value.copy(selectedSlashCommand = command, focusInputTrigger = _uiState.value.focusInputTrigger + 1)
 }
 

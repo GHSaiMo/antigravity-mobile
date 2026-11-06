@@ -118,8 +118,16 @@ extension ChatView {
             }
             if near != isNearBottom {
                 isNearBottom = near
+                updateCurrentVisibleTurn(viewportHeight: viewportHeight)
             }
             scheduleBlankSpaceHeal(anchorMaxY: anchorMaxY, viewportHeight: viewportHeight, proxy: proxy)
+        }
+        .onPreferenceChange(ChatVisibleMessagesPreferenceKey.self) { visibleGeometries in
+            lastVisibleMessageGeometries = visibleGeometries
+            updateCurrentVisibleTurn(viewportHeight: viewportHeight)
+        }
+        .onChange(of: viewModel.turns.count) { _, _ in
+            updateCurrentVisibleTurn(viewportHeight: viewportHeight)
         }
         .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
         .background(Color(uiColor: .systemBackground))
@@ -136,6 +144,9 @@ extension ChatView {
                 .onChanged { _ in
                     hasUserInteracted = true
                     isUserDragging = true
+                    if lockedTurnIndex != nil {
+                        lockedTurnIndex = nil
+                    }
                 }
                 .onEnded { _ in isUserDragging = false }
         )
@@ -381,6 +392,18 @@ extension ChatView {
             }
         }
         .id(message.id)
+        .background(
+            GeometryReader { geo in
+                let frame = geo.frame(in: .named("ChatScrollViewSpace"))
+                let isPossiblyVisible = frame.maxY >= -40 && frame.minY <= 1600
+                let qMinY = (frame.minY / 8).rounded() * 8
+                let qMaxY = (frame.maxY / 8).rounded() * 8
+                Color.clear.preference(
+                    key: ChatVisibleMessagesPreferenceKey.self,
+                    value: isPossiblyVisible ? [VisibleMessageGeometry(id: message.id, minY: qMinY, maxY: qMaxY)] : []
+                )
+            }
+        )
         .overlay(
             Group {
                 if highlightedTurnMessageId == message.id {
@@ -394,11 +417,67 @@ extension ChatView {
         )
         .onAppear {
             if message.id == viewModel.messages.last?.id { lastRowMaterialized = true }
-            if let turn = viewModel.turns.first(where: { $0.messages.contains(where: { $0.id == message.id }) }) {
-                currentVisibleTurnIndex = turn.turnIndex
-            }
         }
         .onDisappear { if message.id == viewModel.messages.last?.id { lastRowMaterialized = false } }
+    }
+    
+    func updateCurrentVisibleTurn(viewportHeight: CGFloat) {
+        let turns = viewModel.turns
+        guard !turns.isEmpty else {
+            if currentVisibleTurnIndex != 1 { currentVisibleTurnIndex = 1 }
+            return
+        }
+        
+        // 1. 若用户刚从大纲导轨手动点选了某一轮，且尚未手动拖动滚动条，保持所选轮次
+        if let locked = lockedTurnIndex, turns.contains(where: { $0.turnIndex == locked }) {
+            if currentVisibleTurnIndex != locked {
+                currentVisibleTurnIndex = locked
+            }
+            return
+        }
+        
+        // 2. 若初始尚未完成滚动对齐，或当前位于会话底部区域，直接对应最新一轮
+        if !hasInitiallyAligned || isNearBottom {
+            let lastIdx = turns.last?.turnIndex ?? 1
+            if currentVisibleTurnIndex != lastIdx {
+                currentVisibleTurnIndex = lastIdx
+            }
+            return
+        }
+        
+        // 3. 根据当前视口内可见的消息几何位置，计算处于阅读视觉重心处的消息所属轮次
+        let effectiveHeight = viewportHeight > 0 ? viewportHeight : (currentViewportHeight > 0 ? currentViewportHeight : 600)
+        let visibleInViewport = lastVisibleMessageGeometries.filter { $0.maxY > 8 && $0.minY < effectiveHeight - 8 }
+        guard !visibleInViewport.isEmpty else { return }
+        
+        // 若首条消息已在视口顶部附近，判定为第 1 轮
+        if let firstMsgId = viewModel.messages.first?.id,
+           let firstGeo = visibleInViewport.first(where: { $0.id == firstMsgId }),
+           firstGeo.minY >= -24 {
+            let firstIdx = turns.first?.turnIndex ?? 1
+            if currentVisibleTurnIndex != firstIdx {
+                currentVisibleTurnIndex = firstIdx
+            }
+            return
+        }
+        
+        // 取视口中上部（45% 高度处）作为阅读锚点，优先选择覆盖该锚点的消息，否则选择距离锚点最近的消息
+        let anchorY = effectiveHeight * 0.45
+        let bestGeo = visibleInViewport.min { a, b in
+            let distA: CGFloat = (anchorY >= a.minY && anchorY <= a.maxY) ? 0 : min(abs(a.minY - anchorY), abs(a.maxY - anchorY))
+            let distB: CGFloat = (anchorY >= b.minY && anchorY <= b.maxY) ? 0 : min(abs(b.minY - anchorY), abs(b.maxY - anchorY))
+            if abs(distA - distB) > 1 {
+                return distA < distB
+            }
+            return a.minY > b.minY
+        }
+        
+        if let targetId = bestGeo?.id,
+           let matchedTurn = turns.first(where: { $0.messages.contains(where: { $0.id == targetId }) }) {
+            if currentVisibleTurnIndex != matchedTurn.turnIndex {
+                currentVisibleTurnIndex = matchedTurn.turnIndex
+            }
+        }
     }
     
     func shareContext(for message: ChatMessage) -> ShareCardContext {

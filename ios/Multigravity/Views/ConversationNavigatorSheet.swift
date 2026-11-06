@@ -57,7 +57,11 @@ public struct ConversationNavigatorSheet: View {
                 .background(Color(uiColor: .systemGroupedBackground))
                 .onAppear {
                     if let cur = currentTurnIndex, let target = turns.first(where: { $0.turnIndex == cur }) {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                        scrollProxy.scrollTo(target.id, anchor: .center)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                            scrollProxy.scrollTo(target.id, anchor: .center)
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
                             withAnimation(.easeOut(duration: 0.2)) {
                                 scrollProxy.scrollTo(target.id, anchor: .center)
                             }

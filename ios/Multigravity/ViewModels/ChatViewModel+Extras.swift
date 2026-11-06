@@ -186,10 +186,10 @@ extension ChatViewModel {
         }
     }
 
-    /// 选中命令：输入框里的 "/xx" 清掉，命令变成输入框上方的标签。
+    /// 选中命令：仅剥离输入框末尾正在输入的 "/xx"，保留此前已输入的正文，命令变成快捷栏按钮。
     public func selectSlashCommand(_ command: SlashCommandOption) {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        inputText = ""
+        inputText = SlashCommandFilter.stripTrailingQuery(from: inputText)
         selectedSlashCommand = command
         focusInputTrigger += 1
     }

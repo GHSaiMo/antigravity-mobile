@@ -156,11 +156,29 @@ function renderUserTextWithSlashPills(text, slashCommands) {
   return out;
 }
 
-// 输入以 "/" 开头且尚未出现空白时，返回要筛选的关键字（不含 "/"）；否则返回 null，表示不弹出列表。
+// 检测输入框末尾是否正在输入 "/xxx" 斜杠命令；若命中则返回要筛选的关键字（不含 "/"），否则返回 null。
+function trailingSlashIndex(input) {
+  if (typeof input !== "string") return -1;
+  const slashIdx = input.lastIndexOf("/");
+  if (slashIdx < 0) return -1;
+  const rest = input.slice(slashIdx + 1);
+  if (/\s/.test(rest)) return -1;
+  if (slashIdx > 0) {
+    const prev = input[slashIdx - 1];
+    if (/[A-Za-z0-9/:.~_-]/.test(prev)) return -1;
+  }
+  return slashIdx;
+}
+
 function slashQueryOf(input) {
-  if (typeof input !== "string" || !input.startsWith("/")) return null;
-  const rest = input.slice(1);
-  return /\s/.test(rest) ? null : rest;
+  const slashIdx = trailingSlashIndex(input);
+  return slashIdx < 0 ? null : input.slice(slashIdx + 1);
+}
+
+function stripTrailingSlashQuery(input) {
+  const slashIdx = trailingSlashIndex(input);
+  if (slashIdx < 0) return input;
+  return input.slice(0, slashIdx).replace(/[ \t]+$/, "");
 }
 
 // 名称前缀命中优先，其次名称 / 标题 / 描述包含；保持原有顺序。
@@ -291,8 +309,11 @@ function selectSlashCommand(name) {
   if (typeof triggerHaptic === "function") triggerHaptic("light");
   const input = document.getElementById("chat-input");
   if (input) {
-    input.value = "";
+    input.value = stripTrailingSlashQuery(input.value);
     input.style.height = "auto";
+    if (input.value) {
+      input.style.height = Math.min(input.scrollHeight, 120) + "px";
+    }
     input.focus();
   }
   slashState.selected = {
@@ -316,7 +337,7 @@ function initSlashCommands() {
     const item = e.target.closest(".slash-item");
     if (item) selectSlashCommand(item.getAttribute("data-name"));
   });
-  document.getElementById("slash-chip")?.addEventListener("click", (e) => {
-    if (e.target.closest(".slash-chip-clear")) clearSelectedSlash();
+  document.getElementById("slash-chip")?.addEventListener("click", () => {
+    clearSelectedSlash();
   });
 }
