@@ -382,7 +382,9 @@ mgy help           # 查看完整命令与启动参数帮助
   - 双端（iOS / Android）与 Web 端全面提取并同步 Antigravity 官方桌面端原生 SVG 矢量图标（`/grill-me`, `/plan`, `/browser`, `/goal`, `/teamwork`, `/compact`, `/learn`, `/schedule`, `/boost` 等）；
   - 输入框指令选择器、用户提问消息气泡及长图分享卡片统一呈现微型技能图标与圆角胶囊药丸（Inline Badge / Pill），交互动线高度统一；
 - **Cockpit 驾驶舱新增 Gemini 4 Argon 额度进度条与套餐梯队徽标 (Dynamic Argon Quota Bar & Tier Badges)**：
-  - 实时动态监控 Gemini 4 Argon 配额消耗进度与 5 小时重置倒计时，直观标注账号等级（`ULTRA` / `PRO` / `FREE`），多账号健康度一览无余；
+  - 实时动态监控 Gemini 4 Argon 配额消耗进度与 5 小时重置倒计时（专属琥珀金质感主题），直观标注账号等级（奢华鎏金 `ULTRA` / `PRO` / `FREE`），对齐 iOS 与 Android 双端紧凑卡片布局，多账号健康度一览无余；
+- **工作区列表自动过滤 Sidecar 定时任务影子项目 (Sidecar Shadow Project Filtering)**：
+  - 自动解析 `~/.gemini/config/config.json` 中的 `sidecars` 注册表，精准过滤定时任务生成的同路径影子工作区，防止原有工作区名称被定时任务 slug 覆盖，并自动归一会话 `projectId`；
 - **驾驶舱额度查询超时降级与系统代理自愈 (Cockpit Quota Fallback & Sysproxy Self-Healing)**：
   - 外部额度接口超时自动平滑降级至直连原生查询，防止额度断连；自适应维护本地开发白名单与 iOS CoreDevice 局域网通道（补齐 `*.coredevice.local`），杜绝代理误拦截。
 
