@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -64,6 +65,7 @@ fun AccountQuotaSheet(
     }
     val colors = AntigravityTheme.colors
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val tightTextStyle = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -86,7 +88,7 @@ fun AccountQuotaSheet(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 10.dp, bottom = 18.dp),
+                    .padding(top = 8.dp, bottom = 10.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Box(
@@ -101,7 +103,7 @@ fun AccountQuotaSheet(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 12.dp),
+                    .padding(bottom = 10.dp),
                 contentAlignment = Alignment.Center
             ) {
                 IconButton(
@@ -109,20 +111,22 @@ fun AccountQuotaSheet(
                     modifier = Modifier
                         .align(Alignment.CenterStart)
                         .padding(start = 8.dp)
-                        .size(36.dp)
+                        .size(34.dp)
                 ) {
                     Icon(
                         imageVector = if (isMasked) Icons.Default.VisibilityOff else Icons.Default.Visibility,
                         contentDescription = "Toggle Mask",
                         tint = if (isMasked) colors.accentBlue else colors.textSecondary,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(19.dp)
                     )
                 }
 
                 Text(
                     text = "Cockpit Tools",
                     fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp,
+                    fontSize = 17.sp,
+                    lineHeight = 20.sp,
+                    style = tightTextStyle,
                     color = colors.textPrimary,
                     textAlign = TextAlign.Center,
                     modifier = Modifier
@@ -136,7 +140,7 @@ fun AccountQuotaSheet(
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
                         .padding(end = 8.dp)
-                        .size(36.dp)
+                        .size(34.dp)
                 ) {
                     if (isRefreshing) {
                         CircularProgressIndicator(
@@ -149,7 +153,7 @@ fun AccountQuotaSheet(
                             imageVector = Icons.Default.Refresh,
                             contentDescription = "Refresh",
                             tint = colors.accentBlue,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(19.dp)
                         )
                     }
                 }
@@ -162,13 +166,13 @@ fun AccountQuotaSheet(
                     .fillMaxWidth()
                     .weight(1f, fill = false)
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 14.dp)
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
                     .navigationBarsPadding(),
-                verticalArrangement = Arrangement.spacedBy(20.dp)
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 // Section 1: 当前使用账号
                 if (current != null) {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -180,13 +184,15 @@ fun AccountQuotaSheet(
                                 text = "当前使用账号",
                                 color = colors.textSecondary,
                                 fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold
+                                lineHeight = 16.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                style = tightTextStyle
                             )
                             Row(
                                 modifier = Modifier
                                     .clip(CircleShape)
                                     .background(colors.accentBlue.copy(alpha = 0.12f))
-                                    .padding(horizontal = 8.dp, vertical = 3.dp),
+                                    .padding(horizontal = 8.dp, vertical = 2.5.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
@@ -200,7 +206,9 @@ fun AccountQuotaSheet(
                                     text = "使用中",
                                     color = colors.accentBlue,
                                     fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold
+                                    lineHeight = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    style = tightTextStyle
                                 )
                             }
                         }
@@ -216,12 +224,14 @@ fun AccountQuotaSheet(
 
                 // Section 2: 备用账号 (N)
                 if (otherAccounts.isNotEmpty()) {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
                         Text(
                             text = "备用账号 (${otherAccounts.size})",
                             color = colors.textSecondary,
                             fontSize = 13.sp,
+                            lineHeight = 16.sp,
                             fontWeight = FontWeight.SemiBold,
+                            style = tightTextStyle,
                             modifier = Modifier.padding(horizontal = 4.dp)
                         )
 
@@ -244,10 +254,12 @@ fun AccountQuotaSheet(
                         text = "配额数据更新于 ${timeFmt.format(date)}",
                         color = colors.textMuted,
                         fontSize = 11.sp,
+                        lineHeight = 14.sp,
+                        style = tightTextStyle,
                         modifier = Modifier
                             .fillMaxWidth()
                             .wrapContentWidth(Alignment.CenterHorizontally)
-                            .padding(top = 4.dp, bottom = 24.dp)
+                            .padding(top = 2.dp, bottom = 20.dp)
                     )
                 }
             }
@@ -296,6 +308,9 @@ fun AccountQuotaSheet(
     }
 }
 
+private val CompactPlatformTextStyle = PlatformTextStyle(includeFontPadding = false)
+private val CompactTextStyle = TextStyle(platformStyle = CompactPlatformTextStyle)
+
 @Composable
 private fun AccountQuotaCard(
     account: CockpitAccountQuota,
@@ -315,8 +330,8 @@ private fun AccountQuotaCard(
                 if (isCurrent) colors.accentBlue.copy(alpha = 0.45f) else colors.border,
                 RoundedCornerShape(14.dp)
             )
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+            .padding(horizontal = 12.dp, vertical = 11.dp),
+        verticalArrangement = Arrangement.spacedBy(9.dp)
     ) {
         // Header row: Email + Tier Badge + iOS-style Switch button for non-current accounts
         Row(
@@ -333,7 +348,9 @@ private fun AccountQuotaCard(
                     text = displayEmail,
                     color = colors.textPrimary,
                     fontSize = 15.sp,
+                    lineHeight = 18.sp,
                     fontWeight = FontWeight.SemiBold,
+                    style = CompactTextStyle,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false)
@@ -347,51 +364,56 @@ private fun AccountQuotaCard(
             }
         }
 
-        HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
+        HorizontalDivider(color = colors.separator.copy(alpha = 0.25f), thickness = 0.5.dp)
 
-        // 4 Metrics Grid: 1:1 iOS Layout Order!
-        // Row 1: Left Claude 5h, Right Gemini 5h
-        Row(
+        // 4 Metrics Grid: 1:1 iOS Layout Order & Compact Proportions
+        Column(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            QuotaMetricCell(
-                title = "Claude 5h",
-                bucket = account.claude5h,
-                modifier = Modifier.weight(1f)
-            )
-            QuotaMetricCell(
-                title = "Gemini 5h",
-                bucket = account.gemini5h,
-                modifier = Modifier.weight(1f)
-            )
-        }
+            // Row 1: Left Claude 5h, Right Gemini 5h
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                QuotaMetricCell(
+                    title = "Claude 5h",
+                    bucket = account.claude5h,
+                    modifier = Modifier.weight(1f)
+                )
+                QuotaMetricCell(
+                    title = "Gemini 5h",
+                    bucket = account.gemini5h,
+                    modifier = Modifier.weight(1f)
+                )
+            }
 
-        // Row 2: Left Claude Weekly, Right Gemini Weekly
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            QuotaMetricCell(
-                title = "Claude Weekly",
-                bucket = account.claudeWeekly,
-                modifier = Modifier.weight(1f)
-            )
-            QuotaMetricCell(
-                title = "Gemini Weekly",
-                bucket = account.geminiWeekly,
-                modifier = Modifier.weight(1f)
-            )
-        }
+            // Row 2: Left Claude Weekly, Right Gemini Weekly
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                QuotaMetricCell(
+                    title = "Claude Weekly",
+                    bucket = account.claudeWeekly,
+                    modifier = Modifier.weight(1f)
+                )
+                QuotaMetricCell(
+                    title = "Gemini Weekly",
+                    bucket = account.geminiWeekly,
+                    modifier = Modifier.weight(1f)
+                )
+            }
 
-        // Row 3 (Optional): Dynamically display Gemini 4 Argon only when the account has it
-        account.gemini4Argon?.let { argon ->
-            QuotaMetricCell(
-                title = "Gemini 4 Argon",
-                bucket = argon,
-                isArgon = true,
-                modifier = Modifier.fillMaxWidth()
-            )
+            // Row 3 (Optional): Dynamically display Gemini 4 Argon only when the account has it
+            account.gemini4Argon?.let { argon ->
+                QuotaMetricCell(
+                    title = "Gemini 4 Argon",
+                    bucket = argon,
+                    isArgon = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
         }
     }
 }
@@ -415,16 +437,18 @@ private fun TierBadge(tier: String?) {
                             )
                         )
                     )
-                    .padding(horizontal = 6.dp, vertical = 2.5.dp),
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = "ULTRA",
                     color = Color.White,
                     fontSize = 9.5.sp,
+                    lineHeight = 11.sp,
                     fontWeight = FontWeight.ExtraBold,
                     letterSpacing = 0.5.sp,
                     style = TextStyle(
+                        platformStyle = CompactPlatformTextStyle,
                         shadow = Shadow(
                             color = Color(0x557C2D12),
                             offset = Offset(0f, 1f),
@@ -444,15 +468,17 @@ private fun TierBadge(tier: String?) {
                             colors = listOf(Color(0xFF1D4ED8), Color(0xFF0EA5A5))
                         )
                     )
-                    .padding(horizontal = 6.dp, vertical = 2.5.dp),
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = "PRO",
                     color = Color.White,
                     fontSize = 9.5.sp,
+                    lineHeight = 11.sp,
                     fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.4.sp
+                    letterSpacing = 0.4.sp,
+                    style = CompactTextStyle
                 )
             }
         }
@@ -463,15 +489,17 @@ private fun TierBadge(tier: String?) {
                     .clip(RoundedCornerShape(5.dp))
                     .background(colors.textSecondary.copy(alpha = 0.16f))
                     .border(0.5.dp, colors.textSecondary.copy(alpha = 0.32f), RoundedCornerShape(5.dp))
-                    .padding(horizontal = 6.dp, vertical = 2.5.dp),
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = "FREE",
                     color = colors.textSecondary,
                     fontSize = 9.5.sp,
+                    lineHeight = 11.sp,
                     fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.4.sp
+                    letterSpacing = 0.4.sp,
+                    style = CompactTextStyle
                 )
             }
         }
@@ -517,17 +545,17 @@ private fun QuotaMetricCell(
                 ),
                 cellShape
             )
-            .padding(horizontal = 11.dp, vertical = 9.dp)
+            .padding(horizontal = 10.dp, vertical = 6.5.dp)
     } else {
         modifier
             .clip(cellShape)
-            .background(colors.surfaceVariant.copy(alpha = 0.5f))
-            .padding(9.dp)
+            .background(colors.surfaceVariant.copy(alpha = if (colors.isDark) 0.85f else 0.55f))
+            .padding(horizontal = 9.dp, vertical = 6.5.dp)
     }
 
     Column(
         modifier = cellModifier,
-        verticalArrangement = Arrangement.spacedBy(5.dp)
+        verticalArrangement = Arrangement.spacedBy(if (isArgon) 4.dp else 3.5.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -538,14 +566,19 @@ private fun QuotaMetricCell(
                 text = title,
                 color = if (isArgon) argonAccent else colors.textSecondary,
                 fontSize = if (isArgon) 11.5.sp else 11.sp,
-                fontWeight = if (isArgon) FontWeight.SemiBold else FontWeight.Medium
+                lineHeight = 13.sp,
+                fontWeight = if (isArgon) FontWeight.SemiBold else FontWeight.Medium,
+                style = CompactTextStyle,
+                maxLines = 1
             )
             Text(
                 text = String.format(Locale.US, "%.1f%%", percent),
                 color = color,
                 fontSize = 12.sp,
+                lineHeight = 13.sp,
                 fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace
+                fontFamily = FontFamily.Monospace,
+                style = CompactTextStyle
             )
         }
 
@@ -553,7 +586,7 @@ private fun QuotaMetricCell(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(5.dp)
+                .height(4.5.dp)
                 .clip(CircleShape)
                 .background(
                     if (isArgon) Color(0xFFFF9F0A).copy(alpha = if (colors.isDark) 0.16f else 0.18f)
@@ -583,7 +616,10 @@ private fun QuotaMetricCell(
             text = displayText,
             color = if (displayText == "配额充足") colors.textMuted.copy(alpha = 0.7f) else colors.textSecondary,
             fontSize = 9.5.sp,
-            maxLines = 1
+            lineHeight = 11.sp,
+            style = CompactTextStyle,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }
@@ -611,15 +647,17 @@ private fun IosSwitchButton(
                 indication = null, // Authentic iOS touch feedback: smooth opacity fade, no Android ink ripple
                 onClick = onClick
             )
-            .padding(horizontal = 12.dp, vertical = 4.5.dp),
+            .padding(horizontal = 10.dp, vertical = 3.5.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(
             text = "切换",
             color = Color.White,
-            fontSize = 11.5.sp,
+            fontSize = 11.sp,
+            lineHeight = 13.sp,
             fontWeight = FontWeight.SemiBold,
-            letterSpacing = (-0.2).sp
+            letterSpacing = (-0.2).sp,
+            style = CompactTextStyle
         )
     }
 }
