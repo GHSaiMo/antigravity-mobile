@@ -14,12 +14,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.CockpitAccountQuota
 import com.antigravity.mobile.ui.theme.AntigravityTheme
+
+private val StatusBarCompactTextStyle = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
 
 @Composable
 fun QuotaStatusBar(
@@ -44,25 +49,28 @@ fun QuotaStatusBar(
             .background(colors.surface)
             .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
             .clickable { onTap() }
-            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .padding(horizontal = 12.dp, vertical = 7.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Icon(
                 imageVector = Icons.Default.Bolt,
                 contentDescription = "Quota",
                 tint = progressColor,
-                modifier = Modifier.size(15.dp)
+                modifier = Modifier.size(14.dp)
             )
 
             Text(
                 text = "Gemini 5h",
                 color = colors.textPrimary,
                 fontSize = 12.sp,
-                fontWeight = FontWeight.Medium
+                lineHeight = 14.sp,
+                fontWeight = FontWeight.Medium,
+                style = StatusBarCompactTextStyle,
+                maxLines = 1
             )
 
             // Dynamic width capsule progress bar
@@ -86,15 +94,22 @@ fun QuotaStatusBar(
                 text = "${percent.toInt()}%",
                 color = progressColor,
                 fontSize = 12.sp,
+                lineHeight = 14.sp,
                 fontWeight = FontWeight.SemiBold,
-                fontFamily = FontFamily.Monospace
+                fontFamily = FontFamily.Monospace,
+                style = StatusBarCompactTextStyle,
+                maxLines = 1
             )
 
             bucket.resetCountdownDisplay?.let { countdown ->
                 Text(
                     text = countdown,
                     color = colors.textSecondary,
-                    fontSize = 10.sp
+                    fontSize = 10.sp,
+                    lineHeight = 12.sp,
+                    style = StatusBarCompactTextStyle,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
