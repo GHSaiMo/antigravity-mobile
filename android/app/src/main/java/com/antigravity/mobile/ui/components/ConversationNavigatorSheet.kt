@@ -18,8 +18,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -180,12 +183,29 @@ fun ConversationNavigatorSheet(
 
             Spacer(modifier = Modifier.height(14.dp))
 
+            val scrollState = rememberScrollState()
+            var scrollViewportHeight by remember { mutableIntStateOf(0) }
+            var contentRootCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+            var currentTurnOffsetY by remember { mutableStateOf<Int?>(null) }
+            var hasAutoScrolledToCurrent by remember { mutableStateOf(false) }
+
+            LaunchedEffect(currentTurnOffsetY, scrollViewportHeight) {
+                val targetY = currentTurnOffsetY
+                if (!hasAutoScrolledToCurrent && targetY != null && scrollViewportHeight > 0) {
+                    hasAutoScrolledToCurrent = true
+                    val desired = (targetY - scrollViewportHeight / 3).coerceAtLeast(0)
+                    scrollState.scrollTo(desired)
+                }
+            }
+
             // Scrollable Timeline
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .verticalScroll(rememberScrollState())
+                    .onGloballyPositioned { scrollViewportHeight = it.size.height }
+                    .verticalScroll(scrollState)
+                    .onGloballyPositioned { contentRootCoords = it }
                     .padding(bottom = 32.dp)
             ) {
                 if (chapters.size > 1) {
@@ -311,6 +331,12 @@ fun ConversationNavigatorSheet(
                             TurnsTimelineList(
                                 turns = chapter.turns,
                                 currentTurnIndex = currentTurnIndex,
+                                onCurrentTurnPositioned = { coords ->
+                                    val root = contentRootCoords
+                                    if (root != null && root.isAttached && coords.isAttached) {
+                                        currentTurnOffsetY = root.localPositionOf(coords, Offset.Zero).y.toInt()
+                                    }
+                                },
                                 onSelectTurn = {
                                     onDismiss()
                                     onSelectTurn(it)
@@ -322,6 +348,12 @@ fun ConversationNavigatorSheet(
                     TurnsTimelineList(
                         turns = turns,
                         currentTurnIndex = currentTurnIndex,
+                        onCurrentTurnPositioned = { coords ->
+                            val root = contentRootCoords
+                            if (root != null && root.isAttached && coords.isAttached) {
+                                currentTurnOffsetY = root.localPositionOf(coords, Offset.Zero).y.toInt()
+                            }
+                        },
                         onSelectTurn = {
                             onDismiss()
                             onSelectTurn(it)
@@ -339,6 +371,7 @@ fun ConversationNavigatorSheet(
 private fun TurnsTimelineList(
     turns: List<ConversationTurn>,
     currentTurnIndex: Int?,
+    onCurrentTurnPositioned: (LayoutCoordinates) -> Unit = {},
     onSelectTurn: (ConversationTurn) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -350,7 +383,11 @@ private fun TurnsTimelineList(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 2.dp),
+                    .padding(vertical = 2.dp)
+                    .then(
+                        if (isCurrent) Modifier.onGloballyPositioned { onCurrentTurnPositioned(it) }
+                        else Modifier
+                    ),
                 verticalAlignment = Alignment.Top
             ) {
                 // Timeline Node and Track

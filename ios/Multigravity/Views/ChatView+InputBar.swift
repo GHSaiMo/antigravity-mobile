@@ -3,25 +3,45 @@ import PhotosUI
 import AVFoundation
 
 extension ChatView {
+    /// 悬浮在输入栏顶部横线上方、覆盖在会话界面底部的斜杠命令/技能选择气泡弹窗
+    @ViewBuilder
+    var floatingSlashCommandPopup: some View {
+        if GatewayCompatStore.shared.isAvailable(GatewayFeature.slash),
+           !isSlashPickerDismissed,
+           let slashQuery = SlashCommandFilter.query(of: viewModel.inputText) {
+            let maxTotal = currentViewportHeight > 0 ? min(max(currentViewportHeight - 16, 200), 360) : 300
+            let maxList = max(maxTotal - 46, 154)
+            SlashCommandPickerView(
+                commands: SlashCommandFilter.filter(viewModel.slashCommands, query: slashQuery),
+                isLoading: viewModel.isLoadingSlashCommands,
+                maxListHeight: maxList,
+                onSelect: { cmd in
+                    isSlashPickerDismissed = false
+                    viewModel.selectSlashCommand(cmd)
+                },
+                onDismiss: {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        isSlashPickerDismissed = true
+                    }
+                }
+            )
+            .padding(.horizontal, 12)
+            .padding(.bottom, 8)
+            .zIndex(100)
+            .transition(
+                .asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.96, anchor: .bottom)).combined(with: .offset(y: 6)),
+                    removal: .opacity.combined(with: .scale(scale: 0.96, anchor: .bottom))
+                )
+            )
+            .onAppear { viewModel.ensureSlashCommands() }
+        }
+    }
+
     var inputBar: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // 斜杠命令：键入 "/" 弹出列表；选中后以标签形式挂在输入框上方
-            if GatewayCompatStore.shared.isAvailable(GatewayFeature.slash),
-               let slashQuery = SlashCommandFilter.query(of: viewModel.inputText) {
-                SlashCommandPickerView(
-                    commands: SlashCommandFilter.filter(viewModel.slashCommands, query: slashQuery),
-                    isLoading: viewModel.isLoadingSlashCommands,
-                    onSelect: { viewModel.selectSlashCommand($0) }
-                )
-                .padding(.horizontal, 16)
-                .onAppear { viewModel.ensureSlashCommands() }
-            }
-            if let command = viewModel.selectedSlashCommand {
-                SlashCommandChipView(command: command) { viewModel.clearSlashCommand() }
-                    .padding(.horizontal, 16)
-            }
-
-            // Quick action chips at top of input box (➕ and Model Switch placed in front of Commit and Push)
+            // Quick action chips at top of input box (➕ and Model Switch placed in front of Slash Command, Commit and Push)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     // 1. Add ➕ Button (opens the attachment panel: camera, recent photos, add file)
@@ -66,6 +86,17 @@ extension ChatView {
                             )
                     }
                     .buttonStyle(.plain)
+
+                    // 2b. 已选中的斜杠命令按钮（紧跟 Gemini 右侧，样式同高对齐，右上角带小叉）
+                    if let command = viewModel.selectedSlashCommand {
+                        SlashCommandChipView(command: command) {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                viewModel.clearSlashCommand()
+                            }
+                        }
+                        .transition(.scale(scale: 0.9).combined(with: .opacity))
+                    }
                     
                     // 3. Commit：打开 Git 提交浮窗（会话没有 Git 工作区或没有文件变动时不显示）
                     if viewModel.hasGitChanges {
@@ -161,13 +192,14 @@ extension ChatView {
                     }
                 }
                 .padding(.horizontal, 16)
-                // The chips' 1pt borders are drawn half outside their frame; without vertical
-                // padding the horizontal ScrollView clips the bottom (and top) edge.
-                .padding(.vertical, 2)
-                .padding(.top, 6)
+                // The chips' 1pt borders and the slash chip's top-right badge need vertical breathing
+                // room inside the ScrollView so they are never clipped and never stick to the top divider.
+                .padding(.top, 10)
+                .padding(.bottom, 2)
             }
             .animation(.easeInOut(duration: 0.2), value: viewModel.isLatestMessageError)
             .animation(.easeInOut(duration: 0.2), value: viewModel.canProceed)
+            .animation(.easeInOut(duration: 0.15), value: viewModel.selectedSlashCommand)
             
             // Image previews strip
             if !viewModel.selectedImageData.isEmpty {
@@ -289,6 +321,13 @@ extension ChatView {
             .padding(.horizontal, 16)
             .padding(.bottom, 12)
             .animation(.easeInOut(duration: 0.2), value: viewModel.isActivelyRunning)
+            .onChange(of: viewModel.inputText) { oldText, newText in
+                if SlashCommandFilter.query(of: newText) == nil {
+                    isSlashPickerDismissed = false
+                } else if newText.hasSuffix("/") && !oldText.hasSuffix("/") {
+                    isSlashPickerDismissed = false
+                }
+            }
         }
         .readableChatWidth(horizontalSizeClass == .regular)
         .background(Color(uiColor: .systemBackground))

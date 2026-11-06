@@ -6,7 +6,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.InlineTextContent
@@ -14,8 +14,10 @@ import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -131,99 +133,202 @@ object SlashCommandTextRenderer {
     }
 }
 
-/** 输入框里键入 "/" 后弹出的命令列表（系统命令 + 技能），与桌面端的斜杠菜单同源。 */
+/** 输入框里键入 "/" 后浮在会话界面底部的命令气泡弹窗（系统命令 + 技能），与桌面端的斜杠菜单同源。 */
 @Composable
 fun SlashCommandPicker(
     commands: List<SlashCommandOption>,
     isLoading: Boolean,
     onSelect: (SlashCommandOption) -> Unit,
+    onDismiss: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val colors = AntigravityTheme.colors
     val haptic = rememberHaptic()
-    val shape = RoundedCornerShape(14.dp)
+    val shape = RoundedCornerShape(18.dp)
 
-    Column(
+    Surface(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp)
-            .clip(shape)
-            .background(colors.surface)
-            .border(0.5.dp, colors.border, shape)
+            .padding(horizontal = 12.dp),
+        shape = shape,
+        color = colors.surface,
+        tonalElevation = 8.dp,
+        shadowElevation = 14.dp,
+        border = androidx.compose.foundation.BorderStroke(0.8.dp, colors.border)
     ) {
-        if (commands.isEmpty()) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            // 顶部标题栏 + 右上角关闭按钮
             Row(
-                modifier = Modifier.fillMaxWidth().padding(14.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                if (isLoading) {
-                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = colors.accentIndigo)
+                Box(
+                    modifier = Modifier
+                        .size(18.dp)
+                        .clip(CircleShape)
+                        .background(colors.accentIndigo),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "/",
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
                 }
+
                 Text(
-                    text = if (isLoading) "正在读取命令..." else "没有匹配的命令",
-                    color = colors.textMuted,
-                    fontSize = 13.sp
+                    text = "斜杠命令与技能",
+                    color = colors.textPrimary,
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.SemiBold
                 )
-            }
-        } else {
-            LazyColumn(modifier = Modifier.heightIn(max = 264.dp)) {
-                items(commands, key = { it.name }) { command ->
-                    Row(
+
+                if (commands.isNotEmpty()) {
+                    Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                haptic.light()
-                                onSelect(command)
-                            }
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.Top,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            .clip(CircleShape)
+                            .background(colors.accentIndigo.copy(alpha = 0.14f))
+                            .padding(horizontal = 6.dp, vertical = 1.5.dp)
                     ) {
-                        SlashCommandIcon(
-                            name = command.name,
-                            icon = command.icon,
-                            kind = command.kind,
-                            tint = colors.textSecondary,
-                            size = 16.dp,
-                            modifier = Modifier.padding(top = 2.dp)
+                        Text(
+                            text = "${commands.size}",
+                            color = colors.accentIndigo,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
                         )
-                        Column(modifier = Modifier.weight(1f)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    }
+                }
+
+                Spacer(modifier = Modifier.weight(1f))
+
+                Box(
+                    modifier = Modifier
+                        .size(26.dp)
+                        .clip(CircleShape)
+                        .background(colors.surfaceVariant)
+                        .clickable {
+                            haptic.light()
+                            onDismiss()
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "关闭斜杠命令气泡",
+                        tint = colors.textSecondary,
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+            }
+
+            HorizontalDivider(thickness = 0.5.dp, color = colors.border.copy(alpha = 0.65f))
+
+            if (commands.isEmpty()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 20.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    if (isLoading) {
+                        CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = colors.accentIndigo)
+                    }
+                    Text(
+                        text = if (isLoading) "正在读取命令与技能..." else "没有匹配的命令或技能",
+                        color = colors.textMuted,
+                        fontSize = 13.5.sp
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .heightIn(max = 260.dp)
+                ) {
+                    itemsIndexed(commands, key = { _, it -> it.name }) { index, command ->
+                        val isSkill = command.kind == "skill"
+                        val accentColor = if (isSkill) colors.accentIndigo else colors.accentBlue
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    haptic.light()
+                                    onSelect(command)
+                                }
+                                .padding(horizontal = 14.dp, vertical = 11.dp),
+                            verticalAlignment = Alignment.Top,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .padding(top = 1.dp)
+                                    .size(32.dp)
+                                    .clip(RoundedCornerShape(9.dp))
+                                    .background(accentColor.copy(alpha = 0.13f)),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Text(
-                                    text = "/${command.name}",
-                                    color = colors.textPrimary,
-                                    fontSize = 14.5.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontFamily = FontFamily.Monospace
+                                SlashCommandIcon(
+                                    name = command.name,
+                                    icon = command.icon,
+                                    kind = command.kind,
+                                    tint = accentColor,
+                                    size = 16.dp
                                 )
-                                Box(
-                                    modifier = Modifier
-                                        .clip(CircleShape)
-                                        .background(colors.surfaceVariant)
-                                        .padding(horizontal = 6.dp, vertical = 1.dp)
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     Text(
-                                        text = if (command.kind == "skill") "技能" else "系统",
-                                        color = colors.textMuted,
-                                        fontSize = 10.5.sp,
-                                        fontWeight = FontWeight.Medium
+                                        text = "/${command.name}",
+                                        color = colors.textPrimary,
+                                        fontSize = 14.5.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontFamily = FontFamily.Monospace,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(CircleShape)
+                                            .background(accentColor.copy(alpha = 0.12f))
+                                            .padding(horizontal = 6.dp, vertical = 1.5.dp)
+                                    ) {
+                                        Text(
+                                            text = if (isSkill) "技能" else "系统",
+                                            color = accentColor,
+                                            fontSize = 10.5.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+                                }
+                                if (command.description.isNotBlank()) {
+                                    Spacer(modifier = Modifier.height(3.dp))
+                                    Text(
+                                        text = command.description.lineSequence().first().trim(),
+                                        color = colors.textSecondary,
+                                        fontSize = 12.5.sp,
+                                        lineHeight = 17.5.sp,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
                             }
-                            if (command.description.isNotBlank()) {
-                                Text(
-                                    text = command.description.lineSequence().first().trim(),
-                                    color = colors.textSecondary,
-                                    fontSize = 12.5.sp,
-                                    lineHeight = 17.sp,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
+                        }
+
+                        if (index < commands.lastIndex) {
+                            HorizontalDivider(
+                                modifier = Modifier.padding(start = 58.dp),
+                                thickness = 0.5.dp,
+                                color = colors.border.copy(alpha = 0.45f)
+                            )
                         }
                     }
                 }
@@ -232,7 +337,7 @@ fun SlashCommandPicker(
     }
 }
 
-/** 已选中的命令标签："/plan ✕"，发送时随消息一起带上。 */
+/** 已选中的命令标签：与 Gemini 模型按钮同高同行的胶囊按钮，右上角带小叉，发送时随消息一起带上。 */
 @Composable
 fun SlashCommandChip(
     command: SlashCommandOption,
@@ -241,36 +346,59 @@ fun SlashCommandChip(
 ) {
     val colors = AntigravityTheme.colors
     val shape = RoundedCornerShape(10.dp)
-    Row(
-        modifier = modifier
-            .padding(horizontal = 16.dp)
-            .clip(shape)
-            .background(colors.accentIndigo.copy(alpha = 0.12f))
-            .border(1.dp, colors.accentIndigo.copy(alpha = 0.35f), shape)
-            .clickable(onClick = onClear)
-            .padding(start = 8.dp, end = 8.dp, top = 5.dp, bottom = 5.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    Box(
+        modifier = modifier.padding(end = 4.dp)
     ) {
-        SlashCommandIcon(
-            name = command.name,
-            icon = command.icon,
-            kind = command.kind,
-            tint = colors.accentIndigo.copy(alpha = 0.85f),
-            size = 14.dp
-        )
-        Text(
-            text = command.name,
-            color = colors.accentIndigo,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold,
-            fontFamily = FontFamily.Monospace
-        )
-        Icon(
-            imageVector = Icons.Default.Close,
-            contentDescription = "移除命令",
-            tint = colors.accentIndigo,
-            modifier = Modifier.size(12.dp)
-        )
+        Row(
+            modifier = Modifier
+                .height(32.dp)
+                .clip(shape)
+                .background(colors.accentIndigo.copy(alpha = 0.12f))
+                .border(1.dp, colors.accentIndigo.copy(alpha = 0.35f), shape)
+                .clickable(onClick = onClear)
+                .padding(horizontal = 11.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            SlashCommandIcon(
+                name = command.name,
+                icon = command.icon,
+                kind = command.kind,
+                tint = colors.accentIndigo.copy(alpha = 0.9f),
+                size = 14.dp
+            )
+            Text(
+                text = command.name,
+                color = colors.accentIndigo,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .size(16.dp)
+                .align(Alignment.TopEnd)
+                .offset(x = 5.dp, y = (-5).dp)
+                .clip(CircleShape)
+                .background(colors.surface)
+                .clickable(onClick = onClear),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(14.dp)
+                    .clip(CircleShape)
+                    .background(colors.accentIndigo.copy(alpha = 0.85f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "移除命令",
+                    tint = Color.White,
+                    modifier = Modifier.size(9.dp)
+                )
+            }
+        }
     }
 }

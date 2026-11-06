@@ -13,3 +13,17 @@ struct ChatContentHeightPreferenceKey: PreferenceKey {
         value = max(value, nextValue())
     }
 }
+
+struct VisibleMessageGeometry: Equatable {
+    let id: String
+    let minY: CGFloat
+    let maxY: CGFloat
+}
+
+struct ChatVisibleMessagesPreferenceKey: PreferenceKey {
+    static var defaultValue: [VisibleMessageGeometry] = []
+    static func reduce(value: inout [VisibleMessageGeometry], nextValue: () -> [VisibleMessageGeometry]) {
+        value.append(contentsOf: nextValue())
+    }
+}
+

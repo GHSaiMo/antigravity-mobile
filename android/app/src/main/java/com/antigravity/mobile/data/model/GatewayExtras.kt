@@ -175,13 +175,40 @@ data class SlashCommandsResponse(val commands: List<SlashCommandOption> = emptyL
 /** 输入框里 "/xxx" 的筛选规则（纯函数，便于单测）。 */
 object SlashCommandFilter {
     /**
-     * 输入以 "/" 开头且尚未出现空白时，返回要筛选的关键字（不含 "/"）；否则返回 null，表示不弹出命令列表。
-     * "/" -> ""，"/pl" -> "pl"，"/plan 帮我" -> null，"hello" -> null。
+     * 检测输入框末尾是否正在键入 "/xxx" 斜杠命令；若命中则返回要筛选的关键字（不含 "/"），否则返回 null。
+     * 支持在空框开头输入（"/" -> ""，"/pl" -> "pl"），也支持在已有文字、空格、换行或标点后输入（"思路。/" -> ""，"hello /pl" -> "pl"）。
+     * 为避免误触 URL（https://...）、文件路径（/Users/foo）或英文斜杠词组（Go/Rust），"/" 前紧邻 ASCII 字母数字或路径符号时不触发。
      */
     fun queryOf(input: String): String? {
-        if (!input.startsWith("/")) return null
-        val rest = input.substring(1)
-        return if (rest.any { it.isWhitespace() }) null else rest
+        val slashIdx = trailingSlashIndex(input) ?: return null
+        return input.substring(slashIdx + 1)
+    }
+
+    /** 选中命令后，仅剥离输入框末尾触发菜单的 "/xxx" 片段（及紧邻其前的水平空格），完整保留此前已输入的正文。 */
+    fun stripTrailingQuery(input: String): String {
+        val slashIdx = trailingSlashIndex(input) ?: return input
+        var end = slashIdx
+        while (end > 0 && (input[end - 1] == ' ' || input[end - 1] == '\t')) {
+            end--
+        }
+        return input.substring(0, end)
+    }
+
+    private fun trailingSlashIndex(input: String): Int? {
+        val slashIdx = input.lastIndexOf('/')
+        if (slashIdx < 0) return null
+        val rest = input.substring(slashIdx + 1)
+        if (rest.any { it.isWhitespace() }) return null
+        if (slashIdx > 0) {
+            val prevChar = input[slashIdx - 1]
+            if (isDisallowedBeforeSlash(prevChar)) return null
+        }
+        return slashIdx
+    }
+
+    private fun isDisallowedBeforeSlash(ch: Char): Boolean {
+        if (ch.code < 128 && (ch.isLetterOrDigit())) return true
+        return ch == '/' || ch == ':' || ch == '.' || ch == '~' || ch == '_' || ch == '-'
     }
 
     /**

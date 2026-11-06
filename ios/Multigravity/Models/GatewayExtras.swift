@@ -197,12 +197,45 @@ struct SlashCommandsResponse: Decodable {
 
 /// 输入框里 "/xxx" 的筛选规则（纯函数，便于单测）。
 public enum SlashCommandFilter {
-    /// 输入以 "/" 开头且尚未出现空白时，返回要筛选的关键字（不含 "/"）；否则返回 nil，表示不弹出命令列表。
-    /// "/" -> ""，"/pl" -> "pl"，"/plan 帮我" -> nil，"hello" -> nil。
+    /// 检测输入框末尾是否正在键入 "/xxx" 斜杠命令；若命中则返回要筛选的关键字（不含 "/"），否则返回 nil。
+    /// 支持在空框开头输入（"/" -> ""，"/pl" -> "pl"），也支持在已有文字、空格、换行或标点后输入（"思路。/" -> ""，"hello /pl" -> "pl"）。
+    /// 为避免误触 URL（https://...）、文件路径（/Users/foo）或英文斜杠词组（Go/Rust），"/" 前紧邻 ASCII 字母数字或路径符号时不触发。
     public static func query(of input: String) -> String? {
-        guard input.hasPrefix("/") else { return nil }
-        let rest = input.dropFirst()
-        return rest.contains(where: { $0.isWhitespace }) ? nil : String(rest)
+        guard let slashIdx = trailingSlashIndex(in: input) else { return nil }
+        let afterIdx = input.index(after: slashIdx)
+        return String(input[afterIdx...])
+    }
+
+    /// 选中命令后，仅剥离输入框末尾触发菜单的 "/xxx" 片段（及紧邻其前的水平空格），完整保留此前已输入的正文。
+    public static func stripTrailingQuery(from input: String) -> String {
+        guard let slashIdx = trailingSlashIndex(in: input) else { return input }
+        var prefix = Substring(input[..<slashIdx])
+        while let last = prefix.last, last == " " || last == "\t" {
+            prefix = prefix.dropLast()
+        }
+        return String(prefix)
+    }
+
+    private static func trailingSlashIndex(in input: String) -> String.Index? {
+        guard let slashIdx = input.lastIndex(of: "/") else { return nil }
+        let afterIdx = input.index(after: slashIdx)
+        let rest = input[afterIdx...]
+        if rest.contains(where: { $0.isWhitespace }) { return nil }
+        if slashIdx > input.startIndex {
+            let prevChar = input[input.index(before: slashIdx)]
+            if isDisallowedBeforeSlash(prevChar) { return nil }
+        }
+        return slashIdx
+    }
+
+    private static func isDisallowedBeforeSlash(_ ch: Character) -> Bool {
+        if ch.isASCII && (ch.isLetter || ch.isNumber) { return true }
+        switch ch {
+        case "/", ":", ".", "~", "_", "-":
+            return true
+        default:
+            return false
+        }
     }
 
     /// 名称前缀命中优先，其次名称/标题/描述包含；保持原有顺序。

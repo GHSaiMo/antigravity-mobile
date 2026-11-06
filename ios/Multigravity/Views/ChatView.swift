@@ -34,6 +34,9 @@ public struct ChatView: View {
     @State var showNavigatorSheet = false
     @State var showMcpSkillsSheet = false
     @State var currentVisibleTurnIndex: Int = 1
+    @State var lockedTurnIndex: Int? = nil
+    @State var lastVisibleMessageGeometries: [VisibleMessageGeometry] = []
+    @State var isSlashPickerDismissed: Bool = false
     @State var highlightedTurnMessageId: String? = nil
     @State var targetScrollTurnId: String? = nil
     let shouldAutoFocus: Bool
@@ -110,10 +113,17 @@ public struct ChatView: View {
     
     public var body: some View {
         VStack(spacing: 0) {
-            contentArea
-            errorBanner
-            floatingCards
-                .readableChatWidth(horizontalSizeClass == .regular)
+            ZStack(alignment: .bottom) {
+                VStack(spacing: 0) {
+                    contentArea
+                    errorBanner
+                    floatingCards
+                        .readableChatWidth(horizontalSizeClass == .regular)
+                }
+                
+                floatingSlashCommandPopup
+                    .readableChatWidth(horizontalSizeClass == .regular)
+            }
             if viewModel.isSubagentSession || initialConversation?.isSubagent == true {
                 SubagentReadOnlyBar(
                     role: viewModel.subagentRole,
@@ -344,18 +354,22 @@ public struct ChatView: View {
                 chapters: viewModel.chapters,
                 currentTurnIndex: currentVisibleTurnIndex,
                 onSelectTurn: { turn in
-                    targetScrollTurnId = turn.firstMessageId
+                    lockedTurnIndex = turn.turnIndex
                     currentVisibleTurnIndex = turn.turnIndex
+                    targetScrollTurnId = turn.firstMessageId
                 },
                 onJumpToTop: {
                     if let firstId = viewModel.messages.first?.id {
-                        targetScrollTurnId = firstId
+                        lockedTurnIndex = 1
                         currentVisibleTurnIndex = 1
+                        targetScrollTurnId = firstId
                     }
                 },
                 onJumpToBottom: {
+                    let lastTurn = viewModel.turns.last?.turnIndex ?? 1
+                    lockedTurnIndex = nil
+                    currentVisibleTurnIndex = lastTurn
                     targetScrollTurnId = "BOTTOM_ANCHOR"
-                    currentVisibleTurnIndex = viewModel.turns.last?.turnIndex ?? 1
                 }
             )
             .presentationDetents([.large])

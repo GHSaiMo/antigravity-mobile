@@ -175,27 +175,23 @@ fun ChatScreen(
     // 对话导轨与章节大纲状态 (Antigravity 2.28.1 对齐)
     var showNavigatorSheet by remember { mutableStateOf(false) }
     var showMcpSkillsSheet by remember { mutableStateOf(false) }
+    var lockedTurnIndex by remember { mutableStateOf<Int?>(null) }
+    var isSlashPickerDismissed by remember { mutableStateOf(false) }
+    var previousInputTextForSlash by remember { mutableStateOf(inputText) }
+    LaunchedEffect(inputText) {
+        val q = com.antigravity.mobile.data.model.SlashCommandFilter.queryOf(inputText)
+        if (q == null) {
+            isSlashPickerDismissed = false
+        } else if (inputText.endsWith("/") && !previousInputTextForSlash.endsWith("/")) {
+            isSlashPickerDismissed = false
+        }
+        previousInputTextForSlash = inputText
+    }
     val turns = remember(uiState.messages, uiState.isRunning, uiState.isAwaitingResponse) {
         ConversationTurnBuilder.buildTurns(uiState.messages, uiState.isRunning, uiState.isAwaitingResponse)
     }
     val chapters = remember(turns) {
         ConversationTurnBuilder.buildChapters(turns)
-    }
-    val currentTurnIndex by remember(turns, listState.firstVisibleItemIndex) {
-        derivedStateOf {
-            val firstIndex = listState.firstVisibleItemIndex
-            if (turns.isEmpty() || firstIndex >= uiState.messages.size) {
-                turns.lastOrNull()?.turnIndex ?: 1
-            } else {
-                val visibleMsg = uiState.messages.getOrNull(firstIndex)
-                if (visibleMsg != null) {
-                    turns.firstOrNull { turn -> turn.messages.any { it.id == visibleMsg.id } }?.turnIndex
-                        ?: turns.firstOrNull()?.turnIndex ?: 1
-                } else {
-                    1
-                }
-            }
-        }
     }
 
     // Scroll state tracking: distinguish initial logical entry alignment vs in-session incremental scroll
@@ -217,6 +213,45 @@ fun ChatScreen(
             else {
                 val lastVisibleIndex = visibleItems.last().index
                 lastVisibleIndex >= layoutInfo.totalItemsCount - 2
+            }
+        }
+    }
+
+    LaunchedEffect(listState.isScrollInProgress, isProgrammaticScrolling) {
+        if (listState.isScrollInProgress && !isProgrammaticScrolling && lockedTurnIndex != null) {
+            lockedTurnIndex = null
+        }
+    }
+
+    val currentTurnIndex by remember(turns) {
+        derivedStateOf {
+            if (turns.isEmpty()) {
+                1
+            } else if (lockedTurnIndex != null && turns.any { it.turnIndex == lockedTurnIndex }) {
+                lockedTurnIndex!!
+            } else if (!hasInitiallyAligned || isNearBottom || !listState.canScrollForward) {
+                turns.lastOrNull()?.turnIndex ?: 1
+            } else if (!listState.canScrollBackward) {
+                turns.firstOrNull()?.turnIndex ?: 1
+            } else {
+                val layoutInfo = listState.layoutInfo
+                val anchorY = (layoutInfo.viewportEndOffset * 0.45f).toInt()
+                val messageItems = layoutInfo.visibleItemsInfo.filter { item ->
+                    val k = item.key as? String ?: return@filter false
+                    turns.any { t -> t.messages.any { m -> m.id == k } }
+                }
+                val bestItem = messageItems.minByOrNull { item ->
+                    val top = item.offset
+                    val bottom = item.offset + item.size
+                    if (anchorY in top..bottom) 0 else minOf(kotlin.math.abs(top - anchorY), kotlin.math.abs(bottom - anchorY))
+                }
+                val targetId = bestItem?.key as? String
+                if (targetId != null) {
+                    turns.firstOrNull { turn -> turn.messages.any { it.id == targetId } }?.turnIndex
+                        ?: turns.lastOrNull()?.turnIndex ?: 1
+                } else {
+                    turns.lastOrNull()?.turnIndex ?: 1
+                }
             }
         }
     }
@@ -964,6 +999,29 @@ fun ChatScreen(
                         }
                     }
                 }
+
+                // 斜杠命令悬浮气泡：完全浮在输入栏横线上方的会话区域底部
+                val slashQuery = com.antigravity.mobile.data.model.SlashCommandFilter.queryOf(inputText)
+                    .takeIf { compat.isAvailable(com.antigravity.mobile.data.model.GatewayFeature.SLASH) && !isSlashPickerDismissed }
+                LaunchedEffect(slashQuery != null) {
+                    if (slashQuery != null) viewModel.ensureSlashCommands()
+                }
+                if (slashQuery != null) {
+                    SlashCommandPicker(
+                        commands = com.antigravity.mobile.data.model.SlashCommandFilter.filter(uiState.slashCommands, slashQuery),
+                        isLoading = uiState.isLoadingSlashCommands,
+                        onSelect = {
+                            isSlashPickerDismissed = false
+                            viewModel.selectSlashCommand(it)
+                        },
+                        onDismiss = {
+                            isSlashPickerDismissed = true
+                        },
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(top = 8.dp, bottom = 8.dp)
+                    )
+                }
             }
 
             // Floating Cards (RunningTasksCard, QueuedMessagesCard, InteractionCard, AudioRecordingCard) 对齐 iOS floatingCards
@@ -1091,26 +1149,9 @@ fun ChatScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 8.dp, bottom = 12.dp),
+                            .padding(top = 4.dp, bottom = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // 斜杠命令：键入 "/" 弹出列表；选中后以标签形式挂在输入框上方
-                        val slashQuery = com.antigravity.mobile.data.model.SlashCommandFilter.queryOf(inputText)
-                            .takeIf { compat.isAvailable(com.antigravity.mobile.data.model.GatewayFeature.SLASH) }
-                        LaunchedEffect(slashQuery != null) {
-                            if (slashQuery != null) viewModel.ensureSlashCommands()
-                        }
-                        if (slashQuery != null) {
-                            SlashCommandPicker(
-                                commands = com.antigravity.mobile.data.model.SlashCommandFilter.filter(uiState.slashCommands, slashQuery),
-                                isLoading = uiState.isLoadingSlashCommands,
-                                onSelect = { viewModel.selectSlashCommand(it) }
-                            )
-                        }
-                        uiState.selectedSlashCommand?.let { command ->
-                            SlashCommandChip(command = command, onClear = { viewModel.clearSlashCommand() })
-                        }
-
                         // Quick Action Chips
                         Box(modifier = Modifier.padding(horizontal = 16.dp)) {
                             QuickActionChips(
@@ -1120,6 +1161,8 @@ fun ChatScreen(
                                     dismissKeyboard()
                                     showAttachmentSheet = true
                                 },
+                                selectedSlashCommand = uiState.selectedSlashCommand,
+                                onClearSlashCommand = { viewModel.clearSlashCommand() },
                                 onCommitAndPush = {
                                     dismissKeyboard()
                                     viewModel.openGitSheet()
@@ -1362,24 +1405,42 @@ fun ChatScreen(
             currentTurnIndex = currentTurnIndex,
             onSelectTurn = { turn ->
                 showNavigatorSheet = false
+                lockedTurnIndex = turn.turnIndex
                 val targetIndex = uiState.messages.indexOfFirst { it.id == turn.firstMessageId }
                 if (targetIndex >= 0) {
                     coroutineScope.launch {
-                        listState.animateScrollToItem(targetIndex)
+                        isProgrammaticScrolling = true
+                        try {
+                            listState.animateScrollToItem(targetIndex)
+                        } finally {
+                            isProgrammaticScrolling = false
+                        }
                     }
                 }
             },
             onJumpToTop = {
                 showNavigatorSheet = false
+                lockedTurnIndex = 1
                 coroutineScope.launch {
-                    listState.animateScrollToItem(0)
+                    isProgrammaticScrolling = true
+                    try {
+                        listState.animateScrollToItem(0)
+                    } finally {
+                        isProgrammaticScrolling = false
+                    }
                 }
             },
             onJumpToBottom = {
                 showNavigatorSheet = false
+                lockedTurnIndex = null
                 coroutineScope.launch {
                     if (uiState.messages.isNotEmpty()) {
-                        listState.animateScrollToItem(uiState.messages.size - 1)
+                        isProgrammaticScrolling = true
+                        try {
+                            listState.animateScrollToItem(uiState.messages.size - 1)
+                        } finally {
+                            isProgrammaticScrolling = false
+                        }
                     }
                 }
             },

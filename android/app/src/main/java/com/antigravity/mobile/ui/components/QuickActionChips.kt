@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.antigravity.mobile.data.model.SlashCommandOption
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 
 @Composable
@@ -27,6 +28,8 @@ fun QuickActionChips(
     activeModel: String,
     onToggleModel: () -> Unit,
     onAddImage: () -> Unit,
+    selectedSlashCommand: SlashCommandOption? = null,
+    onClearSlashCommand: () -> Unit = {},
     onCommitAndPush: () -> Unit,
     showCommit: Boolean = true,
     onShowChanges: () -> Unit,
@@ -45,7 +48,8 @@ fun QuickActionChips(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
+            .horizontalScroll(rememberScrollState())
+            .padding(top = 6.dp, bottom = 2.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -98,6 +102,17 @@ fun QuickActionChips(
                 color = if (isClaude) colors.accentOrange else colors.accentBlue,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Medium
+            )
+        }
+
+        // 2b. 已选中的斜杠命令按钮（紧跟 Gemini 右侧，样式同高对齐，右上角带小叉）
+        selectedSlashCommand?.let { command ->
+            SlashCommandChip(
+                command = command,
+                onClear = {
+                    haptic.light()
+                    onClearSlashCommand()
+                }
             )
         }
 

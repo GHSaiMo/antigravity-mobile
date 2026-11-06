@@ -16,10 +16,29 @@ class SlashCommandFilterTest {
     fun queryOnlyWhileTypingTheCommandWord() {
         assertEquals("", SlashCommandFilter.queryOf("/"))
         assertEquals("pl", SlashCommandFilter.queryOf("/pl"))
+        assertEquals("", SlashCommandFilter.queryOf("所以说我也想听听你的思路。/"))
+        assertEquals("gr", SlashCommandFilter.queryOf("所以说我也想听听你的思路。/gr"))
+        assertEquals("plan", SlashCommandFilter.queryOf("hello /plan"))
+        assertEquals("plan", SlashCommandFilter.queryOf("第一行\n/plan"))
+        assertEquals("", SlashCommandFilter.queryOf("测试\n/"))
+        assertEquals("", SlashCommandFilter.queryOf("测试/"))
         assertNull(SlashCommandFilter.queryOf("/plan 帮我"))
         assertNull(SlashCommandFilter.queryOf("/plan\n"))
-        assertNull(SlashCommandFilter.queryOf("hello /plan"))
+        assertNull(SlashCommandFilter.queryOf("hello /plan 帮我"))
+        assertNull(SlashCommandFilter.queryOf("https://example.com/plan"))
+        assertNull(SlashCommandFilter.queryOf("/Users/hal9000/Projects"))
+        assertNull(SlashCommandFilter.queryOf("Go/Rust"))
         assertNull(SlashCommandFilter.queryOf(""))
+    }
+
+    @Test
+    fun stripTrailingQueryPreservesExistingText() {
+        assertEquals("", SlashCommandFilter.stripTrailingQuery("/"))
+        assertEquals("", SlashCommandFilter.stripTrailingQuery("/gr"))
+        assertEquals("所以说我也想听听你的思路。", SlashCommandFilter.stripTrailingQuery("所以说我也想听听你的思路。/"))
+        assertEquals("所以说我也想听听你的思路。", SlashCommandFilter.stripTrailingQuery("所以说我也想听听你的思路。/gr"))
+        assertEquals("hello", SlashCommandFilter.stripTrailingQuery("hello /plan"))
+        assertEquals("请看 /Users/hal9000/foo.txt。", SlashCommandFilter.stripTrailingQuery("请看 /Users/hal9000/foo.txt。/gr"))
     }
 
     @Test

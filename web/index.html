@@ -195,11 +195,10 @@
 
         <!-- Sticky iOS Chat Input Bar -->
         <div class="ios-input-bar">
-          <!-- 斜杠命令：键入 "/" 弹出的列表，以及选中后的标签（见 js/slash.js） -->
+          <!-- 斜杠命令：键入 "/" 弹出的列表（见 js/slash.js） -->
           <div id="slash-picker" class="slash-picker hidden" data-feature="slash"></div>
-          <div id="slash-chip" class="slash-chip hidden" data-feature="slash"></div>
 
-          <!-- Quick Action Chips (Add Image, Model Switch, Commit & Push, Proceed) -->
+          <!-- Quick Action Chips (Add Image, Model Switch, Slash Command, Commit & Push, Proceed) -->
           <div class="quick-actions-chips" id="quick-actions-bar">
             <button id="btn-add-image" class="chip-pill chip-add-image" type="button" title="添加图片" aria-label="添加图片">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -212,6 +211,8 @@
             <button id="btn-model-switch" class="chip-pill chip-model-switch chip-gemini" type="button" title="点击切换模型: Gemini / Claude">
               <span id="model-switch-text" class="model-switch-text">Gemini</span>
             </button>
+
+            <div id="slash-chip" class="slash-chip hidden" data-feature="slash"></div>
 
             <button id="btn-changes" class="chip-pill hidden" type="button" data-feature="changes" title="本会话改动">
               <span>Changes</span>
