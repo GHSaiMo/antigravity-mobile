@@ -314,69 +314,25 @@ public struct AccountQuotaSheet: View {
     private func tierBadge(for rawTier: String?) -> some View {
         let tier = rawTier?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() ?? ""
         if tier == "ULTRA" {
-            HStack(spacing: 3) {
-                Image(systemName: "sparkle")
-                    .font(.system(size: 7.5, weight: .bold))
-                    .foregroundColor(Color(red: 254.0 / 255.0, green: 240.0 / 255.0, blue: 138.0 / 255.0))
-                Text("ULTRA")
-                    .font(.system(size: 9.5, weight: .heavy))
-                    .tracking(0.55)
-                    .foregroundColor(Color(red: 1.0, green: 251.0 / 255.0, blue: 235.0 / 255.0))
-            }
-            .shadow(color: Color(red: 124.0 / 255.0, green: 45.0 / 255.0, blue: 18.0 / 255.0).opacity(0.55), radius: 1, x: 0, y: 0.8)
-            .padding(.leading, 5.5)
-            .padding(.trailing, 6.5)
-            .padding(.vertical, 2.5)
-            .background(
-                ZStack {
+            Text("ULTRA")
+                .font(.system(size: 9.5, weight: .heavy))
+                .tracking(0.5)
+                .foregroundColor(.white)
+                .shadow(color: Color(red: 124.0 / 255.0, green: 45.0 / 255.0, blue: 18.0 / 255.0).opacity(0.35), radius: 1, x: 0, y: 0.8)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2.5)
+                .background(
                     LinearGradient(
-                        stops: [
-                            .init(color: Color(red: 194.0 / 255.0, green: 65.0 / 255.0, blue: 12.0 / 255.0), location: 0.0),
-                            .init(color: Color(red: 234.0 / 255.0, green: 88.0 / 255.0, blue: 12.0 / 255.0), location: 0.26),
-                            .init(color: Color(red: 245.0 / 255.0, green: 158.0 / 255.0, blue: 11.0 / 255.0), location: 0.58),
-                            .init(color: Color(red: 253.0 / 255.0, green: 224.0 / 255.0, blue: 71.0 / 255.0), location: 0.80),
-                            .init(color: Color(red: 217.0 / 255.0, green: 119.0 / 255.0, blue: 6.0 / 255.0), location: 1.0)
+                        colors: [
+                            Color(red: 217.0 / 255.0, green: 119.0 / 255.0, blue: 6.0 / 255.0),
+                            Color(red: 245.0 / 255.0, green: 158.0 / 255.0, blue: 11.0 / 255.0),
+                            Color(red: 234.0 / 255.0, green: 88.0 / 255.0, blue: 12.0 / 255.0)
                         ],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
-                    LinearGradient(
-                        stops: [
-                            .init(color: Color.white.opacity(0.35), location: 0.0),
-                            .init(color: Color.white.opacity(0.04), location: 0.48),
-                            .init(color: Color(red: 120.0 / 255.0, green: 40.0 / 255.0, blue: 0.0).opacity(0.18), location: 1.0)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                    LinearGradient(
-                        stops: [
-                            .init(color: .clear, location: 0.22),
-                            .init(color: Color.white.opacity(0.38), location: 0.46),
-                            .init(color: .clear, location: 0.68)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                }
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 5.5, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 5.5, style: .continuous)
-                    .stroke(
-                        LinearGradient(
-                            colors: [
-                                Color(red: 254.0 / 255.0, green: 240.0 / 255.0, blue: 138.0 / 255.0).opacity(0.85),
-                                Color(red: 245.0 / 255.0, green: 158.0 / 255.0, blue: 11.0 / 255.0).opacity(0.55),
-                                Color(red: 180.0 / 255.0, green: 83.0 / 255.0, blue: 9.0 / 255.0).opacity(0.65)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 0.8
-                    )
-            )
-            .shadow(color: Color(red: 234.0 / 255.0, green: 88.0 / 255.0, blue: 12.0 / 255.0).opacity(0.38), radius: 4, x: 0, y: 1.5)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
         } else if tier == "PRO" {
             Text("PRO")
                 .font(.system(size: 9.5, weight: .bold))
