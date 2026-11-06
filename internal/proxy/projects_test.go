@@ -740,6 +740,119 @@ func TestProjectAliasEndpoint(t *testing.T) {
 	}
 }
 
+func TestSidecarProjectsIgnoredAndNotOverwriting(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	t.Setenv("APPDATA", tmpHome)
+	t.Setenv("ANTIGRAVITY_APP_DATA_DIR", filepath.Join(tmpHome, ".gemini", "antigravity"))
+	t.Setenv("MULTIGRAVITY_DATA_DIR", filepath.Join(tmpHome, "mgy-data"))
+
+	cfgRoot := filepath.Join(tmpHome, ".gemini", "config")
+	projCfgDir := filepath.Join(cfgRoot, "projects")
+	if err := os.MkdirAll(projCfgDir, 0755); err != nil {
+		t.Fatalf("failed to create projects dir: %v", err)
+	}
+
+	wsDir := filepath.Join(tmpHome, "Websites", "hejvip-deep-research")
+	if err := os.MkdirAll(wsDir, 0755); err != nil {
+		t.Fatalf("failed to create workspace dir: %v", err)
+	}
+	wsURI := "file://" + filepath.ToSlash(wsDir)
+
+	realID := "0446b504-3d27-41e2-9a6b-ed8a5beff1df"
+	sidecarID := "05621556-c9bc-4ea8-a876-58580b28555c"
+
+	// Write config.json with sidecar mapping
+	configJSON := fmt.Sprintf(`{
+		"sidecars": {
+			"deep-research-git": {
+				"enabled": true,
+				"projectId": %q,
+				"schemaVersion": 1
+			}
+		}
+	}`, sidecarID)
+	if err := os.WriteFile(filepath.Join(cfgRoot, "config.json"), []byte(configJSON), 0644); err != nil {
+		t.Fatalf("failed to write config.json: %v", err)
+	}
+
+	// Write both real project JSON and sidecar shadow project JSON pointing to the same folderUri
+	realProjJSON := fmt.Sprintf(`{
+		"id": %q,
+		"name": "hejvip-deep-research",
+		"projectResources": {
+			"resources": [{"gitFolder": {"folderUri": %q}}]
+		}
+	}`, realID, wsURI)
+	sidecarProjJSON := fmt.Sprintf(`{
+		"id": %q,
+		"name": "deep-research-git",
+		"projectResources": {
+			"resources": [{"gitFolder": {"folderUri": %q}}]
+		}
+	}`, sidecarID, wsURI)
+
+	_ = os.WriteFile(filepath.Join(projCfgDir, realID+".json"), []byte(realProjJSON), 0644)
+	_ = os.WriteFile(filepath.Join(projCfgDir, sidecarID+".json"), []byte(sidecarProjJSON), 0644)
+
+	// Write app_storage.json where sidecarID appears after realID in projectsOrder
+	appSupportDir := filepath.Join(tmpHome, "Antigravity")
+	_ = os.MkdirAll(appSupportDir, 0755)
+	appStorageJSON := fmt.Sprintf(`{
+		"projectsOrder": "[%q,%q]"
+	}`, realID, sidecarID)
+	_ = os.WriteFile(filepath.Join(appSupportDir, "app_storage.json"), []byte(appStorageJSON), 0644)
+
+	mockUpstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/ReadProjects") {
+			resp := fmt.Sprintf(`{
+				"projects": [
+					{
+						"id": %q,
+						"name": "hejvip-deep-research",
+						"projectResources": {"resources": [{"gitFolder": {"folderUri": %q}}]}
+					},
+					{
+						"id": %q,
+						"name": "deep-research-git",
+						"projectResources": {"resources": [{"gitFolder": {"folderUri": %q}}]}
+					}
+				]
+			}`, realID, wsURI, sidecarID, wsURI)
+			w.Write([]byte(resp))
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/GetAllCascadeTrajectories") {
+			w.Write([]byte(`{"trajectorySummaries":{}}`))
+			return
+		}
+		w.Write([]byte(`{}`))
+	}))
+	defer mockUpstream.Close()
+
+	port := mockUpstream.Listener.Addr().(*net.TCPAddr).Port
+	insp := inspector.NewInspector(5 * time.Second)
+	p := NewProxy(insp)
+	p.activePort = port
+	p.activeToken = "test-token"
+
+	projects, err := p.GetProjects()
+	if err != nil {
+		t.Fatalf("GetProjects failed: %v", err)
+	}
+	if len(projects) != 1 {
+		t.Fatalf("expected 1 deduplicated project, got %d: %+v", len(projects), projects)
+	}
+	if projects[0].ID != realID {
+		t.Errorf("expected ID %q, got %q", realID, projects[0].ID)
+	}
+	if projects[0].Name != "hejvip-deep-research" {
+		t.Errorf("expected Name 'hejvip-deep-research', got %q", projects[0].Name)
+	}
+}
+
+
 
 
 

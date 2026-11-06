@@ -82,11 +82,49 @@ type geminiProjectConfigFile struct {
 	} `json:"projectResources"`
 }
 
+// fetchSidecarProjectIDs reads Antigravity 2.0 config.json files to identify shadow project IDs
+// automatically created for scheduled tasks / sidecars so they can be excluded from workspace lists.
+func fetchSidecarProjectIDs() map[string]bool {
+	ids := make(map[string]bool)
+	seenFiles := make(map[string]bool)
+
+	for _, projDir := range getGeminiConfigProjectsDirs() {
+		cfgFile := filepath.Clean(filepath.Join(filepath.Dir(projDir), "config.json"))
+		if seenFiles[cfgFile] {
+			continue
+		}
+		seenFiles[cfgFile] = true
+
+		data, err := os.ReadFile(cfgFile)
+		if err != nil || len(data) == 0 {
+			continue
+		}
+
+		var cfg struct {
+			Sidecars map[string]struct {
+				ProjectID string `json:"projectId"`
+			} `json:"sidecars"`
+		}
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			continue
+		}
+
+		for _, sc := range cfg.Sidecars {
+			if pid := strings.TrimSpace(sc.ProjectID); pid != "" {
+				ids[pid] = true
+			}
+		}
+	}
+
+	return ids
+}
+
 // fetchProjectsFromGeminiConfig reads Antigravity 2.0 project JSON configs from ~/.gemini/config/projects/.
 func fetchProjectsFromGeminiConfig() []ProjectItem {
 	items := make([]ProjectItem, 0, 16)
 	seenIDs := make(map[string]bool)
 	seenURIs := make(map[string]bool)
+	sidecarIDs := fetchSidecarProjectIDs()
 
 	for _, dir := range getGeminiConfigProjectsDirs() {
 		cleanDir := filepath.Clean(dir)
@@ -119,7 +157,7 @@ func fetchProjectsFromGeminiConfig() []ProjectItem {
 				continue
 			}
 
-			if seenIDs[prj.ID] {
+			if sidecarIDs[prj.ID] || seenIDs[prj.ID] {
 				continue
 			}
 
@@ -203,23 +241,30 @@ func (p *Proxy) fetchOfficialProjects(port int, token string, sessionStats map[s
 		_ = json.Unmarshal(storageBytes, &storageMap)
 	}
 
-	var order []string
+	sidecarIDs := fetchSidecarProjectIDs()
+
+	var rawOrderList []string
 	if storageMap != nil {
 		if rawOrder, ok := storageMap["projectsOrder"].(string); ok && rawOrder != "" {
-			_ = json.Unmarshal([]byte(rawOrder), &order)
+			_ = json.Unmarshal([]byte(rawOrder), &rawOrderList)
 		}
 	}
 
+	var order []string
 	seenOrder := make(map[string]bool)
-	for _, id := range order {
+	for _, id := range rawOrderList {
+		if id == "" || id == "outside-of-project" || sidecarIDs[id] || seenOrder[id] {
+			continue
+		}
 		seenOrder[id] = true
+		order = append(order, id)
 	}
 
 	// Also discover project IDs from other app_storage.json keys (e.g. lastCreatedProjectId, new-convo-last-selected-project)
 	if storageMap != nil {
 		for k, v := range storageMap {
 			strVal, ok := v.(string)
-			if !ok || strVal == "" || strVal == "outside-of-project" {
+			if !ok || strVal == "" || strVal == "outside-of-project" || sidecarIDs[strVal] {
 				continue
 			}
 			if strings.Contains(strings.ToLower(k), "project") && len(strVal) == 36 && strings.Count(strVal, "-") == 4 {
@@ -233,7 +278,7 @@ func (p *Proxy) fetchOfficialProjects(port int, token string, sessionStats map[s
 
 	// Also collect IDs from Gemini config files
 	for _, cfgPrj := range fetchProjectsFromGeminiConfig() {
-		if cfgPrj.ID != "" && cfgPrj.ID != "outside-of-project" && !seenOrder[cfgPrj.ID] {
+		if cfgPrj.ID != "" && cfgPrj.ID != "outside-of-project" && !sidecarIDs[cfgPrj.ID] && !seenOrder[cfgPrj.ID] {
 			seenOrder[cfgPrj.ID] = true
 			order = append(order, cfgPrj.ID)
 		}
