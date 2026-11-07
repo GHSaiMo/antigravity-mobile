@@ -188,7 +188,7 @@ class ChatViewModel(
     val shouldScrollToTurnStartOnEntry: Boolean
         get() {
             val state = _uiState.value
-            val isActivelyRunning = state.isRunning || state.isAwaitingResponse || state.runningTasks.isNotEmpty() || (initialConversationStatus?.isRunning == true)
+            val isActivelyRunning = state.isRunning || state.isAwaitingResponse || state.runningTasks.hasBlockingTasks || (initialConversationStatus?.isRunning == true)
             if (isActivelyRunning) return false
             if (state.messages.lastOrNull()?.isUser == true) return false
             if (latestAgentMessageId == null && latestTurnStartMessageId == null) return false

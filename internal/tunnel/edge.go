@@ -25,11 +25,13 @@ var cfEdgeNets = mustParseCIDRs(
 )
 
 // proxyFakeIPNets 为 Clash / Mihomo / Surge / Sing-box 等代理工具开启增强模式（TUN / Fake-IP）时
-// 分配的本地虚拟映射网段（RFC 2544 基准测试网段 198.18.0.0/15 与 IPv6 Fake-IP fc00::/18）。
+// 分配的本地虚拟映射网段：IPv4 为 RFC 2544 基准测试网段 198.18.0.0/15；IPv6 各工具默认值不一
+// （sing-box 为 fc00::/18，Mihomo 为 fdfe:dcba:9876::/64），统一按 RFC 4193 ULA 网段 fc00::/7 豁免，
+// Cloudflare 边缘不会使用 ULA 地址，故不会掩盖真实污染。
 // 命中这些地址代表流量正在由本机 TUN 代理透明接管，并非运营商/GFW 的 DNS 污染。
 var proxyFakeIPNets = mustParseCIDRs(
 	"198.18.0.0/15",
-	"fc00::/18",
+	"fc00::/7",
 )
 
 func mustParseCIDRs(cidrs ...string) []*net.IPNet {
@@ -54,7 +56,7 @@ func IsCloudflareEdgeIP(ip net.IP) bool {
 	return false
 }
 
-// IsProxyFakeIP reports whether ip belongs to a local TUN Fake-IP range (198.18.0.0/15 or fc00::/18).
+// IsProxyFakeIP reports whether ip belongs to a local TUN Fake-IP range (198.18.0.0/15 or ULA fc00::/7).
 func IsProxyFakeIP(ip net.IP) bool {
 	for _, n := range proxyFakeIPNets {
 		if n.Contains(ip) {

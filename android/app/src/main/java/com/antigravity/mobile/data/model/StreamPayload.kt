@@ -148,8 +148,14 @@ data class RunningTaskItem(
     val startedAt: String? = null,
     val type: String = "",
     val command: String? = null,
-    val status: String? = null
+    val status: String? = null,
+    /** 常驻守护任务（IsDaemon=true，如 dev server / 定时任务）：跨回合保持 RUNNING，不应让会话显示为执行中。旧版网关不下发时默认 false。 */
+    val isDaemon: Boolean = false
 ) {
+    /** 是否阻塞当前回合（非常驻守护任务）。 */
+    val blocksTurn: Boolean
+        get() = !isDaemon
+
     val displayTitle: String
         get() = toolSummary?.takeIf { it.isNotBlank() }
             ?: toolAction?.takeIf { it.isNotBlank() }
@@ -162,6 +168,14 @@ data class RunningTaskItem(
             ?: command?.takeIf { it.isNotBlank() }
             ?: ""
 }
+
+/** 阻塞当前回合的后台任务（排除常驻守护任务）。 */
+val List<RunningTaskItem>.blockingTasks: List<RunningTaskItem>
+    get() = filter { it.blocksTurn }
+
+/** 是否存在阻塞当前回合的后台任务；只有常驻守护任务时返回 false。 */
+val List<RunningTaskItem>.hasBlockingTasks: Boolean
+    get() = any { it.blocksTurn }
 
 /** 父会话通过 invoke_subagent 派发的一个子代理（网关 stream 的 `subagents`）。 */
 @Serializable

@@ -433,7 +433,7 @@ internal fun ChatViewModel.initSession(
                         val stepCount = mergedMsgs.count { !it.isUser }
                         val latestAction = when {
                             payload.pendingInteraction != null -> payload.pendingInteraction.prompt ?: "需要审批操作"
-                            activeRunningTasks.isNotEmpty() -> activeRunningTasks.firstOrNull()?.displayCommand?.ifBlank { "正在执行后台任务..." } ?: "正在执行后台任务..."
+                            activeRunningTasks.hasBlockingTasks -> activeRunningTasks.blockingTasks.firstOrNull()?.displayCommand?.ifBlank { "正在执行后台任务..." } ?: "正在执行后台任务..."
                             lastMsg?.toolCalls?.isNotEmpty() == true -> "正在执行: " + com.antigravity.mobile.ui.util.ToolLocalization.localizedName(lastMsg.toolCalls.lastOrNull()?.name ?: "操作")
                             else -> "正在执行任务..."
                         }
@@ -443,7 +443,7 @@ internal fun ChatViewModel.initSession(
                             status = payload.status ?: "RUNNING",
                             stepCount = maxOf(1, stepCount),
                             latestAction = latestAction,
-                            runningTaskCount = activeRunningTasks.size,
+                            runningTaskCount = activeRunningTasks.blockingTasks.size,
                             hasPendingAction = payload.pendingInteraction != null
                         )
                     } else if (liveActivityManager?.hasNotification(cascadeId) == true) {
@@ -564,7 +564,7 @@ internal fun ChatViewModel.ensureWebSocketObserving() {
                     val stepCount = msgs.count { !it.isUser }
                     val latestAction = when {
                         payload.pendingInteraction != null -> payload.pendingInteraction.prompt ?: "需要审批操作"
-                        activeRunningTasks.isNotEmpty() -> activeRunningTasks.firstOrNull()?.displayCommand?.ifBlank { "正在执行后台任务..." } ?: "正在执行后台任务..."
+                        activeRunningTasks.hasBlockingTasks -> activeRunningTasks.blockingTasks.firstOrNull()?.displayCommand?.ifBlank { "正在执行后台任务..." } ?: "正在执行后台任务..."
                         lastMsg?.toolCalls?.isNotEmpty() == true -> "正在执行: " + com.antigravity.mobile.ui.util.ToolLocalization.localizedName(lastMsg.toolCalls.lastOrNull()?.name ?: "操作")
                         awaiting -> "正在思考并组织回复..."
                         else -> "正在执行任务..."
@@ -575,7 +575,7 @@ internal fun ChatViewModel.ensureWebSocketObserving() {
                         status = payload.status,
                         stepCount = maxOf(1, stepCount),
                         latestAction = latestAction,
-                        runningTaskCount = activeRunningTasks.size,
+                        runningTaskCount = activeRunningTasks.blockingTasks.size,
                         hasPendingAction = payload.pendingInteraction != null
                     )
                 } else if (wasRunning || liveActivityManager?.hasNotification(_uiState.value.cascadeId) == true) {

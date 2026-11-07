@@ -463,12 +463,17 @@ internal fun ChatViewModel.sendMessage(
 
 internal fun ChatViewModel.cancelExecution() {
     val cascadeId = _uiState.value.cascadeId
-    val tasksToStop = _uiState.value.runningTasks
+    // 只停止阻塞回合的任务；常驻守护任务（IsDaemon=true）保持运行并留在浮层中供手动停止。
+    val tasksToStop = _uiState.value.runningTasks.blockingTasks
     tasksToStop.forEach { task ->
         stoppedTaskKeys.add("${task.id}:${task.stepIndex}")
         if (task.id.isNotBlank()) stoppedTaskKeys.add(task.id)
     }
-    _uiState.value = _uiState.value.copy(isRunning = false, isAwaitingResponse = false, runningTasks = emptyList())
+    _uiState.value = _uiState.value.copy(
+        isRunning = false,
+        isAwaitingResponse = false,
+        runningTasks = _uiState.value.runningTasks.filter { !it.blocksTurn }
+    )
     liveActivityManager?.endActivity(cascadeId = cascadeId, finalStatus = "CANCELLED")
     notifyConversationUpdated()
     saveSessionToCache()

@@ -358,7 +358,7 @@ public final class ChatViewModel {
     
     /// Whether the conversation is currently actively running, executing tasks, or awaiting responses
     public var isActivelyRunning: Bool {
-        isRunning || isAwaitingResponse || !runningTasks.isEmpty || (initialConversationStatus?.isRunning == true)
+        isRunning || isAwaitingResponse || runningTasks.hasBlockingTasks || (initialConversationStatus?.isRunning == true)
     }
     
     /// Whether this conversation on entry has unread messages, error messages, or action messages
@@ -912,7 +912,7 @@ public final class ChatViewModel {
                     return .error
                 } else if self.canProceed || self.pendingInteraction != nil {
                     return .action
-                } else if self.isRunning || !self.runningTasks.isEmpty {
+                } else if self.isRunning || self.runningTasks.hasBlockingTasks {
                     return .running
                 } else {
                     return .idle
