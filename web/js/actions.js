@@ -93,7 +93,7 @@ async function sendMessage() {
   }
 
   isSendingMessage = true;
-  const isRunning = currentTrajectories[activeCascadeId]?.status === "CASCADE_RUN_STATUS_RUNNING";
+  const isRunning = isCascadeRunning(activeCascadeId);
 
   const imagesToSend = [...pendingImages];
   pendingImages = [];
@@ -292,7 +292,7 @@ async function cancelCurrentTask() {
   updateProceedButton(false);
   updatePendingInteraction(null, false);
 
-  const tasksToStop = RunningTasksManager.tasks ? [...RunningTasksManager.tasks] : [];
+  const tasksToStop = RunningTasksManager.tasks ? RunningTasksManager.tasks.filter(t => !t.isDaemon) : [];
   for (const t of tasksToStop) {
     RunningTasksManager.stopTask(t.stepIndex, t.id, true);
   }
@@ -906,7 +906,9 @@ function openPairingSheet(errorMsg = "") {
     if (!inputEl.value) {
       inputEl.value = "";
     }
-    setTimeout(() => inputEl.focus(), 150);
+    if (window.matchMedia && window.matchMedia("(pointer: fine)").matches) {
+      setTimeout(() => inputEl.focus(), 150);
+    }
   }
   if (sheet) sheet.classList.remove("hidden");
 }
@@ -966,12 +968,39 @@ function unpairDevice() {
   }
 }
 
-function clearWebCache() {
+let clearCacheConfirmTimer = 0;
+
+async function clearWebCache() {
+  const btn = document.getElementById("btn-clear-web-cache");
+  // Avoid native confirm()/alert() modals: in iOS Home Screen Standalone PWAs,
+  // dismissing UIAlertController can break WKContentView's software-keyboard responder.
+  if (btn && btn.dataset.confirming !== "1") {
+    triggerHaptic("light");
+    btn.dataset.confirming = "1";
+    btn.dataset.originalText = btn.textContent || "清空本地会话与文档缓存";
+    btn.textContent = "再次点击确认清空缓存";
+    clearTimeout(clearCacheConfirmTimer);
+    clearCacheConfirmTimer = setTimeout(() => {
+      delete btn.dataset.confirming;
+      if (btn.dataset.originalText) btn.textContent = btn.dataset.originalText;
+    }, 3500);
+    return;
+  }
+
+  clearTimeout(clearCacheConfirmTimer);
+  if (btn) {
+    delete btn.dataset.confirming;
+    btn.disabled = true;
+    btn.textContent = "正在清理缓存...";
+  }
   triggerHaptic("medium");
-  if (!confirm("确定清空本地会话与文档缓存吗？")) return;
+
   sessionStepsCache = {};
+  sessionStepsLRU.length = 0;
   currentTrajectories = {};
   discoveredProjects = [];
+  mdContentCache.clear();
+
   try {
     const paired = localStorage.getItem("agy_paired");
     const deviceId = localStorage.getItem("agy_device_id");
@@ -981,9 +1010,34 @@ function clearWebCache() {
     if (paired) localStorage.setItem("agy_paired", paired);
     if (deviceId) localStorage.setItem("agy_device_id", deviceId);
   } catch (_) {}
-  alert("本地会话与文档缓存已清空");
-  closeSettingsSheet();
-  loadConversations();
+
+  try {
+    await PersistentStepsCache.clearAll();
+  } catch (_) {}
+
+  try {
+    if ("caches" in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+    }
+  } catch (_) {}
+
+  try {
+    if ("serviceWorker" in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map((r) => r.unregister()));
+    }
+  } catch (_) {}
+
+  if (btn) {
+    btn.disabled = false;
+    btn.textContent = "已清空缓存";
+  }
+  setTimeout(() => {
+    if (btn && btn.dataset.originalText) btn.textContent = btn.dataset.originalText;
+    closeSettingsSheet();
+    loadConversations();
+  }, 450);
 }
 
 function openSettingsSheet() {

@@ -104,3 +104,30 @@ func TestRecordLocationDedup(t *testing.T) {
 		t.Errorf("unexpected locations: %v", got)
 	}
 }
+
+func TestIsProxyFakeIPAndProbeEdge(t *testing.T) {
+	for _, s := range []string{"198.18.0.1", "198.19.255.254", "fc00::1234"} {
+		if !IsProxyFakeIP(net.ParseIP(s)) {
+			t.Errorf("%s should be recognized as TUN Fake-IP", s)
+		}
+	}
+	for _, s := range []string{"198.17.255.255", "198.20.0.1", "103.73.220.188"} {
+		if IsProxyFakeIP(net.ParseIP(s)) {
+			t.Errorf("%s should not be recognized as TUN Fake-IP", s)
+		}
+	}
+
+	resolve := func(_ context.Context, _ string) ([]net.IP, error) {
+		return []net.IP{net.ParseIP("198.18.0.42")}, nil
+	}
+	dial := func(_ context.Context, _ string) (time.Duration, error) {
+		return 2 * time.Millisecond, nil
+	}
+	p := ProbeEdge(context.Background(), resolve, dial)
+	if len(p.Polluted) != 0 {
+		t.Errorf("Fake-IP must not be classified as DNS pollution, got %v", p.Polluted)
+	}
+	if p.Chosen != "4" {
+		t.Errorf("expected IPv4 Fake-IP chosen, got %s", p.Chosen)
+	}
+}
