@@ -148,4 +148,41 @@ func TestIsCascadeInProgress(t *testing.T) {
 	if inProgress {
 		t.Errorf("expected inProgress=false for truly completed cascade, got true")
 	}
+
+	// Case 6: Completed cascade with standing IsDaemon=true background task must NOT stay inProgress
+	var daemonStep proxy.TrajectoryStep
+	daemonStep.Type = "CORTEX_STEP_TYPE_GENERIC"
+	daemonStep.Status = "CORTEX_STEP_STATUS_RUNNING"
+	daemonStep.Metadata.ToolCall = &struct {
+		ID            string `json:"id"`
+		Name          string `json:"name"`
+		ArgumentsJson string `json:"argumentsJson,omitempty"`
+	}{
+		ID:            "call_daemon",
+		Name:          "run_command",
+		ArgumentsJson: `{"CommandLine":"mgy","IsDaemon":true}`,
+	}
+	detailsWithDaemonOnly := &proxy.TrajectoryDetails{
+		RunningTasks: []proxy.RunningTaskItem{
+			{
+				ID:          "task-356",
+				CommandLine: "mgy",
+				IsDaemon:    true,
+			},
+		},
+		Steps: []proxy.TrajectoryStep{
+			daemonStep,
+			{
+				Type:   "CORTEX_STEP_TYPE_PLANNER_RESPONSE",
+				Status: "CORTEX_STEP_STATUS_DONE",
+				PlannerResponse: &struct {
+					Response string `json:"response"`
+					Thinking string `json:"thinking"`
+				}{Response: "服务已顺利完成启动。"},
+			},
+		},
+	}
+	if inProgress, reason := IsCascadeInProgress(detailsWithDaemonOnly, false); inProgress {
+		t.Errorf("expected inProgress=false when only IsDaemon task is running, got true (%s)", reason)
+	}
 }

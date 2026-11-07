@@ -81,7 +81,7 @@ function renderRoute() {
         chatInput.value = DraftManager.get(newCascadeId);
         chatInput.style.height = "auto";
         chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + "px";
-        const isRunning = currentTrajectories[activeCascadeId]?.status === "CASCADE_RUN_STATUS_RUNNING";
+        const isRunning = isCascadeRunning(activeCascadeId);
         updateChatControls(isRunning, null, false);
       }
 
@@ -121,7 +121,17 @@ function renderRoute() {
     }
     activeCascadeId = null;
     closeActiveWs(true);
+    SubagentManager.reset();
+    RunningTasksManager.init(null);
+    LocalQueueManager.init(null);
+    currentCanProceed = false;
+    currentProceedArtifactUri = null;
+    updateProceedButton(false);
+    updateContinueButton(false);
     updatePendingInteraction(null, false);
+    document.getElementById("btn-commit-push")?.classList.add("hidden");
+    document.getElementById("btn-changes")?.classList.add("hidden");
+    if (typeof clearSelectedSlash === "function") clearSelectedSlash();
 
     convView.classList.add("pushed-left");
     chatView.classList.add("active");
@@ -137,6 +147,7 @@ function renderRoute() {
 
     const streamEl = document.getElementById("messages-stream");
     if (streamEl) {
+      streamEl.__currentCascadeId = null;
       streamEl.innerHTML = `
         <div class="chat-empty-state">
           <div class="chat-empty-icon">
@@ -153,14 +164,28 @@ function renderRoute() {
     if (chatInput) {
       chatInput.value = "";
       chatInput.style.height = "auto";
-      setTimeout(() => chatInput.focus(), 250);
+      // iOS WebKit rejects asynchronous setTimeout(.focus()) keyboard summons, leaving a
+      // blinking caret without opening the software keyboard; only auto-focus on desktop pointers.
+      if (window.matchMedia && window.matchMedia("(pointer: fine)").matches) {
+        setTimeout(() => chatInput.focus(), 120);
+      }
     }
     updateChatControls(false, activeDraftSession.isPure ? "" : activeDraftSession.uri, false);
   } else {
     activeCascadeId = null;
     activeDraftSession = null;
     closeActiveWs(true);
+    SubagentManager.reset();
+    RunningTasksManager.init(null);
+    LocalQueueManager.init(null);
+    currentCanProceed = false;
+    currentProceedArtifactUri = null;
+    updateProceedButton(false);
+    updateContinueButton(false);
     updatePendingInteraction(null, false);
+    document.getElementById("btn-commit-push")?.classList.add("hidden");
+    document.getElementById("btn-changes")?.classList.add("hidden");
+    if (typeof clearSelectedSlash === "function") clearSelectedSlash();
     if (chatInput) {
       chatInput.value = "";
       chatInput.style.height = "auto";
@@ -897,7 +922,10 @@ function initEdgeSwipeBack() {
   let startTime = 0;
 
   window.addEventListener("touchstart", (e) => {
-    if (!activeCascadeId || e.touches.length > 1) return;
+    if ((!activeCascadeId && !activeDraftSession) || e.touches.length > 1) return;
+    if (e.target && typeof e.target.closest === "function" && e.target.closest("textarea, input, select, [contenteditable], .textfield-wrapper")) {
+      return;
+    }
     const touchX = e.touches[0].clientX;
     // Edge trigger zone: within left 32px of the screen
     if (touchX <= 32) {
@@ -907,8 +935,6 @@ function initEdgeSwipeBack() {
       isSwiping = true;
       isHorizontal = null;
       startTime = Date.now();
-      chatView.classList.add("is-swiping");
-      convView.classList.add("is-swiping");
     }
   }, { passive: true });
 
@@ -920,7 +946,14 @@ function initEdgeSwipeBack() {
     const dy = currentY - startY;
 
     if (isHorizontal === null && (Math.abs(dx) > 5 || Math.abs(dy) > 5)) {
-      isHorizontal = Math.abs(dx) > Math.abs(dy);
+      isHorizontal = Math.abs(dx) > Math.abs(dy) && dx > 0;
+      if (isHorizontal) {
+        chatView.classList.add("is-swiping");
+        convView.classList.add("is-swiping");
+      } else {
+        isSwiping = false;
+        return;
+      }
     }
 
     if (isHorizontal) {
@@ -934,9 +967,13 @@ function initEdgeSwipeBack() {
     }
   }, { passive: true });
 
-  window.addEventListener("touchend", () => {
+  const finishEdgeSwipe = () => {
     if (!isSwiping) return;
+    const didSwipeHorizontally = isHorizontal === true;
     isSwiping = false;
+    isHorizontal = null;
+    if (!didSwipeHorizontally) return;
+
     chatView.classList.remove("is-swiping");
     convView.classList.remove("is-swiping");
 
@@ -972,34 +1009,122 @@ function initEdgeSwipeBack() {
         convView.style.transform = "";
       }, 220);
     }
-  });
+  };
+
+  window.addEventListener("touchend", finishEdgeSwipe, { passive: true });
+  window.addEventListener("touchcancel", finishEdgeSwipe, { passive: true });
 }
 
 // --- iOS Virtual Viewport & Keyboard Handling ---
 
+function isKeyboardInputTarget(el) {
+  if (!el || el === document.body || el === document.documentElement) return false;
+  if (el.isContentEditable) return true;
+  const tag = el.tagName;
+  if (tag === "TEXTAREA") return !el.readOnly && !el.disabled;
+  if (tag === "INPUT") {
+    const type = (el.type || "text").toLowerCase();
+    const nonTextTypes = new Set([
+      "button", "checkbox", "color", "file", "hidden",
+      "image", "radio", "range", "reset", "submit"
+    ]);
+    return !nonTextTypes.has(type) && !el.readOnly && !el.disabled;
+  }
+  return false;
+}
+
 function initVisualViewportHandling() {
-  if (!window.visualViewport) return;
+  const vp = window.visualViewport;
+  if (!vp) return;
+
+  const root = document.documentElement;
+  const restingHeights = { portrait: 0, landscape: 0 };
+  let kbDismissedAfterBlur = !isKeyboardInputTarget(document.activeElement);
+  let blurRecoveryTimer = 0;
+
+  const getOrientationKey = () => {
+    if (screen.orientation && typeof screen.orientation.type === "string") {
+      return screen.orientation.type.startsWith("landscape") ? "landscape" : "portrait";
+    }
+    if (typeof window.orientation === "number") {
+      return Math.abs(window.orientation) === 90 ? "landscape" : "portrait";
+    }
+    return window.innerWidth > window.innerHeight ? "landscape" : "portrait";
+  };
 
   const handleViewportChange = () => {
-    if (!activeCascadeId) return;
-    const vp = window.visualViewport;
-    const offset = Math.max(0, window.innerHeight - vp.height - vp.offsetTop);
-    const appEl = document.getElementById("app");
-    if (!appEl) return;
+    const orient = getOrientationKey();
+    const editableFocused = isKeyboardInputTarget(document.activeElement);
 
-    if (offset > 60) {
-      appEl.style.height = `${vp.height}px`;
+    if (vp.height > restingHeights[orient]) {
+      restingHeights[orient] = vp.height;
+    }
+    if (!editableFocused && window.innerHeight > restingHeights[orient]) {
+      restingHeights[orient] = window.innerHeight;
+    }
+
+    let baseHeight = Math.max(restingHeights[orient], window.innerHeight);
+    if (restingHeights[orient] === 0 && typeof screen !== "undefined" && screen.height > 0) {
+      const screenAxis = orient === "portrait"
+        ? Math.max(screen.width || 0, screen.height || 0)
+        : Math.min(screen.width || 0, screen.height || 0);
+      if (screenAxis > baseHeight) baseHeight = screenAxis;
+    }
+
+    // iOS 主屏幕独立 PWA 在软键盘弹起时会同时缩小 window.innerHeight 与 visualViewport.height
+    // （或伴随 offsetTop 上移），因此必须与未弹键盘时的基准高度比较，而不能用 innerHeight - vp.height - vp.offsetTop。
+    const heightDrop = baseHeight - vp.height;
+    const kbOpen = !kbDismissedAfterBlur && (heightDrop > 80 || (editableFocused && vp.offsetTop > 20));
+    const wasOpen = root.hasAttribute("data-kb-open");
+
+    if (kbOpen) {
+      root.setAttribute("data-kb-open", "");
+      root.style.setProperty("--vv-height", `${Math.round(vp.height)}px`);
+      root.style.setProperty("--vv-offset-top", `${Math.round(Math.max(0, vp.offsetTop))}px`);
+
       const streamEl = document.getElementById("messages-stream");
       if (streamEl && userIsNearBottom) {
         streamEl.scrollTop = streamEl.scrollHeight;
       }
-    } else {
-      appEl.style.height = "";
+    } else if (wasOpen) {
+      root.removeAttribute("data-kb-open");
+      root.style.removeProperty("--vv-height");
+      root.style.removeProperty("--vv-offset-top");
+      if (typeof syncAppViewport === "function") {
+        syncAppViewport();
+      }
     }
   };
 
-  window.visualViewport.addEventListener("resize", handleViewportChange);
-  window.visualViewport.addEventListener("scroll", handleViewportChange);
+  vp.addEventListener("resize", handleViewportChange);
+  vp.addEventListener("scroll", handleViewportChange);
+  window.addEventListener("orientationchange", () => {
+    setTimeout(handleViewportChange, 120);
+  });
+
+  document.addEventListener("focusin", (e) => {
+    if (!isKeyboardInputTarget(e.target)) return;
+    kbDismissedAfterBlur = false;
+    clearTimeout(blurRecoveryTimer);
+    // Avoid synchronous root attribute/style mutations inside focusin while iOS WebKit
+    // acquires the assisted input node; let visualViewport events + post-animation checks drive layout.
+    setTimeout(handleViewportChange, 100);
+    setTimeout(handleViewportChange, 320);
+  });
+
+  document.addEventListener("focusout", () => {
+    clearTimeout(blurRecoveryTimer);
+    // 键盘收起动画完成后兜底清理，规避 iOS Standalone WebKit 偶发收起键盘后 visualViewport.height 卡死不恢复的缺陷
+    blurRecoveryTimer = setTimeout(() => {
+      if (!isKeyboardInputTarget(document.activeElement)) {
+        kbDismissedAfterBlur = true;
+        window.scrollTo(0, 0);
+        handleViewportChange();
+      }
+    }, 350);
+  });
+
+  handleViewportChange();
 }
 
 

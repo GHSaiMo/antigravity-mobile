@@ -90,6 +90,13 @@
   -webkit-user-select: text !important;
 }
 
+input,
+textarea {
+  -webkit-user-select: text;
+  user-select: text;
+  touch-action: manipulation;
+}
+
 /* Prevent accidental callout on interactive controls */
 button, .nav-btn, .tab-btn, .sheet-grabber, .ios-bottom-nav {
   -webkit-touch-callout: none;
@@ -1781,6 +1788,7 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
   min-height: 44px;
   display: flex;
   align-items: center;
+  cursor: text;
 }
 
 .textfield-wrapper textarea {
@@ -5700,8 +5708,19 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
   flex-shrink: 0;
 }
 
-html[data-clipped] {
+html[data-clipped],
+html[data-kb-open] {
   --safe-bottom: 0px;
+}
+
+/* 软键盘弹起时（尤其 iOS 主屏幕独立 PWA 下 innerHeight 与 visualViewport 同步缩小，
+   而 position: fixed; inset: 0 仍锚定在未缩小的完整画布上导致底部输入栏被遮挡），
+   显式按 visualViewport 的可见高度与偏移锁定容器边界。 */
+html[data-kb-open] #app,
+html[data-kb-open] .ios-sheet-overlay {
+  top: var(--vv-offset-top, 0px);
+  height: var(--vv-height, 100%);
+  bottom: auto;
 }
 
 /* ---- 额度：复刻原生 iOS（AccountQuotaSheet / QuotaStatusBarView）---- */

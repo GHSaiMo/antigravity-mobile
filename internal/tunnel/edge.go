@@ -24,6 +24,14 @@ var cfEdgeNets = mustParseCIDRs(
 	"2803:f800::/32",
 )
 
+// proxyFakeIPNets 为 Clash / Mihomo / Surge / Sing-box 等代理工具开启增强模式（TUN / Fake-IP）时
+// 分配的本地虚拟映射网段（RFC 2544 基准测试网段 198.18.0.0/15 与 IPv6 Fake-IP fc00::/18）。
+// 命中这些地址代表流量正在由本机 TUN 代理透明接管，并非运营商/GFW 的 DNS 污染。
+var proxyFakeIPNets = mustParseCIDRs(
+	"198.18.0.0/15",
+	"fc00::/18",
+)
+
 func mustParseCIDRs(cidrs ...string) []*net.IPNet {
 	nets := make([]*net.IPNet, 0, len(cidrs))
 	for _, c := range cidrs {
@@ -39,6 +47,16 @@ func mustParseCIDRs(cidrs ...string) []*net.IPNet {
 // IsCloudflareEdgeIP reports whether ip belongs to a published Cloudflare range.
 func IsCloudflareEdgeIP(ip net.IP) bool {
 	for _, n := range cfEdgeNets {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// IsProxyFakeIP reports whether ip belongs to a local TUN Fake-IP range (198.18.0.0/15 or fc00::/18).
+func IsProxyFakeIP(ip net.IP) bool {
+	for _, n := range proxyFakeIPNets {
 		if n.Contains(ip) {
 			return true
 		}
@@ -129,7 +147,7 @@ func ProbeEdge(ctx context.Context, resolve edgeResolver, dial edgeDialer) EdgeP
 			defer mu.Unlock()
 			for _, ip := range ips {
 				switch {
-				case !IsCloudflareEdgeIP(ip):
+				case !IsCloudflareEdgeIP(ip) && !IsProxyFakeIP(ip):
 					polluted[ip.String()] = true
 				case ip.To4() != nil:
 					v4 = append(v4, ip)

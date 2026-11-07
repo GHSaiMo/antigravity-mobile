@@ -151,6 +151,29 @@ const PersistentStepsCache = {
       const store = tx.objectStore("session_steps");
       store.delete(cascadeId);
     } catch (_) {}
+  },
+  async clearAll() {
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+    this.pending.clear();
+    try {
+      localStorage.removeItem(this.LRU_KEY);
+    } catch (_) {}
+    const db = await this.getDB();
+    if (!db) return;
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction("session_steps", "readwrite");
+        const store = tx.objectStore("session_steps");
+        const req = store.clear();
+        req.onsuccess = () => resolve();
+        req.onerror = () => resolve();
+      } catch (_) {
+        resolve();
+      }
+    });
   }
 };
 
@@ -316,7 +339,7 @@ function renderImagePreviews() {
   if (pendingImages.length === 0) {
     bar.innerHTML = "";
     bar.classList.add("hidden");
-    updateChatControls(currentTrajectories[activeCascadeId]?.status === "CASCADE_RUN_STATUS_RUNNING");
+    updateChatControls(isCascadeRunning(activeCascadeId));
     return;
   }
 
@@ -327,7 +350,7 @@ function renderImagePreviews() {
       <button class="image-preview-remove" type="button" aria-label="删除图片" onclick="removePendingImage('${img.id}')">✕</button>
     </div>
   `).join("");
-  updateChatControls(currentTrajectories[activeCascadeId]?.status === "CASCADE_RUN_STATUS_RUNNING");
+  updateChatControls(isCascadeRunning(activeCascadeId));
 }
 
 function removePendingImage(id) {
@@ -571,14 +594,27 @@ async function postGatewayJson(path, body) {
 }
 
 
+// 区分真正阻塞当前回合的后台任务与常驻守护进程（IsDaemon=true）：
+// 常驻进程在回合 IDLE 后仍保持 RUNNING，不应让会话整体处于执行中状态。
+function hasActiveRunningTasks(tasks) {
+  return Array.isArray(tasks) && tasks.some((t) => t && !t.isDaemon);
+}
+
+function isCascadeRunning(cascadeId) {
+  if (!cascadeId) return false;
+  const summary = currentTrajectories[cascadeId];
+  return summary?.status === "CASCADE_RUN_STATUS_RUNNING" || hasActiveRunningTasks(summary?.runningTasks);
+}
+
 // --- 视口适配（添加到主屏幕的独立模式）---
 // iOS 偶尔给独立模式的窗口比屏幕矮一截（实测差值恰好等于顶部安全区），超出部分系统直接裁掉，
 // 页面无法绘制。此时按实际窗口排版，并把底部安全区清零（Home 条在窗口之外），保证控件完整可见。
 function syncAppViewport() {
+  if (document.documentElement.hasAttribute("data-kb-open")) return;
   const standalone = navigator.standalone === true || window.matchMedia("(display-mode: standalone)").matches;
   const portraitPhone = Math.min(screen.width, screen.height) < 768 && window.innerHeight > window.innerWidth;
   const gap = Math.max(screen.width, screen.height) - window.innerHeight;
-  document.documentElement.toggleAttribute("data-clipped", standalone && portraitPhone && gap > 20);
+  document.documentElement.toggleAttribute("data-clipped", standalone && portraitPhone && gap > 20 && gap <= 120);
 }
 
 ["resize", "orientationchange", "pageshow"].forEach((ev) => window.addEventListener(ev, syncAppViewport));

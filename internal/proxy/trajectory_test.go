@@ -1730,9 +1730,69 @@ func TestParseWorkflowItem(t *testing.T) {
 	}
 }
 
+func TestParseTrajectoryDetails_DaemonRunningTasks(t *testing.T) {
+	rawJSON := `{
+		"status": "CASCADE_RUN_STATUS_IDLE",
+		"trajectory": {
+			"cascadeId": "test-daemon-tasks",
+			"steps": [
+				{
+					"type": "CORTEX_STEP_TYPE_USER_INPUT",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"userInput": { "userResponse": "Start dev server" }
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_GENERIC",
+					"status": "CORTEX_STEP_STATUS_RUNNING",
+					"metadata": {
+						"createdAt": "2026-11-07T12:05:41Z",
+						"sourceTrajectoryStepInfo": { "stepIndex": 2 },
+						"toolCall": {
+							"id": "call_1",
+							"name": "run_command",
+							"argumentsJson": "{\"CommandLine\":\"npm run dev\",\"IsDaemon\":true,\"toolSummary\":\"Start dev server daemon\"}"
+						}
+					},
+					"taskDetails": {
+						"id": "test-daemon-tasks/task-2",
+						"description": "npm run dev"
+					}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_PLANNER_RESPONSE",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"plannerResponse": { "response": "Dev server started." }
+				}
+			]
+		}
+	}`
 
+	var rawResp upstreamTrajectoryResp
+	if err := json.Unmarshal([]byte(rawJSON), &rawResp); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+	p := &Proxy{}
+	details := p.ParseTrajectoryDetails(&rawResp)
 
-
-
+	if details.Status != "CASCADE_RUN_STATUS_IDLE" {
+		t.Fatalf("expected IDLE status when only daemon task is running, got %s", details.Status)
+	}
+	if len(details.RunningTasks) != 1 {
+		t.Fatalf("expected 1 running task, got %d", len(details.RunningTasks))
+	}
+	task := details.RunningTasks[0]
+	if !task.IsDaemon {
+		t.Errorf("expected task.IsDaemon=true, got false")
+	}
+	if task.ToolSummary != "Start dev server daemon" {
+		t.Errorf("expected ToolSummary extracted from argumentsJson, got %q", task.ToolSummary)
+	}
+	if HasActiveNonDaemonTasks(details.RunningTasks) {
+		t.Errorf("expected HasActiveNonDaemonTasks=false for daemon-only tasks")
+	}
+	if !HasActiveNonDaemonTasks(append(details.RunningTasks, RunningTaskItem{ID: "task-3", IsDaemon: false})) {
+		t.Errorf("expected HasActiveNonDaemonTasks=true when a non-daemon task is also running")
+	}
+}
 
 

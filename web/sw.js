@@ -1,4 +1,4 @@
-const CACHE_NAME = "antigravity-mobile-v51";
+const CACHE_NAME = "antigravity-mobile-v55";
 const ASSETS = [
   "/",
   "/index.html",
@@ -80,20 +80,28 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Stale-While-Revalidate strategy for app shell assets
+  // Versioned assets (?v=...) must match their exact query string so bumping ?v= in index.html
+  // immediately fetches the new asset instead of serving a stale cached revision; unversioned
+  // shell assets keep ignoreSearch stale-while-revalidate with offline fallback.
+  const hasVersionParam = url.searchParams.has("v");
   event.respondWith(
     caches.open(CACHE_NAME).then(async (cache) => {
-      // ignoreSearch: true ensures /js/core.js?v=26 hits cached /js/core.js
-      const cachedResponse = await cache.match(event.request, { ignoreSearch: true });
+      const cachedResponse = await cache.match(
+        event.request,
+        hasVersionParam ? undefined : { ignoreSearch: true }
+      );
       const networkFetch = fetch(event.request)
         .then(async (networkResponse) => {
           if (networkResponse && networkResponse.ok) {
-            // Await ensures the SW stays alive until cache write completes
             await cache.put(event.request, networkResponse.clone());
           }
           return networkResponse;
         })
-        .catch(() => cachedResponse || new Response("Asset not found", { status: 504 }));
+        .catch(async () => {
+          if (cachedResponse) return cachedResponse;
+          const fallback = await cache.match(event.request, { ignoreSearch: true });
+          return fallback || new Response("Asset not found", { status: 504 });
+        });
 
       // Keep the Service Worker alive until cache update finishes
       event.waitUntil(networkFetch.catch(() => {}));

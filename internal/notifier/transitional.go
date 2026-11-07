@@ -83,16 +83,18 @@ func IsCascadeInProgress(details *proxy.TrajectoryDetails, hasRunningSubagents b
 		return false, ""
 	}
 
-	// 1. Check for active background tasks recorded in TrajectoryDetails
-	if len(details.RunningTasks) > 0 {
+	// 1. Check for active non-daemon background tasks recorded in TrajectoryDetails
+	if proxy.HasActiveNonDaemonTasks(details.RunningTasks) {
 		return true, "has active background tasks"
 	}
 
-	// 2. Check for any trajectory step currently running or pending
+	// 2. Check for any trajectory step currently running or pending (excluding standing daemons)
 	for _, s := range details.Steps {
 		switch s.Status {
 		case "CORTEX_STEP_STATUS_RUNNING":
-			return true, "step is actively running"
+			if !proxy.IsDaemonStep(s) {
+				return true, "step is actively running"
+			}
 		case "CORTEX_STEP_STATUS_PENDING", "CORTEX_STEP_STATUS_WAITING", "CORTEX_STEP_STATUS_GENERATING":
 			return true, "step is pending/waiting"
 		}
@@ -121,8 +123,8 @@ func IsCascadeInProgress(details *proxy.TrajectoryDetails, hasRunningSubagents b
 				if stepContent == "" && step.SystemMessage != nil {
 					stepContent = step.SystemMessage.Content
 				}
-				if step.TaskDetails != nil ||
-					(step.RunCommand != nil && strings.Contains(strings.ToLower(step.RunCommand.CommandLine), "task")) ||
+				if (step.TaskDetails != nil && !proxy.IsDaemonStep(step)) ||
+					(step.RunCommand != nil && !proxy.IsDaemonStep(step) && strings.Contains(strings.ToLower(step.RunCommand.CommandLine), "task")) ||
 					strings.Contains(stepContent, "Tool is running as a background task") ||
 					strings.Contains(stepContent, "YOU MUST TAKE ONE OF THE FOLLOWING TWO ACTIONS") {
 					// In this turn a background task was injected, and agent output is short status update

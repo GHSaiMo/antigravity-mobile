@@ -152,7 +152,7 @@ func (t *CloudflareTunnel) launchProcessLocked(ctx context.Context, binPath stri
 						if idx, colo, ok := parseRegisteredLine(trimmed); ok {
 							t.recordLocation(idx, colo)
 						}
-					} else if ip, ok := parseFailedEdgeIP(trimmed); ok && !IsCloudflareEdgeIP(ip) {
+					} else if ip, ok := parseFailedEdgeIP(trimmed); ok && !IsCloudflareEdgeIP(ip) && !IsProxyFakeIP(ip) {
 						t.kickPolluted(cmd, ip)
 					} else if strings.Contains(trimmed, "ERR") || strings.Contains(trimmed, "error") ||
 						strings.Contains(trimmed, "Incorrect Usage") || strings.Contains(trimmed, "flag provided") {
