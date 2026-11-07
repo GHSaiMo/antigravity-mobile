@@ -106,12 +106,12 @@ func TestRecordLocationDedup(t *testing.T) {
 }
 
 func TestIsProxyFakeIPAndProbeEdge(t *testing.T) {
-	for _, s := range []string{"198.18.0.1", "198.19.255.254", "fc00::1234"} {
+	for _, s := range []string{"198.18.0.1", "198.19.255.254", "fc00::1234", "fdfe:dcba:9876::2"} {
 		if !IsProxyFakeIP(net.ParseIP(s)) {
 			t.Errorf("%s should be recognized as TUN Fake-IP", s)
 		}
 	}
-	for _, s := range []string{"198.17.255.255", "198.20.0.1", "103.73.220.188"} {
+	for _, s := range []string{"198.17.255.255", "198.20.0.1", "103.73.220.188", "2606:4700::6810:84e5", "fe80::1"} {
 		if IsProxyFakeIP(net.ParseIP(s)) {
 			t.Errorf("%s should not be recognized as TUN Fake-IP", s)
 		}

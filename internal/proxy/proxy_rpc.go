@@ -764,9 +764,11 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 				s["errorMessage"] = details.ErrorMessage
 			}
 			if len(details.RunningTasks) > 0 {
-				s["hasRunningTasks"] = true
 				s["runningTaskCount"] = len(details.RunningTasks)
+				// hasRunningTasks drives the "running" badge on native conversation lists, so it only
+				// counts turn-blocking tasks; standing daemons (IsDaemon=true) stay in runningTaskCount.
 				if HasActiveNonDaemonTasks(details.RunningTasks) {
+					s["hasRunningTasks"] = true
 					s["status"] = "CASCADE_RUN_STATUS_RUNNING"
 				}
 			}

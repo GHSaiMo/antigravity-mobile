@@ -123,8 +123,13 @@ func IsCascadeInProgress(details *proxy.TrajectoryDetails, hasRunningSubagents b
 				if stepContent == "" && step.SystemMessage != nil {
 					stepContent = step.SystemMessage.Content
 				}
-				if (step.TaskDetails != nil && !proxy.IsDaemonStep(step)) ||
-					(step.RunCommand != nil && !proxy.IsDaemonStep(step) && strings.Contains(strings.ToLower(step.RunCommand.CommandLine), "task")) ||
+				// Standing daemons (IsDaemon=true) also emit "running as a background task" notices,
+				// but they never block the turn, so skip them entirely here.
+				if proxy.IsDaemonStep(step) {
+					continue
+				}
+				if step.TaskDetails != nil ||
+					(step.RunCommand != nil && strings.Contains(strings.ToLower(step.RunCommand.CommandLine), "task")) ||
 					strings.Contains(stepContent, "Tool is running as a background task") ||
 					strings.Contains(stepContent, "YOU MUST TAKE ONE OF THE FOLLOWING TWO ACTIONS") {
 					// In this turn a background task was injected, and agent output is short status update

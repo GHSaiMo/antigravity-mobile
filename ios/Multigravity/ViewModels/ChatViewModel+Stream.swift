@@ -306,7 +306,7 @@ extension ChatViewModel {
                 return .error
             } else if self.canProceed || self.pendingInteraction != nil {
                 return .action
-            } else if self.isRunning || !self.runningTasks.isEmpty {
+            } else if self.isRunning || self.runningTasks.hasBlockingTasks {
                 return .running
             } else {
                 return .idle

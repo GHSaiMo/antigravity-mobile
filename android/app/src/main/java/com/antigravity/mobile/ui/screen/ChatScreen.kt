@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.LinearScale
 import androidx.compose.material.icons.filled.Warning
 import com.antigravity.mobile.data.model.ConversationTurnBuilder
+import com.antigravity.mobile.data.model.hasBlockingTasks
 import com.antigravity.mobile.ui.components.ConversationNavigatorSheet
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -1312,7 +1313,7 @@ fun ChatScreen(
                                             .padding(horizontal = 16.dp, vertical = 8.dp),
                                         contentAlignment = Alignment.CenterStart
                                     ) {
-                                        val isActivelyRunning = uiState.isRunning || uiState.isAwaitingResponse || uiState.runningTasks.isNotEmpty()
+                                        val isActivelyRunning = uiState.isRunning || uiState.isAwaitingResponse || uiState.runningTasks.hasBlockingTasks
                                         if (inputText.isEmpty()) {
                                             Text(
                                                 text = if (isActivelyRunning) "向队列添加指令..." else "发送对 Agent 的指令...",
@@ -1326,7 +1327,7 @@ fun ChatScreen(
                                 }
                             )
 
-                            val isActivelyRunning = uiState.isRunning || uiState.isAwaitingResponse || uiState.runningTasks.isNotEmpty()
+                            val isActivelyRunning = uiState.isRunning || uiState.isAwaitingResponse || uiState.runningTasks.hasBlockingTasks
                             val isInputBlank = inputText.isBlank()
                             val hasAttachments = uiState.selectedImages.isNotEmpty() || uiState.selectedFiles.isNotEmpty() || uiState.selectedSlashCommand != null
 

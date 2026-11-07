@@ -11,12 +11,15 @@ extension ChatViewModel {
         guard settings.enableLiveActivities, !cascadeId.isEmpty else { return }
         
         let isAgentBusy = self.isRunning || self.isAwaitingResponse
-        let hasRunningTasks = !self.runningTasks.isEmpty
+        // Standing daemons (IsDaemon=true) never finish on their own; keep them out of the Live Activity
+        // so it can end once the turn completes.
+        let blockingTasks = self.runningTasks.blockingTasks
+        let hasRunningTasks = !blockingTasks.isEmpty
         let hasPendingAction = self.canProceed || self.pendingInteraction != nil
         let shouldBeActive = isAgentBusy || hasRunningTasks || hasPendingAction
         
         if shouldBeActive {
-            let primaryTask = self.runningTasks.first
+            let primaryTask = blockingTasks.first
             let taskTitle: String? = primaryTask.map { task in
                 task.toolSummary ?? task.toolAction ?? ToolLocalization.localizedName(for: task.toolName)
             }
@@ -44,7 +47,7 @@ extension ChatViewModel {
                 actionText = "任务运行中..."
             }
             
-            let taskSnapshots: [AgentTaskSnapshot] = self.runningTasks.prefix(3).map { task in
+            let taskSnapshots: [AgentTaskSnapshot] = blockingTasks.prefix(3).map { task in
                 let title = task.toolSummary ?? task.toolAction ?? ToolLocalization.localizedName(for: task.toolName)
                 let cmd = task.commandLine.trimmingCharacters(in: .whitespacesAndNewlines)
                 return AgentTaskSnapshot(
@@ -61,7 +64,7 @@ extension ChatViewModel {
                     status: status,
                     stepCount: self.stepCount,
                     latestAction: actionText,
-                    runningTaskCount: self.runningTasks.count,
+                    runningTaskCount: blockingTasks.count,
                     runningTasks: taskSnapshots,
                     activeTaskTitle: taskTitle,
                     activeTaskCommand: taskCommand,
@@ -74,7 +77,7 @@ extension ChatViewModel {
                     status: status,
                     stepCount: self.stepCount,
                     latestAction: actionText,
-                    runningTaskCount: self.runningTasks.count,
+                    runningTaskCount: blockingTasks.count,
                     runningTasks: taskSnapshots,
                     activeTaskTitle: taskTitle,
                     activeTaskCommand: taskCommand,

@@ -677,9 +677,10 @@ extension ChatViewModel {
         awaitingResponseSince = nil
         isRunning = false
         canProceed = false
-        let tasksToStop = self.runningTasks
+        // Only stop turn-blocking tasks; standing daemons (IsDaemon=true) stay alive and remain in the overlay.
+        let tasksToStop = self.runningTasks.blockingTasks
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-            self.runningTasks = []
+            self.runningTasks = self.runningTasks.filter { !$0.blocksTurn }
         }
         stopPollingFallback()
         

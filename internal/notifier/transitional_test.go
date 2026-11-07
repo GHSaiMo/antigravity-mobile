@@ -185,4 +185,44 @@ func TestIsCascadeInProgress(t *testing.T) {
 	if inProgress, reason := IsCascadeInProgress(detailsWithDaemonOnly, false); inProgress {
 		t.Errorf("expected inProgress=false when only IsDaemon task is running, got true (%s)", reason)
 	}
+
+	// Case 7: Daemon step carrying the "running as a background task" notice must not trigger the
+	// Option-B background-launch heuristic when the agent ends the turn with a short reply.
+	daemonNoticeStep := daemonStep
+	daemonNoticeStep.Status = "CORTEX_STEP_STATUS_DONE"
+	daemonNoticeStep.Content = "Tool is running as a background task with task id: c/task-7"
+	detailsDaemonNotice := &proxy.TrajectoryDetails{
+		Steps: []proxy.TrajectoryStep{
+			{Type: "CORTEX_STEP_TYPE_USER_INPUT", Status: "CORTEX_STEP_STATUS_DONE"},
+			daemonNoticeStep,
+			{
+				Type:   "CORTEX_STEP_TYPE_PLANNER_RESPONSE",
+				Status: "CORTEX_STEP_STATUS_DONE",
+				PlannerResponse: &struct {
+					Response string `json:"response"`
+					Thinking string `json:"thinking"`
+				}{Response: "服务已顺利完成启动。"},
+			},
+		},
+	}
+	if inProgress, reason := IsCascadeInProgress(detailsDaemonNotice, false); inProgress {
+		t.Errorf("expected inProgress=false when only a daemon emitted the background notice, got true (%s)", reason)
+	}
+
+	// Control: the same notice from a non-daemon step still keeps the turn in progress.
+	nonDaemonNoticeStep := proxy.TrajectoryStep{
+		Type:    "CORTEX_STEP_TYPE_GENERIC",
+		Status:  "CORTEX_STEP_STATUS_DONE",
+		Content: "Tool is running as a background task with task id: c/task-8",
+	}
+	detailsNonDaemonNotice := &proxy.TrajectoryDetails{
+		Steps: []proxy.TrajectoryStep{
+			detailsDaemonNotice.Steps[0],
+			nonDaemonNoticeStep,
+			detailsDaemonNotice.Steps[2],
+		},
+	}
+	if inProgress, _ := IsCascadeInProgress(detailsNonDaemonNotice, false); !inProgress {
+		t.Errorf("expected inProgress=true when a non-daemon background task notice precedes a short reply")
+	}
 }
