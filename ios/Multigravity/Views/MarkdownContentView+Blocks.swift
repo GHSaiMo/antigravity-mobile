@@ -224,9 +224,8 @@ extension MarkdownContentView {
 }
 
 
-/// 表格：按内容自适应列宽，在能完整显示文字的前提下占用面积尽量小。
-/// 容器装得下时，每列取内容的单行宽度；装不下时在「最长单词宽度」与「单行宽度」之间按比例分配；
-/// 即使每列都取最小宽度仍超出容器，则保持最小宽度并横向滚动。
+/// 表格：按内容自适应列宽并支持横向滚动，不强行压缩列宽。
+/// 短列保持单行完整显示；长文本列按舒适阅读宽度自动换行，总宽超出容器时交由外层横向滚动。
 struct MarkdownAutoTable<Content: View>: View {
     @Environment(\.isShareExport) private var isShareExport
     let columnCount: Int
@@ -242,7 +241,12 @@ struct MarkdownAutoTable<Content: View>: View {
                     Color.clear.preference(key: TableWidthKey.self, value: geo.size.width)
                 })
             ExportAwareHorizontalScroll {
-                AutoTableLayout(columnCount: columnCount, availableWidth: availableWidth) {
+                AutoTableLayout(
+                    columnCount: columnCount,
+                    hasHeader: hasHeader,
+                    availableWidth: availableWidth,
+                    isShareExport: isShareExport
+                ) {
                     content()
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -264,29 +268,81 @@ private struct TableWidthKey: PreferenceKey {
 
 private struct AutoTableLayout: Layout {
     let columnCount: Int
+    let hasHeader: Bool
     let availableWidth: CGFloat
+    let isShareExport: Bool
 
-    private func columnWidths(_ subviews: Subviews, limit: CGFloat?) -> [CGFloat] {
-        var minW = [CGFloat](repeating: 0, count: columnCount)
-        var maxW = [CGFloat](repeating: 0, count: columnCount)
-        for (i, v) in subviews.enumerated() {
-            let c = i % columnCount
-            minW[c] = max(minW[c], v.sizeThatFits(ProposedViewSize(width: 0, height: nil)).width)
-            maxW[c] = max(maxW[c], v.sizeThatFits(.unspecified).width)
+    private func defaultCap(for column: Int, limit: CGFloat) -> CGFloat {
+        switch columnCount {
+        case 1:
+            return max(limit, 260)
+        case 2:
+            return column == 0 ? 180 : 320
+        default:
+            return 260
         }
-        for c in 0..<columnCount { maxW[c] = max(maxW[c], minW[c]) }
-        let sumMin = minW.reduce(0, +)
-        let sumMax = maxW.reduce(0, +)
-        guard let limit, limit > 0 else { return maxW }
-        if sumMax <= limit { return maxW }
-        if sumMin >= limit { return minW }
-        let t = (limit - sumMin) / (sumMax - sumMin)
-        return (0..<columnCount).map { minW[$0] + (maxW[$0] - minW[$0]) * t }
     }
 
-    private func limit(for proposal: ProposedViewSize) -> CGFloat? {
-        if let w = proposal.width, w.isFinite, w > 0 { return w }
-        return availableWidth > 0 ? availableWidth : nil
+    private func columnWidths(_ subviews: Subviews, limit: CGFloat) -> [CGFloat] {
+        var maxW = [CGFloat](repeating: 44, count: columnCount)
+        var headerW = [CGFloat](repeating: 0, count: columnCount)
+
+        for (i, v) in subviews.enumerated() {
+            let c = i % columnCount
+            let singleW = ceil(v.sizeThatFits(.unspecified).width)
+            maxW[c] = max(maxW[c], singleW)
+            if hasHeader && i < columnCount {
+                headerW[c] = singleW
+            }
+        }
+
+        let sumMax = maxW.reduce(0, +)
+        if limit > 0 && sumMax <= limit {
+            return maxW
+        }
+
+        var widths = (0..<columnCount).map { c -> CGFloat in
+            let cap = max(defaultCap(for: c, limit: limit), min(headerW[c], 280))
+            return min(maxW[c], cap)
+        }
+
+        let sumWidths = widths.reduce(0, +)
+        if limit > 0 && sumWidths < limit {
+            let extraNeeded = (0..<columnCount).reduce(CGFloat(0)) { $0 + (maxW[$1] - widths[$1]) }
+            if extraNeeded > 0 {
+                let grow = min(1.0, (limit - sumWidths) / extraNeeded)
+                for c in 0..<columnCount where maxW[c] > widths[c] {
+                    widths[c] = floor(widths[c] + (maxW[c] - widths[c]) * grow)
+                }
+            }
+        } else if isShareExport && limit > 0 && sumWidths > limit {
+            let floors = (0..<columnCount).map { c in
+                min(maxW[c], max(min(headerW[c], 120), 64))
+            }
+            let sumFloors = floors.reduce(0, +)
+            if sumFloors >= limit {
+                return floors
+            }
+            let t = (limit - sumFloors) / (sumWidths - sumFloors)
+            widths = (0..<columnCount).map { c in
+                floor(floors[c] + (widths[c] - floors[c]) * t)
+            }
+        }
+
+        return widths
+    }
+
+    private func containerLimit(for proposal: ProposedViewSize) -> CGFloat {
+        if isShareExport, let w = proposal.width, w.isFinite, w > 0 {
+            return w
+        }
+        if availableWidth > 0 {
+            return availableWidth
+        }
+        if let w = proposal.width, w.isFinite, w > 0 {
+            return w
+        }
+        return max(UIScreen.main.bounds.width - 32, 280)
     }
 
     private func rowHeights(_ subviews: Subviews, widths: [CGFloat]) -> [CGFloat] {
@@ -295,20 +351,20 @@ private struct AutoTableLayout: Layout {
             (0..<columnCount).compactMap { c -> CGFloat? in
                 let i = r * columnCount + c
                 guard i < subviews.count else { return nil }
-                return subviews[i].sizeThatFits(ProposedViewSize(width: widths[c], height: nil)).height
+                return ceil(subviews[i].sizeThatFits(ProposedViewSize(width: widths[c], height: nil)).height)
             }.max() ?? 0
         }
     }
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         guard columnCount > 0, !subviews.isEmpty else { return .zero }
-        let widths = columnWidths(subviews, limit: limit(for: proposal))
+        let widths = columnWidths(subviews, limit: containerLimit(for: proposal))
         return CGSize(width: widths.reduce(0, +), height: rowHeights(subviews, widths: widths).reduce(0, +))
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         guard columnCount > 0, !subviews.isEmpty else { return }
-        let widths = columnWidths(subviews, limit: bounds.width)
+        let widths = columnWidths(subviews, limit: containerLimit(for: proposal))
         let heights = rowHeights(subviews, widths: widths)
         var y = bounds.minY
         for (r, h) in heights.enumerated() {

@@ -233,7 +233,7 @@ internal fun TableBlockView(
         }
     }
 
-    // 容器宽度来自外层约束（横向滚动内部约束是无限的），列宽按内容自适应，占用面积尽量小
+    // 容器宽度来自外层约束（横向滚动内部约束是无限的），列宽按内容自适应并支持横向滚动
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
         val limitPx = with(LocalDensity.current) { maxWidth.roundToPx() }
         Box(
@@ -242,7 +242,12 @@ internal fun TableBlockView(
                 .border(0.8.dp, colors.border, RoundedCornerShape(10.dp))
                 .then(if (isExport) Modifier else Modifier.horizontalScroll(rememberScrollState()))
         ) {
-            AutoTableLayout(columnCount = columnCount, limitPx = limitPx) {
+            AutoTableLayout(
+                columnCount = columnCount,
+                hasHeader = hasHeader,
+                limitPx = limitPx,
+                isExport = isExport
+            ) {
                 if (hasHeader) {
                     for (c in 0 until columnCount) Cell(headers.getOrNull(c) ?: "", c, true, -1)
                 }
@@ -255,29 +260,78 @@ internal fun TableBlockView(
 }
 
 /**
- * 表格自适应列宽：容器装得下时每列取内容的单行宽度；装不下时在「最窄宽度」与「单行宽度」之间按比例分配；
- * 即使全取最窄宽度仍超出，则保持最窄宽度并交给外层横向滚动。对齐 iOS 的 AutoTableLayout。
+ * 表格自适应列宽：短列保持单行完整显示；长文本列按舒适阅读宽度自动换行，
+ * 总宽超出容器时不强行压缩列宽，交由外层横向滚动。对齐 iOS 的 AutoTableLayout。
  */
 @Composable
-private fun AutoTableLayout(columnCount: Int, limitPx: Int, content: @Composable () -> Unit) {
+private fun AutoTableLayout(
+    columnCount: Int,
+    hasHeader: Boolean,
+    limitPx: Int,
+    isExport: Boolean,
+    content: @Composable () -> Unit
+) {
+    val density = LocalDensity.current
+    val minColPx = with(density) { 44.dp.roundToPx() }
+    val cap180Px = with(density) { 180.dp.roundToPx() }
+    val cap260Px = with(density) { 260.dp.roundToPx() }
+    val cap280Px = with(density) { 280.dp.roundToPx() }
+    val cap320Px = with(density) { 320.dp.roundToPx() }
+    val floor64Px = with(density) { 64.dp.roundToPx() }
+    val floor120Px = with(density) { 120.dp.roundToPx() }
+
     Layout(content = content) { measurables, constraints ->
-        val minW = IntArray(columnCount)
-        val maxW = IntArray(columnCount)
+        val maxW = IntArray(columnCount) { minColPx }
+        val headerW = IntArray(columnCount)
         measurables.forEachIndexed { i, m ->
             val c = i % columnCount
-            minW[c] = maxOf(minW[c], m.minIntrinsicWidth(0))
-            maxW[c] = maxOf(maxW[c], m.maxIntrinsicWidth(Constraints.Infinity))
+            val singleW = m.maxIntrinsicWidth(Constraints.Infinity)
+            maxW[c] = maxOf(maxW[c], singleW)
+            if (hasHeader && i < columnCount) {
+                headerW[c] = singleW
+            }
         }
-        for (c in 0 until columnCount) maxW[c] = maxOf(maxW[c], minW[c])
-        val sumMin = minW.sum()
-        val sumMax = maxW.sum()
         val limit = if (constraints.hasBoundedWidth) minOf(limitPx, constraints.maxWidth) else limitPx
-        val widths = when {
-            limit <= 0 || sumMax <= limit -> maxW
-            sumMin >= limit -> minW
-            else -> {
-                val t = (limit - sumMin).toFloat() / (sumMax - sumMin)
-                IntArray(columnCount) { minW[it] + ((maxW[it] - minW[it]) * t).toInt() }
+        val sumMax = maxW.sum()
+        val widths = if (limit > 0 && sumMax <= limit) {
+            maxW
+        } else {
+            val base = IntArray(columnCount) { c ->
+                val defaultCap = when (columnCount) {
+                    1 -> maxOf(limit, cap260Px)
+                    2 -> if (c == 0) cap180Px else cap320Px
+                    else -> cap260Px
+                }
+                val cap = maxOf(defaultCap, minOf(headerW[c], cap280Px))
+                minOf(maxW[c], cap)
+            }
+            val sumWidths = base.sum()
+            if (limit > 0 && sumWidths < limit) {
+                val extraNeeded = (0 until columnCount).sumOf { maxW[it] - base[it] }
+                if (extraNeeded > 0) {
+                    val grow = minOf(1f, (limit - sumWidths).toFloat() / extraNeeded)
+                    for (c in 0 until columnCount) {
+                        if (maxW[c] > base[c]) {
+                            base[c] += ((maxW[c] - base[c]) * grow).toInt()
+                        }
+                    }
+                }
+                base
+            } else if (isExport && limit > 0 && sumWidths > limit) {
+                val floors = IntArray(columnCount) { c ->
+                    minOf(maxW[c], maxOf(minOf(headerW[c], floor120Px), floor64Px))
+                }
+                val sumFloors = floors.sum()
+                if (sumFloors >= limit) {
+                    floors
+                } else {
+                    val t = (limit - sumFloors).toFloat() / (sumWidths - sumFloors)
+                    IntArray(columnCount) { c ->
+                        floors[c] + ((base[c] - floors[c]) * t).toInt()
+                    }
+                }
+            } else {
+                base
             }
         }
         val rowCount = (measurables.size + columnCount - 1) / columnCount
