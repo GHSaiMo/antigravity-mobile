@@ -596,7 +596,7 @@ async function connectStreamWs(cascadeId) {
           syncActiveModel(data.activeModel);
         }
 
-        const isRunning = data.status === "CASCADE_RUN_STATUS_RUNNING" || (data.runningTasks && data.runningTasks.length > 0);
+        const isRunning = data.status === "CASCADE_RUN_STATUS_RUNNING" || hasActiveRunningTasks(data.runningTasks);
 
         if (typeof data.canProceed === "boolean") {
           currentCanProceed = data.canProceed && !isRunning;
@@ -622,6 +622,7 @@ async function connectStreamWs(cascadeId) {
 
         if (currentTrajectories[cascadeId]) {
           currentTrajectories[cascadeId].status = data.status;
+          currentTrajectories[cascadeId].runningTasks = Array.isArray(data.runningTasks) ? data.runningTasks : [];
           currentTrajectories[cascadeId].stepCount = data.totalSteps;
           currentTrajectories[cascadeId].needsInput = hasAction;
         }
@@ -683,7 +684,7 @@ function startFallbackPoll(cascadeId) {
   pollTimer = setInterval(() => {
     if (activeCascadeId !== cascadeId || document.visibilityState !== "visible") return;
     const summary = currentTrajectories[cascadeId];
-    const running = summary?.status === "CASCADE_RUN_STATUS_RUNNING" || (summary?.runningTasks && summary.runningTasks.length > 0);
+    const running = summary?.status === "CASCADE_RUN_STATUS_RUNNING" || hasActiveRunningTasks(summary?.runningTasks);
     if (!running && Date.now() - lastPollAt < 10000) return;
     lastPollAt = Date.now();
     loadChat(cascadeId, true);
@@ -711,7 +712,7 @@ async function loadChat(cascadeId, isBackgroundPoll = false) {
     const summary = currentTrajectories[cascadeId];
     // The list summary can be stale while the stream is down; the trajectory carries the live status.
     if (summary && data.status) summary.status = data.status;
-    const isRunning = summary?.status === "CASCADE_RUN_STATUS_RUNNING" || (summary?.runningTasks && summary.runningTasks.length > 0);
+    const isRunning = summary?.status === "CASCADE_RUN_STATUS_RUNNING" || hasActiveRunningTasks(summary?.runningTasks);
     const wsUri = traj.workspaceUris?.[0] || "";
 
     const dynamicTitle = formatConversationTitle(traj.annotations, traj.summary, "");
@@ -740,12 +741,17 @@ async function loadChat(cascadeId, isBackgroundPoll = false) {
             }
             RunningTasksManager.syncFromServer(info.runningTasks);
             SubagentManager.sync(info);
-            currentCanProceed = !!info.canProceed && !isRunning;
+            if (currentTrajectories[cascadeId]) {
+              if (info.status) currentTrajectories[cascadeId].status = info.status;
+              currentTrajectories[cascadeId].runningTasks = Array.isArray(info.runningTasks) ? info.runningTasks : [];
+            }
+            const liveRunning = isCascadeRunning(cascadeId);
+            currentCanProceed = !!info.canProceed && !liveRunning;
             currentProceedArtifactUri = info.proceedArtifactUri || null;
             updateProceedButton(currentCanProceed);
-            updatePendingInteraction(info.pendingInteraction || null, isRunning);
+            updatePendingInteraction(info.pendingInteraction || null, liveRunning);
             const hasAction = !!(info.pendingInteraction || currentCanProceed);
-            updateChatControls(isRunning, wsUri, hasAction);
+            updateChatControls(liveRunning, wsUri, hasAction);
             if (currentTrajectories[cascadeId]) {
               currentTrajectories[cascadeId].needsInput = hasAction;
             }
@@ -1472,11 +1478,21 @@ function renderMessages(steps, isRunning = false) {
 
 // --- Running Background Tasks Manager (Desktop Antigravity Parity) ---
 const RunningTasksManager = {
+  cascadeId: null,
   tasks: [],
   isExpanded: true,
 
   init(cascadeId) {
-    if (!cascadeId) return;
+    if (!cascadeId) {
+      this.cascadeId = null;
+      this.tasks = [];
+      this.render();
+      return;
+    }
+    if (this.cascadeId !== cascadeId) {
+      this.cascadeId = cascadeId;
+      this.tasks = [];
+    }
     const expandedKey = `running-tasks-card-expanded-${cascadeId}`;
     const storedExpanded = localStorage.getItem(expandedKey);
     this.isExpanded = (storedExpanded !== null) ? (storedExpanded === "true") : true;
@@ -1582,8 +1598,12 @@ const LocalQueueManager = {
   deletedTombstones: [],
 
   init(cascadeId) {
-    if (!cascadeId) return;
     this.deletedTombstones = [];
+    if (!cascadeId) {
+      this.queue = [];
+      this.render();
+      return;
+    }
     const expandedKey = `queued-messages-card-expanded-${cascadeId}`;
     const storedExpanded = localStorage.getItem(expandedKey);
     this.isExpanded = (storedExpanded !== null) ? (storedExpanded === "true") : true;
@@ -1843,7 +1863,7 @@ const LocalQueueManager = {
       inputEl.style.height = "auto";
       inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + "px";
       inputEl.focus();
-      const isRunning = currentTrajectories[activeCascadeId]?.status === "CASCADE_RUN_STATUS_RUNNING";
+      const isRunning = isCascadeRunning(activeCascadeId);
       updateChatControls(isRunning, null, false);
     }
   },

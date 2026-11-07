@@ -72,6 +72,19 @@ type RunningTaskItem struct {
 	ToolAction  string `json:"toolAction,omitempty"`
 	LogURI      string `json:"logUri,omitempty"`
 	StartedAt   string `json:"startedAt,omitempty"`
+	IsDaemon    bool   `json:"isDaemon,omitempty"`
+}
+
+// HasActiveNonDaemonTasks reports whether tasks contains at least one running task that is NOT
+// a standing daemon (IsDaemon=true). Daemon tasks stay RUNNING indefinitely across turns even
+// when the cascade itself is IDLE, so they must not force the session into an active turn state.
+func HasActiveNonDaemonTasks(tasks []RunningTaskItem) bool {
+	for _, t := range tasks {
+		if !t.IsDaemon {
+			return true
+		}
+	}
+	return false
 }
 
 // SubagentItem is one subagent a conversation dispatched through invoke_subagent.
@@ -316,12 +329,14 @@ type TrajectoryStep struct {
 		ID          string `json:"id"`
 		LogURI      string `json:"logUri"`
 		Description string `json:"description"`
+		IsDaemon    bool   `json:"isDaemon,omitempty"`
 	} `json:"taskDetails,omitempty"`
 	RunCommand *struct {
 		CommandLine         string `json:"commandLine"`
 		ProposedCommandLine string `json:"proposedCommandLine"`
 		Cwd                 string `json:"cwd"`
 		WaitMsBeforeAsync   string `json:"waitMsBeforeAsync"`
+		IsDaemon            bool   `json:"isDaemon,omitempty"`
 	} `json:"runCommand,omitempty"`
 	InvokeSubagent *struct {
 		Subagents []struct {
@@ -427,6 +442,45 @@ func extractToolNameFromStep(s TrajectoryStep) string {
 		return s.Metadata.ToolAction
 	}
 	return strings.ToLower(strings.TrimPrefix(s.Type, "CORTEX_STEP_TYPE_"))
+}
+
+// extractStepToolArgsJSON returns the raw JSON tool arguments attached to a step, if any.
+func extractStepToolArgsJSON(s TrajectoryStep) string {
+	if s.Metadata.ToolCall != nil && s.Metadata.ToolCall.ArgumentsJson != "" {
+		return s.Metadata.ToolCall.ArgumentsJson
+	}
+	if s.ToolCall != nil && s.ToolCall.ArgumentsJson != "" {
+		return s.ToolCall.ArgumentsJson
+	}
+	return ""
+}
+
+// IsDaemonStep reports whether a trajectory step was launched with IsDaemon=true (e.g. a dev
+// server via run_command or a standing cron job via schedule).
+func IsDaemonStep(s TrajectoryStep) bool {
+	if s.TaskDetails != nil && s.TaskDetails.IsDaemon {
+		return true
+	}
+	if s.RunCommand != nil && s.RunCommand.IsDaemon {
+		return true
+	}
+	rawArgs := extractStepToolArgsJSON(s)
+	if rawArgs == "" || (!strings.Contains(rawArgs, "IsDaemon") && !strings.Contains(rawArgs, "isDaemon")) {
+		return false
+	}
+	var parsed struct {
+		IsDaemonUpper *bool `json:"IsDaemon"`
+		IsDaemonLower *bool `json:"isDaemon"`
+	}
+	if err := json.Unmarshal([]byte(rawArgs), &parsed); err == nil {
+		if parsed.IsDaemonUpper != nil && *parsed.IsDaemonUpper {
+			return true
+		}
+		if parsed.IsDaemonLower != nil && *parsed.IsDaemonLower {
+			return true
+		}
+	}
+	return false
 }
 
 type upstreamPendingAgentMessage struct {

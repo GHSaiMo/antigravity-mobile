@@ -1118,15 +1118,28 @@ func buildRunningTasks(steps []TrajectoryStep) []RunningTaskItem {
 				cmdLine = s.Metadata.ToolAction
 			}
 
+			toolSummary := s.Metadata.ToolSummary
+			if toolSummary == "" {
+				if rawArgs := extractStepToolArgsJSON(s); rawArgs != "" && strings.Contains(rawArgs, "toolSummary") {
+					var argMeta struct {
+						ToolSummary string `json:"toolSummary"`
+					}
+					if err := json.Unmarshal([]byte(rawArgs), &argMeta); err == nil && argMeta.ToolSummary != "" {
+						toolSummary = argMeta.ToolSummary
+					}
+				}
+			}
+
 			runningTasks = append(runningTasks, RunningTaskItem{
 				ID:          taskID,
 				StepIndex:   stepIdx,
 				ToolName:    toolName,
 				CommandLine: cmdLine,
-				ToolSummary: s.Metadata.ToolSummary,
+				ToolSummary: toolSummary,
 				ToolAction:  s.Metadata.ToolAction,
 				LogURI:      logURI,
 				StartedAt:   s.Metadata.CreatedAt,
+				IsDaemon:    IsDaemonStep(s),
 			})
 		}
 	}

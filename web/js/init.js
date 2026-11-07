@@ -45,7 +45,9 @@ function initApp() {
   });
 
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("/sw.js").catch(() => {});
+    navigator.serviceWorker.register("/sw.js").then((reg) => {
+      reg.update().catch(() => {});
+    }).catch(() => {});
   }
 
   window.addEventListener("hashchange", renderRoute);
@@ -174,8 +176,7 @@ function initApp() {
   // Action Button (Send / Stop / Queue Toggle)
   const sendBtn = document.getElementById("btn-send");
   sendBtn?.addEventListener("click", () => {
-    const summary = currentTrajectories[activeCascadeId];
-    const isRunning = summary?.status === "CASCADE_RUN_STATUS_RUNNING";
+    const isRunning = isCascadeRunning(activeCascadeId);
     const hasContent = (document.getElementById("chat-input")?.value.trim().length > 0) || (pendingImages && pendingImages.length > 0) || !!getSelectedSlashCommand();
     if (isRunning && !hasContent) {
       cancelCurrentTask();
@@ -223,6 +224,11 @@ function initApp() {
   const searchInput = document.getElementById("conv-search");
   const searchClearBtn = document.getElementById("btn-search-clear");
   if (searchInput) {
+    searchInput.closest(".search-capsule")?.addEventListener("click", (e) => {
+      if (e.target !== searchInput && !e.target.closest("button")) {
+        searchInput.focus();
+      }
+    });
     searchInput.addEventListener("input", () => {
       if (searchClearBtn) {
         if (searchInput.value.trim().length > 0) {
@@ -263,6 +269,14 @@ function initApp() {
   }
 
   if (chatInput) {
+    // Forward taps anywhere inside the 48px capsule padding synchronously to textarea
+    // so iOS WebKit treats the user gesture as direct input focus and summons the keyboard.
+    chatInput.closest(".textfield-wrapper")?.addEventListener("click", (e) => {
+      if (e.target !== chatInput) {
+        chatInput.focus();
+      }
+    });
+
     chatInput.addEventListener("input", () => {
       chatInput.style.height = "auto";
       chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + "px";
@@ -274,23 +288,20 @@ function initApp() {
           DraftManager.set(targetId, textToSave);
         }, 300);
       }
-      const isRunning = currentTrajectories[activeCascadeId]?.status === "CASCADE_RUN_STATUS_RUNNING";
+      const isRunning = isCascadeRunning(activeCascadeId);
       updateChatControls(isRunning, null, false);
     });
 
     chatInput.addEventListener("focus", () => {
-      // Lock window displacement when virtual keyboard rises (parity with iOS)
-      window.scrollTo(0, 0);
-      document.body.scrollTop = 0;
-      document.documentElement.scrollTop = 0;
+      // Keep messages pinned to bottom if already near bottom; avoid unconditional
+      // window.scrollTo(0, 0) here so iOS Standalone WebClips that lift the scroll view
+      // instead of shrinking visualViewport.height never yank the input back behind the keyboard.
       setTimeout(() => {
-        window.scrollTo(0, 0);
         if (messagesStream && userIsNearBottom) {
           messagesStream.scrollTop = messagesStream.scrollHeight;
         }
       }, 100);
       setTimeout(() => {
-        window.scrollTo(0, 0);
         if (messagesStream && userIsNearBottom) {
           messagesStream.scrollTop = messagesStream.scrollHeight;
         }
