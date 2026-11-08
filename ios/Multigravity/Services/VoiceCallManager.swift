@@ -63,7 +63,9 @@ public final class VoiceCallManager: ObservableObject {
 
     public var onCascadeBound: ((String) -> Void)?
 
-    private var connection: NWConnection?
+    private var webSocketTask: URLSessionWebSocketTask?
+    private var urlSession: URLSession?
+    private var socketDelegate: VoiceWebSocketDelegate?
     private var isSocketReady: Bool = false
     private var isIntentionallyClosed: Bool = false
 
@@ -146,11 +148,13 @@ public final class VoiceCallManager: ObservableObject {
         durationTimer?.invalidate()
         durationTimer = nil
 
-        if let conn = connection {
-            conn.stateUpdateHandler = nil
-            conn.cancel()
-            connection = nil
+        if let task = webSocketTask {
+            task.cancel(with: .normalClosure, reason: nil)
+            webSocketTask = nil
         }
+        urlSession?.invalidateAndCancel()
+        urlSession = nil
+        socketDelegate = nil
 
         teardownAudioEngine()
 
@@ -223,55 +227,37 @@ public final class VoiceCallManager: ObservableObject {
             return
         }
 
+        var request = URLRequest(url: wsURL)
+        request.timeoutInterval = 10
+        request.setValue("jetski-voice-proto", forHTTPHeaderField: "Sec-WebSocket-Protocol")
+
         let hostStr = (wsURL.host ?? "").lowercased()
         let isCloudflare = CloudflareAnycastAccelerator.isCloudflareTunnelHost(hostStr)
-
-        let endpoint = NWEndpoint.url(wsURL)
-        let wsOptions = NWProtocolWebSocket.Options()
-        wsOptions.autoReplyPing = true
-        wsOptions.setSubprotocols(["jetski-voice-proto"])
-
-        var extraHeaders: [(String, String)] = []
         if isCloudflare {
-            extraHeaders.append(("Host", hostStr))
-        }
-        if let token = KeychainHelper.shared.read(key: .deviceToken) ?? AppSettings.shared.deviceToken, !token.isEmpty {
-            extraHeaders.append(("Authorization", "Bearer \(token)"))
-            extraHeaders.append(("x-device-token", token))
-        }
-        if !extraHeaders.isEmpty {
-            wsOptions.setAdditionalHeaders(extraHeaders)
+            request.setValue(hostStr, forHTTPHeaderField: "Host")
         }
 
-        let parameters: NWParameters
-        if wsURL.scheme?.lowercased() == "wss" {
-            let tlsOptions = NWProtocolTLS.Options()
-            let isLoopback = hostStr == "127.0.0.1" || hostStr == "::1" || hostStr == "localhost"
-            if isLoopback {
-                sec_protocol_options_set_verify_block(tlsOptions.securityProtocolOptions, { _, _, completion in
-                    completion(true)
-                }, .global())
-            }
-            if isCloudflare {
-                sec_protocol_options_set_tls_server_name(tlsOptions.securityProtocolOptions, hostStr)
-            }
-            parameters = NWParameters(tls: tlsOptions)
-        } else {
-            parameters = NWParameters.tcp
-        }
-        parameters.defaultProtocolStack.applicationProtocols.insert(wsOptions, at: 0)
-
-        let conn = NWConnection(to: endpoint, using: parameters)
-        self.connection = conn
-
-        conn.stateUpdateHandler = { [weak self] state in
-            guard let self else { return }
-            Task { @MainActor in
-                self.handleConnectionState(state)
-            }
+        let token = KeychainHelper.shared.read(key: .deviceToken) ?? AppSettings.shared.deviceToken
+        if let token, !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            request.setValue(token, forHTTPHeaderField: "x-device-token")
         }
 
-        conn.start(queue: .main)
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 15
+        config.timeoutIntervalForResource = 3600
+        config.waitsForConnectivity = false
+
+        let delegate = VoiceWebSocketDelegate(manager: self)
+        self.socketDelegate = delegate
+        let session = URLSession(configuration: config, delegate: delegate, delegateQueue: OperationQueue.main)
+        self.urlSession = session
+
+        let task = session.webSocketTask(with: request)
+        self.webSocketTask = task
+        task.resume()
+
+        receiveNextMessage()
 
         connectionWatchdogTask?.cancel()
         connectionWatchdogTask = Task { [weak self] in
@@ -284,75 +270,75 @@ public final class VoiceCallManager: ObservableObject {
         }
     }
 
-    private func handleConnectionState(_ state: NWConnection.State) {
-        switch state {
-        case .ready:
-            connectionWatchdogTask?.cancel()
-            connectionWatchdogTask = nil
-            isSocketReady = true
-            if callState == .connecting {
-                callState = .listening
-            }
-            if playbackSpeed != 1.0 {
-                sendSettingsUpdate(planModel: nil, playbackSpeed: playbackSpeed)
-            }
-            receiveNextMessage()
+    func handleSocketDidOpen() {
+        guard !isIntentionallyClosed else { return }
+        connectionWatchdogTask?.cancel()
+        connectionWatchdogTask = nil
+        isSocketReady = true
+        if callState == .connecting {
+            callState = .listening
+        }
+        if playbackSpeed != 1.0 {
+            sendSettingsUpdate(planModel: nil, playbackSpeed: playbackSpeed)
+        }
+    }
 
-        case .failed(let error):
+    func handleSocketDidClose() {
+        if !isIntentionallyClosed {
+            endCall()
+        }
+    }
+
+    func handleSocketDidFail(error: Error) {
+        if !isIntentionallyClosed {
             print("[VoiceCall] WS failed: \(error)")
-            if !isIntentionallyClosed {
-                callState = .failed("语音连接中断")
-                endCall(preserveFailure: true)
-            }
-
-        case .cancelled:
-            if !isIntentionallyClosed {
-                endCall()
-            }
-
-        default:
-            break
+            callState = .failed("语音连接中断")
+            endCall(preserveFailure: true)
         }
     }
 
     private func receiveNextMessage() {
-        guard let conn = connection, !isIntentionallyClosed else { return }
+        guard let task = webSocketTask, !isIntentionallyClosed else { return }
 
-        conn.receiveMessage { [weak self] data, context, _, error in
+        task.receive { [weak self] result in
             guard let self else { return }
             Task { @MainActor in
-                if let error {
+                guard !self.isIntentionallyClosed, self.webSocketTask === task else { return }
+
+                switch result {
+                case .success(let message):
+                    switch message {
+                    case .data(let data):
+                        if !data.isEmpty {
+                            self.handleServerProtobufFrame(data)
+                        }
+                    case .string(let text):
+                        if let data = text.data(using: .utf8), !data.isEmpty {
+                            self.handleServerProtobufFrame(data)
+                        }
+                    @unknown default:
+                        break
+                    }
+                    self.receiveNextMessage()
+
+                case .failure(let error):
                     if !self.isIntentionallyClosed {
-                        print("[VoiceCall] Receive error: \(error)")
+                        print("[VoiceCall] WS receive error: \(error)")
                         self.callState = .failed("语音通话已断开")
                         self.endCall(preserveFailure: true)
                     }
-                    return
                 }
-
-                if let wsMeta = context?.protocolMetadata(definition: NWProtocolWebSocket.definition) as? NWProtocolWebSocket.Metadata {
-                    if wsMeta.opcode == .close {
-                        if !self.isIntentionallyClosed {
-                            self.endCall()
-                        }
-                        return
-                    }
-                }
-
-                if let data, !data.isEmpty {
-                    self.handleServerProtobufFrame(data)
-                }
-
-                self.receiveNextMessage()
             }
         }
     }
 
     private func sendBinaryFrame(_ data: Data) {
-        guard let conn = connection, isSocketReady, !isIntentionallyClosed else { return }
-        let metadata = NWProtocolWebSocket.Metadata(opcode: .binary)
-        let context = NWConnection.ContentContext(identifier: "voiceBinaryFrame", metadata: [metadata])
-        conn.send(content: data, contentContext: context, isComplete: true, completion: .contentProcessed { _ in })
+        guard let task = webSocketTask, isSocketReady, !isIntentionallyClosed else { return }
+        task.send(.data(data)) { error in
+            if let error {
+                print("[VoiceCall] Send binary frame error: \(error)")
+            }
+        }
     }
 
     // MARK: - Audio Engine (16kHz Mic Input -> 640-frame PCM16LE, 24kHz PCM16LE -> Speaker)
@@ -780,5 +766,47 @@ public final class VoiceCallManager: ObservableObject {
             if shift >= 64 { return nil }
         }
         return nil
+    }
+}
+
+// MARK: - URLSessionWebSocketDelegate
+
+final class VoiceWebSocketDelegate: NSObject, URLSessionWebSocketDelegate, Sendable {
+    weak var manager: VoiceCallManager?
+
+    init(manager: VoiceCallManager) {
+        self.manager = manager
+    }
+
+    func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol protocol: String?) {
+        Task { @MainActor in
+            self.manager?.handleSocketDidOpen()
+        }
+    }
+
+    func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
+        Task { @MainActor in
+            self.manager?.handleSocketDidClose()
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if let error {
+            Task { @MainActor in
+                self.manager?.handleSocketDidFail(error: error)
+            }
+        }
+    }
+
+    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+           let trust = challenge.protectionSpace.serverTrust {
+            let host = challenge.protectionSpace.host.lowercased()
+            if host == "127.0.0.1" || host == "localhost" || host == "::1" {
+                completionHandler(.useCredential, URLCredential(trust: trust))
+                return
+            }
+        }
+        completionHandler(.performDefaultHandling, nil)
     }
 }
