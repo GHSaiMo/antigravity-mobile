@@ -1,19 +1,19 @@
-# 🚀 Multigravity v1.1.2
+# 🚀 Multigravity v1.1.3
 
 ### ✨ 新功能与核心体验
-- 🎨 **斜杠指令与扩展技能图标 100% 对齐桌面端 (Desktop-Matched Slash Command & Skill Icons)**：
-  - 全面提取并同步 Antigravity 官方桌面端原生 SVG 矢量图标资产（覆盖 `/grill-me` 互动问答、`/plan` 实施规划、`/browser` 网页浏览、`/goal` 长期目标、`/teamwork` 团队协作、`/compact` 压缩上下文、`/learn` 经验沉淀、`/schedule` 定时任务、`/boost` 深度推理等核心指令与扩展技能）。
-  - 双端（iOS / Android）与 Web 端全量支持内联斜杠指令胶囊药丸徽标（Inline Command Badge / Pill），包含微型技能图标与指令名称，告别朴素的纯文本或通用符号，视觉质感与官方桌面端完美对齐。
-  - 深度适配指令选择器（SlashCommandPicker）、用户提问消息气泡（MessageBubble）、消息分享长图卡片（MessageShareCardSheet）以及队列同步分词器，各终端交互动线统一。
-- ⚡ **Cockpit 驾驶舱新增 Gemini 4 Argon 额度进度条与套餐梯队徽标 (Dynamic Argon Quota Bar & Tier Badges)**：
-  - 驾驶舱全量接入 Gemini 4 Argon 额度实时探测与动态百分比进度条，采用专属琥珀金质感主题色，直观展示剩余额度百分比、用量分布与 5 小时重置倒计时。
-  - 新增账号等级梯队（奢华鎏金 `ULTRA` / `PRO` / `FREE`）高辨识度徽标，精简并对齐 iOS 与 Android 双端配额卡片密度，多账号配额状态与健康度一目了然。
+- 🎙️ **Antigravity 2.29+ 全双工实时语音通话 (`/voice/ws` Full-Duplex Live Voice Call)**：
+  - Go 网关、iOS、Android 与 Web PWA 四端全量接入 Antigravity 2.29+ 原生 `/voice/ws`（`jetski-voice-proto`）全双工二进制 Protobuf 实时语音协议，支持 `plan_model` 字符串标识到枚举值自动归一化与网关鉴权透明剥离。
+  - 支持 16kHz PCM 麦克风实时上行与 24kHz PCM 流式语音下行低延迟播放、实时语音打断（`clearAudio` 渐变淡出）、双端实时字幕流（`userSpeech` / `voiceTranscript`）、静音切换与 1.0x / 1.25x / 1.5x / 2.0x 倍速调节。
+  - 支持在现有会话内一键发起实时语音对话，或从草稿页自动创建新会话并无缝切入沉浸式语音通话卡片（Voice Call Card）。
+- 📐 **三端 LaTeX 数学公式与自适应 Markdown 表格全面升级 (LaTeX Math & Adaptive Markdown Tables)**：
+  - 全面修复并对齐 iOS、Android、Web 三端复杂 LaTeX 数学公式渲染（原生支持 `\underbrace`、`\overbrace`、`\langle` / `\rangle`、`\mathcal`、`\mathbb`、矩阵环境与多层上下标等）及常用 Markdown 语法。
+  - iOS 与 Android 原生表格升级为按单元格内容自适应列宽并支持横向平滑滚动，彻底解决多列表格在手机端挤压折行问题。
 
 ### 🛡️ 架构稳固与细节打磨
-- 🗂️ **工作区列表自动过滤 Sidecar 定时任务影子项目 (Sidecar Shadow Project Filtering)**：
-  - 自动识别并排除 Antigravity 2.0 定时任务（`sidecars`）派生出的同名目录影子 Project ID，防止定时任务 slug 覆盖原有工作区真实名称，并将会话列表中的影子 `projectId` 自动归一至主工作区。
-- 🔄 **驾驶舱额度查询超时降级与系统代理自愈 (Cockpit Quota Fallback & Sysproxy Self-Healing)**：
-  - 当 Cockpit Tools 外部查询接口超时或受阻时，无缝优雅回退至直连原生额度查询接口，确保多账号额度数据永不断连。
-  - 增强本地服务回环与系统代理白名单自愈机制，防止代理工具意外拦截局域网与本地开发握手流量。
-- 📱 **iOS 局域网无线连接与 CoreDevice 通道优化**：
-  - 强化局域网设备通信与系统代理白名单自适应策略（补齐 `*.coredevice.local`），保障 Xcode 及终端工具与 iPhone 物理真机无线通道的持续稳定。
+- 🎯 **会话运行状态精准判定与 `Action required` 误报根治 (Session Status Precision)**：
+  - 修复批准 `implementation_plan.md` 后会话在 `Working` 执行期间或无 `walkthrough.md` 完结时被误判为 `Action required` 的问题；新增 `trajCache` 快照新鲜度守卫，并将会话列表磁盘 `requestFeedback` 巡检收敛为 `detectProceed` 二次核验。
+- ⚙️ **常驻守护进程 (`IsDaemon`) 与回合阻塞任务状态解耦 (Daemon Task Status Parity)**：
+  - 区分常驻守护任务（`IsDaemon=true`，如 dev server / 定时监听器）与回合阻塞任务：常驻任务跨回合保持运行不再抑制完成推送，也不会将会话列表或 iOS 灵动岛误标为执行中；取消当前回合时仅终止阻塞任务并保留常驻守护进程。
+- 🌐 **iOS PWA 软键盘避让与 Fake-IP 隧道双栈探测加固 (PWA Keyboard & Fake-IP ULA Exemption)**：
+  - 修复 iOS Safari / PWA 模式下软键盘弹出遮挡底部输入框与操作栏的问题。
+  - Cloudflare 隧道双栈探测豁免全段 IPv6 ULA（`fc00::/7`，含 sing-box `fc00::/18` 与 Mihomo `fdfe:dcba:9876::/64`）及 IPv4 Fake-IP（`198.18.0.0/15`），杜绝 TUN 透明代理环境下的双栈探测假阳性。

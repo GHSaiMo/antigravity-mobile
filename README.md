@@ -20,14 +20,14 @@
 </p>
 
 <p align="center">
-  🌐 <b>官网</b>：<a href="https://mgy.jiuge.space">mgy.jiuge.space</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新版 v1.1.2</a>
+  🌐 <b>官网</b>：<a href="https://mgy.jiuge.space">mgy.jiuge.space</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新版 v1.1.3</a>
 </p>
 
 https://github.com/user-attachments/assets/37360cde-3875-45bf-947e-7774e800094c
 
 ---
 
-## ⚡ 极速开始 (v1.1.2 正式版)
+## ⚡ 极速开始 (v1.1.3 正式版)
 
 ### 1. 🍎 macOS / 🐧 Linux / 🪟 Windows 服务端一键安装 (推荐)
 
@@ -69,8 +69,8 @@ irm https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/in
 > - 🔒 **平滑部署**：macOS / Linux 免 sudo 部署至 `~/.local/bin/mgy` 并自动配置全局快捷方式；Windows 自动注册至用户 PATH 及 WindowsApps 目录，开箱即用免重启终端。
 
 ### 2. 📱 Android 手机客户端安装
-前往 [GitHub Releases v1.1.2](https://github.com/GHSaiMo/antigravity-mobile/releases/latest)，下载：
-- **`Multigravity-v1.1.2.apk`**
+前往 [GitHub Releases v1.1.3](https://github.com/GHSaiMo/antigravity-mobile/releases/latest)，下载：
+- **`Multigravity-v1.1.3.apk`**
 - *安装包已配置标准签名，任何安卓手机下载后均可直接点击安装，零编译门槛。*
 - *安全提示：为保证覆盖安装，Release 签名密钥库 `android/app/release.jks` 与默认口令随仓库公开。因此 APK 签名只代表「同一发布线」，不能证明来源可信，请仅从本仓库 Releases 页面下载。如需自行分发，请用 `MGY_KEYSTORE_PASSWORD` 等环境变量与自己的密钥库重新签名。*
 
@@ -387,6 +387,18 @@ mgy help           # 查看完整命令与启动参数帮助
   - 自动解析 `~/.gemini/config/config.json` 中的 `sidecars` 注册表，精准过滤定时任务生成的同路径影子工作区，防止原有工作区名称被定时任务 slug 覆盖，并自动归一会话 `projectId`；
 - **驾驶舱额度查询超时降级与系统代理自愈 (Cockpit Quota Fallback & Sysproxy Self-Healing)**：
   - 外部额度接口超时自动平滑降级至直连原生查询，防止额度断连；自适应维护本地开发白名单与 iOS CoreDevice 局域网通道（补齐 `*.coredevice.local`），杜绝代理误拦截。
+
+---
+
+### 18. 🎙️ 全双工实时语音通话、LaTeX 公式与自适应表格及守护进程状态解耦 (v1.1.3)
+- **Antigravity 2.29+ 全双工实时语音通话 (`/voice/ws` Full-Duplex Live Voice Call)**：
+  - Go 网关、iOS、Android 与 Web PWA 四端全量打通 Antigravity 2.29+ 原生 `/voice/ws`（`jetski-voice-proto`）二进制 Protobuf 实时语音协议，支持 16kHz PCM 麦克风上行、24kHz PCM 流式语音下行、实时打断（`clearAudio`）、双端实时字幕流、静音切换、多档倍速（1.0x~2.0x）及草稿页一键开麦建会话；
+- **三端 LaTeX 数学公式与自适应 Markdown 表格全面升级 (LaTeX Math & Adaptive Markdown Tables)**：
+  - 全面修复并对齐 iOS、Android、Web 三端复杂 LaTeX 数学公式（`\underbrace`、`\overbrace`、`\langle` / `\rangle`、`\mathcal`、`\mathbb` 等）与常用 Markdown 语法渲染；iOS 与 Android 表格支持按内容自适应列宽与横向平滑滚动；
+- **会话状态精准判定与常驻守护进程 (`IsDaemon`) 解耦 (Session Status Precision & Daemon Task Parity)**：
+  - 修复批准 `implementation_plan.md` 后会话在 `Working` 期间或无 `walkthrough.md` 完结时被误判为 `Action required` 的问题；区分常驻守护进程（`IsDaemon=true`）与回合阻塞任务，常驻服务不再抑制完成推送或误标会话运行状态；
+- **iOS PWA 软键盘避让与 Fake-IP 隧道双栈探测加固**：
+  - 修复 iOS PWA 软键盘弹出遮挡底部输入框问题；Cloudflare 隧道双栈探测豁免全段 IPv6 ULA（`fc00::/7`）与 IPv4 Fake-IP（`198.18.0.0/15`），杜绝 TUN 透明代理环境下的探测假阳性。
 
 ---
 

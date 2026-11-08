@@ -6,6 +6,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -367,6 +369,243 @@ func TestGetAllCascadeTrajectories_CanProceedNeedsInput(t *testing.T) {
 	}
 	if doneItem.NeedsInput != nil && *doneItem.NeedsInput {
 		t.Errorf("expected traj-done to NOT have needsInput=true, got %+v", doneItem.NeedsInput)
+	}
+}
+
+func TestGetAllCascadeTrajectories_ApprovedPlanWorkingNotNeedsInput(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// Simulate on-disk implementation_plan.md.metadata.json with requestFeedback=true and no walkthrough.md
+	// for both a RUNNING session (user approved the plan and agent is working) and an IDLE session where
+	// the user already approved the plan in an earlier turn, plus an older IDLE session genuinely awaiting Proceed.
+	for _, cid := range []string{"traj-working-after-plan", "traj-approved-idle", "traj-older-proceed"} {
+		brainDir := filepath.Join(home, ".gemini", "antigravity", "brain", cid)
+		if err := os.MkdirAll(brainDir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", brainDir, err)
+		}
+		metaPath := filepath.Join(brainDir, "implementation_plan.md.metadata.json")
+		if err := os.WriteFile(metaPath, []byte(`{"requestFeedback":true,"userFacing":true}`), 0o644); err != nil {
+			t.Fatalf("write %s: %v", metaPath, err)
+		}
+		defer ClearTrajectoryCache(cid)
+	}
+
+	planURI := func(cid string) string {
+		return "file://" + filepath.ToSlash(filepath.Join(home, ".gemini", "antigravity", "brain", cid, "implementation_plan.md"))
+	}
+
+	// Pre-populate trajCache for traj-working-after-plan with a STALE IDLE snapshot where CanProceed was true,
+	// verifying Step 1 invalidates stale cache entries when the summary transitions to RUNNING.
+	var staleIdleResp upstreamTrajectoryResp
+	_ = json.Unmarshal([]byte(`{
+		"status": "CASCADE_RUN_STATUS_IDLE",
+		"trajectory": {
+			"cascadeId": "traj-working-after-plan",
+			"steps": [
+				{"type": "CORTEX_STEP_TYPE_USER_INPUT", "status": "CORTEX_STEP_STATUS_DONE"},
+				{
+					"type": "CORTEX_STEP_TYPE_CODE_ACTION",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"codeAction": {
+						"isArtifactFile": true,
+						"artifactMetadata": {"requestFeedback": true, "userFacing": true},
+						"actionResult": {"edit": {"absoluteUri": "`+planURI("traj-working-after-plan")+`", "createFile": true}}
+					}
+				}
+			]
+		}
+	}`), &staleIdleResp)
+	defaultTrajCache.trajCacheMu.Lock()
+	defaultTrajCache.trajCache["traj-working-after-plan"] = &trajectoryCacheEntry{
+		fetchedAt: time.Now(),
+		data:      &staleIdleResp,
+	}
+	defaultTrajCache.trajCacheMu.Unlock()
+
+	mockUpstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/GetAllCascadeTrajectories") {
+			w.Write([]byte(`{
+				"trajectorySummaries": {
+					"traj-working-after-plan": {
+						"summary": "Antigravity 2.29.1 Update Details",
+						"status": "CASCADE_RUN_STATUS_RUNNING",
+						"stepCount": 4,
+						"lastModifiedTime": "2026-11-08T05:32:00Z"
+					},
+					"traj-approved-idle": {
+						"summary": "Approved plan already executed",
+						"status": "CASCADE_RUN_STATUS_IDLE",
+						"stepCount": 4,
+						"lastModifiedTime": "2026-11-08T05:20:00Z"
+					},
+					"traj-recent-1": {
+						"summary": "Recent 1",
+						"status": "CASCADE_RUN_STATUS_IDLE",
+						"stepCount": 2,
+						"lastModifiedTime": "2026-11-08T05:31:00Z"
+					},
+					"traj-recent-2": {
+						"summary": "Recent 2",
+						"status": "CASCADE_RUN_STATUS_IDLE",
+						"stepCount": 2,
+						"lastModifiedTime": "2026-11-08T05:30:00Z"
+					},
+					"traj-older-proceed": {
+						"summary": "Older session awaiting Proceed",
+						"status": "CASCADE_RUN_STATUS_IDLE",
+						"stepCount": 2,
+						"lastModifiedTime": "2026-11-08T01:00:00Z"
+					}
+				}
+			}`))
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/GetCascadeTrajectory") {
+			var body struct {
+				CascadeID string `json:"cascadeId"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			switch body.CascadeID {
+			case "traj-working-after-plan":
+				u := planURI("traj-working-after-plan")
+				w.Write([]byte(`{
+					"status": "CASCADE_RUN_STATUS_RUNNING",
+					"trajectory": {
+						"trajectoryId": "traj-working-after-plan",
+						"cascadeId": "traj-working-after-plan",
+						"steps": [
+							{"type": "CORTEX_STEP_TYPE_USER_INPUT", "status": "CORTEX_STEP_STATUS_DONE"},
+							{
+								"type": "CORTEX_STEP_TYPE_CODE_ACTION",
+								"status": "CORTEX_STEP_STATUS_DONE",
+								"codeAction": {
+									"isArtifactFile": true,
+									"artifactMetadata": {"requestFeedback": true, "userFacing": true},
+									"actionResult": {"edit": {"absoluteUri": "` + u + `", "createFile": true}}
+								}
+							},
+							{
+								"type": "CORTEX_STEP_TYPE_USER_INPUT",
+								"status": "CORTEX_STEP_STATUS_DONE",
+								"userInput": {"items": [{"text": "Comments on artifact URI: ` + u + `\nThe user has approved this document."}]}
+							},
+							{"type": "CORTEX_STEP_TYPE_PLANNER_RESPONSE", "status": "CORTEX_STEP_STATUS_GENERATING"}
+						]
+					}
+				}`))
+			case "traj-approved-idle":
+				u := planURI("traj-approved-idle")
+				w.Write([]byte(`{
+					"status": "CASCADE_RUN_STATUS_IDLE",
+					"trajectory": {
+						"trajectoryId": "traj-approved-idle",
+						"cascadeId": "traj-approved-idle",
+						"steps": [
+							{"type": "CORTEX_STEP_TYPE_USER_INPUT", "status": "CORTEX_STEP_STATUS_DONE"},
+							{
+								"type": "CORTEX_STEP_TYPE_CODE_ACTION",
+								"status": "CORTEX_STEP_STATUS_DONE",
+								"codeAction": {
+									"isArtifactFile": true,
+									"artifactMetadata": {"requestFeedback": true, "userFacing": true},
+									"actionResult": {"edit": {"absoluteUri": "` + u + `", "createFile": true}}
+								}
+							},
+							{
+								"type": "CORTEX_STEP_TYPE_USER_INPUT",
+								"status": "CORTEX_STEP_STATUS_DONE",
+								"userInput": {"items": [{"text": "Comments on artifact URI: ` + u + `\nThe user has approved this document."}]}
+							},
+							{"type": "CORTEX_STEP_TYPE_PLANNER_RESPONSE", "status": "CORTEX_STEP_STATUS_DONE", "plannerResponse": {"response": "Done"}}
+						]
+					}
+				}`))
+			case "traj-older-proceed":
+				u := planURI("traj-older-proceed")
+				w.Write([]byte(`{
+					"status": "CASCADE_RUN_STATUS_IDLE",
+					"trajectory": {
+						"trajectoryId": "traj-older-proceed",
+						"cascadeId": "traj-older-proceed",
+						"steps": [
+							{"type": "CORTEX_STEP_TYPE_USER_INPUT", "status": "CORTEX_STEP_STATUS_DONE"},
+							{
+								"type": "CORTEX_STEP_TYPE_CODE_ACTION",
+								"status": "CORTEX_STEP_STATUS_DONE",
+								"codeAction": {
+									"isArtifactFile": true,
+									"actionResult": {"edit": {"absoluteUri": "` + u + `", "createFile": true}}
+								}
+							}
+						]
+					}
+				}`))
+			default:
+				w.Write([]byte(`{
+					"status": "CASCADE_RUN_STATUS_IDLE",
+					"trajectory": {
+						"trajectoryId": "` + body.CascadeID + `",
+						"cascadeId": "` + body.CascadeID + `",
+						"steps": [
+							{"type": "CORTEX_STEP_TYPE_USER_INPUT", "status": "CORTEX_STEP_STATUS_DONE"},
+							{"type": "CORTEX_STEP_TYPE_PLANNER_RESPONSE", "status": "CORTEX_STEP_STATUS_DONE"}
+						]
+					}
+				}`))
+			}
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer mockUpstream.Close()
+
+	port := mockUpstream.Listener.Addr().(*net.TCPAddr).Port
+	p := NewProxy(inspector.NewInspector(10 * time.Second))
+	p.updateUpstream(inspector.InstanceInfo{
+		PID:       1234,
+		Port:      port,
+		CSRFToken: "test-token",
+		IsHealthy: true,
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories", strings.NewReader("{}"))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	p.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		TrajectorySummaries map[string]struct {
+			Summary    string `json:"summary"`
+			Status     string `json:"status"`
+			NeedsInput *bool  `json:"needsInput"`
+		} `json:"trajectorySummaries"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	workingItem := resp.TrajectorySummaries["traj-working-after-plan"]
+	if workingItem.Status != "CASCADE_RUN_STATUS_RUNNING" {
+		t.Errorf("expected traj-working-after-plan status RUNNING, got %s", workingItem.Status)
+	}
+	if workingItem.NeedsInput != nil && *workingItem.NeedsInput {
+		t.Errorf("expected traj-working-after-plan to NOT have needsInput=true while working after plan approval, got %+v", workingItem.NeedsInput)
+	}
+
+	approvedIdleItem := resp.TrajectorySummaries["traj-approved-idle"]
+	if approvedIdleItem.NeedsInput != nil && *approvedIdleItem.NeedsInput {
+		t.Errorf("expected traj-approved-idle to NOT have needsInput=true after plan was approved, got %+v", approvedIdleItem.NeedsInput)
+	}
+
+	olderProceedItem := resp.TrajectorySummaries["traj-older-proceed"]
+	if olderProceedItem.NeedsInput == nil || !*olderProceedItem.NeedsInput {
+		t.Errorf("expected traj-older-proceed (discovered via disk metadata) to have needsInput=true, got %+v", olderProceedItem.NeedsInput)
 	}
 }
 
