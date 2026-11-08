@@ -416,15 +416,87 @@ private struct UserAsyncImageBubbleView: View {
     }
 }
 
-/// 语音交互用户气泡：默认显示 Antigravity 专属 Voice 图标，点击可展开查看转写详情
+/// 清洗语音交互中的协议标签（<talker_agent_context>）、时间戳与格式化符号，提取干净自然的多轮语音文本。
+enum VoiceTranscriptCleaner {
+    static let tagRegex = try? NSRegularExpression(pattern: "</?talker_agent_context>", options: .caseInsensitive)
+    static let timestampRegex = try? NSRegularExpression(pattern: #"^\[\d{4}-\d{2}-\d{2}T[^\]]+\]\s*"#)
+    static let roleRegex = try? NSRegularExpression(pattern: #"^(user|human|me|talker|agent|assistant|ai):\s*"#, options: .caseInsensitive)
+
+    static func clean(_ raw: String) -> String {
+        guard !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return "" }
+        let withoutTags: String
+        if let tagRegex = tagRegex {
+            withoutTags = tagRegex.stringByReplacingMatches(in: raw, range: NSRange(raw.startIndex..., in: raw), withTemplate: "")
+        } else {
+            withoutTags = raw.replacingOccurrences(of: "<talker_agent_context>", with: "", options: .caseInsensitive)
+                             .replacingOccurrences(of: "</talker_agent_context>", with: "", options: .caseInsensitive)
+        }
+        
+        let lines = withoutTags.components(separatedBy: .newlines)
+        var cleaned: [String] = []
+        
+        for rawLine in lines {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.isEmpty { continue }
+            
+            var content = line
+            if let timestampRegex = timestampRegex {
+                let range = NSRange(content.startIndex..., in: content)
+                content = timestampRegex.stringByReplacingMatches(in: content, range: range, withTemplate: "").trimmingCharacters(in: .whitespaces)
+            }
+            
+            var role = ""
+            if let roleRegex = roleRegex,
+               let match = roleRegex.firstMatch(in: content, range: NSRange(content.startIndex..., in: content)) {
+                if let rRange = Range(match.range, in: content) {
+                    let matchedRole = String(content[rRange]).lowercased()
+                    if matchedRole.hasPrefix("user") || matchedRole.hasPrefix("human") || matchedRole.hasPrefix("me") {
+                        role = "用户: "
+                    } else {
+                        role = "语音: "
+                    }
+                    content = String(content[rRange.upperBound...]).trimmingCharacters(in: .whitespaces)
+                }
+            }
+            
+            // Strip outer quotes
+            if content.hasPrefix("\"") && content.hasSuffix("\"") && content.count >= 2 {
+                content = String(content.dropFirst().dropLast()).trimmingCharacters(in: .whitespaces)
+            } else if content.hasPrefix("\"") {
+                content = String(content.dropFirst()).trimmingCharacters(in: .whitespaces)
+            } else if content.hasSuffix("\"") {
+                content = String(content.dropLast()).trimmingCharacters(in: .whitespaces)
+            }
+            
+            if role.isEmpty && cleaned.isEmpty && content.count < 80 && line.hasSuffix("\"") && !line.hasPrefix("\"") {
+                continue
+            }
+            
+            if content.isEmpty { continue }
+            
+            let formatted = role.isEmpty ? content : "\(role)\(content)"
+            if cleaned.last != formatted {
+                cleaned.append(formatted)
+            }
+        }
+        
+        return cleaned.isEmpty ? withoutTags.trimmingCharacters(in: .whitespacesAndNewlines) : cleaned.joined(separator: "\n\n")
+    }
+}
+
+/// 语音交互用户气泡：默认显示 Antigravity 专属 Voice 图标，点击可展开查看清洗后的对话详情
 struct VoiceInteractionUserBubble: View {
     let bodyText: String
     let onCopy: () -> Void
     @State private var isExpanded: Bool = false
 
+    private var cleanedText: String {
+        VoiceTranscriptCleaner.clean(bodyText)
+    }
+
     var body: some View {
         Button {
-            if !bodyText.isEmpty {
+            if !cleanedText.isEmpty {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     isExpanded.toggle()
                 }
@@ -436,7 +508,7 @@ struct VoiceInteractionUserBubble: View {
                         .fill(Color.white)
                         .frame(width: 24, height: 24)
                 } else {
-                    VStack(alignment: .leading, spacing: 6) {
+                    VStack(alignment: .leading, spacing: 8) {
                         HStack(spacing: 6) {
                             AntigravityVoiceShape()
                                 .fill(Color.white.opacity(0.85))
@@ -445,8 +517,8 @@ struct VoiceInteractionUserBubble: View {
                                 .font(.system(size: 12, weight: .semibold))
                                 .foregroundColor(.white.opacity(0.85))
                         }
-                        Text(bodyText)
-                            .font(.system(size: 14))
+                        Text(cleanedText)
+                            .font(.system(size: 14.5))
                             .foregroundColor(.white)
                             .lineSpacing(3)
                             .multilineTextAlignment(.leading)
@@ -461,7 +533,7 @@ struct VoiceInteractionUserBubble: View {
         }
         .buttonStyle(.plain)
         .contextMenu {
-            if !bodyText.isEmpty {
+            if !cleanedText.isEmpty {
                 Button {
                     withAnimation {
                         isExpanded.toggle()
@@ -470,7 +542,7 @@ struct VoiceInteractionUserBubble: View {
                     Label(isExpanded ? "折叠语音" : "展开详情", systemImage: isExpanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
                 }
                 Button {
-                    onCopy()
+                    UIPasteboard.general.string = cleanedText
                 } label: {
                     Label("复制语音内容", systemImage: "doc.on.doc")
                 }
