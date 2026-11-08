@@ -297,6 +297,13 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 			}
 
 			p.ensureLiveModels(r.Context())
+			if targetModel == "" {
+				if recordedModel, _ := GetCascadeModel(cascadeID); recordedModel != "" {
+					targetModel = recordedModel
+				} else if len(configToUse) == 0 {
+					targetModel = "gemini-3.8-flash-high"
+				}
+			}
 			modelEnum := resolveModelEnum(targetModel)
 			canonicalName := canonicalModelName(targetModel)
 			if canonicalName == "" {
