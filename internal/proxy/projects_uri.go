@@ -139,3 +139,31 @@ func uriToPath(rawURI string) string {
 	}
 	return filepath.Clean(path)
 }
+
+// isDriveRoot checks whether a path represents a filesystem drive root or empty root
+// such as "C:\", "D:", "/", "\", etc., which should never be considered a workspace project.
+func isDriveRoot(p string) bool {
+	p = strings.TrimSpace(p)
+	if p == "" || p == "/" || p == "\\" || p == "." {
+		return true
+	}
+	stripped := strings.TrimRight(p, "/\\")
+	if stripped == "" || stripped == "." {
+		return true
+	}
+	if len(stripped) == 2 && isWindowsDriveLetter(stripped[0]) && stripped[1] == ':' {
+		return true
+	}
+	clean := filepath.Clean(p)
+	if clean == "/" || clean == "\\" || clean == "." || (len(clean) == 3 && isWindowsDriveLetter(clean[0]) && clean[1] == ':' && clean[2] == '.') {
+		return true
+	}
+	if len(clean) == 2 && isWindowsDriveLetter(clean[0]) && clean[1] == ':' {
+		return true
+	}
+	if len(clean) == 3 && isWindowsDriveLetter(clean[0]) && clean[1] == ':' && (clean[2] == '\\' || clean[2] == '/') {
+		return true
+	}
+	return false
+}
+
