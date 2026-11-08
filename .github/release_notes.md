@@ -2,12 +2,15 @@
 
 ### ✨ 新功能与核心体验
 - 🎙️ **Antigravity 2.29+ 全双工实时语音通话 (`/voice/ws` Full-Duplex Live Voice Call)**：
-  - Go 网关、iOS、Android 与 Web PWA 四端全量接入 Antigravity 2.29+ 原生 `/voice/ws`（`jetski-voice-proto`）全双工二进制 Protobuf 实时语音协议，支持 `plan_model` 字符串标识到枚举值自动归一化与网关鉴权透明剥离。
-  - 支持 16kHz PCM 麦克风实时上行与 24kHz PCM 流式语音下行低延迟播放、实时语音打断（`clearAudio` 渐变淡出）、双端实时字幕流（`userSpeech` / `voiceTranscript`）、静音切换与 1.0x / 1.25x / 1.5x / 2.0x 倍速调节。
-  - 支持在现有会话内一键发起实时语音对话，或从草稿页自动创建新会话并无缝切入沉浸式语音通话卡片（Voice Call Card）；设置页新增「实时语音对话」独立开关（默认关闭以保持传统 `↑` 发送按钮习惯，开启后空闲状态切换为实时语音入口，单击开启双工通话、长按触发离线录音，同时保留 `➕` 附件面板离线录音入口）。
-  - 气泡与排查引导体验强化：折叠态语音气泡新增「语音交互」标签胶囊，展开详情深度净化 `<voice_instructions>` 提示词协议噪声并提取纯净多轮对话；异常排查气泡字号对齐 15sp 聊天字体并以 Markdown 结构化高亮关键步骤；iOS 端全双工开启硬件级 AEC 回声消除与环境降噪。
+  - **四端全量打通**：Go 网关、iOS、Android 与 Web PWA 四端全量接入 Antigravity 2.29+ 原生 `/voice/ws`（`jetski-voice-proto`）全双工二进制 Protobuf 实时语音协议，支持 `plan_model` 字符串标识到枚举值自动归一化与网关鉴权透明剥离；
+  - **高保真流式音频管道**：支持 16kHz PCM 麦克风实时上行与 24kHz PCM 流式语音下行低延迟播放、实时语音打断（`clearAudio` 渐变淡出）、双端实时字幕流（`userSpeech` / `voiceTranscript`）、静音切换与 1.0x / 1.25x / 1.5x / 2.0x 倍速调节；
+  - **沉浸式通话卡片与开麦开关**：支持在现有会话内一键发起实时语音对话，或从草稿页自动创建新会话并无缝切入沉浸式语音通话卡片（`VoiceCallCard`）；设置页新增「实时语音对话」独立开关（默认关闭以保持传统 `↑` 发送按钮习惯，开启后空闲状态切换为实时语音入口，单击开启双工通话、长按触发离线录音，同时保留 `➕` 附件面板离线录音入口）；
+  - **折叠态语音消息气泡扩充**：未展开状态下的语音气泡由单一图标扩充为醒目的「波形图标 + 语音交互」圆角胶囊药丸，视觉更长更显眼、可点击感显著增强；
+  - **展开详情多轮对话深度净化**：彻底正则剔除 `<voice_instructions>` 等系统级提示词注入与规则说明杂音，优先提炼 `<talker_agent_context>` 对话块，仅保留「用户」与「智能体」纯净对话轮次；长按复制同步净化；
+  - **异常自查气泡大号化与 Markdown 强化**：连接失败排查气泡整体尺寸放大，正文字号提升至 **15sp**（与普通对话气泡严格对齐），以 Markdown 语法对核心排查步骤（**重新登录**、**开启代理 TUN 模式**、**检查电脑麦克风**）加粗强调并对域名 `*.googleapis.com` 行内代码高亮；
+  - **iOS 硬件级声学回声消除与降噪 (AEC)**：iOS 客户端全双工通话启用硬件级 `VoiceProcessing`（AEC 回声消除与 AGC 自动增益），彻底消除外放自激循环与啸叫。
 - 📐 **三端 LaTeX 数学公式与自适应 Markdown 表格全面升级 (LaTeX Math & Adaptive Markdown Tables)**：
-  - 全面修复并对齐 iOS、Android、Web 三端复杂 LaTeX 数学公式渲染（原生支持 `\underbrace`、`\overbrace`、`\langle` / `\rangle`、`\mathcal`、`\mathbb`、矩阵环境与多层上下标等）及常用 Markdown 语法。
+  - 全面修复并对齐 iOS、Android、Web 三端复杂 LaTeX 数学公式渲染（原生支持 `\underbrace`、`\overbrace`、`\langle` / `\rangle`、`\mathcal`、`\mathbb`、矩阵环境与多层上下标等）及常用 Markdown 语法；
   - iOS 与 Android 原生表格升级为按单元格内容自适应列宽并支持横向平滑滚动，彻底解决多列表格在手机端挤压折行问题。
 - 📊 **免 Cockpit 本地直读当前账号实时配额 (Zero-Config Live Quota)**：
   - 未安装或未配置 Cockpit Tools 时，网关直接通过 Antigravity 本地服务 RPC 实时读取当前使用账号的 4 维配额（Claude 5h、Claude Weekly、Gemini 5h、Gemini Weekly）及 Gemini 4 Argon 额度，并在移动端顶部状态条与详情面板实时展示；
@@ -19,5 +22,5 @@
 - ⚙️ **常驻守护进程 (`IsDaemon`) 与回合阻塞任务状态解耦 (Daemon Task Status Parity)**：
   - 区分常驻守护任务（`IsDaemon=true`，如 dev server / 定时监听器）与回合阻塞任务：常驻任务跨回合保持运行不再抑制完成推送，也不会将会话列表或 iOS 灵动岛误标为执行中；取消当前回合时仅终止阻塞任务并保留常驻守护进程。
 - 🌐 **iOS PWA 软键盘避让与 Fake-IP 隧道双栈探测加固 (PWA Keyboard & Fake-IP ULA Exemption)**：
-  - 修复 iOS Safari / PWA 模式下软键盘弹出遮挡底部输入框与操作栏的问题。
+  - 修复 iOS Safari / PWA 模式下软键盘弹出遮挡底部输入框与操作栏的问题；
   - Cloudflare 隧道双栈探测豁免全段 IPv6 ULA（`fc00::/7`，含 sing-box `fc00::/18` 与 Mihomo `fdfe:dcba:9876::/64`）及 IPv4 Fake-IP（`198.18.0.0/15`），杜绝 TUN 透明代理环境下的双栈探测假阳性。
