@@ -13,6 +13,8 @@ import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Undo
+import androidx.compose.material.icons.filled.UnfoldLess
+import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -38,6 +40,7 @@ import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.ArtifactItem
 import com.antigravity.mobile.data.model.GatewayMessageItem
 import com.antigravity.mobile.data.model.SubagentItem
+import com.antigravity.mobile.ui.screen.AntigravityVoiceIcon
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 import com.antigravity.mobile.ui.util.rememberHaptic
 
@@ -421,7 +424,15 @@ fun MessageBubble(
 
             // Files the user attached: the gateway appends an attachment block to the message text.
             val (userBodyText, attachedFiles) = remember(displayText) { AttachmentRules.parseBlock(displayText) }
-            if (attachedFiles.isNotEmpty()) {
+            val isVoiceMessage = remember(userBodyText, attachedFiles) {
+                val trimmed = userBodyText.trim()
+                trimmed.contains("<talker_agent_context>") ||
+                trimmed.contains("</talker_agent_context>") ||
+                (trimmed.contains("talker:") && (trimmed.contains("user:") || trimmed.contains("[202"))) ||
+                (attachedFiles.isNotEmpty() && attachedFiles.all { it.ext.lowercase() in listOf("wav", "m4a", "aac", "mp3", "caf", "opus") } && trimmed.isBlank())
+            }
+
+            if (attachedFiles.isNotEmpty() && !isVoiceMessage) {
                 Column(
                     modifier = Modifier.padding(bottom = 6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -460,7 +471,104 @@ fun MessageBubble(
                 }
             }
 
-            if (userBodyText.isNotBlank()) {
+            if (isVoiceMessage) {
+                var showContextMenu by remember { mutableStateOf(false) }
+                var isVoiceExpanded by remember { mutableStateOf(false) }
+
+                Box(
+                    modifier = Modifier
+                        .shadow(
+                            elevation = 1.5.dp,
+                            shape = RoundedCornerShape(18.dp),
+                            ambientColor = Color.Black.copy(alpha = 0.04f),
+                            spotColor = Color.Black.copy(alpha = 0.10f)
+                        )
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(colors.userBubbleBg)
+                        .combinedClickable(
+                            onClick = {
+                                if (userBodyText.isNotBlank()) {
+                                    isVoiceExpanded = !isVoiceExpanded
+                                }
+                            },
+                            onLongClick = { showContextMenu = true }
+                        )
+                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                ) {
+                    if (!isVoiceExpanded) {
+                        AntigravityVoiceIcon(
+                            modifier = Modifier.size(24.dp),
+                            tint = colors.userBubbleText
+                        )
+                    } else {
+                        Column(
+                            modifier = Modifier.widthIn(max = 320.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                AntigravityVoiceIcon(
+                                    modifier = Modifier.size(16.dp),
+                                    tint = colors.userBubbleText.copy(alpha = 0.85f)
+                                )
+                                Text(
+                                    text = "语音交互",
+                                    color = colors.userBubbleText.copy(alpha = 0.85f),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                            Text(
+                                text = userBodyText,
+                                color = colors.userBubbleText,
+                                fontSize = 14.sp,
+                                lineHeight = 19.sp
+                            )
+                        }
+                    }
+
+                    DropdownMenu(
+                        expanded = showContextMenu,
+                        onDismissRequest = { showContextMenu = false }
+                    ) {
+                        if (userBodyText.isNotBlank()) {
+                            DropdownMenuItem(
+                                text = { Text(if (isVoiceExpanded) "折叠语音" else "展开详情") },
+                                leadingIcon = {
+                                    Icon(
+                                        if (isVoiceExpanded) Icons.Default.UnfoldLess else Icons.Default.UnfoldMore,
+                                        contentDescription = null
+                                    )
+                                },
+                                onClick = {
+                                    showContextMenu = false
+                                    isVoiceExpanded = !isVoiceExpanded
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("复制语音内容") },
+                                leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = "复制语音内容") },
+                                onClick = {
+                                    showContextMenu = false
+                                    copyAll(userBodyText)
+                                }
+                            )
+                        }
+                        if (onUndoClick != null) {
+                            DropdownMenuItem(
+                                text = { Text("撤回至此步骤", color = Color(0xFFDC2626)) },
+                                leadingIcon = { Icon(Icons.Default.Undo, contentDescription = "撤回至此步骤", tint = Color(0xFFDC2626)) },
+                                onClick = {
+                                    showContextMenu = false
+                                    onUndoClick()
+                                }
+                            )
+                        }
+                    }
+                }
+            } else if (userBodyText.isNotBlank()) {
                 var showContextMenu by remember { mutableStateOf(false) }
 
                 // User Bubble: Apple Indigo, white text, 18.dp continuous corner radius
