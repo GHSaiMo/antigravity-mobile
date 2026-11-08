@@ -173,15 +173,21 @@ function initApp() {
 
   updateAuthUI();
 
-  // Action Button (Send / Stop / Queue Toggle)
+  // Action Button (Send / Stop / Voice Mode / Hangup)
   const sendBtn = document.getElementById("btn-send");
   sendBtn?.addEventListener("click", () => {
     const isRunning = isCascadeRunning(activeCascadeId);
     const hasContent = (document.getElementById("chat-input")?.value.trim().length > 0) || (pendingImages && pendingImages.length > 0) || !!getSelectedSlashCommand();
-    if (isRunning && !hasContent) {
-      cancelCurrentTask();
-    } else {
+    const inVoiceCall = typeof WebVoiceCallManager !== "undefined" && WebVoiceCallManager.isInCall;
+
+    if (inVoiceCall && !hasContent) {
+      WebVoiceCallManager.endCall();
+    } else if (hasContent) {
       sendMessage();
+    } else if (isRunning) {
+      cancelCurrentTask();
+    } else if (typeof WebVoiceCallManager !== "undefined") {
+      WebVoiceCallManager.startCall();
     }
   });
 

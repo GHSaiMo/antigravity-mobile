@@ -29,6 +29,7 @@ public struct ChatView: View {
     @State var showMicrophonePermissionAlert = false
     @State var showOtherSessionRecordingAlert = false
     @ObservedObject var audioRecorder = AudioRecorderManager.shared
+    @ObservedObject var voiceCall = VoiceCallManager.shared
     @State var previewDraftGallery: ImageGalleryData? = nil
     @State var showAttachmentSheet = false
     @State var showNavigatorSheet = false
@@ -289,8 +290,16 @@ public struct ChatView: View {
             }
             autoFocusTask?.cancel()
             autoFocusTask = nil
+            if voiceCall.isInCall {
+                voiceCall.endCall()
+            }
             viewModel.saveCurrentDraft()
             viewModel.disconnectStream()
+        }
+        .onChange(of: viewModel.activeModel) { _, _ in
+            if voiceCall.isInCall {
+                voiceCall.updatePlanModel(viewModel.activeModelEnum)
+            }
         }
         .environment(\.openURL, OpenURLAction { url in
             handleURLTap(url)

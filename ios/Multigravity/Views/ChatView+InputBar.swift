@@ -278,25 +278,26 @@ extension ChatView {
                     .lineLimit(1...5)
                     .focused($isInputFocused)
                 
-                if viewModel.isActivelyRunning && viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && viewModel.selectedSlashCommand == nil {
-                    Button(action: handleCancel) {
+                if voiceCall.isInCall && !hasSendableDraft {
+                    Button {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        voiceCall.endCall()
+                    } label: {
                         ZStack {
                             Circle()
-                                .fill(Color(uiColor: .systemGray5))
+                                .fill(Color.red)
                                 .frame(width: 44, height: 44)
-                                .overlay(
-                                    Circle()
-                                        .stroke(Color.secondary.opacity(0.25), lineWidth: 0.8)
-                                )
-                            
-                            Image(systemName: "stop.fill")
-                                .font(.system(size: 15, weight: .bold))
-                                .foregroundColor(.red)
+                                .shadow(color: Color.red.opacity(0.28), radius: 4, x: 0, y: 2)
+
+                            Image(systemName: "phone.down.fill")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundColor(.white)
                         }
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("挂断实时语音通话")
                     .transition(.scale.combined(with: .opacity))
-                } else {
+                } else if hasSendableDraft {
                     Button(action: handleSend) {
                         ZStack {
                             Circle()
@@ -316,11 +317,55 @@ extension ChatView {
                     .buttonStyle(.plain)
                     .keyboardShortcut(.return, modifiers: .command)
                     .transition(.scale.combined(with: .opacity))
+                } else if viewModel.isActivelyRunning {
+                    Button(action: handleCancel) {
+                        ZStack {
+                            Circle()
+                                .fill(Color(uiColor: .systemGray5))
+                                .frame(width: 44, height: 44)
+                                .overlay(
+                                    Circle()
+                                        .stroke(Color.secondary.opacity(0.25), lineWidth: 0.8)
+                                )
+                            
+                            Image(systemName: "stop.fill")
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundColor(.red)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .transition(.scale.combined(with: .opacity))
+                } else {
+                    ZStack {
+                        Circle()
+                            .fill(Color.indigo.opacity(0.12))
+                            .frame(width: 44, height: 44)
+                            .overlay(
+                                Circle()
+                                    .stroke(Color.indigo.opacity(0.28), lineWidth: 0.8)
+                            )
+
+                        Image(systemName: "waveform.badge.sparkles")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundColor(.indigo)
+                    }
+                    .contentShape(Circle())
+                    .onTapGesture {
+                        handleStartVoiceCall()
+                    }
+                    .onLongPressGesture(minimumDuration: 0.45) {
+                        UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+                        handleAudioRecordAction()
+                    }
+                    .accessibilityLabel("实时语音对话，长按录制语音消息")
+                    .transition(.scale.combined(with: .opacity))
                 }
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 12)
             .animation(.easeInOut(duration: 0.2), value: viewModel.isActivelyRunning)
+            .animation(.easeInOut(duration: 0.2), value: voiceCall.isInCall)
+            .animation(.easeInOut(duration: 0.18), value: hasSendableDraft)
             .onChange(of: viewModel.inputText) { oldText, newText in
                 if SlashCommandFilter.query(of: newText) == nil {
                     isSlashPickerDismissed = false
@@ -341,13 +386,17 @@ extension ChatView {
         }
     }
     
+    var hasSendableDraft: Bool {
+        !viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !viewModel.selectedImageData.isEmpty
+            || !viewModel.selectedFiles.isEmpty
+            || viewModel.selectedSlashCommand != nil
+    }
+
     var isSendDisabled: Bool {
         viewModel.isSending
             || viewModel.selectedFiles.contains(where: { !$0.isUploaded })
-            || (viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                && viewModel.selectedImageData.isEmpty
-                && viewModel.selectedFiles.isEmpty
-                && viewModel.selectedSlashCommand == nil)
+            || !hasSendableDraft
     }
     
 }

@@ -524,3 +524,62 @@ internal fun ChatViewModel.stopTask(task: RunningTaskItem) {
         }
     }
 }
+
+internal fun ChatViewModel.ensureCascadeForVoiceCall(onReady: (String, String?, String?) -> Unit) {
+    val currentCid = _uiState.value.cascadeId
+    val baseUrl = prefs?.getEffectiveGatewayUrl(false, null) ?: prefs?.gatewayBaseUrl
+    val token = prefs?.deviceToken
+
+    if (currentCid.isNotBlank() && !currentCid.startsWith("local_draft_")) {
+        onReady(currentCid, baseUrl, token)
+        return
+    }
+
+    val draftSession = prefs?.getLocalDraftSession(currentCid)
+    val project = currentDraftProject ?: draftSession?.project ?: ProjectItem.PURE_CHAT
+    val isPure = project.isPureChat
+    val pid = if (isPure) "outside-of-project" else (project.rawId ?: (if (project.id != project.uri) project.id else null))
+    val wsUri = if (isPure) "" else project.uri
+
+    viewModelScope.launch {
+        val createRes = apiClient.createCascade(
+            workspaceUri = wsUri,
+            prompt = "",
+            model = _uiState.value.activeModel,
+            projectId = pid
+        )
+        createRes.onSuccess { newCascadeId ->
+            bindVoiceCascadeId(newCascadeId, project)
+            onReady(newCascadeId, baseUrl, token)
+        }.onFailure { err ->
+            _uiState.value = _uiState.value.copy(
+                errorMessage = "无法启动实时语音会话：${err.message ?: "网络异常"}"
+            )
+        }
+    }
+}
+
+internal fun ChatViewModel.bindVoiceCascadeId(newCascadeId: String, projectOverride: ProjectItem? = null) {
+    if (newCascadeId.isBlank() || _uiState.value.cascadeId == newCascadeId) return
+    val oldDraftId = _uiState.value.cascadeId
+    val draftSession = prefs?.getLocalDraftSession(oldDraftId)
+    val project = projectOverride ?: currentDraftProject ?: draftSession?.project ?: ProjectItem.PURE_CHAT
+    val isPure = project.isPureChat
+    currentDraftProject = null
+    prefs?.let { p ->
+        p.deleteLocalDraftSession(oldDraftId)
+        p.clearDraftText(oldDraftId)
+        p.clearDraftImages(oldDraftId)
+        p.clearDraftFiles(oldDraftId)
+    }
+    val title = if (isPure) "新对话" else project.name
+    val wsName = if (isPure) "Chat" else project.name
+    _uiState.value = _uiState.value.copy(
+        cascadeId = newCascadeId,
+        title = title,
+        workspaceName = wsName,
+        isNewConversation = false
+    )
+    wsClient.connect(newCascadeId)
+    ensureWebSocketObserving()
+}

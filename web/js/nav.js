@@ -44,6 +44,9 @@ function renderRoute() {
   if (hash.startsWith("#c=")) {
     const newCascadeId = hash.slice(3);
     const changed = activeCascadeId !== newCascadeId;
+    if (changed && typeof WebVoiceCallManager !== "undefined" && WebVoiceCallManager.isInCall) {
+      WebVoiceCallManager.endCall();
+    }
     activeCascadeId = newCascadeId;
     if (changed) SubagentManager.reset(); // 切换会话时清掉上一个会话的子代理 / 只读状态
     markConversationAsRead(newCascadeId);
@@ -116,6 +119,9 @@ function renderRoute() {
     // cannot connect, fallbackToHttpPolling loads it over HTTP instead.
     connectStreamWs(activeCascadeId);
   } else if (hash === "#draft") {
+    if (typeof WebVoiceCallManager !== "undefined" && WebVoiceCallManager.isInCall) {
+      WebVoiceCallManager.endCall();
+    }
     if (!activeDraftSession) {
       activeDraftSession = { isPure: true, name: "新对话", path: "", uri: "", rawId: "outside-of-project" };
     }
@@ -172,6 +178,9 @@ function renderRoute() {
     }
     updateChatControls(false, activeDraftSession.isPure ? "" : activeDraftSession.uri, false);
   } else {
+    if (typeof WebVoiceCallManager !== "undefined" && WebVoiceCallManager.isInCall) {
+      WebVoiceCallManager.endCall();
+    }
     activeCascadeId = null;
     activeDraftSession = null;
     closeActiveWs(true);

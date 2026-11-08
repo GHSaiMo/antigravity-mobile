@@ -480,29 +480,44 @@ function updateChatControls(isRunning, wsUri, hasAction = false) {
   if (sendBtn) {
     const iconSend = sendBtn.querySelector(".icon-send");
     const iconStop = sendBtn.querySelector(".icon-stop");
+    const iconVoice = sendBtn.querySelector(".icon-voice");
+    const iconHangup = sendBtn.querySelector(".icon-hangup");
     const hasContent = (chatInput && chatInput.value.trim().length > 0) || (pendingImages && pendingImages.length > 0) || !!getSelectedSlashCommand();
+    const inVoiceCall = typeof WebVoiceCallManager !== "undefined" && WebVoiceCallManager.isInCall;
 
-    if (isRunning) {
-      if (hasContent) {
-        sendBtn.className = "btn-action-circle send-mode active";
-        sendBtn.title = "加入待发送队列";
-        sendBtn.setAttribute("aria-label", "加入待发送队列");
-        if (iconSend) iconSend.classList.remove("hidden");
-        if (iconStop) iconStop.classList.add("hidden");
-      } else {
-        sendBtn.className = "btn-action-circle stop-mode";
-        sendBtn.title = "停止任务";
-        sendBtn.setAttribute("aria-label", "停止任务");
-        if (iconSend) iconSend.classList.add("hidden");
-        if (iconStop) iconStop.classList.remove("hidden");
-      }
+    const showOnlyIcon = (activeIcon) => {
+      [iconSend, iconStop, iconVoice, iconHangup].forEach(ic => {
+        if (!ic) return;
+        if (ic === activeIcon) ic.classList.remove("hidden");
+        else ic.classList.add("hidden");
+      });
+    };
+
+    const stopTaskBtnInVoice = document.getElementById("btn-voice-stop-task");
+    if (stopTaskBtnInVoice) {
+      stopTaskBtnInVoice.classList.toggle("hidden", !(inVoiceCall && isRunning));
+    }
+
+    if (inVoiceCall && !hasContent) {
+      sendBtn.className = "btn-action-circle hangup-mode";
+      sendBtn.title = "挂断实时语音通话";
+      sendBtn.setAttribute("aria-label", "挂断实时语音通话");
+      showOnlyIcon(iconHangup);
+    } else if (hasContent) {
+      sendBtn.className = "btn-action-circle send-mode active";
+      sendBtn.title = isRunning ? "加入待发送队列" : "发送";
+      sendBtn.setAttribute("aria-label", isRunning ? "加入待发送队列" : "发送");
+      showOnlyIcon(iconSend);
+    } else if (isRunning) {
+      sendBtn.className = "btn-action-circle stop-mode";
+      sendBtn.title = "停止任务";
+      sendBtn.setAttribute("aria-label", "停止任务");
+      showOnlyIcon(iconStop);
     } else {
-      sendBtn.className = "btn-action-circle send-mode";
-      if (hasContent) sendBtn.classList.add("active");
-      sendBtn.title = "发送";
-      sendBtn.setAttribute("aria-label", "发送");
-      if (iconSend) iconSend.classList.remove("hidden");
-      if (iconStop) iconStop.classList.add("hidden");
+      sendBtn.className = "btn-action-circle voice-mode";
+      sendBtn.title = "实时语音对话";
+      sendBtn.setAttribute("aria-label", "实时语音对话");
+      showOnlyIcon(iconVoice);
     }
   }
 }
@@ -1937,5 +1952,530 @@ const LocalQueueManager = {
         </div>
       </div>
     `;}).join("");
+  }
+};
+
+// --- Full-Duplex Real-time Voice Call Manager (jetski-voice-proto) ---
+const WebVoiceCallManager = {
+  isInCall: false,
+  callState: "idle", // idle | connecting | listening | reconnecting
+  isMicMuted: false,
+  isSpeakerMuted: false,
+  playbackSpeed: 1.0,
+  supportedSpeeds: [0.75, 1.0, 1.25, 1.5, 1.75, 2.0],
+  isAgentSpeaking: false,
+  soundLevels: new Array(16).fill(0.14),
+  ws: null,
+  audioCtx: null,
+  mediaStream: null,
+  scriptNode: null,
+  gainNode: null,
+  nextPlayTime: 0,
+  activeSources: [],
+  durationTimer: null,
+  startedAt: 0,
+  subtitleTimer: null,
+  agentSpeakingTimer: null,
+
+  initUI() {
+    const barsEl = document.getElementById("voice-waveform-bars");
+    if (barsEl && !barsEl.children.length) {
+      barsEl.innerHTML = this.soundLevels.map(() => `<span class="voice-wave-bar"></span>`).join("");
+    }
+    document.getElementById("btn-voice-speed")?.addEventListener("click", () => this.cycleSpeed());
+    document.getElementById("btn-voice-mic")?.addEventListener("click", () => this.toggleMicMute());
+    document.getElementById("btn-voice-speaker")?.addEventListener("click", () => this.toggleSpeakerMute());
+    document.getElementById("btn-voice-stop-task")?.addEventListener("click", () => {
+      if (typeof cancelCurrentTask === "function") cancelCurrentTask();
+    });
+  },
+
+  async startCall() {
+    if (this.isInCall) {
+      this.endCall();
+      return;
+    }
+    this.initUI();
+
+    try {
+      this.mediaStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          sampleRate: 16000,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: false
+        }
+      });
+    } catch (err) {
+      showToast("需要麦克风权限才能开启实时语音对话");
+      return;
+    }
+
+    // Ensure cascadeId exists if currently in #draft mode
+    let targetCascadeId = activeCascadeId;
+    if (!targetCascadeId) {
+      try {
+        const draft = activeDraftSession || { isPure: true, uri: "", rawId: "outside-of-project" };
+        const res = await fetch("/gateway/cascade/new", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            workspaceUri: draft.isPure ? "" : (draft.uri || ""),
+            prompt: "",
+            model: activeModel || "",
+            projectId: draft.isPure ? "outside-of-project" : (draft.rawId || "")
+          })
+        });
+        const data = await res.json();
+        if (data && data.cascadeId) {
+          targetCascadeId = data.cascadeId;
+          activeCascadeId = targetCascadeId;
+          window.history.replaceState({}, document.title, `#c=${targetCascadeId}`);
+          connectStreamWs(targetCascadeId);
+        }
+      } catch (e) {
+        showToast("无法创建语音会话");
+        this.cleanupMedia();
+        return;
+      }
+    }
+
+    this.isInCall = true;
+    this.callState = "connecting";
+    this.isMicMuted = false;
+    this.isSpeakerMuted = false;
+    this.isAgentSpeaking = false;
+    this.startedAt = Date.now();
+    this.setupAudioContext();
+    this.renderCard();
+    updateChatControls(isCascadeRunning(activeCascadeId), null, false);
+
+    this.durationTimer = setInterval(() => this.updateTimerUI(), 500);
+
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    let wsUrl = `${proto}//${location.host}/voice/ws?conversation_id=${encodeURIComponent(targetCascadeId || "")}&plan_model=${encodeURIComponent(activeModel || "")}&sample_rate=16000`;
+    try {
+      const resp = await originalFetch("/api/v1/auth/ws-ticket", { method: "POST" });
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data && data.ticket) {
+          wsUrl += `&ticket=${encodeURIComponent(data.ticket)}`;
+        }
+      }
+    } catch (_) {}
+
+    if (!this.isInCall) return;
+
+    const ws = new WebSocket(wsUrl, ["jetski-voice-proto"]);
+    ws.binaryType = "arraybuffer";
+    this.ws = ws;
+
+    ws.onopen = () => {
+      if (this.ws !== ws) return;
+      this.callState = "listening";
+      if (this.playbackSpeed !== 1.0) {
+        this.sendSettingsUpdate(null, this.playbackSpeed);
+      }
+      this.renderCard();
+    };
+
+    ws.onmessage = (ev) => {
+      if (this.ws !== ws || !(ev.data instanceof ArrayBuffer)) return;
+      this.handleServerFrame(new Uint8Array(ev.data));
+    };
+
+    ws.onclose = () => {
+      if (this.ws === ws && this.isInCall) {
+        this.endCall();
+      }
+    };
+
+    ws.onerror = () => {
+      if (this.ws === ws && this.isInCall) {
+        showToast("实时语音连接断开");
+        this.endCall();
+      }
+    };
+  },
+
+  endCall() {
+    this.isInCall = false;
+    this.callState = "idle";
+    this.isAgentSpeaking = false;
+    if (this.durationTimer) {
+      clearInterval(this.durationTimer);
+      this.durationTimer = null;
+    }
+    if (this.subtitleTimer) {
+      clearTimeout(this.subtitleTimer);
+      this.subtitleTimer = null;
+    }
+    if (this.agentSpeakingTimer) {
+      clearTimeout(this.agentSpeakingTimer);
+      this.agentSpeakingTimer = null;
+    }
+    if (this.ws) {
+      try { this.ws.close(1000, "Hang up"); } catch (_) {}
+      this.ws = null;
+    }
+    this.cleanupMedia();
+    const card = document.getElementById("voice-call-card");
+    if (card) card.classList.add("hidden");
+    const subRow = document.getElementById("voice-live-subtitle-row");
+    if (subRow) subRow.classList.add("hidden");
+    updateChatControls(isCascadeRunning(activeCascadeId), null, false);
+  },
+
+  cleanupMedia() {
+    this.clearPlayback();
+    if (this.scriptNode) {
+      try { this.scriptNode.disconnect(); } catch (_) {}
+      this.scriptNode = null;
+    }
+    if (this.mediaStream) {
+      this.mediaStream.getTracks().forEach(t => t.stop());
+      this.mediaStream = null;
+    }
+    if (this.audioCtx) {
+      try { this.audioCtx.close(); } catch (_) {}
+      this.audioCtx = null;
+    }
+    this.gainNode = null;
+  },
+
+  setupAudioContext() {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AudioContextClass();
+    this.audioCtx = ctx;
+    this.gainNode = ctx.createGain();
+    this.gainNode.gain.value = this.isSpeakerMuted ? 0 : 1;
+    this.gainNode.connect(ctx.destination);
+    this.nextPlayTime = 0;
+
+    const source = ctx.createMediaStreamSource(this.mediaStream);
+    const proc = ctx.createScriptProcessor(2048, 1, 1);
+    this.scriptNode = proc;
+    let sampleAcc = [];
+
+    proc.onaudioprocess = (e) => {
+      if (!this.isInCall) return;
+      const input = e.inputBuffer.getChannelData(0);
+      const inRate = ctx.sampleRate || 48000;
+      const ratio = inRate / 16000;
+      let sumSq = 0;
+      for (let i = 0; i < input.length; i += ratio) {
+        const idx = Math.min(input.length - 1, Math.floor(i));
+        const s = Math.max(-1, Math.min(1, input[idx]));
+        sumSq += s * s;
+        sampleAcc.push(s < 0 ? Math.round(s * 32768) : Math.round(s * 32767));
+      }
+      if (!this.isAgentSpeaking) {
+        const rms = Math.sqrt(sumSq / Math.max(1, input.length / ratio));
+        this.pushWaveLevel(this.isMicMuted ? 0.10 : Math.min(1.0, Math.max(0.12, rms * 5.2)));
+      }
+      while (sampleAcc.length >= 640) {
+        const chunkSamples = sampleAcc.splice(0, 640);
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+          const pcmBytes = new Uint8Array(1280);
+          if (!this.isMicMuted) {
+            const view = new DataView(pcmBytes.buffer);
+            for (let j = 0; j < 640; j++) {
+              view.setInt16(j * 2, chunkSamples[j], true);
+            }
+          }
+          const frame = new Uint8Array(3 + 1280);
+          frame[0] = 0x12; // field 2, wire type 2
+          frame[1] = 0x80; // varint 1280 low
+          frame[2] = 0x0a; // varint 1280 high
+          frame.set(pcmBytes, 3);
+          this.ws.send(frame.buffer);
+        }
+      }
+    };
+
+    source.connect(proc);
+    proc.connect(ctx.destination);
+  },
+
+  enqueuePcm24k(pcmBytes) {
+    if (!this.audioCtx || !this.gainNode) return;
+    const sampleCount = Math.floor(pcmBytes.byteLength / 2);
+    if (sampleCount <= 0) return;
+
+    const audioBuf = this.audioCtx.createBuffer(1, sampleCount, 24000);
+    const ch = audioBuf.getChannelData(0);
+    const view = new DataView(pcmBytes.buffer, pcmBytes.byteOffset, pcmBytes.byteLength);
+    let sumSq = 0;
+    for (let i = 0; i < sampleCount; i++) {
+      const f = view.getInt16(i * 2, true) / 32768;
+      ch[i] = f;
+      sumSq += f * f;
+    }
+
+    const rms = Math.sqrt(sumSq / sampleCount);
+    this.isAgentSpeaking = true;
+    this.pushWaveLevel(Math.min(1.0, Math.max(0.16, rms * 4.5)));
+    this.renderCard();
+
+    const src = this.audioCtx.createBufferSource();
+    src.buffer = audioBuf;
+    src.connect(this.gainNode);
+    const now = this.audioCtx.currentTime;
+    const startAt = Math.max(now + 0.01, this.nextPlayTime);
+    src.start(startAt);
+    this.nextPlayTime = startAt + audioBuf.duration;
+    this.activeSources.push(src);
+    src.onended = () => {
+      this.activeSources = this.activeSources.filter(s => s !== src);
+      if (this.activeSources.length === 0) {
+        if (this.agentSpeakingTimer) clearTimeout(this.agentSpeakingTimer);
+        this.agentSpeakingTimer = setTimeout(() => {
+          this.isAgentSpeaking = false;
+          this.renderCard();
+        }, 240);
+      }
+    };
+  },
+
+  clearPlayback() {
+    this.activeSources.forEach(s => {
+      try { s.stop(); } catch (_) {}
+    });
+    this.activeSources = [];
+    this.nextPlayTime = 0;
+    this.isAgentSpeaking = false;
+    this.renderCard();
+  },
+
+  toggleMicMute() {
+    this.isMicMuted = !this.isMicMuted;
+    this.renderCard();
+  },
+
+  toggleSpeakerMute() {
+    this.isSpeakerMuted = !this.isSpeakerMuted;
+    if (this.gainNode) {
+      this.gainNode.gain.value = this.isSpeakerMuted ? 0 : 1;
+    }
+    this.renderCard();
+  },
+
+  cycleSpeed() {
+    const idx = this.supportedSpeeds.indexOf(this.playbackSpeed);
+    this.playbackSpeed = this.supportedSpeeds[(idx + 1) % this.supportedSpeeds.length];
+    this.sendSettingsUpdate(null, this.playbackSpeed);
+    this.renderCard();
+  },
+
+  sendSettingsUpdate(planModelInt, speed) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    const inner = [];
+    if (planModelInt && planModelInt > 0) {
+      inner.push(0x08);
+      this.writeVarint(planModelInt, inner);
+    }
+    if (typeof speed === "number") {
+      inner.push(0x11);
+      const buf = new ArrayBuffer(8);
+      new DataView(buf).setFloat64(0, speed, true);
+      const arr = new Uint8Array(buf);
+      for (let i = 0; i < 8; i++) inner.push(arr[i]);
+    }
+    if (!inner.length) return;
+    const out = [0x1a];
+    this.writeVarint(inner.length, out);
+    const frame = new Uint8Array(out.concat(inner));
+    this.ws.send(frame.buffer);
+  },
+
+  writeVarint(val, arr) {
+    let v = val >>> 0;
+    while (v >= 0x80) {
+      arr.push((v & 0x7f) | 0x80);
+      v >>>= 7;
+    }
+    arr.push(v);
+  },
+
+  readVarint(bytes, state) {
+    let res = 0;
+    let shift = 0;
+    while (state.offset < bytes.length) {
+      const b = bytes[state.offset++];
+      res |= (b & 0x7f) << shift;
+      if ((b & 0x80) === 0) return res >>> 0;
+      shift += 7;
+    }
+    return null;
+  },
+
+  handleServerFrame(bytes) {
+    const state = { offset: 0 };
+    while (state.offset < bytes.length) {
+      const tag = this.readVarint(bytes, state);
+      if (tag === null) break;
+      const field = tag >>> 3;
+      const wt = tag & 0x07;
+      if (wt === 0) {
+        this.readVarint(bytes, state);
+      } else if (wt === 1) {
+        state.offset += 8;
+      } else if (wt === 5) {
+        state.offset += 4;
+      } else if (wt === 2) {
+        const len = this.readVarint(bytes, state);
+        if (len === null || state.offset + len > bytes.length) return;
+        const sub = bytes.subarray(state.offset, state.offset + len);
+        state.offset += len;
+        if (field === 1) {
+          this.enqueuePcm24k(sub);
+        } else if (field === 2) {
+          this.handleStatus(sub);
+        } else if (field === 7) {
+          const text = this.extractFirstString(sub);
+          if (text) this.showSubtitle(text, "ai");
+        } else if (field === 8) {
+          const text = this.extractFirstString(sub);
+          if (text) this.showSubtitle(text, "user");
+        } else if (field === 9) {
+          this.clearPlayback();
+        }
+      } else {
+        return;
+      }
+    }
+  },
+
+  handleStatus(sub) {
+    const st = { offset: 0 };
+    let stateVal = 0;
+    while (st.offset < sub.length) {
+      const tag = this.readVarint(sub, st);
+      if (tag === null) break;
+      const f = tag >>> 3;
+      const wt = tag & 0x07;
+      if (wt === 0) {
+        const v = this.readVarint(sub, st);
+        if (f === 1) stateVal = v;
+      } else if (wt === 2) {
+        const len = this.readVarint(sub, st);
+        st.offset += (len || 0);
+      } else if (wt === 1) {
+        st.offset += 8;
+      } else if (wt === 5) {
+        st.offset += 4;
+      } else {
+        break;
+      }
+    }
+    if (stateVal === 1 || stateVal === 2) {
+      this.callState = "listening";
+      this.renderCard();
+    } else if (stateVal === 3) {
+      this.callState = "reconnecting";
+      this.renderCard();
+    } else if (stateVal === 4 || stateVal === 5) {
+      this.endCall();
+    }
+  },
+
+  extractFirstString(sub) {
+    const st = { offset: 0 };
+    while (st.offset < sub.length) {
+      const tag = this.readVarint(sub, st);
+      if (tag === null) break;
+      const f = tag >>> 3;
+      const wt = tag & 0x07;
+      if (wt === 0) {
+        this.readVarint(sub, st);
+      } else if (wt === 2) {
+        const len = this.readVarint(sub, st);
+        if (len === null || st.offset + len > sub.length) return null;
+        if (f === 1) {
+          return new TextDecoder().decode(sub.subarray(st.offset, st.offset + len));
+        }
+        st.offset += len;
+      } else if (wt === 1) {
+        st.offset += 8;
+      } else if (wt === 5) {
+        st.offset += 4;
+      } else {
+        return null;
+      }
+    }
+    return null;
+  },
+
+  showSubtitle(text, role) {
+    const row = document.getElementById("voice-live-subtitle-row");
+    const badge = document.getElementById("voice-subtitle-badge");
+    const textEl = document.getElementById("voice-subtitle-text");
+    if (!row || !badge || !textEl) return;
+    badge.textContent = role === "ai" ? "AI" : "我";
+    badge.classList.toggle("ai", role === "ai");
+    textEl.textContent = text;
+    row.classList.remove("hidden");
+    if (this.subtitleTimer) clearTimeout(this.subtitleTimer);
+    this.subtitleTimer = setTimeout(() => {
+      row.classList.add("hidden");
+    }, 3200);
+  },
+
+  pushWaveLevel(level) {
+    this.soundLevels.shift();
+    this.soundLevels.push(level);
+    const bars = document.querySelectorAll("#voice-waveform-bars .voice-wave-bar");
+    bars.forEach((bar, i) => {
+      const lv = this.soundLevels[i] || 0.14;
+      bar.style.height = `${Math.max(4, Math.round(lv * 24))}px`;
+    });
+  },
+
+  updateTimerUI() {
+    const timerEl = document.getElementById("voice-timer-text");
+    if (!timerEl) return;
+    if (this.callState === "connecting") {
+      timerEl.textContent = "连接中";
+      return;
+    }
+    if (this.callState === "reconnecting") {
+      timerEl.textContent = "重连中";
+      return;
+    }
+    const sec = Math.floor((Date.now() - this.startedAt) / 1000);
+    const m = String(Math.floor(sec / 60)).padStart(2, "0");
+    const s = String(sec % 60).padStart(2, "0");
+    timerEl.textContent = `${m}:${s}`;
+  },
+
+  renderCard() {
+    const card = document.getElementById("voice-call-card");
+    if (!card) return;
+    card.classList.toggle("hidden", !this.isInCall);
+    card.classList.toggle("ai-speaking", this.isAgentSpeaking);
+    card.classList.toggle("mic-muted", this.isMicMuted);
+
+    const dot = document.getElementById("voice-status-dot");
+    if (dot) {
+      dot.className = "voice-status-dot " + (
+        (this.callState === "connecting" || this.callState === "reconnecting")
+          ? "connecting"
+          : (this.isAgentSpeaking ? "ai" : "listening")
+      );
+    }
+    const speedBtn = document.getElementById("btn-voice-speed");
+    if (speedBtn) {
+      speedBtn.textContent = `${this.playbackSpeed}x`;
+    }
+    const micBtn = document.getElementById("btn-voice-mic");
+    if (micBtn) {
+      micBtn.classList.toggle("muted-mic", this.isMicMuted);
+    }
+    const spkBtn = document.getElementById("btn-voice-speaker");
+    if (spkBtn) {
+      spkBtn.classList.toggle("muted-speaker", this.isSpeakerMuted);
+    }
+    this.updateTimerUI();
   }
 };

@@ -731,6 +731,15 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 		}
 	}
 
+	// Preserve upstream summary statuses before parent-subagent status propagation so Step 1
+	// can detect when a cached trajectory snapshot is out of sync with the live summary status.
+	rawStatuses := make(map[string]string, len(summaries))
+	for id, s := range summaries {
+		if st, ok := s["status"].(string); ok {
+			rawStatuses[id] = st
+		}
+	}
+
 	// Propagate running status from subagents up to parent conversations
 	for parentID := range runningSubagentParents {
 		if parent, ok := summaries[parentID]; ok {
@@ -742,19 +751,30 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 	// 1. In-memory fast inspection: check sessions already cached in trajCache (instant, zero network cost)
 	defaultTrajCache.trajCacheMu.RLock()
 	type snapEntry struct {
-		cid  string
-		data *upstreamTrajectoryResp
+		cid       string
+		fetchedAt time.Time
+		data      *upstreamTrajectoryResp
 	}
 	var snapshots []snapEntry
 	for cid, entry := range defaultTrajCache.trajCache {
 		if entry != nil && entry.data != nil {
-			snapshots = append(snapshots, snapEntry{cid: cid, data: entry.data})
+			snapshots = append(snapshots, snapEntry{
+				cid:       cid,
+				fetchedAt: entry.fetchedAt,
+				data:      entry.data,
+			})
 		}
 	}
 	defaultTrajCache.trajCacheMu.RUnlock()
 
+	inspectedFresh := make(map[string]bool, len(snapshots))
 	for _, sn := range snapshots {
 		if s := summaries[sn.cid]; s != nil {
+			if !isTrajectorySnapshotFreshForSummary(s, rawStatuses[sn.cid], sn.fetchedAt, sn.data) {
+				ClearTrajectoryCache(sn.cid)
+				continue
+			}
+			inspectedFresh[sn.cid] = true
 			details := p.ParseTrajectoryDetails(sn.data)
 			if details.PendingInteraction != nil || details.CanProceed {
 				s["needsInput"] = true
@@ -779,50 +799,55 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 		}
 	}
 
-	// 2. Fast disk inspection: If implementation_plan.md.metadata.json has requestFeedback == true
-	// and walkthrough.md does not yet exist (plan not yet delivered).
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		for cid, s := range summaries {
-			if s["needsInput"] == true {
-				continue
-			}
-			walkthroughFile := filepath.Join(home, ".gemini/antigravity/brain", cid, "walkthrough.md")
-			walkthroughStatKey := "stat:" + walkthroughFile
-			defaultTrajCache.metadataCacheMu.RLock()
-			statEntry, statCached := defaultTrajCache.metadataCache[walkthroughStatKey]
-			defaultTrajCache.metadataCacheMu.RUnlock()
-			walkthroughExists := false
-			if statCached && time.Since(statEntry.fetchedAt) < metadataCacheTTL {
-				walkthroughExists = statEntry.requestFeedback
-			} else {
-				_, serr := os.Stat(walkthroughFile)
-				walkthroughExists = serr == nil
-				defaultTrajCache.metadataCacheMu.Lock()
-				defaultTrajCache.metadataCache[walkthroughStatKey] = &metadataCacheEntry{
-					requestFeedback: walkthroughExists,
-					fetchedAt:       time.Now(),
-				}
-				defaultTrajCache.metadataCacheMu.Unlock()
-			}
-			if walkthroughExists {
-				continue
-			}
-			metaFile := filepath.Join(home, ".gemini/antigravity/brain", cid, "implementation_plan.md.metadata.json")
-			if readMetadataRequestFeedback(metaFile) {
-				s["needsInput"] = true
-			}
-		}
-	}
-
-	// 3. Candidates that might need live upstream probing:
+	// 2. Candidates that might need live upstream probing:
 	// Only probe for mobile/API clients (/api/...) that actively consume needsInput/hasError.
 	// Desktop web workbench (/exa.language_server_pb...) does not use these flags.
 	isApiClient := strings.HasPrefix(r.URL.Path, "/api/")
 	candidates := make(map[string]bool)
 
 	if isApiClient {
+		// Fast disk inspection: If implementation_plan.md.metadata.json has requestFeedback == true
+		// and walkthrough.md does not yet exist, add non-running uncached sessions to candidates
+		// so Step 3 verifies via detectProceed whether the plan is actually awaiting approval in the
+		// latest turn (Antigravity never clears requestFeedback in .metadata.json after Proceed).
+		if home, err := os.UserHomeDir(); err == nil && home != "" {
+			for cid, s := range summaries {
+				if s["needsInput"] == true || inspectedFresh[cid] {
+					continue
+				}
+				if status, _ := s["status"].(string); status == "CASCADE_RUN_STATUS_RUNNING" {
+					continue
+				}
+				walkthroughFile := filepath.Join(home, ".gemini/antigravity/brain", cid, "walkthrough.md")
+				walkthroughStatKey := "stat:" + walkthroughFile
+				defaultTrajCache.metadataCacheMu.RLock()
+				statEntry, statCached := defaultTrajCache.metadataCache[walkthroughStatKey]
+				defaultTrajCache.metadataCacheMu.RUnlock()
+				walkthroughExists := false
+				if statCached && time.Since(statEntry.fetchedAt) < metadataCacheTTL {
+					walkthroughExists = statEntry.requestFeedback
+				} else {
+					_, serr := os.Stat(walkthroughFile)
+					walkthroughExists = serr == nil
+					defaultTrajCache.metadataCacheMu.Lock()
+					defaultTrajCache.metadataCache[walkthroughStatKey] = &metadataCacheEntry{
+						requestFeedback: walkthroughExists,
+						fetchedAt:       time.Now(),
+					}
+					defaultTrajCache.metadataCacheMu.Unlock()
+				}
+				if walkthroughExists {
+					continue
+				}
+				metaFile := filepath.Join(home, ".gemini/antigravity/brain", cid, "implementation_plan.md.metadata.json")
+				if readMetadataRequestFeedback(metaFile) {
+					candidates[cid] = true
+				}
+			}
+		}
+
 		for id, s := range summaries {
-			if s["needsInput"] == true {
+			if s["needsInput"] == true || inspectedFresh[id] {
 				continue
 			}
 			status, _ := s["status"].(string)
@@ -831,14 +856,14 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 			}
 		}
 
-		// Also check top recent items if not already cached in trajCache
+		// Also check top recent items if not already inspected from fresh trajCache
 		type recentItem struct {
 			id string
 			t  time.Time
 		}
 		var recentItems []recentItem
 		for id, s := range summaries {
-			if s["needsInput"] == true || candidates[id] {
+			if s["needsInput"] == true || inspectedFresh[id] || candidates[id] {
 				continue
 			}
 			if modStr, ok := s["lastModifiedTime"].(string); ok && modStr != "" {
@@ -852,19 +877,7 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 				return recentItems[i].t.After(recentItems[j].t)
 			})
 			for i := 0; i < len(recentItems) && i < 3; i++ {
-				cid := recentItems[i].id
-				defaultTrajCache.trajCacheMu.RLock()
-				cached, cachedOk := defaultTrajCache.trajCache[cid]
-				var isCachedNonRunning bool
-				if cachedOk && cached != nil && cached.data != nil {
-					if cached.data.Status != "" && cached.data.Status != "CASCADE_RUN_STATUS_RUNNING" && time.Since(cached.fetchedAt) < 60*time.Second {
-						isCachedNonRunning = true
-					}
-				}
-				defaultTrajCache.trajCacheMu.RUnlock()
-				if !isCachedNonRunning {
-					candidates[cid] = true
-				}
+				candidates[recentItems[i].id] = true
 			}
 		}
 	}
@@ -954,6 +967,47 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 	w.Header().Set("Content-Length", strconv.Itoa(len(respBytes)))
 	w.WriteHeader(http.StatusOK)
 	w.Write(respBytes)
+}
+
+// isTrajectorySnapshotFreshForSummary reports whether a cached GetCascadeTrajectory snapshot
+// is still consistent with the live summary entry from GetAllCascadeTrajectories.
+func isTrajectorySnapshotFreshForSummary(s map[string]interface{}, rawSummaryStatus string, fetchedAt time.Time, data *upstreamTrajectoryResp) bool {
+	if data == nil {
+		return false
+	}
+	cachedStatus := data.Status
+	if rawSummaryStatus != "" && cachedStatus != "" && rawSummaryStatus != cachedStatus {
+		return false
+	}
+	if rawSummaryStatus == "CASCADE_RUN_STATUS_RUNNING" || cachedStatus == "CASCADE_RUN_STATUS_RUNNING" {
+		if time.Since(fetchedAt) > 1500*time.Millisecond {
+			return false
+		}
+	} else if time.Since(fetchedAt) >= 60*time.Second {
+		return false
+	}
+	if modStr, ok := s["lastModifiedTime"].(string); ok && modStr != "" {
+		if modTime, err := parseTime(modStr); err == nil && modTime.After(fetchedAt) {
+			return false
+		}
+	}
+	if summarySteps := summaryStepCount(s["stepCount"]); summarySteps > 0 && len(data.Trajectory.Steps) > 0 && summarySteps != len(data.Trajectory.Steps) {
+		return false
+	}
+	return true
+}
+
+func summaryStepCount(v interface{}) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case float64:
+		return int(n)
+	case int64:
+		return int(n)
+	default:
+		return 0
+	}
 }
 
 // isSubagentTrajectoryMap checks if a trajectory summary map belongs to an internal subagent.

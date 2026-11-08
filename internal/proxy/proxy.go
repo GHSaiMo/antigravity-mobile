@@ -493,9 +493,17 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// WebSocket upgrade route
+	// WebSocket upgrade routes
 	if r.URL.Path == "/connect-websocket" {
 		p.HandleWebSocket(w, r)
+		return
+	}
+	if r.URL.Path == "/voice/ws" {
+		p.HandleVoiceWebSocket(w, r)
+		return
+	}
+	if r.URL.Path == "/voice/health" {
+		p.handleVoiceHealth(w, r)
 		return
 	}
 
