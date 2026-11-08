@@ -2,6 +2,7 @@ package tunnel
 
 import (
 	"context"
+	"crypto/tls"
 	"net"
 	"regexp"
 	"sort"
@@ -114,8 +115,21 @@ func defaultEdgeDialer(ctx context.Context, addr string) (time.Duration, error) 
 	if err != nil {
 		return 0, err
 	}
+	defer conn.Close()
+
+	tlsConn := tls.Client(conn, &tls.Config{
+		ServerName:         "region1.v2.argotunnel.com",
+		InsecureSkipVerify: true,
+	})
+	if dl, ok := ctx.Deadline(); ok {
+		_ = tlsConn.SetDeadline(dl)
+	} else {
+		_ = tlsConn.SetDeadline(time.Now().Add(2 * time.Second))
+	}
+	if err := tlsConn.HandshakeContext(ctx); err != nil {
+		return 0, err
+	}
 	rtt := time.Since(start)
-	_ = conn.Close()
 	return rtt, nil
 }
 
