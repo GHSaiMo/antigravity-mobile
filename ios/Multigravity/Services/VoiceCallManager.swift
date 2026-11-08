@@ -170,6 +170,7 @@ public final class VoiceCallManager: ObservableObject {
 
     public func toggleMicMute() {
         isMicMuted.toggle()
+        audioEngine?.inputNode.isVoiceProcessingInputMuted = isMicMuted
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
     }
 
@@ -369,6 +370,14 @@ public final class VoiceCallManager: ObservableObject {
         engine.connect(player, to: engine.mainMixerNode, format: outFormat)
 
         let inputNode = engine.inputNode
+        // 开启硬件级回声消除（AEC）、噪声抑制与自动增益（VoiceProcessingIO），防止扬声器播报的声音再次灌入麦克风
+        do {
+            try inputNode.setVoiceProcessingEnabled(true)
+            inputNode.isVoiceProcessingInputMuted = isMicMuted
+        } catch {
+            print("[VoiceCall] Warning: failed to enable voice processing (AEC): \(error)")
+        }
+
         let hwInputFormat = inputNode.outputFormat(forBus: 0)
         guard hwInputFormat.sampleRate > 0, hwInputFormat.channelCount > 0 else {
             throw NSError(domain: "VoiceCallManager", code: -2, userInfo: [NSLocalizedDescriptionKey: "Invalid microphone format"])
