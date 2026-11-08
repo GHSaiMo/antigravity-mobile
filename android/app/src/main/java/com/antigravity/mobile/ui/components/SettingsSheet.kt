@@ -252,6 +252,7 @@ private fun MainSettingsContent(
     val coroutineScope = rememberCoroutineScope()
     var autoApprove by remember { mutableStateOf(prefs.autoApprovePermissions) }
     var enableLiveNotifications by remember { mutableStateOf(prefs.enableLiveNotifications) }
+    var enableVoiceMode by remember { mutableStateOf(prefs.enableVoiceMode) }
     val isPaired = prefs.isPaired()
     val deviceId = prefs.deviceId ?: "未知"
 
@@ -566,6 +567,43 @@ private fun MainSettingsContent(
                         )
                     }
                 }
+            }
+        }
+
+        // MARK: - 4a. 实时语音对话
+        SettingsSection(
+            title = "语音",
+            footer = "开启后，输入框为空且空闲时右侧按钮将变为实时语音对话入口（单击开始双工通话，长按离线录音）；关闭时保持原有的发送按钮。"
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(colors.surface)
+                    .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(text = "实时语音对话", color = colors.textPrimary, fontSize = 15.sp)
+                    Text(
+                        text = if (enableVoiceMode) "已开启（空闲时显示语音入口）" else "已关闭",
+                        color = colors.textSecondary,
+                        fontSize = 12.sp
+                    )
+                }
+                Switch(
+                    checked = enableVoiceMode,
+                    onCheckedChange = {
+                        enableVoiceMode = it
+                        prefs.enableVoiceMode = it
+                    },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = colors.surface,
+                        checkedTrackColor = colors.accentIndigo
+                    )
+                )
             }
         }
 

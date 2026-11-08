@@ -32,6 +32,7 @@ public final class AppSettings {
     private let defaultGeminiModelKey = "antigravity.default_gemini_model"
     private let defaultClaudeModelKey = "antigravity.default_claude_model"
     private let autoApprovePermissionsKey = "antigravity.auto_approve_permissions"
+    private let enableVoiceModeKey = "antigravity.enable_voice_mode"
     private let gatewayPlatformKey = "antigravity.gateway_platform"
     private let demoModeKey = "antigravity.demo_mode"
     
@@ -148,6 +149,13 @@ public final class AppSettings {
     public var autoApprovePermissions: Bool {
         didSet {
             UserDefaults.standard.set(autoApprovePermissions, forKey: autoApprovePermissionsKey)
+        }
+    }
+    
+    /// 是否在输入框右侧显示「实时语音对话」入口按钮（默认关闭，关闭时保持传统的 ↑ 发送按钮）
+    public var enableVoiceMode: Bool {
+        didSet {
+            UserDefaults.standard.set(enableVoiceMode, forKey: enableVoiceModeKey)
         }
     }
     
@@ -485,6 +493,7 @@ public final class AppSettings {
         
         let savedAutoApprove = UserDefaults.standard.bool(forKey: autoApprovePermissionsKey)
         self.autoApprovePermissions = savedAutoApprove
+        self.enableVoiceMode = UserDefaults.standard.bool(forKey: enableVoiceModeKey)
         self.gatewayPlatform = UserDefaults.standard.string(forKey: gatewayPlatformKey)
     }
 }

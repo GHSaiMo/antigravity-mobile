@@ -42,6 +42,9 @@ class PreferencesManager(context: Context) {
     private val _gatewayPlatformFlow = MutableStateFlow(gatewayPlatform)
     val gatewayPlatformFlow: StateFlow<String?> = _gatewayPlatformFlow.asStateFlow()
 
+    private val _enableVoiceModeFlow = MutableStateFlow(prefs.getBoolean(KEY_ENABLE_VOICE_MODE, false))
+    val enableVoiceModeFlow: StateFlow<Boolean> = _enableVoiceModeFlow.asStateFlow()
+
     init {
         // H-2: If legacy plaintext preferences held credentials, migrate to securePrefs and purge from plaintext
         val legacyToken = prefs.getString(KEY_DEVICE_TOKEN, null)
@@ -168,6 +171,13 @@ class PreferencesManager(context: Context) {
     var enableLiveNotifications: Boolean
         get() = prefs.getBoolean(KEY_LIVE_NOTIFICATIONS, true)
         set(value) = prefs.edit().putBoolean(KEY_LIVE_NOTIFICATIONS, value).apply()
+
+    var enableVoiceMode: Boolean
+        get() = prefs.getBoolean(KEY_ENABLE_VOICE_MODE, false)
+        set(value) {
+            prefs.edit().putBoolean(KEY_ENABLE_VOICE_MODE, value).apply()
+            _enableVoiceModeFlow.value = value
+        }
 
     var fcmPushToken: String?
         get() = prefs.getString(KEY_FCM_PUSH_TOKEN, null)
@@ -614,6 +624,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_DEFAULT_CLAUDE_MODEL = "default_claude_model"
         private const val KEY_AUTO_APPROVE = "auto_approve_permissions"
         private const val KEY_LIVE_NOTIFICATIONS = "live_notifications"
+        private const val KEY_ENABLE_VOICE_MODE = "enable_voice_mode"
         private const val KEY_FCM_PUSH_TOKEN = "fcm_push_token"
         private const val KEY_LAN_URL = "lan_server_url"
         private const val KEY_RELAY_URL = "relay_server_url"

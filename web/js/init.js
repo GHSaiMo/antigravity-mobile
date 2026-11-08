@@ -179,6 +179,7 @@ function initApp() {
     const isRunning = isCascadeRunning(activeCascadeId);
     const hasContent = (document.getElementById("chat-input")?.value.trim().length > 0) || (pendingImages && pendingImages.length > 0) || !!getSelectedSlashCommand();
     const inVoiceCall = typeof WebVoiceCallManager !== "undefined" && WebVoiceCallManager.isInCall;
+    const voiceEnabled = typeof WebVoiceCallManager !== "undefined" && WebVoiceCallManager.isVoiceModeEnabled();
 
     if (inVoiceCall && !hasContent) {
       WebVoiceCallManager.endCall();
@@ -186,10 +187,19 @@ function initApp() {
       sendMessage();
     } else if (isRunning) {
       cancelCurrentTask();
-    } else if (typeof WebVoiceCallManager !== "undefined") {
+    } else if (voiceEnabled) {
       WebVoiceCallManager.startCall();
     }
   });
+
+  // Voice Mode Toggle in Settings
+  const voiceModeCheckbox = document.getElementById("settings-enable-voice-mode");
+  if (voiceModeCheckbox && typeof WebVoiceCallManager !== "undefined") {
+    voiceModeCheckbox.checked = WebVoiceCallManager.isVoiceModeEnabled();
+    voiceModeCheckbox.addEventListener("change", (e) => {
+      WebVoiceCallManager.setVoiceModeEnabled(!!e.target.checked);
+    });
+  }
 
   // Expand / Collapse Running Tasks Card
   document.getElementById("btn-tasks-expand")?.addEventListener("click", () => {
