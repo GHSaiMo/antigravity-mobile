@@ -187,13 +187,14 @@ for r in rows:
         'matchSource': 'conversation_fts',
         'matchedStepIndex': step_idx or 0
     })
-print(json.dumps({'results': results}, ensure_ascii=False))
+sys.stdout.buffer.write(json.dumps({'results': results}, ensure_ascii=False).encode('utf-8'))
 `
 
 	execCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
 
 	cmd := exec.CommandContext(execCtx, pyBin, "-c", pyScript, dbPath, query, fmt.Sprintf("%d", limit))
+	cmd.Env = append(os.Environ(), "PYTHONIOENCODING=utf-8")
 	var outBuf, errBuf bytes.Buffer
 	cmd.Stdout = &outBuf
 	cmd.Stderr = &errBuf
@@ -313,13 +314,14 @@ for r in rows:
             }
         }
     }
-print(json.dumps(summaries, ensure_ascii=False))
+sys.stdout.buffer.write(json.dumps(summaries, ensure_ascii=False).encode('utf-8'))
 `
 
 	execCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
 
 	cmd := exec.CommandContext(execCtx, pyBin, "-c", pyScript, dbPath)
+	cmd.Env = append(os.Environ(), "PYTHONIOENCODING=utf-8")
 	var outBuf, errBuf bytes.Buffer
 	cmd.Stdout = &outBuf
 	cmd.Stderr = &errBuf

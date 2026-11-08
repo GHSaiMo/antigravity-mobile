@@ -154,6 +154,8 @@ func (t *CloudflareTunnel) launchProcessLocked(ctx context.Context, binPath stri
 						}
 					} else if ip, ok := parseFailedEdgeIP(trimmed); ok && !IsCloudflareEdgeIP(ip) && !IsProxyFakeIP(ip) {
 						t.kickPolluted(cmd, ip)
+					} else if strings.Contains(trimmed, "TLS handshake with edge error") && strings.Contains(trimmed, "EOF") {
+						t.fallbackIPv6ToIPv4(cmd)
 					} else if strings.Contains(trimmed, "ERR") || strings.Contains(trimmed, "error") ||
 						strings.Contains(trimmed, "Incorrect Usage") || strings.Contains(trimmed, "flag provided") {
 						if !isBenignCloudflareLog(trimmed) {
@@ -222,6 +224,21 @@ func (t *CloudflareTunnel) kickPolluted(cmd *exec.Cmd, ip net.IP) {
 	t.lastKickAt = time.Now()
 	slog.Warn(fmt.Sprintf("⚠️  [Cloudflare] 检测到边缘地址被污染 (%s)，重启隧道并重新选择可用线路", ip))
 	_ = cmd.Process.Kill()
+}
+
+// fallbackIPv6ToIPv4 falls back to IPv4 when IPv6 edge TLS handshakes persistently fail (e.g. EOF caused by TUN proxy / ISP resets).
+func (t *CloudflareTunnel) fallbackIPv6ToIPv4(cmd *exec.Cmd) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.stopping || t.cmd != cmd || cmd.Process == nil || time.Since(t.lastKickAt) < 2*time.Minute {
+		return
+	}
+	if t.cfg != nil && t.cfg.EdgeIPVersion != "4" {
+		t.lastKickAt = time.Now()
+		t.cfg.EdgeIPVersion = "4"
+		slog.Warn("⚠️  [Cloudflare] 边缘节点 IPv6 TLS 握手频繁失败 (EOF)，自动切换并锁定 IPv4 专线连接...")
+		_ = cmd.Process.Kill()
+	}
 }
 
 func (t *CloudflareTunnel) supervise(ctx context.Context, binPath string) {
