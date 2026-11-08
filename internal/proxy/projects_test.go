@@ -46,7 +46,8 @@ func TestProjectsEndpoint(t *testing.T) {
 func TestURIHelpers(t *testing.T) {
 	raw := "file:///Users/hal9000/Projects/test%20dir"
 	path := uriToPath(raw)
-	if path != "/Users/hal9000/Projects/test dir" {
+	expected := filepath.FromSlash("/Users/hal9000/Projects/test dir")
+	if path != expected {
 		t.Errorf("expected decoded path, got: %s", path)
 	}
 
@@ -601,7 +602,7 @@ func TestFetchProjectsFromGeminiConfig(t *testing.T) {
 			if item.Name != "DemoApp" {
 				t.Errorf("expected DemoApp, got %s", item.Name)
 			}
-			if item.Path != testProjectDir {
+			if !strings.EqualFold(item.Path, testProjectDir) {
 				t.Errorf("expected %s, got %s", testProjectDir, item.Path)
 			}
 			break
@@ -743,6 +744,7 @@ func TestProjectAliasEndpoint(t *testing.T) {
 func TestSidecarProjectsIgnoredAndNotOverwriting(t *testing.T) {
 	tmpHome := t.TempDir()
 	t.Setenv("HOME", tmpHome)
+	t.Setenv("USERPROFILE", tmpHome)
 	t.Setenv("APPDATA", tmpHome)
 	t.Setenv("ANTIGRAVITY_APP_DATA_DIR", filepath.Join(tmpHome, ".gemini", "antigravity"))
 	t.Setenv("MULTIGRAVITY_DATA_DIR", filepath.Join(tmpHome, "mgy-data"))

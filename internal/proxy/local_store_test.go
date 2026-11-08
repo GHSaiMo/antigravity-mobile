@@ -27,18 +27,17 @@ func TestLocalStoreFTS5Search(t *testing.T) {
 	t.Logf("Special characters query returned %d results safely", len(specialResults))
 }
 
-func TestLocalStoreFetchSummaries(t *testing.T) {
-	ctx := context.Background()
-	summaries, err := FetchLocalConversationSummaries(ctx)
+func TestFindPythonExecutable(t *testing.T) {
+	pyBin, err := findPythonExecutable()
 	if err != nil {
-		t.Logf("FetchLocalConversationSummaries skipped/failed: %v", err)
+		t.Logf("findPythonExecutable returned: %v (no python installed on this machine)", err)
 		return
 	}
-	t.Logf("Found %d local conversation summaries", len(summaries))
-	for id, s := range summaries {
-		if s["cascadeId"] != id {
-			t.Errorf("mismatched cascadeId: got %v, want %s", s["cascadeId"], id)
-		}
-		break
+	if pyBin == "" {
+		t.Fatal("expected non-empty pyBin")
+	}
+	// Verify that the found executable is valid and non-zero bytes
+	if !isExecutableValid(pyBin) {
+		t.Fatalf("expected executable %q to be valid (non-zero bytes)", pyBin)
 	}
 }

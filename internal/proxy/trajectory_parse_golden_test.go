@@ -312,13 +312,15 @@ func TestParseTrajectoryDetails_Golden(t *testing.T) {
 		t.Run(sc.name, func(t *testing.T) {
 			home := t.TempDir()
 			t.Setenv("HOME", home)
+			t.Setenv("USERPROFILE", home)
 			resetTrajectoryGlobals()
 			if sc.setup != nil {
 				sc.setup(t, home)
 			}
 
+			jsonStr := strings.ReplaceAll(sc.json, "{{HOME}}", filepath.ToSlash(home))
 			var raw upstreamTrajectoryResp
-			if err := json.Unmarshal([]byte(strings.ReplaceAll(sc.json, "{{HOME}}", home)), &raw); err != nil {
+			if err := json.Unmarshal([]byte(jsonStr), &raw); err != nil {
 				t.Fatalf("bad fixture JSON: %v", err)
 			}
 
@@ -344,7 +346,8 @@ func TestParseTrajectoryDetails_Golden(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			gotStr := strings.ReplaceAll(string(got), home, "{{HOME}}") + "\n"
+			gotStr := strings.ReplaceAll(string(got), home, "{{HOME}}")
+			gotStr = strings.ReplaceAll(gotStr, filepath.ToSlash(home), "{{HOME}}") + "\n"
 
 			path := filepath.Join("testdata", "parse_golden", sc.name+".json")
 			if *updateGolden {

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -354,15 +355,39 @@ var (
 	cachedPyErr error
 )
 
+func isExecutableValid(path string) bool {
+	resolved := path
+	if !filepath.IsAbs(resolved) && !strings.ContainsRune(resolved, filepath.Separator) && !strings.ContainsRune(resolved, '/') {
+		if p, err := exec.LookPath(resolved); err == nil {
+			resolved = p
+		}
+	}
+	if fi, err := os.Stat(resolved); err != nil || fi.Size() == 0 {
+		return false
+	}
+	return true
+}
+
+func pythonCandidates() []string {
+	if runtime.GOOS == "windows" {
+		return []string{"python", "py", "python3"}
+	}
+	return []string{"python3", "python"}
+}
+
 func findPythonExecutable() (string, error) {
 	pyBinOnce.Do(func() {
-		for _, bin := range []string{"python3", "python"} {
-			if path, err := exec.LookPath(bin); err == nil {
-				cachedPyBin = path
-				return
+		for _, bin := range pythonCandidates() {
+			if path, err := exec.LookPath(bin); err == nil && isExecutableValid(path) {
+				// Verify candidate actually executes without crashing (filters out broken execution aliases / code 9009)
+				cmd := exec.Command(bin, "-c", "import sys; sys.exit(0)")
+				if cmdErr := cmd.Run(); cmdErr == nil {
+					cachedPyBin = bin
+					return
+				}
 			}
 		}
-		cachedPyErr = fmt.Errorf("neither python3 nor python found in PATH")
+		cachedPyErr = fmt.Errorf("neither python nor python3 found in PATH (or execution alias failed)")
 	})
 	return cachedPyBin, cachedPyErr
 }

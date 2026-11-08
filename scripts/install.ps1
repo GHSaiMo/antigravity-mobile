@@ -180,7 +180,9 @@ if ($downloadSuccess) {
     if ($repoRoot -and (Test-Path "$repoRoot\..\cmd\gateway")) {
         Set-Location (Join-Path $repoRoot "..")
     }
-    & $goCmd build -ldflags="-s -w -X 'main.Version=1.0.5'" -o "$installDir\mgy.exe" ./cmd/gateway
+    $tagVer = (git describe --tags --abbrev=0 2>$null) -replace '^v',''
+    if (-not $tagVer) { $tagVer = "1.1.3" }
+    & $goCmd build -ldflags="-s -w -X 'main.Version=$tagVer'" -o "$installDir\mgy.exe" ./cmd/gateway
 }
 
 # 6. 安装到 WindowsApps (Windows 默认已在 PATH 中的用户级目录，免重启即生效)

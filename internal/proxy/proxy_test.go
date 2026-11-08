@@ -375,6 +375,7 @@ func TestGetAllCascadeTrajectories_CanProceedNeedsInput(t *testing.T) {
 func TestGetAllCascadeTrajectories_ApprovedPlanWorkingNotNeedsInput(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 
 	// Simulate on-disk implementation_plan.md.metadata.json with requestFeedback=true and no walkthrough.md
 	// for both a RUNNING session (user approved the plan and agent is working) and an IDLE session where

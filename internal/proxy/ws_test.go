@@ -78,6 +78,7 @@ func TestWebSocketUpgradeAndPingPong(t *testing.T) {
 		msgType, data, err := conn.ReadMessage()
 		if err == nil {
 			_ = conn.WriteMessage(msgType, data)
+			time.Sleep(50 * time.Millisecond)
 		}
 	}))
 	defer server.Close()
