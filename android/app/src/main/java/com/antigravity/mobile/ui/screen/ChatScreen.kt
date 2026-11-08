@@ -128,6 +128,7 @@ import com.antigravity.mobile.ui.components.AttachmentPickerSheet
 import com.antigravity.mobile.ui.components.AttachmentFileChip
 import com.antigravity.mobile.ui.components.AudioRecordingCard
 import com.antigravity.mobile.ui.components.VoiceCallCard
+import com.antigravity.mobile.ui.components.VoiceTroubleshootBubble
 import com.antigravity.mobile.ui.util.AudioRecorderManager
 import com.antigravity.mobile.ui.util.VoiceCallManager
 import com.antigravity.mobile.ui.viewmodel.bindVoiceCascadeId
@@ -428,6 +429,22 @@ fun ChatScreen(
     val isRecordingAudio by audioRecorder.isRecording.collectAsState()
     val voiceCall = remember { VoiceCallManager(context) }
     val isInVoiceCall by voiceCall.isInCall.collectAsState()
+    var showVoiceTroubleshootBubble by remember { mutableStateOf(false) }
+    var lastVoiceTroubleshootBubbleAt by remember { mutableStateOf(0L) }
+
+    // 语音明确失败（此时通话已被自动挂断）后弹出排查气泡；30 秒内不重复弹
+    LaunchedEffect(voiceCall) {
+        voiceCall.failureEvents.collect {
+            val now = System.currentTimeMillis()
+            if (now - lastVoiceTroubleshootBubbleAt > 30_000L) {
+                lastVoiceTroubleshootBubbleAt = now
+                showVoiceTroubleshootBubble = true
+            }
+        }
+    }
+    LaunchedEffect(isInVoiceCall) {
+        if (isInVoiceCall) showVoiceTroubleshootBubble = false
+    }
     val voicePrefs = remember { viewModel.prefs ?: com.antigravity.mobile.data.service.PreferencesManager(context) }
     val enableVoiceMode by voicePrefs.enableVoiceModeFlow.collectAsState()
 
@@ -1111,7 +1128,8 @@ fun ChatScreen(
                     uiState.queuedMessages.isNotEmpty() ||
                     uiState.pendingInteraction != null ||
                     isRecordingAudio ||
-                    isInVoiceCall
+                    isInVoiceCall ||
+                    showVoiceTroubleshootBubble
 
             if (hasFloatingCards) {
                 Column(
@@ -1121,6 +1139,17 @@ fun ChatScreen(
                         .padding(bottom = 6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
+                    if (showVoiceTroubleshootBubble && !isInVoiceCall) {
+                        VoiceTroubleshootBubble(
+                            onRetry = { showVoiceTroubleshootBubble = false },
+                            onTroubleshoot = {
+                                showVoiceTroubleshootBubble = false
+                                viewModel.sendPresetMessage(VoiceCallManager.TROUBLESHOOT_PROMPT)
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+
                     if (isInVoiceCall) {
                         VoiceCallCard(
                             voiceCall = voiceCall,

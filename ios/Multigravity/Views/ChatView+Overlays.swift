@@ -58,6 +58,21 @@ extension ChatView {
             .transition(.move(edge: .bottom).combined(with: .opacity))
         }
         
+        if showVoiceTroubleshootBubble && !voiceCall.isInCall {
+            VoiceTroubleshootBubbleView(
+                onRetry: {
+                    withAnimation { showVoiceTroubleshootBubble = false }
+                },
+                onTroubleshoot: {
+                    withAnimation { showVoiceTroubleshootBubble = false }
+                    Task {
+                        await viewModel.sendMessage(text: VoiceCallManager.troubleshootPrompt)
+                    }
+                }
+            )
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+
         if voiceCall.isInCall {
             VoiceCallCardView(
                 voiceCall: voiceCall,

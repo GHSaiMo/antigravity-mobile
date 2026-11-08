@@ -260,6 +260,11 @@ class ChatViewModel(
         sendMessage("Continue")
     }
 
+    /** 直接发送一条预设消息到当前会话（如语音连接失败后的一键排查提示词）。 */
+    fun sendPresetMessage(text: String) {
+        sendMessage(text)
+    }
+
     fun sendCurrentMessage() {
         val text = _inputText.value.trim()
         val images = _uiState.value.selectedImages

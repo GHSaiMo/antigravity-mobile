@@ -563,7 +563,7 @@ fun MessageBubble(
                                 leadingIcon = { Icon(Icons.Default.Undo, contentDescription = "撤回至此步骤", tint = Color(0xFFDC2626)) },
                                 onClick = {
                                     showContextMenu = false
-                                    onUndoClick()
+                                    onUndoClick(message)
                                 }
                             )
                         }

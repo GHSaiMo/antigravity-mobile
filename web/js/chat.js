@@ -1956,8 +1956,35 @@ const LocalQueueManager = {
   }
 };
 
+// 语音连接失败后「一键排查」发送给智能体的预设提示词（三端保持一致）
+const VOICE_TROUBLESHOOT_PROMPT = [
+  "【任务】排查「本机无法使用谷歌语音(Gemini Live)功能」的问题。",
+  "",
+  "【现象】",
+  "- 本机 Antigravity 的语音功能无法连接，界面提示 “Couldn't connect / Try again”",
+  "",
+  "【请按顺序排查】",
+  "1. 登录与授权：",
+  "   - 检查登录态的 OAuth Scope 是否完整。旧登录态可能缺少语音所需的新权限",
+  "   - 如需重新授权，先退出 Antigravity，将 jetski-standalone-oauth-token 文件重命名或移走，再启动并重新登录，以强制拉取完整 Scope",
+  "2. 代理与长连接：",
+  "   - 语音使用双向流式通信（bidi stream / gRPC）",
+  "   - 确认代理（Clash / Clash Verge / Sing-box 等）已开启 TUN 模式，或支持对 *.googleapis.com 的 HTTP/2 与 gRPC 流式转发",
+  "   - 查看日志是否出现 context canceled while waiting for connections（连接超时的典型特征）",
+  "3. 系统麦克风：",
+  "   - 确认系统麦克风访问权限与「允许桌面应用访问麦克风」均已开启",
+  "   - 确认默认录音设备正常，且没有被其他程序占用",
+  "4. 网关链路：检查网关语音 WebSocket 链路与日志（mgy 会话输出）",
+  "",
+  "【输出要求】",
+  "- 先给出根因判断与证据（日志、命令输出），再给修复步骤",
+  "- 能自动修复的直接修复；涉及改配置、重启服务或重新登录的，先说明再执行",
+  "- 修复后验证语音是否恢复"
+].join("\n");
+
 // --- Full-Duplex Real-time Voice Call Manager (jetski-voice-proto) ---
 const WebVoiceCallManager = {
+  lastTroubleshootBubbleAt: 0,
   isInCall: false,
   callState: "idle", // idle | connecting | listening | reconnecting
 
@@ -2002,6 +2029,8 @@ const WebVoiceCallManager = {
     if (barsEl && !barsEl.children.length) {
       barsEl.innerHTML = this.soundLevels.map(() => `<span class="voice-wave-bar"></span>`).join("");
     }
+    document.getElementById("btn-vtb-retry")?.addEventListener("click", () => this.hideTroubleshootBubble());
+    document.getElementById("btn-vtb-troubleshoot")?.addEventListener("click", () => this.sendTroubleshootPrompt());
     document.getElementById("btn-voice-speed")?.addEventListener("click", () => this.cycleSpeed());
     document.getElementById("btn-voice-mic")?.addEventListener("click", () => this.toggleMicMute());
     document.getElementById("btn-voice-speaker")?.addEventListener("click", () => this.toggleSpeakerMute());
@@ -2108,6 +2137,7 @@ const WebVoiceCallManager = {
     ws.onclose = () => {
       if (this.ws === ws && this.isInCall) {
         this.endCall();
+        this.showTroubleshootBubble();
       }
     };
 
@@ -2115,8 +2145,31 @@ const WebVoiceCallManager = {
       if (this.ws === ws && this.isInCall) {
         showToast("实时语音连接断开");
         this.endCall();
+        this.showTroubleshootBubble();
       }
     };
+  },
+
+  // 连接明确失败（已自动挂断）后弹出排查气泡；30 秒内不重复弹
+  showTroubleshootBubble() {
+    const now = Date.now();
+    if (now - this.lastTroubleshootBubbleAt < 30000) return;
+    this.lastTroubleshootBubbleAt = now;
+    document.getElementById("voice-troubleshoot-bubble")?.classList.remove("hidden");
+  },
+
+  hideTroubleshootBubble() {
+    document.getElementById("voice-troubleshoot-bubble")?.classList.add("hidden");
+  },
+
+  async sendTroubleshootPrompt() {
+    this.hideTroubleshootBubble();
+    const inputEl = document.getElementById("chat-input");
+    if (!inputEl || typeof sendMessage !== "function") return;
+    const prevDraft = inputEl.value;
+    inputEl.value = VOICE_TROUBLESHOOT_PROMPT;
+    await sendMessage();
+    if (prevDraft && !inputEl.value) inputEl.value = prevDraft;
   },
 
   endCall() {
