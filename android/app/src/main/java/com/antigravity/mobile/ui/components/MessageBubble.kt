@@ -428,6 +428,8 @@ fun MessageBubble(
                 val trimmed = userBodyText.trim()
                 trimmed.contains("<talker_agent_context>") ||
                 trimmed.contains("</talker_agent_context>") ||
+                trimmed.contains("<voice_instructions>") ||
+                trimmed.contains("</voice_instructions>") ||
                 (trimmed.contains("talker:") && (trimmed.contains("user:") || trimmed.contains("[202"))) ||
                 (attachedFiles.isNotEmpty() && attachedFiles.all { it.ext.lowercase() in listOf("wav", "m4a", "aac", "mp3", "caf", "opus") } && trimmed.isBlank())
             }
@@ -497,10 +499,21 @@ fun MessageBubble(
                         .padding(horizontal = 14.dp, vertical = 10.dp)
                 ) {
                     if (!isVoiceExpanded) {
-                        AntigravityVoiceIcon(
-                            modifier = Modifier.size(24.dp),
-                            tint = colors.userBubbleText
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            AntigravityVoiceIcon(
+                                modifier = Modifier.size(18.dp),
+                                tint = colors.userBubbleText
+                            )
+                            Text(
+                                text = "语音交互",
+                                color = colors.userBubbleText,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
                     } else {
                         Column(
                             modifier = Modifier.widthIn(max = 320.dp),
@@ -843,65 +856,100 @@ private data class ShareCardRequest(
 )
 
 /**
- * 清洗语音交互中的协议标签（<talker_agent_context>）、时间戳与格式化符号，提取干净自然的多轮语音文本。
+ * 清洗语音交互中的协议标签（<talker_agent_context>、<voice_instructions> 等）、时间戳与说明性文本，
+ * 仅提取纯净的用户与智能体多轮语音对话。
  */
 object VoiceTranscriptCleaner {
-    private val tagRegex = Regex("""</?talker_agent_context>""", RegexOption.IGNORE_CASE)
-    private val timestampRegex = Regex("""^\[\d{4}-\d{2}-\d{2}T[^\]]+\]\s*""")
-    private val roleRegex = Regex("""^(user|human|me|talker|agent|assistant|ai):\s*""", RegexOption.IGNORE_CASE)
+    private val instructionsBlockRegex = Regex(
+        """<(?:voice_instructions|instructions)>[\s\S]*?(?:</(?:voice_instructions|instructions)>|(?=<talker_agent_context>)|$)""",
+        RegexOption.IGNORE_CASE
+    )
+    private val contextBlockRegex = Regex(
+        """<talker_agent_context>([\s\S]*?)(?:</talker_agent_context>|$)""",
+        RegexOption.IGNORE_CASE
+    )
+    private val tagRegex = Regex(
+        """</?(?:voice_instructions|instructions|talker_agent_context)>""",
+        RegexOption.IGNORE_CASE
+    )
+    private val timestampRegex = Regex(
+        """^\[\d{4}[-/]\d{2}[-/]\d{2}[ T][^\]]+\]\s*|^\[\d{2}:\d{2}(?::\d{2})?\]\s*"""
+    )
+    private val roleRegex = Regex(
+        """^(user|human|me|用户|我|talker|agent|assistant|ai|智能体|助手|语音)\s*[:：]\s*""",
+        RegexOption.IGNORE_CASE
+    )
 
     fun clean(raw: String): String {
         if (raw.isBlank()) return ""
-        val withoutTags = tagRegex.replace(raw, "")
-        val lines = withoutTags.lines()
-        val cleaned = mutableListOf<String>()
 
-        for (rawLine in lines) {
+        val contextMatch = contextBlockRegex.find(raw)
+        val textToProcess = if (contextMatch != null && contextMatch.groupValues[1].isNotBlank()) {
+            contextMatch.groupValues[1]
+        } else {
+            val withoutInstructions = instructionsBlockRegex.replace(raw, "")
+            tagRegex.replace(withoutInstructions, "")
+        }
+
+        val cleaned = mutableListOf<String>()
+        var currentRole: String? = null
+        val currentLines = mutableListOf<String>()
+        var quoteOpen = false
+
+        fun finishCurrent() {
+            if (currentRole != null && currentLines.isNotEmpty()) {
+                var text = currentLines.joinToString("\n").trim()
+                if (text.startsWith("\"") && text.endsWith("\"") && text.length >= 2) {
+                    text = text.substring(1, text.length - 1).trim()
+                } else if (text.startsWith("\"")) {
+                    text = text.substring(1).trim()
+                } else if (text.endsWith("\"")) {
+                    text = text.substring(0, text.length - 1).trim()
+                }
+                if (text.isNotEmpty()) {
+                    val formatted = "$currentRole$text"
+                    if (cleaned.isEmpty() || cleaned.last() != formatted) {
+                        cleaned.add(formatted)
+                    }
+                }
+            }
+            currentRole = null
+            currentLines.clear()
+            quoteOpen = false
+        }
+
+        for (rawLine in textToProcess.lines()) {
             val line = rawLine.trim()
             if (line.isEmpty()) continue
 
-            // 移除行首 ISO 时间戳: [2026-11-08T07:12:48-08:00]
-            var content = timestampRegex.replace(line, "").trim()
-
-            var role = ""
+            val content = timestampRegex.replace(line, "").trim()
             val roleMatch = roleRegex.find(content)
+
             if (roleMatch != null) {
-                val matched = roleMatch.value.lowercase()
-                role = if (matched.startsWith("user") || matched.startsWith("human") || matched.startsWith("me")) {
+                finishCurrent()
+                val matched = roleMatch.groupValues[1].lowercase()
+                currentRole = if (matched in listOf("user", "human", "me", "用户", "我")) {
                     "用户: "
                 } else {
-                    "语音: "
+                    "智能体: "
                 }
-                content = content.substring(roleMatch.range.last + 1).trim()
-            }
-
-            // 剥离包裹句子的双引号
-            if (content.startsWith("\"") && content.endsWith("\"") && content.length >= 2) {
-                content = content.substring(1, content.length - 1).trim()
-            } else if (content.startsWith("\"")) {
-                content = content.substring(1).trim()
-            } else if (content.endsWith("\"")) {
-                content = content.substring(0, content.length - 1).trim()
-            }
-
-            // 过滤因流式截断残留的无角色孤立引号碎片
-            if (role.isEmpty() && cleaned.isEmpty() && content.length < 80 && line.endsWith("\"") && !line.startsWith("\"")) {
-                continue
-            }
-
-            if (content.isEmpty()) continue
-
-            val formatted = if (role.isNotEmpty()) "$role$content" else content
-            if (cleaned.isEmpty() || cleaned.last() != formatted) {
-                cleaned.add(formatted)
+                val rem = content.substring(roleMatch.range.last + 1).trim()
+                val quoteCount = rem.count { it == '"' }
+                quoteOpen = (quoteCount % 2 == 1)
+                currentLines.add(rem)
+            } else if (quoteOpen && currentRole != null) {
+                val quoteCount = content.count { it == '"' }
+                if (quoteCount % 2 == 1) {
+                    quoteOpen = false
+                }
+                currentLines.add(content)
+            } else if (contextMatch != null && currentRole != null && !quoteOpen) {
+                currentLines.add(content)
             }
         }
 
-        return if (cleaned.isNotEmpty()) {
-            cleaned.joinToString("\n\n")
-        } else {
-            withoutTags.trim()
-        }
+        finishCurrent()
+        return cleaned.joinToString("\n\n")
     }
 }
 
