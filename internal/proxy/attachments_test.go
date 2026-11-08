@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -55,7 +56,7 @@ func TestAttachmentUploadStoresFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st.Mode().Perm() != 0o600 {
+	if runtime.GOOS != "windows" && st.Mode().Perm() != 0o600 {
 		t.Errorf("file mode = %v, want 0600", st.Mode().Perm())
 	}
 	if tmps, _ := os.ReadDir(filepath.Join(inbox, ".tmp")); len(tmps) != 0 {

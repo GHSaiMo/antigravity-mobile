@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -563,19 +564,34 @@ func fetchProjectsFromWorkspaceStorage() []ProjectItem {
 
 func getAntigravityStateDBPaths() []string {
 	var paths []string
+	seen := make(map[string]bool)
+	addPath := func(p string) {
+		clean := filepath.Clean(p)
+		if !seen[clean] {
+			seen[clean] = true
+			paths = append(paths, clean)
+		}
+	}
+
 	if appData := os.Getenv("APPDATA"); appData != "" {
-		paths = append(paths,
-			filepath.Join(appData, "Antigravity", "User", "globalStorage", "state.vscdb"),
-			filepath.Join(appData, "Antigravity IDE", "User", "globalStorage", "state.vscdb"),
-		)
+		addPath(filepath.Join(appData, "Antigravity", "User", "globalStorage", "state.vscdb"))
+		addPath(filepath.Join(appData, "Antigravity IDE", "User", "globalStorage", "state.vscdb"))
 	}
 	if home, err := os.UserHomeDir(); err == nil {
-		paths = append(paths,
-			filepath.Join(home, "Library", "Application Support", "Antigravity", "User", "globalStorage", "state.vscdb"),
-			filepath.Join(home, "Library", "Application Support", "Antigravity IDE", "User", "globalStorage", "state.vscdb"),
-			filepath.Join(home, "AppData", "Roaming", "Antigravity", "User", "globalStorage", "state.vscdb"),
-			filepath.Join(home, "AppData", "Roaming", "Antigravity IDE", "User", "globalStorage", "state.vscdb"),
-		)
+		if runtime.GOOS == "darwin" {
+			addPath(filepath.Join(home, "Library", "Application Support", "Antigravity", "User", "globalStorage", "state.vscdb"))
+			addPath(filepath.Join(home, "Library", "Application Support", "Antigravity IDE", "User", "globalStorage", "state.vscdb"))
+		} else if runtime.GOOS == "windows" {
+			addPath(filepath.Join(home, "AppData", "Roaming", "Antigravity", "User", "globalStorage", "state.vscdb"))
+			addPath(filepath.Join(home, "AppData", "Roaming", "Antigravity IDE", "User", "globalStorage", "state.vscdb"))
+		} else {
+			configDir := os.Getenv("XDG_CONFIG_HOME")
+			if configDir == "" {
+				configDir = filepath.Join(home, ".config")
+			}
+			addPath(filepath.Join(configDir, "Antigravity", "User", "globalStorage", "state.vscdb"))
+			addPath(filepath.Join(configDir, "Antigravity IDE", "User", "globalStorage", "state.vscdb"))
+		}
 	}
 	return paths
 }
@@ -618,7 +634,7 @@ func fetchProjectsFromStateDB() []ProjectItem {
 	var err error
 
 	// 1. Try sqlite3 CLI if available
-	if _, lookErr := exec.LookPath("sqlite3"); lookErr == nil {
+	if p, lookErr := exec.LookPath("sqlite3"); lookErr == nil && isExecutableValid(p) {
 		cmd := exec.CommandContext(ctx, "sqlite3", dbPath, "SELECT value FROM ItemTable WHERE key = 'history.recentlyOpenedPathsList';")
 		out, err = cmd.Output()
 	}
@@ -634,14 +650,16 @@ func fetchProjectsFromStateDB() []ProjectItem {
 			"cur.execute('SELECT value FROM ItemTable WHERE key = ?', (sys.argv[2],))\n" +
 			"row = cur.fetchone()\n" +
 			"sys.stdout.write(row[0] if row and row[0] else '')\n"
-		for _, pyExe := range []string{"python", "python3"} {
-			if _, lookErr := exec.LookPath(pyExe); lookErr == nil {
-				cmd := exec.CommandContext(ctx, pyExe, "-c", pyScript, dbPath, "history.recentlyOpenedPathsList")
-				if pyOut, pyErr := cmd.Output(); pyErr == nil && len(pyOut) > 0 {
-					out = pyOut
-					err = nil
-					break
-				}
+		for _, pyExe := range pythonCandidates() {
+			p, lookErr := exec.LookPath(pyExe)
+			if lookErr != nil || !isExecutableValid(p) {
+				continue
+			}
+			cmd := exec.CommandContext(ctx, pyExe, "-c", pyScript, dbPath, "history.recentlyOpenedPathsList")
+			if pyOut, pyErr := cmd.Output(); pyErr == nil && len(pyOut) > 0 {
+				out = pyOut
+				err = nil
+				break
 			}
 		}
 	}

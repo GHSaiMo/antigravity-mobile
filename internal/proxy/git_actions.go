@@ -365,13 +365,21 @@ func gitPush(ctx context.Context, repoRoot string) (string, error) {
 
 // fileURIToLocalPath converts a file:// workspace URI into a local directory path.
 func fileURIToLocalPath(raw string) (string, error) {
-	u, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || u.Scheme != "file" || u.Path == "" {
+	norm := filepath.ToSlash(strings.TrimSpace(raw))
+	u, err := url.Parse(norm)
+	if err != nil || u.Scheme != "file" {
 		return "", fmt.Errorf("不支持的工作区地址: %q", raw)
 	}
 	p := u.Path
-	if runtime.GOOS == "windows" && len(p) > 2 && p[0] == '/' && isWindowsDriveLetter(p[1]) && p[2] == ':' {
-		p = p[1:]
+	if runtime.GOOS == "windows" {
+		if u.Host != "" && len(u.Host) == 2 && isWindowsDriveLetter(u.Host[0]) && u.Host[1] == ':' {
+			p = u.Host + p
+		} else if len(p) > 2 && p[0] == '/' && isWindowsDriveLetter(p[1]) && p[2] == ':' {
+			p = p[1:]
+		}
+	}
+	if p == "" {
+		return "", fmt.Errorf("不支持的工作区地址: %q", raw)
 	}
 	return filepath.Clean(filepath.FromSlash(p)), nil
 }

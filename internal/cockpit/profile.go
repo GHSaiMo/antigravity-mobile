@@ -31,32 +31,33 @@ func validateSQLiteKey(key string) error {
 
 func antigravityStateDBPaths() []string {
 	var paths []string
+	seen := make(map[string]bool)
+	addPath := func(p string) {
+		clean := filepath.Clean(p)
+		if !seen[clean] {
+			seen[clean] = true
+			paths = append(paths, clean)
+		}
+	}
+
 	if appData := os.Getenv("APPDATA"); appData != "" {
-		paths = append(paths,
-			filepath.Join(appData, "Antigravity", "User", "globalStorage", "state.vscdb"),
-			filepath.Join(appData, "Antigravity IDE", "User", "globalStorage", "state.vscdb"),
-		)
+		addPath(filepath.Join(appData, "Antigravity", "User", "globalStorage", "state.vscdb"))
+		addPath(filepath.Join(appData, "Antigravity IDE", "User", "globalStorage", "state.vscdb"))
 	}
 	if home, err := os.UserHomeDir(); err == nil {
 		if runtime.GOOS == "darwin" {
-			paths = append(paths,
-				filepath.Join(home, "Library", "Application Support", "Antigravity", "User", "globalStorage", "state.vscdb"),
-				filepath.Join(home, "Library", "Application Support", "Antigravity IDE", "User", "globalStorage", "state.vscdb"),
-			)
+			addPath(filepath.Join(home, "Library", "Application Support", "Antigravity", "User", "globalStorage", "state.vscdb"))
+			addPath(filepath.Join(home, "Library", "Application Support", "Antigravity IDE", "User", "globalStorage", "state.vscdb"))
 		} else if runtime.GOOS == "windows" {
-			paths = append(paths,
-				filepath.Join(home, "AppData", "Roaming", "Antigravity", "User", "globalStorage", "state.vscdb"),
-				filepath.Join(home, "AppData", "Roaming", "Antigravity IDE", "User", "globalStorage", "state.vscdb"),
-			)
+			addPath(filepath.Join(home, "AppData", "Roaming", "Antigravity", "User", "globalStorage", "state.vscdb"))
+			addPath(filepath.Join(home, "AppData", "Roaming", "Antigravity IDE", "User", "globalStorage", "state.vscdb"))
 		} else {
 			configDir := os.Getenv("XDG_CONFIG_HOME")
 			if configDir == "" {
 				configDir = filepath.Join(home, ".config")
 			}
-			paths = append(paths,
-				filepath.Join(configDir, "Antigravity", "User", "globalStorage", "state.vscdb"),
-				filepath.Join(configDir, "Antigravity IDE", "User", "globalStorage", "state.vscdb"),
-			)
+			addPath(filepath.Join(configDir, "Antigravity", "User", "globalStorage", "state.vscdb"))
+			addPath(filepath.Join(configDir, "Antigravity IDE", "User", "globalStorage", "state.vscdb"))
 		}
 	}
 	return paths
@@ -135,31 +136,55 @@ func clearStaleAntigravityIdentity() {
 	}
 }
 
+func pythonCandidates() []string {
+	if runtime.GOOS == "windows" {
+		return []string{"python", "py", "python3"}
+	}
+	return []string{"python3", "python"}
+}
+
+func isExecutableValid(path string) bool {
+	resolved := path
+	if !filepath.IsAbs(resolved) && !strings.ContainsRune(resolved, filepath.Separator) && !strings.ContainsRune(resolved, '/') {
+		if p, err := exec.LookPath(resolved); err == nil {
+			resolved = p
+		}
+	}
+	if fi, err := os.Stat(resolved); err != nil || fi.Size() == 0 {
+		return false
+	}
+	return true
+}
+
 func execSQLite(dbPath, sql string) error {
 	cleanDB := filepath.Clean(dbPath)
 	if !strings.HasSuffix(cleanDB, ".vscdb") && !strings.HasSuffix(cleanDB, ".db") {
 		return fmt.Errorf("invalid sqlite database path: %q", dbPath)
 	}
-	if _, lookErr := exec.LookPath("sqlite3"); lookErr == nil {
+	if p, lookErr := exec.LookPath("sqlite3"); lookErr == nil && isExecutableValid(p) {
 		cmd := exec.Command("sqlite3", cleanDB, sql)
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
-		}
-		return nil
-	}
-	for _, py := range []string{"python", "python3"} {
-		if _, lookErr := exec.LookPath(py); lookErr == nil {
-			pyScript := "import sqlite3, sys; conn = sqlite3.connect(sys.argv[1]); conn.executescript(sys.argv[2]); conn.commit()"
-			cmd := exec.Command(py, "-c", pyScript, cleanDB, sql)
-			out, err := cmd.CombinedOutput()
-			if err != nil {
-				return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
-			}
+		if _, err := cmd.CombinedOutput(); err == nil {
 			return nil
 		}
 	}
-	return fmt.Errorf("neither sqlite3 nor python found to execute sqlite query")
+	pyScript := "import sqlite3, sys; conn = sqlite3.connect(sys.argv[1]); conn.executescript(sys.argv[2]); conn.commit()"
+	var lastErr error
+	for _, py := range pythonCandidates() {
+		p, lookErr := exec.LookPath(py)
+		if lookErr != nil || !isExecutableValid(p) {
+			continue
+		}
+		cmd := exec.Command(py, "-c", pyScript, cleanDB, sql)
+		out, err := cmd.CombinedOutput()
+		if err == nil {
+			return nil
+		}
+		lastErr = fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+	}
+	if lastErr != nil {
+		return lastErr
+	}
+	return fmt.Errorf("neither sqlite3 nor a functioning python runtime found to execute sqlite query")
 }
 
 func getLegacyBindAccount() string {
@@ -242,23 +267,29 @@ var afterProfilePrepare = func() { time.Sleep(50 * time.Millisecond) }
 
 func querySQLite(dbPath, sql string) (string, error) {
 	cleanDB := filepath.Clean(dbPath)
-	if _, lookErr := exec.LookPath("sqlite3"); lookErr == nil {
+	if p, lookErr := exec.LookPath("sqlite3"); lookErr == nil && isExecutableValid(p) {
 		cmd := exec.Command("sqlite3", "-batch", "-noheader", cleanDB, sql)
 		out, err := cmd.CombinedOutput()
-		if err != nil {
-			return "", err
+		if err == nil {
+			return strings.TrimSpace(string(out)), nil
 		}
-		return strings.TrimSpace(string(out)), nil
 	}
 	pyScript := "import sqlite3, sys; conn = sqlite3.connect(sys.argv[1]); cur = conn.cursor(); cur.execute(sys.argv[2]); row = cur.fetchone(); sys.stdout.write(str(row[0]) if row and row[0] is not None else '')"
-	for _, py := range []string{"python", "python3"} {
-		if _, lookErr := exec.LookPath(py); lookErr == nil {
-			cmd := exec.Command(py, "-c", pyScript, cleanDB, sql)
-			out, err := cmd.CombinedOutput()
-			if err == nil {
-				return strings.TrimSpace(string(out)), nil
-			}
+	var lastErr error
+	for _, py := range pythonCandidates() {
+		p, lookErr := exec.LookPath(py)
+		if lookErr != nil || !isExecutableValid(p) {
+			continue
 		}
+		cmd := exec.Command(py, "-c", pyScript, cleanDB, sql)
+		out, err := cmd.CombinedOutput()
+		if err == nil {
+			return strings.TrimSpace(string(out)), nil
+		}
+		lastErr = err
+	}
+	if lastErr != nil {
+		return "", lastErr
 	}
 	return "", fmt.Errorf("sqlite query runner not found")
 }
