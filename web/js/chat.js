@@ -484,6 +484,7 @@ function updateChatControls(isRunning, wsUri, hasAction = false) {
     const iconHangup = sendBtn.querySelector(".icon-hangup");
     const hasContent = (chatInput && chatInput.value.trim().length > 0) || (pendingImages && pendingImages.length > 0) || !!getSelectedSlashCommand();
     const inVoiceCall = typeof WebVoiceCallManager !== "undefined" && WebVoiceCallManager.isInCall;
+    const voiceEnabled = typeof WebVoiceCallManager !== "undefined" && WebVoiceCallManager.isVoiceModeEnabled();
 
     const showOnlyIcon = (activeIcon) => {
       [iconSend, iconStop, iconVoice, iconHangup].forEach(ic => {
@@ -503,8 +504,8 @@ function updateChatControls(isRunning, wsUri, hasAction = false) {
       sendBtn.title = "挂断实时语音通话";
       sendBtn.setAttribute("aria-label", "挂断实时语音通话");
       showOnlyIcon(iconHangup);
-    } else if (hasContent) {
-      sendBtn.className = "btn-action-circle send-mode active";
+    } else if (hasContent || (!isRunning && !voiceEnabled)) {
+      sendBtn.className = "btn-action-circle send-mode" + (hasContent ? " active" : "");
       sendBtn.title = isRunning ? "加入待发送队列" : "发送";
       sendBtn.setAttribute("aria-label", isRunning ? "加入待发送队列" : "发送");
       showOnlyIcon(iconSend);
@@ -1959,6 +1960,25 @@ const LocalQueueManager = {
 const WebVoiceCallManager = {
   isInCall: false,
   callState: "idle", // idle | connecting | listening | reconnecting
+
+  isVoiceModeEnabled() {
+    try {
+      return localStorage.getItem("ag_enable_voice_mode") === "true";
+    } catch (_) {
+      return false;
+    }
+  },
+
+  setVoiceModeEnabled(enabled) {
+    try {
+      localStorage.setItem("ag_enable_voice_mode", enabled ? "true" : "false");
+    } catch (_) {}
+    if (!enabled && this.isInCall) {
+      this.endCall();
+    } else {
+      updateChatControls(isCascadeRunning(activeCascadeId), null, false);
+    }
+  },
   isMicMuted: false,
   isSpeakerMuted: false,
   playbackSpeed: 1.0,

@@ -424,6 +424,14 @@ fun ChatScreen(
     val isRecordingAudio by audioRecorder.isRecording.collectAsState()
     val voiceCall = remember { VoiceCallManager(context) }
     val isInVoiceCall by voiceCall.isInCall.collectAsState()
+    val voicePrefs = remember { viewModel.prefs ?: com.antigravity.mobile.data.service.PreferencesManager(context) }
+    val enableVoiceMode by voicePrefs.enableVoiceModeFlow.collectAsState()
+
+    LaunchedEffect(enableVoiceMode) {
+        if (!enableVoiceMode && isInVoiceCall) {
+            voiceCall.endCall()
+        }
+    }
 
     val startVoiceCallInternal: () -> Unit = {
         if (isRecordingAudio) {
@@ -1440,9 +1448,9 @@ fun ChatScreen(
                                         )
                                     }
                                 }
-                                hasSendableDraft -> {
+                                hasSendableDraft || (!isActivelyRunning && !enableVoiceMode) -> {
                                     // Send button: 44.dp circle, Apple Indigo with white up arrow
-                                    val isEnabled = !hasUnuploadedFiles
+                                    val isEnabled = hasSendableDraft && !hasUnuploadedFiles
                                     Box(
                                         modifier = Modifier
                                             .size(44.dp)

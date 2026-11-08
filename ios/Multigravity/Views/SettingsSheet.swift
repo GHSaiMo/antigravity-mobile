@@ -122,6 +122,20 @@ public struct SettingsSheet: View {
                         }
                 }
                 
+                // MARK: - 4a. 实时语音对话
+                Section(
+                    header: Text("语音"),
+                    footer: Text("开启后，输入框为空且空闲时右侧按钮将变为实时语音对话入口（单击开始双工通话，长按离线录音）；关闭时保持原有的发送按钮。")
+                ) {
+                    Toggle("实时语音对话", isOn: $settings.enableVoiceMode)
+                        .onChange(of: settings.enableVoiceMode) { _, enabled in
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            if !enabled && VoiceCallManager.shared.isInCall {
+                                VoiceCallManager.shared.endCall()
+                            }
+                        }
+                }
+                
                 // MARK: - 4b. 默认模型
                 Section(
                     header: Text("默认模型"),

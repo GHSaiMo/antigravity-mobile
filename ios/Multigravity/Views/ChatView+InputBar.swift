@@ -297,7 +297,7 @@ extension ChatView {
                     .buttonStyle(.plain)
                     .accessibilityLabel("挂断实时语音通话")
                     .transition(.scale.combined(with: .opacity))
-                } else if hasSendableDraft {
+                } else if hasSendableDraft || (!viewModel.isActivelyRunning && !AppSettings.shared.enableVoiceMode) {
                     Button(action: handleSend) {
                         ZStack {
                             Circle()

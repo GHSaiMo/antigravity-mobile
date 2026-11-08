@@ -392,7 +392,7 @@ mgy help           # 查看完整命令与启动参数帮助
 
 ### 18. 🎙️ 全双工实时语音通话、LaTeX 公式与自适应表格及守护进程状态解耦 (v1.1.3)
 - **Antigravity 2.29+ 全双工实时语音通话 (`/voice/ws` Full-Duplex Live Voice Call)**：
-  - Go 网关、iOS、Android 与 Web PWA 四端全量打通 Antigravity 2.29+ 原生 `/voice/ws`（`jetski-voice-proto`）二进制 Protobuf 实时语音协议，支持 16kHz PCM 麦克风上行、24kHz PCM 流式语音下行、实时打断（`clearAudio`）、双端实时字幕流、静音切换、多档倍速（1.0x~2.0x）及草稿页一键开麦建会话；
+  - Go 网关、iOS、Android 与 Web PWA 四端全量打通 Antigravity 2.29+ 原生 `/voice/ws`（`jetski-voice-proto`）二进制 Protobuf 实时语音协议，支持 16kHz PCM 麦克风上行、24kHz PCM 流式语音下行、实时打断（`clearAudio`）、双端实时字幕流、静音切换、多档倍速（1.0x~2.0x）及草稿页一键开麦建会话；设置页提供「实时语音对话」独立开关（默认关闭以保持传统 `↑` 发送按钮逻辑，开启后空闲态切换为实时语音入口，单击开启双工通话、长按离线录音）；
 - **三端 LaTeX 数学公式与自适应 Markdown 表格全面升级 (LaTeX Math & Adaptive Markdown Tables)**：
   - 全面修复并对齐 iOS、Android、Web 三端复杂 LaTeX 数学公式（`\underbrace`、`\overbrace`、`\langle` / `\rangle`、`\mathcal`、`\mathbb` 等）与常用 Markdown 语法渲染；iOS 与 Android 表格支持按内容自适应列宽与横向平滑滚动；
 - **会话状态精准判定与常驻守护进程 (`IsDaemon`) 解耦 (Session Status Precision & Daemon Task Parity)**：
