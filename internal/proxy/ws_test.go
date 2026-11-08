@@ -210,3 +210,75 @@ func TestWebSocketPermessageDeflateNegotiation(t *testing.T) {
 	_ = msgType
 }
 
+func TestStripGatewayAuthQuery(t *testing.T) {
+	raw := "conversation_id=abc-123&ticket=sec-tkt&token=sec-tok&plan_model=1018&sample_rate=16000"
+	got := stripGatewayAuthQuery(raw)
+	if strings.Contains(got, "ticket=") || strings.Contains(got, "token=") {
+		t.Errorf("expected ticket and token stripped, got %q", got)
+	}
+	if !strings.Contains(got, "conversation_id=abc-123") || !strings.Contains(got, "plan_model=1018") || !strings.Contains(got, "sample_rate=16000") {
+		t.Errorf("expected voice query params preserved, got %q", got)
+	}
+
+	rawStrModel := "conversation_id=abc-123&plan_model=gemini-3.8-flash-high&sample_rate=16000"
+	gotStrModel := stripGatewayAuthQuery(rawStrModel)
+	if !strings.Contains(gotStrModel, "plan_model=1318") {
+		t.Errorf("expected plan_model=gemini-3.8-flash-high normalized to plan_model=1318, got %q", gotStrModel)
+	}
+}
+
+func TestVoiceUpgraderSubprotocolAndBinaryFrames(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sanitizeWebSocketHeaders(r)
+		conn, err := voiceUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("voiceUpgrader error: %v", err)
+			return
+		}
+		defer conn.Close()
+
+		msgType, data, err := conn.ReadMessage()
+		if err != nil {
+			t.Errorf("read error: %v", err)
+			return
+		}
+		if msgType != websocket.BinaryMessage {
+			t.Errorf("expected binary message, got %d", msgType)
+		}
+		_ = conn.WriteMessage(websocket.BinaryMessage, data)
+	}))
+	defer server.Close()
+
+	wsURL := "ws" + server.URL[len("http"):]
+	header := make(http.Header)
+	header.Set("Origin", "http://127.0.0.1")
+
+	dialer := websocket.Dialer{
+		Subprotocols: []string{"jetski-voice-proto"},
+	}
+	client, resp, err := dialer.Dial(wsURL, header)
+	if err != nil {
+		t.Fatalf("failed to dial voice ws: %v", err)
+	}
+	defer client.Close()
+
+	if resp.Header.Get("Sec-WebSocket-Protocol") != "jetski-voice-proto" {
+		t.Errorf("expected negotiated subprotocol jetski-voice-proto, got %q", resp.Header.Get("Sec-WebSocket-Protocol"))
+	}
+
+	frame := []byte{0x12, 0x04, 0x01, 0x02, 0x03, 0x04}
+	if err := client.WriteMessage(websocket.BinaryMessage, frame); err != nil {
+		t.Fatalf("write binary frame: %v", err)
+	}
+
+	client.SetReadDeadline(time.Now().Add(2 * time.Second))
+	msgType, echoed, err := client.ReadMessage()
+	if err != nil {
+		t.Fatalf("read echoed binary frame: %v", err)
+	}
+	if msgType != websocket.BinaryMessage || string(echoed) != string(frame) {
+		t.Errorf("binary frame mismatch: type=%d len=%d", msgType, len(echoed))
+	}
+}
+
+

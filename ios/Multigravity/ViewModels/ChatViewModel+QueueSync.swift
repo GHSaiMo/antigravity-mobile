@@ -561,5 +561,71 @@ extension ChatViewModel {
             return false
         }
     }
-    
+
+    @MainActor
+    public func ensureCascadeForVoiceCall() async throws -> String {
+        if !cascadeId.isEmpty {
+            return cascadeId
+        }
+        guard let url = settings.serverURL else {
+            throw APIError.invalidURL
+        }
+        let project = draftProject ?? draftSession?.project ?? ProjectItem.pureChat
+        let isPure = project.isPureChat
+        let pid = isPure ? "outside-of-project" : (project.rawId ?? (project.id != project.uri ? project.id : nil))
+        let wsUri = isPure ? "" : project.uri
+        let newCascadeId = try await apiClient.createCascade(
+            workspaceUri: wsUri,
+            prompt: "",
+            model: activeModelEnum,
+            projectId: pid,
+            clientMessageId: UUID().uuidString,
+            baseURL: url
+        )
+        bindVoiceCascadeId(newCascadeId, project: project)
+        return newCascadeId
+    }
+
+    @MainActor
+    public func bindVoiceCascadeId(_ newCascadeId: String, project: ProjectItem? = nil) {
+        guard !newCascadeId.isEmpty, cascadeId != newCascadeId else { return }
+        let resolvedProject = project ?? draftProject ?? draftSession?.project ?? ProjectItem.pureChat
+        let isPure = resolvedProject.isPureChat
+
+        var draftKeysToPurge = Set<String>()
+        if let orig = self.originDraftId, !orig.isEmpty {
+            draftKeysToPurge.insert(orig)
+        }
+        if let dSession = draftSession {
+            draftKeysToPurge.insert(dSession.id)
+        }
+        draftKeysToPurge.insert("draft_project_\(resolvedProject.id)")
+
+        for key in draftKeysToPurge {
+            self.cacheManager.deleteLocalDraftSession(id: key)
+            self.cacheManager.clearDraft(key: key)
+            self.cacheManager.clearDraftImages(key: key)
+            DraftFileStore.shared.clear(key: key)
+            NotificationCenter.default.post(name: .conversationDraftDeleted, object: key)
+        }
+
+        self.originDraftId = nil
+        self.cascadeId = newCascadeId
+        self.draftSession = nil
+        self.draftProject = nil
+        self.isNewConversation = false
+        self.workspaceName = isPure ? "Chat" : resolvedProject.name
+
+        let newConv = ConversationItem(
+            id: newCascadeId,
+            title: isPure ? "新对话" : resolvedProject.name,
+            status: .idle,
+            stepCount: 0,
+            workspaceName: isPure ? "Chat" : resolvedProject.name,
+            lastModified: Date()
+        )
+        self.cacheManager.upsertConversation(newConv)
+        connectStream()
+    }
+
 }

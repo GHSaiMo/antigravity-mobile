@@ -170,6 +170,9 @@ extension ChatView {
             showOtherSessionRecordingAlert = true
             return
         }
+        if voiceCall.isInCall {
+            voiceCall.endCall()
+        }
         audioRecorder.startRecording(
             cascadeId: currentKey,
             conversationTitle: viewModel.currentTitle
@@ -178,6 +181,52 @@ extension ChatView {
                 showMicrophonePermissionAlert = true
             } else {
                 viewModel.saveCurrentDraft()
+            }
+        }
+    }
+
+    func handleStartVoiceCall() {
+        if audioRecorder.isRecording {
+            audioRecorder.cancelRecording()
+        }
+        let permission = AVAudioSession.sharedInstance().recordPermission
+        switch permission {
+        case .granted:
+            beginLiveVoiceCall()
+        case .undetermined:
+            AVAudioSession.sharedInstance().requestRecordPermission { granted in
+                DispatchQueue.main.async {
+                    if granted {
+                        beginLiveVoiceCall()
+                    } else {
+                        showMicrophonePermissionAlert = true
+                    }
+                }
+            }
+        case .denied:
+            showMicrophonePermissionAlert = true
+        @unknown default:
+            beginLiveVoiceCall()
+        }
+    }
+
+    private func beginLiveVoiceCall() {
+        isInputFocused = false
+        Task { @MainActor in
+            do {
+                let cid = try await viewModel.ensureCascadeForVoiceCall()
+                voiceCall.onCascadeBound = { newCascadeId in
+                    Task { @MainActor in
+                        viewModel.bindVoiceCascadeId(newCascadeId)
+                    }
+                }
+                voiceCall.startCall(
+                    cascadeId: cid,
+                    modelIdOrEnum: viewModel.activeModelEnum,
+                    baseURL: AppSettings.shared.serverURL
+                )
+            } catch {
+                viewModel.errorMessage = "无法启动实时语音会话：\(error.localizedDescription)"
             }
         }
     }

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -449,6 +450,213 @@ func (p *Proxy) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 			closeErr := w.Close()
 			slog.Info(fmt.Sprintf("[WS] Streamed large message: %d bytes (%.2f MB) in %v", totalBytes, float64(totalBytes) / (1024 * 1024), time.Since(streamStart)))
 			if closeErr != nil || copyErr != nil {
+				break
+			}
+		}
+	}()
+
+	wg.Wait()
+}
+
+// voiceUpgrader handles /voice/ws full-duplex audio WebSocket upgrades.
+// Compression is disabled because 40ms PCM16LE binary frames (1280B) are latency-sensitive
+// and incompressible. Subprotocols negotiates "jetski-voice-proto" required by Antigravity 2.29+.
+var voiceUpgrader = websocket.Upgrader{
+	ReadBufferSize:    32 * 1024,
+	WriteBufferSize:   32 * 1024,
+	CheckOrigin:       CheckWebSocketOrigin,
+	EnableCompression: false,
+	Subprotocols:      []string{"jetski-voice-proto"},
+}
+
+// stripGatewayAuthQuery removes gateway-specific query authentication parameters
+// and normalizes string plan_model IDs/enums (e.g., "gemini-3.8-flash-high" or "MODEL_PLACEHOLDER_M318")
+// into the integer exa.codeium_common_pb.Model enum (1000 + N) expected by /voice/ws.
+func stripGatewayAuthQuery(rawQuery string) string {
+	if rawQuery == "" {
+		return ""
+	}
+	q, err := url.ParseQuery(rawQuery)
+	if err != nil {
+		return rawQuery
+	}
+	q.Del("ticket")
+	q.Del("token")
+	q.Del("auth_token")
+	if pm := strings.TrimSpace(q.Get("plan_model")); pm != "" {
+		if _, err := strconv.Atoi(pm); err != nil {
+			enumStr := resolveModelEnum(pm)
+			if suffix, ok := strings.CutPrefix(enumStr, "MODEL_PLACEHOLDER_M"); ok {
+				if n, err := strconv.Atoi(suffix); err == nil && n > 0 {
+					q.Set("plan_model", strconv.Itoa(1000+n))
+				}
+			}
+		}
+	}
+	return q.Encode()
+}
+
+// handleVoiceHealth proxies GET /voice/health to the active Antigravity language_server.
+func (p *Proxy) handleVoiceHealth(w http.ResponseWriter, r *http.Request) {
+	p.mu.RLock()
+	rp := p.activeProxy
+	p.mu.RUnlock()
+
+	if rp == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"ready":false,"state":"unavailable"}`))
+		return
+	}
+	rp.ServeHTTP(w, r)
+}
+
+// HandleVoiceWebSocket proxies full-duplex binary Protobuf voice streams (/voice/ws)
+// between mobile/web clients and the upstream Antigravity language_server.
+func (p *Proxy) HandleVoiceWebSocket(w http.ResponseWriter, r *http.Request) {
+	port, token := p.ActiveUpstream()
+	if cur := p.insp.Current(); cur != nil && cur.IsHealthy && cur.Port > 0 {
+		port = cur.Port
+		token = cur.CSRFToken
+	}
+	if port <= 0 {
+		http.Error(w, "Antigravity language_server unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	sanitizeWebSocketHeaders(r)
+
+	clientConn, err := voiceUpgrader.Upgrade(w, r, nil)
+	if err != nil {
+		slog.Warn("[VoiceWS] Upgrade failed", "err", err)
+		return
+	}
+	defer clientConn.Close()
+	defer p.trackWSConn(clientConn)()
+
+	upstreamURL := fmt.Sprintf("wss://127.0.0.1:%d/voice/ws", port)
+	if cleanQuery := stripGatewayAuthQuery(r.URL.RawQuery); cleanQuery != "" {
+		upstreamURL += "?" + cleanQuery
+	}
+
+	dialer := websocket.Dialer{
+		TLSClientConfig:   localtls.ClientConfig(),
+		NetDialTLSContext: localtls.DialTLSContext,
+		HandshakeTimeout:  8 * time.Second,
+		ReadBufferSize:    32 * 1024,
+		WriteBufferSize:   32 * 1024,
+		EnableCompression: false,
+		Subprotocols:      []string{"jetski-voice-proto"},
+	}
+
+	reqHeader := make(http.Header)
+	if token != "" {
+		reqHeader.Set("x-codeium-csrf-token", token)
+	}
+
+	upstreamConn, resp, err := dialer.Dial(upstreamURL, reqHeader)
+	if err != nil {
+		slog.Warn(fmt.Sprintf("[VoiceWS] Upstream dial failed (%s)", upstreamURL), "err", err)
+		if resp != nil {
+			slog.Info(fmt.Sprintf("[VoiceWS] Upstream response status: %d", resp.StatusCode))
+		}
+		_ = clientConn.WriteControl(
+			websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseInternalServerErr, "Upstream voice connection failed"),
+			time.Now().Add(2*time.Second),
+		)
+		return
+	}
+	defer upstreamConn.Close()
+	defer p.trackWSConn(upstreamConn)()
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	const voiceWSTimeout = 60 * time.Second
+	const maxVoiceMessageSize = 4 * 1024 * 1024 // 4MB ceiling for voice protobuf frames
+
+	clientConn.SetReadLimit(maxVoiceMessageSize)
+	clientConn.SetReadDeadline(time.Now().Add(voiceWSTimeout))
+	clientConn.SetPongHandler(func(string) error {
+		clientConn.SetReadDeadline(time.Now().Add(voiceWSTimeout))
+		return nil
+	})
+	upstreamConn.SetReadLimit(maxVoiceMessageSize)
+	upstreamConn.SetReadDeadline(time.Now().Add(voiceWSTimeout))
+	upstreamConn.SetPongHandler(func(string) error {
+		upstreamConn.SetReadDeadline(time.Now().Add(voiceWSTimeout))
+		return nil
+	})
+
+	stopHeartbeat := make(chan struct{})
+	var closeOnce sync.Once
+	closeBoth := func() {
+		closeOnce.Do(func() {
+			close(stopHeartbeat)
+			_ = clientConn.Close()
+			_ = upstreamConn.Close()
+		})
+	}
+	defer closeBoth()
+
+	go func() {
+		ticker := time.NewTicker(20 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopHeartbeat:
+				return
+			case <-ticker.C:
+				_ = clientConn.WriteControl(websocket.PingMessage, []byte("ping"), time.Now().Add(5*time.Second))
+				_ = upstreamConn.WriteControl(websocket.PingMessage, []byte("ping"), time.Now().Add(5*time.Second))
+			}
+		}
+	}()
+
+	// Pump: Client -> Upstream (16kHz PCM16LE mic_audio & settings_update binary frames)
+	go func() {
+		defer wg.Done()
+		defer closeBoth()
+		for {
+			msgType, data, err := clientConn.ReadMessage()
+			if err != nil {
+				if ce, ok := err.(*websocket.CloseError); ok {
+					_ = upstreamConn.WriteControl(
+						websocket.CloseMessage,
+						websocket.FormatCloseMessage(ce.Code, ce.Text),
+						time.Now().Add(time.Second),
+					)
+				}
+				break
+			}
+			clientConn.SetReadDeadline(time.Now().Add(voiceWSTimeout))
+			upstreamConn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if err := upstreamConn.WriteMessage(msgType, data); err != nil {
+				break
+			}
+		}
+	}()
+
+	// Pump: Upstream -> Client (24kHz PCM16LE voice_audio, status, transcripts, clear_audio)
+	go func() {
+		defer wg.Done()
+		defer closeBoth()
+		for {
+			msgType, data, err := upstreamConn.ReadMessage()
+			if err != nil {
+				if ce, ok := err.(*websocket.CloseError); ok {
+					_ = clientConn.WriteControl(
+						websocket.CloseMessage,
+						websocket.FormatCloseMessage(ce.Code, ce.Text),
+						time.Now().Add(time.Second),
+					)
+				}
+				break
+			}
+			upstreamConn.SetReadDeadline(time.Now().Add(voiceWSTimeout))
+			clientConn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if err := clientConn.WriteMessage(msgType, data); err != nil {
 				break
 			}
 		}

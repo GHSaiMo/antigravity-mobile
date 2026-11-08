@@ -12,10 +12,12 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -31,7 +33,9 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.LinearScale
 import androidx.compose.material.icons.filled.Warning
@@ -119,7 +123,11 @@ import com.antigravity.mobile.ui.viewmodel.consumeAttachmentNotice
 import com.antigravity.mobile.ui.components.AttachmentPickerSheet
 import com.antigravity.mobile.ui.components.AttachmentFileChip
 import com.antigravity.mobile.ui.components.AudioRecordingCard
+import com.antigravity.mobile.ui.components.VoiceCallCard
 import com.antigravity.mobile.ui.util.AudioRecorderManager
+import com.antigravity.mobile.ui.util.VoiceCallManager
+import com.antigravity.mobile.ui.viewmodel.bindVoiceCascadeId
+import com.antigravity.mobile.ui.viewmodel.ensureCascadeForVoiceCall
 import com.antigravity.mobile.ui.viewmodel.requestUndo
 import com.antigravity.mobile.ui.viewmodel.retryLoadMessages
 import com.antigravity.mobile.ui.viewmodel.saveDraftFor
@@ -129,7 +137,7 @@ import com.antigravity.mobile.ui.viewmodel.stopSubagent
 import com.antigravity.mobile.ui.viewmodel.stopTask
 import com.antigravity.mobile.ui.viewmodel.submitInteraction
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun ChatScreen(
     cascadeId: String,
@@ -414,11 +422,64 @@ fun ChatScreen(
 
     val audioRecorder = remember { AudioRecorderManager(context) }
     val isRecordingAudio by audioRecorder.isRecording.collectAsState()
+    val voiceCall = remember { VoiceCallManager(context) }
+    val isInVoiceCall by voiceCall.isInCall.collectAsState()
+
+    val startVoiceCallInternal: () -> Unit = {
+        if (isRecordingAudio) {
+            audioRecorder.cancelRecording()
+        }
+        voiceCall.onCascadeBound = { newCascadeId ->
+            viewModel.bindVoiceCascadeId(newCascadeId)
+        }
+        viewModel.ensureCascadeForVoiceCall { readyCascadeId, baseUrl, token ->
+            val ok = voiceCall.startCall(
+                cascadeId = readyCascadeId,
+                modelIdOrEnum = uiState.activeModel,
+                baseUrl = baseUrl,
+                deviceToken = token
+            )
+            if (!ok) {
+                android.widget.Toast.makeText(context, "无法启动实时语音通话", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    val voiceCallPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            startVoiceCallInternal()
+        } else {
+            android.widget.Toast.makeText(context, "需要麦克风权限以开启实时语音对话", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val launchVoiceCall: () -> Unit = {
+        if (androidx.core.content.ContextCompat.checkSelfPermission(
+                context, android.Manifest.permission.RECORD_AUDIO
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            startVoiceCallInternal()
+        } else {
+            voiceCallPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
+    LaunchedEffect(uiState.activeModel, isInVoiceCall) {
+        if (isInVoiceCall) {
+            voiceCall.updatePlanModel(uiState.activeModel)
+        }
+    }
+
     val audioPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
             showAttachmentSheet = false
+            if (isInVoiceCall) {
+                voiceCall.endCall()
+            }
             val success = audioRecorder.startRecording()
             if (!success) {
                 android.widget.Toast.makeText(context, "无法启动录音", android.widget.Toast.LENGTH_SHORT).show()
@@ -433,6 +494,9 @@ fun ChatScreen(
             ) == android.content.pm.PackageManager.PERMISSION_GRANTED
         ) {
             showAttachmentSheet = false
+            if (isInVoiceCall) {
+                voiceCall.endCall()
+            }
             val success = audioRecorder.startRecording()
             if (!success) {
                 android.widget.Toast.makeText(context, "无法启动录音", android.widget.Toast.LENGTH_SHORT).show()
@@ -445,6 +509,7 @@ fun ChatScreen(
     DisposableEffect(Unit) {
         onDispose {
             audioRecorder.cancelRecording()
+            voiceCall.endCall()
         }
     }
 
@@ -1028,11 +1093,13 @@ fun ChatScreen(
             // Floating Cards (RunningTasksCard, QueuedMessagesCard, InteractionCard, AudioRecordingCard) 对齐 iOS floatingCards
             // 底部只放仍在运行的子代理（方便随时关停）；已结束的留在消息流里的内联卡片中，不占底部位置
             val runningSubagents = uiState.subagents.filter { it.isRunning }
+            val isActivelyRunningForCards = uiState.isRunning || uiState.isAwaitingResponse || uiState.runningTasks.hasBlockingTasks
             val hasFloatingCards = uiState.runningTasks.isNotEmpty() ||
                     runningSubagents.isNotEmpty() ||
                     uiState.queuedMessages.isNotEmpty() ||
                     uiState.pendingInteraction != null ||
-                    isRecordingAudio
+                    isRecordingAudio ||
+                    isInVoiceCall
 
             if (hasFloatingCards) {
                 Column(
@@ -1042,6 +1109,18 @@ fun ChatScreen(
                         .padding(bottom = 6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
+                    if (isInVoiceCall) {
+                        VoiceCallCard(
+                            voiceCall = voiceCall,
+                            isAgentRunning = isActivelyRunningForCards,
+                            onStopAgentTask = {
+                                dismissKeyboard()
+                                viewModel.cancelExecution()
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+
                     if (isRecordingAudio) {
                         AudioRecordingCard(
                             recorder = audioRecorder,
@@ -1330,64 +1409,126 @@ fun ChatScreen(
                             val isActivelyRunning = uiState.isRunning || uiState.isAwaitingResponse || uiState.runningTasks.hasBlockingTasks
                             val isInputBlank = inputText.isBlank()
                             val hasAttachments = uiState.selectedImages.isNotEmpty() || uiState.selectedFiles.isNotEmpty() || uiState.selectedSlashCommand != null
+                            val hasSendableDraft = !isInputBlank || hasAttachments
+                            val hasUnuploadedFiles = uiState.selectedFiles.any { !it.isUploaded }
 
-                            if (isActivelyRunning && isInputBlank && !hasAttachments) {
-                                // Stop button: 44.dp circle, matches iOS stop button (gray circle with red stop square)
-                                Box(
-                                    modifier = Modifier
-                                        .size(44.dp)
-                                        .shadow(
-                                            elevation = 2.dp,
-                                            shape = CircleShape,
-                                            ambientColor = Color.Black.copy(alpha = 0.05f),
-                                            spotColor = colors.accentRed.copy(alpha = 0.25f)
-                                        )
-                                        .clip(CircleShape)
-                                        .background(colors.surfaceVariant)
-                                        .border(0.8.dp, colors.border, CircleShape)
-                                        .clickable {
-                                            dismissKeyboard()
-                                            viewModel.cancelExecution()
-                                        },
-                                    contentAlignment = Alignment.Center
-                                ) {
+                            when {
+                                isInVoiceCall && !hasSendableDraft -> {
+                                    // Hang-up button during active voice call when draft is empty
                                     Box(
                                         modifier = Modifier
-                                            .size(15.dp)
-                                            .clip(RoundedCornerShape(3.dp))
+                                            .size(44.dp)
+                                            .shadow(
+                                                elevation = 3.dp,
+                                                shape = CircleShape,
+                                                ambientColor = Color.Black.copy(alpha = 0.08f),
+                                                spotColor = colors.accentRed.copy(alpha = 0.35f)
+                                            )
+                                            .clip(CircleShape)
                                             .background(colors.accentRed)
-                                    )
+                                            .clickable {
+                                                haptic.medium()
+                                                voiceCall.endCall()
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.CallEnd,
+                                            contentDescription = "挂断实时语音通话",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(19.dp)
+                                        )
+                                    }
                                 }
-                            } else {
-                                // Send button: 44.dp circle, Apple Indigo with white up arrow, matches iOS send button
-                                val isEnabled = !isInputBlank || hasAttachments
-                                Box(
-                                    modifier = Modifier
-                                        .size(44.dp)
-                                        .shadow(
-                                            elevation = if (isEnabled) 3.dp else 0.dp,
-                                            shape = CircleShape,
-                                            ambientColor = Color.Black.copy(alpha = 0.05f),
-                                            spotColor = colors.accentIndigo.copy(alpha = 0.35f)
+                                hasSendableDraft -> {
+                                    // Send button: 44.dp circle, Apple Indigo with white up arrow
+                                    val isEnabled = !hasUnuploadedFiles
+                                    Box(
+                                        modifier = Modifier
+                                            .size(44.dp)
+                                            .shadow(
+                                                elevation = if (isEnabled) 3.dp else 0.dp,
+                                                shape = CircleShape,
+                                                ambientColor = Color.Black.copy(alpha = 0.05f),
+                                                spotColor = colors.accentIndigo.copy(alpha = 0.35f)
+                                            )
+                                            .clip(CircleShape)
+                                            .background(if (isEnabled) colors.accentIndigo else colors.surfaceVariant)
+                                            .then(
+                                                if (!isEnabled) Modifier.border(0.8.dp, colors.border, CircleShape)
+                                                else Modifier
+                                            )
+                                            .clickable(enabled = isEnabled) {
+                                                dismissKeyboard()
+                                                viewModel.sendCurrentMessage()
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.ArrowUpward,
+                                            contentDescription = "Send",
+                                            tint = if (isEnabled) Color.White else colors.textSecondary.copy(alpha = 0.5f),
+                                            modifier = Modifier.size(19.dp)
                                         )
-                                        .clip(CircleShape)
-                                        .background(if (isEnabled) colors.accentIndigo else colors.surfaceVariant)
-                                        .then(
-                                            if (!isEnabled) Modifier.border(0.8.dp, colors.border, CircleShape)
-                                            else Modifier
+                                    }
+                                }
+                                isActivelyRunning -> {
+                                    // Stop button: 44.dp circle, matches iOS stop button (gray circle with red stop square)
+                                    Box(
+                                        modifier = Modifier
+                                            .size(44.dp)
+                                            .shadow(
+                                                elevation = 2.dp,
+                                                shape = CircleShape,
+                                                ambientColor = Color.Black.copy(alpha = 0.05f),
+                                                spotColor = colors.accentRed.copy(alpha = 0.25f)
+                                            )
+                                            .clip(CircleShape)
+                                            .background(colors.surfaceVariant)
+                                            .border(0.8.dp, colors.border, CircleShape)
+                                            .clickable {
+                                                dismissKeyboard()
+                                                viewModel.cancelExecution()
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(15.dp)
+                                                .clip(RoundedCornerShape(3.dp))
+                                                .background(colors.accentRed)
                                         )
-                                        .clickable(enabled = isEnabled) {
-                                            dismissKeyboard()
-                                            viewModel.sendCurrentMessage()
-                                        },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.ArrowUpward,
-                                        contentDescription = "Send",
-                                        tint = if (isEnabled) Color.White else colors.textSecondary.copy(alpha = 0.5f),
-                                        modifier = Modifier.size(19.dp)
-                                    )
+                                    }
+                                }
+                                else -> {
+                                    // Voice Mode button: single tap starts full-duplex voice call, long press starts offline .m4a recording
+                                    Box(
+                                        modifier = Modifier
+                                            .size(44.dp)
+                                            .clip(CircleShape)
+                                            .background(colors.accentIndigo.copy(alpha = 0.12f))
+                                            .border(0.8.dp, colors.accentIndigo.copy(alpha = 0.28f), CircleShape)
+                                            .combinedClickable(
+                                                onClick = {
+                                                    haptic.medium()
+                                                    dismissKeyboard()
+                                                    launchVoiceCall()
+                                                },
+                                                onLongClick = {
+                                                    haptic.heavy()
+                                                    dismissKeyboard()
+                                                    launchAudioRecording()
+                                                }
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.GraphicEq,
+                                            contentDescription = "实时语音对话，长按录制语音消息",
+                                            tint = colors.accentIndigo,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
                                 }
                             }
                         }

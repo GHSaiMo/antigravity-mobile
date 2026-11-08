@@ -58,6 +58,17 @@ extension ChatView {
             .transition(.move(edge: .bottom).combined(with: .opacity))
         }
         
+        if voiceCall.isInCall {
+            VoiceCallCardView(
+                voiceCall: voiceCall,
+                isAgentRunning: viewModel.isActivelyRunning,
+                onStopAgentTask: {
+                    handleCancel()
+                }
+            )
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+
         if audioRecorder.isRecording && audioRecorder.currentCascadeId == viewModel.draftKey {
             AudioRecordingCardView(
                 recorder: audioRecorder,

@@ -819,6 +819,8 @@ func buildRouter(
 	rootMux.Handle("/gateway/", web.GzipHandler(p))
 	rootMux.Handle("/static/artifacts/", web.GzipHandler(p))
 	rootMux.Handle("/connect-websocket", p) // WebSocket: must NOT wrap with GzipHandler
+	rootMux.Handle("/voice/ws", p)          // Voice WebSocket: binary Protobuf PCM stream, must NOT wrap with GzipHandler
+	rootMux.Handle("/voice/health", p)      // Voice health probe
 	rootMux.Handle("/exa.language_server_pb.", web.GzipHandler(p))
 	rootMux.Handle("/exa.language_server_pb.LanguageServerService/", web.GzipHandler(p))
 
