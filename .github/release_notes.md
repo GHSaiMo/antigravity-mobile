@@ -8,6 +8,9 @@
 - 📐 **三端 LaTeX 数学公式与自适应 Markdown 表格全面升级 (LaTeX Math & Adaptive Markdown Tables)**：
   - 全面修复并对齐 iOS、Android、Web 三端复杂 LaTeX 数学公式渲染（原生支持 `\underbrace`、`\overbrace`、`\langle` / `\rangle`、`\mathcal`、`\mathbb`、矩阵环境与多层上下标等）及常用 Markdown 语法。
   - iOS 与 Android 原生表格升级为按单元格内容自适应列宽并支持横向平滑滚动，彻底解决多列表格在手机端挤压折行问题。
+- 📊 **免 Cockpit 本地直读当前账号实时配额 (Zero-Config Live Quota)**：
+  - 未安装或未配置 Cockpit Tools 时，网关直接通过 Antigravity 本地服务 RPC 实时读取当前使用账号的 4 维配额（Claude 5h、Claude Weekly、Gemini 5h、Gemini Weekly）及 Gemini 4 Argon 额度，并在移动端顶部状态条与详情面板实时展示；
+  - 详情面板下方备用账号区域自动呈现友好引导，提示用户安装 Cockpit Tools 并通过 `mgy cockpit` 交互式配置，享受多备用账号一键切换。
 
 ### 🛡️ 架构稳固与细节打磨
 - 🎯 **会话运行状态精准判定与 `Action required` 误报根治 (Session Status Precision)**：

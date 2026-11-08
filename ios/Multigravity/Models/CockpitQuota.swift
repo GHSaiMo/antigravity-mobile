@@ -4,11 +4,22 @@ public struct CockpitQuotaResponse: Codable, Sendable {
     public let currentAccount: CockpitAccountQuota?
     public let accounts: [CockpitAccountQuota]
     public let updatedAt: Int64
+    /// "cockpit" or "live"; nil from older gateways.
+    public let source: String?
+    /// nil from older gateways (treated as installed).
+    public let cockpitInstalled: Bool?
+    public let cockpitHint: String?
+    
+    /// 网关未配置 Cockpit 时为 true,此时只有当前账号的实时额度。
+    public var needsCockpitInstall: Bool { cockpitInstalled == false }
     
     enum CodingKeys: String, CodingKey {
         case currentAccount = "current_account"
         case accounts
         case updatedAt = "updated_at"
+        case source
+        case cockpitInstalled = "cockpit_installed"
+        case cockpitHint = "cockpit_hint"
     }
 }
 

@@ -66,5 +66,12 @@ data class CockpitAccountQuota(
 data class CockpitQuotaResponse(
     @SerialName("current_account") val currentAccount: CockpitAccountQuota? = null,
     val accounts: List<CockpitAccountQuota> = emptyList(),
-    @SerialName("updated_at") val updatedAt: Long = 0
-)
+    @SerialName("updated_at") val updatedAt: Long = 0,
+    val source: String? = null,
+    // null from older gateways (treated as installed)
+    @SerialName("cockpit_installed") val cockpitInstalled: Boolean? = null,
+    @SerialName("cockpit_hint") val cockpitHint: String? = null
+) {
+    /** 网关未配置 Cockpit 时为 true,此时只有当前账号的实时额度。 */
+    val needsCockpitInstall: Boolean get() = cockpitInstalled == false
+}

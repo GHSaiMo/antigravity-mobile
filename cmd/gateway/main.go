@@ -764,9 +764,26 @@ func buildRouter(
 	})
 
 	// Cockpit endpoints
+	// liveQuota reads the current account + 4 quota buckets from the running
+	// Antigravity language server (works without Cockpit).
+	liveQuota := func() (*cockpit.AccountQuota, string) {
+		port, token := p.ActiveUpstream()
+		if port == 0 {
+			return nil, ""
+		}
+		acc, err := cockpit.FetchLiveQuota(cockpit.LiveQuotaClient(), fmt.Sprintf("https://127.0.0.1:%d", port), token)
+		if err != nil {
+			slog.Warn("[Cockpit] live quota unavailable", "err", err)
+			return nil, ""
+		}
+		return acc, acc.Email
+	}
 	rootMux.HandleFunc("GET /api/v1/cockpit/quotas", func(w http.ResponseWriter, r *http.Request) {
-		liveEmail, _, _ := p.GetActiveUserStatus()
-		quotas, err := cockpit.GetQuotas(liveEmail)
+		live, liveEmail := liveQuota()
+		if liveEmail == "" {
+			liveEmail, _, _ = p.GetActiveUserStatus()
+		}
+		quotas, err := cockpit.BuildQuotaResponse(live, liveEmail)
 		if err != nil {
 			slog.Warn("[Cockpit] GetQuotas failed", "err", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -776,10 +793,17 @@ func buildRouter(
 	})
 	rootMux.HandleFunc("POST /api/v1/cockpit/refresh", func(w http.ResponseWriter, r *http.Request) {
 		slog.Info("[Cockpit] Triggering quota refresh...")
-		liveEmail, _, _ := p.GetActiveUserStatus()
-		quotas, err := cockpit.RefreshQuotas(liveEmail)
+		if cockpit.IsCockpitInstalled() {
+			liveEmail, _, _ := p.GetActiveUserStatus()
+			if _, err := cockpit.RefreshQuotas(liveEmail); err != nil {
+				slog.Warn("[Cockpit] RefreshQuotas failed", "err", err)
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+				return
+			}
+		}
+		live, liveEmail := liveQuota()
+		quotas, err := cockpit.BuildQuotaResponse(live, liveEmail)
 		if err != nil {
-			slog.Warn("[Cockpit] RefreshQuotas failed", "err", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
@@ -795,6 +819,10 @@ func buildRouter(
 			return
 		}
 		targetID := strings.TrimSpace(req.AccountID)
+		if !cockpit.IsCockpitInstalled() {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": cockpit.CockpitInstallHint, "code": "COCKPIT_REQUIRED"})
+			return
+		}
 		slog.Info(fmt.Sprintf("[Cockpit] Switching account to: %s (quit Antigravity first, then Cockpit inject+relaunch)", targetID))
 		if err := cockpit.SwitchAccount(targetID); err != nil {
 			slog.Warn("[Cockpit] SwitchAccount failed", "err", err)

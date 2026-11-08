@@ -44,6 +44,30 @@ public struct AccountQuotaSheet: View {
         return all
     }
     
+    private var cockpitInstallHintCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("备用账号")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 4)
+            VStack(alignment: .leading, spacing: 10) {
+                Label("未检测到 Cockpit Tools", systemImage: "info.circle")
+                    .font(.system(size: 14, weight: .semibold))
+                Text("请安装 Cockpit Tools,并在网关里用 mgy cockpit 进行配置,即可享受备用账号额度总览与一键切换等功能。")
+                    .font(.system(size: 13))
+                    .foregroundColor(.secondary)
+                Button(action: { UIPasteboard.general.string = "mgy cockpit" }) {
+                    Label("复制命令 mgy cockpit", systemImage: "doc.on.doc")
+                        .font(.system(size: 12, weight: .medium))
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14)
+            .background(Color(uiColor: .secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+        }
+    }
+    
     private func maskEmail(_ email: String) -> String {
         let parts = email.split(separator: "@", maxSplits: 1, omittingEmptySubsequences: false)
         guard parts.count == 2 else { return email }
@@ -100,7 +124,9 @@ public struct AccountQuotaSheet: View {
                         }
                     }
                     
-                    if !otherAccounts.isEmpty {
+                    if quotaResponse?.needsCockpitInstall == true {
+                        cockpitInstallHintCard
+                    } else if !otherAccounts.isEmpty {
                         VStack(alignment: .leading, spacing: 10) {
                             Text("备用账号 (\(otherAccounts.count))")
                                 .font(.system(size: 13, weight: .semibold))
