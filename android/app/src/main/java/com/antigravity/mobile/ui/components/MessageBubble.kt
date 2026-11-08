@@ -425,13 +425,7 @@ fun MessageBubble(
             // Files the user attached: the gateway appends an attachment block to the message text.
             val (userBodyText, attachedFiles) = remember(displayText) { AttachmentRules.parseBlock(displayText) }
             val isVoiceMessage = remember(userBodyText, attachedFiles) {
-                val trimmed = userBodyText.trim()
-                trimmed.contains("<talker_agent_context>") ||
-                trimmed.contains("</talker_agent_context>") ||
-                trimmed.contains("<voice_instructions>") ||
-                trimmed.contains("</voice_instructions>") ||
-                (trimmed.contains("talker:") && (trimmed.contains("user:") || trimmed.contains("[202"))) ||
-                (attachedFiles.isNotEmpty() && attachedFiles.all { it.ext.lowercase() in listOf("wav", "m4a", "aac", "mp3", "caf", "opus") } && trimmed.isBlank())
+                VoiceTranscriptCleaner.isVoiceMessage(userBodyText, attachedFiles)
             }
 
             if (attachedFiles.isNotEmpty() && !isVoiceMessage) {
@@ -879,6 +873,16 @@ object VoiceTranscriptCleaner {
         """^(user|human|me|用户|我|talker|agent|assistant|ai|智能体|助手|语音)\s*[:：]\s*""",
         RegexOption.IGNORE_CASE
     )
+
+    fun isVoiceMessage(body: String, files: List<AttachmentRules.ParsedFile> = emptyList()): Boolean {
+        val trimmed = body.trim()
+        return trimmed.contains("<talker_agent_context>") ||
+               trimmed.contains("</talker_agent_context>") ||
+               trimmed.contains("<voice_instructions>") ||
+               trimmed.contains("</voice_instructions>") ||
+               (trimmed.contains("talker:") && (trimmed.contains("user:") || trimmed.contains("[202"))) ||
+               (files.isNotEmpty() && files.all { it.ext.lowercase() in listOf("wav", "m4a", "aac", "mp3", "caf", "opus") } && trimmed.isBlank())
+    }
 
     fun clean(raw: String): String {
         if (raw.isBlank()) return ""

@@ -16,9 +16,9 @@ public struct VoiceCallCardView: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 7) {
             if !voiceCall.liveTranscriptText.isEmpty {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                HStack(alignment: .top, spacing: 6) {
                     Text(voiceCall.liveTranscriptRole == .ai ? "AI" : "我")
                         .font(.system(size: 10, weight: .bold))
                         .foregroundColor(.white)
@@ -28,13 +28,16 @@ public struct VoiceCallCardView: View {
                             Capsule()
                                 .fill(voiceCall.liveTranscriptRole == .ai ? Color.cyan : Color.indigo)
                         )
+                        .padding(.top, 1.5)
 
                     Text(voiceCall.liveTranscriptText)
-                        .font(.system(size: 12.5, weight: .regular))
-                        .foregroundColor(.primary.opacity(0.9))
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundColor(.primary.opacity(0.92))
                         .lineLimit(2)
+                        .lineSpacing(3)
                         .multilineTextAlignment(.leading)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.top, 2)
                 .padding(.bottom, 2)
@@ -129,12 +132,12 @@ public struct VoiceCallCardView: View {
             }
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 8)
+        .padding(.vertical, 11)
         .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(.ultraThinMaterial)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .stroke(
                             voiceCall.isAgentSpeaking
                                 ? Color.cyan.opacity(0.35)

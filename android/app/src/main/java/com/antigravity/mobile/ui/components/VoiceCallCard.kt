@@ -95,10 +95,10 @@ fun VoiceCallCard(
             .border(
                 width = 0.75.dp,
                 color = if (isAgentSpeaking) cyanColor.copy(alpha = 0.4f) else colors.accentIndigo.copy(alpha = 0.28f),
-                shape = RoundedCornerShape(14.dp)
+                shape = RoundedCornerShape(16.dp)
             )
-            .padding(horizontal = 14.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+            .padding(horizontal = 14.dp, vertical = 11.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp)
     ) {
         AnimatedVisibility(
             visible = liveTranscriptText.isNotBlank(),
@@ -106,12 +106,15 @@ fun VoiceCallCard(
             exit = shrinkVertically() + fadeOut()
         ) {
             Row(
-                verticalAlignment = Alignment.CenterVertically,
+                verticalAlignment = Alignment.Top,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 2.dp, bottom = 2.dp)
             ) {
                 Box(
                     modifier = Modifier
+                        .padding(top = 1.5.dp)
                         .clip(RoundedCornerShape(50))
                         .background(if (liveTranscriptRole == VoiceTranscriptRole.AI) cyanColor else colors.accentIndigo)
                         .padding(horizontal = 6.dp, vertical = 1.5.dp),
@@ -127,11 +130,14 @@ fun VoiceCallCard(
 
                 Text(
                     text = liveTranscriptText,
-                    color = colors.textPrimary.copy(alpha = 0.9f),
-                    fontSize = 12.5.sp,
+                    color = colors.textPrimary.copy(alpha = 0.92f),
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 36.dp)
                 )
             }
         }
