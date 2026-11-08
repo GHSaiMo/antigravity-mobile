@@ -6196,32 +6196,33 @@ html[data-clipped] #view-conversations::after {
 /* 语音连接失败排查气泡 */
 .voice-troubleshoot-bubble {
   margin: 0 12px 6px;
-  padding: 12px 14px;
-  border-radius: 14px;
+  padding: 16px 18px;
+  border-radius: 18px;
   background: var(--ios-secondary-bg);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 0.75px solid rgba(245, 158, 11, 0.4);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  font-size: 12px;
+  gap: 10px;
+  font-size: 15px;
 }
 .voice-troubleshoot-bubble.hidden { display: none; }
-.vtb-title { font-size: 14px; font-weight: 600; }
-.vtb-sub { opacity: 0.6; }
-.vtb-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; }
-.vtb-ask { font-weight: 500; margin-top: 2px; }
-.vtb-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.vtb-title { font-size: 16.5px; font-weight: 700; color: var(--text-primary); }
+.vtb-sub { font-size: 15px; opacity: 0.75; font-weight: 500; }
+.vtb-list { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; line-height: 1.5; }
+.vtb-list code { background: rgba(125, 125, 125, 0.15); padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 14px; }
+.vtb-ask { font-weight: 600; font-size: 15px; margin-top: 4px; }
+.vtb-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 4px; }
 .vtb-btn {
   border: none;
   border-radius: 999px;
-  padding: 6px 14px;
-  font-size: 13px;
+  padding: 8px 16px;
+  font-size: 14px;
   font-weight: 500;
   background: rgba(128, 128, 128, 0.18);
   color: inherit;
   cursor: pointer;
 }
-.vtb-btn-primary { background: #5856d6; color: #fff; font-weight: 600; }
+.vtb-btn-primary { background: #5856d6; color: #fff; font-weight: 600; padding: 8px 18px; }

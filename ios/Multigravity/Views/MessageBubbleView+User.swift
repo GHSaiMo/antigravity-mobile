@@ -13,6 +13,9 @@ extension MessageBubbleView {
             if trimmed.contains("<talker_agent_context>") || trimmed.contains("</talker_agent_context>") {
                 return true
             }
+            if trimmed.contains("<voice_instructions>") || trimmed.contains("</voice_instructions>") {
+                return true
+            }
             if trimmed.contains("talker:") && (trimmed.contains("user:") || trimmed.contains("[202")) {
                 return true
             }
@@ -417,70 +420,121 @@ private struct UserAsyncImageBubbleView: View {
 }
 
 /// 清洗语音交互中的协议标签（<talker_agent_context>）、时间戳与格式化符号，提取干净自然的多轮语音文本。
+/// 清洗语音交互中的协议标签（<talker_agent_context>、<voice_instructions> 等）、时间戳与说明性文本，提取干净自然的用户与智能体语音对话。
 enum VoiceTranscriptCleaner {
-    static let tagRegex = try? NSRegularExpression(pattern: "</?talker_agent_context>", options: .caseInsensitive)
-    static let timestampRegex = try? NSRegularExpression(pattern: #"^\[\d{4}-\d{2}-\d{2}T[^\]]+\]\s*"#)
-    static let roleRegex = try? NSRegularExpression(pattern: #"^(user|human|me|talker|agent|assistant|ai):\s*"#, options: .caseInsensitive)
+    static let instructionsBlockRegex = try? NSRegularExpression(
+        pattern: #"<(?:voice_instructions|instructions)>[\s\S]*?(?:</(?:voice_instructions|instructions)>|(?=<talker_agent_context>)|$)"#,
+        options: .caseInsensitive
+    )
+    static let contextBlockRegex = try? NSRegularExpression(
+        pattern: #"<talker_agent_context>([\s\S]*?)(?:</talker_agent_context>|$)"#,
+        options: .caseInsensitive
+    )
+    static let tagRegex = try? NSRegularExpression(
+        pattern: #"</?(?:voice_instructions|instructions|talker_agent_context)>"#,
+        options: .caseInsensitive
+    )
+    static let timestampRegex = try? NSRegularExpression(
+        pattern: #"^\[\d{4}[-/]\d{2}[-/]\d{2}[ T][^\]]+\]\s*|^\[\d{2}:\d{2}(?::\d{2})?\]\s*"#
+    )
+    static let roleRegex = try? NSRegularExpression(
+        pattern: #"^(user|human|me|用户|我|talker|agent|assistant|ai|智能体|助手|语音)\s*[:：]\s*"#,
+        options: .caseInsensitive
+    )
 
     static func clean(_ raw: String) -> String {
-        guard !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return "" }
-        let withoutTags: String
-        if let tagRegex = tagRegex {
-            withoutTags = tagRegex.stringByReplacingMatches(in: raw, range: NSRange(raw.startIndex..., in: raw), withTemplate: "")
-        } else {
-            withoutTags = raw.replacingOccurrences(of: "<talker_agent_context>", with: "", options: .caseInsensitive)
-                             .replacingOccurrences(of: "</talker_agent_context>", with: "", options: .caseInsensitive)
+        let trimmedRaw = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedRaw.isEmpty else { return "" }
+
+        var textToProcess = trimmedRaw
+        var hasContext = false
+        if let contextRegex = contextBlockRegex,
+           let match = contextRegex.firstMatch(in: trimmedRaw, range: NSRange(trimmedRaw.startIndex..., in: trimmedRaw)),
+           match.numberOfRanges > 1,
+           let cRange = Range(match.range(at: 1), in: trimmedRaw) {
+            let extracted = String(trimmedRaw[cRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !extracted.isEmpty {
+                textToProcess = extracted
+                hasContext = true
+            }
         }
         
-        let lines = withoutTags.components(separatedBy: .newlines)
+        if !hasContext {
+            if let instRegex = instructionsBlockRegex {
+                textToProcess = instRegex.stringByReplacingMatches(in: textToProcess, range: NSRange(textToProcess.startIndex..., in: textToProcess), withTemplate: "")
+            }
+            if let tagRegex = tagRegex {
+                textToProcess = tagRegex.stringByReplacingMatches(in: textToProcess, range: NSRange(textToProcess.startIndex..., in: textToProcess), withTemplate: "")
+            }
+        }
+
+        let lines = textToProcess.components(separatedBy: .newlines)
         var cleaned: [String] = []
-        
+        var currentRole: String? = nil
+        var currentLines: [String] = []
+        var quoteOpen = false
+
+        func finishCurrent() {
+            if let role = currentRole, !currentLines.isEmpty {
+                var text = currentLines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+                if text.hasPrefix("\"") && text.hasSuffix("\"") && text.count >= 2 {
+                    text = String(text.dropFirst().dropLast()).trimmingCharacters(in: .whitespacesAndNewlines)
+                } else if text.hasPrefix("\"") {
+                    text = String(text.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
+                } else if text.hasSuffix("\"") {
+                    text = String(text.dropLast()).trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                if !text.isEmpty {
+                    let formatted = "\(role)\(text)"
+                    if cleaned.last != formatted {
+                        cleaned.append(formatted)
+                    }
+                }
+            }
+            currentRole = nil
+            currentLines.removeAll()
+            quoteOpen = false
+        }
+
         for rawLine in lines {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
             if line.isEmpty { continue }
-            
+
             var content = line
             if let timestampRegex = timestampRegex {
                 let range = NSRange(content.startIndex..., in: content)
                 content = timestampRegex.stringByReplacingMatches(in: content, range: range, withTemplate: "").trimmingCharacters(in: .whitespaces)
             }
-            
-            var role = ""
+
             if let roleRegex = roleRegex,
-               let match = roleRegex.firstMatch(in: content, range: NSRange(content.startIndex..., in: content)) {
-                if let rRange = Range(match.range, in: content) {
-                    let matchedRole = String(content[rRange]).lowercased()
-                    if matchedRole.hasPrefix("user") || matchedRole.hasPrefix("human") || matchedRole.hasPrefix("me") {
-                        role = "用户: "
-                    } else {
-                        role = "语音: "
-                    }
-                    content = String(content[rRange.upperBound...]).trimmingCharacters(in: .whitespaces)
+               let match = roleRegex.firstMatch(in: content, range: NSRange(content.startIndex..., in: content)),
+               let rRange = Range(match.range, in: content),
+               match.numberOfRanges > 1,
+               let groupRange = Range(match.range(at: 1), in: content) {
+                finishCurrent()
+                let matchedRole = String(content[groupRange]).lowercased()
+                if ["user", "human", "me", "用户", "我"].contains(matchedRole) {
+                    currentRole = "用户: "
+                } else {
+                    currentRole = "智能体: "
                 }
-            }
-            
-            // Strip outer quotes
-            if content.hasPrefix("\"") && content.hasSuffix("\"") && content.count >= 2 {
-                content = String(content.dropFirst().dropLast()).trimmingCharacters(in: .whitespaces)
-            } else if content.hasPrefix("\"") {
-                content = String(content.dropFirst()).trimmingCharacters(in: .whitespaces)
-            } else if content.hasSuffix("\"") {
-                content = String(content.dropLast()).trimmingCharacters(in: .whitespaces)
-            }
-            
-            if role.isEmpty && cleaned.isEmpty && content.count < 80 && line.hasSuffix("\"") && !line.hasPrefix("\"") {
-                continue
-            }
-            
-            if content.isEmpty { continue }
-            
-            let formatted = role.isEmpty ? content : "\(role)\(content)"
-            if cleaned.last != formatted {
-                cleaned.append(formatted)
+                let rem = String(content[rRange.upperBound...]).trimmingCharacters(in: .whitespaces)
+                let quoteCount = rem.filter { $0 == "\"" }.count
+                quoteOpen = (quoteCount % 2 == 1)
+                currentLines.append(rem)
+            } else if quoteOpen && currentRole != nil {
+                let quoteCount = content.filter { $0 == "\"" }.count
+                if quoteCount % 2 == 1 {
+                    quoteOpen = false
+                }
+                currentLines.append(content)
+            } else if hasContext && currentRole != nil && !quoteOpen {
+                currentLines.append(content)
             }
         }
-        
-        return cleaned.isEmpty ? withoutTags.trimmingCharacters(in: .whitespacesAndNewlines) : cleaned.joined(separator: "\n\n")
+
+        finishCurrent()
+        return cleaned.joined(separator: "\n\n")
     }
 }
 
@@ -504,9 +558,14 @@ struct VoiceInteractionUserBubble: View {
         } label: {
             Group {
                 if !isExpanded {
-                    AntigravityVoiceShape()
-                        .fill(Color.white)
-                        .frame(width: 24, height: 24)
+                    HStack(spacing: 6) {
+                        AntigravityVoiceShape()
+                            .fill(Color.white)
+                            .frame(width: 18, height: 18)
+                        Text("语音交互")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.white)
+                    }
                 } else {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack(spacing: 6) {
