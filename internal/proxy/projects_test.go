@@ -854,6 +854,126 @@ func TestSidecarProjectsIgnoredAndNotOverwriting(t *testing.T) {
 	}
 }
 
+func TestIsDriveRoot(t *testing.T) {
+	driveRoots := []string{
+		"C:\\", "c:\\", "D:\\", "d:\\", "Z:\\",
+		"C:", "d:", "D:/", "/", "\\", ".", "",
+	}
+	for _, dr := range driveRoots {
+		if !isDriveRoot(dr) {
+			t.Errorf("expected isDriveRoot(%q) to be true, got false", dr)
+		}
+	}
+
+	validPaths := []string{
+		"C:\\Projects\\app",
+		"D:\\Documents\\Work",
+		"/home/user/project",
+		"/var/www/site",
+	}
+	for _, vp := range validPaths {
+		if isDriveRoot(vp) {
+			t.Errorf("expected isDriveRoot(%q) to be false, got true", vp)
+		}
+	}
+}
+
+func TestGetProjects_StrictOfficialAlignment(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// 1. Official project config
+	cfgDir := filepath.Join(tmpDir, "config", "projects")
+	_ = os.MkdirAll(cfgDir, 0755)
+	officialProjDir := filepath.Join(tmpDir, "OfficialApp")
+	_ = os.MkdirAll(officialProjDir, 0755)
+
+	officialJSON := fmt.Sprintf(`{
+		"id": "proj-official-uuid-1",
+		"name": "OfficialApp",
+		"projectResources": {
+			"resources": [
+				{
+					"gitFolder": {
+						"folderUri": "file://%s",
+						"defaultBranch": "main"
+					}
+				}
+			]
+		},
+		"isWorkspaceOnly": false
+	}`, filepath.ToSlash(officialProjDir))
+	_ = os.WriteFile(filepath.Join(cfgDir, "proj-official-uuid-1.json"), []byte(officialJSON), 0644)
+
+	// 2. Dirty workspaceStorage cache (with random folder and drive root)
+	wsDir := filepath.Join(tmpDir, "Antigravity", "User", "workspaceStorage")
+	dirtyFolder1 := filepath.Join(wsDir, "dirty-1")
+	dirtyFolder2 := filepath.Join(wsDir, "dirty-2")
+	_ = os.MkdirAll(dirtyFolder1, 0755)
+	_ = os.MkdirAll(dirtyFolder2, 0755)
+
+	dirtyDir := filepath.Join(tmpDir, "DirtyCachedFolder")
+	_ = os.MkdirAll(dirtyDir, 0755)
+	_ = os.WriteFile(filepath.Join(dirtyFolder1, "workspace.json"), []byte(fmt.Sprintf(`{"folder":"file://%s"}`, filepath.ToSlash(dirtyDir))), 0644)
+	_ = os.WriteFile(filepath.Join(dirtyFolder2, "workspace.json"), []byte(`{"folder":"file:///d%3A/"}`), 0644)
+
+	origAppData := os.Getenv("APPDATA")
+	origAppDataDir := os.Getenv("ANTIGRAVITY_APP_DATA_DIR")
+	origCacheEnv := os.Getenv("MGY_INCLUDE_WORKSPACE_CACHE")
+	origHome := os.Getenv("HOME")
+	origUserProfile := os.Getenv("USERPROFILE")
+
+	os.Setenv("APPDATA", tmpDir)
+	os.Setenv("ANTIGRAVITY_APP_DATA_DIR", filepath.Join(tmpDir, "antigravity"))
+	os.Setenv("HOME", tmpDir)
+	os.Setenv("USERPROFILE", tmpDir)
+	os.Unsetenv("MGY_INCLUDE_WORKSPACE_CACHE")
+	defer func() {
+		os.Setenv("APPDATA", origAppData)
+		os.Setenv("ANTIGRAVITY_APP_DATA_DIR", origAppDataDir)
+		os.Setenv("HOME", origHome)
+		os.Setenv("USERPROFILE", origUserProfile)
+		if origCacheEnv != "" {
+			os.Setenv("MGY_INCLUDE_WORKSPACE_CACHE", origCacheEnv)
+		} else {
+			os.Unsetenv("MGY_INCLUDE_WORKSPACE_CACHE")
+		}
+	}()
+
+	insp := inspector.NewInspector(5 * time.Second)
+	p := NewProxy(insp)
+
+	// By default, strict alignment should only yield the official project
+	projects, err := p.GetProjects()
+	if err != nil {
+		t.Fatalf("GetProjects failed: %v", err)
+	}
+	if len(projects) != 1 {
+		t.Fatalf("expected strictly 1 official project, got %d: %+v", len(projects), projects)
+	}
+	if projects[0].Name != "OfficialApp" {
+		t.Errorf("expected project name 'OfficialApp', got %q", projects[0].Name)
+	}
+	if projects[0].ID != "proj-official-uuid-1" {
+		t.Errorf("expected project ID 'proj-official-uuid-1', got %q", projects[0].ID)
+	}
+
+	// When MGY_INCLUDE_WORKSPACE_CACHE=true, dirty cache is allowed, but drive root is still filtered out
+	os.Setenv("MGY_INCLUDE_WORKSPACE_CACHE", "true")
+	projectsWithCache, err := p.GetProjects()
+	if err != nil {
+		t.Fatalf("GetProjects with cache failed: %v", err)
+	}
+	if len(projectsWithCache) != 2 {
+		t.Fatalf("expected 2 projects (official + dirty folder, root filtered), got %d: %+v", len(projectsWithCache), projectsWithCache)
+	}
+	for _, prj := range projectsWithCache {
+		if prj.Name == "\\" || prj.Name == "/" || prj.Path == "d:\\" || prj.Path == "d:/" {
+			t.Errorf("drive root was not filtered: %+v", prj)
+		}
+	}
+}
+
+
 
 
 

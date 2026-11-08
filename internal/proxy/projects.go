@@ -95,6 +95,12 @@ func (p *Proxy) GetProjects() ([]ProjectItem, error) {
 		if norm == "" {
 			return
 		}
+		if prj.Path != "" && isDriveRoot(prj.Path) {
+			return
+		}
+		if prj.Name == "" || prj.Name == "/" || prj.Name == "\\" || prj.Name == "." {
+			return
+		}
 		if existing, exists := projectMap[norm]; exists {
 			if existing.ID == "" && prj.ID != "" {
 				existing.ID = prj.ID
@@ -146,49 +152,58 @@ func (p *Proxy) GetProjects() ([]ProjectItem, error) {
 		}
 	}
 
-	// 4. Load workspace projects from workspaceStorage (plain JSON, works on all OSes without SQLite/Python)
-	for _, prj := range fetchProjectsFromWorkspaceStorage() {
-		mergeProject(prj)
-	}
+	// Strictly align with official Projects managed in the Windows/macOS Antigravity client.
+	// Only fall back to local workspace caches (workspaceStorage / stateDB / trajectories)
+	// when no official projects are configured at all, or if MGY_INCLUDE_WORKSPACE_CACHE is explicitly enabled.
+	includeWorkspaceCache := strings.EqualFold(os.Getenv("MGY_INCLUDE_WORKSPACE_CACHE"), "true")
+	if len(projectMap) == 0 || includeWorkspaceCache {
+		// 4. Load workspace projects from workspaceStorage (plain JSON, works on all OSes without SQLite/Python)
+		for _, prj := range fetchProjectsFromWorkspaceStorage() {
+			mergeProject(prj)
+		}
 
-	// 5. Load from state.vscdb (history.recentlyOpenedPathsList)
-	for _, prj := range fetchProjectsFromStateDB() {
-		mergeProject(prj)
-	}
+		// 5. Load from state.vscdb (history.recentlyOpenedPathsList)
+		for _, prj := range fetchProjectsFromStateDB() {
+			mergeProject(prj)
+		}
 
-	// 6. Load any remaining active workspace URIs from trajectories
-	for norm, stat := range sessionStats {
-		if _, exists := projectMap[norm]; !exists {
-			parsedPath := uriToPath(norm)
-			if parsedPath == "" {
-				continue
-			}
-			if !isRemoteURI(norm) {
-				if _, err := os.Stat(parsedPath); err != nil {
+		// 6. Load any remaining active workspace URIs from trajectories
+		for norm, stat := range sessionStats {
+			if _, exists := projectMap[norm]; !exists {
+				parsedPath := uriToPath(norm)
+				if parsedPath == "" || isDriveRoot(parsedPath) {
 					continue
 				}
-			}
+				if !isRemoteURI(norm) {
+					if _, err := os.Stat(parsedPath); err != nil {
+						continue
+					}
+				}
 
-			isWs := strings.HasSuffix(parsedPath, ".code-workspace")
-			name := filepath.Base(parsedPath)
-			if isWs {
-				name = strings.TrimSuffix(name, ".code-workspace")
-			}
+				isWs := strings.HasSuffix(parsedPath, ".code-workspace")
+				name := filepath.Base(parsedPath)
+				if isWs {
+					name = strings.TrimSuffix(name, ".code-workspace")
+				}
+				if name == "" || name == "/" || name == "\\" || name == "." {
+					continue
+				}
 
-			var lastActive *time.Time
-			if !stat.lastActive.IsZero() {
-				t := stat.lastActive
-				lastActive = &t
-			}
+				var lastActive *time.Time
+				if !stat.lastActive.IsZero() {
+					t := stat.lastActive
+					lastActive = &t
+				}
 
-			mergeProject(ProjectItem{
-				Name:         name,
-				URI:          norm,
-				Path:         parsedPath,
-				IsWorkspace:  isWs,
-				SessionCount: stat.count,
-				LastActive:   lastActive,
-			})
+				mergeProject(ProjectItem{
+					Name:         name,
+					URI:          norm,
+					Path:         parsedPath,
+					IsWorkspace:  isWs,
+					SessionCount: stat.count,
+					LastActive:   lastActive,
+				})
+			}
 		}
 	}
 

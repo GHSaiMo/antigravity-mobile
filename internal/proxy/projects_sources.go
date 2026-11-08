@@ -186,7 +186,7 @@ func fetchProjectsFromGeminiConfig() []ProjectItem {
 			}
 
 			parsedPath := uriToPath(norm)
-			if parsedPath == "" {
+			if parsedPath == "" || isDriveRoot(parsedPath) {
 				continue
 			}
 
@@ -201,6 +201,9 @@ func fetchProjectsFromGeminiConfig() []ProjectItem {
 			name := prj.Name
 			if name == "" {
 				name = filepath.Base(parsedPath)
+			}
+			if name == "" || name == "/" || name == "\\" || name == "." {
+				continue
 			}
 			if isRemoteURI(norm) && !strings.Contains(name, "(Remote)") {
 				name += " (Remote)"
@@ -369,6 +372,9 @@ func (p *Proxy) fetchOfficialProjects(port int, token string, sessionStats map[s
 						if pInfo, exists := projMap[id]; exists {
 							norm := normalizeURI(pInfo.uri)
 							path := uriToPath(norm)
+							if path == "" || isDriveRoot(path) {
+								continue
+							}
 							var lastActive *time.Time
 							sessionCount := 0
 							if stat, ok := sessionStats[norm]; ok {
@@ -524,7 +530,7 @@ func fetchProjectsFromWorkspaceStorage() []ProjectItem {
 			}
 
 			parsedPath := uriToPath(norm)
-			if parsedPath == "" {
+			if parsedPath == "" || isDriveRoot(parsedPath) {
 				continue
 			}
 
@@ -541,7 +547,7 @@ func fetchProjectsFromWorkspaceStorage() []ProjectItem {
 				name = strings.TrimSuffix(name, ".code-workspace")
 			}
 			if name == "" || name == "/" || name == "\\" || name == "." {
-				name = filepath.Base(parsedPath)
+				continue
 			}
 			if isRemoteURI(norm) {
 				name += " (Remote)"
@@ -690,7 +696,7 @@ func fetchProjectsFromStateDB() []ProjectItem {
 		}
 
 		path := uriToPath(rawURI)
-		if path == "" {
+		if path == "" || isDriveRoot(path) {
 			continue
 		}
 
@@ -705,6 +711,9 @@ func fetchProjectsFromStateDB() []ProjectItem {
 		name := filepath.Base(path)
 		if isWorkspace {
 			name = strings.TrimSuffix(name, ".code-workspace")
+		}
+		if name == "" || name == "/" || name == "\\" || name == "." {
+			continue
 		}
 		if isRemoteURI(rawURI) {
 			name += " (Remote)"
