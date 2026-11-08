@@ -139,7 +139,7 @@ func TestHandleCreateCascadeRequestedModel(t *testing.T) {
 		{"gemini-3.8-flash-high", "MODEL_PLACEHOLDER_M318", true},
 		{"claude-opus-4-6-thinking", "MODEL_PLACEHOLDER_M26", true},
 		{"MODEL_PLACEHOLDER_M37", "MODEL_PLACEHOLDER_M37", true},
-		{"", "", false},
+		{"", "MODEL_PLACEHOLDER_M318", true},
 		{"unknown-model", "", false},
 	}
 

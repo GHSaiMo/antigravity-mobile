@@ -124,6 +124,9 @@ func (p *Proxy) HandleCreateCascade(w http.ResponseWriter, r *http.Request) {
 	}
 
 	p.ensureLiveModels(r.Context())
+	if strings.TrimSpace(req.Model) == "" {
+		req.Model = "gemini-3.8-flash-high"
+	}
 	modelEnum := resolveModelEnum(req.Model)
 	if modelEnum != "" {
 		startPayload["requestedModel"] = modelEnum
