@@ -474,6 +474,7 @@ fun MessageBubble(
             if (isVoiceMessage) {
                 var showContextMenu by remember { mutableStateOf(false) }
                 var isVoiceExpanded by remember { mutableStateOf(false) }
+                val cleanedVoiceText = remember(userBodyText) { VoiceTranscriptCleaner.clean(userBodyText) }
 
                 Box(
                     modifier = Modifier
@@ -487,7 +488,7 @@ fun MessageBubble(
                         .background(colors.userBubbleBg)
                         .combinedClickable(
                             onClick = {
-                                if (userBodyText.isNotBlank()) {
+                                if (cleanedVoiceText.isNotBlank()) {
                                     isVoiceExpanded = !isVoiceExpanded
                                 }
                             },
@@ -503,7 +504,7 @@ fun MessageBubble(
                     } else {
                         Column(
                             modifier = Modifier.widthIn(max = 320.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -521,10 +522,10 @@ fun MessageBubble(
                                 )
                             }
                             Text(
-                                text = userBodyText,
+                                text = cleanedVoiceText,
                                 color = colors.userBubbleText,
-                                fontSize = 14.sp,
-                                lineHeight = 19.sp
+                                fontSize = 14.5.sp,
+                                lineHeight = 20.sp
                             )
                         }
                     }
@@ -533,7 +534,7 @@ fun MessageBubble(
                         expanded = showContextMenu,
                         onDismissRequest = { showContextMenu = false }
                     ) {
-                        if (userBodyText.isNotBlank()) {
+                        if (cleanedVoiceText.isNotBlank()) {
                             DropdownMenuItem(
                                 text = { Text(if (isVoiceExpanded) "折叠语音" else "展开详情") },
                                 leadingIcon = {
@@ -552,7 +553,7 @@ fun MessageBubble(
                                 leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = "复制语音内容") },
                                 onClick = {
                                     showContextMenu = false
-                                    copyAll(userBodyText)
+                                    copyAll(cleanedVoiceText)
                                 }
                             )
                         }
@@ -840,3 +841,67 @@ private data class ShareCardRequest(
     val isUser: Boolean,
     val images: List<ImageViewerItem>
 )
+
+/**
+ * 清洗语音交互中的协议标签（<talker_agent_context>）、时间戳与格式化符号，提取干净自然的多轮语音文本。
+ */
+object VoiceTranscriptCleaner {
+    private val tagRegex = Regex("""</?talker_agent_context>""", RegexOption.IGNORE_CASE)
+    private val timestampRegex = Regex("""^\[\d{4}-\d{2}-\d{2}T[^\]]+\]\s*""")
+    private val roleRegex = Regex("""^(user|human|me|talker|agent|assistant|ai):\s*""", RegexOption.IGNORE_CASE)
+
+    fun clean(raw: String): String {
+        if (raw.isBlank()) return ""
+        val withoutTags = tagRegex.replace(raw, "")
+        val lines = withoutTags.lines()
+        val cleaned = mutableListOf<String>()
+
+        for (rawLine in lines) {
+            val line = rawLine.trim()
+            if (line.isEmpty()) continue
+
+            // 移除行首 ISO 时间戳: [2026-11-08T07:12:48-08:00]
+            var content = timestampRegex.replace(line, "").trim()
+
+            var role = ""
+            val roleMatch = roleRegex.find(content)
+            if (roleMatch != null) {
+                val matched = roleMatch.value.lowercase()
+                role = if (matched.startsWith("user") || matched.startsWith("human") || matched.startsWith("me")) {
+                    "用户: "
+                } else {
+                    "语音: "
+                }
+                content = content.substring(roleMatch.range.last + 1).trim()
+            }
+
+            // 剥离包裹句子的双引号
+            if (content.startsWith("\"") && content.endsWith("\"") && content.length >= 2) {
+                content = content.substring(1, content.length - 1).trim()
+            } else if (content.startsWith("\"")) {
+                content = content.substring(1).trim()
+            } else if (content.endsWith("\"")) {
+                content = content.substring(0, content.length - 1).trim()
+            }
+
+            // 过滤因流式截断残留的无角色孤立引号碎片
+            if (role.isEmpty() && cleaned.isEmpty() && content.length < 80 && line.endsWith("\"") && !line.startsWith("\"")) {
+                continue
+            }
+
+            if (content.isEmpty()) continue
+
+            val formatted = if (role.isNotEmpty()) "$role$content" else content
+            if (cleaned.isEmpty() || cleaned.last() != formatted) {
+                cleaned.add(formatted)
+            }
+        }
+
+        return if (cleaned.isNotEmpty()) {
+            cleaned.joinToString("\n\n")
+        } else {
+            withoutTags.trim()
+        }
+    }
+}
+
