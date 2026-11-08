@@ -301,16 +301,16 @@ extension ChatView {
                     Button(action: handleSend) {
                         ZStack {
                             Circle()
-                                .fill(isSendDisabled ? Color(uiColor: .systemGray5) : Color.indigo)
+                                .fill(isSendDisabled ? Color(uiColor: .tertiarySystemFill) : Color.indigo)
                                 .frame(width: 44, height: 44)
                                 .overlay(
                                     Circle()
-                                        .stroke(Color.secondary.opacity(isSendDisabled ? 0.25 : 0), lineWidth: 0.8)
+                                        .stroke(Color.secondary.opacity(isSendDisabled ? 0.22 : 0), lineWidth: 0.8)
                                 )
                             
                             Image(systemName: "arrow.up")
                                 .font(.system(size: 18, weight: .semibold))
-                                .foregroundColor(isSendDisabled ? .secondary : .white)
+                                .foregroundColor(isSendDisabled ? Color(uiColor: .tertiaryLabel) : .white)
                         }
                     }
                     .disabled(isSendDisabled)
@@ -321,7 +321,7 @@ extension ChatView {
                     Button(action: handleCancel) {
                         ZStack {
                             Circle()
-                                .fill(Color(uiColor: .systemGray5))
+                                .fill(Color(uiColor: .secondarySystemBackground))
                                 .frame(width: 44, height: 44)
                                 .overlay(
                                     Circle()
@@ -336,21 +336,30 @@ extension ChatView {
                     .buttonStyle(.plain)
                     .transition(.scale.combined(with: .opacity))
                 } else {
+                    // Voice Mode idle button: 1:1 desktop Antigravity parity
                     ZStack {
                         Circle()
-                            .fill(Color.indigo.opacity(0.12))
+                            .fill(Color(uiColor: UIColor { trait in
+                                if trait.userInterfaceStyle == .dark {
+                                    return UIColor(red: 71/255.0, green: 85/255.0, blue: 88/255.0, alpha: 1.0)
+                                } else {
+                                    return UIColor(red: 67/255.0, green: 81/255.0, blue: 85/255.0, alpha: 1.0)
+                                }
+                            }))
                             .frame(width: 44, height: 44)
                             .overlay(
                                 Circle()
-                                    .stroke(Color.indigo.opacity(0.28), lineWidth: 0.8)
+                                    .stroke(Color.white.opacity(0.14), lineWidth: 0.8)
                             )
+                            .shadow(color: Color.black.opacity(0.16), radius: 3, x: 0, y: 1.5)
 
-                        Image(systemName: "waveform.badge.sparkles")
-                            .font(.system(size: 17, weight: .semibold))
-                            .foregroundColor(.indigo)
+                        AntigravityVoiceShape()
+                            .fill(Color.white)
+                            .frame(width: 22, height: 22)
                     }
                     .contentShape(Circle())
                     .onTapGesture {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                         handleStartVoiceCall()
                     }
                     .onLongPressGesture(minimumDuration: 0.45) {
@@ -399,4 +408,52 @@ extension ChatView {
             || !hasSendableDraft
     }
     
+}
+
+/// 1:1 对齐 Antigravity 桌面端（main.js tuc() 组件）的 3 波形条 + 4 芒星矢量图标
+struct AntigravityVoiceShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let w = rect.width
+        let h = rect.height
+        let ox = rect.minX
+        let oy = rect.minY
+        
+        // Bar 1: x: 167.8, y: -575.2, width: 82, height: 350, rx: 41
+        let bar1 = CGRect(x: ox + w * 0.21021, y: oy + h * 0.35083, width: w * 0.08542, height: h * 0.36458)
+        let r1 = w * 0.04271
+        path.addRoundedRect(in: bar1, cornerSize: CGSize(width: r1, height: r1))
+        
+        // Bar 2: x: 359.8, y: -662.7, width: 82, height: 525, rx: 41
+        let bar2 = CGRect(x: ox + w * 0.41021, y: oy + h * 0.25969, width: w * 0.08542, height: h * 0.54688)
+        let r2 = w * 0.04271
+        path.addRoundedRect(in: bar2, cornerSize: CGSize(width: r2, height: r2))
+        
+        // Bar 3: x: 551.8, y: -512.7, width: 82, height: 225, rx: 41
+        let bar3 = CGRect(x: ox + w * 0.61021, y: oy + h * 0.41594, width: w * 0.08542, height: h * 0.23438)
+        let r3 = w * 0.04271
+        path.addRoundedRect(in: bar3, cornerSize: CGSize(width: r3, height: r3))
+        
+        // Sparkle 4-point star (upper-right)
+        path.move(to: CGPoint(x: ox + w * 0.78958, y: oy + h * 0.37400))
+        path.addQuadCurve(to: CGPoint(x: ox + w * 0.78158, y: oy + h * 0.36800), control: CGPoint(x: ox + w * 0.78358, y: oy + h * 0.37400))
+        path.addQuadCurve(to: CGPoint(x: ox + w * 0.72416, y: oy + h * 0.26750), control: CGPoint(x: ox + w * 0.76635, y: oy + h * 0.30969))
+        path.addQuadCurve(to: CGPoint(x: ox + w * 0.62366, y: oy + h * 0.21008), control: CGPoint(x: ox + w * 0.68197, y: oy + h * 0.22531))
+        path.addQuadCurve(to: CGPoint(x: ox + w * 0.61766, y: oy + h * 0.20208), control: CGPoint(x: ox + w * 0.61766, y: oy + h * 0.20808))
+        path.addQuadCurve(to: CGPoint(x: ox + w * 0.62366, y: oy + h * 0.19408), control: CGPoint(x: ox + w * 0.61766, y: oy + h * 0.19508))
+        path.addQuadCurve(to: CGPoint(x: ox + w * 0.72416, y: oy + h * 0.13666), control: CGPoint(x: ox + w * 0.68197, y: oy + h * 0.17885))
+        path.addQuadCurve(to: CGPoint(x: ox + w * 0.78158, y: oy + h * 0.03616), control: CGPoint(x: ox + w * 0.76635, y: oy + h * 0.09447))
+        path.addQuadCurve(to: CGPoint(x: ox + w * 0.78958, y: oy + h * 0.03016), control: CGPoint(x: ox + w * 0.78358, y: oy + h * 0.03016))
+        path.addQuadCurve(to: CGPoint(x: ox + w * 0.79758, y: oy + h * 0.03616), control: CGPoint(x: ox + w * 0.79658, y: oy + h * 0.03016))
+        path.addQuadCurve(to: CGPoint(x: ox + w * 0.85538, y: oy + h * 0.13669), control: CGPoint(x: ox + w * 0.81343, y: oy + h * 0.09447))
+        path.addQuadCurve(to: CGPoint(x: ox + w * 0.95550, y: oy + h * 0.19409), control: CGPoint(x: ox + w * 0.89733, y: oy + h * 0.17891))
+        path.addQuadCurve(to: CGPoint(x: ox + w * 0.96150, y: oy + h * 0.20209), control: CGPoint(x: ox + w * 0.96150, y: oy + h * 0.19509))
+        path.addQuadCurve(to: CGPoint(x: ox + w * 0.95550, y: oy + h * 0.21009), control: CGPoint(x: ox + w * 0.96150, y: oy + h * 0.20809))
+        path.addQuadCurve(to: CGPoint(x: ox + w * 0.85500, y: oy + h * 0.26751), control: CGPoint(x: ox + w * 0.89719, y: oy + h * 0.22532))
+        path.addQuadCurve(to: CGPoint(x: ox + w * 0.79758, y: oy + h * 0.36801), control: CGPoint(x: ox + w * 0.81281, y: oy + h * 0.30970))
+        path.addQuadCurve(to: CGPoint(x: ox + w * 0.78958, y: oy + h * 0.37401), control: CGPoint(x: ox + w * 0.79658, y: oy + h * 0.37401))
+        path.closeSubpath()
+        
+        return path
+    }
 }
