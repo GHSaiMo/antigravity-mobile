@@ -8,30 +8,48 @@ extension MessageBubbleView {
     
     var userBubble: some View {
         let parsed = AttachmentRules.parseBlock(message.content)
-        return VStack(alignment: .trailing, spacing: 6) {
-            if userAttachmentItems.count == 1, let singleItem = userAttachmentItems.first {
-                if let url = singleItem.url {
-                    userAsyncImageBubble(for: url, placeholder: singleItem.image, gallery: userAttachmentItems, index: 0)
-                } else if let uiImg = singleItem.image {
-                    userImageBubble(for: uiImg, gallery: userAttachmentItems, index: 0)
-                }
-            } else if userAttachmentItems.count > 1 {
-                userMultiImageRow
+        let isVoiceMessage: Bool = {
+            let trimmed = parsed.body.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.contains("<talker_agent_context>") || trimmed.contains("</talker_agent_context>") {
+                return true
             }
-            
-            // Files the user attached: the gateway appends an attachment block to the message text.
-            if !parsed.files.isEmpty {
-                VStack(alignment: .trailing, spacing: 6) {
-                    ForEach(parsed.files) { file in
-                        MessageFileCardView(file: file) {
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            openURL(URL(fileURLWithPath: file.path))
+            if trimmed.contains("talker:") && (trimmed.contains("user:") || trimmed.contains("[202")) {
+                return true
+            }
+            if !parsed.files.isEmpty && parsed.files.allSatisfy({ ["wav", "m4a", "aac", "mp3", "caf", "opus"].contains($0.ext.lowercased()) }) && trimmed.isEmpty {
+                return true
+            }
+            return false
+        }()
+
+        return VStack(alignment: .trailing, spacing: 6) {
+            if !isVoiceMessage {
+                if userAttachmentItems.count == 1, let singleItem = userAttachmentItems.first {
+                    if let url = singleItem.url {
+                        userAsyncImageBubble(for: url, placeholder: singleItem.image, gallery: userAttachmentItems, index: 0)
+                    } else if let uiImg = singleItem.image {
+                        userImageBubble(for: uiImg, gallery: userAttachmentItems, index: 0)
+                    }
+                } else if userAttachmentItems.count > 1 {
+                    userMultiImageRow
+                }
+                
+                // Files the user attached: the gateway appends an attachment block to the message text.
+                if !parsed.files.isEmpty {
+                    VStack(alignment: .trailing, spacing: 6) {
+                        ForEach(parsed.files) { file in
+                            MessageFileCardView(file: file) {
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                openURL(URL(fileURLWithPath: file.path))
+                            }
                         }
                     }
                 }
             }
             
-            if !parsed.body.isEmpty {
+            if isVoiceMessage {
+                VoiceInteractionUserBubble(bodyText: parsed.body, onCopy: { copyWholeText(parsed.body) })
+            } else if !parsed.body.isEmpty {
                 SlashCommandTextRenderer.render(
                     text: parsed.body,
                     mentions: message.slashCommands ?? [],
@@ -397,3 +415,67 @@ private struct UserAsyncImageBubbleView: View {
         }
     }
 }
+
+/// 语音交互用户气泡：默认显示 Antigravity 专属 Voice 图标，点击可展开查看转写详情
+struct VoiceInteractionUserBubble: View {
+    let bodyText: String
+    let onCopy: () -> Void
+    @State private var isExpanded: Bool = false
+
+    var body: some View {
+        Button {
+            if !bodyText.isEmpty {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isExpanded.toggle()
+                }
+            }
+        } label: {
+            Group {
+                if !isExpanded {
+                    AntigravityVoiceShape()
+                        .fill(Color.white)
+                        .frame(width: 24, height: 24)
+                } else {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 6) {
+                            AntigravityVoiceShape()
+                                .fill(Color.white.opacity(0.85))
+                                .frame(width: 16, height: 16)
+                            Text("语音交互")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(.white.opacity(0.85))
+                        }
+                        Text(bodyText)
+                            .font(.system(size: 14))
+                            .foregroundColor(.white)
+                            .lineSpacing(3)
+                            .multilineTextAlignment(.leading)
+                    }
+                    .frame(maxWidth: 320, alignment: .leading)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(Color.indigo)
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            if !bodyText.isEmpty {
+                Button {
+                    withAnimation {
+                        isExpanded.toggle()
+                    }
+                } label: {
+                    Label(isExpanded ? "折叠语音" : "展开详情", systemImage: isExpanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                }
+                Button {
+                    onCopy()
+                } label: {
+                    Label("复制语音内容", systemImage: "doc.on.doc")
+                }
+            }
+        }
+    }
+}
+
