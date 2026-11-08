@@ -124,6 +124,26 @@ public enum MarkdownParser {
                 }
             }
             
+            // Multi-line display math block: $$ ... $$ or \[ ... \]
+            if (trimmed.hasPrefix("$$") && (trimmed == "$$" || !trimmed.dropFirst(2).contains("$$"))) ||
+               (trimmed.hasPrefix(#"\["#) && !trimmed.dropFirst(2).contains(#"\]"#)) {
+                let closeToken = trimmed.hasPrefix("$$") ? "$$" : #"\]"#
+                var mathLines: [String] = [line]
+                i += 1
+                while i < lines.count {
+                    let curLine = lines[i]
+                    mathLines.append(curLine)
+                    i += 1
+                    if curLine.trimmingCharacters(in: .whitespaces).contains(closeToken) {
+                        break
+                    }
+                }
+                let mathText = mathLines.joined(separator: "\n")
+                blocks.append(.paragraph(id: "block-\(blockIdx)", text: mathText))
+                blockIdx += 1
+                continue
+            }
+            
             // Divider
             if trimmed == "---" || trimmed == "***" || trimmed == "___" {
                 blocks.append(.divider(id: "block-\(blockIdx)"))
@@ -147,12 +167,14 @@ public enum MarkdownParser {
                 }
             }
             
-            // Table
-            if trimmed.hasPrefix("|") && trimmed.hasSuffix("|") && trimmed.contains("|") {
+            // Table (with or without outer pipes when followed by separator row)
+            let isOuterPipeTable = trimmed.hasPrefix("|") && trimmed.hasSuffix("|") && trimmed.contains("|")
+            let isPipeLessTable = !isOuterPipeTable && trimmed.contains("|") && (i + 1 < lines.count) && isTableSeparatorLine(lines[i + 1])
+            if isOuterPipeTable || isPipeLessTable {
                 var tableLines: [String] = []
                 while i < lines.count {
                     let tLine = lines[i].trimmingCharacters(in: .whitespaces)
-                    if tLine.hasPrefix("|") && tLine.hasSuffix("|") {
+                    if (tLine.hasPrefix("|") && tLine.hasSuffix("|")) || (isPipeLessTable && !tLine.isEmpty && tLine.contains("|")) {
                         tableLines.append(tLine)
                         i += 1
                     } else {
@@ -162,11 +184,11 @@ public enum MarkdownParser {
                 if tableLines.count >= 2 {
                     let parseRow = { (rowStr: String) -> [String] in
                         let placeholder = "\u{E000}"
-                        let sanitized = rowStr.replacingOccurrences(of: "\\|", with: placeholder)
+                        var sanitized = rowStr.replacingOccurrences(of: "\\|", with: placeholder).trimmingCharacters(in: .whitespaces)
+                        if sanitized.hasPrefix("|") { sanitized.removeFirst() }
+                        if sanitized.hasSuffix("|") { sanitized.removeLast() }
                         let parts = sanitized.split(separator: "|", omittingEmptySubsequences: false)
-                        guard parts.count >= 2 else { return [] }
-                        let inner = parts[1..<(parts.count - 1)]
-                        return inner.map {
+                        return parts.map {
                             String($0)
                                 .replacingOccurrences(of: placeholder, with: "|")
                                 .trimmingCharacters(in: .whitespaces)
@@ -214,12 +236,12 @@ public enum MarkdownParser {
                 }
             }
             
-            // Bullet or list
-            if trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") || trimmed.hasPrefix("• ") {
+            // Bullet or list (- , * , + , • )
+            if isBulletListItem(trimmed) {
                 var listItems: [String] = []
                 while i < lines.count {
                     let lLine = lines[i].trimmingCharacters(in: .whitespaces)
-                    if lLine.hasPrefix("- ") || lLine.hasPrefix("* ") || lLine.hasPrefix("• ") {
+                    if isBulletListItem(lLine) {
                         listItems.append(String(lLine.dropFirst(2)).trimmingCharacters(in: .whitespaces))
                         i += 1
                     } else {
@@ -331,7 +353,7 @@ public enum MarkdownParser {
             while i < lines.count {
                 let nextLine = lines[i]
                 let nTrimmed = nextLine.trimmingCharacters(in: .whitespaces)
-                if nTrimmed.isEmpty || nTrimmed.hasPrefix(">") || nTrimmed.hasPrefix("```") || nTrimmed.hasPrefix("#") || nTrimmed == "---" || (nTrimmed.hasPrefix("|") && nTrimmed.hasSuffix("|")) || nTrimmed.hasPrefix("- ") || nTrimmed.hasPrefix("* ") || nTrimmed.hasPrefix("• ") || parseOrderedListItem(nTrimmed) != nil || parseStandaloneImage(nTrimmed) != nil || parseStandaloneAgentEmbed(nTrimmed) != nil {
+                if nTrimmed.isEmpty || nTrimmed.hasPrefix(">") || nTrimmed.hasPrefix("```") || nTrimmed.hasPrefix("~~~") || nTrimmed.hasPrefix("$$") || nTrimmed.hasPrefix(#"\["#) || nTrimmed.hasPrefix("#") || nTrimmed == "---" || nTrimmed == "***" || nTrimmed == "___" || (nTrimmed.hasPrefix("|") && nTrimmed.hasSuffix("|")) || (nTrimmed.contains("|") && (i + 1 < lines.count) && isTableSeparatorLine(lines[i + 1])) || isBulletListItem(nTrimmed) || parseOrderedListItem(nTrimmed) != nil || parseStandaloneImage(nTrimmed) != nil || parseStandaloneAgentEmbed(nTrimmed) != nil {
                     break
                 }
                 paraLines.append(nextLine)
@@ -598,6 +620,25 @@ public enum MarkdownParser {
             }
         }
         flushPlainList()
+    }
+    
+    private static func isBulletListItem(_ trimmed: String) -> Bool {
+        trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") || trimmed.hasPrefix("+ ") || trimmed.hasPrefix("• ")
+    }
+    
+    private static func isTableSeparatorLine(_ rawLine: String) -> Bool {
+        var t = rawLine.trimmingCharacters(in: .whitespaces)
+        guard t.contains("|") && t.contains("-") else { return false }
+        if t.hasPrefix("|") { t.removeFirst() }
+        if t.hasSuffix("|") { t.removeLast() }
+        let parts = t.split(separator: "|", omittingEmptySubsequences: false)
+        guard parts.count >= 2 else { return false }
+        return parts.allSatisfy { cell in
+            let c = cell.trimmingCharacters(in: .whitespaces)
+            guard !c.isEmpty else { return false }
+            let dashCount = c.filter { $0 == "-" }.count
+            return dashCount >= 2 && c.allSatisfy { $0 == "-" || $0 == ":" }
+        }
     }
     
     private static let orderedListRegex = try? NSRegularExpression(

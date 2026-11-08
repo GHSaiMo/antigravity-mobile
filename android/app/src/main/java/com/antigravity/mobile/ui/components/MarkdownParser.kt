@@ -82,6 +82,25 @@ object MarkdownParser {
                 }
             }
 
+            // 1b. Multi-line display math block: $$ ... $$ or \[ ... \]
+            if ((trimmed.startsWith("$$") && (trimmed == "$$" || !trimmed.drop(2).contains("$$"))) ||
+                (trimmed.startsWith("\\[") && !trimmed.drop(2).contains("\\]"))
+            ) {
+                val closeToken = if (trimmed.startsWith("$$")) "$$" else "\\]"
+                val mathLines = mutableListOf(line)
+                i++
+                while (i < lines.size) {
+                    val curLine = lines[i]
+                    mathLines.add(curLine)
+                    i++
+                    if (curLine.trim().contains(closeToken)) {
+                        break
+                    }
+                }
+                blocks.add(MarkdownBlock.Paragraph("block-${blockIdx++}", mathLines.joinToString("\n")))
+                continue
+            }
+
             // 2. Divider
             if (trimmed == "---" || trimmed == "***" || trimmed == "___") {
                 blocks.add(MarkdownBlock.Divider("block-${blockIdx++}"))
@@ -103,12 +122,14 @@ object MarkdownParser {
                 }
             }
 
-            // 4. Tables
-            if (trimmed.startsWith("|") && trimmed.endsWith("|") && trimmed.contains("|")) {
+            // 4. Tables (with or without outer pipes when followed by separator row)
+            val isOuterPipeTable = trimmed.startsWith("|") && trimmed.endsWith("|") && trimmed.contains("|")
+            val isPipeLessTable = !isOuterPipeTable && trimmed.contains("|") && (i + 1 < lines.size) && isTableSeparatorLine(lines[i + 1])
+            if (isOuterPipeTable || isPipeLessTable) {
                 val tableLines = mutableListOf<String>()
                 while (i < lines.size) {
                     val tLine = lines[i].trim()
-                    if (tLine.startsWith("|") && tLine.endsWith("|")) {
+                    if ((tLine.startsWith("|") && tLine.endsWith("|")) || (isPipeLessTable && tLine.isNotEmpty() && tLine.contains("|"))) {
                         tableLines.add(tLine)
                         i++
                     } else {
@@ -119,13 +140,12 @@ object MarkdownParser {
                 if (tableLines.size >= 2) {
                     val parseRow: (String) -> List<String> = { rowStr ->
                         val placeholder = "\uE000"
-                        val sanitized = rowStr.replace("\\|", placeholder)
-                        val parts = sanitized.split("|")
-                        if (parts.size >= 2) {
-                            parts.subList(1, parts.size - 1).map {
-                                it.replace(placeholder, "|").trim()
-                            }
-                        } else emptyList()
+                        var sanitized = rowStr.replace("\\|", placeholder).trim()
+                        if (sanitized.startsWith("|")) sanitized = sanitized.removePrefix("|")
+                        if (sanitized.endsWith("|")) sanitized = sanitized.removeSuffix("|")
+                        sanitized.split("|").map {
+                            it.replace(placeholder, "|").trim()
+                        }
                     }
 
                     val isSeparatorRow: (List<String>) -> Boolean = { cells ->
@@ -168,12 +188,12 @@ object MarkdownParser {
                 }
             }
 
-            // 5. Bullet List
-            if (trimmed.startsWith("- ") || trimmed.startsWith("* ") || trimmed.startsWith("• ")) {
+            // 5. Bullet List (- , * , + , • )
+            if (isBulletListItem(trimmed)) {
                 val items = mutableListOf<String>()
                 while (i < lines.size) {
                     val lLine = lines[i].trim()
-                    if (lLine.startsWith("- ") || lLine.startsWith("* ") || lLine.startsWith("• ")) {
+                    if (isBulletListItem(lLine)) {
                         items.add(lLine.drop(2).trim())
                         i++
                     } else {
@@ -271,12 +291,14 @@ object MarkdownParser {
                 if (nTrimmed.isEmpty() ||
                     nTrimmed.startsWith(">") ||
                     nTrimmed.startsWith("```") ||
+                    nTrimmed.startsWith("~~~") ||
+                    nTrimmed.startsWith("$$") ||
+                    nTrimmed.startsWith("\\[") ||
                     nTrimmed.startsWith("#") ||
-                    nTrimmed == "---" ||
+                    nTrimmed == "---" || nTrimmed == "***" || nTrimmed == "___" ||
                     (nTrimmed.startsWith("|") && nTrimmed.endsWith("|")) ||
-                    nTrimmed.startsWith("- ") ||
-                    nTrimmed.startsWith("* ") ||
-                    nTrimmed.startsWith("• ") ||
+                    (nTrimmed.contains("|") && (i + 1 < lines.size) && isTableSeparatorLine(lines[i + 1])) ||
+                    isBulletListItem(nTrimmed) ||
                     ORDERED_LIST_REGEX.containsMatchIn(nTrimmed) ||
                     parseStandaloneImage(nTrimmed) != null ||
                     parseStandaloneAgentEmbed(nTrimmed) != null
@@ -332,6 +354,23 @@ object MarkdownParser {
         }
 
         return blocks
+    }
+
+    private fun isBulletListItem(trimmed: String): Boolean {
+        return trimmed.startsWith("- ") || trimmed.startsWith("* ") || trimmed.startsWith("+ ") || trimmed.startsWith("• ")
+    }
+
+    private fun isTableSeparatorLine(rawLine: String): Boolean {
+        var t = rawLine.trim()
+        if (!t.contains("|") || !t.contains("-")) return false
+        if (t.startsWith("|")) t = t.removePrefix("|")
+        if (t.endsWith("|")) t = t.removeSuffix("|")
+        val parts = t.split("|")
+        if (parts.size < 2) return false
+        return parts.all { cell ->
+            val c = cell.trim()
+            c.isNotEmpty() && c.count { it == '-' } >= 2 && c.all { it == '-' || it == ':' }
+        }
     }
 
     private val linkedImageRegex = Regex("""\[!\[(.*?)\]\(([^\s\)]+)(?:\s+"[^"]*")?\)\]\(([^\s\)]+)(?:\s+"[^"]*")?\)""")

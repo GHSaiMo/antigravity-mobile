@@ -363,6 +363,21 @@ private fun AutoTableLayout(
     }
 }
 
+private data class ParsedTaskListItem(
+    val marker: String?,
+    val isChecked: Boolean,
+    val content: String
+)
+
+private fun parseTaskListItem(raw: String): ParsedTaskListItem {
+    return when {
+        raw.startsWith("[ ] ") -> ParsedTaskListItem("☐", false, raw.drop(4))
+        raw.startsWith("[x] ") || raw.startsWith("[X] ") -> ParsedTaskListItem("☑", true, raw.drop(4))
+        raw.startsWith("[/] ") || raw.startsWith("[-] ") -> ParsedTaskListItem("◐", false, raw.drop(4))
+        else -> ParsedTaskListItem(null, false, raw)
+    }
+}
+
 @Composable
 internal fun BulletListBlockView(
     items: List<String>,
@@ -371,6 +386,7 @@ internal fun BulletListBlockView(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         items.forEach { item ->
+            val parsed = parseTaskListItem(item)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.Top,
@@ -378,16 +394,16 @@ internal fun BulletListBlockView(
             ) {
                 DisableSelection {
                     Text(
-                        text = "•",
-                        color = colors.textSecondary,
-                        fontSize = 14.sp,
+                        text = parsed.marker ?: "•",
+                        color = if (parsed.isChecked) colors.accentBlue else colors.textSecondary,
+                        fontSize = if (parsed.marker != null) 14.5.sp else 14.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(top = 2.dp)
                     )
                 }
                 Box(modifier = Modifier.weight(1f)) {
                     ParagraphBlockView(
-                        text = item,
+                        text = parsed.content,
                         colors = colors,
                         onPlanClick = onPlanClick
                     )
@@ -406,6 +422,8 @@ internal fun OrderedListBlockView(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         items.forEachIndexed { idx, item ->
+            val parsed = parseTaskListItem(item)
+            val displayContent = if (parsed.marker != null) "${parsed.marker} ${parsed.content}" else item
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.Top,
@@ -423,7 +441,7 @@ internal fun OrderedListBlockView(
                 }
                 Box(modifier = Modifier.weight(1f)) {
                     ParagraphBlockView(
-                        text = item,
+                        text = displayContent,
                         colors = colors,
                         onPlanClick = onPlanClick
                     )

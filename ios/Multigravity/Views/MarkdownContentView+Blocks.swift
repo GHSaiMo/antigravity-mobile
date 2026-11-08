@@ -142,16 +142,28 @@ extension MarkdownContentView {
         }
     }
     
+    private static func parseTaskListItem(_ raw: String) -> (marker: String?, isChecked: Bool, content: String) {
+        if raw.hasPrefix("[ ] ") {
+            return ("☐", false, String(raw.dropFirst(4)))
+        } else if raw.hasPrefix("[x] ") || raw.hasPrefix("[X] ") {
+            return ("☑", true, String(raw.dropFirst(4)))
+        } else if raw.hasPrefix("[/] ") || raw.hasPrefix("[-] ") {
+            return ("◐", false, String(raw.dropFirst(4)))
+        }
+        return (nil, false, raw)
+    }
+    
     @ViewBuilder
     func listView(items: [String]) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                let parsed = Self.parseTaskListItem(item)
                 HStack(alignment: .top, spacing: 6) {
-                    Text("•")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundColor(.secondary)
+                    Text(parsed.marker ?? "•")
+                        .font(.system(size: parsed.marker != nil ? 14.5 : 14, weight: .bold))
+                        .foregroundColor(parsed.isChecked ? .blue : .secondary)
                         .padding(.top, 2)
-                    paragraphView(text: item, size: 15)
+                    paragraphView(text: parsed.content, size: 15)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
@@ -162,12 +174,14 @@ extension MarkdownContentView {
     func orderedListView(startIndex: Int, items: [String]) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             ForEach(Array(items.enumerated()), id: \.offset) { idx, item in
+                let parsed = Self.parseTaskListItem(item)
+                let displayContent = parsed.marker != nil ? "\(parsed.marker!) \(parsed.content)" : item
                 HStack(alignment: .top, spacing: 6) {
                     Text("\(startIndex + idx).")
                         .font(.system(size: 13.5, weight: .semibold, design: .monospaced))
                         .foregroundColor(.secondary)
                         .padding(.top, 2)
-                    paragraphView(text: item, size: 15)
+                    paragraphView(text: displayContent, size: 15)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }

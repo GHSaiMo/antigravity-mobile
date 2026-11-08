@@ -157,20 +157,63 @@ extension MarkdownContentView {
             (#"\*\*\*"#, #"(?:[^\*]|\*(?!\*\*))+?"#, #"\*\*\*"#),
             (#"\*\*"#, #"(?:[^\*]|\*(?!\*))+?"#, #"\*\*"#),
             (#"~~"#, #"(?:[^~]|~(?!~))+?"#, #"~~"#),
-            (#"__"#, #"(?:[^_]|_(?!_))+?"#, #"__"#),
+            (#"(?<![A-Za-z0-9_])__"#, #"(?:[^_]|_(?!_))+?"#, #"__(?![A-Za-z0-9_])"#),
             (#"(?<!\*)\*(?!\*)"#, #"[^\*\n]+?"#, #"(?<!\*)\*(?!\*)"#),
-            (#"(?<!_)_(?!_)"#, #"[^_\n]+?"#, #"(?<!_)_(?!_)"#)
+            (#"(?<![A-Za-z0-9_\\\{\}])_(?![_\{])"#, #"[^_\n\{\}]+?"#, #"(?<![_\\\{\}])_(?![A-Za-z0-9_\{])"#)
         ]
         return patternStrings.compactMap { (openPat, innerPat, closePat) in
             try? NSRegularExpression(pattern: "(\(openPat))(\(innerPat))(\(closePat))")
         }
     }()
     
-    // MARK: - HTML Line Break & Inline Code Processor
+    // MARK: - HTML Line Break, Inline HTML Tags & Inline Code Processor
     
     static let htmlBreakRegex = try? NSRegularExpression(
         pattern: #"[ \t]*<(?:\/br|br\b[^>]*\/?)>[ \t]*\n?"#,
         options: [.caseInsensitive]
+    )
+    static let htmlBoldRegex = try? NSRegularExpression(
+        pattern: #"<(b|strong)\b[^>]*>([\s\S]*?)<\/\1>"#,
+        options: [.caseInsensitive]
+    )
+    static let htmlItalicRegex = try? NSRegularExpression(
+        pattern: #"<(i|em)\b[^>]*>([\s\S]*?)<\/\1>"#,
+        options: [.caseInsensitive]
+    )
+    static let htmlStrikeRegex = try? NSRegularExpression(
+        pattern: #"<(s|del|strike)\b[^>]*>([\s\S]*?)<\/\1>"#,
+        options: [.caseInsensitive]
+    )
+    static let htmlCodeRegex = try? NSRegularExpression(
+        pattern: #"<(code|kbd)\b[^>]*>([\s\S]*?)<\/\1>"#,
+        options: [.caseInsensitive]
+    )
+    static let htmlMarkRegex = try? NSRegularExpression(
+        pattern: #"<mark\b[^>]*>([\s\S]*?)<\/mark>"#,
+        options: [.caseInsensitive]
+    )
+    static let htmlUnderlineRegex = try? NSRegularExpression(
+        pattern: #"<(u|ins)\b[^>]*>([\s\S]*?)<\/\1>"#,
+        options: [.caseInsensitive]
+    )
+    static let htmlSupRegex = try? NSRegularExpression(
+        pattern: #"<sup\b[^>]*>([\s\S]*?)<\/sup>"#,
+        options: [.caseInsensitive]
+    )
+    static let htmlSubRegex = try? NSRegularExpression(
+        pattern: #"<sub\b[^>]*>([\s\S]*?)<\/sub>"#,
+        options: [.caseInsensitive]
+    )
+    static let htmlSummaryRegex = try? NSRegularExpression(
+        pattern: #"<summary\b[^>]*>([\s\S]*?)<\/summary>"#,
+        options: [.caseInsensitive]
+    )
+    static let htmlDetailsTagRegex = try? NSRegularExpression(
+        pattern: #"<\/?details\b[^>]*>"#,
+        options: [.caseInsensitive]
+    )
+    static let markdownHighlightRegex = try? NSRegularExpression(
+        pattern: #"(?<!=)==([^=\n]+)==(?!=)"#
     )
     
     /// Splits text into inline code segments (wrapped in backticks) and regular markdown text segments.
@@ -242,21 +285,101 @@ extension MarkdownContentView {
         return occupied
     }
     
-    /// Replaces HTML line breaks (<br>, <br/>, <br />, </br>) with newlines while protecting inline code spans.
+    /// Replaces HTML line breaks, common inline HTML tags, ==highlight==, and HTML entities while protecting inline code spans.
     public static func replaceHtmlBreaks(in text: String) -> String {
-        guard text.localizedCaseInsensitiveContains("<br") else {
+        guard text.contains("<") || text.contains("&") || text.contains("==") else {
             return text
         }
         
         let replaceInString = { (s: String) -> String in
-            guard let regex = htmlBreakRegex else {
-                return s.replacingOccurrences(of: "<br>", with: "\n", options: .caseInsensitive)
-                        .replacingOccurrences(of: "<br/>", with: "\n", options: .caseInsensitive)
-                        .replacingOccurrences(of: "<br />", with: "\n", options: .caseInsensitive)
-                        .replacingOccurrences(of: "</br>", with: "\n", options: .caseInsensitive)
+            var out = s
+            if out.contains("<") {
+                if let regex = htmlBreakRegex {
+                    out = regex.stringByReplacingMatches(in: out, options: [], range: NSRange(location: 0, length: (out as NSString).length), withTemplate: "\n")
+                }
+                if let regex = htmlBoldRegex {
+                    out = regex.stringByReplacingMatches(in: out, options: [], range: NSRange(location: 0, length: (out as NSString).length), withTemplate: "**$2**")
+                }
+                if let regex = htmlItalicRegex {
+                    out = regex.stringByReplacingMatches(in: out, options: [], range: NSRange(location: 0, length: (out as NSString).length), withTemplate: "*$2*")
+                }
+                if let regex = htmlStrikeRegex {
+                    out = regex.stringByReplacingMatches(in: out, options: [], range: NSRange(location: 0, length: (out as NSString).length), withTemplate: "~~$2~~")
+                }
+                if let regex = htmlCodeRegex {
+                    out = regex.stringByReplacingMatches(in: out, options: [], range: NSRange(location: 0, length: (out as NSString).length), withTemplate: "`$2`")
+                }
+                if let regex = htmlMarkRegex {
+                    out = regex.stringByReplacingMatches(in: out, options: [], range: NSRange(location: 0, length: (out as NSString).length), withTemplate: "**$1**")
+                }
+                if let regex = htmlUnderlineRegex {
+                    out = regex.stringByReplacingMatches(in: out, options: [], range: NSRange(location: 0, length: (out as NSString).length), withTemplate: "$2")
+                }
+                if let regex = htmlSupRegex {
+                    let ns = out as NSString
+                    let matches = regex.matches(in: out, range: NSRange(location: 0, length: ns.length))
+                    for m in matches.reversed() {
+                        let inner = ns.substring(with: m.range(at: 1))
+                        let converted = MathSymbolProcessor.cleanMathExpression("^{\(inner)}")
+                        out = (out as NSString).replacingCharacters(in: m.range, with: converted)
+                    }
+                }
+                if let regex = htmlSubRegex {
+                    let ns = out as NSString
+                    let matches = regex.matches(in: out, range: NSRange(location: 0, length: ns.length))
+                    for m in matches.reversed() {
+                        let inner = ns.substring(with: m.range(at: 1))
+                        let converted = MathSymbolProcessor.cleanMathExpression("_{\(inner)}")
+                        out = (out as NSString).replacingCharacters(in: m.range, with: converted)
+                    }
+                }
+                if let regex = htmlSummaryRegex {
+                    out = regex.stringByReplacingMatches(in: out, options: [], range: NSRange(location: 0, length: (out as NSString).length), withTemplate: "**▸ $1**\n")
+                }
+                if let regex = htmlDetailsTagRegex {
+                    out = regex.stringByReplacingMatches(in: out, options: [], range: NSRange(location: 0, length: (out as NSString).length), withTemplate: "")
+                }
             }
-            let range = NSRange(location: 0, length: (s as NSString).length)
-            return regex.stringByReplacingMatches(in: s, options: [], range: range, withTemplate: "\n")
+            if out.contains("=="), let regex = markdownHighlightRegex {
+                out = regex.stringByReplacingMatches(in: out, options: [], range: NSRange(location: 0, length: (out as NSString).length), withTemplate: "**$1**")
+            }
+            if out.contains("&") {
+                out = out
+                    .replacingOccurrences(of: "&nbsp;", with: "\u{00A0}", options: .caseInsensitive)
+                    .replacingOccurrences(of: "&#160;", with: "\u{00A0}")
+                    .replacingOccurrences(of: "&mdash;", with: "—")
+                    .replacingOccurrences(of: "&ndash;", with: "–")
+                    .replacingOccurrences(of: "&hellip;", with: "…")
+                    .replacingOccurrences(of: "&rarr;", with: "→")
+                    .replacingOccurrences(of: "&larr;", with: "←")
+                    .replacingOccurrences(of: "&harr;", with: "↔")
+                    .replacingOccurrences(of: "&rArr;", with: "⇒")
+                    .replacingOccurrences(of: "&lArr;", with: "⇐")
+                    .replacingOccurrences(of: "&hArr;", with: "⇔")
+                    .replacingOccurrences(of: "&times;", with: "×")
+                    .replacingOccurrences(of: "&divide;", with: "÷")
+                    .replacingOccurrences(of: "&plusmn;", with: "±")
+                    .replacingOccurrences(of: "&le;", with: "≤")
+                    .replacingOccurrences(of: "&ge;", with: "≥")
+                    .replacingOccurrences(of: "&ne;", with: "≠")
+                    .replacingOccurrences(of: "&approx;", with: "≈")
+                    .replacingOccurrences(of: "&equiv;", with: "≡")
+                    .replacingOccurrences(of: "&infin;", with: "∞")
+                    .replacingOccurrences(of: "&bull;", with: "•")
+                    .replacingOccurrences(of: "&middot;", with: "·")
+                    .replacingOccurrences(of: "&deg;", with: "°")
+                    .replacingOccurrences(of: "&copy;", with: "©")
+                    .replacingOccurrences(of: "&reg;", with: "®")
+                    .replacingOccurrences(of: "&trade;", with: "™")
+                    .replacingOccurrences(of: "&lt;", with: "<")
+                    .replacingOccurrences(of: "&gt;", with: ">")
+                    .replacingOccurrences(of: "&quot;", with: "\"")
+                    .replacingOccurrences(of: "&#39;", with: "'")
+                    .replacingOccurrences(of: "&#039;", with: "'")
+                    .replacingOccurrences(of: "&apos;", with: "'")
+                    .replacingOccurrences(of: "&amp;", with: "&")
+            }
+            return out
         }
         
         guard text.contains("`") else {

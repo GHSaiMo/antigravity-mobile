@@ -229,7 +229,7 @@ internal fun normalizeBoldSpaces(text: String): String {
 }
 
 internal val INLINE_TOKEN_REGEX = Regex(
-    """(?<!\!)\[([^\]]+)\]\(([^)]+)\)|`([^`]+)`|\*\*\*([^\n]+?)\*\*\*|___([^\n]+?)___|\*\*([^\n]+?)\*\*|__([^\n]+?)__|(?<!\*)\*([^*\n]+?)\*(?!\*)|(?<!_)_([^_\n]+?)_(?!_)|~~([^\n]+?)~~"""
+    """(?<!\!)\[([^\]]+)\]\(([^)]+)\)|`([^`]+)`|\*\*\*([^\n]+?)\*\*\*|(?<![A-Za-z0-9_])___([^\n]+?)___(?![A-Za-z0-9_])|\*\*([^\n]+?)\*\*|(?<![A-Za-z0-9_])__([^\n]+?)__(?![A-Za-z0-9_])|(?<!\*)\*([^*\n]+?)\*(?!\*)|(?<![A-Za-z0-9_\\\{\}])_([^_\n\{\}]+?)_(?![A-Za-z0-9_\{])|~~([^\n]+?)~~"""
 )
 
 internal fun buildRichTextRenderData(
@@ -552,12 +552,91 @@ internal fun preprocessArrows(text: String): String {
         .replace(Regex("""\\(?:iff|Leftrightarrow)\b"""), "⇔")
 }
 
+private val HTML_BREAK_REGEX = Regex("""[ \t]*<(?:\/br|br\b[^>]*\/?)>[ \t]*\n?""", RegexOption.IGNORE_CASE)
+private val HTML_BOLD_REGEX = Regex("""<(b|strong)\b[^>]*>([\s\S]*?)<\/\1>""", RegexOption.IGNORE_CASE)
+private val HTML_ITALIC_REGEX = Regex("""<(i|em)\b[^>]*>([\s\S]*?)<\/\1>""", RegexOption.IGNORE_CASE)
+private val HTML_STRIKE_REGEX = Regex("""<(s|del|strike)\b[^>]*>([\s\S]*?)<\/\1>""", RegexOption.IGNORE_CASE)
+private val HTML_CODE_REGEX = Regex("""<(code|kbd)\b[^>]*>([\s\S]*?)<\/\1>""", RegexOption.IGNORE_CASE)
+private val HTML_MARK_REGEX = Regex("""<mark\b[^>]*>([\s\S]*?)<\/mark>""", RegexOption.IGNORE_CASE)
+private val HTML_UNDERLINE_REGEX = Regex("""<(u|ins)\b[^>]*>([\s\S]*?)<\/\1>""", RegexOption.IGNORE_CASE)
+private val HTML_SUP_REGEX = Regex("""<sup\b[^>]*>([\s\S]*?)<\/sup>""", RegexOption.IGNORE_CASE)
+private val HTML_SUB_REGEX = Regex("""<sub\b[^>]*>([\s\S]*?)<\/sub>""", RegexOption.IGNORE_CASE)
+private val HTML_SUMMARY_REGEX = Regex("""<summary\b[^>]*>([\s\S]*?)<\/summary>""", RegexOption.IGNORE_CASE)
+private val HTML_DETAILS_TAG_REGEX = Regex("""<\/?details\b[^>]*>""", RegexOption.IGNORE_CASE)
+private val MARKDOWN_HIGHLIGHT_REGEX = Regex("""(?<!=)==([^=\n]+)==(?!=)""")
+
 /**
- * Replaces HTML line breaks (<br>, <br/>, <br />, </br>) with newlines.
+ * Replaces HTML line breaks, common inline HTML tags, ==highlight==, and HTML entities while protecting inline code spans.
  */
 internal fun replaceHtmlBreaks(text: String): String {
-    if (!text.contains("<br", ignoreCase = true)) return text
-    return text
-        .replace(Regex("""<br\s*/?>""", RegexOption.IGNORE_CASE), "\n")
-        .replace("</br>", "\n", ignoreCase = true)
+    if (!text.contains('<') && !text.contains('&') && !text.contains("==")) return text
+
+    val replaceInSegment: (String) -> String = { s ->
+        var out = s
+        if (out.contains('<')) {
+            out = HTML_BREAK_REGEX.replace(out, "\n")
+            out = HTML_BOLD_REGEX.replace(out, "**$2**")
+            out = HTML_ITALIC_REGEX.replace(out, "*$2*")
+            out = HTML_STRIKE_REGEX.replace(out, "~~$2~~")
+            out = HTML_CODE_REGEX.replace(out, "`$2`")
+            out = HTML_MARK_REGEX.replace(out, "**$1**")
+            out = HTML_UNDERLINE_REGEX.replace(out, "$2")
+            out = HTML_SUP_REGEX.replace(out) { m ->
+                MathSymbolProcessor.cleanMathExpression("^{${m.groupValues[1]}}")
+            }
+            out = HTML_SUB_REGEX.replace(out) { m ->
+                MathSymbolProcessor.cleanMathExpression("_{${m.groupValues[1]}}")
+            }
+            out = HTML_SUMMARY_REGEX.replace(out, "**▸ $1**\n")
+            out = HTML_DETAILS_TAG_REGEX.replace(out, "")
+        }
+        if (out.contains("==")) {
+            out = MARKDOWN_HIGHLIGHT_REGEX.replace(out, "**$1**")
+        }
+        if (out.contains('&')) {
+            out = out
+                .replace("&nbsp;", "\u00A0", ignoreCase = true)
+                .replace("&#160;", "\u00A0")
+                .replace("&mdash;", "—")
+                .replace("&ndash;", "–")
+                .replace("&hellip;", "…")
+                .replace("&rarr;", "→")
+                .replace("&larr;", "←")
+                .replace("&harr;", "↔")
+                .replace("&rArr;", "⇒")
+                .replace("&lArr;", "⇐")
+                .replace("&hArr;", "⇔")
+                .replace("&times;", "×")
+                .replace("&divide;", "÷")
+                .replace("&plusmn;", "±")
+                .replace("&le;", "≤")
+                .replace("&ge;", "≥")
+                .replace("&ne;", "≠")
+                .replace("&approx;", "≈")
+                .replace("&equiv;", "≡")
+                .replace("&infin;", "∞")
+                .replace("&bull;", "•")
+                .replace("&middot;", "·")
+                .replace("&deg;", "°")
+                .replace("&copy;", "©")
+                .replace("&reg;", "®")
+                .replace("&trade;", "™")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&quot;", "\"")
+                .replace("&#39;", "'")
+                .replace("&#039;", "'")
+                .replace("&apos;", "'")
+                .replace("&amp;", "&")
+        }
+        out
+    }
+
+    if (!text.contains('`')) {
+        return replaceInSegment(text)
+    }
+
+    return splitCodeSpans(text).joinToString("") { (content, isCode) ->
+        if (isCode) content else replaceInSegment(content)
+    }
 }
