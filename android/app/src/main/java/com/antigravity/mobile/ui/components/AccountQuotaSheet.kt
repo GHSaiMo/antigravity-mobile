@@ -222,8 +222,51 @@ fun AccountQuotaSheet(
                     }
                 }
 
-                // Section 2: 备用账号 (N)
-                if (otherAccounts.isNotEmpty()) {
+                // Section 2: Cockpit 未配置时给出安装提示
+                if (quotaData?.needsCockpitInstall == true) {
+                    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+                    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                        Text(
+                            text = "备用账号",
+                            color = colors.textSecondary,
+                            fontSize = 13.sp,
+                            lineHeight = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            style = tightTextStyle,
+                            modifier = Modifier.padding(horizontal = 4.dp)
+                        )
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(colors.textMuted.copy(alpha = 0.12f))
+                                .padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "未检测到 Cockpit Tools",
+                                color = colors.textSecondary,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "请安装 Cockpit Tools,并在网关里用 mgy cockpit 进行配置,即可享受备用账号额度总览与一键切换等功能。",
+                                color = colors.textMuted,
+                                fontSize = 13.sp,
+                                lineHeight = 18.sp
+                            )
+                            Text(
+                                text = "复制命令 mgy cockpit",
+                                color = colors.textSecondary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.clickable {
+                                    clipboard.setText(androidx.compose.ui.text.AnnotatedString("mgy cockpit"))
+                                }
+                            )
+                        }
+                    }
+                } else if (otherAccounts.isNotEmpty()) {
                     Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
                         Text(
                             text = "备用账号 (${otherAccounts.size})",

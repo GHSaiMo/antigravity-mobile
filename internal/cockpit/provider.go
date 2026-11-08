@@ -48,6 +48,11 @@ type CockpitQuotaResponse struct {
 	CurrentAccount *AccountQuota  `json:"current_account"`
 	Accounts       []AccountQuota `json:"accounts"`
 	UpdatedAt      int64          `json:"updated_at"`
+
+	// Source is "cockpit" (data from Cockpit Tools) or "live" (read from the Antigravity language server).
+	Source           string `json:"source,omitempty"`
+	CockpitInstalled bool   `json:"cockpit_installed"`
+	CockpitHint      string `json:"cockpit_hint,omitempty"`
 }
 
 type accountsIndex struct {

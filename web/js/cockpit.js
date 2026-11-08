@@ -374,7 +374,25 @@ function renderQuotaSheet(data) {
       otherHeader.textContent = `备用账号 (${otherAccounts.length})`;
       otherHeader.style.display = otherAccounts.length ? "" : "none";
     }
-    if (otherAccounts.length === 0) {
+    if (data.cockpit_installed === false) {
+      // Cockpit 未配置:仅有当前账号实时额度,备用账号区域给出安装提示
+      if (otherHeader) {
+        otherHeader.textContent = "备用账号";
+        otherHeader.style.display = "";
+      }
+      const hint = document.createElement("div");
+      hint.className = "quota-install-hint";
+      hint.style.cssText = "padding:14px;border-radius:14px;background:rgba(128,128,128,.12);font-size:13px;line-height:1.5;";
+      const title = document.createElement("div");
+      title.style.cssText = "font-weight:600;margin-bottom:6px;";
+      title.textContent = "未检测到 Cockpit Tools";
+      const body = document.createElement("div");
+      body.style.opacity = "0.7";
+      body.textContent = "请安装 Cockpit Tools,并在网关里用 mgy cockpit 进行配置,即可享受备用账号额度总览与一键切换等功能。";
+      hint.appendChild(title);
+      hint.appendChild(body);
+      otherContainer.appendChild(hint);
+    } else if (otherAccounts.length === 0) {
       otherContainer.innerHTML = "";
     } else {
       otherAccounts.forEach((acc) => {
