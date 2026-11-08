@@ -104,52 +104,145 @@ function resolveFileIcon(nameOrUrl) {
 }
 
 const latexSymbolLookup = {
-  // Blackboard bold & Mathcal
-  "mathbb{R}": "ℝ", "mathbf{R}": "ℝ",
-  "mathbb{N}": "ℕ", "mathbf{N}": "ℕ",
-  "mathbb{Z}": "ℤ", "mathbf{Z}": "ℤ",
-  "mathbb{Q}": "ℚ", "mathbf{Q}": "ℚ",
-  "mathbb{C}": "ℂ", "mathbf{C}": "ℂ",
-  "mathbb{E}": "𝔼", "mathbb{P}": "ℙ",
-  "mathbb{H}": "ℍ", "mathbb{F}": "𝔽",
-  "mathcal{L}": "ℒ", "mathcal{O}": "𝒪",
-  "mathcal{N}": "𝒩", "mathcal{H}": "ℋ",
-  "mathcal{F}": "ℱ", "mathcal{D}": "𝒟",
+  // Blackboard bold (\mathbb & \mathbbm)
+  "mathbb{A}": "𝔸", "mathbb{B}": "𝔹", "mathbb{C}": "ℂ", "mathbf{C}": "ℂ",
+  "mathbb{D}": "𝔻", "mathbb{E}": "𝔼", "mathbb{F}": "𝔽", "mathbb{G}": "𝔾",
+  "mathbb{H}": "ℍ", "mathbb{I}": "𝕀", "mathbb{J}": "𝕁", "mathbb{K}": "𝕂",
+  "mathbb{L}": "𝕃", "mathbb{M}": "𝕄", "mathbb{N}": "ℕ", "mathbf{N}": "ℕ",
+  "mathbb{O}": "𝕆", "mathbb{P}": "ℙ", "mathbb{Q}": "ℚ", "mathbf{Q}": "ℚ",
+  "mathbb{R}": "ℝ", "mathbf{R}": "ℝ", "mathbb{S}": "𝕊", "mathbb{T}": "𝕋",
+  "mathbb{U}": "𝕌", "mathbb{V}": "𝕍", "mathbb{W}": "𝕎", "mathbb{X}": "𝕏",
+  "mathbb{Y}": "𝕐", "mathbb{Z}": "ℤ", "mathbf{Z}": "ℤ",
+  "mathbb{0}": "𝟘", "mathbb{1}": "𝟙", "mathbbm{1}": "𝟙", "mathbb{k}": "𝕜",
 
-  // Long arrows
+  // Calligraphic (\mathcal) - full A..Z
+  "mathcal{A}": "𝒜", "mathcal{B}": "ℬ", "mathcal{C}": "𝒞", "mathcal{D}": "𝒟",
+  "mathcal{E}": "ℰ", "mathcal{F}": "ℱ", "mathcal{G}": "𝒢", "mathcal{H}": "ℋ",
+  "mathcal{I}": "ℐ", "mathcal{J}": "𝒥", "mathcal{K}": "𝒦", "mathcal{L}": "ℒ",
+  "mathcal{M}": "ℳ", "mathcal{N}": "𝒩", "mathcal{O}": "𝒪", "mathcal{P}": "𝒫",
+  "mathcal{Q}": "𝒬", "mathcal{R}": "ℛ", "mathcal{S}": "𝒮", "mathcal{T}": "𝒯",
+  "mathcal{U}": "𝒰", "mathcal{V}": "𝒱", "mathcal{W}": "𝒲", "mathcal{X}": "𝒳",
+  "mathcal{Y}": "𝒴", "mathcal{Z}": "𝒵",
+
+  // Script (\mathscr) - full A..Z
+  "mathscr{A}": "𝒜", "mathscr{B}": "ℬ", "mathscr{C}": "𝒞", "mathscr{D}": "𝒟",
+  "mathscr{E}": "ℰ", "mathscr{F}": "ℱ", "mathscr{G}": "𝒢", "mathscr{H}": "ℋ",
+  "mathscr{I}": "ℐ", "mathscr{J}": "𝒥", "mathscr{K}": "𝒦", "mathscr{L}": "ℒ",
+  "mathscr{M}": "ℳ", "mathscr{N}": "𝒩", "mathscr{O}": "𝒪", "mathscr{P}": "𝒫",
+  "mathscr{Q}": "𝒬", "mathscr{R}": "ℛ", "mathscr{S}": "𝒮", "mathscr{T}": "𝒯",
+  "mathscr{U}": "𝒰", "mathscr{V}": "𝒱", "mathscr{W}": "𝒲", "mathscr{X}": "𝒳",
+  "mathscr{Y}": "𝒴", "mathscr{Z}": "𝒵",
+
+  // Fraktur (\mathfrak) - A..Z, a..z
+  "mathfrak{A}": "𝔄", "mathfrak{B}": "𝔅", "mathfrak{C}": "ℭ", "mathfrak{D}": "𝔇",
+  "mathfrak{E}": "𝔈", "mathfrak{F}": "𝔉", "mathfrak{G}": "𝔊", "mathfrak{H}": "ℌ",
+  "mathfrak{I}": "ℑ", "mathfrak{J}": "𝔍", "mathfrak{K}": "𝔎", "mathfrak{L}": "𝔏",
+  "mathfrak{M}": "𝔐", "mathfrak{N}": "𝔑", "mathfrak{O}": "𝔒", "mathfrak{P}": "𝔓",
+  "mathfrak{Q}": "𝔔", "mathfrak{R}": "ℜ", "mathfrak{S}": "𝔖", "mathfrak{T}": "𝔗",
+  "mathfrak{U}": "𝔘", "mathfrak{V}": "𝔙", "mathfrak{W}": "𝔚", "mathfrak{X}": "𝔛",
+  "mathfrak{Y}": "𝔜", "mathfrak{Z}": "ℨ",
+  "mathfrak{a}": "𝔞", "mathfrak{b}": "𝔟", "mathfrak{c}": "𝔠", "mathfrak{d}": "𝔡",
+  "mathfrak{e}": "𝔢", "mathfrak{f}": "𝔣", "mathfrak{g}": "𝔤", "mathfrak{h}": "𝔥",
+  "mathfrak{i}": "𝔦", "mathfrak{j}": "𝔧", "mathfrak{k}": "𝔨", "mathfrak{l}": "𝔩",
+  "mathfrak{m}": "𝔪", "mathfrak{n}": "𝔫", "mathfrak{o}": "𝔬", "mathfrak{p}": "𝔭",
+  "mathfrak{q}": "𝔮", "mathfrak{r}": "𝔯", "mathfrak{s}": "𝔰", "mathfrak{t}": "𝔱",
+  "mathfrak{u}": "𝔲", "mathfrak{v}": "𝔳", "mathfrak{w}": "𝔴", "mathfrak{x}": "𝔵",
+  "mathfrak{y}": "𝔶", "mathfrak{z}": "𝔷",
+
+  // Delimiters, Brackets & Norms
+  "langle": "⟨", "rangle": "⟩",
+  "lfloor": "⌊", "rfloor": "⌋",
+  "lceil": "⌈", "rceil": "⌉",
+  "ulcorner": "⌜", "urcorner": "⌝", "llcorner": "⌞", "lrcorner": "⌟",
+  "lVert": "‖", "rVert": "‖", "Vert": "‖",
+  "lvert": "|", "rvert": "|", "vert": "|",
+  "mid": "∣", "nmid": "∤", "backslash": "\\",
+
+  // Long & squiggly arrows
   "longleftrightarrow": "⟷", "Longleftrightarrow": "⟺",
+  "leftrightsquigarrow": "↭", "rightsquigarrow": "⇝",
+  "twoheadrightarrow": "↠", "twoheadleftarrow": "↞",
   "longrightarrow": "⟶", "longleftarrow": "⟵",
   "Longrightarrow": "⟹", "Longleftarrow": "⟸",
-  "longmapsto": "⟼",
+  "rightarrowtail": "↣", "leftarrowtail": "↢",
+  "circlearrowleft": "↺", "circlearrowright": "↻",
+  "curvearrowleft": "↶", "curvearrowright": "↷",
+  "longmapsto": "⟼", "mapsfrom": "↤", "leadsto": "↝",
 
   // Standard arrows & harpoons
-  "rightleftharpoons": "⇌", "hookrightarrow": "↪", "hookleftarrow": "↩",
+  "rightleftharpoons": "⇌", "rightharpoonup": "⇀", "rightharpoondown": "⇁",
+  "leftharpoonup": "↼", "leftharpoondown": "↽",
+  "hookrightarrow": "↪", "hookleftarrow": "↩",
   "rightarrow": "→", "leftarrow": "←",
   "leftrightarrow": "↔", "Rightarrow": "⇒", "Leftarrow": "⇐", "Leftrightarrow": "⇔",
-  "to": "→", "gets": "←", "implies": "⇒", "iff": "⇔",
+  "to": "→", "gets": "←", "implies": "⇒", "impliedby": "⇐", "iff": "⇔",
   "uparrow": "↑", "downarrow": "↓", "updownarrow": "↕",
   "Uparrow": "⇑", "Downarrow": "⇓", "Updownarrow": "⇕",
   "nearrow": "↗", "searrow": "↘", "swarrow": "↙", "nwarrow": "↖",
   "mapsto": "↦",
 
   // Comparisons & Relations
+  "fallingdotseq": "≒", "risingdotseq": "≓",
+  "lessapprox": "⪅", "gtrapprox": "⪆",
+  "sqsubseteq": "⊑", "sqsupseteq": "⊒", "sqsubset": "⊏", "sqsupset": "⊐",
+  "triangleq": "≜", "coloneqq": "≔", "eqqcolon": "≕", "coloneq": "≔", "eqcolon": "≕", "defeq": "≔",
   "leqslant": "≤", "geqslant": "≥", "leq": "≤", "geq": "≥",
   "le": "≤", "ge": "≥", "neq": "≠", "ne": "≠",
-  "approx": "≈", "simeq": "≃", "cong": "≅", "equiv": "≡",
-  "propto": "∝", "ll": "≪", "gg": "≫", "parallel": "∥", "perp": "⊥",
-  "sim": "∼", "subset": "⊂", "supset": "⊃",
-  "subseteq": "⊆", "supseteq": "⊇", "subsetneq": "⊊", "supsetneq": "⊋",
-  "notin": "∉", "in": "∈", "cup": "∪", "cap": "∩", "setminus": "∖",
-  "emptyset": "∅", "empty": "∅", "forall": "∀", "exists": "∃",
+  "approx": "≈", "simeq": "≃", "ncong": "≇", "cong": "≅", "equiv": "≡", "nequiv": "≢",
+  "propto": "∝", "asymp": "≍", "doteq": "≐", "circeq": "≗",
+  "bowtie": "⋈", "ltimes": "⋉", "rtimes": "⋊",
+  "preceq": "⪯", "succeq": "⪰", "prec": "≺", "succ": "≻",
+  "lesssim": "≲", "gtrsim": "≳", "napprox": "≉", "nsim": "≁", "sim": "∼",
+  "ll": "≪", "gg": "≫", "parallel": "∥", "nparallel": "∦", "perp": "⊥",
+  "subset": "⊂", "supset": "⊃", "nsubset": "⊄",
+  "subseteq": "⊆", "supseteq": "⊇", "nsubseteq": "⊈", "nsupseteq": "⊉",
+  "subsetneq": "⊊", "supsetneq": "⊋",
+
+  // Set & Logic
+  "smallsetminus": "∖", "complement": "∁", "varnothing": "∅",
+  "emptyset": "∅", "empty": "∅", "setminus": "∖",
+  "therefore": "∴", "because": "∵",
+  "notin": "∉", "in": "∈", "ni": "∋", "owns": "∋",
+  "forall": "∀", "exists": "∃", "nexists": "∄",
+  "lnot": "¬", "neg": "¬", "land": "∧", "wedge": "∧", "lor": "∨", "vee": "∨",
+  "top": "⊤", "bot": "⊥", "vdash": "⊢", "dashv": "⊣", "vDash": "⊨", "Vdash": "⊩", "models": "⊨",
+  "bigcup": "⋃", "bigcap": "⋂", "bigsqcup": "⨆", "biguplus": "⨄", "bigvee": "⋁", "bigwedge": "⋀",
+  "sqcup": "⊔", "sqcap": "⊓", "uplus": "⊎", "cup": "∪", "cap": "∩",
 
   // Operators & Calculus
+  "bigoplus": "⨁", "bigotimes": "⨂", "bigodot": "⨀",
+  "boxtimes": "⊠", "boxplus": "⊞", "boxminus": "⊟", "boxdot": "⊡",
   "times": "×", "div": "÷", "pm": "±", "mp": "∓",
-  "cdot": "·", "cdots": "⋯", "ldots": "…", "vdots": "⋮", "ddots": "⋱",
+  "cdot": "·", "cdots": "⋯", "ldots": "…", "dotsc": "…", "dotsb": "⋯", "dotsm": "⋯", "dotsi": "⋯", "dots": "…",
+  "vdots": "⋮", "ddots": "⋱",
   "bullet": "•", "circ": "∘", "star": "⋆", "ast": "∗",
-  "oplus": "⊕", "ominus": "⊖", "otimes": "⊗", "odot": "⊙",
-  "iiint": "∭", "iint": "∬", "oint": "∮", "int": "∫",
-  "sum": "∑", "prod": "∏", "partial": "∂", "nabla": "∇", "infty": "∞", "sqrt": "√",
-  "degree": "°",
+  "oplus": "⊕", "ominus": "⊖", "otimes": "⊗", "oslash": "⊘", "odot": "⊙",
+  "dagger": "†", "ddagger": "‡", "wr": "≀", "colon": ":", "prime": "′", "checkmark": "✓",
+  "oiiint": "∰", "oiint": "∯", "iiint": "∭", "iint": "∬", "oint": "∮", "int": "∫",
+  "sum": "∑", "prod": "∏", "coprod": "∐",
+  "partial": "∂", "nabla": "∇", "infty": "∞", "surd": "√", "sqrt": "√",
+  "angle": "∠", "measuredangle": "∡", "sphericalangle": "∢",
+  "blacktriangledown": "▼", "bigtriangledown": "▽", "blacktriangle": "▲", "bigtriangleup": "△",
+  "triangleleft": "◁", "triangleright": "▷", "triangle": "△",
+  "blacksquare": "■", "diamond": "◇", "Diamond": "◇", "lozenge": "◊", "square": "□", "Box": "□",
+  "degree": "°", "hbar": "ℏ", "ell": "ℓ", "aleph": "ℵ", "beth": "ℶ", "gimel": "ℷ", "daleth": "ℸ",
+  "wp": "℘", "Re": "ℜ", "Im": "ℑ", "mho": "℧",
+
+  // Standard Math Functions
+  "limsup": "lim sup", "liminf": "lim inf", "argmax": "arg max", "argmin": "arg min",
+  "arcsin": "arcsin", "arccos": "arccos", "arctan": "arctan",
+  "sinh": "sinh", "cosh": "cosh", "tanh": "tanh", "coth": "coth",
+  "lim": "lim", "sup": "sup", "inf": "inf", "max": "max", "min": "min",
+  "arg": "arg", "det": "det", "dim": "dim", "ker": "ker", "hom": "hom",
+  "deg": "deg", "gcd": "gcd", "lcm": "lcm",
+  "exp": "exp", "log": "log", "ln": "ln", "lg": "lg",
+  "sin": "sin", "cos": "cos", "tan": "tan", "cot": "cot", "sec": "sec", "csc": "csc",
+  "Pr": "Pr", "bmod": "mod",
+
+  // Layout / Spacing / Style No-ops
+  "displaystyle": "", "scriptscriptstyle": "", "scriptstyle": "", "textstyle": "",
+  "nolimits": "", "limits": "", "noindent": "",
+  "qquad": "  ", "quad": " ", "enspace": " ", "thinspace": " ",
 
   // Greek capital letters
   "Gamma": "Γ", "Delta": "Δ", "Theta": "Θ", "Lambda": "Λ", "Xi": "Ξ",
@@ -159,13 +252,20 @@ const latexSymbolLookup = {
   "alpha": "α", "beta": "β", "gamma": "γ", "delta": "δ",
   "varepsilon": "ε", "epsilon": "ϵ", "zeta": "ζ", "eta": "η",
   "vartheta": "ϑ", "theta": "θ", "iota": "ι", "kappa": "κ",
-  "lambda": "λ", "mu": "μ", "nu": "ν", "xi": "ξ", "pi": "π",
-  "varrho": "ϱ", "rho": "ρ", "varsigma": "ς", "sigma": "σ",
+  "lambda": "λ", "mu": "μ", "nu": "ν", "xi": "ξ", "omicron": "ο", "pi": "π",
+  "varpi": "ϖ", "varrho": "ϱ", "rho": "ρ", "varsigma": "ς", "sigma": "σ",
   "tau": "τ", "upsilon": "υ", "varphi": "φ", "phi": "ϕ",
   "chi": "χ", "psi": "ψ", "omega": "ω"
 };
 
-const wordBoundaryCommands = new Set(["to", "in", "le", "ge", "ne", "empty", "gets", "sim"]);
+const wordBoundaryCommands = new Set([
+  "to", "in", "ni", "le", "ge", "ne", "empty", "gets", "sim",
+  "mid", "ll", "gg", "cup", "cap", "neg", "top", "bot", "vee",
+  "div", "pm", "mp", "ast", "wr", "int", "sum", "prod", "ell",
+  "wp", "Re", "Im", "Box", "lim", "sup", "inf", "max", "min",
+  "arg", "det", "dim", "ker", "hom", "deg", "gcd", "lcm", "exp",
+  "log", "ln", "lg", "sin", "cos", "tan", "cot", "sec", "csc", "Pr"
+]);
 
 function replaceSymbolsSinglePass(str) {
   if (!str || !str.includes("\\")) return str;
@@ -187,15 +287,14 @@ function replaceSymbolsSinglePass(str) {
         const closeIdx = str.indexOf("}", j + 1);
         if (closeIdx !== -1 && closeIdx - j <= 12) {
           const paramCandidate = cmd + "{" + str.slice(j + 1, closeIdx) + "}";
-          if (latexSymbolLookup[paramCandidate]) {
+          if (Object.prototype.hasOwnProperty.call(latexSymbolLookup, paramCandidate)) {
             fullKey = paramCandidate;
             nextJ = closeIdx + 1;
           }
         }
       }
 
-      if (fullKey && latexSymbolLookup[fullKey]) {
-        // Word boundary check: if command is short, next char cannot be ASCII letter
+      if (fullKey && Object.prototype.hasOwnProperty.call(latexSymbolLookup, fullKey)) {
         if (wordBoundaryCommands.has(fullKey) && nextJ < len &&
             ((str.charCodeAt(nextJ) >= 65 && str.charCodeAt(nextJ) <= 90) || (str.charCodeAt(nextJ) >= 97 && str.charCodeAt(nextJ) <= 122))) {
           out += str[i];
@@ -216,31 +315,225 @@ function replaceSymbolsSinglePass(str) {
   return out;
 }
 
-const supMap = { "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹", "+": "⁺", "-": "⁻", "=": "⁼", "(": "⁽", ")": "⁾", "n": "ⁿ", "i": "ⁱ", "j": "ʲ", "a": "ᵃ", "b": "ᵇ", "c": "ᶜ", "d": "ᵈ", "e": "ᵉ", "f": "ᶠ", "g": "ᵍ", "h": "ʰ", "k": "ᵏ", "l": "ˡ", "m": "ᵐ", "o": "ᵒ", "p": "ᵖ", "r": "ʳ", "s": "ˢ", "t": "ᵗ", "u": "ᵘ", "v": "ᵛ", "w": "ʷ", "x": "ˣ", "y": "ʸ", "z": "ᶻ", "T": "ᵀ" };
-const subMap = { "0": "₀", "1": "₁", "2": "₂", "3": "₃", "4": "₄", "5": "₅", "6": "₆", "7": "₇", "8": "₈", "9": "₉", "+": "₊", "-": "₋", "=": "₌", "(": "₍", ")": "₎", "a": "ₐ", "e": "ₑ", "h": "ₕ", "i": "ᵢ", "j": "ⱼ", "k": "ₖ", "l": "ₗ", "m": "ₘ", "n": "ₙ", "o": "ₒ", "p": "ₚ", "r": "ᵣ", "s": "ₛ", "t": "ₜ", "u": "ᵤ", "v": "ᵥ", "x": "ₓ" };
+const supMap = {
+  "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹",
+  "+": "⁺", "-": "⁻", "=": "⁼", "(": "⁽", ")": "⁾",
+  "n": "ⁿ", "i": "ⁱ", "j": "ʲ", "a": "ᵃ", "b": "ᵇ", "c": "ᶜ", "d": "ᵈ", "e": "ᵉ", "f": "ᶠ", "g": "ᵍ",
+  "h": "ʰ", "k": "ᵏ", "l": "ˡ", "m": "ᵐ", "o": "ᵒ", "p": "ᵖ", "r": "ʳ", "s": "ˢ", "t": "ᵗ", "u": "ᵘ",
+  "v": "ᵛ", "w": "ʷ", "x": "ˣ", "y": "ʸ", "z": "ᶻ",
+  "A": "ᴬ", "B": "ᴮ", "D": "ᴰ", "E": "ᴱ", "G": "ᴳ", "H": "ᴴ", "I": "ᴵ", "J": "ᴶ", "K": "ᴷ", "L": "ᴸ",
+  "M": "ᴹ", "N": "ᴺ", "O": "ᴼ", "P": "ᴾ", "R": "ᴿ", "T": "ᵀ", "U": "ᵁ", "V": "ⱽ", "W": "ᵂ",
+  "⊤": "ᵀ", "∘": "°", "′": "′", "*": "*", "∗": "*"
+};
+const subMap = {
+  "0": "₀", "1": "₁", "2": "₂", "3": "₃", "4": "₄", "5": "₅", "6": "₆", "7": "₇", "8": "₈", "9": "₉",
+  "+": "₊", "-": "₋", "=": "₌", "(": "₍", ")": "₎",
+  "a": "ₐ", "e": "ₑ", "h": "ₕ", "i": "ᵢ", "j": "ⱼ", "k": "ₖ", "l": "ₗ", "m": "ₘ", "n": "ₙ", "o": "ₒ",
+  "p": "ₚ", "r": "ᵣ", "s": "ₛ", "t": "ₜ", "u": "ᵤ", "v": "ᵥ", "x": "ₓ",
+  "β": "ᵦ", "γ": "ᵧ", "ρ": "ᵨ", "φ": "ᵩ", "χ": "ᵪ"
+};
+
+function unwrapTextAndFontCommands(str) {
+  if (!str || !str.includes("\\")) return str;
+  str = str.replace(/([_^])\\(?:text|textbf|textit|textrm|textsf|texttt|textsc|mathrm|mathbf|mathit|mathsf|mathtt|mathbbm|operatorname\*?|pmb|boldsymbol|bm|bold|emph|mbox|hbox)\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g, "$1{$2}");
+  str = str.replace(/\\(?:textcolor|color)\{[^{}]*\}\{([^{}]*)\}|\\color\{[^{}]*\}/g, "$1");
+  for (let pass = 0; pass < 4; pass++) {
+    const next = str.replace(/\\(?:text|textbf|textit|textrm|textsf|texttt|textsc|mathrm|mathbf|mathit|mathsf|mathtt|mathbbm|operatorname\*?|pmb|boldsymbol|bm|bold|emph|mbox|hbox)\{([^{}]*)\}/g, "$1");
+    if (next === str) break;
+    str = next;
+  }
+  return str;
+}
+
+function replaceUnderOverBraces(str) {
+  if (!str || !str.includes("brace")) return str;
+  const underRe = /\\underbrace\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}\s*(?:_\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}|_\s*([a-zA-Z0-9])|\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\})?/g;
+  const overRe = /\\overbrace\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}\s*(?:\^\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}|\^\s*([a-zA-Z0-9])|\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\})?/g;
+  for (let pass = 0; pass < 4; pass++) {
+    const next = str
+      .replace(underRe, (_, base, g2, g3, g4) => {
+        const b = (base || "").trim().replace(/[ \t]+/g, " ");
+        const note = (g2 || g3 || g4 || "").trim().replace(/[ \t]+/g, " ");
+        return note ? `${b}〔${note}〕` : b;
+      })
+      .replace(overRe, (_, base, g2, g3, g4) => {
+        const b = (base || "").trim().replace(/[ \t]+/g, " ");
+        const note = (g2 || g3 || g4 || "").trim().replace(/[ \t]+/g, " ");
+        return note ? `${b}〔${note}〕` : b;
+      });
+    if (next === str) break;
+    str = next;
+  }
+  return str;
+}
+
+function cleanArrowLabel(label) {
+  let s = unwrapTextAndFontCommands((label || "").trim());
+  s = replaceSymbolsSinglePass(s);
+  return s.replace(/[{}]/g, "").replace(/[ \t]+/g, " ").trim();
+}
+
+function replaceExtensibleArrows(str) {
+  if (!str || !str.includes("\\x")) return str;
+  return str.replace(/\\x(rightarrow|leftarrow|Rightarrow|Leftarrow|leftrightarrow|Leftrightarrow|mapsto)(?:\[([^\]]*)\])?\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g, (_, arrowType, rawSub, rawSup) => {
+    const sup = cleanArrowLabel(rawSup);
+    const sub = rawSub ? cleanArrowLabel(rawSub) : "";
+    const label = (sup && sub) ? `${sup} / ${sub}` : (sup || sub);
+    switch (arrowType) {
+      case "rightarrow": return label ? `──(${label})──>` : "⟶";
+      case "leftarrow": return label ? `<──(${label})──` : "⟵";
+      case "Rightarrow": return label ? `══(${label})══>` : "⟹";
+      case "Leftarrow": return label ? `<══(${label})══` : "⟸";
+      case "leftrightarrow": return label ? `<──(${label})──>` : "⟷";
+      case "Leftrightarrow": return label ? `<══(${label})══>` : "⟺";
+      case "mapsto": return label ? `|──(${label})──>` : "⟼";
+      default: return "⟶";
+    }
+  });
+}
+
+function replaceStructuralMathCommands(str) {
+  if (!str || !str.includes("\\")) return str;
+  if (str.includes("\\not")) {
+    str = str.replace(/\\not\s*(\\(?:in|equiv|sim|approx|cong|subset|subseteq|supset|supseteq|parallel|mid)\b|=)/g, (_, op) => {
+      switch (op) {
+        case "\\in": return "∉";
+        case "=": return "≠";
+        case "\\equiv": return "≢";
+        case "\\sim": return "≁";
+        case "\\approx": return "≉";
+        case "\\cong": return "≇";
+        case "\\subset": return "⊄";
+        case "\\subseteq": return "⊈";
+        case "\\supset": return "⊅";
+        case "\\supseteq": return "⊉";
+        case "\\parallel": return "∦";
+        case "\\mid": return "∤";
+        default: return op;
+      }
+    });
+  }
+  str = str.replace(/\\boxed\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g, "[$1]");
+  str = str.replace(/\\(?:cancel|bcancel|xcancel|sout)\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g, "~~$1~~");
+  str = str.replace(/\\pmod\{([^{}]*)\}/g, "(mod $1)");
+  str = str.replace(/\\overset\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g, "$2 ($1)");
+  str = str.replace(/\\underset\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g, "$2 ($1)");
+  str = str.replace(/\\(?:d|t)?binom\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g, "C($1, $2)");
+  str = str.replace(/\\sqrt\[([^\]]*)\]\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g, (_, nRaw, rad) => {
+    const nSup = String(nRaw).split("").map(c => supMap[c] || c).join("");
+    return `${nSup}√(${rad})`;
+  });
+  for (let pass = 0; pass < 2; pass++) {
+    const next = str.replace(/\\sqrt\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g, "√($1)");
+    if (next === str) break;
+    str = next;
+  }
+  for (let pass = 0; pass < 3; pass++) {
+    const next = str.replace(/\\(?:d|t|c)?frac\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g, "$1 / $2");
+    if (next === str) break;
+    str = next;
+  }
+  str = str.replace(/\\(widehat|hat|widetilde|tilde|overline|bar|overrightarrow|vec|ddot|dot|underline)\{([^{}]*)\}/g, (_, cmd, rawBase) => {
+    const base = (rawBase || "").trim();
+    if (!base) return "";
+    const map = {
+      hat: "\u0302", widehat: "\u0302",
+      tilde: "\u0303", widetilde: "\u0303",
+      bar: "\u0304", overline: "\u0304",
+      vec: "\u20D7", overrightarrow: "\u20D7",
+      dot: "\u0307", ddot: "\u0308", underline: "\u0332"
+    };
+    const comb = map[cmd] || "";
+    if (Array.from(base).length === 1 || cmd === "overline" || cmd === "underline") {
+      return Array.from(base).map(c => c + comb).join("");
+    }
+    return base + comb;
+  });
+  return str;
+}
+
+function cleanSizingAndDelimiters(str, isMathMode) {
+  if (!str) return "";
+  str = str
+    .replace(/\\left\./g, "")
+    .replace(/\\right\./g, "")
+    .replace(/\\left\\\|/g, "‖")
+    .replace(/\\right\\\|/g, "‖")
+    .replace(/\\left\|/g, "|")
+    .replace(/\\right\|/g, "|")
+    .replace(/\\left\(/g, "(")
+    .replace(/\\right\)/g, ")")
+    .replace(/\\left\[/g, "[")
+    .replace(/\\right\]/g, "]")
+    .replace(/\\left\\\{/g, "{")
+    .replace(/\\right\\\}/g, "}");
+  str = str.replace(/\\(?:left|right|middle|bigl|bigr|Bigl|Bigr|biggl|biggr|Biggl|Biggr|big|Big|bigg|Bigg)\s*(?=[(\[{|⟨⟩⌊⌋⌈⌉‖/\\])/g, "");
+  if (isMathMode) {
+    str = str
+      .replace(/\\\|/g, "‖")
+      .replace(/\\\{/g, "{")
+      .replace(/\\\}/g, "}")
+      .replace(/\\%/g, "%")
+      .replace(/\\_/g, "_")
+      .replace(/\\,/g, " ")
+      .replace(/\\;/g, " ")
+      .replace(/\\:/g, " ")
+      .replace(/\\!/g, "")
+      .replace(/\\quad/g, " ")
+      .replace(/\\qquad/g, "  ");
+  }
+  return str;
+}
+
+function convertSupGroup(inner) {
+  const trimmed = (inner || "").trim();
+  if (!trimmed) return "";
+  const chars = Array.from(trimmed);
+  const canMapAll = chars.every(c => supMap[c] !== undefined || c === " " || c === ",");
+  return canMapAll ? chars.map(c => supMap[c] || c).join("") : `⁽${trimmed}⁾`;
+}
+
+function convertSubGroup(inner) {
+  const trimmed = (inner || "").trim();
+  if (!trimmed) return "";
+  const chars = Array.from(trimmed);
+  const canMapAll = chars.every(c => subMap[c] !== undefined || c === " " || c === ",");
+  return canMapAll ? chars.map(c => subMap[c] || c).join("") : `₍${trimmed}₎`;
+}
+
+function replaceBareOperatorLimits(str) {
+  if (!str || (!str.includes("_") && !str.includes("^"))) return str;
+  return str.replace(/(\b(?:lim sup|lim inf|arg max|arg min|lim|max|min|sup|inf)|[∑∏∐∫∬∭∮∯∰⋃⋂⨁⨂⨀⨆⨄⋁⋀])\s*(?:_\{([^{}]+)\}|_([0-9a-zA-Z]))?(?:\s*(?:\^\{([^{}]+)\}|\^([0-9a-zA-Z+\-*⊤∘′∗])))?/g, (match, op, subG, subS, supG, supS) => {
+    if (!subG && !subS && !supG && !supS) return match;
+    const subPart = subG ? convertSubGroup(subG) : (subS ? (subMap[subS] || `₍${subS}₎`) : "");
+    const supPart = supG ? convertSupGroup(supG) : (supS ? (supMap[supS] || `⁽${supS}⁾`) : "");
+    return `${op}${subPart}${supPart}`;
+  });
+}
 
 function cleanMathExpr(str) {
   if (!str) return "";
-  str = str.replace(/\\(?:text|mathrm|mathbf|mathit|operatorname)\{([^}]*)\}/g, "$1");
-  str = str.replace(/\\frac\{([^}]*)\}\{([^}]*)\}/g, "$1 / $2");
-  str = str.replace(/\\sqrt\{([^}]*)\}/g, "√($1)");
-  str = str.replace(/\\left\(/g, "(").replace(/\\right\)/g, ")");
-  str = str.replace(/\\left\[/g, "[").replace(/\\right\]/g, "]");
-  str = str.replace(/\\left\\\{/g, "{").replace(/\\right\\\}/g, "}");
-  str = str.replace(/\\\{/g, "{").replace(/\\\}/g, "}");
-  str = str.replace(/\\%/g, "%").replace(/\\_/g, "_").replace(/\\&/g, "&");
-  str = str.replace(/\\,/g, " ").replace(/\\;/g, " ").replace(/\\quad/g, " ").replace(/\\qquad/g, "  ");
+  str = str.replace(/\\\\/g, "\n");
+  str = unwrapTextAndFontCommands(str);
+  str = replaceUnderOverBraces(str);
+  str = replaceExtensibleArrows(str);
+  str = str.replace(/\\tag\*?\{([^{}]*)\}/g, " ($1)");
+  str = str.replace(/\\label\{([^{}]*)\}/g, "");
+  str = str.replace(/\\(?:begin|end)\{(?:aligned|align\*?|matrix|bmatrix|pmatrix|vmatrix|Vmatrix|Bmatrix|cases|split|gather\*?|multline\*?|array|equation\*?|subequations)\}(?:\{[^{}]*\})?/g, "");
+  str = str.replace(/\\&/g, "\uE001").replace(/&\s*=/g, "=").replace(/&/g, " ").replace(/\uE001/g, "&");
+  str = replaceStructuralMathCommands(str);
+  str = cleanSizingAndDelimiters(str, true);
   str = replaceSymbolsSinglePass(str);
-  str = str.replace(/\^\{([0-9a-zA-Z\+\-\=\(\)]+)\}/g, (_, chars) => chars.split("").map(c => supMap[c] || c).join(""));
-  str = str.replace(/\^([0-9a-zA-Z\+\-\*])/g, (_, c) => supMap[c] || c);
-  str = str.replace(/_\{([0-9a-zA-Z\+\-\=\(\)]+)\}/g, (_, chars) => chars.split("").map(c => subMap[c] || c).join(""));
-  str = str.replace(/_([0-9a-zA-Z])/g, (_, c) => subMap[c] || c);
+  str = str.replace(/\\(?:mathcal|mathscr|mathbb|mathfrak|mathbbm)\{([^{}]*)\}/g, "$1");
+  str = str.replace(/\^\{([^{}]+)\}/g, (_, chars) => convertSupGroup(chars));
+  str = str.replace(/\^([0-9a-zA-Z+\-*⊤∘′∗])/g, (_, c) => supMap[c] || `⁽${c}⁾`);
+  str = str.replace(/_\{([^{}]+)\}/g, (_, chars) => convertSubGroup(chars));
+  str = str.replace(/_([0-9a-zA-Zβγρφχ])/g, (_, c) => subMap[c] || `₍${c}₎`);
   return str.trim();
 }
 
 function processMathSymbols(text) {
   if (!text) return "";
-  // Fast-path: if text does not contain backslash or dollar sign, no LaTeX math can be present
   if (!text.includes("\\") && !text.includes("$")) return text;
 
   const codeBlocks = [];
@@ -259,8 +552,16 @@ function processMathSymbols(text) {
   text = text.replace(/(?<!\\)\$(?!\s)([^$\n]+?)(?<!\s)(?<!\\)\$/g, (_, m) => cleanMathExpr(m));
   text = text.replace(/\\\(([\s\S]*?)\\\)/g, (_, m) => cleanMathExpr(m));
 
-  // Single-pass replacement for standalone LaTeX commands in prose
-  text = replaceSymbolsSinglePass(text);
+  if (text.includes("\\")) {
+    text = unwrapTextAndFontCommands(text);
+    text = replaceUnderOverBraces(text);
+    text = replaceExtensibleArrows(text);
+    text = replaceStructuralMathCommands(text);
+    text = cleanSizingAndDelimiters(text, false);
+    text = replaceSymbolsSinglePass(text);
+    text = text.replace(/\\(?:mathcal|mathscr|mathbb|mathfrak|mathbbm)\{([^{}]*)\}/g, "$1");
+    text = replaceBareOperatorLimits(text);
+  }
 
   inlineCodes.forEach((c, idx) => {
     text = text.replace(`XXAGYINLINETOKEN${idx}XX`, c);
@@ -609,17 +910,65 @@ function renderInlineMarkdown(text) {
     text = text.replace(/task\.md/g, "[task.md](task.md)");
   }
 
-  // Normalize HTML whitespace entities (&nbsp;, &ensp;, &emsp;, &#160;) to unicode non-breaking spaces
-  text = text.replace(/&(?:nbsp|#160|ensp|emsp);/gi, "\u00A0");
+  // Normalize HTML whitespace & common named entities
+  text = text
+    .replace(/&(?:nbsp|#160|ensp|emsp);/gi, "\u00A0")
+    .replace(/&(?:mdash|#8212);/gi, "—")
+    .replace(/&(?:ndash|#8211);/gi, "–")
+    .replace(/&(?:hellip|#8230);/gi, "…")
+    .replace(/&(?:rarr|#8594);/gi, "→")
+    .replace(/&(?:larr|#8592);/gi, "←")
+    .replace(/&(?:harr|#8596);/gi, "↔")
+    .replace(/&(?:rArr|#8658);/gi, "⇒")
+    .replace(/&(?:lArr|#8656);/gi, "⇐")
+    .replace(/&(?:hArr|#8660);/gi, "⇔")
+    .replace(/&(?:times|#215);/gi, "×")
+    .replace(/&(?:divide|#247);/gi, "÷")
+    .replace(/&(?:plusmn|#177);/gi, "±")
+    .replace(/&(?:le|#8804);/gi, "≤")
+    .replace(/&(?:ge|#8805);/gi, "≥")
+    .replace(/&(?:ne|#8800);/gi, "≠")
+    .replace(/&(?:approx|#8776);/gi, "≈")
+    .replace(/&(?:equiv|#8801);/gi, "≡")
+    .replace(/&(?:infin|#8734);/gi, "∞")
+    .replace(/&(?:bull|#8226);/gi, "•")
+    .replace(/&(?:middot|#183);/gi, "·")
+    .replace(/&(?:deg|#176);/gi, "°")
+    .replace(/&(?:copy|#169);/gi, "©")
+    .replace(/&(?:reg|#174);/gi, "®")
+    .replace(/&(?:trade|#8482);/gi, "™");
 
-  // Normalize HTML <br> tags outside of inline code spans
-  text = text.replace(/`[^`]+`|[ \t]*<(?:\/br|br\b[^>]*\/?)>[ \t]*\n?/gi, (match) => {
-    if (match.startsWith("`")) return match;
-    return "___HTML_BR___";
+  // Normalize inline HTML tags outside of inline code spans
+  const codeSpans = [];
+  text = text.replace(/`[^`]+`/g, (m) => {
+    const idx = codeSpans.length;
+    codeSpans.push(m);
+    return `\uE010CODE${idx}\uE011`;
   });
 
+  text = text
+    .replace(/[ \t]*<(?:\/br|br\b[^>]*\/?)>[ \t]*\n?/gi, "___HTML_BR___")
+    .replace(/<(?:b|strong)\b[^>]*>([\s\S]*?)<\/(?:b|strong)>/gi, "**$1**")
+    .replace(/<(?:i|em)\b[^>]*>([\s\S]*?)<\/(?:i|em)>/gi, "*$1*")
+    .replace(/<(?:s|del|strike)\b[^>]*>([\s\S]*?)<\/(?:s|del|strike)>/gi, "~~$1~~")
+    .replace(/<mark\b[^>]*>([\s\S]*?)<\/mark>/gi, "==$1==")
+    .replace(/<code\b[^>]*>([\s\S]*?)<\/code>/gi, "`$1`")
+    .replace(/<kbd\b[^>]*>([\s\S]*?)<\/kbd>/gi, "`[$1]`")
+    .replace(/<(?:u|ins)\b[^>]*>([\s\S]*?)<\/(?:u|ins)>/gi, "___HTML_U_OPEN___$1___HTML_U_CLOSE___")
+    .replace(/<sup\b[^>]*>([\s\S]*?)<\/sup>/gi, "___HTML_SUP_OPEN___$1___HTML_SUP_CLOSE___")
+    .replace(/<sub\b[^>]*>([\s\S]*?)<\/sub>/gi, "___HTML_SUB_OPEN___$1___HTML_SUB_CLOSE___");
+
+  text = text.replace(/\uE010CODE(\d+)\uE011/g, (_, idx) => codeSpans[Number(idx)]);
+
   let html = escapeHtml(text);
-  html = html.replace(/___HTML_BR___/g, "<br/>");
+  html = html
+    .replace(/___HTML_BR___/g, "<br/>")
+    .replace(/___HTML_U_OPEN___/g, "<u>")
+    .replace(/___HTML_U_CLOSE___/g, "</u>")
+    .replace(/___HTML_SUP_OPEN___/g, "<sup>")
+    .replace(/___HTML_SUP_CLOSE___/g, "</sup>")
+    .replace(/___HTML_SUB_OPEN___/g, "<sub>")
+    .replace(/___HTML_SUB_CLOSE___/g, "</sub>");
 
   // 1. Linked images: [![alt](thumb)](orig)
   html = html.replace(/\[!\[([^\]]*)\]\(([^)]+)\)\]\(([^)]+)\)/g, (_, alt, thumbUrl, origUrl) => {
@@ -662,14 +1011,17 @@ function renderInlineMarkdown(text) {
   // Inline code (e.g. `foo`)
   html = html.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
 
-  // Bold & Italic
+  // Bold + Italic, Bold, Italic
+  html = html.replace(/\*\*\*((?:[^*]|\*(?!\*\*))+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+  html = html.replace(/(?<![A-Za-z0-9_{}])___((?:[^_]|_(?!__))+?)___(?![A-Za-z0-9_{}])/g, '<strong><em>$1</em></strong>');
   html = html.replace(/\*\*((?:[^*]|\*(?!\*))+?)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/(?<![A-Za-z0-9_])__((?:[^_]|_(?!_))+?)__(?![A-Za-z0-9_])/g, '<strong>$1</strong>');
+  html = html.replace(/(?<![A-Za-z0-9_{}])__((?:[^_]|_(?!_))+?)__(?![A-Za-z0-9_{}])/g, '<strong>$1</strong>');
   html = html.replace(/(?<!\*)\*([^*\n]+?)\*(?!\*)/g, '<em>$1</em>');
-  html = html.replace(/(?<![A-Za-z0-9_])_([^_\n]+?)_(?![A-Za-z0-9_])/g, '<em>$1</em>');
+  html = html.replace(/(?<![A-Za-z0-9_{}])_([^_\n]+?)_(?![A-Za-z0-9_{}])/g, '<em>$1</em>');
 
-  // Strikethrough
+  // Strikethrough & Highlight
   html = html.replace(/~~((?:[^~]|~(?!~))+?)~~/g, '<del>$1</del>');
+  html = html.replace(/==((?:[^=]|=(?!=))+?)==/g, '<mark class="md-highlight" style="background: rgba(255, 214, 10, 0.28); color: inherit; padding: 0 3px; border-radius: 3px;">$1</mark>');
 
   // 5. Agent embed tag: <agent-embed src="..."></agent-embed>
   html = html.replace(/&lt;agent-embed\b[^&>]*?\bsrc=[&quot;']([^&quot;']+)&quot;[^&>]*&gt;(?:\s*&lt;\/agent-embed&gt;)?/gi, (_, src) => {
@@ -1290,12 +1642,57 @@ function renderMarkdown(md) {
       }
     }
 
-    // 4. Tables (| Header | Header |)
-    if (trimmed.startsWith("|") && trimmed.endsWith("|") && trimmed.includes("|")) {
+    // 3.5 HTML <details>...</details> Block
+    if (trimmed.toLowerCase().startsWith("<details")) {
+      const detailLines = [];
+      let foundEnd = false;
+      while (i < lines.length) {
+        detailLines.push(lines[i]);
+        if (lines[i].toLowerCase().includes("</details>")) {
+          foundEnd = true;
+          i++;
+          break;
+        }
+        i++;
+      }
+      if (foundEnd) {
+        const rawDetails = detailLines.join("\n");
+        const summaryMatch = rawDetails.match(/<summary\b[^>]*>([\s\S]*?)<\/summary>/i);
+        const summaryText = summaryMatch ? summaryMatch[1].trim() : "详情";
+        const bodyRaw = rawDetails
+          .replace(/^[\s\S]*?<details\b[^>]*>/i, "")
+          .replace(/<summary\b[^>]*>[\s\S]*?<\/summary>/i, "")
+          .replace(/<\/details>[\s\S]*$/i, "")
+          .trim();
+        blocks.push(`
+          <details class="md-details" style="margin: 10px 0; background: rgba(120,120,128,0.06); border-radius: 8px; padding: 8px 12px;">
+            <summary style="cursor: pointer; font-weight: 600; user-select: none; outline: none;">${renderInlineMarkdown(summaryText)}</summary>
+            <div class="md-details-body" style="margin-top: 8px;">${renderMarkdown(bodyRaw)}</div>
+          </details>
+        `);
+        continue;
+      }
+    }
+
+    // 4. Tables (| Header | Header | or pipe-less GFM Header 1 | Header 2)
+    const parseTableRow = (rowStr) => {
+      const placeholder = "\uE000";
+      const sanitized = rowStr.trim().replace(/\\\|/g, placeholder);
+      if (!sanitized.includes("|")) return [];
+      let parts = sanitized.split("|");
+      if (sanitized.startsWith("|") && parts.length > 0) parts = parts.slice(1);
+      if (sanitized.endsWith("|") && parts.length > 0) parts = parts.slice(0, parts.length - 1);
+      return parts.map(c => c.replace(/\uE000/g, "|").trim());
+    };
+    const isTableSepRow = (cells) => cells.length >= 2 && cells.every(cell => /^[\s\-:]+$/.test(cell) && cell.includes("-"));
+    const isPipeTableLine = (s) => (s.startsWith("|") && s.endsWith("|") && s.includes("|"));
+    const isPipelessTableStart = !isPipeTableLine(trimmed) && trimmed.includes("|") && (i + 1 < lines.length) && isTableSepRow(parseTableRow(lines[i + 1].trim()));
+
+    if (isPipeTableLine(trimmed) || isPipelessTableStart) {
       const tableLines = [];
       while (i < lines.length) {
         const tLine = lines[i].trim();
-        if (tLine.startsWith("|") && tLine.endsWith("|")) {
+        if (isPipeTableLine(tLine) || (isPipelessTableStart && tLine.includes("|") && !tLine.startsWith("#") && !tLine.startsWith("```") && !tLine.startsWith(">"))) {
           tableLines.push(tLine);
           i++;
         } else {
@@ -1303,20 +1700,13 @@ function renderMarkdown(md) {
         }
       }
       if (tableLines.length >= 2) {
-        const parseTableRow = (rowStr) => {
-          const placeholder = "\uE000";
-          const sanitized = rowStr.replace(/\\\|/g, placeholder);
-          const parts = sanitized.split("|");
-          if (parts.length < 2) return [];
-          return parts.slice(1, parts.length - 1).map(c => c.replace(/\uE000/g, "|").trim());
-        };
         const headers = parseTableRow(tableLines[0]);
         let alignments = [];
         const rows = [];
         for (let rIdx = 1; rIdx < tableLines.length; rIdx++) {
           const r = parseTableRow(tableLines[rIdx]);
           // Skip separator row (| --- | :--- |)
-          const isSep = r.length > 0 && r.every(cell => /^[\s\-:]+$/.test(cell));
+          const isSep = r.length > 0 && r.every(cell => /^[\s\-:]+$/.test(cell) && cell.includes("-"));
           if (isSep) {
             if (alignments.length === 0) {
               alignments = r.map(c => {
@@ -1389,26 +1779,44 @@ function renderMarkdown(md) {
       continue;
     }
 
-    // 6. Lists (Unordered & Ordered)
-    const isUnordered = trimmed.startsWith("- ") || trimmed.startsWith("* ") || trimmed.startsWith("• ");
-    const isOrdered = /^\d+\.\s/.test(trimmed);
+    // 6. Lists (Unordered & Ordered, with Task List checkbox support)
+    const isUnordered = trimmed.startsWith("- ") || trimmed.startsWith("* ") || trimmed.startsWith("+ ") || trimmed.startsWith("• ");
+    const orderedMatch = trimmed.match(/^(\d+)[.)]\s+/);
+    const isOrdered = Boolean(orderedMatch);
     if (isUnordered || isOrdered) {
       const listItems = [];
       const tag = isOrdered ? "ol" : "ul";
+      const startNum = orderedMatch ? parseInt(orderedMatch[1], 10) : 1;
       while (i < lines.length) {
         const lLine = lines[i].trim();
-        if (isOrdered && /^\d+\.\s/.test(lLine)) {
-          listItems.push(lLine.replace(/^\d+\.\s+/, ""));
+        if (isOrdered && /^\d+[.)]\s+/.test(lLine)) {
+          listItems.push(lLine.replace(/^\d+[.)]\s+/, ""));
           i++;
-        } else if (!isOrdered && (lLine.startsWith("- ") || lLine.startsWith("* ") || lLine.startsWith("• "))) {
-          listItems.push(lLine.replace(/^[-*•]\s+/, ""));
+        } else if (!isOrdered && (lLine.startsWith("- ") || lLine.startsWith("* ") || lLine.startsWith("+ ") || lLine.startsWith("• "))) {
+          listItems.push(lLine.replace(/^[-*+•]\s+/, ""));
           i++;
         } else {
           break;
         }
       }
-      const itemsHtml = listItems.map(it => `<li>${renderInlineMarkdown(it)}</li>`).join("");
-      blocks.push(`<${tag} class="ios-list">${itemsHtml}</${tag}>`);
+      const renderListItem = (it) => {
+        let prefix = "";
+        let rest = it;
+        if (/^\[ \]\s+/.test(rest)) {
+          prefix = `<span class="md-task-checkbox" style="margin-right: 6px; user-select: none;">☐</span>`;
+          rest = rest.replace(/^\[ \]\s+/, "");
+        } else if (/^\[[xX]\]\s+/.test(rest)) {
+          prefix = `<span class="md-task-checkbox checked" style="margin-right: 6px; user-select: none;">☑</span>`;
+          rest = rest.replace(/^\[[xX]\]\s+/, "");
+        } else if (/^\[[\/\-]\]\s+/.test(rest)) {
+          prefix = `<span class="md-task-checkbox partial" style="margin-right: 6px; user-select: none;">◐</span>`;
+          rest = rest.replace(/^\[[\/\-]\]\s+/, "");
+        }
+        return `<li>${prefix}${renderInlineMarkdown(rest)}</li>`;
+      };
+      const itemsHtml = listItems.map(renderListItem).join("");
+      const startAttr = (isOrdered && startNum > 1) ? ` start="${startNum}"` : "";
+      blocks.push(`<${tag} class="ios-list"${startAttr}>${itemsHtml}</${tag}>`);
       continue;
     }
 
@@ -1434,17 +1842,21 @@ function renderMarkdown(md) {
     while (i < lines.length) {
       const nextLine = lines[i];
       const nTrimmed = nextLine.trim();
+      const nPipelessTable = !isPipeTableLine(nTrimmed) && nTrimmed.includes("|") && (i + 1 < lines.length) && isTableSepRow(parseTableRow(lines[i + 1].trim()));
       if (!nTrimmed ||
           nTrimmed.startsWith("MEDIA:") ||
           /^<agent-embed\b/i.test(nTrimmed) ||
+          nTrimmed.toLowerCase().startsWith("<details") ||
           /^(?:https?:\/\/[^\s]+\.(?:png|jpe?g|webp|gif|svg|bmp)|(?:\/|[a-zA-Z]:\\|file:\/\/)[^\s<"']+\.(?:png|jpe?g|webp|gif|svg|bmp))$/i.test(nTrimmed) ||
           nTrimmed.startsWith("```") ||
+          nTrimmed.startsWith("~~~") ||
           nTrimmed.startsWith("#") ||
           nTrimmed === "---" || nTrimmed === "***" || nTrimmed === "___" ||
           (nTrimmed.startsWith("|") && nTrimmed.endsWith("|")) ||
+          nPipelessTable ||
           nTrimmed.startsWith(">") ||
-          nTrimmed.startsWith("- ") || nTrimmed.startsWith("* ") || nTrimmed.startsWith("• ") ||
-          /^\d+\.\s/.test(nTrimmed)) {
+          nTrimmed.startsWith("- ") || nTrimmed.startsWith("* ") || nTrimmed.startsWith("+ ") || nTrimmed.startsWith("• ") ||
+          /^\d+[.)]\s/.test(nTrimmed)) {
         break;
       }
       paraLines.push(nextLine);
