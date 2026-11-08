@@ -30,6 +30,8 @@ public struct ChatView: View {
     @State var showOtherSessionRecordingAlert = false
     @ObservedObject var audioRecorder = AudioRecorderManager.shared
     @ObservedObject var voiceCall = VoiceCallManager.shared
+    @State var showVoiceTroubleshootBubble = false
+    @State var lastVoiceTroubleshootBubbleAt: Date = .distantPast
     @State var previewDraftGallery: ImageGalleryData? = nil
     @State var showAttachmentSheet = false
     @State var showNavigatorSheet = false
@@ -295,6 +297,12 @@ public struct ChatView: View {
             }
             viewModel.saveCurrentDraft()
             viewModel.disconnectStream()
+        }
+        .onChange(of: voiceCall.callState) { _, newState in
+            handleVoiceCallStateChange(newState)
+        }
+        .onChange(of: voiceCall.isInCall) { _, inCall in
+            if inCall { showVoiceTroubleshootBubble = false }
         }
         .onChange(of: viewModel.activeModel) { _, _ in
             if voiceCall.isInCall {

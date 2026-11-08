@@ -19,8 +19,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -53,6 +56,32 @@ enum class VoiceTranscriptRole {
 class VoiceCallManager(private val context: Context) {
 
     companion object {
+        /** 语音连接失败后，用户点「一键排查」时发送给智能体的预设提示词（三端保持一致）。 */
+        val TROUBLESHOOT_PROMPT = """
+            |【任务】排查「本机无法使用谷歌语音(Gemini Live)功能」的问题。
+            |
+            |【现象】
+            |- 本机 Antigravity 的语音功能无法连接，界面提示 “Couldn't connect / Try again”
+            |
+            |【请按顺序排查】
+            |1. 登录与授权：
+            |   - 检查登录态的 OAuth Scope 是否完整。旧登录态可能缺少语音所需的新权限
+            |   - 如需重新授权，先退出 Antigravity，将 jetski-standalone-oauth-token 文件重命名或移走，再启动并重新登录，以强制拉取完整 Scope
+            |2. 代理与长连接：
+            |   - 语音使用双向流式通信（bidi stream / gRPC）
+            |   - 确认代理（Clash / Clash Verge / Sing-box 等）已开启 TUN 模式，或支持对 *.googleapis.com 的 HTTP/2 与 gRPC 流式转发
+            |   - 查看日志是否出现 context canceled while waiting for connections（连接超时的典型特征）
+            |3. 系统麦克风：
+            |   - 确认系统麦克风访问权限与「允许桌面应用访问麦克风」均已开启
+            |   - 确认默认录音设备正常，且没有被其他程序占用
+            |4. 网关链路：检查网关语音 WebSocket 链路与日志（mgy 会话输出）
+            |
+            |【输出要求】
+            |- 先给出根因判断与证据（日志、命令输出），再给修复步骤
+            |- 能自动修复的直接修复；涉及改配置、重启服务或重新登录的，先说明再执行
+            |- 修复后验证语音是否恢复
+        """.trimMargin()
+
         val SUPPORTED_SPEEDS = listOf(0.75, 1.0, 1.25, 1.5, 1.75, 2.0)
         private const val MIC_SAMPLE_RATE = 16000
         private const val PLAYBACK_SAMPLE_RATE = 24000
@@ -92,6 +121,10 @@ class VoiceCallManager(private val context: Context) {
 
     private val _isInCall = MutableStateFlow(false)
     val isInCall: StateFlow<Boolean> = _isInCall.asStateFlow()
+
+    /** 连接明确失败（endCall 会把状态复位为 IDLE，因此单独用事件通知 UI 弹出排查气泡）。 */
+    private val _failureEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val failureEvents: SharedFlow<Unit> = _failureEvents.asSharedFlow()
 
     private val _callState = MutableStateFlow(VoiceCallState.IDLE)
     val callState: StateFlow<VoiceCallState> = _callState.asStateFlow()
@@ -166,6 +199,7 @@ class VoiceCallManager(private val context: Context) {
 
         if (!setupAudioPipeline()) {
             _callState.value = VoiceCallState.FAILED
+            _failureEvents.tryEmit(Unit)
             endCall()
             return false
         }
@@ -412,7 +446,10 @@ class VoiceCallManager(private val context: Context) {
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
                 webSocket.close(1000, null)
                 if (!isIntentionallyClosed) {
-                    scope.launch { endCall() }
+                    scope.launch {
+                        _failureEvents.tryEmit(Unit)
+                        endCall()
+                    }
                 }
             }
 
@@ -421,6 +458,7 @@ class VoiceCallManager(private val context: Context) {
                 if (!isIntentionallyClosed) {
                     scope.launch {
                         _callState.value = VoiceCallState.FAILED
+                        _failureEvents.tryEmit(Unit)
                         endCall()
                     }
                 }

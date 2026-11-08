@@ -185,6 +185,17 @@ extension ChatView {
         }
     }
 
+    /// 语音明确进入 failed 后弹出排查气泡（通话此时已被 VoiceCallManager 自动挂断）。
+    /// 同一次失败只弹一次，30 秒内不重复弹。
+    func handleVoiceCallStateChange(_ state: VoiceCallManager.CallState) {
+        guard case .failed(let reason) = state else { return }
+        // 未配置服务器地址属于本地配置问题，与语音链路无关
+        guard reason != "未配置服务器地址" else { return }
+        guard Date().timeIntervalSince(lastVoiceTroubleshootBubbleAt) > 30 else { return }
+        lastVoiceTroubleshootBubbleAt = Date()
+        withAnimation { showVoiceTroubleshootBubble = true }
+    }
+
     func handleStartVoiceCall() {
         if audioRecorder.isRecording {
             audioRecorder.cancelRecording()

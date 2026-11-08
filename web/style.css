@@ -6192,3 +6192,36 @@ html[data-clipped] #view-conversations::after {
   background: transparent;
   border-radius: 0;
 }
+
+/* 语音连接失败排查气泡 */
+.voice-troubleshoot-bubble {
+  margin: 0 12px 6px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--ios-secondary-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 0.75px solid rgba(245, 158, 11, 0.4);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+}
+.voice-troubleshoot-bubble.hidden { display: none; }
+.vtb-title { font-size: 14px; font-weight: 600; }
+.vtb-sub { opacity: 0.6; }
+.vtb-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; }
+.vtb-ask { font-weight: 500; margin-top: 2px; }
+.vtb-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.vtb-btn {
+  border: none;
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  background: rgba(128, 128, 128, 0.18);
+  color: inherit;
+  cursor: pointer;
+}
+.vtb-btn-primary { background: #5856d6; color: #fff; font-weight: 600; }

@@ -14,7 +14,7 @@
   <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=4" />
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=4" />
   <link rel="manifest" href="/manifest.json" />
-  <link rel="stylesheet" href="/style.css?v=48" />
+  <link rel="stylesheet" href="/style.css?v=49" />
 </head>
 <body>
   <div id="app">
@@ -192,6 +192,22 @@
 
         <!-- 子代理会话只读提示条（替代输入栏） -->
         <div id="subagent-bar" class="subagent-bar hidden"></div>
+
+        <!-- 语音连接失败排查气泡 -->
+        <div id="voice-troubleshoot-bubble" class="voice-troubleshoot-bubble hidden" data-testid="voice-troubleshoot-bubble">
+          <div class="vtb-title">当前无法连接语音</div>
+          <div class="vtb-sub">请先在电脑上依次检查：</div>
+          <ol class="vtb-list">
+            <li><b>重新登录</b>：退出 Antigravity 登录，完全关闭后重新打开并登录，授权页勾选全部权限</li>
+            <li><b>开启代理 TUN 模式</b>：确保 *.googleapis.com 长连接（HTTP/2、gRPC）正常转发</li>
+            <li><b>检查电脑麦克风</b>：系统麦克风权限已开启，默认录音设备正常且未被占用</li>
+          </ol>
+          <div class="vtb-ask">如果都不行，是否让智能体自动排查？</div>
+          <div class="vtb-actions">
+            <button type="button" id="btn-vtb-retry" class="vtb-btn">我再试试</button>
+            <button type="button" id="btn-vtb-troubleshoot" class="vtb-btn vtb-btn-primary">一键排查</button>
+          </div>
+        </div>
 
         <!-- 实时双工语音通话浮条 -->
         <div id="voice-call-card" class="voice-call-card hidden" data-testid="voice-call-card">
@@ -678,7 +694,7 @@
 
   <script defer src="/js/core.js?v=40"></script>
   <script defer src="/js/nav.js?v=41"></script>
-  <script defer src="/js/chat.js?v=38"></script>
+  <script defer src="/js/chat.js?v=39"></script>
   <script defer src="/js/actions.js?v=33"></script>
   <script defer src="/js/media.js?v=32"></script>
   <script defer src="/js/cockpit.js?v=31"></script>
