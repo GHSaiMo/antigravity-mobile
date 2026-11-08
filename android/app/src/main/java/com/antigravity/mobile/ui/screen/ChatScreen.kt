@@ -61,7 +61,11 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -1509,13 +1513,19 @@ fun ChatScreen(
                                     }
                                 }
                                 else -> {
-                                    // Voice Mode button: single tap starts full-duplex voice call, long press starts offline .m4a recording
+                                    // Voice Mode button: 1:1 Desktop Antigravity styling parity
                                     Box(
                                         modifier = Modifier
                                             .size(44.dp)
+                                            .shadow(
+                                                elevation = 2.dp,
+                                                shape = CircleShape,
+                                                ambientColor = Color.Black.copy(alpha = 0.2f),
+                                                spotColor = Color.Black.copy(alpha = 0.3f)
+                                            )
                                             .clip(CircleShape)
-                                            .background(colors.accentIndigo.copy(alpha = 0.12f))
-                                            .border(0.8.dp, colors.accentIndigo.copy(alpha = 0.28f), CircleShape)
+                                            .background(Color(0xFF475558))
+                                            .border(0.8.dp, Color.White.copy(alpha = 0.14f), CircleShape)
                                             .combinedClickable(
                                                 onClick = {
                                                     haptic.medium()
@@ -1530,11 +1540,9 @@ fun ChatScreen(
                                             ),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Default.GraphicEq,
-                                            contentDescription = "实时语音对话，长按录制语音消息",
-                                            tint = colors.accentIndigo,
-                                            modifier = Modifier.size(20.dp)
+                                        AntigravityVoiceIcon(
+                                            modifier = Modifier.size(22.dp),
+                                            tint = Color.White
                                         )
                                     }
                                 }
@@ -1961,5 +1969,67 @@ private fun PulsingDots(color: Color) {
                 .clip(CircleShape)
                 .background(color.copy(alpha = dot3Alpha))
         )
+    }
+}
+
+/**
+ * 1:1 对齐 Antigravity 桌面端（main.js tuc() 组件）的 3 波形条 + 4 芒星矢量图标
+ */
+@Composable
+fun AntigravityVoiceIcon(
+    modifier: Modifier = Modifier,
+    tint: Color = Color.White
+) {
+    androidx.compose.foundation.Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+
+        val r1 = CornerRadius(w * 0.04271f, w * 0.04271f)
+        // Bar 1
+        drawRoundRect(
+            color = tint,
+            topLeft = Offset(w * 0.21021f, h * 0.35083f),
+            size = Size(w * 0.08542f, h * 0.36458f),
+            cornerRadius = r1
+        )
+
+        // Bar 2
+        drawRoundRect(
+            color = tint,
+            topLeft = Offset(w * 0.41021f, h * 0.25969f),
+            size = Size(w * 0.08542f, h * 0.54688f),
+            cornerRadius = r1
+        )
+
+        // Bar 3
+        drawRoundRect(
+            color = tint,
+            topLeft = Offset(w * 0.61021f, h * 0.41594f),
+            size = Size(w * 0.08542f, h * 0.23438f),
+            cornerRadius = r1
+        )
+
+        // Sparkle 4-point star
+        val star = Path().apply {
+            moveTo(w * 0.78958f, h * 0.37400f)
+            quadraticBezierTo(w * 0.78358f, h * 0.37400f, w * 0.78158f, h * 0.36800f)
+            quadraticBezierTo(w * 0.76635f, h * 0.30969f, w * 0.72416f, h * 0.26750f)
+            quadraticBezierTo(w * 0.68197f, h * 0.22531f, w * 0.62366f, h * 0.21008f)
+            quadraticBezierTo(w * 0.61766f, h * 0.20808f, w * 0.61766f, h * 0.20208f)
+            quadraticBezierTo(w * 0.61766f, h * 0.19508f, w * 0.62366f, h * 0.19408f)
+            quadraticBezierTo(w * 0.68197f, h * 0.17885f, w * 0.72416f, h * 0.13666f)
+            quadraticBezierTo(w * 0.76635f, h * 0.09447f, w * 0.78158f, h * 0.03616f)
+            quadraticBezierTo(w * 0.78358f, h * 0.03016f, w * 0.78958f, h * 0.03016f)
+            quadraticBezierTo(w * 0.79658f, h * 0.03016f, w * 0.79758f, h * 0.03616f)
+            quadraticBezierTo(w * 0.81343f, h * 0.09447f, w * 0.85538f, h * 0.13669f)
+            quadraticBezierTo(w * 0.89733f, h * 0.17891f, w * 0.95550f, h * 0.19409f)
+            quadraticBezierTo(w * 0.96150f, h * 0.19509f, w * 0.96150f, h * 0.20209f)
+            quadraticBezierTo(w * 0.96150f, h * 0.20809f, w * 0.95550f, h * 0.21009f)
+            quadraticBezierTo(w * 0.89719f, h * 0.22532f, w * 0.85500f, h * 0.26751f)
+            quadraticBezierTo(w * 0.81281f, h * 0.30970f, w * 0.79758f, h * 0.36801f)
+            quadraticBezierTo(w * 0.79658f, h * 0.37401f, w * 0.78958f, h * 0.37401f)
+            close()
+        }
+        drawPath(star, tint)
     }
 }
