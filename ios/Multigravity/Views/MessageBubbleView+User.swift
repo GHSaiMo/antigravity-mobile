@@ -8,22 +8,7 @@ extension MessageBubbleView {
     
     var userBubble: some View {
         let parsed = AttachmentRules.parseBlock(message.content)
-        let isVoiceMessage: Bool = {
-            let trimmed = parsed.body.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.contains("<talker_agent_context>") || trimmed.contains("</talker_agent_context>") {
-                return true
-            }
-            if trimmed.contains("<voice_instructions>") || trimmed.contains("</voice_instructions>") {
-                return true
-            }
-            if trimmed.contains("talker:") && (trimmed.contains("user:") || trimmed.contains("[202")) {
-                return true
-            }
-            if !parsed.files.isEmpty && parsed.files.allSatisfy({ ["wav", "m4a", "aac", "mp3", "caf", "opus"].contains($0.ext.lowercased()) }) && trimmed.isEmpty {
-                return true
-            }
-            return false
-        }()
+        let isVoiceMessage = VoiceTranscriptCleaner.isVoiceMessage(body: parsed.body, files: parsed.files)
 
         return VStack(alignment: .trailing, spacing: 6) {
             if !isVoiceMessage {
@@ -441,6 +426,23 @@ enum VoiceTranscriptCleaner {
         pattern: #"^(user|human|me|用户|我|talker|agent|assistant|ai|智能体|助手|语音)\s*[:：]\s*"#,
         options: .caseInsensitive
     )
+
+    static func isVoiceMessage(body: String, files: [AttachmentRules.ParsedFile] = []) -> Bool {
+        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.contains("<talker_agent_context>") || trimmed.contains("</talker_agent_context>") {
+            return true
+        }
+        if trimmed.contains("<voice_instructions>") || trimmed.contains("</voice_instructions>") {
+            return true
+        }
+        if trimmed.contains("talker:") && (trimmed.contains("user:") || trimmed.contains("[202")) {
+            return true
+        }
+        if !files.isEmpty && files.allSatisfy({ ["wav", "m4a", "aac", "mp3", "caf", "opus"].contains($0.ext.lowercased()) }) && trimmed.isEmpty {
+            return true
+        }
+        return false
+    }
 
     static func clean(_ raw: String) -> String {
         let trimmedRaw = raw.trimmingCharacters(in: .whitespacesAndNewlines)

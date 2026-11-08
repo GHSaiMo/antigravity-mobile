@@ -48,6 +48,7 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import com.antigravity.mobile.ui.screen.AntigravityVoiceIcon
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
@@ -447,19 +448,61 @@ private fun MessageShareCard(
             }
 
             if (isUserMessage) {
-                val (annotated, inlineMap) = remember(content) {
-                    SlashCommandTextRenderer.buildInlineText(
-                        text = content,
-                        iconColor = colors.textPrimary.copy(alpha = 0.85f)
+                val (userBodyText, attachedFiles) = remember(content) {
+                    com.antigravity.mobile.data.service.AttachmentRules.parseBlock(content)
+                }
+                val isVoice = remember(userBodyText, attachedFiles) {
+                    VoiceTranscriptCleaner.isVoiceMessage(userBodyText, attachedFiles)
+                }
+                if (isVoice) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(colors.accentIndigo)
+                                .padding(horizontal = 10.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            AntigravityVoiceIcon(
+                                modifier = Modifier.size(15.dp),
+                                tint = Color.White
+                            )
+                            Text(
+                                text = "语音交互",
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                        val cleaned = remember(userBodyText) { VoiceTranscriptCleaner.clean(userBodyText) }
+                        if (cleaned.isNotBlank()) {
+                            Text(
+                                text = cleaned,
+                                color = colors.textPrimary,
+                                fontSize = 15.sp,
+                                lineHeight = 21.sp
+                            )
+                        }
+                    }
+                } else {
+                    val (annotated, inlineMap) = remember(content) {
+                        SlashCommandTextRenderer.buildInlineText(
+                            text = content,
+                            iconColor = colors.textPrimary.copy(alpha = 0.85f)
+                        )
+                    }
+                    Text(
+                        text = annotated,
+                        inlineContent = inlineMap,
+                        color = colors.textPrimary,
+                        fontSize = 15.5.sp,
+                        lineHeight = 22.sp
                     )
                 }
-                Text(
-                    text = annotated,
-                    inlineContent = inlineMap,
-                    color = colors.textPrimary,
-                    fontSize = 15.5.sp,
-                    lineHeight = 22.sp
-                )
             } else {
                 MarkdownContentView(content = content, urlResolver = urlResolver)
             }
@@ -535,6 +578,17 @@ private fun QuestionBubble(
     val (bodyText, files) = remember(message) {
         com.antigravity.mobile.data.service.AttachmentRules.parseBlock(message.effectiveText)
     }
+    val isVoiceMessage = remember(bodyText, files) {
+        VoiceTranscriptCleaner.isVoiceMessage(bodyText, files)
+    }
+    val cleanedVoiceText = remember(bodyText, isVoiceMessage) {
+        if (isVoiceMessage) VoiceTranscriptCleaner.clean(bodyText) else ""
+    }
+    val filteredFiles = remember(files, isVoiceMessage) {
+        if (isVoiceMessage) {
+            files.filter { it.ext.lowercase() !in listOf("wav", "m4a", "aac", "mp3", "caf", "opus") }
+        } else files
+    }
     val imageItems = remember(message, urlResolver) {
         val validUrls = message.imageUrls?.filter { com.antigravity.mobile.data.service.FileIconResolver.isImage(it) }
         if (!validUrls.isNullOrEmpty()) {
@@ -561,6 +615,28 @@ private fun QuestionBubble(
         horizontalAlignment = Alignment.Start,
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        if (isVoiceMessage) {
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(colors.accentIndigo)
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                AntigravityVoiceIcon(
+                    modifier = Modifier.size(15.dp),
+                    tint = Color.White
+                )
+                Text(
+                    text = "语音交互",
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+
         if (imageItems.size == 1) {
             val item = imageItems.first()
             AsyncImage(
@@ -590,7 +666,7 @@ private fun QuestionBubble(
             }
         }
 
-        files.forEach { f ->
+        filteredFiles.forEach { f ->
             Row(
                 modifier = Modifier
                     .widthIn(max = 280.dp)
@@ -616,7 +692,16 @@ private fun QuestionBubble(
             }
         }
 
-        if (bodyText.isNotBlank()) {
+        if (isVoiceMessage) {
+            if (cleanedVoiceText.isNotBlank()) {
+                Text(
+                    text = cleanedVoiceText,
+                    color = colors.textPrimary,
+                    fontSize = 15.sp,
+                    lineHeight = 21.sp
+                )
+            }
+        } else if (bodyText.isNotBlank()) {
             Text(
                 text = bodyText,
                 color = colors.textPrimary,

@@ -1865,8 +1865,8 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
 /* Floating Full-Duplex Voice Call Bar */
 .voice-call-card {
   margin: 0 12px 6px;
-  padding: 8px 14px;
-  border-radius: 14px;
+  padding: 10px 14px;
+  border-radius: 16px;
   background: var(--ios-secondary-bg);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
@@ -1874,7 +1874,7 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 7px;
 }
 
 .voice-call-card.ai-speaking {
@@ -1883,9 +1883,9 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
 
 .voice-live-subtitle-row {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   gap: 6px;
-  padding: 1px 0;
+  padding: 2px 0;
 }
 
 .voice-subtitle-badge {
@@ -1893,9 +1893,10 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
   font-weight: 700;
   color: #ffffff;
   background-color: var(--ios-indigo);
-  padding: 1px 6px;
+  padding: 1.5px 6px;
   border-radius: 99px;
   flex-shrink: 0;
+  margin-top: 1.5px;
 }
 
 .voice-subtitle-badge.ai {
@@ -1903,14 +1904,15 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
 }
 
 .voice-subtitle-text {
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--ios-label);
-  opacity: 0.92;
+  opacity: 0.95;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  line-height: 1.35;
+  line-height: 1.4;
+  min-height: 36px;
 }
 
 .voice-controls-row {

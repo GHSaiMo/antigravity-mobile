@@ -118,6 +118,7 @@ struct ShareCardQuestion {
     let text: String
     let images: [UIImage]
     let files: [AttachmentRules.ParsedFile]
+    var isVoiceMessage: Bool = false
 }
 
 extension ChatMessage {
@@ -175,14 +176,42 @@ struct MessageShareCardView: View {
             }
 
             if isUserMessage {
-                SlashCommandTextRenderer.render(
-                    text: content,
-                    iconColor: UIColor.label.withAlphaComponent(0.8)
-                )
-                .font(.system(size: 15.5))
-                .foregroundColor(.primary)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                let parsed = AttachmentRules.parseBlock(content)
+                let isVoice = VoiceTranscriptCleaner.isVoiceMessage(body: parsed.body, files: parsed.files)
+                if isVoice {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: 6) {
+                            AntigravityVoiceShape()
+                                .fill(Color.white)
+                                .frame(width: 15, height: 15)
+                            Text("语音交互")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(.white)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Color.indigo, in: Capsule())
+
+                        let cleaned = VoiceTranscriptCleaner.clean(parsed.body)
+                        if !cleaned.isEmpty {
+                            Text(cleaned)
+                                .font(.system(size: 15))
+                                .foregroundColor(.primary)
+                                .lineSpacing(3)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    SlashCommandTextRenderer.render(
+                        text: content,
+                        iconColor: UIColor.label.withAlphaComponent(0.8)
+                    )
+                    .font(.system(size: 15.5))
+                    .foregroundColor(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
             } else {
                 MarkdownContentView(content: content)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -204,6 +233,20 @@ struct MessageShareCardView: View {
     @ViewBuilder
     private func questionBubble(_ question: ShareCardQuestion) -> some View {
         VStack(alignment: .leading, spacing: 10) {
+            if question.isVoiceMessage {
+                HStack(spacing: 6) {
+                    AntigravityVoiceShape()
+                        .fill(Color.white)
+                        .frame(width: 15, height: 15)
+                    Text("语音交互")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.white)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Color.indigo, in: Capsule())
+            }
+
             if question.images.count == 1, let image = question.images.first {
                 Image(uiImage: image)
                     .resizable()
@@ -227,7 +270,16 @@ struct MessageShareCardView: View {
             ForEach(question.files) { file in
                 MessageFileCardView(file: file, onTap: {})
             }
-            if !question.text.isEmpty {
+            if question.isVoiceMessage {
+                let cleaned = VoiceTranscriptCleaner.clean(question.text)
+                if !cleaned.isEmpty {
+                    Text(cleaned)
+                        .font(.system(size: 15))
+                        .foregroundColor(.primary)
+                        .lineSpacing(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } else if !question.text.isEmpty {
                 Text(question.text)
                     .font(.system(size: 15.5))
                     .foregroundColor(.primary)
@@ -476,7 +528,11 @@ struct MessageShareCardSheet: View {
             for item in previous.attachmentImages {
                 if let image = await ImageActions.loadImage(item) { questionImages.append(image) }
             }
-            questionContent = ShareCardQuestion(text: parsed.body, images: questionImages, files: parsed.files)
+            let isVoice = VoiceTranscriptCleaner.isVoiceMessage(body: parsed.body, files: parsed.files)
+            let filteredFiles = isVoice
+                ? parsed.files.filter { !["wav", "m4a", "aac", "mp3", "caf", "opus"].contains($0.ext.lowercased()) }
+                : parsed.files
+            questionContent = ShareCardQuestion(text: parsed.body, images: questionImages, files: filteredFiles, isVoiceMessage: isVoice)
         }
         if Task.isCancelled { return }
 
