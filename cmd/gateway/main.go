@@ -10,6 +10,8 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -955,7 +957,60 @@ func buildRouter(
 	})
 
 	// Wrap with security headers, body size ceiling (64MB), and authentication policy
-	return auth.SecurityHeadersMiddleware(auth.MaxBytesMiddleware(64*1024*1024, auth.AuthMiddlewareWithPolicy(authStore, endpointHeadersMiddleware, authPolicy)))
+	mgyHandler := auth.SecurityHeadersMiddleware(auth.MaxBytesMiddleware(64*1024*1024, auth.AuthMiddlewareWithPolicy(authStore, endpointHeadersMiddleware, authPolicy)))
+	return wrapHal9000TunnelProxy(mgyHandler)
+}
+
+// wrapHal9000TunnelProxy transparently forwards requests arriving via HAL9000's dedicated
+// Cloudflare Tunnel hostname (e.g. 62626924.jiuge.space, where the remote Worker ingress
+// points to localhost:58900) directly to the local HAL9000 daemon on 127.0.0.1:58990.
+func wrapHal9000TunnelProxy(next http.Handler) http.Handler {
+	targetURL, _ := url.Parse("http://127.0.0.1:58990")
+	rp := httputil.NewSingleHostReverseProxy(targetURL)
+	rp.FlushInterval = -1
+	origDirector := rp.Director
+	rp.Director = func(req *http.Request) {
+		origHost := req.Host
+		origDirector(req)
+		req.Host = origHost
+	}
+
+	var cachedSubdomain string
+	var lastCheck time.Time
+	getHalSubdomain := func() string {
+		if time.Since(lastCheck) < 10*time.Second && cachedSubdomain != "" {
+			return cachedSubdomain
+		}
+		lastCheck = time.Now()
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return cachedSubdomain
+		}
+		data, err := os.ReadFile(filepath.Join(home, ".hal9000", "cf_tunnel.json"))
+		if err != nil {
+			return cachedSubdomain
+		}
+		var res struct {
+			Subdomain string `json:"subdomain"`
+		}
+		if json.Unmarshal(data, &res) == nil && res.Subdomain != "" {
+			cachedSubdomain = strings.ToLower(strings.TrimSpace(res.Subdomain))
+		}
+		return cachedSubdomain
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host := strings.ToLower(strings.TrimSpace(r.Host))
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			host = h
+		}
+		halSub := getHalSubdomain()
+		if (halSub != "" && host == halSub) || strings.HasPrefix(host, "hal9000.") || r.Header.Get("X-Hal9000-Target") == "1" {
+			rp.ServeHTTP(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
