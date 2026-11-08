@@ -305,8 +305,13 @@ func (i *Inspector) findFromDaemon() *InstanceInfo {
 		}
 		daemonDir = filepath.Join(home, ".gemini", "antigravity", "daemon")
 	}
-	files, err := filepath.Glob(filepath.Join(daemonDir, "ls_*.json"))
-	if err != nil || len(files) == 0 {
+	var files []string
+	for _, pattern := range []string{"hub_*.json", "ls_*.json"} {
+		if matches, err := filepath.Glob(filepath.Join(daemonDir, pattern)); err == nil {
+			files = append(files, matches...)
+		}
+	}
+	if len(files) == 0 {
 		return nil
 	}
 

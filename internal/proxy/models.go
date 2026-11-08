@@ -59,8 +59,6 @@ var fallbackModels = []ModelOption{
 	{ID: "gemini-3.8-flash-high", Name: "Gemini 3.8 Flash (High)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M318"},
 	{ID: "gemini-3.8-flash-medium", Name: "Gemini 3.8 Flash (Medium)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M319"},
 	{ID: "gemini-3.8-flash-low", Name: "Gemini 3.8 Flash (Low)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M320"},
-	{ID: "gemini-3.1-pro-high", Name: "Gemini 3.1 Pro (High)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M37"},
-	{ID: "gemini-3.1-pro-low", Name: "Gemini 3.1 Pro (Low)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M36"},
 	{ID: "claude-opus-4-6-thinking", Name: "Claude Opus 4.6 (Thinking)", Provider: "claude", Enum: "MODEL_PLACEHOLDER_M26"},
 	{ID: "claude-sonnet-4-6", Name: "Claude Sonnet 4.6 (Thinking)", Provider: "claude", Enum: "MODEL_PLACEHOLDER_M35"},
 }
@@ -111,9 +109,10 @@ func providerOf(modelProvider, id string) string {
 	}
 }
 
-// isLeavingSoon reports the vendor's "about to be removed" label.
+// isLeavingSoon reports the vendor's "about to be removed" or unavailable label.
 func isLeavingSoon(tag string) bool {
-	return strings.EqualFold(strings.TrimSpace(tag), "Leaving Soon")
+	t := strings.TrimSpace(tag)
+	return strings.EqualFold(t, "Leaving Soon") || strings.EqualFold(t, "Unavailable")
 }
 
 // isRetiredEnum reports enums that language_server still lists but the gateway remaps elsewhere.
