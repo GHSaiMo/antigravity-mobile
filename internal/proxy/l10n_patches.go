@@ -115,9 +115,13 @@ var l10nExactPatches = []staticReplacement{
 	{old: []byte(`return"Narrow";case 3:return"Wide";default:return"Default"`), new: []byte(`return"窄";case 3:return"宽";default:return"默认"`)},
 	// quota reset countdown: "Resets in 3d 17h"
 	{old: []byte("`Resets in ${"), new: []byte("`距重置 ${")},
+	// settings overrides counter: "Modified in 2 projects"
+	{old: []byte(`a.length," projects"`), new: []byte(`a.length," 个项目"`)},
+	// settings voice input device option: "System default (device name)"
+	{old: []byte("`System default (${"), new: []byte("`系统默认 (${")},
 }
 
-const l10nSettingsNav = `{Account:"账户与计划",General:"常规偏好",Appearance:"外观主题",Skin:"产品皮肤",Editor:"编辑器设置",Tab:"Tab 智能补全",Notifications:"消息与通知",Customizations:"扩展与技能",App:"客户端偏好",Shortcuts:"键盘快捷键",Models:"模型与配额",Developer:"开发者调试",Browser:"浏览器设置"}`
+const l10nSettingsNav = `{Account:"账户与计划",General:"常规",Appearance:"外观",Skin:"外观风格",Editor:"编辑器设置",Tab:"Tab 补全",Notifications:"通知",Customizations:"扩展与技能",App:"客户端偏好",Shortcuts:"快捷键",Models:"模型",Developer:"开发者调试",Browser:"浏览器设置","Provide Feedback":"意见反馈","意见反馈":"意见反馈"}`
 
 var l10nPatches = []l10nPatch{
 	// relative times: date-fns formatDistance suffixes ("3 hours ago" / "in 3 hours")
@@ -125,7 +129,7 @@ var l10nPatches = []l10nPatch{
 	// "Explored 3 files, ran 1 command"
 	rx(`"Running":"running"`, `(\w+)=(\w+)\?(\w+)\?"Running":"running":(\w+)\?"Ran":"ran"`, `${1}=${2}?${3}?"正在运行":"正在运行":${4}?"已运行":"已运行"`),
 	// settings navigation shows the screen id when it has no label (General, Appearance, ...)
-	rx(`.label]));function `, `(\.map\(\w+=>\[\w+\.screen,\w+\.label\]\)\);function \w+\((\w+)\)\{return )(\w+)\.get\((\w+)\)\?\?(\w+)\}`, `${1}${3}.get(${4})??`+l10nSettingsNav+`[${4}]??${5}}`),
+	rx(`.label]`, `(\.map\(\w+=>\[\w+\.screen,\w+\.label\]\)(?:\);|,\["Provide Feedback"[^\]]*\]\]\);)function \w+\((\w+)\)\{return )(\w+)\.get\(\w+\)\?\?\w+\}`, `${1}`+l10nSettingsNav+`[${2}]??${3}.get(${2})??${2}}`),
 	// "${n} files changed"
 	rx(`"file":"files"} changed`, `(\$\{\w+\}) \$\{\w+===1\?"file":"files"\} changed`, `${1} 个文件已更改`),
 	// "Thinking for 5s" (JSX children)
