@@ -105,7 +105,10 @@ public struct QuotaStatusBarView: View {
                         .lineLimit(1)
                         .layoutPriority(1)
                     
-                    // Mini progress bar - stretched to fill available width
+                    // Mini progress bar - stretched to fill available width with pace needle
+                    let paceInfo = bucket?.calculatePaceForTitle(titleText, tier: account?.subscriptionTier)
+                    let showCursor = AppSettings.shared.weeklyPaceCursorEnabled && paceInfo != nil
+
                     GeometryReader { geo in
                         ZStack(alignment: .leading) {
                             Capsule()
@@ -113,6 +116,18 @@ public struct QuotaStatusBarView: View {
                             Capsule()
                                 .fill(progressColor)
                                 .frame(width: max(0, min(geo.size.width, geo.size.width * CGFloat(percent / 100.0))))
+
+                            if showCursor, let info = paceInfo {
+                                let expectedFrac = CGFloat(info.expectedRemainingPercent / 100.0)
+                                let needleOffset = max(0, min(geo.size.width - 1.5, geo.size.width * expectedFrac - 0.75))
+                                let needleColor = info.isOverPacing ? Color.orange : Color.white.opacity(0.92)
+
+                                RoundedRectangle(cornerRadius: 0.75, style: .continuous)
+                                    .fill(needleColor)
+                                    .frame(width: 1.5, height: 9.0)
+                                    .shadow(color: Color.black.opacity(0.35), radius: 1, x: 0, y: 0.5)
+                                    .offset(x: needleOffset, y: (6.0 - 9.0) / 2.0)
+                            }
                         }
                     }
                     .frame(height: 6)

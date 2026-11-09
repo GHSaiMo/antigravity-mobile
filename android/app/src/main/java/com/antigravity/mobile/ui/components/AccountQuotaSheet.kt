@@ -47,6 +47,7 @@ import java.util.*
 fun AccountQuotaSheet(
     quotaData: CockpitQuotaResponse?,
     isRefreshing: Boolean,
+    showWeeklyPaceCursor: Boolean = true,
     onRefresh: () -> Unit,
     onSwitchAccount: (String) -> Unit,
     onDismiss: () -> Unit,
@@ -54,6 +55,7 @@ fun AccountQuotaSheet(
 ) {
     var isMasked by remember { mutableStateOf(false) }
     var pendingSwitchAccount by remember { mutableStateOf<CockpitAccountQuota?>(null) }
+    var paceDetailTitleAndInfo by remember { mutableStateOf<Pair<String, com.antigravity.mobile.data.model.WeeklyPaceInfo>?>(null) }
     val current = quotaData?.currentAccount
     val otherAccounts = remember(quotaData, current) {
         val all = quotaData?.accounts ?: emptyList()
@@ -217,6 +219,8 @@ fun AccountQuotaSheet(
                             account = current,
                             isCurrent = true,
                             isMasked = isMasked,
+                            showWeeklyPaceCursor = showWeeklyPaceCursor,
+                            onWeeklyClick = { title, info -> paceDetailTitleAndInfo = Pair(title, info) },
                             onSwitch = null
                         )
                     }
@@ -283,6 +287,8 @@ fun AccountQuotaSheet(
                                 account = acc,
                                 isCurrent = false,
                                 isMasked = isMasked,
+                                showWeeklyPaceCursor = showWeeklyPaceCursor,
+                                onWeeklyClick = { title, info -> paceDetailTitleAndInfo = Pair(title, info) },
                                 onSwitch = { pendingSwitchAccount = acc }
                             )
                         }
@@ -349,6 +355,14 @@ fun AccountQuotaSheet(
             containerColor = colors.surface
         )
     }
+
+    paceDetailTitleAndInfo?.let { (title, info) ->
+        WeeklyPaceDetailDialog(
+            title = title,
+            info = info,
+            onDismiss = { paceDetailTitleAndInfo = null }
+        )
+    }
 }
 
 private val CompactPlatformTextStyle = PlatformTextStyle(includeFontPadding = false)
@@ -359,6 +373,8 @@ private fun AccountQuotaCard(
     account: CockpitAccountQuota,
     isCurrent: Boolean,
     isMasked: Boolean,
+    showWeeklyPaceCursor: Boolean = true,
+    onWeeklyClick: ((String, com.antigravity.mobile.data.model.WeeklyPaceInfo) -> Unit)? = null,
     onSwitch: (() -> Unit)?
 ) {
     val colors = AntigravityTheme.colors
@@ -426,11 +442,17 @@ private fun AccountQuotaCard(
                     QuotaMetricCell(
                         title = "Claude Weekly",
                         bucket = account.claudeWeekly,
+                        tier = account.subscriptionTier,
+                        showPaceCursor = showWeeklyPaceCursor,
+                        onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Claude Weekly", it) } },
                         modifier = Modifier.weight(1f)
                     )
                     QuotaMetricCell(
                         title = "Gemini Weekly",
                         bucket = account.geminiWeekly,
+                        tier = account.subscriptionTier,
+                        showPaceCursor = showWeeklyPaceCursor,
+                        onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Gemini Weekly", it) } },
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -443,11 +465,17 @@ private fun AccountQuotaCard(
                     QuotaMetricCell(
                         title = "Claude 5h",
                         bucket = account.claude5h,
+                        tier = account.subscriptionTier,
+                        showPaceCursor = showWeeklyPaceCursor,
+                        onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Claude 5h", it) } },
                         modifier = Modifier.weight(1f)
                     )
                     QuotaMetricCell(
                         title = "Gemini 5h",
                         bucket = account.gemini5h,
+                        tier = account.subscriptionTier,
+                        showPaceCursor = showWeeklyPaceCursor,
+                        onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Gemini 5h", it) } },
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -460,11 +488,17 @@ private fun AccountQuotaCard(
                     QuotaMetricCell(
                         title = "Claude Weekly",
                         bucket = account.claudeWeekly,
+                        tier = account.subscriptionTier,
+                        showPaceCursor = showWeeklyPaceCursor,
+                        onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Claude Weekly", it) } },
                         modifier = Modifier.weight(1f)
                     )
                     QuotaMetricCell(
                         title = "Gemini Weekly",
                         bucket = account.geminiWeekly,
+                        tier = account.subscriptionTier,
+                        showPaceCursor = showWeeklyPaceCursor,
+                        onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Gemini Weekly", it) } },
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -472,10 +506,14 @@ private fun AccountQuotaCard(
 
             // Optional: Dynamically display Gemini 4 Argon only when the account has it
             account.gemini4Argon?.let { argon ->
+                val argonPaceInfo = if (showWeeklyPaceCursor) argon.calculatePaceForTitle("Gemini 4 Argon", account.subscriptionTier) else null
                 QuotaMetricCell(
                     title = "Gemini 4 Argon",
                     bucket = argon,
                     isArgon = true,
+                    tier = account.subscriptionTier,
+                    showPaceCursor = showWeeklyPaceCursor && argonPaceInfo != null,
+                    onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Gemini 4 Argon", it) } },
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -576,10 +614,20 @@ private fun QuotaMetricCell(
     title: String,
     bucket: CockpitQuotaBucket?,
     isArgon: Boolean = false,
+    tier: String? = null,
+    showPaceCursor: Boolean = true,
+    onWeeklyClick: ((com.antigravity.mobile.data.model.WeeklyPaceInfo) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val colors = AntigravityTheme.colors
     val percent = bucket?.remainingPercent?.coerceIn(0.0, 100.0) ?: 0.0
+    val isPaceSupported = title.contains("Weekly", ignoreCase = true) ||
+        title.contains("5h", ignoreCase = true) ||
+        isArgon ||
+        title.contains("Argon", ignoreCase = true)
+    val paceInfo = remember(bucket, title, tier) {
+        if (isPaceSupported) bucket?.calculatePaceForTitle(title, tier) else null
+    }
     val argonAccent = if (colors.isDark) Color(0xFFFF9F0A) else Color(0xFFD97706)
     val isDanger = percent < 20.0
     val color = when {
@@ -589,7 +637,7 @@ private fun QuotaMetricCell(
         else -> colors.accentRed
     }
     val cellShape = RoundedCornerShape(if (isArgon) 10.dp else 8.dp)
-    val cellModifier = if (isArgon) {
+    var baseModifier = if (isArgon) {
         modifier
             .clip(cellShape)
             .background(
@@ -618,8 +666,12 @@ private fun QuotaMetricCell(
             .padding(horizontal = 9.dp, vertical = 6.5.dp)
     }
 
+    if (isPaceSupported && paceInfo != null && onWeeklyClick != null) {
+        baseModifier = baseModifier.clickable { onWeeklyClick(paceInfo) }
+    }
+
     Column(
-        modifier = cellModifier,
+        modifier = baseModifier,
         verticalArrangement = Arrangement.spacedBy(if (isArgon) 4.dp else 3.5.dp)
     ) {
         Row(
@@ -647,32 +699,63 @@ private fun QuotaMetricCell(
             )
         }
 
-        // Mini progress bar
+        // Mini progress bar with quota pace cursor
+        val hasCursor = isPaceSupported && showPaceCursor && paceInfo != null
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(4.5.dp)
-                .clip(CircleShape)
-                .background(
-                    if (isArgon) Color(0xFFFF9F0A).copy(alpha = if (colors.isDark) 0.16f else 0.18f)
-                    else colors.border.copy(alpha = 0.5f)
-                )
+                .height(if (hasCursor) 7.5.dp else 4.5.dp),
+            contentAlignment = Alignment.CenterStart
         ) {
-            val fillModifier = Modifier
-                .fillMaxWidth(fraction = (percent / 100.0).toFloat().coerceIn(0f, 1f))
-                .fillMaxHeight()
-                .clip(CircleShape)
+            // Track base
             Box(
-                modifier = if (isArgon && !isDanger) {
-                    fillModifier.background(
-                        Brush.horizontalGradient(
-                            colors = listOf(Color(0xFFFF9F0A), Color(0xFFFFD60A))
-                        )
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(4.5.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (isArgon) Color(0xFFFF9F0A).copy(alpha = if (colors.isDark) 0.16f else 0.18f)
+                        else colors.border.copy(alpha = 0.5f)
                     )
-                } else {
-                    fillModifier.background(color)
+            ) {
+                val fillModifier = Modifier
+                    .fillMaxWidth(fraction = (percent / 100.0).toFloat().coerceIn(0f, 1f))
+                    .fillMaxHeight()
+                    .clip(CircleShape)
+                Box(
+                    modifier = if (isArgon && !isDanger) {
+                        fillModifier.background(
+                            Brush.horizontalGradient(
+                                colors = listOf(Color(0xFFFF9F0A), Color(0xFFFFD60A))
+                            )
+                        )
+                    } else {
+                        fillModifier.background(color)
+                    }
+                )
+            }
+
+            // Vertical Pace Cursor Needle
+            if (hasCursor) {
+                val expectedFrac = (paceInfo.expectedRemainingPercent / 100.0).toFloat().coerceIn(0f, 1f)
+                val needleColor = if (paceInfo.isOverPacing) Color(0xFFFF9F0A) else Color.White.copy(alpha = 0.90f)
+                BoxWithConstraints(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(7.5.dp),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    val maxW = maxWidth
+                    val needleOffset = (maxW * expectedFrac - 0.75.dp).coerceIn(0.dp, (maxW - 1.5.dp).coerceAtLeast(0.dp))
+                    Box(
+                        modifier = Modifier
+                            .padding(start = needleOffset)
+                            .size(width = 1.5.dp, height = 7.5.dp)
+                            .clip(RoundedCornerShape(0.75.dp))
+                            .background(needleColor)
+                    )
                 }
-            )
+            }
         }
 
         // Countdown & reset description
@@ -686,6 +769,121 @@ private fun QuotaMetricCell(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
+    }
+}
+
+@Composable
+private fun WeeklyPaceDetailDialog(
+    title: String,
+    info: com.antigravity.mobile.data.model.WeeklyPaceInfo,
+    onDismiss: () -> Unit
+) {
+    val colors = AntigravityTheme.colors
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .clip(CircleShape)
+                        .background(if (info.isOverPacing) Color(0xFFFF9F0A) else colors.accentGreen)
+                )
+                Text(
+                    text = "$title 消耗节奏分析",
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.textPrimary
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // 状态卡片
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(
+                            if (info.isOverPacing) Color(0xFFFF9F0A).copy(alpha = 0.12f)
+                            else colors.accentGreen.copy(alpha = 0.12f)
+                        )
+                        .border(
+                            1.dp,
+                            if (info.isOverPacing) Color(0xFFFF9F0A).copy(alpha = 0.35f)
+                            else colors.accentGreen.copy(alpha = 0.35f),
+                            RoundedCornerShape(10.dp)
+                        )
+                        .padding(12.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = if (info.isOverPacing) "⚠️ 消耗偏快 (超速透支)" else "✅ 节奏健康 (额度充裕)",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (info.isOverPacing) Color(0xFFFF9F0A) else colors.accentGreen
+                        )
+                        Text(
+                            text = if (info.isOverPacing) {
+                                "当前额度已消耗 ${String.format(Locale.US, "%.1f%%", info.usedPercent)}，快于 ${info.windowLabel}时间匀速基准线 (${String.format(Locale.US, "%.1f%%", info.expectedUsedPercent)})。若保持此速率可能在周期结束前提前耗尽。"
+                            } else {
+                                "当前额度已消耗 ${String.format(Locale.US, "%.1f%%", info.usedPercent)}，低于或符合 ${info.windowLabel}时间匀速基准线 (${String.format(Locale.US, "%.1f%%", info.expectedUsedPercent)})。剩余额度充足，无需担心断粮。"
+                            },
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp,
+                            color = colors.textSecondary
+                        )
+                    }
+                }
+
+                // 数值对比明细表
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(colors.surfaceVariant.copy(alpha = 0.6f))
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    PaceDetailRow("当前实际剩余", String.format(Locale.US, "%.1f%%", info.actualRemainingPercent), colors.textPrimary)
+                    PaceDetailRow("当前实际已用", String.format(Locale.US, "%.1f%%", info.usedPercent), colors.textPrimary)
+                    HorizontalDivider(thickness = 0.5.dp, color = colors.border.copy(alpha = 0.4f))
+                    PaceDetailRow("${info.windowLabel}匀速应剩 (游标位)", String.format(Locale.US, "%.1f%%", info.expectedRemainingPercent), colors.textSecondary)
+                    PaceDetailRow("${info.windowLabel}匀速应耗基准", String.format(Locale.US, "%.1f%%", info.expectedUsedPercent), colors.textSecondary)
+                    HorizontalDivider(thickness = 0.5.dp, color = colors.border.copy(alpha = 0.4f))
+                    PaceDetailRow(
+                        label = "节奏差值 (实际 - 理论)",
+                        value = (if (info.paceDeltaPercent >= 0) "+" else "") + String.format(Locale.US, "%.1f%%", info.paceDeltaPercent),
+                        color = if (info.isOverPacing) Color(0xFFFF9F0A) else colors.accentGreen
+                    )
+                    PaceDetailRow("重置倒计时", info.resetCountdownDisplay, colors.textSecondary)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("知道了", fontWeight = FontWeight.SemiBold, color = colors.accentBlue)
+            }
+        },
+        containerColor = colors.surface
+    )
+}
+
+@Composable
+private fun PaceDetailRow(label: String, value: String, color: Color) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(text = label, fontSize = 12.sp, color = AntigravityTheme.colors.textSecondary)
+        Text(text = value, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = color)
     }
 }
 

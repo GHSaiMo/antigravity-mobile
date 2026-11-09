@@ -665,39 +665,86 @@ private fun MainSettingsContent(
         }
 
         // MARK: - 6. 外观与主题
+        var weeklyPaceCursor by remember { mutableStateOf(prefs.weeklyPaceCursorEnabled) }
         SettingsSection(
             title = "外观与主题",
-            footer = "选择浅色、深色模式或跟随系统自动切换。"
+            footer = "选择浅色、深色模式，并可控制额度条上的时间均速刻度游标。"
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(colors.surfaceVariant)
-                    .padding(4.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                ThemeOptionSegment(
-                    title = "跟随系统",
-                    icon = Icons.Default.SettingsBrightness,
-                    isSelected = currentThemeMode == "system",
-                    onClick = { onThemeModeChange("system") },
-                    modifier = Modifier.weight(1f)
-                )
-                ThemeOptionSegment(
-                    title = "浅色模式",
-                    icon = Icons.Default.LightMode,
-                    isSelected = currentThemeMode == "light",
-                    onClick = { onThemeModeChange("light") },
-                    modifier = Modifier.weight(1f)
-                )
-                ThemeOptionSegment(
-                    title = "深色模式",
-                    icon = Icons.Default.DarkMode,
-                    isSelected = currentThemeMode == "dark",
-                    onClick = { onThemeModeChange("dark") },
-                    modifier = Modifier.weight(1f)
-                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(colors.surfaceVariant)
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    ThemeOptionSegment(
+                        title = "跟随系统",
+                        icon = Icons.Default.SettingsBrightness,
+                        isSelected = currentThemeMode == "system",
+                        onClick = { onThemeModeChange("system") },
+                        modifier = Modifier.weight(1f)
+                    )
+                    ThemeOptionSegment(
+                        title = "浅色模式",
+                        icon = Icons.Default.LightMode,
+                        isSelected = currentThemeMode == "light",
+                        onClick = { onThemeModeChange("light") },
+                        modifier = Modifier.weight(1f)
+                    )
+                    ThemeOptionSegment(
+                        title = "深色模式",
+                        icon = Icons.Default.DarkMode,
+                        isSelected = currentThemeMode == "dark",
+                        onClick = { onThemeModeChange("dark") },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(colors.surface)
+                        .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 12.dp)
+                    ) {
+                        Text(
+                            text = "额度匀速指标",
+                            color = colors.textPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "在额度条上显示均速基准刻度针",
+                            color = colors.textSecondary,
+                            fontSize = 11.5.sp,
+                            lineHeight = 15.sp
+                        )
+                    }
+                    Switch(
+                        checked = weeklyPaceCursor,
+                        onCheckedChange = {
+                            weeklyPaceCursor = it
+                            prefs.weeklyPaceCursorEnabled = it
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = colors.surface,
+                            checkedTrackColor = colors.accentIndigo
+                        )
+                    )
+                }
             }
         }
 

@@ -33,6 +33,7 @@ public final class AppSettings {
     private let defaultClaudeModelKey = "antigravity.default_claude_model"
     private let autoApprovePermissionsKey = "antigravity.auto_approve_permissions"
     private let enableVoiceModeKey = "antigravity.enable_voice_mode"
+    private let weeklyPaceCursorKey = "antigravity.weekly_pace_cursor"
     private let gatewayPlatformKey = "antigravity.gateway_platform"
     private let demoModeKey = "antigravity.demo_mode"
     
@@ -156,6 +157,13 @@ public final class AppSettings {
     public var enableVoiceMode: Bool {
         didSet {
             UserDefaults.standard.set(enableVoiceMode, forKey: enableVoiceModeKey)
+        }
+    }
+
+    /// 是否在 Weekly 额度条上显示时间匀速流逝刻度游标（默认开启）
+    public var weeklyPaceCursorEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(weeklyPaceCursorEnabled, forKey: weeklyPaceCursorKey)
         }
     }
     
@@ -494,6 +502,11 @@ public final class AppSettings {
         let savedAutoApprove = UserDefaults.standard.bool(forKey: autoApprovePermissionsKey)
         self.autoApprovePermissions = savedAutoApprove
         self.enableVoiceMode = UserDefaults.standard.bool(forKey: enableVoiceModeKey)
+        if UserDefaults.standard.object(forKey: weeklyPaceCursorKey) == nil {
+            self.weeklyPaceCursorEnabled = true
+        } else {
+            self.weeklyPaceCursorEnabled = UserDefaults.standard.bool(forKey: weeklyPaceCursorKey)
+        }
         self.gatewayPlatform = UserDefaults.standard.string(forKey: gatewayPlatformKey)
     }
 }
