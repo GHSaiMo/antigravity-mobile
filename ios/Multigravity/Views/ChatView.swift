@@ -298,10 +298,7 @@ public struct ChatView: View {
                 onFilesPicked: { urls in viewModel.addFiles(from: urls) }
             )
         }
-        .alert("无法添加文件", isPresented: Binding(
-            get: { viewModel.attachmentNotice != nil },
-            set: { if !$0 { viewModel.attachmentNotice = nil } }
-        )) {
+        .alert("无法添加文件", isPresented: isAttachmentNoticePresented) {
             Button("好", role: .cancel) {}
         } message: {
             Text(viewModel.attachmentNotice ?? "")
@@ -312,10 +309,7 @@ public struct ChatView: View {
             renderMarkdownViewer(data: item)
                 .presentationDragIndicator(.visible)
         }
-        .sheet(isPresented: Binding(
-            get: { viewModel.quickLookURL != nil },
-            set: { if !$0 { viewModel.closeQuickLook() } }
-        )) {
+        .sheet(isPresented: isQuickLookPresented) {
             if let qlURL = viewModel.quickLookURL {
                 QuickLookPreviewSheet(url: qlURL, title: viewModel.quickLookTitle) {
                     viewModel.closeQuickLook()
@@ -323,10 +317,7 @@ public struct ChatView: View {
                 .presentationDragIndicator(.visible)
             }
         }
-        .sheet(isPresented: Binding(
-            get: { viewModel.htmlPreviewURL != nil },
-            set: { if !$0 { viewModel.closeHTMLPreview() } }
-        )) {
+        .sheet(isPresented: isHtmlPreviewPresented) {
             if let htmlURL = viewModel.htmlPreviewURL {
                 HTMLPreviewSheet(url: htmlURL, title: viewModel.htmlPreviewTitle) {
                     viewModel.closeHTMLPreview()
@@ -524,6 +515,27 @@ public struct ChatView: View {
             }
             handleSend()
         }
+    }
+
+    private var isAttachmentNoticePresented: Binding<Bool> {
+        Binding(
+            get: { viewModel.attachmentNotice != nil },
+            set: { if !$0 { viewModel.attachmentNotice = nil } }
+        )
+    }
+
+    private var isQuickLookPresented: Binding<Bool> {
+        Binding(
+            get: { viewModel.quickLookURL != nil },
+            set: { if !$0 { viewModel.closeQuickLook() } }
+        )
+    }
+
+    private var isHtmlPreviewPresented: Binding<Bool> {
+        Binding(
+            get: { viewModel.htmlPreviewURL != nil },
+            set: { if !$0 { viewModel.closeHTMLPreview() } }
+        )
     }
 }
 
