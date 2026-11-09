@@ -269,13 +269,7 @@ public struct ChatView: View {
             viewModel.addFiles(from: [fileURL])
             viewModel.saveCurrentDraft()
             if sendImmediately {
-                Task {
-                    for _ in 0..<100 {
-                        if viewModel.selectedFiles.allSatisfy({ $0.isUploaded }) { break }
-                        try? await Task.sleep(nanoseconds: 100_000_000)
-                    }
-                    handleSend()
-                }
+                sendRecordedAudioWhenReady()
             }
         }
         .onDisappear {
@@ -501,14 +495,18 @@ public struct ChatView: View {
             viewModel.addFiles(from: [pending.url])
             viewModel.saveCurrentDraft()
             if pending.sendImmediately {
-                Task {
-                    for _ in 0..<100 {
-                        if viewModel.selectedFiles.allSatisfy({ $0.isUploaded }) { break }
-                        try? await Task.sleep(nanoseconds: 100_000_000)
-                    }
-                    handleSend()
-                }
+                sendRecordedAudioWhenReady()
             }
+        }
+    }
+
+    private func sendRecordedAudioWhenReady() {
+        Task {
+            for _ in 0..<100 {
+                if viewModel.selectedFiles.allSatisfy({ $0.isUploaded }) { break }
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+            handleSend()
         }
     }
 }
