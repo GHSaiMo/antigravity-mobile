@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.ConversationChapter
 import com.antigravity.mobile.data.model.ConversationTurn
+import com.antigravity.mobile.ui.screen.AntigravityVoiceIcon
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -546,15 +547,56 @@ private fun TurnCardItem(
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            // Prompt summary
-            Text(
-                text = turn.promptSummary,
-                fontSize = 14.sp,
-                fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Medium,
-                color = colors.textPrimary,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
+            // Prompt summary or voice interaction bubble
+            if (turn.isVoiceTurn) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(colors.accentIndigo)
+                            .padding(horizontal = 7.5.dp, vertical = 3.5.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            AntigravityVoiceIcon(
+                                modifier = Modifier.size(13.dp),
+                                tint = Color.White
+                            )
+                            Text(
+                                text = "语音交互",
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color.White
+                            )
+                        }
+                    }
+
+                    if (turn.promptSummary.isNotBlank()) {
+                        Text(
+                            text = turn.promptSummary,
+                            fontSize = 13.5.sp,
+                            fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Medium,
+                            color = colors.textPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            } else {
+                Text(
+                    text = turn.promptSummary,
+                    fontSize = 14.sp,
+                    fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Medium,
+                    color = colors.textPrimary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
 
             // Chips
             if (turn.artifacts.isNotEmpty() || turn.totalTools > 0) {

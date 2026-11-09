@@ -1,5 +1,7 @@
 package com.antigravity.mobile.data.model
 
+import com.antigravity.mobile.ui.components.VoiceTranscriptCleaner
+
 /**
  * 表示对话中的单轮问答（从用户输入提问开始，到下一个用户提问之前的所有 agent/tool 响应）
  */
@@ -27,7 +29,9 @@ data class ConversationTurn(
     /** 本轮使用的模型名称（若有） */
     val modelName: String?,
     /** 本轮创建时间戳 (RFC3339) */
-    val timestamp: String? = null
+    val timestamp: String? = null,
+    /** 本轮是否为语音交互提问 */
+    val isVoiceTurn: Boolean = false
 )
 
 /**
@@ -63,33 +67,49 @@ object ConversationTurnBuilder {
                 ?: "turn-$currentTurnIndex"
             val turnId = "turn-$firstId"
 
+            val (userBody, attachedFiles) = if (userMsg != null) {
+                com.antigravity.mobile.data.service.AttachmentRules.parseBlock(userMsg.effectiveText)
+            } else {
+                "" to emptyList()
+            }
+            val isVoice = userMsg != null && VoiceTranscriptCleaner.isVoiceMessage(userBody, attachedFiles)
+
             val summary: String = run {
                 if (userMsg != null) {
-                    val (userBody, attachedFiles) = com.antigravity.mobile.data.service.AttachmentRules.parseBlock(userMsg.effectiveText)
-                    val clean = userBody.trim()
-                    val validImageUrls = userMsg.imageUrls?.filter { com.antigravity.mobile.data.service.FileIconResolver.isImage(it) }
-                    if (clean.isNotEmpty()) {
-                        val lines = clean.lines()
-                            .map { it.trim() }
-                            .filter { it.isNotEmpty() }
+                    if (isVoice) {
+                        val cleaned = VoiceTranscriptCleaner.clean(userBody)
+                        val cleanPrompt = cleaned
+                            .replace(Regex("^(我|user|human|me)\\s*[:：]\\s*", RegexOption.IGNORE_CASE), "")
+                            .trim()
+                        val lines = cleanPrompt.lines().map { it.trim() }.filter { it.isNotEmpty() }
                         val combined = lines.take(2).joinToString(" ")
-                        if (combined.length > 48) {
-                            combined.take(45) + "..."
-                        } else {
-                            combined
-                        }
-                    } else if (attachedFiles.isNotEmpty()) {
-                        val firstFile = attachedFiles.first().name
-                        if (attachedFiles.size == 1) {
-                            "[附件: $firstFile]"
-                        } else {
-                            "[附件: $firstFile 等 ${attachedFiles.size} 个文件]"
-                        }
-                    } else if (userMsg.effectiveImageDataList.isNotEmpty() || !validImageUrls.isNullOrEmpty()) {
-                        val count = maxOf(userMsg.effectiveImageDataList.size, validImageUrls?.size ?: 0)
-                        "[包含 $count 张图片]"
+                        if (combined.length > 48) combined.take(45) + "..." else combined
                     } else {
-                        "用户消息"
+                        val clean = userBody.trim()
+                        val validImageUrls = userMsg.imageUrls?.filter { com.antigravity.mobile.data.service.FileIconResolver.isImage(it) }
+                        if (clean.isNotEmpty()) {
+                            val lines = clean.lines()
+                                .map { it.trim() }
+                                .filter { it.isNotEmpty() }
+                            val combined = lines.take(2).joinToString(" ")
+                            if (combined.length > 48) {
+                                combined.take(45) + "..."
+                            } else {
+                                combined
+                            }
+                        } else if (attachedFiles.isNotEmpty()) {
+                            val firstFile = attachedFiles.first().name
+                            if (attachedFiles.size == 1) {
+                                "[附件: $firstFile]"
+                            } else {
+                                "[附件: $firstFile 等 ${attachedFiles.size} 个文件]"
+                            }
+                        } else if (userMsg.effectiveImageDataList.isNotEmpty() || !validImageUrls.isNullOrEmpty()) {
+                            val count = maxOf(userMsg.effectiveImageDataList.size, validImageUrls?.size ?: 0)
+                            "[包含 $count 张图片]"
+                        } else {
+                            "用户消息"
+                        }
                     }
                 } else {
                     "会话开场与初始化"
@@ -131,7 +151,8 @@ object ConversationTurnBuilder {
                     hasError = hasError,
                     isActive = isActive,
                     modelName = model,
-                    timestamp = turnTimestamp
+                    timestamp = turnTimestamp,
+                    isVoiceTurn = isVoice
                 )
             )
 

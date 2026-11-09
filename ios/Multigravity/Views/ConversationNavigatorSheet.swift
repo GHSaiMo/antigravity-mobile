@@ -356,12 +356,36 @@ public struct ConversationNavigatorSheet: View {
                         .foregroundColor(Color.secondary.opacity(0.4))
                 }
                 
-                // Prompt 摘要
-                Text(turn.promptSummary)
-                    .font(.system(size: 14, weight: isCurrent ? .semibold : .medium))
-                    .foregroundColor(.primary)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
+                // Prompt 摘要或语音会话气泡
+                if turn.isVoiceTurn {
+                    HStack(alignment: .center, spacing: 8) {
+                        HStack(spacing: 5) {
+                            AntigravityVoiceShape()
+                                .fill(Color.white)
+                                .frame(width: 13, height: 13)
+                            Text("语音交互")
+                                .font(.system(size: 11.5, weight: .semibold))
+                                .foregroundColor(.white)
+                        }
+                        .padding(.horizontal, 7.5)
+                        .padding(.vertical, 3.5)
+                        .background(Color.indigo)
+                        .clipShape(Capsule())
+                        
+                        if !turn.promptSummary.isEmpty {
+                            Text(turn.promptSummary)
+                                .font(.system(size: 13.5, weight: isCurrent ? .semibold : .medium))
+                                .foregroundColor(.primary)
+                                .lineLimit(1)
+                        }
+                    }
+                } else {
+                    Text(turn.promptSummary)
+                        .font(.system(size: 14, weight: isCurrent ? .semibold : .medium))
+                        .foregroundColor(.primary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                }
                 
                 // 底部产物与工具 Chips
                 if !turn.artifacts.isEmpty || turn.totalTools > 0 {
