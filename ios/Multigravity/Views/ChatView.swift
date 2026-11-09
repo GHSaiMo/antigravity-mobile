@@ -236,41 +236,16 @@ public struct ChatView: View {
             }
         }
         .onChange(of: scenePhase) { _, newPhase in
-            if newPhase == .active {
-                viewModel.restoreDraftsIfNeeded()
-                Task {
-                    await viewModel.resumeActiveSession()
-                }
-            } else if newPhase == .background || newPhase == .inactive {
-                viewModel.saveCurrentDraft()
-                if newPhase == .background {
-                    viewModel.handleAppBackground()
-                }
-            }
+            handleScenePhaseChange(newPhase)
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
-            viewModel.restoreDraftsIfNeeded()
-            Task {
-                await viewModel.resumeActiveSession()
-            }
+            handleAppDidBecomeActive()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
-            viewModel.saveCurrentDraft()
-            viewModel.handleAppBackground()
+            handleAppDidEnterBackground()
         }
         .onReceive(NotificationCenter.default.publisher(for: .audioRecordingDidFinishFromLiveActivity)) { notif in
-            guard let userInfo = notif.userInfo,
-                  let targetCascadeId = userInfo["cascadeId"] as? String,
-                  targetCascadeId == viewModel.draftKey,
-                  let fileURL = userInfo["url"] as? URL else { return }
-            
-            audioRecorder.pendingLiveRecording = nil
-            let sendImmediately = userInfo["sendImmediately"] as? Bool ?? false
-            viewModel.addFiles(from: [fileURL])
-            viewModel.saveCurrentDraft()
-            if sendImmediately {
-                sendRecordedAudioWhenReady()
-            }
+            handleLiveActivityRecordingFinished(notif)
         }
         .onDisappear {
             isViewAppeared = false
@@ -497,6 +472,47 @@ public struct ChatView: View {
             if pending.sendImmediately {
                 sendRecordedAudioWhenReady()
             }
+        }
+    }
+
+    private func handleScenePhaseChange(_ newPhase: ScenePhase) {
+        if newPhase == .active {
+            viewModel.restoreDraftsIfNeeded()
+            Task {
+                await viewModel.resumeActiveSession()
+            }
+        } else if newPhase == .background || newPhase == .inactive {
+            viewModel.saveCurrentDraft()
+            if newPhase == .background {
+                viewModel.handleAppBackground()
+            }
+        }
+    }
+
+    private func handleAppDidBecomeActive() {
+        viewModel.restoreDraftsIfNeeded()
+        Task {
+            await viewModel.resumeActiveSession()
+        }
+    }
+
+    private func handleAppDidEnterBackground() {
+        viewModel.saveCurrentDraft()
+        viewModel.handleAppBackground()
+    }
+
+    private func handleLiveActivityRecordingFinished(_ notif: Notification) {
+        guard let userInfo = notif.userInfo,
+              let targetCascadeId = userInfo["cascadeId"] as? String,
+              targetCascadeId == viewModel.draftKey,
+              let fileURL = userInfo["url"] as? URL else { return }
+        
+        audioRecorder.pendingLiveRecording = nil
+        let sendImmediately = userInfo["sendImmediately"] as? Bool ?? false
+        viewModel.addFiles(from: [fileURL])
+        viewModel.saveCurrentDraft()
+        if sendImmediately {
+            sendRecordedAudioWhenReady()
         }
     }
 
