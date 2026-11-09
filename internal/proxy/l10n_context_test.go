@@ -164,9 +164,16 @@ func TestLocalizeRPCResponse(t *testing.T) {
 func TestSettingsNavAndQuotaPatches(t *testing.T) {
 	in := `const r6a=new Map(i6a.filter(a=>a.label!==void 0).map(a=>[a.screen,a.label]));function s6a(a){return r6a.get(a)??a};x=` + "`Resets in ${e}d`"
 	out := string(LocalizeMainJS([]byte(in)))
-	for _, want := range []string{`r6a.get(a)??{Account:"账户与计划"`, `[a]??a}`, "`距重置 ${e}d`"} {
+	for _, want := range []string{`{Account:"账户与计划"`, `[a]??r6a.get(a)??a}`, "`距重置 ${e}d`"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("want %q in %q", want, out)
+		}
+	}
+	in229 := `const Xpb=new Map([...tpb.filter(a=>a.label!==void 0).map(a=>[a.screen,a.label]),["Provide Feedback","Give Feedback"]]);function VP(a){return Xpb.get(a)??a};`
+	out229 := string(LocalizeMainJS([]byte(in229)))
+	for _, want := range []string{`{Account:"账户与计划"`, `[a]??Xpb.get(a)??a}`} {
+		if !strings.Contains(out229, want) {
+			t.Errorf("want %q in %q", want, out229)
 		}
 	}
 }

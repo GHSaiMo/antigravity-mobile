@@ -21,6 +21,11 @@
   - **移动端与 Web 自动收敛为单排双列**：iOS、Android 原生客户端与 Web 控制台针对 Free 账号自动从 2×2 四象限收敛为单排双列卡片（左侧 Claude Weekly、右侧 Gemini Weekly），顶部 Quota 状态条自动切换为 Gemini Weekly 进度展示。
 
 ### 🛡️ 架构稳固与细节打磨
+- 🌐 **桌面 Web 工作台设置弹窗深度汉化 (Desktop Web Settings Localization Parity)**：
+  - 适配 Antigravity 2.29+ 新版侧边栏导航映射，彻底汉化设置分类项（`常规`、`外观`、`快捷键`、`通知`、`模型`、`意见反馈`）；
+  - 全面汉化权限卡片（`本机电脑`、`远程`、`修改于 N 个项目` 计数联动）与语音模式设置（`声音`、`麦克风`、`系统默认` 输入设备、`音量` 及说明文本），对齐桌面客户端原生中文体验。
+- 🧼 **多端协议回显净化与工具步骤对齐 (Internal Protocol Echo Filtration)**：
+  - 彻底过滤模型在部分回合中偶发的内部 `<SYSTEM_MESSAGE>` 协议回显杂音，在 Go 网关层、iOS 原生客户端与 Web 端对齐电脑桌面版处理逻辑，确保移动端呈现纯净对话流。
 - 🎯 **会话运行状态精准判定与 `Action required` 误报根治 (Session Status Precision)**：
   - 修复批准 `implementation_plan.md` 后会话在 `Working` 执行期间或无 `walkthrough.md` 完结时被误判为 `Action required` 的问题；新增 `trajCache` 快照新鲜度守卫，并将会话列表磁盘 `requestFeedback` 巡检收敛为 `detectProceed` 二次核验。
 - ⚙️ **常驻守护进程 (`IsDaemon`) 与回合阻塞任务状态解耦 (Daemon Task Status Parity)**：
