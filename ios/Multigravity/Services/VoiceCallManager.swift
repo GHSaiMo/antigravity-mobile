@@ -110,6 +110,7 @@ public final class VoiceCallManager: ObservableObject {
         isSocketReady = false
         activeCascadeId = cascadeId
         isInCall = true
+        UIApplication.shared.isIdleTimerDisabled = true
         callState = .connecting
         duration = 0
         isMicMuted = false
@@ -135,6 +136,7 @@ public final class VoiceCallManager: ObservableObject {
     }
 
     public func endCall(preserveFailure: Bool = false) {
+        UIApplication.shared.isIdleTimerDisabled = false
         isIntentionallyClosed = true
         isSocketReady = false
 

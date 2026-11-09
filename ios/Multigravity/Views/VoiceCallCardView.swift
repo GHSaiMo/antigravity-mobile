@@ -148,6 +148,14 @@ public struct VoiceCallCardView: View {
                 .shadow(color: Color.black.opacity(0.06), radius: 6, x: 0, y: 2)
         )
         .padding(.horizontal, 12)
+        .onAppear {
+            UIApplication.shared.isIdleTimerDisabled = true
+        }
+        .onDisappear {
+            if !voiceCall.isInCall {
+                UIApplication.shared.isIdleTimerDisabled = false
+            }
+        }
         .padding(.bottom, 6)
         .animation(.spring(response: 0.25, dampingFraction: 0.82), value: voiceCall.liveTranscriptText.isEmpty)
     }

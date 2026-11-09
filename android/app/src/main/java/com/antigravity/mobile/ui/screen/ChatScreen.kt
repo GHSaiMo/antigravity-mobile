@@ -75,6 +75,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalTextToolbar
+import androidx.compose.ui.platform.LocalView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -444,6 +445,20 @@ fun ChatScreen(
     }
     LaunchedEffect(isInVoiceCall) {
         if (isInVoiceCall) showVoiceTroubleshootBubble = false
+    }
+
+    // 语音通话期间保持屏幕常亮活跃，避免手机自动息屏断流
+    val currentLocalView = LocalView.current
+    DisposableEffect(isInVoiceCall) {
+        if (isInVoiceCall) {
+            val previous = currentLocalView.keepScreenOn
+            currentLocalView.keepScreenOn = true
+            onDispose {
+                currentLocalView.keepScreenOn = previous
+            }
+        } else {
+            onDispose {}
+        }
     }
     val voicePrefs = remember { viewModel.prefs ?: com.antigravity.mobile.data.service.PreferencesManager(context) }
     val enableVoiceMode by voicePrefs.enableVoiceModeFlow.collectAsState()

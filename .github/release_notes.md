@@ -10,6 +10,7 @@
   - **实时通话底栏浮条拉高并支持双行字幕**：优化底栏双工实时通话卡片（`VoiceCallCard`）纵向比例与空间，字幕区域支持完整显示两行实时人机转写文本，彻底告别单行文本溢出截断；
   - **展开详情多轮对话深度净化**：彻底正则剔除 `<voice_instructions>` 等系统级提示词注入与规则说明杂音，优先提炼 `<talker_agent_context>` 对话块，仅保留「用户」与「智能体」纯净对话轮次；长按复制同步净化；
   - **异常自查气泡大号化与 Markdown 强化**：连接失败排查气泡整体尺寸放大，正文字号提升至 **15sp**（与普通对话气泡严格对齐），以 Markdown 语法对核心排查步骤（**重新登录**、**开启代理 TUN 模式**、**检查电脑麦克风**）加粗强调并对域名 `*.googleapis.com` 行内代码高亮；
+  - 💡 **双端实时语音通话屏幕常亮活跃**：在 Android 与 iOS 实时语音通话期间，自动联动前台视图常亮标志与系统空闲休眠定时器（`isIdleTimerDisabled` / `keepScreenOn`），彻底杜绝通话中手机因无触碰而自动暗屏休眠导致断流；通话结束或异常挂断时立即恢复系统默认息屏机制，零权限要求；
   - **iOS 硬件级声学回声消除与降噪 (AEC)**：iOS 客户端全双工通话启用硬件级 `VoiceProcessing`（AEC 回声消除与 AGC 自动增益），彻底消除外放自激循环与啸叫。
 - 📐 **三端 LaTeX 数学公式与自适应 Markdown 表格全面升级 (LaTeX Math & Adaptive Markdown Tables)**：
   - 全面修复并对齐 iOS、Android、Web 三端复杂 LaTeX 数学公式渲染（原生支持 `\underbrace`、`\overbrace`、`\langle` / `\rangle`、`\mathcal`、`\mathbb`、矩阵环境与多层上下标等）及常用 Markdown 语法；

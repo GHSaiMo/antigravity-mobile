@@ -22,12 +22,14 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -49,6 +51,16 @@ fun VoiceCallCard(
 ) {
     val colors = AntigravityTheme.colors
     val haptic = rememberHaptic()
+
+    // 语音通话期间保持屏幕常亮活跃，避免手机自动休眠/熄屏断流
+    val currentView = LocalView.current
+    DisposableEffect(currentView) {
+        val previous = currentView.keepScreenOn
+        currentView.keepScreenOn = true
+        onDispose {
+            currentView.keepScreenOn = previous
+        }
+    }
 
     val callState by voiceCall.callState.collectAsState()
     val durationSeconds by voiceCall.durationSeconds.collectAsState()
