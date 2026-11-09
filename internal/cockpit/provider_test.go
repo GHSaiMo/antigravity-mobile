@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -27,14 +28,25 @@ func TestGetQuotas(t *testing.T) {
 		if a.Gemini4Argon != nil {
 			argonStr = a.Gemini4Argon.ResetFriendly
 		}
-		t.Logf("[%d] %s [tier=%s] (current: %v) | Gemini 5h: %.1f%% (%s) | Claude 5h: %.1f%% (%s) | Argon: %v (%s)",
-			i, a.Email, a.SubscriptionTier, a.IsCurrent,
-			a.Gemini5h.RemainingPercent, a.Gemini5h.ResetFriendly,
-			a.Claude5h.RemainingPercent, a.Claude5h.ResetFriendly,
-			a.Gemini4Argon != nil, argonStr)
-		t.Logf("    Weekly -> Gemini: %.1f%% (%s) | Claude: %.1f%% (%s)",
-			a.GeminiWeekly.RemainingPercent, a.GeminiWeekly.ResetFriendly,
-			a.ClaudeWeekly.RemainingPercent, a.ClaudeWeekly.ResetFriendly)
+		g5hStr := "—"
+		if a.Gemini5h != nil {
+			g5hStr = fmt.Sprintf("%.1f%% (%s)", a.Gemini5h.RemainingPercent, a.Gemini5h.ResetFriendly)
+		}
+		c5hStr := "—"
+		if a.Claude5h != nil {
+			c5hStr = fmt.Sprintf("%.1f%% (%s)", a.Claude5h.RemainingPercent, a.Claude5h.ResetFriendly)
+		}
+		gWkStr := "—"
+		if a.GeminiWeekly != nil {
+			gWkStr = fmt.Sprintf("%.1f%% (%s)", a.GeminiWeekly.RemainingPercent, a.GeminiWeekly.ResetFriendly)
+		}
+		cWkStr := "—"
+		if a.ClaudeWeekly != nil {
+			cWkStr = fmt.Sprintf("%.1f%% (%s)", a.ClaudeWeekly.RemainingPercent, a.ClaudeWeekly.ResetFriendly)
+		}
+		t.Logf("[%d] %s [tier=%s] (current: %v) | Gemini 5h: %s | Claude 5h: %s | Argon: %v (%s)",
+			i, a.Email, a.SubscriptionTier, a.IsCurrent, g5hStr, c5hStr, a.Gemini4Argon != nil, argonStr)
+		t.Logf("    Weekly -> Gemini: %s | Claude: %s", gWkStr, cWkStr)
 	}
 }
 
@@ -312,6 +324,23 @@ func TestGetQuotas_ArgonAndSubscriptionTier(t *testing.T) {
 		}
 	}`)
 
+	// Free account: only has weekly quotas via models, no 5h
+	writeCache("free@example.com", `{
+		"updatedAt": 1720000100,
+		"payload": {
+			"models": {
+				"claude-opus-4-6-thinking": {
+					"displayName": "Claude Opus 4.6 (Thinking)",
+					"quotaInfo": {"remainingFraction": 1.0, "resetTime": "2026-09-21T06:00:00Z"}
+				},
+				"gemini-3.8-flash-high": {
+					"displayName": "Gemini 3.8 Flash (High)",
+					"quotaInfo": {"remainingFraction": 0.95, "resetTime": "2026-09-21T06:00:00Z"}
+				}
+			}
+		}
+	}`)
+
 	resp, err := GetQuotas()
 	if err != nil {
 		t.Fatalf("GetQuotas failed: %v", err)
@@ -327,6 +356,9 @@ func TestGetQuotas_ArgonAndSubscriptionTier(t *testing.T) {
 	if ultra.Gemini4Argon == nil || ultra.Gemini4Argon.RemainingPercent != 92.0 {
 		t.Errorf("expected ultra Gemini4Argon 92.0%%, got %+v", ultra.Gemini4Argon)
 	}
+	if ultra.Gemini5h == nil || ultra.Claude5h == nil {
+		t.Errorf("expected ultra 5h quotas, got %+v", ultra)
+	}
 
 	pro := resp.Accounts[1]
 	if pro.SubscriptionTier != "PRO" {
@@ -335,6 +367,9 @@ func TestGetQuotas_ArgonAndSubscriptionTier(t *testing.T) {
 	if pro.Gemini4Argon != nil {
 		t.Errorf("expected pro Gemini4Argon to be nil (dynamically hidden), got %+v", pro.Gemini4Argon)
 	}
+	if pro.Gemini5h == nil || pro.Claude5h == nil {
+		t.Errorf("expected pro 5h quotas, got %+v", pro)
+	}
 
 	freeAcc := resp.Accounts[2]
 	if freeAcc.SubscriptionTier != "FREE" {
@@ -342,6 +377,18 @@ func TestGetQuotas_ArgonAndSubscriptionTier(t *testing.T) {
 	}
 	if freeAcc.Gemini4Argon != nil {
 		t.Errorf("expected free Gemini4Argon to be nil, got %+v", freeAcc.Gemini4Argon)
+	}
+	if freeAcc.Claude5h != nil {
+		t.Errorf("expected free Claude5h to be nil, got %+v", freeAcc.Claude5h)
+	}
+	if freeAcc.Gemini5h != nil {
+		t.Errorf("expected free Gemini5h to be nil, got %+v", freeAcc.Gemini5h)
+	}
+	if freeAcc.ClaudeWeekly == nil || freeAcc.ClaudeWeekly.RemainingPercent != 100.0 {
+		t.Errorf("expected free ClaudeWeekly to be 100%%, got %+v", freeAcc.ClaudeWeekly)
+	}
+	if freeAcc.GeminiWeekly == nil || freeAcc.GeminiWeekly.RemainingPercent != 95.0 {
+		t.Errorf("expected free GeminiWeekly to be 95%%, got %+v", freeAcc.GeminiWeekly)
 	}
 }
 

@@ -521,10 +521,14 @@ final class DemoGateway: @unchecked Sendable {
                 "id": a.id, "email": a.email, "name": a.name,
                 "subscription_tier": a.subscriptionTier,
                 "is_current": a.id == currentQuotaId,
-                "claude_5h": bucket(a.claude5h, a.reset5h), "claude_weekly": bucket(a.claudeWeekly, a.resetWeekly),
-                "gemini_5h": bucket(a.gemini5h, a.reset5h), "gemini_weekly": bucket(a.geminiWeekly, a.resetWeekly),
+                "claude_weekly": bucket(a.claudeWeekly, a.resetWeekly),
+                "gemini_weekly": bucket(a.geminiWeekly, a.resetWeekly),
                 "updated_at": quotaUpdatedAt
             ]
+            if a.subscriptionTier != "FREE" {
+                dict["claude_5h"] = bucket(a.claude5h, a.reset5h)
+                dict["gemini_5h"] = bucket(a.gemini5h, a.reset5h)
+            }
             if let argon = a.gemini4Argon {
                 dict["gemini_4_argon"] = bucket(argon, a.resetWeekly)
             }

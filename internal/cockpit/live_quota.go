@@ -138,17 +138,36 @@ func FetchLiveQuota(client *http.Client, baseURL, token string) (*AccountQuota, 
 			}
 		}
 	}
-	if acc.Gemini5h == nil || acc.Claude5h == nil {
-		for _, m := range us.UserStatus.CascadeModelConfigData.ClientModelConfigs {
-			if m.QuotaInfo.RemainingFraction == nil {
-				continue
+	if acc.SubscriptionTier == "FREE" {
+		acc.Claude5h = nil
+		acc.Gemini5h = nil
+		if acc.ClaudeWeekly == nil || acc.GeminiWeekly == nil {
+			for _, m := range us.UserStatus.CascadeModelConfigData.ClientModelConfigs {
+				if m.QuotaInfo.RemainingFraction == nil {
+					continue
+				}
+				l := strings.ToLower(m.Label)
+				switch {
+				case acc.ClaudeWeekly == nil && (strings.Contains(l, "claude") || strings.Contains(l, "gpt")):
+					acc.ClaudeWeekly = makeMetric(m.QuotaInfo.RemainingFraction, m.QuotaInfo.ResetTime)
+				case acc.GeminiWeekly == nil && strings.Contains(l, "gemini") && !isArgonModelOrBucket(l):
+					acc.GeminiWeekly = makeMetric(m.QuotaInfo.RemainingFraction, m.QuotaInfo.ResetTime)
+				}
 			}
-			l := strings.ToLower(m.Label)
-			switch {
-			case acc.Claude5h == nil && (strings.Contains(l, "claude") || strings.Contains(l, "gpt")):
-				acc.Claude5h = makeMetric(m.QuotaInfo.RemainingFraction, m.QuotaInfo.ResetTime)
-			case acc.Gemini5h == nil && strings.Contains(l, "gemini") && !isArgonModelOrBucket(l):
-				acc.Gemini5h = makeMetric(m.QuotaInfo.RemainingFraction, m.QuotaInfo.ResetTime)
+		}
+	} else {
+		if acc.Gemini5h == nil || acc.Claude5h == nil {
+			for _, m := range us.UserStatus.CascadeModelConfigData.ClientModelConfigs {
+				if m.QuotaInfo.RemainingFraction == nil {
+					continue
+				}
+				l := strings.ToLower(m.Label)
+				switch {
+				case acc.Claude5h == nil && (strings.Contains(l, "claude") || strings.Contains(l, "gpt")):
+					acc.Claude5h = makeMetric(m.QuotaInfo.RemainingFraction, m.QuotaInfo.ResetTime)
+				case acc.Gemini5h == nil && strings.Contains(l, "gemini") && !isArgonModelOrBucket(l):
+					acc.Gemini5h = makeMetric(m.QuotaInfo.RemainingFraction, m.QuotaInfo.ResetTime)
+				}
 			}
 		}
 	}
@@ -186,17 +205,31 @@ func BuildQuotaResponse(live *AccountQuota, liveEmail string) (*CockpitQuotaResp
 		if live != nil && out.CurrentAccount != nil &&
 			strings.EqualFold(out.CurrentAccount.Email, live.Email) {
 			merged := *out.CurrentAccount
-			if live.Claude5h != nil {
-				merged.Claude5h = live.Claude5h
+			if live.SubscriptionTier != "" {
+				merged.SubscriptionTier = live.SubscriptionTier
 			}
-			if live.ClaudeWeekly != nil {
-				merged.ClaudeWeekly = live.ClaudeWeekly
-			}
-			if live.Gemini5h != nil {
-				merged.Gemini5h = live.Gemini5h
-			}
-			if live.GeminiWeekly != nil {
-				merged.GeminiWeekly = live.GeminiWeekly
+			if merged.SubscriptionTier == "FREE" {
+				merged.Claude5h = nil
+				merged.Gemini5h = nil
+				if live.ClaudeWeekly != nil {
+					merged.ClaudeWeekly = live.ClaudeWeekly
+				}
+				if live.GeminiWeekly != nil {
+					merged.GeminiWeekly = live.GeminiWeekly
+				}
+			} else {
+				if live.Claude5h != nil {
+					merged.Claude5h = live.Claude5h
+				}
+				if live.ClaudeWeekly != nil {
+					merged.ClaudeWeekly = live.ClaudeWeekly
+				}
+				if live.Gemini5h != nil {
+					merged.Gemini5h = live.Gemini5h
+				}
+				if live.GeminiWeekly != nil {
+					merged.GeminiWeekly = live.GeminiWeekly
+				}
 			}
 			if live.Gemini4Argon != nil {
 				merged.Gemini4Argon = live.Gemini4Argon

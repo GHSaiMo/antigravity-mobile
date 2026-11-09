@@ -303,19 +303,33 @@ public struct AccountQuotaSheet: View {
             Divider()
                 .opacity(0.6)
             
+            let isFree = (acc.subscriptionTier?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() == "FREE") ||
+                (acc.claude5h == nil && acc.gemini5h == nil)
+            
             VStack(spacing: 10) {
-                // 4 Metrics Grid: Claude on Left, Gemini on Right, 5h on top, Weekly on bottom
-                LazyVGrid(columns: [
-                    GridItem(.flexible(), spacing: 10),
-                    GridItem(.flexible(), spacing: 10)
-                ], spacing: 10) {
-                    // Row 1: Left Claude 5h, Right Gemini 5h
-                    metricCell(title: "Claude 5h", bucket: acc.claude5h)
-                    metricCell(title: "Gemini 5h", bucket: acc.gemini5h)
-                    
-                    // Row 2: Left Claude Weekly, Right Gemini Weekly
-                    metricCell(title: "Claude Weekly", bucket: acc.claudeWeekly)
-                    metricCell(title: "Gemini Weekly", bucket: acc.geminiWeekly)
+                if isFree {
+                    // Free 账号仅展示两个 weekly 数值：左 Claude Weekly，右 Gemini Weekly
+                    LazyVGrid(columns: [
+                        GridItem(.flexible(), spacing: 10),
+                        GridItem(.flexible(), spacing: 10)
+                    ], spacing: 10) {
+                        metricCell(title: "Claude Weekly", bucket: acc.claudeWeekly)
+                        metricCell(title: "Gemini Weekly", bucket: acc.geminiWeekly)
+                    }
+                } else {
+                    // 4 Metrics Grid: Claude on Left, Gemini on Right, 5h on top, Weekly on bottom
+                    LazyVGrid(columns: [
+                        GridItem(.flexible(), spacing: 10),
+                        GridItem(.flexible(), spacing: 10)
+                    ], spacing: 10) {
+                        // Row 1: Left Claude 5h, Right Gemini 5h
+                        metricCell(title: "Claude 5h", bucket: acc.claude5h)
+                        metricCell(title: "Gemini 5h", bucket: acc.gemini5h)
+                        
+                        // Row 2: Left Claude Weekly, Right Gemini Weekly
+                        metricCell(title: "Claude Weekly", bucket: acc.claudeWeekly)
+                        metricCell(title: "Gemini Weekly", bucket: acc.geminiWeekly)
+                    }
                 }
                 
                 // Dynamically display Gemini 4 Argon only when the account has it

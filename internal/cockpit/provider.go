@@ -534,6 +534,16 @@ func GetQuotas(activeEmails ...string) (*CockpitQuotaResponse, error) {
 			IsCurrent: acc.ID == resolvedCurrentID,
 		}
 
+		// 1. Read account detail from ~/.cockpit_tools/accounts/<id>.json first
+		// to determine subscription_tier and have model percentage fallback ready.
+		var sq *storedAccountQuota
+		if detail, dErr := DecryptAccountDetail(acc.ID); dErr == nil && detail != nil {
+			sq = extractStoredAccountQuota(detail.Quota)
+			if sq != nil && sq.SubscriptionTier != "" {
+				item.SubscriptionTier = normalizeSubscriptionTier(sq.SubscriptionTier)
+			}
+		}
+
 		if cBytes, err := os.ReadFile(cachePath); err == nil {
 			var cp cachePayload
 			if err := json.Unmarshal(cBytes, &cp); err == nil {
@@ -545,16 +555,22 @@ func GetQuotas(activeEmails ...string) (*CockpitQuotaResponse, error) {
 					item.SubscriptionTier = normalizeSubscriptionTier(cp.Payload.SubscriptionTier)
 				}
 
-				// 1. Check QuotaSummary buckets first
+				isFree := item.SubscriptionTier == "FREE"
+
+				// 2. Check QuotaSummary buckets first
 				for _, g := range cp.Payload.QuotaSummary.Groups {
 					for _, b := range g.Buckets {
 						switch b.BucketID {
 						case "gemini-5h", "gemini_5h":
-							item.Gemini5h = makeMetric(b.RemainingFraction, b.ResetTime)
+							if !isFree {
+								item.Gemini5h = makeMetric(b.RemainingFraction, b.ResetTime)
+							}
 						case "gemini-weekly", "gemini_weekly":
 							item.GeminiWeekly = makeMetric(b.RemainingFraction, b.ResetTime)
 						case "3p-5h", "claude-5h", "claude_5h":
-							item.Claude5h = makeMetric(b.RemainingFraction, b.ResetTime)
+							if !isFree {
+								item.Claude5h = makeMetric(b.RemainingFraction, b.ResetTime)
+							}
 						case "3p-weekly", "claude-weekly", "claude_weekly":
 							item.ClaudeWeekly = makeMetric(b.RemainingFraction, b.ResetTime)
 						default:
@@ -565,19 +581,58 @@ func GetQuotas(activeEmails ...string) (*CockpitQuotaResponse, error) {
 					}
 				}
 
-				// 2. Fallbacks to model-level quotaInfo if bucket was not populated
-				if item.Claude5h == nil {
-					if m, ok := cp.Payload.Models["claude-opus-4-6-thinking"]; ok && m.QuotaInfo.RemainingFraction != nil {
-						item.Claude5h = makeMetric(m.QuotaInfo.RemainingFraction, m.QuotaInfo.ResetTime)
-					} else if m, ok := cp.Payload.Models["claude-sonnet-4-6"]; ok && m.QuotaInfo.RemainingFraction != nil {
-						item.Claude5h = makeMetric(m.QuotaInfo.RemainingFraction, m.QuotaInfo.ResetTime)
+				// 3. Fallbacks to model-level quotaInfo if bucket was not populated
+				if isFree {
+					// Free accounts strictly only have Weekly quotas, no 5h rolling window
+					item.Claude5h = nil
+					item.Gemini5h = nil
+					if item.ClaudeWeekly == nil {
+						if m, ok := cp.Payload.Models["claude-opus-4-6-thinking"]; ok && m.QuotaInfo.RemainingFraction != nil {
+							item.ClaudeWeekly = makeMetric(m.QuotaInfo.RemainingFraction, m.QuotaInfo.ResetTime)
+						} else if m, ok := cp.Payload.Models["claude-sonnet-4-6"]; ok && m.QuotaInfo.RemainingFraction != nil {
+							item.ClaudeWeekly = makeMetric(m.QuotaInfo.RemainingFraction, m.QuotaInfo.ResetTime)
+						} else {
+							for k, m := range cp.Payload.Models {
+								lk := strings.ToLower(k)
+								if (strings.Contains(lk, "claude") || strings.Contains(lk, "gpt")) && m.QuotaInfo.RemainingFraction != nil {
+									item.ClaudeWeekly = makeMetric(m.QuotaInfo.RemainingFraction, m.QuotaInfo.ResetTime)
+									break
+								}
+							}
+						}
+					}
+					if item.GeminiWeekly == nil {
+						for _, k := range []string{"gemini-3.8-flash-high", "gemini-3.8-flash-medium", "gemini-3-flash", "gemini-2.5-pro"} {
+							if m, ok := cp.Payload.Models[k]; ok && m.QuotaInfo.RemainingFraction != nil {
+								item.GeminiWeekly = makeMetric(m.QuotaInfo.RemainingFraction, m.QuotaInfo.ResetTime)
+								break
+							}
+						}
+						if item.GeminiWeekly == nil {
+							for k, m := range cp.Payload.Models {
+								lk := strings.ToLower(k)
+								if strings.Contains(lk, "gemini") && !isArgonModelOrBucket(lk) && m.QuotaInfo.RemainingFraction != nil {
+									item.GeminiWeekly = makeMetric(m.QuotaInfo.RemainingFraction, m.QuotaInfo.ResetTime)
+									break
+								}
+							}
+						}
+					}
+				} else {
+					if item.Claude5h == nil {
+						if m, ok := cp.Payload.Models["claude-opus-4-6-thinking"]; ok && m.QuotaInfo.RemainingFraction != nil {
+							item.Claude5h = makeMetric(m.QuotaInfo.RemainingFraction, m.QuotaInfo.ResetTime)
+						} else if m, ok := cp.Payload.Models["claude-sonnet-4-6"]; ok && m.QuotaInfo.RemainingFraction != nil {
+							item.Claude5h = makeMetric(m.QuotaInfo.RemainingFraction, m.QuotaInfo.ResetTime)
+						}
+					}
+					if item.Gemini5h == nil {
+						if m, ok := cp.Payload.Models["gemini-2.5-pro"]; ok && m.QuotaInfo.RemainingFraction != nil {
+							item.Gemini5h = makeMetric(m.QuotaInfo.RemainingFraction, m.QuotaInfo.ResetTime)
+						}
 					}
 				}
-				if item.Gemini5h == nil {
-					if m, ok := cp.Payload.Models["gemini-2.5-pro"]; ok && m.QuotaInfo.RemainingFraction != nil {
-						item.Gemini5h = makeMetric(m.QuotaInfo.RemainingFraction, m.QuotaInfo.ResetTime)
-					}
-				}
+
 				if item.Gemini4Argon == nil && len(cp.Payload.Models) > 0 {
 					for _, key := range []string{"gemini-4-argon-high", "gemini-4-argon-medium", "gemini-4-argon-low", "gemini-4-argon"} {
 						if m, ok := cp.Payload.Models[key]; ok && m.QuotaInfo.RemainingFraction != nil {
@@ -597,34 +652,32 @@ func GetQuotas(activeEmails ...string) (*CockpitQuotaResponse, error) {
 			}
 		}
 
-		// 3. Read account detail from ~/.cockpit_tools/accounts/<id>.json for subscription_tier and model quota fallbacks
-		if detail, dErr := DecryptAccountDetail(acc.ID); dErr == nil && detail != nil {
-			if sq := extractStoredAccountQuota(detail.Quota); sq != nil {
-				if item.SubscriptionTier == "" && sq.SubscriptionTier != "" {
-					item.SubscriptionTier = normalizeSubscriptionTier(sq.SubscriptionTier)
-				}
-				if item.Gemini4Argon == nil {
-					for _, m := range sq.Models {
-						if isArgonModelOrBucket(m.Name) && m.Percentage != nil {
-							frac := float64(*m.Percentage) / 100.0
-							item.Gemini4Argon = makeMetric(&frac, m.ResetTime)
-							break
-						}
-					}
+		// Fallback argon from sq if needed
+		if sq != nil && item.Gemini4Argon == nil {
+			for _, m := range sq.Models {
+				if isArgonModelOrBucket(m.Name) && m.Percentage != nil {
+					frac := float64(*m.Percentage) / 100.0
+					item.Gemini4Argon = makeMetric(&frac, m.ResetTime)
+					break
 				}
 			}
 		}
 
-		// Ensure fallback defaults for the 4 base buckets so UI doesn't crash if an account is brand new or unprobed.
-		// Note: Gemini4Argon intentionally remains nil when absent so clients dynamically hide it!
-		if item.Gemini5h == nil {
-			item.Gemini5h = &QuotaMetric{RemainingPercent: 100, ResetFriendly: "就绪"}
+		// Ensure fallback defaults for base buckets so UI doesn't crash if an account is brand new or unprobed.
+		// Free accounts strictly only have 2 weekly quotas.
+		if item.SubscriptionTier == "FREE" {
+			item.Claude5h = nil
+			item.Gemini5h = nil
+		} else {
+			if item.Gemini5h == nil {
+				item.Gemini5h = &QuotaMetric{RemainingPercent: 100, ResetFriendly: "就绪"}
+			}
+			if item.Claude5h == nil {
+				item.Claude5h = &QuotaMetric{RemainingPercent: 100, ResetFriendly: "就绪"}
+			}
 		}
 		if item.GeminiWeekly == nil {
 			item.GeminiWeekly = &QuotaMetric{RemainingPercent: 100, ResetFriendly: "就绪"}
-		}
-		if item.Claude5h == nil {
-			item.Claude5h = &QuotaMetric{RemainingPercent: 100, ResetFriendly: "就绪"}
 		}
 		if item.ClaudeWeekly == nil {
 			item.ClaudeWeekly = &QuotaMetric{RemainingPercent: 100, ResetFriendly: "就绪"}
