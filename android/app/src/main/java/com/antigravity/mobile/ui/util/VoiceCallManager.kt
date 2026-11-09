@@ -87,6 +87,8 @@ class VoiceCallManager(private val context: Context) {
         private const val PLAYBACK_SAMPLE_RATE = 24000
         private const val CHUNK_SAMPLES = 640 // 40ms @ 16kHz
         private const val CHUNK_BYTES = CHUNK_SAMPLES * 2 // 1280 bytes
+        private const val MIN_JITTER_BYTES = 7200 // ~150ms @ 24kHz 16-bit mono
+        private const val JITTER_TIMEOUT_MS = 120L // 120ms max initial wait
 
         fun resolvePlanModelInt(modelIdOrEnum: String?): Int {
             val raw = modelIdOrEnum?.trim().orEmpty()
@@ -170,6 +172,13 @@ class VoiceCallManager(private val context: Context) {
     private var transcriptClearJob: Job? = null
     private var agentSpeakingDecayJob: Job? = null
 
+    // Jitter Buffer for smooth audio playback against network jitter
+    private val jitterBuffer = mutableListOf<ByteArray>()
+    private var jitterBufferedBytes = 0
+    private var isJitterBuffering = true
+    private var jitterFlushJob: Job? = null
+    private val jitterLock = Any()
+
     @SuppressLint("MissingPermission")
     fun startCall(
         cascadeId: String,
@@ -196,6 +205,14 @@ class VoiceCallManager(private val context: Context) {
         _isAgentSpeaking.value = false
         _liveTranscriptText.value = ""
         _soundLevels.value = List(18) { 0.12f }
+
+        synchronized(jitterLock) {
+            jitterFlushJob?.cancel()
+            jitterFlushJob = null
+            jitterBuffer.clear()
+            jitterBufferedBytes = 0
+            isJitterBuffering = true
+        }
 
         if (!setupAudioPipeline()) {
             _callState.value = VoiceCallState.FAILED
@@ -233,6 +250,14 @@ class VoiceCallManager(private val context: Context) {
         _isAgentSpeaking.value = false
         _liveTranscriptText.value = ""
         _soundLevels.value = List(18) { 0.12f }
+
+        synchronized(jitterLock) {
+            jitterFlushJob?.cancel()
+            jitterFlushJob = null
+            jitterBuffer.clear()
+            jitterBufferedBytes = 0
+            isJitterBuffering = true
+        }
         _callState.value = VoiceCallState.IDLE
         activeCascadeId = ""
     }
@@ -301,7 +326,7 @@ class VoiceCallManager(private val context: Context) {
                 PLAYBACK_SAMPLE_RATE,
                 AudioFormat.CHANNEL_OUT_MONO,
                 AudioFormat.ENCODING_PCM_16BIT
-            ).coerceAtLeast(PLAYBACK_SAMPLE_RATE * 2 / 5)
+            ).coerceAtLeast(PLAYBACK_SAMPLE_RATE * 2 / 2) // 500ms headroom for jitter tolerance
 
             val track = AudioTrack.Builder()
                 .setAudioAttributes(
@@ -472,18 +497,64 @@ class VoiceCallManager(private val context: Context) {
         _isAgentSpeaking.value = true
         pushSoundLevel(level)
 
-        try {
-            audioTrack?.write(pcmBytes, 0, pcmBytes.size)
-        } catch (_: Exception) {}
+        synchronized(jitterLock) {
+            if (isJitterBuffering) {
+                jitterBuffer.add(pcmBytes)
+                jitterBufferedBytes += pcmBytes.size
+
+                if (jitterFlushJob == null) {
+                    jitterFlushJob = scope.launch {
+                        delay(JITTER_TIMEOUT_MS)
+                        synchronized(jitterLock) {
+                            flushJitterBufferLocked()
+                        }
+                    }
+                }
+
+                if (jitterBufferedBytes >= MIN_JITTER_BYTES) {
+                    jitterFlushJob?.cancel()
+                    jitterFlushJob = null
+                    flushJitterBufferLocked()
+                }
+            } else {
+                try {
+                    audioTrack?.write(pcmBytes, 0, pcmBytes.size)
+                } catch (_: Exception) {}
+            }
+        }
 
         agentSpeakingDecayJob?.cancel()
         agentSpeakingDecayJob = scope.launch {
             delay(320)
+            synchronized(jitterLock) {
+                isJitterBuffering = true
+            }
             _isAgentSpeaking.value = false
         }
     }
 
+    private fun flushJitterBufferLocked() {
+        jitterFlushJob?.cancel()
+        jitterFlushJob = null
+        isJitterBuffering = false
+
+        for (chunk in jitterBuffer) {
+            try {
+                audioTrack?.write(chunk, 0, chunk.size)
+            } catch (_: Exception) {}
+        }
+        jitterBuffer.clear()
+        jitterBufferedBytes = 0
+    }
+
     private fun clearPlaybackQueue() {
+        synchronized(jitterLock) {
+            jitterFlushJob?.cancel()
+            jitterFlushJob = null
+            jitterBuffer.clear()
+            jitterBufferedBytes = 0
+            isJitterBuffering = true
+        }
         try {
             audioTrack?.pause()
             audioTrack?.flush()
