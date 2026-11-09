@@ -26,6 +26,8 @@ public struct ConversationTurn: Identifiable, Sendable, Hashable {
     public let modelName: String?
     /// 本轮创建时间戳 (RFC3339)
     public let timestamp: String?
+    /// 本轮是否为语音交互提问
+    public let isVoiceTurn: Bool
     
     public init(
         id: String,
@@ -40,7 +42,8 @@ public struct ConversationTurn: Identifiable, Sendable, Hashable {
         hasError: Bool,
         isActive: Bool,
         modelName: String?,
-        timestamp: String? = nil
+        timestamp: String? = nil,
+        isVoiceTurn: Bool = false
     ) {
         self.id = id
         self.turnIndex = turnIndex
@@ -55,6 +58,7 @@ public struct ConversationTurn: Identifiable, Sendable, Hashable {
         self.isActive = isActive
         self.modelName = modelName
         self.timestamp = timestamp
+        self.isVoiceTurn = isVoiceTurn
     }
 }
 
@@ -91,10 +95,27 @@ public enum ConversationTurnBuilder {
             let firstId = userMsg?.id ?? currentMessages.first?.id ?? "turn-\(currentTurnIndex)"
             let turnId = "turn-\(firstId)"
             
+            let parsed = userMsg.map { AttachmentRules.parseBlock($0.content) }
+            let isVoice = userMsg.map { VoiceTranscriptCleaner.isVoiceMessage(body: parsed?.body ?? $0.content, files: parsed?.files ?? []) } ?? false
+            
             // 提纯 Prompt 摘要
             let summary: String = {
                 if let u = userMsg {
-                    let clean = u.content.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if isVoice {
+                        let cleaned = VoiceTranscriptCleaner.clean(parsed?.body ?? u.content)
+                        let cleanPrompt = cleaned
+                            .replacingOccurrences(of: #"^(我|user|human|me)\s*[:：]\s*"#, with: "", options: [.regularExpression, .caseInsensitive])
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                        let lines = cleanPrompt.components(separatedBy: .newlines)
+                            .map { $0.trimmingCharacters(in: .whitespaces) }
+                            .filter { !$0.isEmpty }
+                        let combined = lines.prefix(2).joined(separator: " ")
+                        if combined.count > 48 {
+                            return String(combined.prefix(45)) + "..."
+                        }
+                        return combined
+                    }
+                    let clean = (parsed?.body ?? u.content).trimmingCharacters(in: .whitespacesAndNewlines)
                     if !clean.isEmpty {
                         let lines = clean.components(separatedBy: .newlines)
                             .map { $0.trimmingCharacters(in: .whitespaces) }
@@ -104,6 +125,14 @@ public enum ConversationTurnBuilder {
                             return String(combined.prefix(45)) + "..."
                         }
                         return combined
+                    }
+                    if let files = parsed?.files, !files.isEmpty {
+                        let firstFile = files.first?.name ?? "文件"
+                        if files.count == 1 {
+                            return "[附件: \(firstFile)]"
+                        } else {
+                            return "[附件: \(firstFile) 等 \(files.count) 个文件]"
+                        }
                     }
                     if !u.imageDataList.isEmpty || !u.imageUrls.isEmpty {
                         let count = max(u.imageDataList.count, u.imageUrls.count)
@@ -150,7 +179,8 @@ public enum ConversationTurnBuilder {
                 hasError: hasError,
                 isActive: isActive,
                 modelName: model,
-                timestamp: turnTimestamp
+                timestamp: turnTimestamp,
+                isVoiceTurn: isVoice
             ))
             
             currentTurnIndex += 1
