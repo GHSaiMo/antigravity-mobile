@@ -209,21 +209,7 @@ public struct ChatView: View {
             consumeSharedFiles()
         }
         .onAppear {
-            isViewAppeared = true
-            if preserveScrollOnReturn {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { preserveScrollOnReturn = false }
-            }
-            viewModel.restoreDraftsIfNeeded()
-            consumeSharedFiles()
-            checkPendingLiveRecording()
-            if shouldAutoFocus && viewModel.pendingInteraction == nil {
-                scheduleAutoFocus(delay: 0.45)
-            }
-            if !viewModel.messages.isEmpty {
-                Task {
-                    await viewModel.resumeActiveSession()
-                }
-            }
+            handleViewAppear()
         }
         .task {
             await viewModel.loadMessages()
@@ -248,24 +234,7 @@ public struct ChatView: View {
             handleLiveActivityRecordingFinished(notif)
         }
         .onDisappear {
-            isViewAppeared = false
-            if hasInitiallyAligned && !isSplitDetail {
-                // 压入子页面（如子代理会话）：保留滚动状态，返回时留在原位置
-                preserveScrollOnReturn = true
-            } else {
-                hasInitiallyAligned = false
-                hasUserInteracted = false
-                isNearBottom = true
-                messagesContentHeight = 0
-                currentViewportHeight = 0
-            }
-            autoFocusTask?.cancel()
-            autoFocusTask = nil
-            if voiceCall.isInCall {
-                voiceCall.endCall()
-            }
-            viewModel.saveCurrentDraft()
-            viewModel.disconnectStream()
+            handleViewDisappear()
         }
         .onChange(of: voiceCall.callState) { _, newState in
             handleVoiceCallStateChange(newState)
@@ -352,10 +321,7 @@ public struct ChatView: View {
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
         }
-        .sheet(item: Binding<IdentifiableURL?>(
-            get: { viewModel.inAppBrowserURL.map { IdentifiableURL(url: $0) } },
-            set: { _ in viewModel.closeInAppBrowser() }
-        )) { item in
+        .sheet(item: inAppBrowserItem) { item in
             SafariWebViewSheet(url: item.url) {
                 viewModel.closeInAppBrowser()
             }
@@ -417,42 +383,13 @@ public struct ChatView: View {
             )
             .ignoresSafeArea()
         }
-        .alert("无法使用相机", isPresented: $showCameraUnavailableAlert) {
-            Button("好", role: .cancel) {}
-        } message: {
-            Text("当前设备或模拟器未检测到可用相机。")
-        }
-        .alert("需要相机权限", isPresented: $showCameraPermissionAlert) {
-            Button("前往设置") {
-                if let url = URL(string: UIApplication.openSettingsURLString) {
-                    UIApplication.shared.open(url)
-                }
-            }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("请在系统设置中允许 Multigravity 访问相机以拍照。")
-        }
-        .alert("需要麦克风权限", isPresented: $showMicrophonePermissionAlert) {
-            Button("前往设置") {
-                if let url = URL(string: UIApplication.openSettingsURLString) {
-                    UIApplication.shared.open(url)
-                }
-            }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("请在系统设置中允许 Multigravity 访问麦克风以录制语音。")
-        }
-        .alert("已有会话正在录音", isPresented: $showOtherSessionRecordingAlert) {
-            Button("前往该会话") {
-                let targetId = audioRecorder.currentCascadeId
-                if !targetId.isEmpty, let url = URL(string: "antigravity://cascade/\(targetId)") {
-                    UIApplication.shared.open(url)
-                }
-            }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("当前已有另一个会话正在使用麦克风录音，请先结束该录音后再开启新录音。")
-        }
+        .modifier(ChatPermissionAlertsModifier(
+            showCameraUnavailableAlert: $showCameraUnavailableAlert,
+            showCameraPermissionAlert: $showCameraPermissionAlert,
+            showMicrophonePermissionAlert: $showMicrophonePermissionAlert,
+            showOtherSessionRecordingAlert: $showOtherSessionRecordingAlert,
+            audioRecorder: audioRecorder
+        ))
     }
     
     private func checkPendingLiveRecording() {
@@ -536,6 +473,100 @@ public struct ChatView: View {
             get: { viewModel.htmlPreviewURL != nil },
             set: { if !$0 { viewModel.closeHTMLPreview() } }
         )
+    }
+
+    private var inAppBrowserItem: Binding<IdentifiableURL?> {
+        Binding<IdentifiableURL?>(
+            get: { viewModel.inAppBrowserURL.map { IdentifiableURL(url: $0) } },
+            set: { _ in viewModel.closeInAppBrowser() }
+        )
+    }
+
+    private func handleViewAppear() {
+        isViewAppeared = true
+        if preserveScrollOnReturn {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { preserveScrollOnReturn = false }
+        }
+        viewModel.restoreDraftsIfNeeded()
+        consumeSharedFiles()
+        checkPendingLiveRecording()
+        if shouldAutoFocus && viewModel.pendingInteraction == nil {
+            scheduleAutoFocus(delay: 0.45)
+        }
+        if !viewModel.messages.isEmpty {
+            Task {
+                await viewModel.resumeActiveSession()
+            }
+        }
+    }
+
+    private func handleViewDisappear() {
+        isViewAppeared = false
+        if hasInitiallyAligned && !isSplitDetail {
+            // 压入子页面（如子代理会话）：保留滚动状态，返回时留在原位置
+            preserveScrollOnReturn = true
+        } else {
+            hasInitiallyAligned = false
+            hasUserInteracted = false
+            isNearBottom = true
+            messagesContentHeight = 0
+            currentViewportHeight = 0
+        }
+        autoFocusTask?.cancel()
+        autoFocusTask = nil
+        if voiceCall.isInCall {
+            voiceCall.endCall()
+        }
+        viewModel.saveCurrentDraft()
+        viewModel.disconnectStream()
+    }
+}
+
+private struct ChatPermissionAlertsModifier: ViewModifier {
+    @Binding var showCameraUnavailableAlert: Bool
+    @Binding var showCameraPermissionAlert: Bool
+    @Binding var showMicrophonePermissionAlert: Bool
+    @Binding var showOtherSessionRecordingAlert: Bool
+    let audioRecorder: AudioRecorderManager
+
+    func body(content: Content) -> some View {
+        content
+            .alert("无法使用相机", isPresented: $showCameraUnavailableAlert) {
+                Button("好", role: .cancel) {}
+            } message: {
+                Text("当前设备或模拟器未检测到可用相机。")
+            }
+            .alert("需要相机权限", isPresented: $showCameraPermissionAlert) {
+                Button("前往设置") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("请在系统设置中允许 Multigravity 访问相机以拍照。")
+            }
+            .alert("需要麦克风权限", isPresented: $showMicrophonePermissionAlert) {
+                Button("前往设置") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("请在系统设置中允许 Multigravity 访问麦克风以录制语音。")
+            }
+            .alert("已有会话正在录音", isPresented: $showOtherSessionRecordingAlert) {
+                Button("前往该会话") {
+                    let targetId = audioRecorder.currentCascadeId
+                    if !targetId.isEmpty, let url = URL(string: "antigravity://cascade/\(targetId)") {
+                        UIApplication.shared.open(url)
+                    }
+                }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("当前已有另一个会话正在使用麦克风录音，请先结束该录音后再开启新录音。")
+            }
     }
 }
 
