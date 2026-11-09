@@ -231,7 +231,7 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 		} else if stepType == "CORTEX_STEP_TYPE_PLANNER_RESPONSE" {
 			respText := ""
 			if s.PlannerResponse != nil {
-				respText = strings.TrimSpace(s.PlannerResponse.Response)
+				respText = CleanInternalSystemMessage(s.PlannerResponse.Response)
 			}
 
 			if respText != "" {
@@ -562,7 +562,57 @@ func extractArtifactsFromStep(s TrajectoryStep) []ArtifactItem {
 	return results
 }
 
-var markdownFileLinkRegex = regexp.MustCompile(`(?i)\[([^\]]+)\]\(((?:file://)?(/[^\s\)><\*` + "`" + `]+\.(?:md|markdown)))\)`)
+var (
+	markdownFileLinkRegex   = regexp.MustCompile(`(?i)\[([^\]]+)\]\(((?:file://)?(/[^\s\)><\*` + "`" + `]+\.(?:md|markdown)))\)`)
+	systemMessageIntroRegex = regexp.MustCompile(`(?is)The following is a <SYSTEM_MESSAGE> not actually sent by the user.*?(?:<SYSTEM_MESSAGE>|\z)`)
+	systemMessageTagRegex   = regexp.MustCompile(`(?is)<SYSTEM_MESSAGE>.*?</SYSTEM_MESSAGE>`)
+)
+
+// CleanInternalSystemMessage removes internal system/task protocol messages (<SYSTEM_MESSAGE>...</SYSTEM_MESSAGE>)
+// and returns user-visible content. If the text consists solely of internal notifications, it returns an empty string.
+func CleanInternalSystemMessage(text string) string {
+	t := strings.TrimSpace(text)
+	if t == "" {
+		return ""
+	}
+
+	// 1. Remove standard system notification preamble first (before stripping <SYSTEM_MESSAGE> tags)
+	cleaned := systemMessageIntroRegex.ReplaceAllString(t, "")
+	// 2. Remove closed <SYSTEM_MESSAGE>...</SYSTEM_MESSAGE> blocks
+	cleaned = systemMessageTagRegex.ReplaceAllString(cleaned, "")
+	cleaned = strings.TrimSpace(cleaned)
+
+	// 3. If nothing left or only leftover closing/opening tags
+	if cleaned == "" || cleaned == "</SYSTEM_MESSAGE>" || cleaned == "<SYSTEM_MESSAGE>" {
+		return ""
+	}
+
+	// 4. If text starts with unclosed <SYSTEM_MESSAGE> or preamble remnant
+	if strings.HasPrefix(cleaned, "<SYSTEM_MESSAGE>") || strings.HasPrefix(cleaned, "The following is a <SYSTEM_MESSAGE>") {
+		return ""
+	}
+
+	// 5. Unwrapped protocol headers: "[Message] timestamp=... sender=... priority=MESSAGE_PRIORITY_..."
+	if strings.HasPrefix(cleaned, "[Message]") && strings.Contains(cleaned, "priority=MESSAGE_PRIORITY_") {
+		return ""
+	}
+
+	// 6. Task completion notice: Task id "..." finished with result:
+	if strings.HasPrefix(cleaned, "Task id \"") && strings.Contains(cleaned, "finished with result:") {
+		return ""
+	}
+
+	return cleaned
+}
+
+// IsInternalSystemMessage reports whether the non-empty text is solely internal system protocol communication.
+func IsInternalSystemMessage(text string) bool {
+	t := strings.TrimSpace(text)
+	if t == "" {
+		return false
+	}
+	return CleanInternalSystemMessage(t) == ""
+}
 
 // extractArtifactsFromText scans response text for markdown links pointing to markdown artifact files.
 // Desktop client parity: only true brain artifacts with valid on-disk user-facing metadata are extracted.

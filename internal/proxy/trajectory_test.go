@@ -1795,4 +1795,132 @@ func TestParseTrajectoryDetails_DaemonRunningTasks(t *testing.T) {
 	}
 }
 
+func TestCleanInternalSystemMessage(t *testing.T) {
+	// Case 1: Pure <SYSTEM_MESSAGE> tag with task notification
+	input1 := `<SYSTEM_MESSAGE>
+[Message] timestamp=2026-11-09T01:27:01Z sender=20a8b767-2f5e-4bb9-863d-89c879567907/task-155 priority=MESSAGE_PRIORITY_HIGH content=Task id "20a8b767-2f5e-4bb9-863d-89c879567907/task-155" finished with result:
+Command exited with code 0.
+Command output:
+▶ [1/4] 准备 NAS 工作目录
+</SYSTEM_MESSAGE>`
+	if got := CleanInternalSystemMessage(input1); got != "" {
+		t.Fatalf("expected empty string for pure system message, got %q", got)
+	}
+
+	// Case 2: Preamble with unclosed tag
+	input2 := `The following is a <SYSTEM_MESSAGE> not actually sent by the user. It is provided by the system as important information to pay attention to.
+
+<SYSTEM_MESSAGE>
+[Message] timestamp=2026-11-09T01:27:01Z sender=task-1 priority=MESSAGE_PRIORITY_HIGH content=done
+</SYSTEM_MESSAGE>`
+	if got := CleanInternalSystemMessage(input2); got != "" {
+		t.Fatalf("expected empty string for system message with preamble, got %q", got)
+	}
+
+	// Case 3: Mixed text with user-facing message after system message
+	input3 := `<SYSTEM_MESSAGE>
+[Message] timestamp=2026-11-09T01:27:01Z sender=task-1 priority=MESSAGE_PRIORITY_HIGH content=done
+</SYSTEM_MESSAGE>
+测试已经全部通过，可以正常交付。`
+	if got := CleanInternalSystemMessage(input3); got != "测试已经全部通过，可以正常交付。" {
+		t.Fatalf("expected stripped user message, got %q", got)
+	}
+
+	// Case 4: Normal agent response without system tags
+	input4 := "你好！我已经完成了所有的修复工作。"
+	if got := CleanInternalSystemMessage(input4); got != input4 {
+		t.Fatalf("expected normal message to remain unchanged, got %q", got)
+	}
+}
+
+func TestBuildTrajectoryMessages_FilterInternalSystemMessage(t *testing.T) {
+	rawJSON := `{
+		"status": "CASCADE_RUN_STATUS_IDLE",
+		"trajectory": {
+			"cascadeId": "test-filter-system-message",
+			"steps": [
+				{
+					"type": "CORTEX_STEP_TYPE_USER_INPUT",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"userInput": {
+						"userResponse": "free 账号应该只有两个 weekly 的数值"
+					}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_RUN_COMMAND",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"metadata": {
+						"toolCall": { "name": "run_command" }
+					}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_RUN_COMMAND",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"metadata": {
+						"toolCall": { "name": "run_command" }
+					}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_PLANNER_RESPONSE",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"plannerResponse": {
+						"response": "<SYSTEM_MESSAGE>\n[Message] timestamp=2026-11-09T01:27:01Z sender=task-155 priority=MESSAGE_PRIORITY_HIGH content=Task id \"task-155\" finished with result:\nCommand exited with code 0.\n</SYSTEM_MESSAGE>"
+					}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_RUN_COMMAND",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"metadata": {
+						"toolCall": { "name": "run_command" }
+					}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_PLANNER_RESPONSE",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"plannerResponse": {
+						"response": "针对 Free 账号的配额展示与解析逻辑已完成全链路优化与对齐。"
+					}
+				}
+			]
+		}
+	}`
+
+	var rawResp upstreamTrajectoryResp
+	if err := json.Unmarshal([]byte(rawJSON), &rawResp); err != nil {
+		t.Fatalf("failed to unmarshal test JSON: %v", err)
+	}
+
+	p := &Proxy{}
+	details := p.ParseTrajectoryDetails(&rawResp)
+
+	// In desktop alignment:
+	// 1. User message
+	// 2. Tools message (with 3 tool calls merged together, NOT split by the system message)
+	// 3. Agent final response
+	if len(details.AllMessages) != 3 {
+		t.Fatalf("expected exactly 3 messages (user, tools, agent), got %d: %+v", len(details.AllMessages), details.AllMessages)
+	}
+
+	if details.AllMessages[0].Type != "user" {
+		t.Errorf("expected msg 0 to be user, got %s", details.AllMessages[0].Type)
+	}
+
+	if details.AllMessages[1].Type != "tools" {
+		t.Errorf("expected msg 1 to be tools, got %s", details.AllMessages[1].Type)
+	}
+	if details.AllMessages[1].ToolCount != 3 {
+		t.Errorf("expected 3 tools merged into single card (2 before + 1 after system msg), got %d", details.AllMessages[1].ToolCount)
+	}
+
+	if details.AllMessages[2].Type != "agent" {
+		t.Errorf("expected msg 2 to be agent, got %s", details.AllMessages[2].Type)
+	}
+	if strings.Contains(details.AllMessages[2].Text, "SYSTEM_MESSAGE") {
+		t.Errorf("agent message leaked SYSTEM_MESSAGE: %q", details.AllMessages[2].Text)
+	}
+	if details.AllMessages[2].Text != "针对 Free 账号的配额展示与解析逻辑已完成全链路优化与对齐。" {
+		t.Errorf("unexpected agent text: %q", details.AllMessages[2].Text)
+	}
+}
+
 

@@ -242,10 +242,11 @@ extension APIClient {
                     ))
                 }
             } else if type == "CORTEX_STEP_TYPE_PLANNER_RESPONSE" {
-                let response = step.plannerResponse?.response?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let rawResponse = step.plannerResponse?.response?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let response = Self.cleanInternalSystemMessage(rawResponse)
                 let thinking = step.plannerResponse?.thinking?.trimmingCharacters(in: .whitespacesAndNewlines)
                 
-                if !response.isEmpty || (thinking != nil && !thinking!.isEmpty) {
+                if !response.isEmpty {
                     flushTools()
                     
                     let extracted = extractImageURLs(from: response)
@@ -254,7 +255,7 @@ extension APIClient {
                     messages.append(ChatMessage(
                         id: "step-\(idx)",
                         sender: .agent,
-                        content: response.isEmpty ? "（已完成思考，准备下发指令）" : response,
+                        content: response,
                         thinking: thinking?.isEmpty == false ? thinking : nil,
                         imageUrls: resolved,
                         stepIndex: idx
@@ -402,7 +403,7 @@ extension APIClient {
                     lastErrInTurn = errText.trimmingCharacters(in: .whitespacesAndNewlines)
                 }
             } else if step.type == "CORTEX_STEP_TYPE_PLANNER_RESPONSE" {
-                let resp = step.plannerResponse?.response?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let resp = Self.cleanInternalSystemMessage(step.plannerResponse?.response?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
                 if !resp.isEmpty {
                     foundErrorInTurn = false
                     lastErrInTurn = nil
@@ -486,5 +487,38 @@ extension APIClient {
             s.removeLast()
         }
         return s.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Strips internal system/task protocol wrappers (<SYSTEM_MESSAGE>...</SYSTEM_MESSAGE>) and returns clean user-visible text.
+    public static func cleanInternalSystemMessage(_ text: String) -> String {
+        var t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if t.isEmpty { return "" }
+        
+        // Remove "The following is a <SYSTEM_MESSAGE>..." preamble first
+        if let regex = try? NSRegularExpression(pattern: "(?is)The following is a <SYSTEM_MESSAGE> not actually sent by the user.*?(?:<SYSTEM_MESSAGE>|\\z)", options: []) {
+            let range = NSRange(t.startIndex..<t.endIndex, in: t)
+            t = regex.stringByReplacingMatches(in: t, options: [], range: range, withTemplate: "")
+        }
+        
+        // Remove <SYSTEM_MESSAGE>...</SYSTEM_MESSAGE> blocks
+        if let regex = try? NSRegularExpression(pattern: "(?is)<SYSTEM_MESSAGE>.*?</SYSTEM_MESSAGE>", options: []) {
+            let range = NSRange(t.startIndex..<t.endIndex, in: t)
+            t = regex.stringByReplacingMatches(in: t, options: [], range: range, withTemplate: "")
+        }
+        
+        t = t.trimmingCharacters(in: .whitespacesAndNewlines)
+        if t.isEmpty || t == "</SYSTEM_MESSAGE>" || t == "<SYSTEM_MESSAGE>" {
+            return ""
+        }
+        if t.hasPrefix("<SYSTEM_MESSAGE>") || t.hasPrefix("The following is a <SYSTEM_MESSAGE>") {
+            return ""
+        }
+        if t.hasPrefix("[Message]") && t.contains("priority=MESSAGE_PRIORITY_") {
+            return ""
+        }
+        if t.hasPrefix("Task id \"") && t.contains("finished with result:") {
+            return ""
+        }
+        return t
     }
 }

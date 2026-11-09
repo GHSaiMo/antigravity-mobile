@@ -13,6 +13,32 @@ let currentProceedArtifactUri = null;
 let pendingRenderRaf = null;
 let pendingRenderData = null;
 
+function cleanInternalSystemMessage(text) {
+  if (!text) return "";
+  let t = String(text).trim();
+  if (!t) return "";
+
+  // Strip "The following is a <SYSTEM_MESSAGE>..." preamble first
+  t = t.replace(/The following is a <SYSTEM_MESSAGE> not actually sent by the user[\s\S]*?(?:<SYSTEM_MESSAGE>|$)/gi, "");
+  // Strip <SYSTEM_MESSAGE>...</SYSTEM_MESSAGE>
+  t = t.replace(/<SYSTEM_MESSAGE>[\s\S]*?<\/SYSTEM_MESSAGE>/gi, "");
+  t = t.trim();
+
+  if (!t || t === "</SYSTEM_MESSAGE>" || t === "<SYSTEM_MESSAGE>") {
+    return "";
+  }
+  if (t.startsWith("<SYSTEM_MESSAGE>") || t.startsWith("The following is a <SYSTEM_MESSAGE>")) {
+    return "";
+  }
+  if (t.startsWith("[Message]") && t.includes("priority=MESSAGE_PRIORITY_")) {
+    return "";
+  }
+  if (t.startsWith('Task id "') && t.includes("finished with result:")) {
+    return "";
+  }
+  return t;
+}
+
 function updateProceedButton(canProceed) {
   const proceedBtn = document.getElementById("btn-proceed");
   if (proceedBtn) {
@@ -850,7 +876,8 @@ function groupSteps(steps) {
       }
     } else if (type === "CORTEX_STEP_TYPE_PLANNER_RESPONSE") {
       const p = s.plannerResponse || {};
-      const resp = (p.response || "").trim();
+      const rawResp = (p.response || "").trim();
+      const resp = cleanInternalSystemMessage(rawResp);
       const thinking = (p.thinking || "").trim();
 
       if (resp) {
@@ -860,7 +887,7 @@ function groupSteps(steps) {
           type: "agent",
           id: `item-agent-${i}`,
           index: i,
-          text: p.response,
+          text: resp,
           thinking: thinking,
           artifacts: artList,
           step: s
