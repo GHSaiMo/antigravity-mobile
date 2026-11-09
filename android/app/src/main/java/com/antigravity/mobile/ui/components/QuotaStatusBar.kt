@@ -32,7 +32,18 @@ fun QuotaStatusBar(
     onTap: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val bucket = account?.gemini5h ?: return
+    val isFree = account?.subscriptionTier?.trim()?.equals("FREE", ignoreCase = true) == true ||
+        (account?.gemini5h == null && account?.claude5h == null)
+    val bucket = if (isFree) {
+        account?.geminiWeekly ?: account?.claudeWeekly ?: return
+    } else {
+        account?.gemini5h ?: account?.geminiWeekly ?: return
+    }
+    val titleText = if (isFree) {
+        if (account?.geminiWeekly != null) "Gemini Weekly" else "Claude Weekly"
+    } else {
+        if (account?.gemini5h != null) "Gemini 5h" else "Gemini Weekly"
+    }
     val percent = bucket.remainingPercent.coerceIn(0.0, 100.0)
     val colors = AntigravityTheme.colors
 
@@ -64,7 +75,7 @@ fun QuotaStatusBar(
             )
 
             Text(
-                text = "Gemini 5h",
+                text = titleText,
                 color = colors.textPrimary,
                 fontSize = 12.sp,
                 lineHeight = 14.sp,

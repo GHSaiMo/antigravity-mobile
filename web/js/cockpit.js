@@ -120,17 +120,32 @@ function renderQuotaStatusBar(data) {
   if (!data) return;
   const current = data.current_account || (data.accounts && data.accounts[0]);
   const statusBar = document.getElementById("quota-status-bar");
-  if (!current || !current.gemini_5h) {
+  if (!current) {
+    if (statusBar) statusBar.style.display = "none";
+    return;
+  }
+
+  const isFree = (current.subscription_tier && current.subscription_tier.toUpperCase() === "FREE") ||
+    (!current.gemini_5h && !current.claude_5h);
+  const metric = isFree ? (current.gemini_weekly || current.claude_weekly) : (current.gemini_5h || current.gemini_weekly);
+  if (!metric) {
     if (statusBar) statusBar.style.display = "none";
     return;
   }
   if (statusBar) statusBar.style.display = "";
 
+  const titleText = isFree
+    ? (current.gemini_weekly ? "Gemini Weekly" : "Claude Weekly")
+    : (current.gemini_5h ? "Gemini 5h" : "Gemini Weekly");
+
+  const nameEl = statusBar.querySelector(".quota-metric-name");
+  if (nameEl) nameEl.textContent = titleText;
+
   const percentEl = document.getElementById("quota-status-percent");
   const fillEl = document.getElementById("quota-status-fill");
   const descEl = document.getElementById("quota-status-desc");
 
-  const pct = current.gemini_5h.remaining_percent;
+  const pct = metric.remaining_percent;
   const statusClass = getQuotaStatusClass(pct);
 
   const boltEl = document.getElementById("quota-bolt-icon");
@@ -141,10 +156,10 @@ function renderQuotaStatusBar(data) {
     fillEl.className = `quota-progress-fill fill-${statusClass}`;
   }
   if (descEl) {
-    const resetTxt = current.gemini_5h.reset_friendly || "就绪";
+    const resetTxt = metric.reset_friendly || "就绪";
     let displayText = resetTxt;
     if (resetTxt !== "就绪" && resetTxt !== "已就绪" && resetTxt !== "未知") {
-      const dateTime = formatResetDateTime(current.gemini_5h.reset_time);
+      const dateTime = formatResetDateTime(metric.reset_time);
       if (dateTime) {
         displayText = `${resetTxt} ${dateTime}`;
       }
@@ -225,16 +240,35 @@ function buildAccountQuotaCard(acc, isCurrent) {
       </div>`
     : "";
 
-  card.innerHTML = `
-    <div class="quota-card-header">
-      <div class="quota-card-identity">
-        <span class="quota-account-email" title="${escapeHtml(acc.email)}">${escapeHtml(displayEmail)}</span>
-        ${tierBadgeHtml}
-      </div>
-      ${isCurrent ? `<span class="quota-active-tag"><i class="quota-active-dot"></i>使用中</span>` : switchBtnHtml}
-    </div>
+  const isFree = (acc.subscription_tier && acc.subscription_tier.toUpperCase() === "FREE") ||
+    (!acc.claude_5h && !acc.gemini_5h);
 
-    <div class="quota-metrics-grid">
+  const metricsHtml = isFree ? `
+      <!-- 1. Left: Claude Weekly -->
+      <div class="metric-box">
+        <div class="metric-box-header">
+          <span class="metric-box-title claude">Claude Weekly</span>
+          <span class="metric-box-value ${getQuotaStatusClass(cWk.remaining_percent)}">${cWk.remaining_percent.toFixed(1)}%</span>
+        </div>
+        <div class="metric-mini-track">
+          <div class="metric-mini-fill ${getQuotaStatusClass(cWk.remaining_percent)}" style="width: ${Math.min(100, Math.max(0, cWk.remaining_percent))}%;"></div>
+        </div>
+        <span class="metric-box-reset" title="${escapeHtml(getQuotaResetDisplayText(cWk))}">${escapeHtml(getQuotaResetDisplayText(cWk))}</span>
+      </div>
+
+      <!-- 2. Right: Gemini Weekly -->
+      <div class="metric-box">
+        <div class="metric-box-header">
+          <span class="metric-box-title gemini">Gemini Weekly</span>
+          <span class="metric-box-value ${getQuotaStatusClass(gWk.remaining_percent)}">${gWk.remaining_percent.toFixed(1)}%</span>
+        </div>
+        <div class="metric-mini-track">
+          <div class="metric-mini-fill ${getQuotaStatusClass(gWk.remaining_percent)}" style="width: ${Math.min(100, Math.max(0, gWk.remaining_percent))}%;"></div>
+        </div>
+        <span class="metric-box-reset" title="${escapeHtml(getQuotaResetDisplayText(gWk))}">${escapeHtml(getQuotaResetDisplayText(gWk))}</span>
+      </div>
+      ${argonHtml}
+  ` : `
       <!-- 1. Left Top: Claude 5h -->
       <div class="metric-box">
         <div class="metric-box-header">
@@ -283,6 +317,19 @@ function buildAccountQuotaCard(acc, isCurrent) {
         <span class="metric-box-reset" title="${escapeHtml(getQuotaResetDisplayText(gWk))}">${escapeHtml(getQuotaResetDisplayText(gWk))}</span>
       </div>
       ${argonHtml}
+  `;
+
+  card.innerHTML = `
+    <div class="quota-card-header">
+      <div class="quota-card-identity">
+        <span class="quota-account-email" title="${escapeHtml(acc.email)}">${escapeHtml(displayEmail)}</span>
+        ${tierBadgeHtml}
+      </div>
+      ${isCurrent ? `<span class="quota-active-tag"><i class="quota-active-dot"></i>使用中</span>` : switchBtnHtml}
+    </div>
+
+    <div class="quota-metrics-grid">
+      ${metricsHtml}
     </div>
   `;
 

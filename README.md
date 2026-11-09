@@ -188,7 +188,7 @@ mgy help           # 查看完整命令与启动参数帮助
 
 ### 3. 📊 Cockpit Tools 配额罗盘与多账号池无感热切 (Account Pool & Quota Engine)
 - **动态 Quota 状态条 (`QuotaStatusBar`)**：首页顶部常驻实时额度状态条，一眼掌握核心配额健康度；
-- **全方位四象限配额看板**：全景监控当前使用账号的 **Claude 5h、Gemini 5h、Claude Weekly、Gemini Weekly** 四象限配额百分比，精确显示额度恢复与重置倒计时（精确到分/秒，如 `4h 55m (09/20 00:49)`、`3d 20h 34m`）；
+- **全方位四象限配额看板**：全景监控当前使用账号的 **Claude 5h、Gemini 5h、Claude Weekly、Gemini Weekly** 四象限配额百分比，精确显示额度恢复与重置倒计时（精确到分/秒，如 `4h 55m (09/20 00:49)`、`3d 20h 34m`）；**Free 账号自适应纯净单排双列**：自动剥离 5h 维度，精准对齐真实的 7 天 `Claude Weekly` 与 `Gemini Weekly` 重置倒计时；
 - **备用账号池管理**：支持展示与维护多个备用账号，一键点击「切换」按钮即可在移动端完成热切换（Hot-switching），无需重新登录与退出；
 - **隐私保护与实时刷新**：支持邮箱脱敏遮罩展示（支持一键眼睛图标切换隐藏明文），支持手动添加新账号与一键实时刷新配额；
 - **配置自愈与切号全流程自动化 (v1.0.4)**：网关自动校准 Cockpit 启动配置并补齐缺失的应用路径，自动修复并补全 `state.vscdb` 存储、Antigravity IDE 软链接与数据库表，热重载配置并自动完成平滑热重启与账号注入，彻底根治移动端切号 `APP_PATH_NOT_FOUND` 报错，并内置切号失败自动回滚机制。
@@ -402,9 +402,11 @@ mgy help           # 查看完整命令与启动参数帮助
 - **三端 LaTeX 数学公式与自适应 Markdown 表格全面升级 (LaTeX Math & Adaptive Markdown Tables)**：
   - 全面修复并对齐 iOS、Android、Web 三端复杂 LaTeX 数学公式渲染（原生支持 `\underbrace`、`\overbrace`、`\langle` / `\rangle`、`\mathcal`、`\mathbb`、矩阵环境与多层上下标等）及常用 Markdown 语法；
   - iOS 与 Android 原生表格升级为按单元格内容自适应列宽并支持横向平滑滚动，彻底解决多列表格在手机端挤压折行问题。
-- **免 Cockpit 本地直读当前账号实时配额 (Zero-Config Live Quota)**：
+- **免 Cockpit 本地直读实时配额与 Free 账号双 Weekly 真实周期对齐 (Live Quota & Free Tier Alignment)**：
   - 未安装或未配置 Cockpit Tools 时，网关直接通过 Antigravity 本地服务 RPC 实时读取当前使用账号的 4 维配额（Claude 5h、Claude Weekly、Gemini 5h、Gemini Weekly）及 Gemini 4 Argon 额度，并在移动端顶部状态条与详情面板实时展示；
-  - 详情面板下方备用账号区域自动呈现友好引导，提示用户安装 Cockpit Tools 并通过 `mgy cockpit` 交互式配置，享受多备用账号一键切换。
+  - 详情面板下方备用账号区域自动呈现友好引导，提示用户安装 Cockpit Tools 并通过 `mgy cockpit` 交互式配置，享受多备用账号一键切换；
+  - **Free 账号纯净双 Weekly 对齐**：针对 Free 账号彻底剥离 5h 滚动配额（`Claude 5h` / `Gemini 5h`），不再兜底注入伪 5h 默认数据；修复模型层回退时将 7 天 Weekly 周期误赋给 5h 的错位问题，使 `Claude Weekly` 与 `Gemini Weekly` 精准对齐真实的 7 天恢复倒计时；
+  - **移动端与 Web 自动收敛为单排双列**：iOS、Android 原生客户端与 Web 控制台针对 Free 账号自动从 2×2 四象限收敛为单排双列卡片（左侧 Claude Weekly、右侧 Gemini Weekly），顶部 Quota 状态条自动切换为 Gemini Weekly 进度展示。
 - **会话状态精准判定与常驻守护进程 (`IsDaemon`) 解耦 (Session Status Precision & Daemon Task Parity)**：
   - 修复批准 `implementation_plan.md` 后会话在 `Working` 期间或无 `walkthrough.md` 完结时被误判为 `Action required` 的问题；区分常驻守护进程（`IsDaemon=true`）与回合阻塞任务，常驻服务不再抑制完成推送或误标会话运行状态。
 - **iOS PWA 软键盘避让与 Fake-IP 隧道双栈探测加固 (PWA Keyboard & Fake-IP ULA Exemption)**：

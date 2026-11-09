@@ -9,8 +9,23 @@ public struct QuotaStatusBarView: View {
         self.onTap = onTap
     }
     
+    private var isFree: Bool {
+        account?.subscriptionTier?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() == "FREE" ||
+            (account?.gemini5h == nil && account?.claude5h == nil)
+    }
+    
     private var bucket: CockpitQuotaBucket? {
-        account?.gemini5h
+        if isFree {
+            return account?.geminiWeekly ?? account?.claudeWeekly
+        }
+        return account?.gemini5h ?? account?.geminiWeekly
+    }
+    
+    private var titleText: String {
+        if isFree {
+            return account?.geminiWeekly != nil ? "Gemini Weekly" : "Claude Weekly"
+        }
+        return account?.gemini5h != nil ? "Gemini 5h" : "Gemini Weekly"
     }
     
     private var percent: Double {
@@ -84,7 +99,7 @@ public struct QuotaStatusBarView: View {
                         .font(.system(size: 11, weight: .bold))
                         .foregroundColor(progressColor)
                     
-                    Text("Gemini 5h")
+                    Text(titleText)
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(.primary)
                         .lineLimit(1)

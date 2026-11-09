@@ -409,46 +409,68 @@ private fun AccountQuotaCard(
 
         HorizontalDivider(color = colors.separator.copy(alpha = 0.25f), thickness = 0.5.dp)
 
-        // 4 Metrics Grid: 1:1 iOS Layout Order & Compact Proportions
+        val isFree = account.subscriptionTier?.trim()?.equals("FREE", ignoreCase = true) == true ||
+            (account.claude5h == null && account.gemini5h == null)
+
+        // Metrics Grid: Free accounts show 2 weekly quotas; others show 4 metrics (5h + weekly)
         Column(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Row 1: Left Claude 5h, Right Gemini 5h
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                QuotaMetricCell(
-                    title = "Claude 5h",
-                    bucket = account.claude5h,
-                    modifier = Modifier.weight(1f)
-                )
-                QuotaMetricCell(
-                    title = "Gemini 5h",
-                    bucket = account.gemini5h,
-                    modifier = Modifier.weight(1f)
-                )
+            if (isFree) {
+                // Free 账号仅展示两个 weekly 数值：Row 1: Left Claude Weekly, Right Gemini Weekly
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    QuotaMetricCell(
+                        title = "Claude Weekly",
+                        bucket = account.claudeWeekly,
+                        modifier = Modifier.weight(1f)
+                    )
+                    QuotaMetricCell(
+                        title = "Gemini Weekly",
+                        bucket = account.geminiWeekly,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            } else {
+                // Row 1: Left Claude 5h, Right Gemini 5h
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    QuotaMetricCell(
+                        title = "Claude 5h",
+                        bucket = account.claude5h,
+                        modifier = Modifier.weight(1f)
+                    )
+                    QuotaMetricCell(
+                        title = "Gemini 5h",
+                        bucket = account.gemini5h,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                // Row 2: Left Claude Weekly, Right Gemini Weekly
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    QuotaMetricCell(
+                        title = "Claude Weekly",
+                        bucket = account.claudeWeekly,
+                        modifier = Modifier.weight(1f)
+                    )
+                    QuotaMetricCell(
+                        title = "Gemini Weekly",
+                        bucket = account.geminiWeekly,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
             }
 
-            // Row 2: Left Claude Weekly, Right Gemini Weekly
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                QuotaMetricCell(
-                    title = "Claude Weekly",
-                    bucket = account.claudeWeekly,
-                    modifier = Modifier.weight(1f)
-                )
-                QuotaMetricCell(
-                    title = "Gemini Weekly",
-                    bucket = account.geminiWeekly,
-                    modifier = Modifier.weight(1f)
-                )
-            }
-
-            // Row 3 (Optional): Dynamically display Gemini 4 Argon only when the account has it
+            // Optional: Dynamically display Gemini 4 Argon only when the account has it
             account.gemini4Argon?.let { argon ->
                 QuotaMetricCell(
                     title = "Gemini 4 Argon",
