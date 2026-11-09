@@ -59,12 +59,13 @@ func IsTransitionalProgressMessage(text string) bool {
 	return false
 }
 
-// ExtractLatestAgentResponse returns the last non-empty planner response text and its step index.
+// ExtractLatestAgentResponse returns the last non-empty planner response text and its step index,
+// automatically filtering out internal system protocol notifications (<SYSTEM_MESSAGE>...).
 func ExtractLatestAgentResponse(steps []proxy.TrajectoryStep) (string, int) {
 	for i := len(steps) - 1; i >= 0; i-- {
 		s := steps[i]
 		if s.Type == "CORTEX_STEP_TYPE_PLANNER_RESPONSE" && s.PlannerResponse != nil {
-			resp := strings.TrimSpace(s.PlannerResponse.Response)
+			resp := proxy.CleanInternalSystemMessage(s.PlannerResponse.Response)
 			if resp != "" {
 				return resp, i
 			}

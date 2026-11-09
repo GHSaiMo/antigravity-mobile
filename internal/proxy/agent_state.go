@@ -225,7 +225,12 @@ func isInternalAgentMessage(hideFromUser bool, sender string, sourceMetadata jso
 		}
 	}
 	t := strings.TrimSpace(content)
-	if strings.HasPrefix(t, "Task id \"") ||
+	if IsInternalSystemMessage(t) ||
+		strings.HasPrefix(t, "<SYSTEM_MESSAGE>") ||
+		strings.Contains(t, "</SYSTEM_MESSAGE>") ||
+		strings.HasPrefix(t, "The following is a <SYSTEM_MESSAGE>") ||
+		strings.HasPrefix(t, "[Message] timestamp=") ||
+		strings.HasPrefix(t, "Task id \"") ||
 		strings.HasPrefix(t, "Task \"") ||
 		strings.Contains(t, "was canceled with result:") ||
 		strings.Contains(t, "completed with result:") ||
