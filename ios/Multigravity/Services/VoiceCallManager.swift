@@ -74,6 +74,14 @@ public final class VoiceCallManager: ObservableObject {
     private var playbackFormat: AVAudioFormat?
     private var pendingPlaybackBuffers: Int = 0
 
+    // Jitter Buffer for smooth audio playback against network jitter
+    private static let minJitterBytes: Int = 7200   // ~150ms @ 24kHz 16-bit mono
+    private static let jitterTimeoutNs: UInt64 = 120_000_000 // 120ms timeout
+    private var jitterBuffer: [Data] = []
+    private var jitterBufferedBytes: Int = 0
+    private var isJitterBuffering: Bool = true
+    private var jitterFlushTask: Task<Void, Never>?
+
     private var durationTimer: Timer?
     private var callStartedAt: Date?
     private var transcriptClearTask: Task<Void, Never>?
@@ -120,6 +128,12 @@ public final class VoiceCallManager: ObservableObject {
         soundLevels = Array(repeating: 0.12, count: 18)
         callStartedAt = Date()
 
+        jitterFlushTask?.cancel()
+        jitterFlushTask = nil
+        jitterBuffer.removeAll()
+        jitterBufferedBytes = 0
+        isJitterBuffering = true
+
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
 
         do {
@@ -139,6 +153,12 @@ public final class VoiceCallManager: ObservableObject {
         UIApplication.shared.isIdleTimerDisabled = false
         isIntentionallyClosed = true
         isSocketReady = false
+
+        jitterFlushTask?.cancel()
+        jitterFlushTask = nil
+        jitterBuffer.removeAll()
+        jitterBufferedBytes = 0
+        isJitterBuffering = true
 
         connectionWatchdogTask?.cancel()
         connectionWatchdogTask = nil
@@ -471,10 +491,62 @@ public final class VoiceCallManager: ObservableObject {
     }
 
     private func enqueuePCM24k(_ pcmData: Data) {
+        guard !pcmData.isEmpty else { return }
+
+        // If in pre-buffering state, accumulate into jitter buffer to absorb network jitter
+        if isJitterBuffering {
+            jitterBuffer.append(pcmData)
+            jitterBufferedBytes += pcmData.count
+
+            if jitterFlushTask == nil {
+                jitterFlushTask = Task { [weak self] in
+                    try? await Task.sleep(nanoseconds: Self.jitterTimeoutNs)
+                    guard let self, !Task.isCancelled else { return }
+                    self.flushJitterBuffer()
+                }
+            }
+
+            if jitterBufferedBytes >= Self.minJitterBytes {
+                flushJitterBuffer()
+            }
+            return
+        }
+
+        // Actively playing: schedule buffer directly
+        guard let format = playbackFormat, let player = playerNode else { return }
+        scheduleSinglePCMBuffer(pcmData, format: format, player: player)
+        if !player.isPlaying {
+            player.play()
+        }
+    }
+
+    private func flushJitterBuffer() {
+        jitterFlushTask?.cancel()
+        jitterFlushTask = nil
+        isJitterBuffering = false
+
+        guard let format = playbackFormat, let player = playerNode else {
+            jitterBuffer.removeAll()
+            jitterBufferedBytes = 0
+            return
+        }
+
+        let chunks = jitterBuffer
+        jitterBuffer.removeAll()
+        jitterBufferedBytes = 0
+
+        for chunk in chunks {
+            scheduleSinglePCMBuffer(chunk, format: format, player: player)
+        }
+
+        if !player.isPlaying {
+            player.play()
+        }
+    }
+
+    private func scheduleSinglePCMBuffer(_ pcmData: Data, format: AVAudioFormat, player: AVAudioPlayerNode) {
         let sampleCount = pcmData.count / 2
         guard sampleCount > 0,
-              let format = playbackFormat,
-              let player = playerNode,
               let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(sampleCount)),
               let floatChannel = buffer.floatChannelData?[0] else { return }
 
@@ -497,15 +569,12 @@ public final class VoiceCallManager: ObservableObject {
         pushSoundLevel(visualLevel)
 
         pendingPlaybackBuffers += 1
-        if !player.isPlaying {
-            player.play()
-        }
-
         player.scheduleBuffer(buffer) { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.pendingPlaybackBuffers = max(0, self.pendingPlaybackBuffers - 1)
                 if self.pendingPlaybackBuffers == 0 {
+                    self.isJitterBuffering = true
                     self.agentSpeakingDecayTask?.cancel()
                     self.agentSpeakingDecayTask = Task { [weak self] in
                         try? await Task.sleep(nanoseconds: 250_000_000)
@@ -520,6 +589,12 @@ public final class VoiceCallManager: ObservableObject {
     }
 
     private func clearPlaybackQueue() {
+        jitterFlushTask?.cancel()
+        jitterFlushTask = nil
+        jitterBuffer.removeAll()
+        jitterBufferedBytes = 0
+        isJitterBuffering = true
+
         guard let player = playerNode else { return }
         player.stop()
         pendingPlaybackBuffers = 0
