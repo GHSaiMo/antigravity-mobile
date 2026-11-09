@@ -45,6 +45,16 @@ class PreferencesManager(context: Context) {
     private val _enableVoiceModeFlow = MutableStateFlow(prefs.getBoolean(KEY_ENABLE_VOICE_MODE, false))
     val enableVoiceModeFlow: StateFlow<Boolean> = _enableVoiceModeFlow.asStateFlow()
 
+    var weeklyPaceCursorEnabled: Boolean
+        get() = prefs.getBoolean(KEY_WEEKLY_PACE_CURSOR, true)
+        set(value) {
+            prefs.edit().putBoolean(KEY_WEEKLY_PACE_CURSOR, value).apply()
+            _weeklyPaceCursorFlow.value = value
+        }
+
+    private val _weeklyPaceCursorFlow = MutableStateFlow(weeklyPaceCursorEnabled)
+    val weeklyPaceCursorFlow: StateFlow<Boolean> = _weeklyPaceCursorFlow.asStateFlow()
+
     init {
         // H-2: If legacy plaintext preferences held credentials, migrate to securePrefs and purge from plaintext
         val legacyToken = prefs.getString(KEY_DEVICE_TOKEN, null)
@@ -625,6 +635,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_AUTO_APPROVE = "auto_approve_permissions"
         private const val KEY_LIVE_NOTIFICATIONS = "live_notifications"
         private const val KEY_ENABLE_VOICE_MODE = "enable_voice_mode"
+        private const val KEY_WEEKLY_PACE_CURSOR = "weekly_pace_cursor"
         private const val KEY_FCM_PUSH_TOKEN = "fcm_push_token"
         private const val KEY_LAN_URL = "lan_server_url"
         private const val KEY_RELAY_URL = "relay_server_url"

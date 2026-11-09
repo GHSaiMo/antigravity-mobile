@@ -80,6 +80,7 @@ fun ConversationListScreen(
     val projects by viewModel.projects.collectAsStateWithLifecycle()
     val isLoadingProjects by viewModel.isLoadingProjects.collectAsStateWithLifecycle()
     val projectsError by viewModel.projectsError.collectAsStateWithLifecycle()
+    val showWeeklyPaceCursor by viewModel.prefs.weeklyPaceCursorFlow.collectAsStateWithLifecycle()
     val textToolbar = LocalTextToolbar.current
     LaunchedEffect(Unit) {
         textToolbar.hide()
@@ -329,6 +330,7 @@ fun ConversationListScreen(
                                 pinningItem = item
                             },
                             swipedConversationId = swipedConversationId,
+                            showWeeklyPaceCursor = showWeeklyPaceCursor,
                             onSwipedConversationIdChange = { swipedConversationId = it }
                         )
                     }
@@ -520,6 +522,7 @@ fun ConversationListScreen(
         AccountQuotaSheet(
             quotaData = quotaData,
             isRefreshing = isRefreshingQuota,
+            showWeeklyPaceCursor = showWeeklyPaceCursor,
             onRefresh = { viewModel.refreshQuotas() },
             onSwitchAccount = { viewModel.switchCockpitAccount(it) },
             onDismiss = { showQuotaSheet = false }
@@ -763,6 +766,7 @@ private fun ConversationListContent(
     onDelete: (ConversationItem) -> Unit,
     onPin: (ConversationItem) -> Unit,
     swipedConversationId: String?,
+    showWeeklyPaceCursor: Boolean = true,
     onSwipedConversationIdChange: (String?) -> Unit
 ) {
     val colors = AntigravityTheme.colors
@@ -824,6 +828,7 @@ private fun ConversationListContent(
                     QuotaStatusBar(
                         account = acc,
                         onTap = onQuotaTap,
+                        showPaceCursor = showWeeklyPaceCursor,
                         modifier = Modifier.fillMaxWidth()
                     )
                 }

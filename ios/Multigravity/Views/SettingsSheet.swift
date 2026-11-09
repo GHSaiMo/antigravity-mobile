@@ -176,6 +176,17 @@ public struct SettingsSheet: View {
                         Text("清空本地缓存")
                     }
                 }
+
+                // MARK: - 5b. 外观与额度看板
+                Section(
+                    header: Text("外观与额度"),
+                    footer: Text("在额度条上显示均速基准刻度针")
+                ) {
+                    Toggle("额度匀速指标", isOn: $settings.weeklyPaceCursorEnabled)
+                        .onChange(of: settings.weeklyPaceCursorEnabled) { _, _ in
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        }
+                }
                 
                 // MARK: - 6. 关于
                 Section(header: Text("关于")) {

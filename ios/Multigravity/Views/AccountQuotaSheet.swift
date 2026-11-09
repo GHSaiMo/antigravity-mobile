@@ -10,6 +10,7 @@ public struct AccountQuotaSheet: View {
     @State private var isRefreshing: Bool = false
     @State private var errorMessage: String? = nil
     @State private var alertTitle: String = "操作失败"
+    @State private var paceDetailItem: WeeklyPaceDetailItem? = nil
     @Binding public var quotaResponse: CockpitQuotaResponse?
     public let onSwitch: ((String) async throws -> Void)?
     public let onRefresh: (() async throws -> Void)?
@@ -225,6 +226,11 @@ public struct AccountQuotaSheet: View {
                     Text("切换账号将关闭并重启电脑上的 Antigravity。")
                 }
             }
+            .sheet(item: $paceDetailItem) { item in
+                WeeklyPaceDetailSheet(item: item)
+                    .presentationDetents([.fraction(0.48), .medium])
+                    .presentationDragIndicator(.visible)
+            }
         }
     }
     
@@ -313,8 +319,8 @@ public struct AccountQuotaSheet: View {
                         GridItem(.flexible(), spacing: 10),
                         GridItem(.flexible(), spacing: 10)
                     ], spacing: 10) {
-                        metricCell(title: "Claude Weekly", bucket: acc.claudeWeekly)
-                        metricCell(title: "Gemini Weekly", bucket: acc.geminiWeekly)
+                        metricCell(title: "Claude Weekly", bucket: acc.claudeWeekly, tier: acc.subscriptionTier)
+                        metricCell(title: "Gemini Weekly", bucket: acc.geminiWeekly, tier: acc.subscriptionTier)
                     }
                 } else {
                     // 4 Metrics Grid: Claude on Left, Gemini on Right, 5h on top, Weekly on bottom
@@ -323,18 +329,18 @@ public struct AccountQuotaSheet: View {
                         GridItem(.flexible(), spacing: 10)
                     ], spacing: 10) {
                         // Row 1: Left Claude 5h, Right Gemini 5h
-                        metricCell(title: "Claude 5h", bucket: acc.claude5h)
-                        metricCell(title: "Gemini 5h", bucket: acc.gemini5h)
+                        metricCell(title: "Claude 5h", bucket: acc.claude5h, tier: acc.subscriptionTier)
+                        metricCell(title: "Gemini 5h", bucket: acc.gemini5h, tier: acc.subscriptionTier)
                         
                         // Row 2: Left Claude Weekly, Right Gemini Weekly
-                        metricCell(title: "Claude Weekly", bucket: acc.claudeWeekly)
-                        metricCell(title: "Gemini Weekly", bucket: acc.geminiWeekly)
+                        metricCell(title: "Claude Weekly", bucket: acc.claudeWeekly, tier: acc.subscriptionTier)
+                        metricCell(title: "Gemini Weekly", bucket: acc.geminiWeekly, tier: acc.subscriptionTier)
                     }
                 }
                 
                 // Dynamically display Gemini 4 Argon only when the account has it
                 if let argon = acc.gemini4Argon {
-                    metricCell(title: "Gemini 4 Argon", bucket: argon, isArgon: true)
+                    metricCell(title: "Gemini 4 Argon", bucket: argon, isArgon: true, tier: acc.subscriptionTier)
                 }
             }
         }
@@ -408,7 +414,7 @@ public struct AccountQuotaSheet: View {
     }
     
     @ViewBuilder
-    private func metricCell(title: String, bucket: CockpitQuotaBucket?, isArgon: Bool = false) -> some View {
+    private func metricCell(title: String, bucket: CockpitQuotaBucket?, isArgon: Bool = false, tier: String? = nil) -> some View {
         let percent = bucket?.remainingPercent ?? 0.0
         let isDark = colorScheme == .dark
         let argonAccent = isDark
@@ -417,6 +423,13 @@ public struct AccountQuotaSheet: View {
         let color = isArgon
             ? (percent < 20.0 ? Color.red : argonAccent)
             : colorForPercent(percent)
+        
+        let isPaceSupported = title.localizedCaseInsensitiveContains("Weekly") ||
+            title.localizedCaseInsensitiveContains("5h") ||
+            isArgon ||
+            title.localizedCaseInsensitiveContains("Argon")
+        let paceInfo = isPaceSupported ? bucket?.calculatePaceForTitle(title, tier: tier) : nil
+        let showCursor = isPaceSupported && AppSettings.shared.weeklyPaceCursorEnabled && paceInfo != nil
         
         VStack(alignment: .leading, spacing: isArgon ? 5 : 4) {
             HStack {
@@ -430,7 +443,7 @@ public struct AccountQuotaSheet: View {
                     .foregroundColor(color)
             }
             
-            // Mini progress bar
+            // Mini progress bar with weekly pace cursor
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Capsule()
@@ -457,6 +470,18 @@ public struct AccountQuotaSheet: View {
                         Capsule()
                             .fill(color)
                             .frame(width: max(0, min(geo.size.width, geo.size.width * CGFloat(percent / 100.0))))
+                    }
+                    
+                    if showCursor, let info = paceInfo {
+                        let expectedFrac = CGFloat(info.expectedRemainingPercent / 100.0)
+                        let needleOffset = max(0, min(geo.size.width - 1.5, geo.size.width * expectedFrac - 0.75))
+                        let needleColor = info.isOverPacing ? Color(red: 1.0, green: 159.0 / 255.0, blue: 10.0 / 255.0) : Color.white.opacity(0.92)
+                        
+                        RoundedRectangle(cornerRadius: 0.75, style: .continuous)
+                            .fill(needleColor)
+                            .frame(width: 1.5, height: 7.5)
+                            .shadow(color: Color.black.opacity(0.35), radius: 1, x: 0, y: 0.5)
+                            .offset(x: needleOffset, y: (5.0 - 7.5) / 2.0)
                     }
                 }
             }
@@ -509,6 +534,13 @@ public struct AccountQuotaSheet: View {
                 }
             }
         )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if isPaceSupported, let info = paceInfo {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                paceDetailItem = WeeklyPaceDetailItem(title: title, info: info)
+            }
+        }
     }
     
     private func resetCountdownDisplay(for bucket: CockpitQuotaBucket?) -> String {
@@ -565,6 +597,96 @@ public struct AccountQuotaSheet: View {
             return .orange
         } else {
             return .red
+        }
+    }
+}
+
+public struct WeeklyPaceDetailItem: Identifiable, Sendable {
+    public let id = UUID()
+    public let title: String
+    public let info: WeeklyPaceInfo
+}
+
+private struct WeeklyPaceDetailSheet: View {
+    let item: WeeklyPaceDetailItem
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                // 状态卡片
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(item.info.isOverPacing ? Color.orange : Color.green)
+                            .frame(width: 8, height: 8)
+                        Text(item.info.isOverPacing ? "⚠️ 消耗偏快 (超速透支)" : "✅ 节奏健康 (额度充裕)")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundColor(item.info.isOverPacing ? .orange : .green)
+                    }
+                    Text(item.info.isOverPacing
+                         ? "当前额度已消耗 \(String(format: "%.1f%%", item.info.usedPercent))，快于 \(item.info.windowLabel)时间匀速基准线 (\(String(format: "%.1f%%", item.info.expectedUsedPercent)))。若保持此速率可能在周期结束前提前耗尽。"
+                         : "当前额度已消耗 \(String(format: "%.1f%%", item.info.usedPercent))，低于或符合 \(item.info.windowLabel)时间匀速基准线 (\(String(format: "%.1f%%", item.info.expectedUsedPercent)))。剩余额度充足，无需担心断粮。")
+                        .font(.system(size: 13))
+                        .foregroundColor(.secondary)
+                        .lineSpacing(2)
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    (item.info.isOverPacing ? Color.orange : Color.green).opacity(0.12)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke((item.info.isOverPacing ? Color.orange : Color.green).opacity(0.3), lineWidth: 1)
+                )
+                
+                // 明细指标
+                VStack(spacing: 10) {
+                    detailRow(label: "当前实际剩余", value: String(format: "%.1f%%", item.info.actualRemainingPercent), isPrimary: true)
+                    detailRow(label: "当前实际已用", value: String(format: "%.1f%%", item.info.usedPercent), isPrimary: true)
+                    Divider()
+                    detailRow(label: "\(item.info.windowLabel)匀速应剩 (游标位)", value: String(format: "%.1f%%", item.info.expectedRemainingPercent), isPrimary: false)
+                    detailRow(label: "\(item.info.windowLabel)匀速应耗基准", value: String(format: "%.1f%%", item.info.expectedUsedPercent), isPrimary: false)
+                    Divider()
+                    detailRow(
+                        label: "节奏差值 (实际 - 理论)",
+                        value: (item.info.paceDeltaPercent >= 0 ? "+" : "") + String(format: "%.1f%%", item.info.paceDeltaPercent),
+                        color: item.info.isOverPacing ? .orange : .green
+                    )
+                    detailRow(label: "重置倒计时", value: item.info.resetCountdownDisplay, isPrimary: false)
+                }
+                .padding(14)
+                .background(Color(uiColor: .secondarySystemGroupedBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            .navigationTitle("\(item.title) 消耗节奏")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") {
+                        dismiss()
+                    }
+                    .fontWeight(.semibold)
+                }
+            }
+        }
+    }
+    
+    private func detailRow(label: String, value: String, isPrimary: Bool = false, color: Color? = nil) -> some View {
+        HStack {
+            Text(label)
+                .font(.system(size: 13))
+                .foregroundColor(.secondary)
+            Spacer()
+            Text(value)
+                .font(.system(size: 13, weight: isPrimary ? .semibold : .medium))
+                .foregroundColor(color ?? (isPrimary ? .primary : .secondary))
         }
     }
 }

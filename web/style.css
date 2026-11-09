@@ -6068,6 +6068,29 @@ html[data-kb-open] .ios-sheet-overlay {
   background: color-mix(in srgb, var(--ios-label) 8%, transparent);
 }
 
+.metric-mini-track.weekly-track {
+  position: relative;
+  overflow: visible;
+}
+
+.weekly-pace-cursor {
+  position: absolute;
+  top: -1.5px;
+  width: 1.5px;
+  height: 8px;
+  border-radius: 1px;
+  transform: translateX(-50%);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 0.5px 2px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.weekly-pace-cursor.over-pacing {
+  background: #ff9f0a !important;
+  box-shadow: 0 0 4px rgba(255, 159, 10, 0.6);
+}
+
 .metric-mini-fill {
   height: 100%;
   border-radius: 999px;
@@ -6100,6 +6123,8 @@ html[data-kb-open] .ios-sheet-overlay {
 }
 
 .metric-mini-track.argon-track {
+  position: relative;
+  overflow: visible;
   background: rgba(255, 159, 10, 0.16);
 }
 

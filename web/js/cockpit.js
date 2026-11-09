@@ -207,6 +207,73 @@ function getTierBadgeHtml(tier) {
   return "";
 }
 
+function calculateQuotaPace(title, bucket, tier) {
+  if (!bucket || !bucket.reset_time) return null;
+  const resetDate = new Date(bucket.reset_time);
+  const remainingMillis = resetDate.getTime() - Date.now();
+  if (isNaN(remainingMillis) || remainingMillis <= 0) return null;
+  const lowerTitle = (title || "").toLowerCase();
+  let is5h = false;
+  if (lowerTitle.includes("argon")) {
+    const isUltra = (tier && typeof tier === "string") && tier.toUpperCase().includes("ULTRA");
+    is5h = isUltra;
+  } else if (lowerTitle.includes("5h")) {
+    is5h = true;
+  } else {
+    is5h = false;
+  }
+  const totalMillis = is5h ? 5 * 3600 * 1000 : 7 * 24 * 3600 * 1000;
+  const windowLabel = is5h ? "5小时" : "7天";
+  const expectedRemaining = Math.min(100, Math.max(0, (remainingMillis / totalMillis) * 100));
+  const actualRemaining = Math.min(100, Math.max(0, bucket.remaining_percent || 0));
+  const used = Math.min(100, Math.max(0, 100 - actualRemaining));
+  const expectedUsed = Math.min(100, Math.max(0, 100 - expectedRemaining));
+  const delta = actualRemaining - expectedRemaining;
+  const isOver = delta < -1.0;
+  const deltaAbsStr = Math.abs(delta).toFixed(1) + "%";
+  const status = isOver ? `消耗偏快 (-${deltaAbsStr})` : (Math.abs(delta) <= 1.0 ? `匀速正常 (±${deltaAbsStr})` : `节奏充裕 (+${deltaAbsStr})`);
+
+  return {
+    actualRemaining,
+    expectedRemaining,
+    used,
+    expectedUsed,
+    delta,
+    isOver,
+    status,
+    windowLabel
+  };
+}
+
+function renderPacedMetricBox(title, titleClass, bucket, tier) {
+  const pace = calculateQuotaPace(title, bucket, tier);
+  const remaining = bucket.remaining_percent || 0;
+  const width = Math.min(100, Math.max(0, remaining));
+  const statusClass = getQuotaStatusClass(remaining);
+  let cursorHtml = "";
+  let paceTooltip = "";
+  if (pace) {
+    paceTooltip = `\n• 消耗节奏：${pace.status}\n• 已使用：${pace.used.toFixed(1)}% (${pace.windowLabel}匀速应耗 ${pace.expectedUsed.toFixed(1)}%)\n• 理论应剩：${pace.expectedRemaining.toFixed(1)}% (白色游标位置)`;
+    cursorHtml = `<div class="weekly-pace-cursor ${pace.isOver ? "over-pacing" : ""}" style="left: ${pace.expectedRemaining.toFixed(1)}%;" title="${pace.windowLabel}匀速基准线: ${pace.expectedRemaining.toFixed(1)}%"></div>`;
+  }
+  const resetText = getQuotaResetDisplayText(bucket);
+  const fullTitle = `${resetText}${paceTooltip}`;
+
+  return `
+    <div class="metric-box metric-box-weekly" title="${escapeHtml(fullTitle)}">
+      <div class="metric-box-header">
+        <span class="metric-box-title ${titleClass}">${escapeHtml(title)}</span>
+        <span class="metric-box-value ${statusClass}">${remaining.toFixed(1)}%</span>
+      </div>
+      <div class="metric-mini-track weekly-track">
+        <div class="metric-mini-fill ${statusClass}" style="width: ${width}%;"></div>
+        ${cursorHtml}
+      </div>
+      <span class="metric-box-reset" title="${escapeHtml(fullTitle)}">${escapeHtml(resetText)}</span>
+    </div>
+  `;
+}
+
 function buildAccountQuotaCard(acc, isCurrent) {
   const g5h = acc.gemini_5h || { remaining_percent: 0, reset_friendly: "未知" };
   const gWk = acc.gemini_weekly || { remaining_percent: 0, reset_friendly: "未知" };
@@ -225,18 +292,30 @@ function buildAccountQuotaCard(acc, isCurrent) {
   const argonStatusClass = argon && typeof argon.remaining_percent === "number"
     ? (argon.remaining_percent < 20 ? "danger" : "argon")
     : "argon";
+  const argonPace = argon && typeof argon.remaining_percent === "number"
+    ? calculateQuotaPace("Gemini 4 Argon", argon, acc.subscription_tier)
+    : null;
+  let argonCursorHtml = "";
+  let argonPaceTooltip = "";
+  if (argonPace) {
+    argonPaceTooltip = `\n• 消耗节奏：${argonPace.status}\n• 已使用：${argonPace.used.toFixed(1)}% (${argonPace.windowLabel}匀速应耗 ${argonPace.expectedUsed.toFixed(1)}%)\n• 理论应剩：${argonPace.expectedRemaining.toFixed(1)}% (白色游标位置)`;
+    argonCursorHtml = `<div class="weekly-pace-cursor ${argonPace.isOver ? "over-pacing" : ""}" style="left: ${argonPace.expectedRemaining.toFixed(1)}%;" title="${argonPace.windowLabel}匀速基准线: ${argonPace.expectedRemaining.toFixed(1)}%"></div>`;
+  }
+  const argonResetText = argon ? getQuotaResetDisplayText(argon) : "";
+  const argonFullTitle = `${argonResetText}${argonPaceTooltip}`;
   const argonHtml = argon && typeof argon.remaining_percent === "number"
     ? `
       <!-- 5. Bottom Full Width: Gemini 4 Argon (dynamically shown only when available) -->
-      <div class="metric-box metric-box-full metric-box-argon">
+      <div class="metric-box metric-box-full metric-box-argon" title="${escapeHtml(argonFullTitle)}">
         <div class="metric-box-header">
           <span class="metric-box-title argon">Gemini 4 Argon</span>
           <span class="metric-box-value ${argonStatusClass}">${argon.remaining_percent.toFixed(1)}%</span>
         </div>
         <div class="metric-mini-track argon-track">
           <div class="metric-mini-fill ${argonStatusClass}" style="width: ${Math.min(100, Math.max(0, argon.remaining_percent))}%;"></div>
+          ${argonCursorHtml}
         </div>
-        <span class="metric-box-reset" title="${escapeHtml(getQuotaResetDisplayText(argon))}">${escapeHtml(getQuotaResetDisplayText(argon))}</span>
+        <span class="metric-box-reset" title="${escapeHtml(argonFullTitle)}">${escapeHtml(argonResetText)}</span>
       </div>`
     : "";
 
@@ -245,77 +324,23 @@ function buildAccountQuotaCard(acc, isCurrent) {
 
   const metricsHtml = isFree ? `
       <!-- 1. Left: Claude Weekly -->
-      <div class="metric-box">
-        <div class="metric-box-header">
-          <span class="metric-box-title claude">Claude Weekly</span>
-          <span class="metric-box-value ${getQuotaStatusClass(cWk.remaining_percent)}">${cWk.remaining_percent.toFixed(1)}%</span>
-        </div>
-        <div class="metric-mini-track">
-          <div class="metric-mini-fill ${getQuotaStatusClass(cWk.remaining_percent)}" style="width: ${Math.min(100, Math.max(0, cWk.remaining_percent))}%;"></div>
-        </div>
-        <span class="metric-box-reset" title="${escapeHtml(getQuotaResetDisplayText(cWk))}">${escapeHtml(getQuotaResetDisplayText(cWk))}</span>
-      </div>
+      ${renderPacedMetricBox("Claude Weekly", "claude", cWk, acc.subscription_tier)}
 
       <!-- 2. Right: Gemini Weekly -->
-      <div class="metric-box">
-        <div class="metric-box-header">
-          <span class="metric-box-title gemini">Gemini Weekly</span>
-          <span class="metric-box-value ${getQuotaStatusClass(gWk.remaining_percent)}">${gWk.remaining_percent.toFixed(1)}%</span>
-        </div>
-        <div class="metric-mini-track">
-          <div class="metric-mini-fill ${getQuotaStatusClass(gWk.remaining_percent)}" style="width: ${Math.min(100, Math.max(0, gWk.remaining_percent))}%;"></div>
-        </div>
-        <span class="metric-box-reset" title="${escapeHtml(getQuotaResetDisplayText(gWk))}">${escapeHtml(getQuotaResetDisplayText(gWk))}</span>
-      </div>
+      ${renderPacedMetricBox("Gemini Weekly", "gemini", gWk, acc.subscription_tier)}
       ${argonHtml}
   ` : `
       <!-- 1. Left Top: Claude 5h -->
-      <div class="metric-box">
-        <div class="metric-box-header">
-          <span class="metric-box-title claude">Claude 5h</span>
-          <span class="metric-box-value ${getQuotaStatusClass(c5h.remaining_percent)}">${c5h.remaining_percent.toFixed(1)}%</span>
-        </div>
-        <div class="metric-mini-track">
-          <div class="metric-mini-fill ${getQuotaStatusClass(c5h.remaining_percent)}" style="width: ${Math.min(100, Math.max(0, c5h.remaining_percent))}%;"></div>
-        </div>
-        <span class="metric-box-reset" title="${escapeHtml(getQuotaResetDisplayText(c5h))}">${escapeHtml(getQuotaResetDisplayText(c5h))}</span>
-      </div>
+      ${renderPacedMetricBox("Claude 5h", "claude", c5h, acc.subscription_tier)}
 
       <!-- 2. Right Top: Gemini 5h -->
-      <div class="metric-box">
-        <div class="metric-box-header">
-          <span class="metric-box-title gemini">Gemini 5h</span>
-          <span class="metric-box-value ${getQuotaStatusClass(g5h.remaining_percent)}">${g5h.remaining_percent.toFixed(1)}%</span>
-        </div>
-        <div class="metric-mini-track">
-          <div class="metric-mini-fill ${getQuotaStatusClass(g5h.remaining_percent)}" style="width: ${Math.min(100, Math.max(0, g5h.remaining_percent))}%;"></div>
-        </div>
-        <span class="metric-box-reset" title="${escapeHtml(getQuotaResetDisplayText(g5h))}">${escapeHtml(getQuotaResetDisplayText(g5h))}</span>
-      </div>
+      ${renderPacedMetricBox("Gemini 5h", "gemini", g5h, acc.subscription_tier)}
 
       <!-- 3. Left Bottom: Claude Weekly -->
-      <div class="metric-box">
-        <div class="metric-box-header">
-          <span class="metric-box-title claude">Claude Weekly</span>
-          <span class="metric-box-value ${getQuotaStatusClass(cWk.remaining_percent)}">${cWk.remaining_percent.toFixed(1)}%</span>
-        </div>
-        <div class="metric-mini-track">
-          <div class="metric-mini-fill ${getQuotaStatusClass(cWk.remaining_percent)}" style="width: ${Math.min(100, Math.max(0, cWk.remaining_percent))}%;"></div>
-        </div>
-        <span class="metric-box-reset" title="${escapeHtml(getQuotaResetDisplayText(cWk))}">${escapeHtml(getQuotaResetDisplayText(cWk))}</span>
-      </div>
+      ${renderPacedMetricBox("Claude Weekly", "claude", cWk, acc.subscription_tier)}
 
       <!-- 4. Right Bottom: Gemini Weekly -->
-      <div class="metric-box">
-        <div class="metric-box-header">
-          <span class="metric-box-title gemini">Gemini Weekly</span>
-          <span class="metric-box-value ${getQuotaStatusClass(gWk.remaining_percent)}">${gWk.remaining_percent.toFixed(1)}%</span>
-        </div>
-        <div class="metric-mini-track">
-          <div class="metric-mini-fill ${getQuotaStatusClass(gWk.remaining_percent)}" style="width: ${Math.min(100, Math.max(0, gWk.remaining_percent))}%;"></div>
-        </div>
-        <span class="metric-box-reset" title="${escapeHtml(getQuotaResetDisplayText(gWk))}">${escapeHtml(getQuotaResetDisplayText(gWk))}</span>
-      </div>
+      ${renderPacedMetricBox("Gemini Weekly", "gemini", gWk, acc.subscription_tier)}
       ${argonHtml}
   `;
 

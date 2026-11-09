@@ -22,6 +22,12 @@
   - 详情面板下方备用账号区域自动呈现友好引导，提示用户安装 Cockpit Tools 并通过 `mgy cockpit` 交互式配置，享受多备用账号一键切换；
   - **Free 账号纯净双 Weekly 对齐**：针对 Free 账号彻底剥离 5h 滚动配额（`Claude 5h` / `Gemini 5h`），不再兜底注入伪 5h 默认数据；修复模型层回退时将 7 天 Weekly 周期误赋给 5h 的错位问题，使 `Claude Weekly` 与 `Gemini Weekly` 精准对齐真实的 7 天恢复倒计时；
   - **移动端与 Web 自动收敛为单排双列**：iOS、Android 原生客户端与 Web 控制台针对 Free 账号自动从 2×2 四象限收敛为单排双列卡片（左侧 Claude Weekly、右侧 Gemini Weekly），顶部 Quota 状态条自动切换为 Gemini Weekly 进度展示。
+- ⏱️ **额度匀速指标与动态节奏分析 (Quota Pace Indicators & Smart Pace Analysis)**：
+  - **立式均速基准游标**：在 7 天滚动额度（Weekly）、5 小时滚动额度（5h）及 Gemini 4 Argon 额度条上动态叠加时间匀速流逝基准刻度针，直观对比实际消耗进度与理论流逝节奏；超速透支时变色警示，正常或充裕时为高亮纯白；
+  - **会话主页状态条实时对齐**：移动端会话列表顶部 Quota 状态条进度条同步叠加均速刻度游标，一眼掌握实时消耗节奏；
+  - **卡片交互与节奏健康深度分析浮层**：点击任意额度卡片（Claude 5h / Weekly、Gemini 5h / Weekly、Gemini 4 Argon）呼出专属节奏分析面板，动态计算并展示当前实际消耗、匀速应耗基准、理论应剩（游标位）、节奏差值（透支/充裕）与重置倒计时；
+  - **Gemini 4 Argon 独立分流刻度逻辑**：深度适配 Argon 的会员等级差异——**Ultra 账号**按 5 小时滑动窗口（$T_{window}=5\text{h}$）计算匀速流逝与应耗基准，**Paid Pro / 其它账号**按 7 天滚动窗口（$T_{window}=168\text{h}$）计算匀速基准，弹窗分析自适应匹配对应周期的指标对比；
+  - **设置独立开关**：在设置页「外观与主题」/「外观与额度」提供「额度匀速指标」独立开关（副标题：“在额度条上显示均速基准刻度针”），支持一键开启或关闭，iOS、Android、Web 控制台三端 100% 对齐。
 
 ### 🛡️ 架构稳固与细节打磨
 - 🌐 **桌面 Web 工作台设置弹窗深度汉化 (Desktop Web Settings Localization Parity)**：

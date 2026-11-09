@@ -14,6 +14,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -30,6 +31,7 @@ private val StatusBarCompactTextStyle = TextStyle(platformStyle = PlatformTextSt
 fun QuotaStatusBar(
     account: CockpitAccountQuota?,
     onTap: () -> Unit,
+    showPaceCursor: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     val isFree = account?.subscriptionTier?.trim()?.equals("FREE", ignoreCase = true) == true ||
@@ -45,6 +47,10 @@ fun QuotaStatusBar(
         if (account?.gemini5h != null) "Gemini 5h" else "Gemini Weekly"
     }
     val percent = bucket.remainingPercent.coerceIn(0.0, 100.0)
+    val paceInfo = androidx.compose.runtime.remember(bucket, titleText, account?.subscriptionTier) {
+        bucket.calculatePaceForTitle(titleText, account?.subscriptionTier)
+    }
+    val hasCursor = showPaceCursor && paceInfo != null
     val colors = AntigravityTheme.colors
 
     val progressColor = when {
@@ -84,21 +90,51 @@ fun QuotaStatusBar(
                 maxLines = 1
             )
 
-            // Dynamic width capsule progress bar
+            // Dynamic width capsule progress bar with pace needle
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .height(6.dp)
-                    .clip(CircleShape)
-                    .background(colors.border.copy(alpha = 0.5f))
+                    .height(if (hasCursor) 9.dp else 6.dp),
+                contentAlignment = Alignment.CenterStart
             ) {
+                // Base track & fill
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth(fraction = (percent / 100.0).toFloat())
-                        .fillMaxHeight()
+                        .fillMaxWidth()
+                        .height(6.dp)
                         .clip(CircleShape)
-                        .background(progressColor)
-                )
+                        .background(colors.border.copy(alpha = 0.5f))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(fraction = (percent / 100.0).toFloat())
+                            .fillMaxHeight()
+                            .clip(CircleShape)
+                            .background(progressColor)
+                    )
+                }
+
+                // Vertical Pace Cursor Needle
+                if (hasCursor) {
+                    val expectedFrac = (paceInfo.expectedRemainingPercent / 100.0).toFloat().coerceIn(0f, 1f)
+                    val needleColor = if (paceInfo.isOverPacing) Color(0xFFFF9F0A) else Color.White.copy(alpha = 0.92f)
+                    BoxWithConstraints(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(9.dp),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        val maxW = maxWidth
+                        val needleOffset = (maxW * expectedFrac - 0.75.dp).coerceIn(0.dp, (maxW - 1.5.dp).coerceAtLeast(0.dp))
+                        Box(
+                            modifier = Modifier
+                                .padding(start = needleOffset)
+                                .size(width = 1.5.dp, height = 9.dp)
+                                .clip(RoundedCornerShape(0.75.dp))
+                                .background(needleColor)
+                        )
+                    }
+                }
             }
 
             Text(
