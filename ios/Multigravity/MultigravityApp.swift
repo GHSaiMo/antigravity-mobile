@@ -2,6 +2,8 @@ import SwiftUI
 
 @main
 struct MultigravityApp: App {
+    @State private var settings = AppSettings.shared
+
     init() {
         let memoryCapacity = 50 * 1024 * 1024 // 50 MB
         let diskCapacity = 200 * 1024 * 1024  // 200 MB
@@ -16,6 +18,10 @@ struct MultigravityApp: App {
         WindowGroup {
             ConversationListView()
                 .tint(.indigo)
+                .preferredColorScheme(settings.colorScheme)
+                .onAppear {
+                    settings.applyAppearance()
+                }
         }
     }
 }

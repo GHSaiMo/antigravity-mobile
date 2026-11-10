@@ -165,7 +165,29 @@ public struct SettingsSheet: View {
                     }
                 }
                 
-                // MARK: - 5. 本地缓存
+                // MARK: - 5. 外观与主题
+                Section(
+                    header: Text("外观与主题"),
+                    footer: Text("选择浅色、深色模式，并可控制额度条上的时间均速刻度游标。")
+                ) {
+                    Picker("外观模式", selection: $settings.themeMode) {
+                        Text("跟随系统").tag("system")
+                        Text("浅色").tag("light")
+                        Text("深色").tag("dark")
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.vertical, 2)
+                    .onChange(of: settings.themeMode) { _, _ in
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    }
+
+                    Toggle("额度匀速指标", isOn: $settings.weeklyPaceCursorEnabled)
+                        .onChange(of: settings.weeklyPaceCursorEnabled) { _, _ in
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        }
+                }
+
+                // MARK: - 6. 存储 (整体下移一行，放在关于的上面)
                 Section(
                     header: Text("存储"),
                     footer: Text("清除本地缓存的会话与文档数据，下次访问时将从网关重新拉取。")
@@ -176,19 +198,8 @@ public struct SettingsSheet: View {
                         Text("清空本地缓存")
                     }
                 }
-
-                // MARK: - 5b. 外观与额度看板
-                Section(
-                    header: Text("外观与额度"),
-                    footer: Text("在额度条上显示均速基准刻度针")
-                ) {
-                    Toggle("额度匀速指标", isOn: $settings.weeklyPaceCursorEnabled)
-                        .onChange(of: settings.weeklyPaceCursorEnabled) { _, _ in
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        }
-                }
                 
-                // MARK: - 6. 关于
+                // MARK: - 7. 关于
                 Section(header: Text("关于")) {
                     HStack {
                         Text("应用名称")
@@ -207,6 +218,7 @@ public struct SettingsSheet: View {
             .navigationTitle("设置")
             .navigationBarTitleDisplayMode(.inline)
             .presentationDragIndicator(.visible)
+            .preferredColorScheme(settings.colorScheme)
         }
         .presentationDragIndicator(.visible)
         .onAppear {

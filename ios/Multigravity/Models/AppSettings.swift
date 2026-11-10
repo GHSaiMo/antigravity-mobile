@@ -1,5 +1,7 @@
 import Foundation
 import Observation
+import SwiftUI
+import UIKit
 
 public struct ServerEndpointItem: Identifiable, Equatable, Sendable {
     public let id: String
@@ -34,6 +36,7 @@ public final class AppSettings {
     private let autoApprovePermissionsKey = "antigravity.auto_approve_permissions"
     private let enableVoiceModeKey = "antigravity.enable_voice_mode"
     private let weeklyPaceCursorKey = "antigravity.weekly_pace_cursor"
+    private let themeModeKey = "antigravity.theme_mode"
     private let gatewayPlatformKey = "antigravity.gateway_platform"
     private let demoModeKey = "antigravity.demo_mode"
     
@@ -164,6 +167,42 @@ public final class AppSettings {
     public var weeklyPaceCursorEnabled: Bool {
         didSet {
             UserDefaults.standard.set(weeklyPaceCursorEnabled, forKey: weeklyPaceCursorKey)
+        }
+    }
+
+    /// 外观主题模式："system"（跟随系统）、"light"（浅色）、"dark"（深色）
+    public var themeMode: String {
+        didSet {
+            UserDefaults.standard.set(themeMode, forKey: themeModeKey)
+            applyAppearance()
+        }
+    }
+
+    public var colorScheme: ColorScheme? {
+        switch themeMode {
+        case "light": return .light
+        case "dark": return .dark
+        default: return nil
+        }
+    }
+
+    public var userInterfaceStyle: UIUserInterfaceStyle {
+        switch themeMode {
+        case "light": return .light
+        case "dark": return .dark
+        default: return .unspecified
+        }
+    }
+
+    public func applyAppearance() {
+        DispatchQueue.main.async {
+            let style = self.userInterfaceStyle
+            let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            for scene in scenes {
+                for window in scene.windows {
+                    window.overrideUserInterfaceStyle = style
+                }
+            }
         }
     }
     
@@ -507,6 +546,7 @@ public final class AppSettings {
         } else {
             self.weeklyPaceCursorEnabled = UserDefaults.standard.bool(forKey: weeklyPaceCursorKey)
         }
+        self.themeMode = UserDefaults.standard.string(forKey: themeModeKey) ?? "system"
         self.gatewayPlatform = UserDefaults.standard.string(forKey: gatewayPlatformKey)
     }
 }

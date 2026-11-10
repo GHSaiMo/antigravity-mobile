@@ -727,6 +727,7 @@ public struct ConversationListView: View {
                         }
                     }
             }
+            .animation(.spring(response: 0.42, dampingFraction: 0.72), value: viewModel.filteredConversations.map(\.id))
 
             // 对话内容命中（language_server 全文搜索），与上面的标题/工作区匹配并列
             if !viewModel.searchQuery.trimmingCharacters(in: .whitespaces).isEmpty,

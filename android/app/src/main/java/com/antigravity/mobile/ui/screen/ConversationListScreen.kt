@@ -949,6 +949,12 @@ private fun ConversationListContent(
             items(conversations, key = { it.id }) { conversation ->
                 val hasDraft = conversation.isDraft || hasDraftFor(conversation.id)
                 SwipeableConversationCard(
+                    modifier = Modifier.animateItem(
+                        placementSpec = spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness = Spring.StiffnessLow
+                        )
+                    ),
                     conversation = conversation,
                     hasDraft = hasDraft,
                     isSwiped = (swipedConversationId == conversation.id),
@@ -1095,7 +1101,8 @@ private fun SwipeableConversationCard(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onDelete: () -> Unit,
-    onPin: () -> Unit
+    onPin: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val colors = AntigravityTheme.colors
     val density = LocalDensity.current
@@ -1111,7 +1118,7 @@ private fun SwipeableConversationCard(
     }
 
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp)),
         contentAlignment = Alignment.Center
