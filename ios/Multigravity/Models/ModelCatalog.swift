@@ -68,11 +68,13 @@ public enum ModelDefaultsLogic {
         return claudeEnumTokens.contains(where: { lower.contains($0) })
     }
 
-    /// 格式化模型选择器选项展示名：过滤掉 "New" 标签及前导的点符号，避免手机端全量标记 New 造成视觉冗余。
+    private static let ignoredPickerTags: Set<String> = ["new", "fast"]
+
+    /// 格式化模型选择器选项展示名：过滤掉 "New" / "Fast" 等冗余特性标签及前导的点符号，保持手机端菜单简洁。
     public static func formatPickerLabel(name: String, tag: String?) -> String {
         guard let tag = tag?.trimmingCharacters(in: .whitespacesAndNewlines),
               !tag.isEmpty,
-              tag.caseInsensitiveCompare("new") != .orderedSame else {
+              !ignoredPickerTags.contains(tag.lowercased()) else {
             return name
         }
         return "\(name) · \(tag)"
