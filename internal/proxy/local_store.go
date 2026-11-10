@@ -59,10 +59,25 @@ var (
 	cachedSearchAt     time.Time
 	searchCacheTTL     = 2 * time.Second
 
-	cachedSummariesMap map[string]map[string]interface{}
-	cachedSummariesAt  time.Time
-	summariesCacheTTL  = 3 * time.Second
+	cachedSummariesMap   map[string]map[string]interface{}
+	cachedSummariesAt    time.Time
+	cachedSummariesStamp string
+	summariesCacheTTL    = 3 * time.Second
+	summariesFlights     flightGroup[map[string]map[string]interface{}]
 )
+
+func sqliteDBStamp(dbPath string) string {
+	fi, err := os.Stat(dbPath)
+	if err != nil {
+		return ""
+	}
+	var walNano, walSize int64
+	if wfi, werr := os.Stat(dbPath + "-wal"); werr == nil {
+		walNano = wfi.ModTime().UnixNano()
+		walSize = wfi.Size()
+	}
+	return fmt.Sprintf("%s|%d|%d|%d|%d", dbPath, fi.ModTime().UnixNano(), fi.Size(), walNano, walSize)
+}
 
 // getAntigravityDBPath returns the absolute path to conversation_summaries.db if it exists.
 func getAntigravityDBPath() string {
@@ -229,6 +244,7 @@ func FetchLocalConversationSummaries(ctx context.Context) (map[string]map[string
 		return res, nil
 	}
 	fallbackCache := cachedSummariesMap
+	prevStamp := cachedSummariesStamp
 	localStoreMu.RUnlock()
 
 	dbPath := getAntigravityDBPath()
@@ -239,15 +255,36 @@ func FetchLocalConversationSummaries(ctx context.Context) (map[string]map[string
 		return nil, fmt.Errorf("antigravity conversation database not found")
 	}
 
-	pyBin, err := findPythonExecutable()
-	if err != nil {
-		if fallbackCache != nil {
-			return fallbackCache, nil
+	curStamp := sqliteDBStamp(dbPath)
+	if fallbackCache != nil && curStamp != "" && curStamp == prevStamp {
+		localStoreMu.Lock()
+		if cachedSummariesMap != nil && cachedSummariesStamp == curStamp {
+			cachedSummariesAt = time.Now()
 		}
-		return nil, fmt.Errorf("python runtime required: %w", err)
+		localStoreMu.Unlock()
+		return fallbackCache, nil
 	}
 
-	pyScript := `
+	return summariesFlights.do(dbPath, func() (map[string]map[string]interface{}, error) {
+		stamp := sqliteDBStamp(dbPath)
+		localStoreMu.RLock()
+		if cachedSummariesMap != nil && (time.Since(cachedSummariesAt) < summariesCacheTTL || (stamp != "" && stamp == cachedSummariesStamp)) {
+			res := cachedSummariesMap
+			localStoreMu.RUnlock()
+			return res, nil
+		}
+		fb := cachedSummariesMap
+		localStoreMu.RUnlock()
+
+		pyBin, err := findPythonExecutable()
+		if err != nil {
+			if fb != nil {
+				return fb, nil
+			}
+			return nil, fmt.Errorf("python runtime required: %w", err)
+		}
+
+		pyScript := `
 import os, sqlite3, json, sys, time
 
 db_path = sys.argv[1]
@@ -317,38 +354,41 @@ for r in rows:
 sys.stdout.buffer.write(json.dumps(summaries, ensure_ascii=False).encode('utf-8'))
 `
 
-	execCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
-	defer cancel()
+		execCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
+		defer cancel()
 
-	cmd := exec.CommandContext(execCtx, pyBin, "-c", pyScript, dbPath)
-	cmd.Env = append(os.Environ(), "PYTHONIOENCODING=utf-8")
-	var outBuf, errBuf bytes.Buffer
-	cmd.Stdout = &outBuf
-	cmd.Stderr = &errBuf
+		cmd := exec.CommandContext(execCtx, pyBin, "-c", pyScript, dbPath)
+		cmd.Env = append(os.Environ(), "PYTHONIOENCODING=utf-8")
+		var outBuf, errBuf bytes.Buffer
+		cmd.Stdout = &outBuf
+		cmd.Stderr = &errBuf
 
-	if err := cmd.Run(); err != nil {
-		if fallbackCache != nil {
-			slog.Debug("[LocalStore] Fetch summaries failed, serving stale cache", "err", err)
-			return fallbackCache, nil
+		if err := cmd.Run(); err != nil {
+			if fb != nil {
+				slog.Debug("[LocalStore] Fetch summaries failed, serving stale cache", "err", err)
+				return fb, nil
+			}
+			slog.Warn("[LocalStore] Fetch summaries failed", "err", err, "stderr", errBuf.String())
+			return nil, fmt.Errorf("fetch summaries error: %v (%s)", err, errBuf.String())
 		}
-		slog.Warn("[LocalStore] Fetch summaries failed", "err", err, "stderr", errBuf.String())
-		return nil, fmt.Errorf("fetch summaries error: %v (%s)", err, errBuf.String())
-	}
 
-	var res map[string]map[string]interface{}
-	if err := json.Unmarshal(outBuf.Bytes(), &res); err != nil {
-		if fallbackCache != nil {
-			return fallbackCache, nil
+		var res map[string]map[string]interface{}
+		if err := json.Unmarshal(outBuf.Bytes(), &res); err != nil {
+			if fb != nil {
+				return fb, nil
+			}
+			return nil, fmt.Errorf("failed to decode summaries json: %w", err)
 		}
-		return nil, fmt.Errorf("failed to decode summaries json: %w", err)
-	}
 
-	localStoreMu.Lock()
-	cachedSummariesMap = res
-	cachedSummariesAt = time.Now()
-	localStoreMu.Unlock()
+		finalStamp := sqliteDBStamp(dbPath)
+		localStoreMu.Lock()
+		cachedSummariesMap = res
+		cachedSummariesAt = time.Now()
+		cachedSummariesStamp = finalStamp
+		localStoreMu.Unlock()
 
-	return res, nil
+		return res, nil
+	})
 }
 
 var (

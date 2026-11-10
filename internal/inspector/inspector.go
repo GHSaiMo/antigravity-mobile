@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -62,7 +63,8 @@ func NewInspector(pollInterval time.Duration) *Inspector {
 
 	tr := &http.Transport{
 		TLSClientConfig:     localtls.ClientConfig(),
-		DialTLSContext:      localtls.DialTLSContext,
+		DialContext:         localtls.DialContext,
+		ForceAttemptHTTP2:   true,
 		MaxIdleConns:        50,
 		MaxIdleConnsPerHost: 20,
 		IdleConnTimeout:     30 * time.Second,
@@ -278,6 +280,7 @@ func (i *Inspector) verifyPort(port int, csrfToken string) bool {
 		return false
 	}
 	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 
 	return resp.StatusCode == http.StatusOK
 }

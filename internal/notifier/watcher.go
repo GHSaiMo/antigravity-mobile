@@ -11,12 +11,15 @@ import (
 	"antigravity-mobile/internal/proxy"
 )
 
+const actionNotifyCooldown = 20 * time.Second
+
 type sessionTrackingState struct {
 	lastStatus           string
 	lastSteps            int
 	title                string
 	waitingForBackground bool
 	fetchRetryCount      int
+	actionRetryAfter     time.Time
 	lastUpdated          time.Time
 }
 
@@ -28,6 +31,7 @@ type Watcher struct {
 	notifier       *Notifier
 	knownSessions  map[string]*sessionTrackingState
 	hasInitialSync bool
+	asyncCh        chan func()
 }
 
 // NewWatcher creates a new background Watcher instance.
@@ -36,6 +40,22 @@ func NewWatcher(p *proxy.Proxy, n *Notifier) *Watcher {
 		proxy:         p,
 		notifier:      n,
 		knownSessions: make(map[string]*sessionTrackingState),
+	}
+}
+
+func (w *Watcher) dispatchNotify(fn func()) {
+	w.mu.RLock()
+	ch := w.asyncCh
+	w.mu.RUnlock()
+	if ch == nil {
+		// Synchronous fallback for direct unit-test scanOnce() calls
+		fn()
+		return
+	}
+	select {
+	case ch <- fn:
+	default:
+		slog.Warn("[Watcher] Notification dispatch queue full, dropping low-priority task")
 	}
 }
 
@@ -48,6 +68,23 @@ func (w *Watcher) Start(ctx context.Context) {
 }
 
 func (w *Watcher) run(ctx context.Context) {
+	asyncCh := make(chan func(), 32)
+	w.mu.Lock()
+	w.asyncCh = asyncCh
+	w.mu.Unlock()
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case fn := <-asyncCh:
+				if fn != nil {
+					fn()
+				}
+			}
+		}
+	}()
+
 	cleanupTicker := time.NewTicker(15 * time.Minute)
 	defer cleanupTicker.Stop()
 
@@ -141,11 +178,32 @@ func (w *Watcher) scanOnce() int {
 			// Fetch real-time trajectory to check for PendingInteraction or CanProceed
 			details, err := w.proxy.FetchTrajectoryDetails(id, 250*time.Millisecond)
 			if err == nil && details != nil {
-				if details.PendingInteraction != nil {
-					_ = w.notifier.NotifyAction(id, details.Title, details.PendingInteraction)
-				}
-				if details.CanProceed {
-					_ = w.notifier.NotifyProceed(id, details.Title, details.TotalSteps)
+				w.mu.RLock()
+				cooldownUntil := prev.actionRetryAfter
+				w.mu.RUnlock()
+				if time.Now().After(cooldownUntil) {
+					if details.PendingInteraction != nil {
+						cid, dTitle, pi := id, details.Title, details.PendingInteraction
+						pState := prev
+						w.dispatchNotify(func() {
+							if nErr := w.notifier.NotifyAction(cid, dTitle, pi); nErr != nil {
+								w.mu.Lock()
+								pState.actionRetryAfter = time.Now().Add(actionNotifyCooldown)
+								w.mu.Unlock()
+							}
+						})
+					}
+					if details.CanProceed {
+						cid, dTitle, totalSteps := id, details.Title, details.TotalSteps
+						pState := prev
+						w.dispatchNotify(func() {
+							if nErr := w.notifier.NotifyProceed(cid, dTitle, totalSteps); nErr != nil {
+								w.mu.Lock()
+								pState.actionRetryAfter = time.Now().Add(actionNotifyCooldown)
+								w.mu.Unlock()
+							}
+						})
+					}
 				}
 			}
 		} else if prev.lastStatus == "CASCADE_RUN_STATUS_RUNNING" && status != "CASCADE_RUN_STATUS_RUNNING" {
@@ -161,17 +219,21 @@ func (w *Watcher) scanOnce() int {
 				}
 				slog.Warn(fmt.Sprintf("[Watcher] ⚠️ Session %s transition retries exhausted, notifying based on summary status", id))
 				if steps > 0 {
-					_ = w.notifier.NotifyCompleted(id, title, steps)
+					cid, dTitle, st := id, title, steps
+					w.dispatchNotify(func() { _ = w.notifier.NotifyCompleted(cid, dTitle, st) })
 				}
 				prev.fetchRetryCount = 0
 			} else {
 				prev.fetchRetryCount = 0
 				if details.PendingInteraction != nil {
-					_ = w.notifier.NotifyAction(id, details.Title, details.PendingInteraction)
+					cid, dTitle, pi := id, details.Title, details.PendingInteraction
+					w.dispatchNotify(func() { _ = w.notifier.NotifyAction(cid, dTitle, pi) })
 				} else if details.CanProceed {
-					_ = w.notifier.NotifyProceed(id, details.Title, details.TotalSteps)
+					cid, dTitle, totalSteps := id, details.Title, details.TotalSteps
+					w.dispatchNotify(func() { _ = w.notifier.NotifyProceed(cid, dTitle, totalSteps) })
 				} else if (details.Status == "CASCADE_RUN_STATUS_FAILED" || details.Status == "CASCADE_RUN_STATUS_ERROR" || details.HasError) && details.TotalSteps > 0 {
-					_ = w.notifier.NotifyFailed(id, details.Title, details.TotalSteps)
+					cid, dTitle, totalSteps := id, details.Title, details.TotalSteps
+					w.dispatchNotify(func() { _ = w.notifier.NotifyFailed(cid, dTitle, totalSteps) })
 				} else if (details.Status == "CASCADE_RUN_STATUS_COMPLETED" || details.Status == "CASCADE_RUN_STATUS_IDLE") && details.TotalSteps > 0 {
 					inProgress, _ := IsCascadeInProgress(details, hasSubagent)
 					if inProgress {
@@ -179,7 +241,8 @@ func (w *Watcher) scanOnce() int {
 						runningCount++
 					} else {
 						prev.waitingForBackground = false
-						_ = w.notifier.NotifyCompleted(id, details.Title, details.TotalSteps)
+						cid, dTitle, totalSteps := id, details.Title, details.TotalSteps
+						w.dispatchNotify(func() { _ = w.notifier.NotifyCompleted(cid, dTitle, totalSteps) })
 					}
 				}
 			}
@@ -192,13 +255,17 @@ func (w *Watcher) scanOnce() int {
 					prev.waitingForBackground = false
 					slog.Info(fmt.Sprintf("[Watcher] ✅ 会话 %s 后台任务已完成", shortID(id)))
 					if details.PendingInteraction != nil {
-						_ = w.notifier.NotifyAction(id, details.Title, details.PendingInteraction)
+						cid, dTitle, pi := id, details.Title, details.PendingInteraction
+						w.dispatchNotify(func() { _ = w.notifier.NotifyAction(cid, dTitle, pi) })
 					} else if details.CanProceed {
-						_ = w.notifier.NotifyProceed(id, details.Title, details.TotalSteps)
+						cid, dTitle, totalSteps := id, details.Title, details.TotalSteps
+						w.dispatchNotify(func() { _ = w.notifier.NotifyProceed(cid, dTitle, totalSteps) })
 					} else if (details.Status == "CASCADE_RUN_STATUS_FAILED" || details.Status == "CASCADE_RUN_STATUS_ERROR" || details.HasError) && details.TotalSteps > 0 {
-						_ = w.notifier.NotifyFailed(id, details.Title, details.TotalSteps)
+						cid, dTitle, totalSteps := id, details.Title, details.TotalSteps
+						w.dispatchNotify(func() { _ = w.notifier.NotifyFailed(cid, dTitle, totalSteps) })
 					} else if details.TotalSteps > 0 {
-						_ = w.notifier.NotifyCompleted(id, details.Title, details.TotalSteps)
+						cid, dTitle, totalSteps := id, details.Title, details.TotalSteps
+						w.dispatchNotify(func() { _ = w.notifier.NotifyCompleted(cid, dTitle, totalSteps) })
 					}
 				} else {
 					runningCount++ // Still waiting, keep scan frequency fast (1500ms)

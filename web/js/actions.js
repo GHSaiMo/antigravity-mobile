@@ -421,6 +421,10 @@ async function openMarkdownViewer(uri, title) {
   try {
     const data = await fetchFileContent(currentViewerUri, activeCascadeId);
     currentViewerData = data;
+    if (mdContentCache.size >= 64) {
+      const oldestKey = mdContentCache.keys().next().value;
+      if (oldestKey !== undefined) mdContentCache.delete(oldestKey);
+    }
     mdContentCache.set(cacheKey, data);
 
     if (loadingEl) loadingEl.classList.add("hidden");
@@ -959,14 +963,19 @@ async function submitPairing() {
   }
 }
 
-function unpairDevice() {
+async function unpairDevice() {
   if (confirm("确定要解除当前设备的配对绑定吗？")) {
-    localStorage.removeItem("agy_paired");
-    localStorage.removeItem("agy_device_token");
-    localStorage.removeItem("agy_device_id");
-    document.cookie = "agy_dt=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;";
-    updateAuthUI();
-    loadConversations();
+    try {
+      await fetch("/api/v1/auth/logout", { method: "POST" });
+    } catch (_) {
+    } finally {
+      localStorage.removeItem("agy_paired");
+      localStorage.removeItem("agy_device_token");
+      localStorage.removeItem("agy_device_id");
+      document.cookie = "agy_dt=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;";
+      updateAuthUI();
+      loadConversations();
+    }
   }
 }
 

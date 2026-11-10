@@ -419,6 +419,52 @@ func (h *AuthHandler) HandlePair(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func clearDeviceCookie(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     DeviceCookieName,
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   requestIsHTTPS(r),
+		MaxAge:   -1,
+	})
+}
+
+// HandleLogout handles POST /api/v1/auth/logout (SEC-08).
+// It expires the HttpOnly session cookie and, if the session belongs to a paired device,
+// revokes that device's credential in AuthStore.
+func (h *AuthHandler) HandleLogout(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	if BearerToken(r) == "" && !CookieWriteCSRFOK(r) {
+		auditWarn("CSRF_REJECTED", "action", "logout", "ip", CleanIP(r.RemoteAddr), "origin", r.Header.Get("Origin"))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]string{"error": "forbidden: cross-origin request rejected"})
+		return
+	}
+
+	var removedID string
+	if token := ExtractToken(r); token != "" {
+		if dev, ok := h.store.ValidateToken(token); ok && dev != nil {
+			removedID = dev.DeviceID
+			_ = h.store.RemoveDevice(dev.DeviceID)
+			auditInfo("LOGOUT_UNPAIR_SUCCESS", "device_id", dev.DeviceID, "ip", CleanIP(r.RemoteAddr))
+		}
+	}
+
+	clearDeviceCookie(w, r)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]any{
+		"status":    "logged_out",
+		"device_id": removedID,
+	})
+}
+
 // HandleUnpair handles POST /api/v1/auth/unpair.
 // It allows a paired device to revoke its own pairing, or an admin to unpair a specified device.
 func (h *AuthHandler) HandleUnpair(w http.ResponseWriter, r *http.Request) {
@@ -426,7 +472,16 @@ func (h *AuthHandler) HandleUnpair(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
 		return
 	}
+	if BearerToken(r) == "" && !CookieWriteCSRFOK(r) {
+		auditWarn("CSRF_REJECTED", "action", "unpair", "ip", CleanIP(r.RemoteAddr), "origin", r.Header.Get("Origin"))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]string{"error": "forbidden: cross-origin request rejected"})
+		return
+	}
 
+	_, cookieErr := r.Cookie(DeviceCookieName)
+	hasCookie := cookieErr == nil
 	token := ExtractToken(r)
 	var req struct {
 		DeviceID string `json:"device_id"`
@@ -456,6 +511,9 @@ func (h *AuthHandler) HandleUnpair(w http.ResponseWriter, r *http.Request) {
 
 	// 2. Device token path
 	if token == "" {
+		if hasCookie {
+			clearDeviceCookie(w, r)
+		}
 		auditWarn("AUTH_FAILURE", "action", "unpair", "reason", "missing_token", "ip", CleanIP(r.RemoteAddr))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
@@ -463,8 +521,24 @@ func (h *AuthHandler) HandleUnpair(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if hasCookie && targetID == "" {
+		if adminTok := GetAdminToken(); adminTok != "" && ConstantTimeTokenEquals(token, adminTok) {
+			clearDeviceCookie(w, r)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]any{
+				"status":    "unpaired",
+				"device_id": "admin-local",
+			})
+			return
+		}
+	}
+
 	device, ok := h.store.ValidateToken(token)
 	if !ok || device == nil {
+		if hasCookie {
+			clearDeviceCookie(w, r)
+		}
 		auditWarn("AUTH_FAILURE", "action", "unpair", "reason", "invalid_token", "ip", CleanIP(r.RemoteAddr))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
@@ -490,16 +564,7 @@ func (h *AuthHandler) HandleUnpair(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Clear session cookie if set
-	isSSL := requestIsHTTPS(r)
-	http.SetCookie(w, &http.Cookie{
-		Name:     DeviceCookieName,
-		Value:    "",
-		Path:     "/",
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-		Secure:   isSSL,
-		MaxAge:   -1,
-	})
+	clearDeviceCookie(w, r)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -723,9 +788,11 @@ func (h *AuthHandler) HandleWSTicket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if genuinely from localhost (no pairing required) or trusted LAN
-	isLocalhost := IsLoopbackAddr(r.RemoteAddr) && !IsCloudflareRequest(r)
-	isTrustedLAN := h.policy.TrustLAN && IsPrivateLANAddr(r.RemoteAddr) && !IsCloudflareRequest(r)
+	// Check if genuinely from localhost (no pairing required) or trusted LAN, gated by
+	// ImplicitTrustRequestOK to defeat DNS rebinding and cross-site request forgery (SEC-07).
+	implicitOK := ImplicitTrustRequestOK(r)
+	isLocalhost := implicitOK && IsLoopbackAddr(r.RemoteAddr) && !IsCloudflareRequest(r)
+	isTrustedLAN := implicitOK && h.policy.TrustLAN && IsPrivateLANAddr(r.RemoteAddr) && !IsCloudflareRequest(r)
 
 	if isLocalhost || isTrustedLAN {
 		deviceID := "admin-local"
@@ -749,6 +816,14 @@ func (h *AuthHandler) HandleWSTicket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if BearerToken(r) == "" && !CookieWriteCSRFOK(r) {
+		auditWarn("CSRF_REJECTED", "action", "issue_wsticket", "ip", CleanIP(r.RemoteAddr), "origin", r.Header.Get("Origin"))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]string{"error": "forbidden: cross-origin request rejected"})
+		return
+	}
+
 	token := ExtractToken(r)
 	if token == "" {
 		auditWarn("AUTH_FAILURE", "action", "issue_wsticket", "reason", "missing_token", "ip", CleanIP(r.RemoteAddr))
@@ -758,16 +833,22 @@ func (h *AuthHandler) HandleWSTicket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dev, ok := h.store.ValidateToken(token)
-	if !ok || dev == nil {
-		auditWarn("AUTH_FAILURE", "action", "issue_wsticket", "reason", "invalid_token", "ip", CleanIP(r.RemoteAddr))
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized: invalid token"})
-		return
+	var issueDeviceID string
+	if adminTok := GetAdminToken(); adminTok != "" && ConstantTimeTokenEquals(token, adminTok) {
+		issueDeviceID = "admin-local"
+	} else {
+		dev, ok := h.store.ValidateToken(token)
+		if !ok || dev == nil {
+			auditWarn("AUTH_FAILURE", "action", "issue_wsticket", "reason", "invalid_token", "ip", CleanIP(r.RemoteAddr))
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized: invalid token"})
+			return
+		}
+		issueDeviceID = dev.DeviceID
 	}
 
-	ticket, err := h.store.IssueWSTicket(dev.DeviceID)
+	ticket, err := h.store.IssueWSTicket(issueDeviceID)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)

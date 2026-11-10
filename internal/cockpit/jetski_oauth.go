@@ -128,8 +128,7 @@ func writeGeminiKeychainOAuth(tok *parsedOAuth) error {
 	secret := "go-keyring-base64:" + base64.StdEncoding.EncodeToString(raw)
 
 	if runtime.GOOS == "windows" {
-		cmd := exec.Command("cmdkey", "/generic:LegacyGeneric:target=gemini:antigravity", "/user:antigravity", "/pass:"+secret)
-		out, err := cmd.CombinedOutput()
+		out, err := runCmdCombinedTimeout(5*time.Second, "cmdkey", "/generic:LegacyGeneric:target=gemini:antigravity", "/user:antigravity", "/pass:"+secret)
 		if err != nil {
 			return fmt.Errorf("cmdkey write: %w (%s)", err, strings.TrimSpace(string(out)))
 		}
@@ -138,8 +137,7 @@ func writeGeminiKeychainOAuth(tok *parsedOAuth) error {
 	}
 
 	if runtime.GOOS == "darwin" {
-		cmd := exec.Command("security", "add-generic-password", "-U", "-s", "gemini", "-a", "antigravity", "-w", secret)
-		out, err := cmd.CombinedOutput()
+		out, err := runCmdCombinedTimeout(5*time.Second, "security", "add-generic-password", "-U", "-s", "gemini", "-a", "antigravity", "-w", secret)
 		if err != nil {
 			return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
 		}
@@ -151,9 +149,7 @@ func writeGeminiKeychainOAuth(tok *parsedOAuth) error {
 	// Secret Service (secret-tool) is optional.
 	// Primary credential store for language_server is jetski-standalone-oauth-token and google_accounts.json.
 	if _, err := exec.LookPath("secret-tool"); err == nil {
-		cmd := exec.Command("secret-tool", "store", "--label=antigravity", "service", "gemini", "account", "antigravity")
-		cmd.Stdin = strings.NewReader(secret)
-		_ = cmd.Run()
+		_, _ = runCmdStdinTimeout(5*time.Second, secret, "secret-tool", "store", "--label=antigravity", "service", "gemini", "account", "antigravity")
 		slog.Info(fmt.Sprintf("[Cockpit] updated secret-tool gemini/antigravity for %s", tok.Email))
 	}
 	return nil
@@ -235,9 +231,9 @@ func launchAntigravityWithCockpitProxy() error {
 	}
 
 	if runtime.GOOS == "linux" {
-		if exec.Command("systemctl", "--user", "cat", "antigravity-ls.service").Run() == nil {
+		if runCmdRunTimeout(3*time.Second, "systemctl", "--user", "cat", "antigravity-ls.service") == nil {
 			slog.Info("[Cockpit] starting systemd service antigravity-ls")
-			if err := exec.Command("systemctl", "--user", "start", "antigravity-ls").Run(); err != nil {
+			if err := runCmdRunTimeout(5*time.Second, "systemctl", "--user", "start", "antigravity-ls"); err != nil {
 				return fmt.Errorf("start antigravity-ls: %w", err)
 			}
 			return nil
@@ -261,8 +257,7 @@ func launchAntigravityWithCockpitProxy() error {
 	} else {
 		slog.Info("[Cockpit] launching Antigravity.app without global proxy")
 	}
-	cmd := exec.Command("open", args...)
-	out, err := cmd.CombinedOutput()
+	out, err := runCmdCombinedTimeout(5*time.Second, "open", args...)
 	if err != nil {
 		return fmt.Errorf("open Antigravity.app: %w (%s)", err, strings.TrimSpace(string(out)))
 	}
@@ -324,18 +319,16 @@ func loadOAuthFromVscdb() (*parsedOAuth, error) {
 		cleanDB := filepath.Clean(dbPath)
 		var out []byte
 		if p, lookErr := exec.LookPath("sqlite3"); lookErr == nil && isExecutableValid(p) {
-			cmd := exec.Command("sqlite3", "-batch", "-noheader", cleanDB, oauthQuerySQL)
-			out, err = cmd.CombinedOutput()
+			out, err = runCmdCombinedTimeout(5*time.Second, "sqlite3", "-batch", "-noheader", "-cmd", ".timeout 3000", cleanDB, oauthQuerySQL)
 		}
 		if len(out) == 0 {
-			pyScript := "import sqlite3, sys; conn = sqlite3.connect(sys.argv[1]); cur = conn.cursor(); cur.execute('SELECT value FROM ItemTable WHERE key = ?', (sys.argv[2],)); row = cur.fetchone(); sys.stdout.write(row[0] if row and row[0] else '')"
+			pyScript := "import sqlite3, sys; conn = sqlite3.connect(sys.argv[1], timeout=3.0); cur = conn.cursor(); cur.execute('SELECT value FROM ItemTable WHERE key = ?', (sys.argv[2],)); row = cur.fetchone(); sys.stdout.write(row[0] if row and row[0] else '')"
 			for _, pyExe := range pythonCandidates() {
 				p, lookErr := exec.LookPath(pyExe)
 				if lookErr != nil || !isExecutableValid(p) {
 					continue
 				}
-				cmd := exec.Command(pyExe, "-c", pyScript, cleanDB, "antigravityUnifiedStateSync.oauthToken")
-				if pyOut, pyErr := cmd.Output(); pyErr == nil && len(pyOut) > 0 {
+				if pyOut, pyErr := runCmdTimeout(5*time.Second, pyExe, "-c", pyScript, cleanDB, "antigravityUnifiedStateSync.oauthToken"); pyErr == nil && len(pyOut) > 0 {
 					out = pyOut
 					err = nil
 					break
@@ -549,7 +542,8 @@ var liveUserHTTPClient = &http.Client{
 	Timeout: 2 * time.Second,
 	Transport: &http.Transport{
 		TLSClientConfig:     localtls.ClientConfig(),
-		DialTLSContext:      localtls.DialTLSContext,
+		DialContext:         localtls.DialContext,
+		ForceAttemptHTTP2:   true,
 		MaxIdleConns:        10,
 		MaxIdleConnsPerHost: 5,
 		IdleConnTimeout:     30 * time.Second,
@@ -619,8 +613,7 @@ func lookupLanguageServer() (int, string, error) {
 
 	if runtime.GOOS == "windows" {
 		psScript := `Get-CimInstance Win32_Process | Where-Object { $_.Name -like '*language_server*' } | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress`
-		cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", psScript)
-		out, err := cmd.Output()
+		out, err := runCmdTimeout(5*time.Second, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", psScript)
 		if err != nil {
 			return 0, "", err
 		}
@@ -655,7 +648,7 @@ func lookupLanguageServer() (int, string, error) {
 		if pid == 0 {
 			return 0, "", fmt.Errorf("language_server not found")
 		}
-		netstatOut, err := exec.Command("netstat", "-ano", "-p", "tcp").Output()
+		netstatOut, err := runCmdTimeout(5*time.Second, "netstat", "-ano", "-p", "tcp")
 		if err != nil {
 			return 0, "", err
 		}
@@ -678,7 +671,7 @@ func lookupLanguageServer() (int, string, error) {
 		return 0, "", fmt.Errorf("language_server has no listen port")
 	}
 
-	out, err := exec.Command("ps", "-axo", "pid=,command=").Output()
+	out, err := runCmdTimeout(5*time.Second, "ps", "-axo", "pid=,command=")
 	if err != nil {
 		return 0, "", err
 	}
@@ -703,7 +696,7 @@ func lookupLanguageServer() (int, string, error) {
 	if pid == "" {
 		return 0, "", fmt.Errorf("language_server not found")
 	}
-	lsof, err := exec.Command("lsof", "-nP", "-p", pid, "-a", "-iTCP", "-sTCP:LISTEN").Output()
+	lsof, err := runCmdTimeout(5*time.Second, "lsof", "-nP", "-p", pid, "-a", "-iTCP", "-sTCP:LISTEN")
 	if err != nil {
 		return 0, "", fmt.Errorf("lsof language_server: %w", err)
 	}

@@ -112,8 +112,10 @@ func SaveCockpitReportSettings(enabled bool, port int, token string) error {
 	}
 	configFile := filepath.Join(dataDir, "config.json")
 	var rawMap map[string]any
+	var existingBytes []byte
 
 	if cfgBytes, err := os.ReadFile(configFile); err == nil {
+		existingBytes = cfgBytes
 		if err := json.Unmarshal(cfgBytes, &rawMap); err != nil {
 			rawMap = make(map[string]any)
 		}
@@ -134,18 +136,19 @@ func SaveCockpitReportSettings(enabled bool, port int, token string) error {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	// Backup existing config if present
-	if _, err := os.Stat(configFile); err == nil {
-		_ = os.WriteFile(configFile+".bak", updatedBytes, 0644)
+	// Backup previous config (not updatedBytes) with restricted 0600 permissions
+	if len(existingBytes) > 0 {
+		_ = os.WriteFile(configFile+".bak", existingBytes, 0600)
 	}
 
 	tmpFile := configFile + ".tmp"
-	if err := os.WriteFile(tmpFile, updatedBytes, 0644); err != nil {
+	if err := os.WriteFile(tmpFile, updatedBytes, 0600); err != nil {
 		return fmt.Errorf("failed to write tmp config: %w", err)
 	}
 	if err := os.Rename(tmpFile, configFile); err != nil {
 		return fmt.Errorf("failed to rename config file: %w", err)
 	}
+	_ = os.Chmod(configFile, 0600)
 
 	InvalidatePortCache()
 	return nil
@@ -537,7 +540,7 @@ func GetQuotas(activeEmails ...string) (*CockpitQuotaResponse, error) {
 		// 1. Read account detail from ~/.cockpit_tools/accounts/<id>.json first
 		// to determine subscription_tier and have model percentage fallback ready.
 		var sq *storedAccountQuota
-		if detail, dErr := DecryptAccountDetail(acc.ID); dErr == nil && detail != nil {
+		if detail, dErr := DecryptAccountByExactID(acc.ID); dErr == nil && detail != nil {
 			sq = extractStoredAccountQuota(detail.Quota)
 			if sq != nil && sq.SubscriptionTier != "" {
 				item.SubscriptionTier = normalizeSubscriptionTier(sq.SubscriptionTier)

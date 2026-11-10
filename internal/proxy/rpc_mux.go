@@ -37,8 +37,11 @@ const (
 	muxEnd    byte = 6
 	muxErr    byte = 7
 
-	muxWriteTimeout = 15 * time.Second
-	muxMaxFrame     = 8 * 1024 * 1024
+	muxWriteTimeout         = 15 * time.Second
+	muxReadTimeout          = 60 * time.Second
+	muxPingInterval         = 25 * time.Second
+	muxMaxFrame             = 8 * 1024 * 1024
+	muxMaxConcurrentStreams = 64
 )
 
 type muxOpenMeta struct {
@@ -52,15 +55,35 @@ type muxConn struct {
 }
 
 func (m *muxConn) send(typ byte, id uint32, payload []byte) error {
-	buf := make([]byte, 5+len(payload))
-	buf[0] = typ
-	binary.BigEndian.PutUint32(buf[1:5], id)
-	copy(buf[5:], payload)
+	var hdr [5]byte
+	hdr[0] = typ
+	binary.BigEndian.PutUint32(hdr[1:5], id)
 
 	m.writeMu.Lock()
 	defer m.writeMu.Unlock()
 	_ = m.conn.SetWriteDeadline(time.Now().Add(muxWriteTimeout))
-	return m.conn.WriteMessage(websocket.BinaryMessage, buf)
+	w, err := m.conn.NextWriter(websocket.BinaryMessage)
+	if err != nil {
+		return err
+	}
+	if _, err := w.Write(hdr[:]); err != nil {
+		_ = w.Close()
+		return err
+	}
+	if len(payload) > 0 {
+		if _, err := w.Write(payload); err != nil {
+			_ = w.Close()
+			return err
+		}
+	}
+	return w.Close()
+}
+
+func (m *muxConn) sendPing() error {
+	m.writeMu.Lock()
+	defer m.writeMu.Unlock()
+	_ = m.conn.SetWriteDeadline(time.Now().Add(muxWriteTimeout))
+	return m.conn.WriteMessage(websocket.PingMessage, nil)
 }
 
 // muxResponseWriter adapts a proxied RPC response onto mux frames.
@@ -127,17 +150,43 @@ func (p *Proxy) HandleRPCMux(w http.ResponseWriter, r *http.Request) {
 	conn.SetReadLimit(muxMaxFrame)
 
 	mc := &muxConn{conn: conn}
-	ctx, cancelAll := context.WithCancel(context.Background())
+	connCtx, cancelAll := context.WithCancel(r.Context())
 	defer cancelAll()
 
+	_ = conn.SetReadDeadline(time.Now().Add(muxReadTimeout))
+	conn.SetPongHandler(func(string) error {
+		return conn.SetReadDeadline(time.Now().Add(muxReadTimeout))
+	})
+
+	go func() {
+		pingTicker := time.NewTicker(muxPingInterval)
+		defer pingTicker.Stop()
+		for {
+			select {
+			case <-connCtx.Done():
+				return
+			case <-pingTicker.C:
+				if err := mc.sendPing(); err != nil {
+					_ = conn.Close()
+					return
+				}
+			}
+		}
+	}()
+
+	type muxStreamEntry struct {
+		cancel context.CancelFunc
+	}
+
 	var mu sync.Mutex
-	cancels := make(map[uint32]context.CancelFunc)
+	cancels := make(map[uint32]*muxStreamEntry)
 
 	for {
 		_, msg, err := conn.ReadMessage()
 		if err != nil {
 			return
 		}
+		_ = conn.SetReadDeadline(time.Now().Add(muxReadTimeout))
 		if len(msg) < 5 {
 			continue
 		}
@@ -149,7 +198,7 @@ func (p *Proxy) HandleRPCMux(w http.ResponseWriter, r *http.Request) {
 		case muxCancel:
 			mu.Lock()
 			if c, ok := cancels[id]; ok {
-				c()
+				c.cancel()
 			}
 			mu.Unlock()
 
@@ -176,19 +225,22 @@ func (p *Proxy) HandleRPCMux(w http.ResponseWriter, r *http.Request) {
 			}
 			body := append([]byte(nil), payload[4+jl:]...)
 
-			reqCtx, cancel := context.WithCancel(r.Context())
-			go func() {
-				select {
-				case <-ctx.Done():
-					cancel()
-				case <-reqCtx.Done():
-				}
-			}()
 			mu.Lock()
-			cancels[id] = cancel
+			if prev, exists := cancels[id]; exists {
+				prev.cancel()
+				delete(cancels, id)
+			}
+			if len(cancels) >= muxMaxConcurrentStreams {
+				mu.Unlock()
+				_ = mc.send(muxErr, id, []byte("too many concurrent streams"))
+				continue
+			}
+			reqCtx, cancel := context.WithCancel(connCtx)
+			entry := &muxStreamEntry{cancel: cancel}
+			cancels[id] = entry
 			mu.Unlock()
 
-			go func() {
+			go func(streamEntry *muxStreamEntry) {
 				defer func() {
 					// ReverseProxy aborts with http.ErrAbortHandler when the stream is cancelled
 					// mid-copy; net/http normally swallows it, but this goroutine is ours.
@@ -197,7 +249,9 @@ func (p *Proxy) HandleRPCMux(w http.ResponseWriter, r *http.Request) {
 					}
 					cancel()
 					mu.Lock()
-					delete(cancels, id)
+					if cancels[id] == streamEntry {
+						delete(cancels, id)
+					}
 					mu.Unlock()
 				}()
 				req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, meta.Path, bytes.NewReader(body))
@@ -221,7 +275,7 @@ func (p *Proxy) HandleRPCMux(w http.ResponseWriter, r *http.Request) {
 				if reqCtx.Err() == nil {
 					_ = mc.send(muxEnd, id, nil)
 				}
-			}()
+			}(entry)
 		}
 	}
 }

@@ -104,7 +104,6 @@ class StreamWebSocketClient(
 
         if (token != null) {
             requestBuilder.header("Authorization", "Bearer $token")
-            requestBuilder.header("x-device-token", token)
         }
 
         val request = requestBuilder.build()

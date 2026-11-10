@@ -86,23 +86,19 @@ public final class ConversationEventsClient {
         guard let wsURL = components.url else { return false }
 
         let hostStr = (wsURL.host ?? "").lowercased()
-        let isCloudflare = CloudflareAnycastAccelerator.isCloudflareTunnelHost(hostStr)
-
-        let endpoint: NWEndpoint
-        if isCloudflare && attempt % 2 == 0 {
-            let port = NWEndpoint.Port(rawValue: UInt16(wsURL.port ?? 443)) ?? .https
-            endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(CloudflareAnycastAccelerator.primaryIP), port: port)
-        } else {
-            endpoint = NWEndpoint.url(wsURL)
+        if wsURL.scheme?.lowercased() == "ws" && !NetworkTransport.isLocalOrPrivateHost(hostStr) {
+            return false
         }
+        let isCloudflare = CloudflareAnycastAccelerator.isCloudflareTunnelHost(hostStr)
+        let endpoint = NWEndpoint.url(wsURL)
 
         let wsOptions = NWProtocolWebSocket.Options()
         wsOptions.autoReplyPing = true
+        wsOptions.maximumMessageSize = 16 * 1024 * 1024
         var extraHeaders: [(String, String)] = []
         if isCloudflare { extraHeaders.append(("Host", hostStr)) }
         if let token = KeychainHelper.shared.read(key: .deviceToken) ?? AppSettings.shared.deviceToken, !token.isEmpty {
             extraHeaders.append(("Authorization", "Bearer \(token)"))
-            extraHeaders.append(("x-device-token", token))
         }
         if !extraHeaders.isEmpty { wsOptions.setAdditionalHeaders(extraHeaders) }
 

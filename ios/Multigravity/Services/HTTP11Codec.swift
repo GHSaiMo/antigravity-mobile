@@ -50,6 +50,8 @@ enum HTTP11Codec {
         return data
     }
 
+    static let maxBodyBytes = 64 * 1024 * 1024
+
     /// Collects bytes read from a connection and reports when one complete response has arrived.
     /// The header is parsed once; afterwards only newly received bytes are inspected, so large
     /// responses are not re-copied and re-scanned on every chunk.
@@ -60,14 +62,26 @@ enum HTTP11Codec {
             case untilClose
         }
 
+        private enum ChunkPhase {
+            case readingSize
+            case readingData(remaining: Int)
+            case readingTrailers
+            case done
+        }
+
         private(set) var buffer = Data()
         private var bodyStart: Int?
         private var framing: Framing?
-        private var chunkScanFrom = 0
+        private var chunkCursor = 0
+        private var chunkPhase: ChunkPhase = .readingSize
 
         private static let headerTerminator = Data("\r\n\r\n".utf8)
-        private static let lastChunk = Data("\r\n0\r\n\r\n".utf8)
-        private static let leadingLastChunk = Data("0\r\n\r\n".utf8)
+        private static let crlf = Data("\r\n".utf8)
+
+        var isUntilClose: Bool {
+            if case .untilClose = framing { return true }
+            return false
+        }
 
         /// Appends a received chunk and returns true once the response is complete.
         mutating func append(_ chunk: Data) -> Bool {
@@ -79,22 +93,80 @@ enum HTTP11Codec {
                 }
                 bodyStart = end.upperBound
                 framing = Self.framing(forHeader: buffer.subdata(in: 0..<end.lowerBound))
-                chunkScanFrom = end.upperBound
+                chunkCursor = end.upperBound
+                chunkPhase = .readingSize
             }
             guard let start = bodyStart, let framing else { return false }
             switch framing {
             case .length(let n):
-                return buffer.count - start >= n
+                return buffer.count - start >= max(0, n)
             case .untilClose:
                 return false
             case .chunked:
-                if buffer.count - start >= Self.leadingLastChunk.count,
-                   buffer.subdata(in: start..<(start + Self.leadingLastChunk.count)) == Self.leadingLastChunk {
+                return advanceChunkedParser()
+            }
+        }
+
+        private mutating func advanceChunkedParser() -> Bool {
+            while true {
+                switch chunkPhase {
+                case .done:
+                    return true
+                case .readingSize:
+                    guard chunkCursor < buffer.count,
+                          let lineEnd = buffer.range(of: Self.crlf, options: [], in: chunkCursor..<buffer.count) else {
+                        return false
+                    }
+                    let lineData = buffer.subdata(in: chunkCursor..<lineEnd.lowerBound)
+                    chunkCursor = lineEnd.upperBound
+                    guard let lineStr = String(data: lineData, encoding: .ascii) else {
+                        chunkPhase = .done
+                        return true
+                    }
+                    let hexPart = lineStr.split(separator: ";", maxSplits: 1, omittingEmptySubsequences: false)
+                        .first
+                        .map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
+                    guard !hexPart.isEmpty, let chunkSize = Int(hexPart, radix: 16), chunkSize >= 0 else {
+                        chunkPhase = .done
+                        return true
+                    }
+                    if chunkSize == 0 {
+                        chunkPhase = .readingTrailers
+                    } else {
+                        chunkPhase = .readingData(remaining: chunkSize)
+                    }
+                case .readingData(let remaining):
+                    let (needed, overflow) = remaining.addingReportingOverflow(2)
+                    if overflow || remaining > HTTP11Codec.maxBodyBytes {
+                        chunkPhase = .done
+                        return true
+                    }
+                    guard buffer.count - chunkCursor >= needed else {
+                        return false
+                    }
+                    let crlfStart = chunkCursor + remaining
+                    guard buffer.subdata(in: crlfStart..<(crlfStart + 2)) == Self.crlf else {
+                        chunkPhase = .done
+                        return true
+                    }
+                    chunkCursor = crlfStart + 2
+                    chunkPhase = .readingSize
+                case .readingTrailers:
+                    guard buffer.count - chunkCursor >= 2 else {
+                        return false
+                    }
+                    if buffer.subdata(in: chunkCursor..<(chunkCursor + 2)) == Self.crlf {
+                        chunkCursor += 2
+                        chunkPhase = .done
+                        return true
+                    }
+                    guard let trailerEnd = buffer.range(of: Self.headerTerminator, options: [], in: chunkCursor..<buffer.count) else {
+                        return false
+                    }
+                    chunkCursor = trailerEnd.upperBound
+                    chunkPhase = .done
                     return true
                 }
-                let from = max(start, chunkScanFrom - (Self.lastChunk.count - 1))
-                chunkScanFrom = buffer.count
-                return buffer.range(of: Self.lastChunk, in: from..<buffer.count) != nil
             }
         }
 
@@ -182,33 +254,32 @@ enum HTTP11Codec {
 
         while offset < data.endIndex {
             guard let range = data.range(of: crlf, options: [], in: offset..<data.endIndex) else {
-                break
+                throw URLError(.cannotParseResponse)
             }
             let sizeData = data.subdata(in: offset..<range.lowerBound)
             guard let sizeStr = String(data: sizeData, encoding: .ascii)?.trimmingCharacters(in: .whitespaces) else {
                 throw URLError(.cannotParseResponse)
             }
             if sizeStr.isEmpty {
-                offset = range.upperBound
-                continue
+                throw URLError(.cannotParseResponse)
             }
             let hexStr = sizeStr.split(separator: ";").first.map(String.init) ?? sizeStr
-            guard let chunkSize = Int(hexStr.trimmingCharacters(in: .whitespaces), radix: 16) else {
+            guard let chunkSize = Int(hexStr.trimmingCharacters(in: .whitespaces), radix: 16), chunkSize >= 0 else {
                 throw URLError(.cannotParseResponse)
             }
             if chunkSize == 0 {
                 break
             }
             let chunkStart = range.upperBound
-            let chunkEnd = chunkStart + chunkSize
-            guard chunkEnd <= data.endIndex else {
+            let (chunkEnd, overflow) = chunkStart.addingReportingOverflow(chunkSize)
+            guard !overflow, chunkSize <= maxBodyBytes, unchunked.count + chunkSize <= maxBodyBytes, chunkEnd + 2 <= data.endIndex else {
+                throw URLError(.cannotParseResponse)
+            }
+            guard data.subdata(in: chunkEnd..<(chunkEnd + 2)) == crlf else {
                 throw URLError(.cannotParseResponse)
             }
             unchunked.append(data.subdata(in: chunkStart..<chunkEnd))
-            offset = chunkEnd
-            if offset + 2 <= data.endIndex && data.subdata(in: offset..<offset + 2) == crlf {
-                offset += 2
-            }
+            offset = chunkEnd + 2
         }
         return unchunked
     }
@@ -218,28 +289,33 @@ enum HTTP11Codec {
     static func gunzip(_ data: Data) -> Data? {
         let bytes = [UInt8](data)
         guard bytes.count >= 18, bytes[0] == 0x1f, bytes[1] == 0x8b, bytes[2] == 8 else { return nil }
+        let n = bytes.count
+        let expectedSize = UInt32(bytes[n - 4]) | UInt32(bytes[n - 3]) << 8 | UInt32(bytes[n - 2]) << 16 | UInt32(bytes[n - 1]) << 24
+        guard Int(expectedSize) <= maxBodyBytes else { return nil }
         let flags = bytes[3]
         var pos = 10
         if flags & 0x04 != 0 { // FEXTRA
-            guard pos + 2 <= bytes.count else { return nil }
-            pos += 2 + Int(bytes[pos]) + Int(bytes[pos + 1]) << 8
+            guard pos + 2 <= n - 8 else { return nil }
+            let extraLen = Int(bytes[pos]) + (Int(bytes[pos + 1]) << 8)
+            pos += 2 + extraLen
         }
         if flags & 0x08 != 0 { // FNAME
-            while pos < bytes.count && bytes[pos] != 0 { pos += 1 }
+            while pos < n - 8 && bytes[pos] != 0 { pos += 1 }
+            guard pos < n - 8 else { return nil }
             pos += 1
         }
         if flags & 0x10 != 0 { // FCOMMENT
-            while pos < bytes.count && bytes[pos] != 0 { pos += 1 }
+            while pos < n - 8 && bytes[pos] != 0 { pos += 1 }
+            guard pos < n - 8 else { return nil }
             pos += 1
         }
         if flags & 0x02 != 0 { // FHCRC
             pos += 2
         }
-        guard pos <= bytes.count - 8 else { return nil }
-        let deflated = Data(bytes[pos..<(bytes.count - 8)])
-        guard let inflated = try? (deflated as NSData).decompressed(using: .zlib) as Data else { return nil }
-        let n = bytes.count
-        let expectedSize = UInt32(bytes[n - 4]) | UInt32(bytes[n - 3]) << 8 | UInt32(bytes[n - 2]) << 16 | UInt32(bytes[n - 1]) << 24
+        guard pos >= 10, pos <= n - 8 else { return nil }
+        let deflated = Data(bytes[pos..<(n - 8)])
+        guard let inflated = try? (deflated as NSData).decompressed(using: .zlib) as Data,
+              inflated.count <= maxBodyBytes else { return nil }
         guard UInt32(truncatingIfNeeded: inflated.count) == expectedSize else { return nil }
         return inflated
     }

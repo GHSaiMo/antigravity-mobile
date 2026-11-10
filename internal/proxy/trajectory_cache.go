@@ -14,13 +14,18 @@ import (
 
 type trajectoryCacheEntry struct {
 	fetchedAt time.Time
+	port      int
 	data      *upstreamTrajectoryResp
+	parsedSig string
+	parsed    *TrajectoryDetails
 }
 
 const maxTrajCacheSize = 50 // Maximum number of cached trajectory entries to prevent unbounded memory growth
 
 // metadataCacheEntry caches the result of reading a .metadata.json file.
 type metadataCacheEntry struct {
+	hasMeta         bool
+	meta            ArtifactMetadata
 	requestFeedback bool
 	fetchedAt       time.Time
 }
@@ -74,16 +79,6 @@ type TrajectoryCache struct {
 	// hot-path disk I/O during stream polling and status inquiries.
 	annotationTitleCache   map[string]*annotationTitleCacheEntry
 	annotationTitleCacheMu sync.RWMutex
-
-	// inFlightTraj deduplicates concurrent requests for the same cascade trajectory
-	inFlightTraj   map[string]*inFlightTraj
-	inFlightTrajMu sync.Mutex
-}
-
-type inFlightTraj struct {
-	wg  sync.WaitGroup
-	res *upstreamTrajectoryResp
-	err error
 }
 
 // NewTrajectoryCache creates a new TrajectoryCache with initialized maps.
@@ -97,8 +92,36 @@ func NewTrajectoryCache() *TrajectoryCache {
 		deletedCascades:      make(map[string]time.Time),
 		metadataCache:        make(map[string]*metadataCacheEntry),
 		annotationTitleCache: make(map[string]*annotationTitleCacheEntry),
-		inFlightTraj:         make(map[string]*inFlightTraj),
 	}
+}
+
+const maxCascadeTitlesSize = 1024
+
+// setCachedCascadeTitle updates cascadeTitles using an RLock fast-path when unchanged.
+func setCachedCascadeTitle(cascadeID, title string) {
+	if cascadeID == "" || title == "" || title == "未命名会话" {
+		return
+	}
+	defaultTrajCache.cascadeTitlesMu.RLock()
+	cur, ok := defaultTrajCache.cascadeTitles[cascadeID]
+	defaultTrajCache.cascadeTitlesMu.RUnlock()
+	if ok && cur == title {
+		return
+	}
+	defaultTrajCache.cascadeTitlesMu.Lock()
+	if len(defaultTrajCache.cascadeTitles) >= maxCascadeTitlesSize {
+		// Batch prune ~25% when bounded cap is reached
+		removed := 0
+		for k := range defaultTrajCache.cascadeTitles {
+			delete(defaultTrajCache.cascadeTitles, k)
+			removed++
+			if removed >= maxCascadeTitlesSize/4 {
+				break
+			}
+		}
+	}
+	defaultTrajCache.cascadeTitles[cascadeID] = title
+	defaultTrajCache.cascadeTitlesMu.Unlock()
 }
 
 // maxDeletedCascades is the upper bound on in-memory deletion tombstones.
@@ -217,31 +240,30 @@ var defaultTrajCache = NewTrajectoryCache()
 // caching results for metadataCacheTTL to avoid repeated os.ReadFile calls during stream polling.
 const metadataCacheTTL = 10 * time.Second
 
-func readMetadataRequestFeedback(filePath string) bool {
+func readCachedArtifactMetadata(filePath string) (ArtifactMetadata, bool) {
 	defaultTrajCache.metadataCacheMu.RLock()
 	if entry, ok := defaultTrajCache.metadataCache[filePath]; ok {
 		if time.Since(entry.fetchedAt) < metadataCacheTTL {
+			meta, hasMeta := entry.meta, entry.hasMeta
 			defaultTrajCache.metadataCacheMu.RUnlock()
-			return entry.requestFeedback
+			return meta, hasMeta
 		}
 	}
 	defaultTrajCache.metadataCacheMu.RUnlock()
 
-	result := false
+	var parsed ArtifactMetadata
+	hasMeta := false
 	if metaData, err := os.ReadFile(filePath); err == nil {
-		var meta struct {
-			RequestFeedback bool `json:"requestFeedback"`
-		}
-		if err := json.Unmarshal(metaData, &meta); err == nil {
-			result = meta.RequestFeedback
+		if err := json.Unmarshal(metaData, &parsed); err == nil {
+			hasMeta = true
 		}
 	}
+
 	defaultTrajCache.metadataCacheMu.Lock()
 	if defaultTrajCache.metadataCache == nil {
 		defaultTrajCache.metadataCache = make(map[string]*metadataCacheEntry)
 	}
-	// Evict stale entries if map is large
-	if len(defaultTrajCache.metadataCache) > 256 {
+	if len(defaultTrajCache.metadataCache) > maxMetadataMapSize {
 		now := time.Now()
 		for k, v := range defaultTrajCache.metadataCache {
 			if now.Sub(v.fetchedAt) > metadataCacheTTL {
@@ -250,11 +272,18 @@ func readMetadataRequestFeedback(filePath string) bool {
 		}
 	}
 	defaultTrajCache.metadataCache[filePath] = &metadataCacheEntry{
-		requestFeedback: result,
+		hasMeta:         hasMeta,
+		meta:            parsed,
+		requestFeedback: parsed.RequestFeedback,
 		fetchedAt:       time.Now(),
 	}
 	defaultTrajCache.metadataCacheMu.Unlock()
-	return result
+	return parsed, hasMeta
+}
+
+func readMetadataRequestFeedback(filePath string) bool {
+	meta, ok := readCachedArtifactMetadata(filePath)
+	return ok && meta.RequestFeedback
 }
 
 // ClearTrajectoryCache invalidates cached trajectory for an updated cascade.

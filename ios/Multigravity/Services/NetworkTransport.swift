@@ -47,9 +47,11 @@ public final class NetworkTransport: Sendable {
         guard let http = response as? HTTPURLResponse, let targetURL = url ?? http.url else {
             return response
         }
-        // Self-heal primary Cloud URL if advertised by gateway
+        // Self-heal primary Cloud URL only when advertised by an authenticated, configured/local gateway over HTTPS
         if let cloudHeader = http.value(forHTTPHeaderField: "X-Antigravity-Cloud-URL")?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !cloudHeader.isEmpty {
+           !cloudHeader.isEmpty,
+           Self.isConfiguredOrLocalGatewayHost(targetURL.host ?? ""),
+           Self.isValidAdvertisedCloudURL(cloudHeader) {
             Task { @MainActor in
                 if AppSettings.shared.primaryCloudURL != cloudHeader {
                     AppSettings.shared.primaryCloudURL = cloudHeader
@@ -160,11 +162,78 @@ public final class NetworkTransport: Sendable {
         return false
     }
 
-    /// Sends a request using URLSession, except cleartext HTTP to non-local endpoints
-    /// which App Transport Security blocks. Those go through Network.framework.
+    nonisolated public static func configuredGatewayHosts() -> Set<String> {
+        let keys = [
+            "antigravity.server_url",
+            "antigravity.primary_cloud_url",
+            "antigravity.lan_server_url",
+            "antigravity.relay_server_url",
+            "antigravity.custom_server_url",
+            "antigravity.active_server_url"
+        ]
+        var hosts = Set<String>()
+        let defaults = UserDefaults.standard
+        for key in keys {
+            if let raw = defaults.string(forKey: key) {
+                let h = extractHost(from: raw)
+                if !h.isEmpty {
+                    hosts.insert(h)
+                }
+            }
+        }
+        return hosts
+    }
+
+    nonisolated public static func isConfiguredOrLocalGatewayHost(_ host: String) -> Bool {
+        let clean = extractHost(from: host)
+        if clean.isEmpty { return false }
+        if isLocalOrPrivateHost(clean) || clean == "demo.antigravity.local" {
+            return true
+        }
+        return configuredGatewayHosts().contains(clean)
+    }
+
+    nonisolated public static func isValidAdvertisedCloudURL(_ raw: String) -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: trimmed),
+              url.scheme?.lowercased() == "https",
+              url.user == nil,
+              url.password == nil,
+              let host = url.host?.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased(),
+              !host.isEmpty,
+              !isLocalOrPrivateHost(host) else {
+            return false
+        }
+        if host.hasSuffix(".trycloudflare.com") || host.hasSuffix(".jiuge.space") {
+            return true
+        }
+        let configured = configuredGatewayHosts()
+        if configured.contains(host) {
+            return true
+        }
+        // Allow sibling subdomains under an already-paired custom domain (e.g. a.example.com -> b.example.com)
+        let parts = host.split(separator: ".")
+        if parts.count >= 3 {
+            let parentSuffix = "." + parts.dropFirst().joined(separator: ".")
+            if configured.contains(where: { $0.hasSuffix(parentSuffix) }) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Sends a request using URLSession, except cleartext HTTP to Tailscale private tunnel nodes
+    /// which App Transport Security blocks. Cleartext HTTP to public internet hosts is rejected.
     public func send(request: URLRequest, preferCellular: Bool = false) async throws -> (Data, URLResponse) {
         var req = request
-        if let token = KeychainHelper.shared.read(key: .deviceToken), !token.isEmpty {
+        if let url = req.url, url.scheme?.lowercased() == "http" {
+            let host = url.host ?? ""
+            guard Self.isLocalOrPrivateHost(host) else {
+                throw URLError(.appTransportSecurityRequiresSecureConnection)
+            }
+        }
+        if let token = KeychainHelper.shared.read(key: .deviceToken), !token.isEmpty,
+           let targetHost = req.url?.host, Self.isConfiguredOrLocalGatewayHost(targetHost) {
             if req.value(forHTTPHeaderField: "Authorization") == nil {
                 req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             }
@@ -188,12 +257,12 @@ public final class NetworkTransport: Sendable {
         return (data, decorateResponse(response, url: req.url))
     }
     
-    /// ATS blocks cleartext HTTP to non-LAN hosts (NSAllowsLocalNetworking only exempts RFC1918/loopback/.local).
-    /// Tailscale (100.64.0.0/10, *.ts.net) and public relays must use Network.framework NWConnection to bypass ATS.
+    /// ATS blocks cleartext HTTP to Tailscale private hosts (NSAllowsLocalNetworking only exempts RFC1918/loopback/.local).
+    /// Only Tailscale WireGuard private hosts (100.64.0.0/10, *.ts.net) may use NWConnection cleartext transport; public cleartext is rejected above.
     nonisolated public static func requiresCleartextATSBypass(_ url: URL?) -> Bool {
         guard let url, url.scheme?.lowercased() == "http" else { return false }
         let host = (url.host ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-        return !isLanOnlyHost(host)
+        return isTailscaleHost(host)
     }
     
     // MARK: - Accelerated Connection Pool
@@ -284,10 +353,12 @@ public final class NetworkTransport: Sendable {
             var canReuse = false
             do {
                 try await Self.sendAll(connection, payload)
-                let raw = try await Self.receiveHTTPMessage(connection)
+                let (raw, isUntilClose) = try await Self.receiveHTTPMessage(connection, timeout: request.timeoutInterval > 0 ? max(request.timeoutInterval, 30) : 30)
                 let (data, response) = try HTTP11Codec.parseResponse(raw, url: url)
                 
-                if let http = response as? HTTPURLResponse,
+                if isUntilClose {
+                    canReuse = false
+                } else if let http = response as? HTTPURLResponse,
                    let connHeader = http.value(forHTTPHeaderField: "Connection"),
                    connHeader.lowercased().contains("close") {
                     canReuse = false
@@ -316,8 +387,8 @@ public final class NetworkTransport: Sendable {
             throw URLError(.badURL)
         }
         let bareHost = (url.host ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-        guard !bareHost.isEmpty, let port = NWEndpoint.Port(rawValue: UInt16(url.port ?? 80)) else {
-            throw URLError(.badURL)
+        guard !bareHost.isEmpty, Self.isLocalOrPrivateHost(bareHost), let port = NWEndpoint.Port(rawValue: UInt16(url.port ?? 80)) else {
+            throw URLError(.appTransportSecurityRequiresSecureConnection)
         }
         
         let connection = NWConnection(host: NWEndpoint.Host(bareHost), port: port, using: .tcp)
@@ -326,7 +397,7 @@ public final class NetworkTransport: Sendable {
         
         let payload = HTTP11Codec.buildRequest(request, url: url, bareHost: bareHost, keepAlive: false)
         try await Self.sendAll(connection, payload)
-        let raw = try await Self.receiveHTTPMessage(connection)
+        let (raw, _) = try await Self.receiveHTTPMessage(connection, timeout: request.timeoutInterval > 0 ? max(request.timeoutInterval, 30) : 30)
         return try HTTP11Codec.parseResponse(raw, url: url)
     }
     
@@ -383,26 +454,69 @@ public final class NetworkTransport: Sendable {
         }
     }
     
-    private static func receiveHTTPMessage(_ connection: NWConnection) async throws -> Data {
-        var accumulator = HTTP11Codec.ResponseAccumulator()
-        while true {
-            let chunk: Data = try await withCheckedThrowingContinuation { cont in
+    private static let maxRawResponseBytes = 64 * 1024 * 1024
+
+    private static func receiveChunk(_ connection: NWConnection, timeout: TimeInterval) async throws -> Data {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data, Error>) in
+                let finished = OSAllocatedUnfairLock(initialState: false)
+                @Sendable func complete(_ result: Result<Data, Error>) {
+                    let go = finished.withLock { flag -> Bool in
+                        if flag { return false }
+                        flag = true
+                        return true
+                    }
+                    guard go else { return }
+                    cont.resume(with: result)
+                }
+
                 connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { content, _, _, error in
                     if let error {
-                        cont.resume(throwing: error)
-                        return
+                        complete(.failure(error))
+                    } else {
+                        complete(.success(content ?? Data()))
                     }
-                    cont.resume(returning: content ?? Data())
+                }
+
+                DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + timeout) {
+                    let timedOut = finished.withLock { flag -> Bool in
+                        if flag { return false }
+                        flag = true
+                        return true
+                    }
+                    if timedOut {
+                        connection.cancel()
+                        cont.resume(throwing: URLError(.timedOut))
+                    }
                 }
             }
+        } onCancel: {
+            connection.cancel()
+        }
+    }
+
+    private static func receiveHTTPMessage(_ connection: NWConnection, timeout: TimeInterval = 30) async throws -> (Data, Bool) {
+        var accumulator = HTTP11Codec.ResponseAccumulator()
+        let deadline = Date().addingTimeInterval(timeout)
+        while true {
+            let remaining = deadline.timeIntervalSinceNow
+            if remaining <= 0 {
+                connection.cancel()
+                throw URLError(.timedOut)
+            }
+            let chunk = try await receiveChunk(connection, timeout: min(remaining, 30))
+            if accumulator.buffer.count + chunk.count > maxRawResponseBytes {
+                connection.cancel()
+                throw URLError(.dataLengthExceedsMaximum)
+            }
             if accumulator.append(chunk) {
-                return accumulator.buffer
+                return (accumulator.buffer, accumulator.isUntilClose)
             }
             if chunk.isEmpty {
                 if accumulator.buffer.isEmpty {
                     throw URLError(.networkConnectionLost)
                 }
-                return accumulator.buffer
+                return (accumulator.buffer, true)
             }
         }
     }

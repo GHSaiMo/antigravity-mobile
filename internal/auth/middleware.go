@@ -99,7 +99,7 @@ func IsWhitelistedPath(path string) bool {
 	}
 
 	// Auth and device management endpoints (handled by AuthHandler with its own permission checks)
-	if path == "/api/v1/auth/pair" || path == "/api/v1/auth/unpair" || path == "/api/v1/auth/session" || path == "/api/v1/auth/ws-ticket" || path == "/api/v1/auth/endpoints" ||
+	if path == "/api/v1/auth/pair" || path == "/api/v1/auth/unpair" || path == "/api/v1/auth/logout" || path == "/api/v1/auth/session" || path == "/api/v1/auth/ws-ticket" || path == "/api/v1/auth/endpoints" ||
 		path == "/api/v1/devices" || path == "/api/v1/devices/" || strings.HasPrefix(path, "/api/v1/devices/") {
 		return true
 	}
@@ -262,6 +262,19 @@ func AuthMiddlewareWithPolicy(store *AuthStore, next http.Handler, policy AuthPo
 				return
 			}
 
+			// SEC-08: When authenticating via session cookie (no Authorization: Bearer header),
+			// enforce same-origin checks on state-changing HTTP methods to block cross-site /
+			// cross-subdomain CSRF.
+			if BearerToken(r) == "" && !isWS && !isRawFile && !CookieWriteCSRFOK(r) {
+				auditWarn("CSRF_REJECTED", "ip", ExtractClientIP(r), "path", r.URL.Path, "origin", r.Header.Get("Origin"))
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				json.NewEncoder(w).Encode(map[string]string{
+					"error": "forbidden: cross-origin cookie request rejected",
+				})
+				return
+			}
+
 			if adminTok := GetAdminToken(); adminTok != "" && ConstantTimeTokenEquals(token, adminTok) {
 				device = &PairedDevice{
 					DeviceID:   "admin-local",
@@ -348,5 +361,6 @@ func isWebSocketPath(path string) bool {
 	return path == "/connect-websocket" ||
 		path == "/voice/ws" ||
 		path == "/gateway/events" ||
+		path == "/gateway/rpc-mux" ||
 		strings.HasPrefix(path, "/gateway/cascade/stream")
 }

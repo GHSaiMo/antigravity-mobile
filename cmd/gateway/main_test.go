@@ -280,6 +280,69 @@ func TestOnboardingRedirect(t *testing.T) {
 	if loc := rr2.Header().Get("Location"); loc != "/c/123" {
 		t.Errorf("expected Location '/c/123', got %q", loc)
 	}
+
+	// Test 3: Open redirect payloads must be sanitized to '/' (SEC-06)
+	for _, evil := range []string{
+		"https://evil.example.com",
+		"//evil.example.com",
+		`/\\evil.example.com`,
+		`/\evil.example.com`,
+		"/onboarding?login=true",
+	} {
+		reqEvil := httptest.NewRequest(http.MethodGet, "/onboarding?login=true&redirect="+evil, nil)
+		rrEvil := httptest.NewRecorder()
+		router.ServeHTTP(rrEvil, reqEvil)
+		if rrEvil.Code != http.StatusTemporaryRedirect {
+			t.Fatalf("expected 307 for redirect=%q, got %d", evil, rrEvil.Code)
+		}
+		if loc := rrEvil.Header().Get("Location"); loc != "/" {
+			t.Errorf("open redirect payload %q escaped sanitizeLocalRedirect: Location=%q", evil, loc)
+		}
+	}
+}
+
+func TestCloudURLHeaderGatedOnAuth(t *testing.T) {
+	tmpDir := t.TempDir()
+	authStore, err := auth.NewAuthStore(filepath.Join(tmpDir, "auth.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	devToken := "paired-device-secret-token"
+	if err := authStore.AddDevice(auth.PairedDevice{
+		DeviceID:   "dev-cf-test",
+		DeviceName: "iPhone",
+		Platform:   "ios",
+		TokenHash:  auth.HashToken(devToken),
+		CreatedAt:  time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	pm := auth.NewPairingManager()
+	authHandler := auth.NewAuthHandler(authStore, pm, "127.0.0.1", 58900, false)
+	authHandler.SetCloudflareURL("https://secret-tunnel.example.com")
+	insp := inspector.NewInspector(10 * time.Second)
+	p := proxy.NewProxy(insp)
+	router := buildRouter(authStore, authHandler, p, insp, time.Now(), web.Handler(), auth.AuthPolicy{})
+
+	// 1. Unauthenticated request to whitelisted /healthz must NOT leak X-Antigravity-Cloud-URL (SEC-03)
+	unauthReq := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	unauthReq.RemoteAddr = "203.0.113.10:54321"
+	unauthRR := httptest.NewRecorder()
+	router.ServeHTTP(unauthRR, unauthReq)
+	if got := unauthRR.Header().Get("X-Antigravity-Cloud-URL"); got != "" {
+		t.Errorf("unauthenticated response leaked X-Antigravity-Cloud-URL: %q", got)
+	}
+
+	// 2. Authenticated request MUST receive X-Antigravity-Cloud-URL for self-healing
+	authReq := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	authReq.RemoteAddr = "203.0.113.10:54321"
+	authReq.Header.Set("Authorization", "Bearer "+devToken)
+	authRR := httptest.NewRecorder()
+	router.ServeHTTP(authRR, authReq)
+	if got := authRR.Header().Get("X-Antigravity-Cloud-URL"); got != "https://secret-tunnel.example.com" {
+		t.Errorf("authenticated response missing X-Antigravity-Cloud-URL, got %q", got)
+	}
 }
 
 

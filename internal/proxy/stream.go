@@ -224,6 +224,7 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	closeCh := make(chan struct{})
+	clientConn.SetReadLimit(64 * 1024)
 	// Set initial read deadline and register pong handler to keep connection alive
 	clientConn.SetReadDeadline(time.Now().Add(45 * time.Second))
 	clientConn.SetPongHandler(func(appData string) error {
@@ -325,7 +326,8 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 		lastRawSig = rawSig
 
 		t2 := time.Now()
-		details := p.ParseTrajectoryDetails(rawResp)
+		prevQueuedCount := len(lastDetails.QueuedMessages)
+		details := p.ParseTrajectoryDetailsCached(rawResp)
 		if time.Since(t2) > 100*time.Millisecond {
 			slog.Debug("stream perf: slow ParseTrajectoryDetails", "cascade_id", cascadeID, "took", time.Since(t2))
 		}
@@ -338,7 +340,6 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		details.AllMessages = p.enrichSubagentMessages(details.AllMessages)
-		lastDetails = details
 		if details.Title != "" && details.Title != "未命名会话" {
 			cachedStreamTitle = details.Title
 		} else if cachedStreamTitle != "" && cachedStreamTitle != "未命名会话" && cachedStreamTitle != "当前会话" {
@@ -350,12 +351,16 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 				cachedStreamTitle = t
 			}
 		}
-		if qm := p.GetCachedOrFetchPendingMessages(cascadeID, port, token); qm != nil {
-			details.QueuedMessages = qm
-		} else if details.QueuedMessages == nil {
+		if firstPush || details.Status == "CASCADE_RUN_STATUS_RUNNING" || len(details.QueuedMessages) > 0 || prevQueuedCount > 0 {
+			if qm := p.GetCachedOrFetchPendingMessages(cascadeID, port, token); qm != nil {
+				details.QueuedMessages = qm
+			}
+		}
+		if details.QueuedMessages == nil {
 			details.QueuedMessages = []QueuedMessageItem{}
 		}
 		details.QueuedMessages = p.FilterQueuedMessagesAgainstTrajectory(cascadeID, details.QueuedMessages, rawResp.Trajectory.Steps, details.AllMessages)
+		lastDetails = details
 
 		if sink := p.NotificationSink(); sink != nil {
 			sink.OnTrajectoryUpdate(&details)

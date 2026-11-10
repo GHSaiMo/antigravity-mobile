@@ -162,20 +162,18 @@ func execSQLite(dbPath, sql string) error {
 		return fmt.Errorf("invalid sqlite database path: %q", dbPath)
 	}
 	if p, lookErr := exec.LookPath("sqlite3"); lookErr == nil && isExecutableValid(p) {
-		cmd := exec.Command("sqlite3", cleanDB, sql)
-		if _, err := cmd.CombinedOutput(); err == nil {
+		if _, err := runCmdCombinedTimeout(5*time.Second, "sqlite3", "-cmd", ".timeout 3000", cleanDB, sql); err == nil {
 			return nil
 		}
 	}
-	pyScript := "import sqlite3, sys; conn = sqlite3.connect(sys.argv[1]); conn.executescript(sys.argv[2]); conn.commit()"
+	pyScript := "import sqlite3, sys; conn = sqlite3.connect(sys.argv[1], timeout=3.0); conn.executescript(sys.argv[2]); conn.commit()"
 	var lastErr error
 	for _, py := range pythonCandidates() {
 		p, lookErr := exec.LookPath(py)
 		if lookErr != nil || !isExecutableValid(p) {
 			continue
 		}
-		cmd := exec.Command(py, "-c", pyScript, cleanDB, sql)
-		out, err := cmd.CombinedOutput()
+		out, err := runCmdCombinedTimeout(5*time.Second, py, "-c", pyScript, cleanDB, sql)
 		if err == nil {
 			return nil
 		}
@@ -268,21 +266,19 @@ var afterProfilePrepare = func() { time.Sleep(50 * time.Millisecond) }
 func querySQLite(dbPath, sql string) (string, error) {
 	cleanDB := filepath.Clean(dbPath)
 	if p, lookErr := exec.LookPath("sqlite3"); lookErr == nil && isExecutableValid(p) {
-		cmd := exec.Command("sqlite3", "-batch", "-noheader", cleanDB, sql)
-		out, err := cmd.CombinedOutput()
+		out, err := runCmdCombinedTimeout(5*time.Second, "sqlite3", "-batch", "-noheader", "-cmd", ".timeout 3000", cleanDB, sql)
 		if err == nil {
 			return strings.TrimSpace(string(out)), nil
 		}
 	}
-	pyScript := "import sqlite3, sys; conn = sqlite3.connect(sys.argv[1]); cur = conn.cursor(); cur.execute(sys.argv[2]); row = cur.fetchone(); sys.stdout.write(str(row[0]) if row and row[0] is not None else '')"
+	pyScript := "import sqlite3, sys; conn = sqlite3.connect(sys.argv[1], timeout=3.0); cur = conn.cursor(); cur.execute(sys.argv[2]); row = cur.fetchone(); sys.stdout.write(str(row[0]) if row and row[0] is not None else '')"
 	var lastErr error
 	for _, py := range pythonCandidates() {
 		p, lookErr := exec.LookPath(py)
 		if lookErr != nil || !isExecutableValid(p) {
 			continue
 		}
-		cmd := exec.Command(py, "-c", pyScript, cleanDB, sql)
-		out, err := cmd.CombinedOutput()
+		out, err := runCmdCombinedTimeout(5*time.Second, py, "-c", pyScript, cleanDB, sql)
 		if err == nil {
 			return strings.TrimSpace(string(out)), nil
 		}

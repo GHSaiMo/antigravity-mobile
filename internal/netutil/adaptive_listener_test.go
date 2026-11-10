@@ -265,3 +265,106 @@ func TestIsLoopbackPeer(t *testing.T) {
 		t.Error("nil must not be loopback")
 	}
 }
+
+func TestAdaptiveListener_StalledClientDoesNotBlockAccept(t *testing.T) {
+	baseListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	defer baseListener.Close()
+
+	adaptive := NewAdaptiveListener(baseListener)
+	defer adaptive.Close()
+
+	payload := []byte("GET /healthz HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+	normalDone := make(chan error, 1)
+
+	go func() {
+		for i := 0; i < 2; i++ {
+			conn, err := adaptive.Accept()
+			if err != nil {
+				normalDone <- err
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				_ = c.SetReadDeadline(time.Now().Add(400 * time.Millisecond))
+				buf := make([]byte, 128)
+				n, err := c.Read(buf)
+				if err == nil && bytes.Equal(buf[:n], payload) {
+					normalDone <- nil
+				}
+			}(conn)
+		}
+	}()
+
+	// 1. Connect a stalled client that never sends a byte.
+	stalled, err := net.Dial("tcp", baseListener.Addr().String())
+	if err != nil {
+		t.Fatalf("failed to dial stalled client: %v", err)
+	}
+	defer stalled.Close()
+
+	// 2. Immediately connect a normal HTTP client; it must not wait behind the 3s sniff timeout.
+	start := time.Now()
+	normal, err := net.Dial("tcp", baseListener.Addr().String())
+	if err != nil {
+		t.Fatalf("failed to dial normal client: %v", err)
+	}
+	defer normal.Close()
+	if _, err := normal.Write(payload); err != nil {
+		t.Fatalf("failed to write payload: %v", err)
+	}
+
+	select {
+	case err := <-normalDone:
+		if err != nil {
+			t.Fatalf("unexpected accept/read error: %v", err)
+		}
+		if elapsed := time.Since(start); elapsed > 600*time.Millisecond {
+			t.Errorf("normal connection was head-of-line blocked for %v", elapsed)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("normal client timed out waiting behind stalled client")
+	}
+}
+
+func TestAdaptiveListener_MalformedProxyHeaderFailsClosed(t *testing.T) {
+	baseListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	defer baseListener.Close()
+
+	adaptive := NewAdaptiveListener(baseListener)
+	defer adaptive.Close()
+
+	readErrCh := make(chan error, 1)
+	go func() {
+		conn, err := adaptive.Accept()
+		if err != nil {
+			readErrCh <- err
+			return
+		}
+		defer conn.Close()
+		buf := make([]byte, 128)
+		_, err = conn.Read(buf)
+		readErrCh <- err
+	}()
+
+	client, err := net.Dial("tcp", baseListener.Addr().String())
+	if err != nil {
+		t.Fatalf("failed to dial: %v", err)
+	}
+	defer client.Close()
+	_, _ = client.Write([]byte("PROXY INVALID HEADER\r\nGET / HTTP/1.1\r\n\r\n"))
+
+	select {
+	case err := <-readErrCh:
+		if err == nil {
+			t.Fatal("expected malformed PROXY header from loopback to fail closed on Read, got nil error")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for malformed PROXY header failure")
+	}
+}

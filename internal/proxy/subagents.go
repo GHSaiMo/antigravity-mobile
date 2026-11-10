@@ -137,33 +137,14 @@ func (p *Proxy) liveSummaries(ids []string) map[string]subagentLive {
 	if port == 0 {
 		return out
 	}
-	raw, err := p.fetchAllTrajectoriesRaw(context.Background(), port, token)
-	if err != nil {
-		return out
-	}
-	var env struct {
-		TrajectorySummaries map[string]json.RawMessage `json:"trajectorySummaries"`
-	}
-	if json.Unmarshal(raw, &env) != nil {
+	idx, err := p.fetchAllTrajectoriesIndex(context.Background(), port, token)
+	if err != nil || idx == nil {
 		return out
 	}
 	for _, id := range ids {
-		b, ok := env.TrajectorySummaries[id]
-		if !ok {
-			continue
+		if l, ok := idx.liveByID[id]; ok {
+			out[id] = l
 		}
-		var s struct {
-			Status             string `json:"status"`
-			StepCount          int    `json:"stepCount"`
-			Summary            string `json:"summary"`
-			TrajectoryMetadata struct {
-				ParentConversationID string `json:"parentConversationId"`
-			} `json:"trajectoryMetadata"`
-		}
-		if json.Unmarshal(b, &s) != nil {
-			continue
-		}
-		out[id] = subagentLive{Status: s.Status, StepCount: s.StepCount, Title: s.Summary, Parent: strings.TrimSpace(s.TrajectoryMetadata.ParentConversationID)}
 	}
 	return out
 }

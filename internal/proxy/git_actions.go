@@ -698,6 +698,20 @@ func (p *Proxy) fetchWorkspaceGitHubPullRequests(parent context.Context, repoRoo
 	}
 
 	gitPRCacheMu.Lock()
+	if len(gitPRCache) >= 256 {
+		now := time.Now()
+		for k, v := range gitPRCache {
+			if now.Sub(v.fetchedAt) >= gitPRTTL {
+				delete(gitPRCache, k)
+			}
+		}
+		if len(gitPRCache) >= 256 {
+			for k := range gitPRCache {
+				delete(gitPRCache, k)
+				break
+			}
+		}
+	}
 	gitPRCache[cacheKey] = gitPRCacheEntry{
 		target:    target,
 		prs:       prs,

@@ -373,24 +373,49 @@ public final class PairingService: Sendable {
         throw PairingError.networkError("连接网关失败")
     }
     
-    /// Accept endpoints that match the QR hosts, the URL we just paired with, or private/loopback addresses.
+    /// Accept endpoints that match the QR hosts, the URL we just paired with, private/loopback addresses,
+    /// or recognized Cloudflare/Multigravity tunnel domains over HTTPS.
     nonisolated static func isTrustedEndpoint(_ urlString: String, pairing info: PairingInfo, usedBase: String) -> Bool {
-        guard let url = URL(string: urlString), let host = url.host else { return false }
+        guard let url = URL(string: urlString),
+              let scheme = url.scheme?.lowercased(),
+              url.user == nil,
+              url.password == nil,
+              let host = url.host else { return false }
         let h = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
-        var allowed: [String] = [info.host.lowercased()]
-        if let lan = info.lanHost { allowed.append(lan.lowercased()) }
-        if let ddns = info.ddnsHost { allowed.append(ddns.lowercased()) }
-        if let relay = info.relayHost { allowed.append(relay.lowercased()) }
-        if let used = URL(string: usedBase)?.host {
-            allowed.append(used.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased())
+        guard !h.isEmpty else { return false }
+
+        let isPrivate = NetworkTransport.isLocalOrPrivateHost(h)
+        if scheme == "http" {
+            return isPrivate
+        }
+        guard scheme == "https" else { return false }
+        if isPrivate {
+            return true
+        }
+
+        var allowed: [String] = [NetworkTransport.extractHost(from: info.host)]
+        if let lan = info.lanHost { allowed.append(NetworkTransport.extractHost(from: lan)) }
+        if let ddns = info.ddnsHost { allowed.append(NetworkTransport.extractHost(from: ddns)) }
+        if let relay = info.relayHost { allowed.append(NetworkTransport.extractHost(from: relay)) }
+        let usedHost = NetworkTransport.extractHost(from: usedBase)
+        if !usedHost.isEmpty {
+            allowed.append(usedHost)
         }
         if allowed.contains(h) {
             return true
         }
-        if NetworkTransport.isLocalOrPrivateHost(h) || h.hasSuffix(".mgy.jiuge.space") || h.hasSuffix(".jiuge.space") || h.hasSuffix(".antigravity.internal") {
+        if h.hasSuffix(".trycloudflare.com") || h.hasSuffix(".mgy.jiuge.space") || h.hasSuffix(".jiuge.space") || h.hasSuffix(".antigravity.internal") {
             return true
         }
-        return url.scheme?.lowercased() == "https"
+        // Allow sibling subdomains under the same registrable parent domain as the QR host
+        let parts = h.split(separator: ".")
+        if parts.count >= 3 {
+            let parentSuffix = "." + parts.dropFirst().joined(separator: ".")
+            if allowed.contains(where: { !$0.isEmpty && $0.hasSuffix(parentSuffix) }) {
+                return true
+            }
+        }
+        return false
     }
     
     /// Clears saved credentials.

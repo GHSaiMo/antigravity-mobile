@@ -209,6 +209,7 @@ func TestIsWhitelistedPath(t *testing.T) {
 		{"/gateway/cascade/invalidate", false},
 		{"/api/v1/auth/pair", true},
 		{"/api/v1/auth/session", true},
+		{"/api/v1/auth/logout", true},
 		{"/api/v1/auth/ws-ticket", true},
 		{"/api/v1/devices", true},
 		{"/api/v1/devices/", true},
@@ -685,5 +686,89 @@ func TestHandlePair_DeviceKeyDedupeAndCookieSecure(t *testing.T) {
 	}
 	if !secure {
 		t.Error("cookie must be Secure when the request came over HTTPS")
+	}
+}
+
+func TestCookieMutationCSRFAndLogout(t *testing.T) {
+	store, err := NewAuthStore(filepath.Join(t.TempDir(), "auth_store.json"))
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	devToken := "web-cookie-session-token-12345"
+	if err := store.AddDevice(PairedDevice{
+		DeviceID:   "dev-web-csrf",
+		DeviceName: "Safari",
+		Platform:   "web",
+		TokenHash:  HashToken(devToken),
+		CreatedAt:  time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	h := NewAuthHandler(store, NewPairingManager(), "127.0.0.1", 58900, false)
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/v1/auth/logout", h.HandleLogout)
+	mux.HandleFunc("POST /gateway/cascade/touch", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	router := AuthMiddlewareWithPolicy(store, mux, AuthPolicy{})
+
+	// 1. Cross-site cookie POST to mutation endpoint must be blocked with 403 (SEC-08)
+	crossReq := httptest.NewRequest(http.MethodPost, "/gateway/cascade/touch", nil)
+	crossReq.Host = "gw.example.com"
+	crossReq.Header.Set("Origin", "https://evil.example.com")
+	crossReq.AddCookie(&http.Cookie{Name: DeviceCookieName, Value: devToken})
+	crossRR := httptest.NewRecorder()
+	router.ServeHTTP(crossRR, crossReq)
+	if crossRR.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for cross-site cookie POST, got %d", crossRR.Code)
+	}
+
+	// 2. Same-origin cookie POST must succeed
+	sameReq := httptest.NewRequest(http.MethodPost, "/gateway/cascade/touch", nil)
+	sameReq.Host = "gw.example.com"
+	sameReq.Header.Set("Origin", "https://gw.example.com")
+	sameReq.AddCookie(&http.Cookie{Name: DeviceCookieName, Value: devToken})
+	sameRR := httptest.NewRecorder()
+	router.ServeHTTP(sameRR, sameReq)
+	if sameRR.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for same-origin cookie POST, got %d", sameRR.Code)
+	}
+
+	// 3. Cross-site logout attempt must be rejected without revoking device token
+	crossLogout := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)
+	crossLogout.Host = "gw.example.com"
+	crossLogout.Header.Set("Sec-Fetch-Site", "cross-site")
+	crossLogout.AddCookie(&http.Cookie{Name: DeviceCookieName, Value: devToken})
+	crossLogoutRR := httptest.NewRecorder()
+	router.ServeHTTP(crossLogoutRR, crossLogout)
+	if crossLogoutRR.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for cross-site logout, got %d", crossLogoutRR.Code)
+	}
+	if _, ok := store.ValidateToken(devToken); !ok {
+		t.Fatal("device token must remain valid after blocked cross-site logout")
+	}
+
+	// 4. Legitimate same-origin logout revokes token in AuthStore and clears agy_dt cookie
+	logoutReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)
+	logoutReq.Host = "gw.example.com"
+	logoutReq.Header.Set("Origin", "https://gw.example.com")
+	logoutReq.AddCookie(&http.Cookie{Name: DeviceCookieName, Value: devToken})
+	logoutRR := httptest.NewRecorder()
+	router.ServeHTTP(logoutRR, logoutReq)
+	if logoutRR.Code != http.StatusOK {
+		t.Fatalf("expected 200 for legitimate logout, got %d", logoutRR.Code)
+	}
+	if _, ok := store.ValidateToken(devToken); ok {
+		t.Error("expected device token to be revoked in AuthStore after logout")
+	}
+	cleared := false
+	for _, c := range logoutRR.Result().Cookies() {
+		if c.Name == DeviceCookieName && c.MaxAge < 0 {
+			cleared = true
+		}
+	}
+	if !cleared {
+		t.Error("expected agy_dt cookie to be cleared (MaxAge < 0) on logout")
 	}
 }

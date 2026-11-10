@@ -65,10 +65,57 @@ type pendingMessagesCacheEntry struct {
 	messages  []QueuedMessageItem
 }
 
+const maxPendingCacheEntries = 512
+
+type pendingFlightCall struct {
+	done  chan struct{}
+	items []QueuedMessageItem
+	err   error
+}
+
+type pendingFlightGroup struct {
+	mu    sync.Mutex
+	calls map[string]*pendingFlightCall
+}
+
+func (g *pendingFlightGroup) forget(key string) {
+	g.mu.Lock()
+	if key == "" {
+		g.calls = make(map[string]*pendingFlightCall)
+	} else {
+		delete(g.calls, key)
+	}
+	g.mu.Unlock()
+}
+
+func (g *pendingFlightGroup) do(key string, fn func() ([]QueuedMessageItem, error)) ([]QueuedMessageItem, error) {
+	g.mu.Lock()
+	if c, ok := g.calls[key]; ok {
+		g.mu.Unlock()
+		<-c.done
+		return c.items, c.err
+	}
+	c := &pendingFlightCall{done: make(chan struct{})}
+	g.calls[key] = c
+	g.mu.Unlock()
+
+	defer func() {
+		g.mu.Lock()
+		if g.calls[key] == c {
+			delete(g.calls, key)
+		}
+		g.mu.Unlock()
+		close(c.done)
+	}()
+	c.items, c.err = fn()
+	return c.items, c.err
+}
+
 var (
 	pendingCacheMu sync.RWMutex
 	pendingCache   = make(map[string]*pendingMessagesCacheEntry)
-	pendingTTL     = 300 * time.Millisecond
+	pendingTTL     = 2500 * time.Millisecond
+	pendingFlights = &pendingFlightGroup{calls: make(map[string]*pendingFlightCall)}
 
 	deletedMsgMu  sync.RWMutex
 	deletedMsgMap = make(map[string]time.Time) // key: cascadeID + ":" + messageID -> deletedAt
@@ -166,12 +213,13 @@ func filterTombstonedMessages(cascadeID string, items []QueuedMessageItem) []Que
 // ClearPendingMessagesCache clears the pending messages cache for a cascade, or all if empty.
 func ClearPendingMessagesCache(cascadeID string) {
 	pendingCacheMu.Lock()
-	defer pendingCacheMu.Unlock()
 	if cascadeID == "" {
 		pendingCache = make(map[string]*pendingMessagesCacheEntry)
 	} else {
 		delete(pendingCache, cascadeID)
 	}
+	pendingCacheMu.Unlock()
+	pendingFlights.forget(cascadeID)
 }
 
 // encodeConnectEnvelope wraps payload in a Connect streaming frame (1 byte flag + 4 bytes big-endian length).
@@ -833,7 +881,32 @@ func (p *Proxy) GetCachedOrFetchPendingMessages(cascadeID string, port int, toke
 	}
 	pendingCacheMu.RUnlock()
 
-	items, err := p.fetchUpstreamPendingMessages(cascadeID, port, token)
+	items, err := pendingFlights.do(cascadeID, func() ([]QueuedMessageItem, error) {
+		res, fetchErr := p.fetchUpstreamPendingMessages(cascadeID, port, token)
+		if fetchErr == nil {
+			now := time.Now()
+			pendingCacheMu.Lock()
+			if len(pendingCache) >= maxPendingCacheEntries {
+				for k, v := range pendingCache {
+					if now.Sub(v.fetchedAt) >= pendingTTL {
+						delete(pendingCache, k)
+					}
+				}
+				if len(pendingCache) >= maxPendingCacheEntries {
+					for k := range pendingCache {
+						delete(pendingCache, k)
+						break
+					}
+				}
+			}
+			pendingCache[cascadeID] = &pendingMessagesCacheEntry{
+				fetchedAt: now,
+				messages:  res,
+			}
+			pendingCacheMu.Unlock()
+		}
+		return res, fetchErr
+	})
 	if err != nil {
 		// Return stale cache if available upon error
 		pendingCacheMu.RLock()
@@ -846,16 +919,7 @@ func (p *Proxy) GetCachedOrFetchPendingMessages(cascadeID string, port int, toke
 		return []QueuedMessageItem{}
 	}
 
-	filtered := filterTombstonedMessages(cascadeID, items)
-
-	pendingCacheMu.Lock()
-	pendingCache[cascadeID] = &pendingMessagesCacheEntry{
-		fetchedAt: time.Now(),
-		messages:  filtered,
-	}
-	pendingCacheMu.Unlock()
-
-	return filtered
+	return filterTombstonedMessages(cascadeID, items)
 }
 
 // normalizeTextForComparison strips all whitespace, newlines, zero-width chars, and control chars, lowercasing for fuzzy-safe comparison.

@@ -175,6 +175,7 @@ func TestIsWebSocketPath(t *testing.T) {
 		"/connect-websocket":      true,
 		"/gateway/events":         true,
 		"/gateway/cascade/stream": true,
+		"/gateway/rpc-mux":        true,
 		"/gateway/status":         false,
 		"/gateway/events/extra":   false,
 		"/api/v1/cockpit/quotas":  false,
@@ -234,4 +235,53 @@ func TestAuthMiddleware_EventsEndpointTicket(t *testing.T) {
 		t.Fatalf("/gateway/events without credentials: got %d, want 401", rec.Code)
 	}
 	time.Sleep(30 * time.Millisecond)
+}
+
+func TestHandleWSTicket_ImplicitTrustLoopbackAndRebinding(t *testing.T) {
+	store, err := NewAuthStore(t.TempDir() + "/auth.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := AuthPolicy{ListenLoopback: true}
+	authHandler := NewAuthHandler(store, NewPairingManager(), "127.0.0.1", 58900, false)
+	authHandler.SetAuthPolicy(policy)
+
+	// 1. DNS-rebinding Host on loopback must be rejected (SEC-07)
+	rebindReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/ws-ticket", nil)
+	rebindReq.RemoteAddr = "127.0.0.1:41234"
+	rebindReq.Host = "evil.example.com:58900"
+	rebindRR := httptest.NewRecorder()
+	authHandler.HandleWSTicket(rebindRR, rebindReq)
+	if rebindRR.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for DNS-rebinding ws-ticket request, got %d", rebindRR.Code)
+	}
+
+	// 2. Legitimate loopback ws-ticket request issues an admin-local ticket usable on /gateway/rpc-mux
+	okReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/ws-ticket", nil)
+	okReq.RemoteAddr = "127.0.0.1:41234"
+	okReq.Host = "127.0.0.1:58900"
+	okReq.Header.Set("Origin", "http://127.0.0.1:58900")
+	okRR := httptest.NewRecorder()
+	authHandler.HandleWSTicket(okRR, okReq)
+	if okRR.Code != http.StatusOK {
+		t.Fatalf("expected 200 for legitimate loopback ws-ticket, got %d: %s", okRR.Code, okRR.Body.String())
+	}
+	var resp struct {
+		Ticket string `json:"ticket"`
+	}
+	if err := json.NewDecoder(okRR.Body).Decode(&resp); err != nil || resp.Ticket == "" {
+		t.Fatalf("failed to decode ws-ticket response: %v", err)
+	}
+
+	router := AuthMiddlewareWithPolicy(store, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}), AuthPolicy{})
+
+	muxReq := httptest.NewRequest(http.MethodGet, "/gateway/rpc-mux?ticket="+resp.Ticket, nil)
+	muxReq.RemoteAddr = "203.0.113.99:5555"
+	muxRR := httptest.NewRecorder()
+	router.ServeHTTP(muxRR, muxReq)
+	if muxRR.Code != http.StatusOK {
+		t.Fatalf("expected /gateway/rpc-mux to accept admin-local ticket, got %d", muxRR.Code)
+	}
 }

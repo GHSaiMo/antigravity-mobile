@@ -442,6 +442,9 @@ func (p *Proxy) startDesktopFocusWatcherWithInterval(ctx context.Context, interv
 	lastSeenMtimes := make(map[string]time.Time)
 
 	scanPass := func() {
+		if activeID, _ := p.ActiveStream(); activeID != "" {
+			return
+		}
 		entries, err := os.ReadDir(annDir)
 		if err != nil {
 			return

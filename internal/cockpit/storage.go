@@ -108,11 +108,31 @@ func GetStorageKey() ([]byte, error) {
 	return k, nil
 }
 
+// IsSafeAccountIdentifier checks whether an account identifier or email input is free of
+// path traversal characters or control bytes (SEC-10).
+func IsSafeAccountIdentifier(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" || len(s) > 256 || s == "." || s == ".." {
+		return false
+	}
+	if strings.ContainsAny(s, "/\\\x00\r\n") || strings.Contains(s, "..") {
+		return false
+	}
+	return filepath.Base(s) == s
+}
+
+func isSafeAccountFileID(id string) bool {
+	return IsSafeAccountIdentifier(id)
+}
+
 // ResolveAccountID takes an account ID or email and returns the canonical account UUID.
 func ResolveAccountID(accountIDOrEmail string) (string, error) {
 	target := strings.TrimSpace(accountIDOrEmail)
 	if target == "" {
 		return "", errors.New("empty account ID or email")
+	}
+	if !IsSafeAccountIdentifier(target) {
+		return "", errors.New("invalid account identifier")
 	}
 
 	dataDir, err := GetCockpitDataDir()
@@ -131,6 +151,9 @@ func ResolveAccountID(accountIDOrEmail string) (string, error) {
 	targetLower := strings.ToLower(target)
 	for _, acc := range idx.Accounts {
 		if strings.EqualFold(acc.ID, target) || strings.ToLower(strings.TrimSpace(acc.Email)) == targetLower {
+			if !isSafeAccountFileID(acc.ID) {
+				return "", errors.New("corrupted account ID in index")
+			}
 			return acc.ID, nil
 		}
 	}
@@ -142,6 +165,15 @@ func DecryptAccountDetail(accountIDOrEmail string) (*CockpitAccountDetail, error
 	accountID, err := ResolveAccountID(accountIDOrEmail)
 	if err != nil {
 		return nil, err
+	}
+	return DecryptAccountByExactID(accountID)
+}
+
+// DecryptAccountByExactID decrypts an account file directly by canonical ID without re-reading accounts.json.
+func DecryptAccountByExactID(accountID string) (*CockpitAccountDetail, error) {
+	accountID = strings.TrimSpace(accountID)
+	if !isSafeAccountFileID(accountID) {
+		return nil, errors.New("invalid account ID")
 	}
 
 	dataDir, err := GetCockpitDataDir()
@@ -202,8 +234,8 @@ func DecryptAccountDetail(accountIDOrEmail string) (*CockpitAccountDetail, error
 
 // SaveAccountDetail encrypts and writes account details back to ~/.antigravity_cockpit/accounts/<id>.json.
 func SaveAccountDetail(acc *CockpitAccountDetail) error {
-	if acc == nil || strings.TrimSpace(acc.ID) == "" {
-		return errors.New("cannot save nil account or empty account ID")
+	if acc == nil || !isSafeAccountFileID(acc.ID) {
+		return errors.New("cannot save nil account or invalid account ID")
 	}
 
 	dataDir, err := GetCockpitDataDir()
@@ -286,7 +318,7 @@ func ListAccountsFromStorage() ([]*CockpitAccountDetail, error) {
 
 	results := make([]*CockpitAccountDetail, 0, len(idx.Accounts))
 	for _, a := range idx.Accounts {
-		detail, err := DecryptAccountDetail(a.ID)
+		detail, err := DecryptAccountByExactID(a.ID)
 		if err != nil {
 			continue
 		}

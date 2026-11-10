@@ -97,7 +97,7 @@ async function handleTunnelRegister(request, env) {
   const tunnelName = `mgy-${shortId}`;
   const subdomain = `${shortId}.${BASE_DOMAIN}`;
   const reqPort = String(body.target_port || "").trim();
-  const targetPort = (reqPort === "58900" || reqPort === "58990") ? reqPort : (env.TARGET_PORT || "58900");
+  const targetPort = reqPort === "58900" ? reqPort : (env.TARGET_PORT || "58900");
 
   const cfHeaders = {
     "Authorization": `Bearer ${CF_API_TOKEN}`,

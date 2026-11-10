@@ -285,6 +285,9 @@ func (p *Proxy) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Warn(fmt.Sprintf("[WS] Upstream dial failed (%s)", upstreamURL), "err", err)
 		if resp != nil {
+			if resp.Body != nil {
+				_ = resp.Body.Close()
+			}
 			slog.Info(fmt.Sprintf("[WS] Upstream response status: %d", resp.StatusCode))
 		}
 		clientConn.WriteMessage(websocket.CloseMessage,
