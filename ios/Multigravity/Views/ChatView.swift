@@ -28,6 +28,8 @@ public struct ChatView: View {
     @State var showCameraPermissionAlert = false
     @State var showMicrophonePermissionAlert = false
     @State var showOtherSessionRecordingAlert = false
+    @State var showSendQueuedNowConfirmAlert = false
+    @State var queuedItemToSendNow: QueuedMessageItem? = nil
     @ObservedObject var audioRecorder = AudioRecorderManager.shared
     @ObservedObject var voiceCall = VoiceCallManager.shared
     @State var showVoiceTroubleshootBubble = false
@@ -406,6 +408,21 @@ public struct ChatView: View {
             showOtherSessionRecordingAlert: $showOtherSessionRecordingAlert,
             audioRecorder: audioRecorder
         ))
+        .alert("后台任务正在执行", isPresented: $showSendQueuedNowConfirmAlert) {
+            Button("取消", role: .cancel) {
+                queuedItemToSendNow = nil
+            }
+            Button("仍要立即发送", role: .destructive) {
+                if let item = queuedItemToSendNow {
+                    Task {
+                        await viewModel.sendQueuedMessageNow(item: item)
+                    }
+                }
+                queuedItemToSendNow = nil
+            }
+        } message: {
+            Text("当前有正在运行的后台命令或子代理。立即发送将提前触发下一轮对话，可能会导致后台任务被中断或产生冲突。确定仍要立即发送吗？")
+        }
     }
     
     private func checkPendingLiveRecording() {

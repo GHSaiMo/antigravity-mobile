@@ -284,7 +284,7 @@ extension SettingsSheet {
                 Text(selection.wrappedValue).tag(selection.wrappedValue)
             }
             ForEach(options) { option in
-                let label = (option.tag?.isEmpty == false) ? "\(option.name) · \(option.tag!)" : option.name
+                let label = ModelDefaultsLogic.formatPickerLabel(name: option.name, tag: option.tag)
                 Text(label).tag(option.id)
             }
         }

@@ -874,6 +874,51 @@ object VoiceTranscriptCleaner {
         RegexOption.IGNORE_CASE
     )
 
+    fun isCJK(codePoint: Int): Boolean {
+        return (codePoint in 0x4E00..0x9FFF) ||
+               (codePoint in 0x3400..0x4DBF) ||
+               (codePoint in 0x3040..0x309F) ||
+               (codePoint in 0x30A0..0x30FF) ||
+               (codePoint in 0xAC00..0xD7AF) ||
+               (codePoint in 0x3000..0x303F) ||
+               (codePoint in 0xFF01..0xFF60)
+    }
+
+    /**
+     * 规范化中日韩（CJK）语音识别转文字的字间空格。
+     * 语音听写流式吐字时经常在汉字/假名间携带临时空格（如 "我 想 问 一 下" -> "我想问一下"），
+     * 本方法剔除 CJK 字符以及全角标点之间的冗余空格，同时完整保留英文单词及数字间的正常空格。
+     */
+    fun normalizeCJKSpacing(text: String): String {
+        if (text.isEmpty()) return text
+        val sb = StringBuilder(text.length)
+        var i = 0
+        val n = text.length
+        while (i < n) {
+            val c = text[i]
+            if (c.isWhitespace()) {
+                val prevCp = if (sb.isNotEmpty()) sb.codePointBefore(sb.length) else -1
+                var j = i + 1
+                while (j < n && text[j].isWhitespace()) {
+                    j++
+                }
+                val nextCp = if (j < n) text.codePointAt(j) else -1
+                if (prevCp != -1 && isCJK(prevCp) && nextCp != -1 && isCJK(nextCp)) {
+                    i = j
+                    continue
+                } else {
+                    sb.append(' ')
+                    i = j
+                    continue
+                }
+            } else {
+                sb.append(c)
+                i++
+            }
+        }
+        return sb.toString().trim()
+    }
+
     fun isVoiceMessage(body: String, files: List<AttachmentRules.ParsedFile> = emptyList()): Boolean {
         val trimmed = body.trim()
         return trimmed.contains("<talker_agent_context>") ||
@@ -911,7 +956,8 @@ object VoiceTranscriptCleaner {
                     text = text.substring(0, text.length - 1).trim()
                 }
                 if (text.isNotEmpty()) {
-                    val formatted = "$currentRole$text"
+                    val normalizedText = normalizeCJKSpacing(text)
+                    val formatted = "$currentRole$normalizedText"
                     if (cleaned.isEmpty() || cleaned.last() != formatted) {
                         cleaned.add(formatted)
                     }

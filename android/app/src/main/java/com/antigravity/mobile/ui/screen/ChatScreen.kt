@@ -192,6 +192,8 @@ fun ChatScreen(
     // 对话导轨与章节大纲状态 (Antigravity 2.28.1 对齐)
     var showNavigatorSheet by remember { mutableStateOf(false) }
     var showMcpSkillsSheet by remember { mutableStateOf(false) }
+    var showSendQueuedNowConfirmDialog by remember { mutableStateOf(false) }
+    var queuedItemToSendNow by remember { mutableStateOf<com.antigravity.mobile.data.model.QueuedMessageItem?>(null) }
     var lockedTurnIndex by remember { mutableStateOf<Int?>(null) }
     var isSlashPickerDismissed by remember { mutableStateOf(false) }
     var previousInputTextForSlash by remember { mutableStateOf(inputText) }
@@ -1239,11 +1241,20 @@ fun ChatScreen(
                     }
 
                     if (uiState.queuedMessages.isNotEmpty()) {
+                        val hasActiveBackgroundWork = isActivelyRunningForCards ||
+                                uiState.runningTasks.isNotEmpty() ||
+                                runningSubagents.isNotEmpty()
                         QueuedMessagesCard(
                             items = uiState.queuedMessages,
-                            onSendNow = {
+                            hasActiveBackgroundWork = hasActiveBackgroundWork,
+                            onSendNow = { item ->
                                 dismissKeyboard()
-                                viewModel.sendQueuedMessageNow(it)
+                                if (hasActiveBackgroundWork) {
+                                    queuedItemToSendNow = item
+                                    showSendQueuedNowConfirmDialog = true
+                                } else {
+                                    viewModel.sendQueuedMessageNow(item)
+                                }
                             },
                             onEdit = { viewModel.editQueuedMessage(it) },
                             onDelete = { viewModel.deleteQueuedMessage(it) },
@@ -1831,6 +1842,60 @@ fun ChatScreen(
                 }
             }
         }
+    }
+
+    // Confirm send queued message now while background work is active
+    if (showSendQueuedNowConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showSendQueuedNowConfirmDialog = false
+                queuedItemToSendNow = null
+            },
+            title = {
+                Text(
+                    text = "后台任务正在执行",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 17.sp,
+                    color = colors.textPrimary
+                )
+            },
+            text = {
+                Text(
+                    text = "当前有正在运行的后台命令或子代理。立即发送将提前触发下一轮对话，可能会导致后台任务被中断或产生冲突。确定仍要立即发送吗？",
+                    fontSize = 14.sp,
+                    color = colors.textSecondary,
+                    lineHeight = 20.sp
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val item = queuedItemToSendNow
+                        showSendQueuedNowConfirmDialog = false
+                        queuedItemToSendNow = null
+                        if (item != null) {
+                            viewModel.sendQueuedMessageNow(item)
+                        }
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = colors.accentRed)
+                ) {
+                    Text("仍要立即发送", fontWeight = FontWeight.SemiBold)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showSendQueuedNowConfirmDialog = false
+                        queuedItemToSendNow = null
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = colors.textSecondary)
+                ) {
+                    Text("取消")
+                }
+            },
+            containerColor = colors.surface,
+            shape = RoundedCornerShape(16.dp)
+        )
     }
 }
 

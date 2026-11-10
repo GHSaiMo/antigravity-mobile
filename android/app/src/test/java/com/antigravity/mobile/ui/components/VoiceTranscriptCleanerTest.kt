@@ -72,4 +72,18 @@ class VoiceTranscriptCleanerTest {
         val expected = "用户: 测试问题\n\n智能体: 测试回答"
         assertEquals(expected, cleaned)
     }
+
+    @Test
+    fun testNormalizeCJKSpacing() {
+        val raw = "我 想 问 一 下 关 于 这 个 项 目 的 进 展"
+        val expected = "我想问一下关于这个项目的进展"
+        assertEquals(expected, VoiceTranscriptCleaner.normalizeCJKSpacing(raw))
+
+        val mixed = "你 好   ，   我 是 智 能 体 ， 请 问 Hello World 怎么写？"
+        val expectedMixed = "你好，我是智能体，请问 Hello World 怎么写？"
+        assertEquals(expectedMixed, VoiceTranscriptCleaner.normalizeCJKSpacing(mixed))
+
+        val englishPreserved = "Hello World this is Antigravity 2.31.0"
+        assertEquals(englishPreserved, VoiceTranscriptCleaner.normalizeCJKSpacing(englishPreserved))
+    }
 }

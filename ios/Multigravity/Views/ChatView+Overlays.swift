@@ -37,11 +37,18 @@ extension ChatView {
         }
 
         if !viewModel.queuedMessages.isEmpty {
+            let hasActiveBgWork = viewModel.isActivelyRunning || !viewModel.runningTasks.isEmpty || viewModel.subagents.contains { $0.isRunning }
             QueuedMessagesCardView(
                 items: viewModel.queuedMessages,
+                hasActiveBackgroundWork: hasActiveBgWork,
                 onSendNow: { item in
-                    Task {
-                        await viewModel.sendQueuedMessageNow(item: item)
+                    if hasActiveBgWork {
+                        queuedItemToSendNow = item
+                        showSendQueuedNowConfirmAlert = true
+                    } else {
+                        Task {
+                            await viewModel.sendQueuedMessageNow(item: item)
+                        }
                     }
                 },
                 onEdit: { item in
