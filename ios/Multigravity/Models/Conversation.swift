@@ -23,6 +23,7 @@ public struct TrajectorySummary: Codable, Sendable {
     public let hasRunningSubagents: Bool?
     public let notFullyIdle: Bool?
     public let backgroundTaskCount: Int?
+    public let workspaceName: String?
     
     public var isSubagent: Bool {
         if let parent = parentConversationId, !parent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -327,7 +328,12 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
             ?? summary.workspaces?.first?.workspaceFolderAbsoluteUri
             ?? ""
         let parts = wsUri.split(separator: "/").filter { !$0.isEmpty }
-        self.workspaceName = parts.last.map(String.init) ?? "Chat"
+        if let explicitWsName = summary.workspaceName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !explicitWsName.isEmpty {
+            self.workspaceName = explicitWsName
+        } else {
+            self.workspaceName = parts.last.map(String.init) ?? "Chat"
+        }
         
         if let timeStr = summary.lastModifiedTime {
             let formatter = ISO8601DateFormatter()
