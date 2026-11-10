@@ -197,11 +197,11 @@ public struct ChatView: View {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     showMcpSkillsSheet = true
                 }) {
-                    Image(systemName: "wrench.and.screwdriver")
+                    Image(systemName: viewModel.hasAnyBackgroundTasks ? "terminal" : "wrench.and.screwdriver")
                         .font(.system(size: 14, weight: .medium))
                         .foregroundColor(.indigo)
                 }
-                .accessibilityLabel("打开已连接工具与技能看板")
+                .accessibilityLabel(viewModel.hasAnyBackgroundTasks ? "打开后台任务与工具看板" : "打开已连接工具与技能看板")
             }
         }
         .background(SwipeBackEnabler())
@@ -299,6 +299,7 @@ public struct ChatView: View {
                 turns: viewModel.turns,
                 chapters: viewModel.chapters,
                 currentTurnIndex: currentVisibleTurnIndex,
+                isLoadingChapterTitles: viewModel.isLoadingChapterTitles,
                 onSelectTurn: { turn in
                     lockedTurnIndex = turn.turnIndex
                     currentVisibleTurnIndex = turn.turnIndex
@@ -318,6 +319,9 @@ public struct ChatView: View {
                     targetScrollTurnId = "BOTTOM_ANCHOR"
                 }
             )
+            .onAppear {
+                viewModel.refreshChapterTitles()
+            }
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
         }
@@ -328,9 +332,21 @@ public struct ChatView: View {
             .ignoresSafeArea()
         }
         .sheet(isPresented: $showMcpSkillsSheet) {
-            McpSkillsSheet()
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
+            McpSkillsSheet(
+                initialTab: viewModel.hasAnyBackgroundTasks ? .tasks : .mcp,
+                currentConversationId: viewModel.cascadeId,
+                onSelectConversation: { targetId in
+                    NotificationCenter.default.post(
+                        name: .openConversationFromTaskCenter,
+                        object: targetId
+                    )
+                },
+                onTasksChanged: { updated in
+                    viewModel.globalBackgroundTasks = updated
+                }
+            )
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
         }
         .overlay {
             if viewModel.isDownloadingDocument {

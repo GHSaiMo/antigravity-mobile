@@ -229,7 +229,7 @@ else
         cp -f "./bin/${BIN_NAME}" "${INSTALL_DIR}/${BIN_NAME}"
     elif command -v go >/dev/null 2>&1 && [ -f "go.mod" ]; then
         echo "🔨 检测到本地 Go 编译环境，正在就地编译..."
-        go build -ldflags="-s -w -X 'main.Version=1.0.5'" -o "${INSTALL_DIR}/${BIN_NAME}" ./cmd/gateway
+        go build -ldflags="-s -w -X 'main.Version=1.1.4'" -o "${INSTALL_DIR}/${BIN_NAME}" ./cmd/gateway
     else
         echo "❌ 无法下载 Release 预编译包且无可用本地环境。"
         echo "   您可以尝试开启代理或手动访问以下地址下载解压:"

@@ -106,6 +106,17 @@ extension APIClient {
         )
     }
 
+    public func fetchChapterTitles(cascadeId: String, ranges: [CascadeStepRange], baseURL: URL) async throws -> [CascadeChapterTitleItem] {
+        let resp: CascadeChaptersResponse = try await gatewayPost(
+            path: "gateway/cascade/chapters",
+            body: CascadeChaptersRequest(cascadeId: cascadeId, ranges: ranges),
+            baseURL: baseURL,
+            timeout: 12,
+            failurePrefix: "获取章节标题失败"
+        )
+        return resp.chapters
+    }
+
     public func fetchGitStatus(cascadeId: String, baseURL: URL) async throws -> GitStatusResponse {
         try await gatewayPost(
             path: "gateway/git/status",
@@ -173,5 +184,33 @@ extension APIClient {
             baseURL: baseURL
         )
         return resp.skills ?? []
+    }
+
+    /// 获取全局所有正在运行的后台任务（language_server ListBackgroundTasks，经网关补全会话与工作区信息）。
+    public func fetchGlobalBackgroundTasks(baseURL: URL) async throws -> [GlobalBackgroundTaskItem] {
+        let resp: GlobalBackgroundTasksResponse = try await gatewayPost(
+            path: "gateway/tasks/background",
+            body: EmptyBody(),
+            baseURL: baseURL,
+            timeout: 10,
+            failurePrefix: "获取后台任务失败"
+        )
+        return resp.tasks
+    }
+
+    /// 读取后台任务日志文件的最新尾部内容（/gateway/tasks/background/log）。
+    public func fetchBackgroundTaskLog(
+        conversationId: String,
+        taskId: String,
+        logUri: String?,
+        baseURL: URL
+    ) async throws -> BackgroundTaskLogResponse {
+        try await gatewayPost(
+            path: "gateway/tasks/background/log",
+            body: BackgroundTaskLogRequest(conversationId: conversationId, taskId: taskId, logUri: logUri),
+            baseURL: baseURL,
+            timeout: 10,
+            failurePrefix: "读取日志失败"
+        )
     }
 }

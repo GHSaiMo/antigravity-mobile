@@ -31,6 +31,25 @@ public struct GitFileStatus: Codable, Sendable, Identifiable, Hashable {
     public let status: String
 }
 
+public struct GitHubBranchTarget: Codable, Sendable, Hashable {
+    public let host: String?
+    public let owner: String
+    public let repo: String
+    public let branch: String?
+}
+
+public struct GitPullRequestItem: Codable, Sendable, Identifiable, Hashable {
+    public var id: String { "\(number)-\(url)" }
+    public let number: Int
+    public let title: String
+    public let url: String
+    /// OPEN / DRAFT / MERGED / CLOSED
+    public let state: String
+    public let authorLogin: String?
+    public let headRefName: String?
+    public let baseRefName: String?
+}
+
 public struct GitStatusResponse: Codable, Sendable {
     public let repoName: String
     public let branch: String
@@ -40,6 +59,48 @@ public struct GitStatusResponse: Codable, Sendable {
     public let detached: Bool
     public let files: [GitFileStatus]
     public let clean: Bool
+    public let githubTarget: GitHubBranchTarget?
+    public let pullRequests: [GitPullRequestItem]?
+}
+
+// MARK: - 会话章节目录 TOC (Antigravity 2.30.0 GetChapterTitles)
+
+public struct CascadeStepRange: Codable, Sendable, Hashable {
+    public let startStepIndex: Int
+    public let endStepIndexExclusive: Int
+
+    public init(startStepIndex: Int, endStepIndexExclusive: Int) {
+        self.startStepIndex = startStepIndex
+        self.endStepIndexExclusive = endStepIndexExclusive
+    }
+}
+
+public struct CascadeChapterTitleItem: Codable, Sendable, Hashable {
+    public let startStepIndex: Int
+    public let endStepIndexExclusive: Int
+    public let title: String
+    public let generatedAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case startStepIndex, endStepIndexExclusive, title, generatedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        startStepIndex = try c.decodeIfPresent(Int.self, forKey: .startStepIndex) ?? 0
+        endStepIndexExclusive = try c.decodeIfPresent(Int.self, forKey: .endStepIndexExclusive) ?? 0
+        title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
+        generatedAt = try c.decodeIfPresent(String.self, forKey: .generatedAt)
+    }
+}
+
+struct CascadeChaptersRequest: Encodable {
+    let cascadeId: String
+    let ranges: [CascadeStepRange]
+}
+
+public struct CascadeChaptersResponse: Codable, Sendable {
+    public let chapters: [CascadeChapterTitleItem]
 }
 
 struct GitCascadeRequest: Encodable {
@@ -512,3 +573,132 @@ public enum SlashCommandTextTokenizer {
         return segments
     }
 }
+
+// MARK: - 全局后台任务中心 (ListBackgroundTasks)
+
+public extension Notification.Name {
+    static let openConversationFromTaskCenter = Notification.Name("openConversationFromTaskCenter")
+}
+
+public struct GlobalBackgroundTaskItem: Codable, Sendable, Identifiable, Equatable {
+    public var id: String { "\(conversationId):\(taskId):\(stepIndex)" }
+    public let conversationId: String
+    public let conversationTitle: String
+    public let workspaceName: String?
+    public let taskId: String
+    public let stepIndex: Int
+    public let toolName: String?
+    public let toolSummary: String?
+    public let commandLine: String
+    public let startTime: String?
+    public let logUri: String?
+    public let isDaemon: Bool
+
+    public init(
+        conversationId: String,
+        conversationTitle: String = "未命名会话",
+        workspaceName: String? = nil,
+        taskId: String,
+        stepIndex: Int,
+        toolName: String? = nil,
+        toolSummary: String? = nil,
+        commandLine: String = "",
+        startTime: String? = nil,
+        logUri: String? = nil,
+        isDaemon: Bool = false
+    ) {
+        self.conversationId = conversationId
+        self.conversationTitle = conversationTitle
+        self.workspaceName = workspaceName
+        self.taskId = taskId
+        self.stepIndex = stepIndex
+        self.toolName = toolName
+        self.toolSummary = toolSummary
+        self.commandLine = commandLine
+        self.startTime = startTime
+        self.logUri = logUri
+        self.isDaemon = isDaemon
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        conversationId = try c.decodeIfPresent(String.self, forKey: .conversationId) ?? ""
+        let rawTitle = try c.decodeIfPresent(String.self, forKey: .conversationTitle)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        conversationTitle = rawTitle.isEmpty ? "未命名会话" : rawTitle
+        let rawWs = try c.decodeIfPresent(String.self, forKey: .workspaceName)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        workspaceName = rawWs.isEmpty ? nil : rawWs
+        taskId = try c.decodeIfPresent(String.self, forKey: .taskId) ?? ""
+        stepIndex = try c.decodeIfPresent(Int.self, forKey: .stepIndex) ?? 0
+        toolName = try c.decodeIfPresent(String.self, forKey: .toolName)
+        toolSummary = try c.decodeIfPresent(String.self, forKey: .toolSummary)
+        commandLine = try c.decodeIfPresent(String.self, forKey: .commandLine) ?? ""
+        startTime = try c.decodeIfPresent(String.self, forKey: .startTime)
+        logUri = try c.decodeIfPresent(String.self, forKey: .logUri)
+        isDaemon = try c.decodeIfPresent(Bool.self, forKey: .isDaemon) ?? false
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case conversationId, conversationTitle, workspaceName, taskId, stepIndex
+        case toolName, toolSummary, commandLine, startTime, logUri, isDaemon
+    }
+
+    public var displayTitle: String {
+        if let s = toolSummary?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty {
+            return s
+        }
+        if toolName == "schedule" {
+            return "定时任务"
+        }
+        return isDaemon ? "常驻守护进程" : "后台终端命令"
+    }
+
+    public var elapsedText: String? {
+        guard let raw = startTime, !raw.isEmpty else { return nil }
+        let fmtFrac = ISO8601DateFormatter()
+        fmtFrac.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let fmtStd = ISO8601DateFormatter()
+        fmtStd.formatOptions = [.withInternetDateTime]
+        guard let date = fmtFrac.date(from: raw) ?? fmtStd.date(from: raw) else { return nil }
+        let sec = max(0, Int(Date().timeIntervalSince(date)))
+        if sec < 60 { return "\(sec)s" }
+        let min = sec / 60
+        if min < 60 { return "\(min)m \(sec % 60)s" }
+        let hr = min / 60
+        return "\(hr)h \(min % 60)m"
+    }
+}
+
+struct GlobalBackgroundTasksResponse: Decodable {
+    let tasks: [GlobalBackgroundTaskItem]
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        tasks = try c.decodeIfPresent([GlobalBackgroundTaskItem].self, forKey: .tasks) ?? []
+    }
+    enum CodingKeys: String, CodingKey { case tasks }
+}
+
+struct BackgroundTaskLogRequest: Encodable {
+    let conversationId: String
+    let taskId: String
+    let logUri: String?
+}
+
+public struct BackgroundTaskLogResponse: Decodable, Sendable {
+    public let taskId: String
+    public let logUri: String
+    public let content: String
+    public let truncated: Bool
+    public let sizeBytes: Int64
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        taskId = try c.decodeIfPresent(String.self, forKey: .taskId) ?? ""
+        logUri = try c.decodeIfPresent(String.self, forKey: .logUri) ?? ""
+        content = try c.decodeIfPresent(String.self, forKey: .content) ?? ""
+        truncated = try c.decodeIfPresent(Bool.self, forKey: .truncated) ?? false
+        sizeBytes = try c.decodeIfPresent(Int64.self, forKey: .sizeBytes) ?? 0
+    }
+    enum CodingKeys: String, CodingKey { case taskId, logUri, content, truncated, sizeBytes }
+}
+

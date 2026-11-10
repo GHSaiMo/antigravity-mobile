@@ -77,6 +77,7 @@ fun ConversationListScreen(
     val isSearchingContent by viewModel.isSearchingContent.collectAsStateWithLifecycle()
     val quotaData by viewModel.quotaData.collectAsStateWithLifecycle()
     val isRefreshingQuota by viewModel.isRefreshingQuota.collectAsStateWithLifecycle()
+    val globalBackgroundTasks by viewModel.globalBackgroundTasks.collectAsStateWithLifecycle()
     val projects by viewModel.projects.collectAsStateWithLifecycle()
     val isLoadingProjects by viewModel.isLoadingProjects.collectAsStateWithLifecycle()
     val projectsError by viewModel.projectsError.collectAsStateWithLifecycle()
@@ -87,6 +88,7 @@ fun ConversationListScreen(
     }
 
     var showQuotaSheet by remember { mutableStateOf(false) }
+    var showBackgroundTasksSheet by remember { mutableStateOf(false) }
     var showNewConvSheet by remember { mutableStateOf(false) }
     var showSettingsSheet by remember { mutableStateOf(false) }
 
@@ -289,6 +291,7 @@ fun ConversationListScreen(
                             conversations = state.conversations,
                             listState = listState,
                             quotaData = quotaData,
+                            globalBackgroundTasks = globalBackgroundTasks,
                             compat = compat,
                             searchQuery = searchQuery,
                             contentResults = contentResults.filter { hit -> state.conversations.none { it.id == hit.cascadeId } },
@@ -310,6 +313,10 @@ fun ConversationListScreen(
                             onQuotaTap = {
                                 swipedConversationId = null
                                 showQuotaSheet = true
+                            },
+                            onBackgroundTasksTap = {
+                                swipedConversationId = null
+                                showBackgroundTasksSheet = true
                             },
                             onRefresh = { viewModel.loadConversations() },
                             hasDraftFor = { viewModel.prefs.hasDraft(it) },
@@ -526,6 +533,25 @@ fun ConversationListScreen(
             onRefresh = { viewModel.refreshQuotas() },
             onSwitchAccount = { viewModel.switchCockpitAccount(it) },
             onDismiss = { showQuotaSheet = false }
+        )
+    }
+
+    if (showBackgroundTasksSheet) {
+        McpSkillsSheet(
+            initialTab = 2,
+            onSelectConversation = { cascadeId, title ->
+                val known = viewModel.getConversation(cascadeId)
+                onSelectConversation(
+                    cascadeId,
+                    known?.displayTitle ?: title.ifBlank { "会话详情" },
+                    false,
+                    known?.isUnread ?: false,
+                    known?.status ?: com.antigravity.mobile.data.model.ConversationStatus.RUNNING,
+                    known?.lastModifiedTime
+                )
+            },
+            onTasksChanged = { viewModel.updateGlobalBackgroundTasks(it) },
+            onDismiss = { showBackgroundTasksSheet = false }
         )
     }
 
@@ -750,6 +776,7 @@ private fun ConversationListContent(
     conversations: List<ConversationItem>,
     listState: LazyListState,
     quotaData: CockpitQuotaResponse?,
+    globalBackgroundTasks: List<com.antigravity.mobile.data.model.GlobalBackgroundTaskItem>,
     compat: com.antigravity.mobile.data.model.GatewayCompat,
     searchQuery: String,
     contentResults: List<com.antigravity.mobile.data.model.ConversationSearchResult>,
@@ -759,6 +786,7 @@ private fun ConversationListContent(
     topPadding: Dp,
     onEasterEggTap: () -> Unit,
     onQuotaTap: () -> Unit,
+    onBackgroundTasksTap: () -> Unit,
     onRefresh: () -> Unit,
     hasDraftFor: (String) -> Boolean,
     onSelect: (cascadeId: String, title: String, isNew: Boolean, isUnread: Boolean, status: com.antigravity.mobile.data.model.ConversationStatus, lastModifiedTime: String?) -> Unit,
@@ -830,6 +858,48 @@ private fun ConversationListContent(
                         onTap = onQuotaTap,
                         showPaceCursor = showWeeklyPaceCursor,
                         modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        }
+
+        // Global Background Tasks Capsule (appears right below QuotaStatusBar when count > 0)
+        if (globalBackgroundTasks.isNotEmpty()) {
+            item(key = "header_global_tasks") {
+                val count = globalBackgroundTasks.size
+                val daemonCount = globalBackgroundTasks.count { it.isDaemon }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(CircleShape)
+                        .background(colors.surface)
+                        .border(0.8.dp, colors.accentIndigo.copy(alpha = 0.28f), CircleShape)
+                        .clickable { onBackgroundTasksTap() }
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = ">_",
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.accentIndigo
+                    )
+                    Text(
+                        text = if (daemonCount > 0) "${count} 个后台任务运行中（${daemonCount} 个常驻）" else "${count} 个后台任务运行中",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = colors.textPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        text = "管理 ›",
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = colors.accentIndigo
                     )
                 }
             }

@@ -11,18 +11,40 @@ public struct McpSkillsSheet: View {
     
     @State private var mcpServers: [McpServerState] = []
     @State private var skills: [SkillInfo] = []
+    @State private var backgroundTasks: [GlobalBackgroundTaskItem] = []
     
     @State private var expandedServerNames: Set<String> = []
     @State private var expandedToolIds: Set<String> = []
     @State private var viewingSkill: SkillInfo? = nil
     
+    @State private var expandedLogTaskIds: Set<String> = []
+    @State private var taskLogs: [String: String] = [:]
+    @State private var loadingLogTaskIds: Set<String> = []
+    @State private var stoppingTaskIds: Set<String> = []
+    @State private var copiedTaskId: String? = nil
+    
+    private let currentConversationId: String?
+    private let onSelectConversation: ((String) -> Void)?
+    private let onTasksChanged: (([GlobalBackgroundTaskItem]) -> Void)?
+    
     public enum Tab: String, CaseIterable, Identifiable {
         case mcp = "MCP 服务"
         case skills = "扩展技能"
+        case tasks = "后台任务"
         public var id: String { rawValue }
     }
     
-    public init() {}
+    public init(
+        initialTab: Tab = .mcp,
+        currentConversationId: String? = nil,
+        onSelectConversation: ((String) -> Void)? = nil,
+        onTasksChanged: (([GlobalBackgroundTaskItem]) -> Void)? = nil
+    ) {
+        self._selectedTab = State(initialValue: initialTab)
+        self.currentConversationId = currentConversationId
+        self.onSelectConversation = onSelectConversation
+        self.onTasksChanged = onTasksChanged
+    }
     
     public var body: some View {
         NavigationStack {
@@ -31,6 +53,7 @@ public struct McpSkillsSheet: View {
                 Picker("类别", selection: $selectedTab) {
                     Text("MCP 服务 (\(mcpServers.count))").tag(Tab.mcp)
                     Text("技能清单 (\(skills.count))").tag(Tab.skills)
+                    Text("后台任务 (\(backgroundTasks.count))").tag(Tab.tasks)
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal, 16)
@@ -38,30 +61,33 @@ public struct McpSkillsSheet: View {
                 .padding(.bottom, 8)
                 
                 // Content
-                if isLoading && mcpServers.isEmpty && skills.isEmpty {
+                if isLoading && mcpServers.isEmpty && skills.isEmpty && backgroundTasks.isEmpty {
                     Spacer()
-                    ProgressView("正在检测已连接服务与技能...")
+                    ProgressView("正在检测已连接服务与后台任务...")
                         .font(.system(size: 14))
                         .foregroundColor(.secondary)
                     Spacer()
-                } else if let error = errorMessage, mcpServers.isEmpty && skills.isEmpty {
+                } else if let error = errorMessage, mcpServers.isEmpty && skills.isEmpty && backgroundTasks.isEmpty {
                     errorStateView(error)
                 } else {
                     List {
-                        if selectedTab == .mcp {
+                        switch selectedTab {
+                        case .mcp:
                             mcpServersSection
-                        } else {
+                        case .skills:
                             skillsSection
+                        case .tasks:
+                            backgroundTasksSection
                         }
                     }
                     .listStyle(.insetGrouped)
-                    .searchable(text: $searchText, prompt: selectedTab == .mcp ? "搜索 MCP 服务或工具名称" : "搜索技能名称或描述")
+                    .searchable(text: $searchText, prompt: searchPrompt)
                     .refreshable {
                         await loadData()
                     }
                 }
             }
-            .navigationTitle("工具与技能看板")
+            .navigationTitle("工具与任务看板")
             .navigationBarTitleDisplayMode(.inline)
             .sheet(item: $viewingSkill) { skill in
                 skillDetailSheet(skill)
@@ -72,6 +98,14 @@ public struct McpSkillsSheet: View {
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
+    }
+    
+    private var searchPrompt: String {
+        switch selectedTab {
+        case .mcp: return "搜索 MCP 服务或工具名称"
+        case .skills: return "搜索技能名称或描述"
+        case .tasks: return "搜索命令、会话标题或工作区"
+        }
     }
     
     // MARK: - MCP Servers Section
@@ -459,6 +493,334 @@ public struct McpSkillsSheet: View {
         }
     }
     
+    // MARK: - Background Tasks Section
+
+    private var filteredBackgroundTasks: [GlobalBackgroundTaskItem] {
+        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if q.isEmpty { return backgroundTasks }
+        return backgroundTasks.filter { t in
+            t.displayTitle.lowercased().contains(q) ||
+            t.commandLine.lowercased().contains(q) ||
+            t.conversationTitle.lowercased().contains(q) ||
+            (t.workspaceName?.lowercased().contains(q) == true)
+        }
+    }
+
+    @ViewBuilder
+    private var backgroundTasksSection: some View {
+        let list = filteredBackgroundTasks
+        if list.isEmpty {
+            Section {
+                VStack(spacing: 10) {
+                    Image(systemName: "terminal")
+                        .font(.system(size: 32))
+                        .foregroundColor(.secondary)
+                    Text(searchText.isEmpty ? "当前没有正在运行的后台任务" : "未找到匹配的后台任务")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.secondary)
+                    if searchText.isEmpty {
+                        Text("各会话中执行的后台终端命令、常驻开发服务器与定时任务会实时汇总在此处")
+                            .font(.system(size: 12))
+                            .foregroundColor(Color(.tertiaryLabel))
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 24)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 28)
+            }
+        } else {
+            if list.count > 1 {
+                Section {
+                    Button(role: .destructive) {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        Task { await stopAllBackgroundTasks(list) }
+                    } label: {
+                        HStack {
+                            Image(systemName: "stop.circle.fill")
+                            Text("一键停止全部后台任务 (\(list.count))")
+                                .font(.system(size: 14, weight: .semibold))
+                            Spacer()
+                        }
+                    }
+                }
+            }
+
+            let currentTasks = list.filter { $0.conversationId == currentConversationId }
+            let otherTasks = list.filter { $0.conversationId != currentConversationId }
+
+            if !currentTasks.isEmpty {
+                Section(header: Text("当前会话任务 (\(currentTasks.count))")) {
+                    ForEach(currentTasks) { task in
+                        backgroundTaskRow(task, isCurrentSession: true)
+                    }
+                }
+            }
+
+            if !otherTasks.isEmpty {
+                Section(header: Text(currentConversationId != nil ? "其他会话任务 (\(otherTasks.count))" : "正在运行的后台任务 (\(otherTasks.count))")) {
+                    ForEach(otherTasks) { task in
+                        backgroundTaskRow(task, isCurrentSession: false)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func backgroundTaskRow(_ task: GlobalBackgroundTaskItem, isCurrentSession: Bool) -> some View {
+        let isStopping = stoppingTaskIds.contains(task.id)
+        let isLogExpanded = expandedLogTaskIds.contains(task.id)
+        let isLoadingLog = loadingLogTaskIds.contains(task.id)
+        let isCopied = copiedTaskId == task.id
+
+        VStack(alignment: .leading, spacing: 8) {
+            // 1. Header: Type Badge + Title + Elapsed + Stop Button
+            HStack(alignment: .center, spacing: 6) {
+                let badgeTitle = task.isDaemon ? "常驻守护" : (task.toolName == "schedule" ? "定时任务" : "后台命令")
+                let badgeColor: Color = task.isDaemon ? .purple : (task.toolName == "schedule" ? .orange : .indigo)
+
+                Text(badgeTitle)
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .foregroundColor(badgeColor)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(badgeColor.opacity(0.12))
+                    .clipShape(Capsule())
+
+                Text(task.displayTitle)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+
+                if let elapsed = task.elapsedText {
+                    Text(elapsed)
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color(.tertiarySystemFill))
+                        .clipShape(Capsule())
+                }
+
+                Spacer()
+
+                Button {
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    Task { await stopSingleTask(task) }
+                } label: {
+                    if isStopping {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "stop.circle.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(.red.opacity(0.9))
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(isStopping)
+            }
+
+            // 2. Session & Workspace Bar (Clickable to jump when not current session)
+            Button {
+                guard !isCurrentSession, let onSelect = onSelectConversation else { return }
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                dismiss()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    onSelect(task.conversationId)
+                }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: isCurrentSession ? "bubble.left.fill" : "folder.fill")
+                        .font(.system(size: 11))
+                        .foregroundColor(.indigo)
+                    if let ws = task.workspaceName, !ws.isEmpty {
+                        Text(ws)
+                            .font(.system(size: 11.5, weight: .semibold))
+                            .foregroundColor(.indigo)
+                        Text("·")
+                            .font(.system(size: 11.5))
+                            .foregroundColor(.secondary)
+                    }
+                    Text(task.conversationTitle)
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                    Spacer()
+                    if !isCurrentSession && onSelectConversation != nil {
+                        HStack(spacing: 2) {
+                            Text("跳转会话")
+                                .font(.system(size: 11, weight: .medium))
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 9.5, weight: .bold))
+                        }
+                        .foregroundColor(.indigo)
+                    }
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(Color(.secondarySystemBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            }
+            .buttonStyle(.plain)
+
+            // 3. Command Line + Copy + Log Toggle
+            if !task.commandLine.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(task.commandLine)
+                        .font(.system(size: 11.5, design: .monospaced))
+                        .foregroundColor(.primary.opacity(0.88))
+                        .lineLimit(3)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(8)
+                        .background(Color(.tertiarySystemFill))
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+                    HStack(spacing: 12) {
+                        Button {
+                            UIPasteboard.general.string = task.commandLine
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            copiedTaskId = task.id
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                                if copiedTaskId == task.id { copiedTaskId = nil }
+                            }
+                        } label: {
+                            HStack(spacing: 3) {
+                                Image(systemName: isCopied ? "checkmark" : "doc.on.doc")
+                                    .font(.system(size: 11))
+                                Text(isCopied ? "已复制命令" : "复制命令")
+                                    .font(.system(size: 11.5, weight: .medium))
+                            }
+                            .foregroundColor(isCopied ? .green : .secondary)
+                        }
+                        .buttonStyle(.plain)
+
+                        if let logUri = task.logUri, !logUri.isEmpty {
+                            Button {
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                if isLogExpanded {
+                                    expandedLogTaskIds.remove(task.id)
+                                } else {
+                                    expandedLogTaskIds.insert(task.id)
+                                    Task { await fetchTaskLog(task) }
+                                }
+                            } label: {
+                                HStack(spacing: 3) {
+                                    Image(systemName: "text.alignleft")
+                                        .font(.system(size: 11))
+                                    Text(isLogExpanded ? "收起终端日志" : "查看最新终端日志")
+                                        .font(.system(size: 11.5, weight: .medium))
+                                }
+                                .foregroundColor(.indigo)
+                            }
+                            .buttonStyle(.plain)
+                        }
+
+                        if isLogExpanded {
+                            Spacer()
+                            Button {
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                Task { await fetchTaskLog(task) }
+                            } label: {
+                                HStack(spacing: 3) {
+                                    Image(systemName: "arrow.clockwise")
+                                        .font(.system(size: 10.5, weight: .semibold))
+                                    Text("刷新")
+                                        .font(.system(size: 11, weight: .medium))
+                                }
+                                .foregroundColor(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+
+            // 4. Expanded Log Output Tail
+            if isLogExpanded {
+                VStack(alignment: .leading, spacing: 4) {
+                    if isLoadingLog && taskLogs[task.id] == nil {
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.small)
+                            Text("正在读取日志尾部...")
+                                .font(.system(size: 11.5))
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(8)
+                    } else {
+                        let logText = (taskLogs[task.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                        ScrollView(.vertical, showsIndicators: true) {
+                            Text(logText.isEmpty ? "（暂无终端日志输出）" : logText)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundColor(.primary.opacity(0.85))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .textSelection(.enabled)
+                        }
+                        .frame(maxHeight: 160)
+                        .padding(8)
+                        .background(Color(.secondarySystemBackground))
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func fetchTaskLog(_ task: GlobalBackgroundTaskItem) async {
+        guard let url = settings.serverURL else { return }
+        loadingLogTaskIds.insert(task.id)
+        defer { loadingLogTaskIds.remove(task.id) }
+        if let resp = try? await APIClient.shared.fetchBackgroundTaskLog(
+            conversationId: task.conversationId,
+            taskId: task.taskId,
+            logUri: task.logUri,
+            baseURL: url
+        ) {
+            taskLogs[task.id] = resp.content
+        }
+    }
+
+    private func stopSingleTask(_ task: GlobalBackgroundTaskItem) async {
+        guard let url = settings.serverURL else { return }
+        stoppingTaskIds.insert(task.id)
+        defer { stoppingTaskIds.remove(task.id) }
+        try? await APIClient.shared.stopTask(
+            cascadeId: task.conversationId,
+            stepIndex: task.stepIndex,
+            taskId: task.taskId,
+            baseURL: url
+        )
+        backgroundTasks.removeAll { $0.id == task.id }
+        onTasksChanged?(backgroundTasks)
+        if let refreshed = try? await APIClient.shared.fetchGlobalBackgroundTasks(baseURL: url) {
+            backgroundTasks = refreshed
+            onTasksChanged?(refreshed)
+        }
+    }
+
+    private func stopAllBackgroundTasks(_ tasks: [GlobalBackgroundTaskItem]) async {
+        guard let url = settings.serverURL else { return }
+        for t in tasks {
+            stoppingTaskIds.insert(t.id)
+        }
+        for t in tasks {
+            try? await APIClient.shared.stopTask(
+                cascadeId: t.conversationId,
+                stepIndex: t.stepIndex,
+                taskId: t.taskId,
+                baseURL: url
+            )
+        }
+        stoppingTaskIds.removeAll()
+        backgroundTasks.removeAll()
+        onTasksChanged?([])
+        if let refreshed = try? await APIClient.shared.fetchGlobalBackgroundTasks(baseURL: url) {
+            backgroundTasks = refreshed
+            onTasksChanged?(refreshed)
+        }
+    }
+
     // MARK: - Error View
     
     private func errorStateView(_ msg: String) -> some View {
@@ -505,6 +867,11 @@ public struct McpSkillsSheet: View {
             return
         }
         
+        if let tasksResult = try? await APIClient.shared.fetchGlobalBackgroundTasks(baseURL: url) {
+            self.backgroundTasks = tasksResult
+            self.onTasksChanged?(tasksResult)
+        }
+        
         do {
             async let fetchMcp = APIClient.shared.fetchMcpServerStates(baseURL: url)
             async let fetchSkills = APIClient.shared.fetchAllSkills(baseURL: url)
@@ -515,7 +882,7 @@ public struct McpSkillsSheet: View {
         } catch {
             if settings.isDemoMode {
                 applyDemoData()
-            } else {
+            } else if backgroundTasks.isEmpty {
                 errorMessage = error.localizedDescription
             }
         }

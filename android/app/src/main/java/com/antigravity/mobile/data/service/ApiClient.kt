@@ -1188,6 +1188,17 @@ class ApiClient(
             "获取本会话改动失败"
         ).mapCatching { json.decodeFromString<CascadeChangesResponse>(it) }
 
+    /** 会话章节语义标题（Antigravity 2.30.0 GetChapterTitles，经网关 /gateway/cascade/chapters 聚合并轮询收敛）。 */
+    suspend fun getChapterTitles(
+        cascadeId: String,
+        ranges: List<CascadeStepRange>
+    ): Result<List<CascadeChapterTitleItem>> =
+        postGatewayJson(
+            "/gateway/cascade/chapters",
+            json.encodeToString(CascadeChaptersRequest(cascadeId = cascadeId, ranges = ranges)),
+            "获取章节标题失败"
+        ).mapCatching { json.decodeFromString<CascadeChaptersResponse>(it).chapters }
+
     suspend fun getGitStatus(cascadeId: String): Result<GitStatusResponse> =
         postGatewayJson(
             "/gateway/git/status",
@@ -1350,6 +1361,60 @@ class ApiClient(
                     return@withContext Result.failure(RuntimeException(msg))
                 }
                 Result.success(json.decodeFromString<UploadedAttachment>(respStr))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 获取全局所有正在运行的后台任务（language_server ListBackgroundTasks，经网关补全会话与工作区信息）
+     */
+    suspend fun fetchGlobalBackgroundTasks(): Result<List<GlobalBackgroundTaskItem>> = withContext(Dispatchers.IO) {
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(RuntimeException("未配置网关地址"))
+        try {
+            val request = buildAuthorizedRequest("$baseUrl/gateway/tasks/background")
+                .get()
+                .build()
+            client.newCall(request).await().use { response ->
+                val respStr = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(RuntimeException("HTTP ${response.code}"))
+                }
+                val parsed = json.decodeFromString<GlobalBackgroundTasksResponse>(respStr)
+                Result.success(parsed.tasks)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 读取后台任务日志文件的最新尾部内容（/gateway/tasks/background/log）
+     */
+    suspend fun fetchBackgroundTaskLog(
+        conversationId: String,
+        taskId: String,
+        logUri: String?
+    ): Result<BackgroundTaskLogResponse> = withContext(Dispatchers.IO) {
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(RuntimeException("未配置网关地址"))
+        try {
+            val payload = buildJsonObject {
+                put("conversationId", conversationId)
+                put("taskId", taskId)
+                if (!logUri.isNullOrBlank()) {
+                    put("logUri", logUri)
+                }
+            }
+            val request = buildAuthorizedRequest("$baseUrl/gateway/tasks/background/log")
+                .post(payload.toString().toRequestBody(jsonMediaType))
+                .build()
+            client.newCall(request).await().use { response ->
+                val respStr = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(RuntimeException("HTTP ${response.code}"))
+                }
+                Result.success(json.decodeFromString<BackgroundTaskLogResponse>(respStr))
             }
         } catch (e: Exception) {
             Result.failure(e)

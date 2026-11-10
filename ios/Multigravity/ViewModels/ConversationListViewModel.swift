@@ -10,6 +10,7 @@ public final class ConversationListViewModel {
     public var errorMessage: String? = nil
     
     public var quotaResponse: CockpitQuotaResponse? = nil
+    public var globalBackgroundTasks: [GlobalBackgroundTaskItem] = []
     
     private let apiClient: APIClient
     private let settings: AppSettings
@@ -361,6 +362,15 @@ public final class ConversationListViewModel {
         }
         
         await fetchQuotas()
+        await fetchGlobalBackgroundTasks()
+    }
+
+    @MainActor
+    public func fetchGlobalBackgroundTasks() async {
+        guard settings.isPaired, let url = settings.serverURL else { return }
+        if let tasks = try? await apiClient.fetchGlobalBackgroundTasks(baseURL: url) {
+            self.globalBackgroundTasks = tasks
+        }
     }
     
     private var lastQuotaFetchTime: Date = .distantPast

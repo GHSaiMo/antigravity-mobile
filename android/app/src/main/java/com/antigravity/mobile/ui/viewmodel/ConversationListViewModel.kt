@@ -8,6 +8,7 @@ import com.antigravity.mobile.data.model.ConversationItem
 import com.antigravity.mobile.data.model.ConversationSearchResult
 import com.antigravity.mobile.data.model.GatewayCompatStore
 import com.antigravity.mobile.data.model.GatewayFeature
+import com.antigravity.mobile.data.model.GlobalBackgroundTaskItem
 import com.antigravity.mobile.data.model.ConversationStatus
 import com.antigravity.mobile.data.model.LocalDraftSession
 import com.antigravity.mobile.data.model.ProjectItem
@@ -75,6 +76,13 @@ class ConversationListViewModel(
 
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
+    private val _globalBackgroundTasks = MutableStateFlow<List<GlobalBackgroundTaskItem>>(emptyList())
+    val globalBackgroundTasks: StateFlow<List<GlobalBackgroundTaskItem>> = _globalBackgroundTasks.asStateFlow()
+
+    fun updateGlobalBackgroundTasks(tasks: List<GlobalBackgroundTaskItem>) {
+        _globalBackgroundTasks.value = tasks
+    }
 
     private val deletedCascadeIds = mutableSetOf<String>()
     private var rawConversations = emptyList<ConversationItem>()
@@ -162,6 +170,9 @@ class ConversationListViewModel(
             applyFilter()
             cacheManager?.prewarmSessions(rawConversations.take(15).map { it.id })
             liveActivityManager?.syncWithConversations(rawConversations)
+        }
+        apiClient.fetchGlobalBackgroundTasks().onSuccess {
+            _globalBackgroundTasks.value = it
         }
     }
 
@@ -334,6 +345,9 @@ class ConversationListViewModel(
                 apiClient.fetchCockpitQuotas().onSuccess {
                     _quotaData.value = it
                 }
+                apiClient.fetchGlobalBackgroundTasks().onSuccess {
+                    _globalBackgroundTasks.value = it
+                }
                 apiClient.fetchProjects().onSuccess { list ->
                     _projects.value = list
                     _projectsError.value = null
@@ -357,6 +371,11 @@ class ConversationListViewModel(
         }
         // 升级自检结果随列表一起刷新（一次很小的 GET），失败时保持上一次结果
         viewModelScope.launch { apiClient.refreshGatewayCompat() }
+        viewModelScope.launch {
+            apiClient.fetchGlobalBackgroundTasks().onSuccess {
+                _globalBackgroundTasks.value = it
+            }
+        }
         viewModelScope.launch {
             val result = apiClient.fetchConversations()
             result.onSuccess { list ->

@@ -20,14 +20,14 @@
 </p>
 
 <p align="center">
-  🌐 <b>官网</b>：<a href="https://mgy.jiuge.space">mgy.jiuge.space</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新版 v1.1.3</a>
+  🌐 <b>官网</b>：<a href="https://mgy.jiuge.space">mgy.jiuge.space</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新版 v1.1.4</a>
 </p>
 
 https://github.com/user-attachments/assets/37360cde-3875-45bf-947e-7774e800094c
 
 ---
 
-## ⚡ 极速开始 (v1.1.3 正式版)
+## ⚡ 极速开始 (v1.1.4 正式版)
 
 ### 1. 🍎 macOS / 🐧 Linux / 🪟 Windows 服务端一键安装 (推荐)
 
@@ -69,8 +69,8 @@ irm https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/in
 > - 🔒 **平滑部署**：macOS / Linux 免 sudo 部署至 `~/.local/bin/mgy` 并自动配置全局快捷方式；Windows 自动注册至用户 PATH 及 WindowsApps 目录，开箱即用免重启终端。
 
 ### 2. 📱 Android 手机客户端安装
-前往 [GitHub Releases v1.1.3](https://github.com/GHSaiMo/antigravity-mobile/releases/latest)，下载：
-- **`Multigravity-v1.1.3.apk`**
+前往 [GitHub Releases v1.1.4](https://github.com/GHSaiMo/antigravity-mobile/releases/latest)，下载：
+- **`Multigravity-v1.1.4.apk`**
 - *安装包已配置标准签名，任何安卓手机下载后均可直接点击安装，零编译门槛。*
 - *安全提示：为保证覆盖安装，Release 签名密钥库 `android/app/release.jks` 与默认口令随仓库公开。因此 APK 签名只代表「同一发布线」，不能证明来源可信，请仅从本仓库 Releases 页面下载。如需自行分发，请用 `MGY_KEYSTORE_PASSWORD` 等环境变量与自己的密钥库重新签名。*
 
@@ -150,9 +150,9 @@ mgy help           # 查看完整命令与启动参数帮助
 
 | 层级 | 核心组件 | 关键职责与技术特性 |
 | :--- | :--- | :--- |
-| **📱 移动访问层** | **Android 原生客户端** (Compose) | **全功能旗舰体验**：Kotlin 1.9+、Jetpack Compose Material 3 纯黑美学、Edge-to-Edge 全面屏沉浸显示、IME 软键盘自适应防遮挡与聚焦触底平滑滚动；OkHttp + WebSocket 实时打字机流分发、多步工具折叠胶囊；**Antigravity 2.29+ 全双工实时语音通话 (jetski-voice-proto) 与沉浸式 VoiceCallCard (v1.1.3)**；**折叠态「语音交互」胶囊气泡与纯净多轮对话过滤**；**失败自查气泡 15sp 对齐与 Markdown 视觉强化**；**额度匀速指标（均速刻度针 & 节奏健康分析 & Argon 独立周期判定）(v1.1.3)**；**对话步骤导轨与章节大纲导航 (Conversation Navigator) (v1.1.0)**；**应用内沉浸式安全浏览器 (CustomTabs) (v1.1.0)**；**WebM 录屏视频硬件加速播放 (ExoPlayer) (v1.1.0)**；**已连接 MCP 工具集与技能健康看板 (MCP & Skills Inspector) (v1.1.0)**；**对话列表右滑置顶（Pin）与二次弹窗确认**；**Antigravity 2.26 动态多智能体工作流阶段卡片与类型化产物透视**；**代码 Diff 词级与字符级高亮**；**后台命令（Running Tasks）卡片重构（前3行折叠/长命令展开/一键复制/终端高亮）**；**细分状态徽标（Working/Running command/Action required/Error/Unread）**；**任意格式文件附件选择与上传**；**精细化 Git/GitHub 沙箱权限审批卡片 (PERMISSION_GRANTS_V2)**；**父子会话家族树层级标记**；**原生选择题交互卡片与多题决策** (自适应高度无留白 / 全屏半屏平滑切换 / 选项与问题多行完整呈现 / 活力橙视觉统一 / 软键盘智能避让)；**多模态生图直出渲染**与 `ImageViewerSheet` 全手势大图缩放；**网络设置一键并发探活测速与智能路由选路**；**Cockpit Tools 四象限配额看板与多账号池无感热切**；方案产物原生浮窗 (Markdown / PPTX 幻灯片渲染 / Brain 元数据逆向解析 / 本地一键下载导出) 与 Proceed 推进闭环；**消息撤回与代码修改方案回滚**；**会话全文搜索、导出 Markdown、斜杠命令与技能、本会话改动累计 Diff、原生 Git 提交/推送、精美长图分享（深浅主题 / 一键定向微信）、默认模型配置**；排队追问面板、后台任务感知与终止、工程快捷动作胶囊、ZXing 离线二维码秒级配对、`EncryptedSharedPreferences` 硬件密钥持久化、全态分类信号 |
-| | **iOS 原生客户端** (SwiftUI 5) | **Swift 6 严格并发**：零数据竞态、丝滑流畅；**Antigravity 2.29+ 全双工实时语音通话 (jetski-voice-proto) 与沉浸式 VoiceCallCard (v1.1.3)**；**硬件级 AEC 回声消除与环境降噪**；**折叠态「语音交互」胶囊气泡与纯净多轮对话过滤**；**失败自查气泡 15sp 对齐与 Markdown 视觉强化**；**额度匀速指标（均速刻度针 & 节奏健康分析 & Argon 独立周期判定）(v1.1.3)**；**对话步骤导轨与章节大纲导航 (Conversation Navigator) (v1.1.0)**；**应用内沉浸式安全浏览器 (SFSafariViewController) (v1.1.0)**；**WebM 录屏视频硬件加速与双轨容错播放 (WebKit + AVPlayer) (v1.1.0)**；**VisionKit 智能文稿扫描相机 (Document Scanner) (v1.1.0)**；**已连接 MCP 工具集与技能健康看板 (MCP & Skills Inspector) (v1.1.0)**；**对话列表右滑置顶（Pin）与二次弹窗确认**；**Antigravity 2.26 动态多智能体工作流阶段卡片与 JSON Schema 产物查看**；**代码 Diff 词级与字符级高亮**；**后台命令（Running Tasks）卡片重构（前3行折叠/长命令展开/一键复制/终端高亮）**；**细分状态徽标（Working/Running command/Action required/Error/Unread）**；**CommonMark 0.30 CJK 标点容错修复**；**全格式文件与相册视频选择**；**精细化 Git/GitHub 沙箱权限审批卡片 (PERMISSION_GRANTS_V2)**；**父子会话家族树层级缩进与徽标**；**原生选择题交互卡片深度优化** (自适应高度 / 选项与问题多行完整呈现 / 全屏半屏平滑伸缩 / 活力橙视觉统一 / 动态绑定 MARKETING_VERSION)；单趟 O(N) LaTeX 渲染、Markdown 富媒体与多模态生图直出、`ImageViewerSheet` 双指捏合无级缩放与系统分享保存；方案产物浮窗与 Proceed 闭环；统一文件预览工具栏与 PPTX 幻灯片渲染；**Cockpit Tools 四象限额度看板与多账号热切**；**网络设置一键并发探活与智能选路**；**消息撤回与代码修改回滚**（毛玻璃材质浮窗）；**会话全文搜索、导出 Markdown、斜杠命令与技能、本会话改动累计 Diff、原生 Git 提交/推送、精美长图分享、默认模型配置、iPad 现代列表与大标题折叠**；排队追问队列与自适应输入；交互式命令审批卡片；交互式侧滑返回（Swipe-Back）原生手势体验；全态分类信号 (`RUNNING` / `ERROR` / `ACTION` / 未读呼吸小蓝点)；0ms 会话焦点上报、灵动岛 (Live Activity) |
-| | **移动端 PWA / Web** (Vanilla JS) | 零构建打包、嵌入 Go 二进制 (`embed.FS`)、全面对齐 iOS 原生设计系统与 NavigationStack 导航、列表滚动/侧滑手势消抖（防误触进入）、居中对称标题与 38px 悬浮垃圾桶删除、自适应安全区与键盘防遮挡、**Antigravity 2.29+ 全双工实时语音通话 (v1.1.3)**、**额度匀速指标（刻度针 & 气泡分析）**、**失败自查气泡 15px 对齐与 Markdown 格式强化**、**同步支持多题交互确认与选项多行自适应排版**、**Token-level 词级代码 Diff 高亮 (v1.0.9)**、Markdown 浮窗与方案 Proceed 推进、排队消息与后台任务同步、添加到主屏幕 |
+| **📱 移动访问层** | **Android 原生客户端** (Compose) | **全功能旗舰体验**：Kotlin 1.9+、Jetpack Compose Material 3 纯黑美学、Edge-to-Edge 全面屏沉浸显示、IME 软键盘自适应防遮挡与聚焦触底平滑滚动；OkHttp + WebSocket 实时打字机流分发、多步工具折叠胶囊；**Antigravity 2.30.0 全局后台任务中心 (`ListBackgroundTasks`)、长对话原生章节目录 TOC (`GetChapterTitles`)、Git 面板联动 GitHub PR 状态与 Mermaid 语法容错自愈 (v1.1.4)**；**Antigravity 2.29+ 全双工实时语音通话 (jetski-voice-proto) 与沉浸式 VoiceCallCard (v1.1.3)**；**折叠态「语音交互」胶囊气泡与纯净多轮对话过滤**；**失败自查气泡 15sp 对齐与 Markdown 视觉强化**；**额度匀速指标（均速刻度针 & 节奏健康分析 & Argon 独立周期判定）(v1.1.3)**；**对话步骤导轨与章节大纲导航 (Conversation Navigator) (v1.1.0)**；**应用内沉浸式安全浏览器 (CustomTabs) (v1.1.0)**；**WebM 录屏视频硬件加速播放 (ExoPlayer) (v1.1.0)**；**已连接 MCP 工具集与技能健康看板 (MCP & Skills Inspector) (v1.1.0)**；**对话列表右滑置顶（Pin）与二次弹窗确认**；**Antigravity 2.26 动态多智能体工作流阶段卡片与类型化产物透视**；**代码 Diff 词级与字符级高亮**；**后台命令（Running Tasks）卡片重构（前3行折叠/长命令展开/一键复制/终端高亮）**；**细分状态徽标（Working/Running command/Action required/Error/Unread）**；**任意格式文件附件选择与上传**；**精细化 Git/GitHub 沙箱权限审批卡片 (PERMISSION_GRANTS_V2)**；**父子会话家族树层级标记**；**原生选择题交互卡片与多题决策** (自适应高度无留白 / 全屏半屏平滑切换 / 选项与问题多行完整呈现 / 活力橙视觉统一 / 软键盘智能避让)；**多模态生图直出渲染**与 `ImageViewerSheet` 全手势大图缩放；**网络设置一键并发探活测速与智能路由选路**；**Cockpit Tools 四象限配额看板与多账号池无感热切**；方案产物原生浮窗 (Markdown / PPTX 幻灯片渲染 / Brain 元数据逆向解析 / 本地一键下载导出) 与 Proceed 推进闭环；**消息撤回与代码修改方案回滚**；**会话全文搜索、导出 Markdown、斜杠命令与技能、本会话改动累计 Diff、原生 Git 提交/推送、精美长图分享（深浅主题 / 一键定向微信）、默认模型配置**；排队追问面板、后台任务感知与终止、工程快捷动作胶囊、ZXing 离线二维码秒级配对、`EncryptedSharedPreferences` 硬件密钥持久化、全态分类信号 |
+| | **iOS 原生客户端** (SwiftUI 5) | **Swift 6 严格并发**：零数据竞态、丝滑流畅；**Antigravity 2.30.0 全局后台任务中心 (`ListBackgroundTasks`)、长对话原生章节目录 TOC (`GetChapterTitles`)、Git 面板联动 GitHub PR 状态与 Mermaid 语法容错自愈 (v1.1.4)**；**Antigravity 2.29+ 全双工实时语音通话 (jetski-voice-proto) 与沉浸式 VoiceCallCard (v1.1.3)**；**硬件级 AEC 回声消除与环境降噪**；**折叠态「语音交互」胶囊气泡与纯净多轮对话过滤**；**失败自查气泡 15sp 对齐与 Markdown 视觉强化**；**额度匀速指标（均速刻度针 & 节奏健康分析 & Argon 独立周期判定）(v1.1.3)**；**对话步骤导轨与章节大纲导航 (Conversation Navigator) (v1.1.0)**；**应用内沉浸式安全浏览器 (SFSafariViewController) (v1.1.0)**；**WebM 录屏视频硬件加速与双轨容错播放 (WebKit + AVPlayer) (v1.1.0)**；**VisionKit 智能文稿扫描相机 (Document Scanner) (v1.1.0)**；**已连接 MCP 工具集与技能健康看板 (MCP & Skills Inspector) (v1.1.0)**；**对话列表右滑置顶（Pin）与二次弹窗确认**；**Antigravity 2.26 动态多智能体工作流阶段卡片与 JSON Schema 产物查看**；**代码 Diff 词级与字符级高亮**；**后台命令（Running Tasks）卡片重构（前3行折叠/长命令展开/一键复制/终端高亮）**；**细分状态徽标（Working/Running command/Action required/Error/Unread）**；**CommonMark 0.30 CJK 标点容错修复**；**全格式文件与相册视频选择**；**精细化 Git/GitHub 沙箱权限审批卡片 (PERMISSION_GRANTS_V2)**；**父子会话家族树层级缩进与徽标**；**原生选择题交互卡片深度优化** (自适应高度 / 选项与问题多行完整呈现 / 全屏半屏平滑伸缩 / 活力橙视觉统一 / 动态绑定 MARKETING_VERSION)；单趟 O(N) LaTeX 渲染、Markdown 富媒体与多模态生图直出、`ImageViewerSheet` 双指捏合无级缩放与系统分享保存；方案产物浮窗与 Proceed 闭环；统一文件预览工具栏与 PPTX 幻灯片渲染；**Cockpit Tools 四象限额度看板与多账号热切**；**网络设置一键并发探活与智能选路**；**消息撤回与代码修改回滚**（毛玻璃材质浮窗）；**会话全文搜索、导出 Markdown、斜杠命令与技能、本会话改动累计 Diff、原生 Git 提交/推送、精美长图分享、默认模型配置、iPad 现代列表与大标题折叠**；排队追问队列与自适应输入；交互式命令审批卡片；交互式侧滑返回（Swipe-Back）原生手势体验；全态分类信号 (`RUNNING` / `ERROR` / `ACTION` / 未读呼吸小蓝点)；0ms 会话焦点上报、灵动岛 (Live Activity) |
+| | **移动端 PWA / Web** (Vanilla JS) | 零构建打包、嵌入 Go 二进制 (`embed.FS`)、全面对齐 iOS 原生设计系统与 NavigationStack 导航、列表滚动/侧滑手势消抖（防误触进入）、居中对称标题与 38px 悬浮垃圾桶删除、自适应安全区与键盘防遮挡、**Antigravity 2.30.0 全局后台任务胶囊条、Git 面板联动 GitHub PR 与 Mermaid 容错自愈 (v1.1.4)**、**Antigravity 2.29+ 全双工实时语音通话 (v1.1.3)**、**额度匀速指标（刻度针 & 气泡分析）**、**失败自查气泡 15px 对齐与 Markdown 格式强化**、**同步支持多题交互确认与选项多行自适应排版**、**Token-level 词级代码 Diff 高亮 (v1.0.9)**、Markdown 浮窗与方案 Proceed 推进、排队消息与后台任务同步、添加到主屏幕 |
 | **🎯 跨端游标与焦点层** | **随人而动游标引擎 (Follow-Me Cursor Engine)** | 毫秒级多端焦点仲裁：活跃长连接流 (Active Stream) > 移动端黏性焦点 (Mobile Sticky 30m) > 桌面端 IDE 活跃焦点 (Desktop Focus) > 磁盘最后活跃会话兜底；提供 0ms 会话焦点上报与预热；防自反保护机制 (Anti-Reflection 1.5s 抑制期) 彻底消除已读回环误判；幽灵会话三重防御过滤 |
 | **🦞 物理外设网桥层** | **YoooClaw 物理硬件网桥 (`integrations/yoooclaw/`)** | 随身外设按键录音 ➔ ASR ➔ Gateway-First 代理直连注入活跃 Cascade 会话；双层协同分流（第一层 Hermes 业务守卫放行，第二层统一游标精准定位目标会话）；四色交织 RGB 流光动效与 OLED 屏幕状态回显 |
 | **⚡ 远程连接与鉴权层** | **智能路由与一键并发测速 (Smart Multi-Channel Routing)** | 移动端动态管理 Wi-Fi 局域网 (LAN IPv4) 与 Cloudflare 专属 HTTPS 隧道；提供一键并发探活，秒级测速回显并自动优选延迟最低链路，支持客户端手动动态切换端点 |
@@ -417,6 +417,26 @@ mgy help           # 查看完整命令与启动参数帮助
   - 修复批准 `implementation_plan.md` 后会话在 `Working` 期间或无 `walkthrough.md` 完结时被误判为 `Action required` 的问题；区分常驻守护进程（`IsDaemon=true`）与回合阻塞任务，常驻服务不再抑制完成推送或误标会话运行状态。
 - **iOS PWA 软键盘避让与 Fake-IP 隧道双栈探测加固 (PWA Keyboard & Fake-IP ULA Exemption)**：
   - 修复 iOS PWA 软键盘弹出遮挡底部输入框问题；Cloudflare 隧道双栈探测豁免全段 IPv6 ULA（`fc00::/7`）与 IPv4 Fake-IP（`198.18.0.0/15`），杜绝 TUN 透明代理环境下的探测假阳性。
+
+---
+
+### 19. 🚀 Antigravity 2.30.0 深度适配：全局后台任务中心、长对话章节目录 TOC、Git 联动 PR 与 Mermaid 容错自愈 (v1.1.4)
+- **全局后台任务中心 (`ListBackgroundTasks` Global Background Task Center)**：
+  - **跨会话后台任务全景感知**：Go 网关对接 Antigravity 2.30.0 新增的 `LanguageServerService/ListBackgroundTasks` 接口，推出 `GET/POST /gateway/tasks/background` 与 `POST /gateway/tasks/background/log`，自动补齐任务所属会话标题与工作区别名，并提供白名单安全校验的实时终端日志末尾（Log Tail）读取；
+  - **首页动态绿光胶囊条**：在会话列表页顶部 `Gemini 5h` 配额条正下方，当存在运行中的后台任务时动态浮现 **`>_ N 个后台任务运行中（M 个常驻） · 管理 ›`** 胶囊条（0 个任务时完全隐藏，零空间侵占），点击直接呼出 `McpSkillsSheet` 并定位至第 3 个 Tab **「后台任务」**；
+  - **聊天页右上角动态感知按钮**：iOS 与 Android 聊天页右上角工具栏按钮根据是否存在运行中的后台任务（当前会话或跨会话）智能切换——有后台任务时显示终端图标（`terminal` / `>_`）并默认进入 **「后台任务」** Tab；无后台任务时保持扳手图标（`wrench.and.screwdriver` / `Build`）并默认进入 **「MCP 服务」** Tab；
+  - **全功能任务管理卡片**：按 **「当前会话任务」** 与 **「其他会话任务」** 分组置顶，超过 1 个任务时顶部提供 **「一键停止全部后台任务」**；单张卡片完整支持任务类型角标（`常驻守护` / `定时任务` / `后台命令`）、实时运行时长、单任务一键终止、**点击工作区与会话标题一键跨会话跳转**、复制命令行，以及展开**实时查看/刷新终端日志 Tail**。
+- **长对话原生章节目录 TOC (`GetChapterTitles` Conversation Chapters)**：
+  - 网关新增 `POST /gateway/cascade/chapters`，对接 Antigravity 2.30.0 `GetChapterTitles` RPC，自动解析并按 `stepIndex` 升序归一化章节标题与阶段摘要；
+  - iOS 与 Android 的 `ConversationNavigatorSheet`（对话步骤导轨）顶部新增 **「章节目录 (N)」/「全部对话 (M)」** 分段切换器，自动将 `chapter.stepIndex` 映射至最接近的对话轮次（`Turn N`），在超长对话中实现按主题章节一键直达。
+- **Git 提交面板联动 GitHub PR 状态 (`GetWorkspaceGitHubPullRequests` GitHub PR Integration)**：
+  - 网关新增 `POST /gateway/git/prs` 并在 `/gateway/git/overview` 中联动返回当前仓库的 GitHub Pull Requests；优先调用 `GetWorkspaceGitHubPullRequests`，当上游未返回时自动降级调用本机 `gh pr list` 补齐 PR 列表，并自动识别当前分支关联的 PR；
+  - iOS、Android 与 Web 的 Git 提交面板（`GitCommitSheet`）顶部自动展示当前分支关联的 PR 状态胶囊（`Draft` / `Open` / `Merged` / `Closed`、编号 `#N`、标题与分支流向）及仓库近期 PR 列表，点击直接跳转 GitHub PR 页面，打通手机端「改代码 ➔ Commit & Push ➔ 查看 PR 状态」完整闭环。
+- **Antigravity 2.30.0 新模型目录、原生 `clientMessageId` 与 `killBackgroundTasks` 精细控制**：
+  - 四端同步接入 `MODEL_PLACEHOLDER_M49`（**Gemini 3.8 Flash / Argon Flash**）、`MODEL_PLACEHOLDER_M50`（**Claude Haiku 5.5**）及 Vertex AI Claude 企业别名，实时语音协议同步支持 `M49` 枚举值（`1049`），配额引擎将 `M50` 纳入 Claude 配额家族；
+  - 发送与排队追问同步注入原生 `clientMessageId` 字段，优先按原生 ID 精准匹配乐观消息与排队卡片；`POST /gateway/cascade/stop` 支持 `killBackgroundTasks` 参数精细控制是否一并终止后台子进程。
+- **三端 Mermaid 图表语法容错自愈 (Mermaid Fallback Auto-Repair)**：
+  - 在 iOS、Android 与 Web 三端 Mermaid 渲染管线中引入 `catch` 二次语法自愈（`sanitizeMermaidCode`），自动修复未引号包裹的括号、花括号、冒号、HTML `<br/>` 标签与非标准箭头并原地重绘。
 
 ---
 

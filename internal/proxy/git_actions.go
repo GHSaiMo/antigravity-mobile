@@ -16,6 +16,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -51,16 +52,37 @@ type GitFileStatus struct {
 	Status   string `json:"status"` // MODIFIED / ADDED / DELETED / RENAMED / UNTRACKED / CONFLICT
 }
 
+// GitHubBranchTarget identifies the GitHub repository and branch associated with the workspace.
+type GitHubBranchTarget struct {
+	Host   string `json:"host,omitempty"`
+	Owner  string `json:"owner"`
+	Repo   string `json:"repo"`
+	Branch string `json:"branch,omitempty"`
+}
+
+// GitPullRequestItem represents a GitHub Pull Request associated with the workspace branch.
+type GitPullRequestItem struct {
+	Number      int    `json:"number"`
+	Title       string `json:"title"`
+	URL         string `json:"url"`
+	State       string `json:"state"` // OPEN / DRAFT / MERGED / CLOSED
+	AuthorLogin string `json:"authorLogin,omitempty"`
+	HeadRefName string `json:"headRefName,omitempty"`
+	BaseRefName string `json:"baseRefName,omitempty"`
+}
+
 // GitStatusResponse is the response of POST /gateway/git/status.
 type GitStatusResponse struct {
-	RepoName string          `json:"repoName"`
-	Branch   string          `json:"branch"`
-	Upstream string          `json:"upstream,omitempty"`
-	Ahead    int             `json:"ahead"`
-	Behind   int             `json:"behind"`
-	Detached bool            `json:"detached"`
-	Files    []GitFileStatus `json:"files"`
-	Clean    bool            `json:"clean"`
+	RepoName     string               `json:"repoName"`
+	Branch       string               `json:"branch"`
+	Upstream     string               `json:"upstream,omitempty"`
+	Ahead        int                  `json:"ahead"`
+	Behind       int                  `json:"behind"`
+	Detached     bool                 `json:"detached"`
+	Files        []GitFileStatus      `json:"files"`
+	Clean        bool                 `json:"clean"`
+	GitHubTarget *GitHubBranchTarget  `json:"githubTarget,omitempty"`
+	PullRequests []GitPullRequestItem `json:"pullRequests,omitempty"`
 }
 
 // GitCommitRequest is the request of POST /gateway/git/commit.
@@ -384,6 +406,185 @@ func fileURIToLocalPath(raw string) (string, error) {
 	return filepath.Clean(filepath.FromSlash(p)), nil
 }
 
+// localPathToFileURI converts a local directory path into a file:// URI.
+func localPathToFileURI(path string) string {
+	slash := filepath.ToSlash(filepath.Clean(path))
+	if !strings.HasPrefix(slash, "/") {
+		slash = "/" + slash
+	}
+	u := url.URL{Scheme: "file", Path: slash}
+	return u.String()
+}
+
+type gitPRCacheEntry struct {
+	target    *GitHubBranchTarget
+	prs       []GitPullRequestItem
+	fetchedAt time.Time
+}
+
+var (
+	gitPRCacheMu sync.Mutex
+	gitPRCache   = make(map[string]gitPRCacheEntry)
+	gitPRTTL     = 30 * time.Second
+)
+
+func invalidateGitPRCache(repoRoot string) {
+	gitPRCacheMu.Lock()
+	defer gitPRCacheMu.Unlock()
+	clean := filepath.Clean(repoRoot)
+	for k := range gitPRCache {
+		if strings.Contains(k, "|"+clean+"|") {
+			delete(gitPRCache, k)
+		}
+	}
+}
+
+func normalizeGitHubPRState(raw interface{}) string {
+	switch v := raw.(type) {
+	case string:
+		s := strings.TrimSpace(strings.ToUpper(v))
+		s = strings.TrimPrefix(s, "GITHUB_PULL_REQUEST_STATE_")
+		switch s {
+		case "OPEN", "DRAFT", "MERGED", "CLOSED":
+			return s
+		}
+	case float64:
+		switch int(v) {
+		case 1:
+			return "OPEN"
+		case 2:
+			return "DRAFT"
+		case 3:
+			return "MERGED"
+		case 4:
+			return "CLOSED"
+		}
+	}
+	return "OPEN"
+}
+
+// fetchWorkspaceGitHubPullRequests queries Antigravity 2.30.0 GetWorkspaceGitHubPullRequests
+// for the workspace's GitHub branch target and associated pull requests.
+// Best-effort with a 2s timeout and 30s per-(port, repoRoot, branch) cache so git status is never blocked.
+func (p *Proxy) fetchWorkspaceGitHubPullRequests(parent context.Context, repoRoot, branch string, port int, token string) (*GitHubBranchTarget, []GitPullRequestItem) {
+	if port <= 0 || repoRoot == "" {
+		return nil, nil
+	}
+	cacheKey := fmt.Sprintf("%d|%s|%s", port, filepath.Clean(repoRoot), branch)
+	gitPRCacheMu.Lock()
+	if entry, ok := gitPRCache[cacheKey]; ok && time.Since(entry.fetchedAt) < gitPRTTL {
+		gitPRCacheMu.Unlock()
+		return entry.target, entry.prs
+	}
+	gitPRCacheMu.Unlock()
+
+	ctx, cancel := context.WithTimeout(parent, 2*time.Second)
+	defer cancel()
+
+	payload, err := json.Marshal(map[string]interface{}{
+		"workspaceUris": []string{localPathToFileURI(repoRoot)},
+	})
+	if err != nil {
+		return nil, nil
+	}
+
+	rpcURL := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetWorkspaceGitHubPullRequests", port)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rpcURL, bytes.NewReader(payload))
+	if err != nil {
+		return nil, nil
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Connect-Protocol-Version", "1")
+	if token != "" {
+		req.Header.Set("x-codeium-csrf-token", token)
+	}
+
+	client := p.shortClient
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, nil
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 512*1024))
+	if err != nil {
+		return nil, nil
+	}
+
+	var parsed struct {
+		Workspaces []struct {
+			Target *struct {
+				Host   string `json:"host"`
+				Owner  string `json:"owner"`
+				Repo   string `json:"repo"`
+				Branch string `json:"branch"`
+			} `json:"target"`
+			PullRequests []struct {
+				Ref struct {
+					Number int `json:"number"`
+				} `json:"ref"`
+				Number      int         `json:"number"`
+				URL         string      `json:"url"`
+				Title       string      `json:"title"`
+				State       interface{} `json:"state"`
+				AuthorLogin string      `json:"authorLogin"`
+				HeadRefName string      `json:"headRefName"`
+				BaseRefName string      `json:"baseRefName"`
+			} `json:"pullRequests"`
+		} `json:"workspaces"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil || len(parsed.Workspaces) == 0 {
+		return nil, nil
+	}
+
+	ws := parsed.Workspaces[0]
+	var target *GitHubBranchTarget
+	if ws.Target != nil && (ws.Target.Owner != "" || ws.Target.Repo != "") {
+		target = &GitHubBranchTarget{
+			Host:   ws.Target.Host,
+			Owner:  ws.Target.Owner,
+			Repo:   ws.Target.Repo,
+			Branch: ws.Target.Branch,
+		}
+	}
+
+	prs := make([]GitPullRequestItem, 0, len(ws.PullRequests))
+	for _, pr := range ws.PullRequests {
+		num := pr.Ref.Number
+		if num == 0 {
+			num = pr.Number
+		}
+		if num <= 0 && pr.URL == "" && pr.Title == "" {
+			continue
+		}
+		prs = append(prs, GitPullRequestItem{
+			Number:      num,
+			Title:       strings.TrimSpace(pr.Title),
+			URL:         strings.TrimSpace(pr.URL),
+			State:       normalizeGitHubPRState(pr.State),
+			AuthorLogin: strings.TrimSpace(pr.AuthorLogin),
+			HeadRefName: strings.TrimSpace(pr.HeadRefName),
+			BaseRefName: strings.TrimSpace(pr.BaseRefName),
+		})
+	}
+
+	gitPRCacheMu.Lock()
+	gitPRCache[cacheKey] = gitPRCacheEntry{
+		target:    target,
+		prs:       prs,
+		fetchedAt: time.Now(),
+	}
+	gitPRCacheMu.Unlock()
+
+	return target, prs
+}
+
 // workspaceURIsFromSummaries extracts workspace folder URIs of one cascade from a GetAllCascadeTrajectories body.
 func workspaceURIsFromSummaries(body []byte, cascadeID string) []string {
 	var parsed struct {
@@ -499,6 +700,10 @@ func (p *Proxy) HandleGitStatus(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	if target, prs := p.fetchWorkspaceGitHubPullRequests(r.Context(), repo, st.Branch, port, token); target != nil || len(prs) > 0 {
+		st.GitHubTarget = target
+		st.PullRequests = prs
+	}
 	writeGitJSON(w, st)
 }
 
@@ -528,6 +733,7 @@ func (p *Proxy) HandleGitCommit(w http.ResponseWriter, r *http.Request) {
 		} else {
 			res.Pushed = true
 			res.Output = strings.TrimSpace(res.Output + "\n" + out)
+			invalidateGitPRCache(repo)
 		}
 	}
 	writeGitJSON(w, res)
@@ -550,5 +756,6 @@ func (p *Proxy) HandleGitPush(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
+	invalidateGitPRCache(repo)
 	writeGitJSON(w, GitCommitResponse{Pushed: true, Output: out})
 }

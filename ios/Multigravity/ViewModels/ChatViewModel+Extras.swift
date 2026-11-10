@@ -32,11 +32,21 @@ extension ChatViewModel {
 
     // MARK: - 快捷按钮可见性
 
-    /// 探测当前会话是否有 Git 改动、是否有本会话文件改动；探测失败（纯对话、非 Git 目录、接口缺失）一律视为没有。
+    /// 探测当前会话是否有 Git 改动、是否有本会话文件改动及全局后台任务；探测失败（纯对话、非 Git 目录、接口缺失）一律视为没有。
     public func refreshActionAvailability() async {
-        guard let url = settings.serverURL, !isLocalDraftSession else {
+        guard let url = settings.serverURL else {
             hasGitChanges = false
             hasSessionChanges = false
+            globalBackgroundTasks = []
+            return
+        }
+        async let bgTasks = try? apiClient.fetchGlobalBackgroundTasks(baseURL: url)
+        guard !isLocalDraftSession else {
+            hasGitChanges = false
+            hasSessionChanges = false
+            if let tasks = await bgTasks {
+                globalBackgroundTasks = tasks
+            }
             return
         }
         let id = cascadeId
@@ -44,10 +54,49 @@ extension ChatViewModel {
         async let changes: CascadeChangesResponse? = GatewayCompatStore.shared.isAvailable(GatewayFeature.changes)
             ? (try? apiClient.fetchCascadeChanges(cascadeId: id, baseURL: url))
             : nil
-        let (g, c) = await (git, changes)
+        let (g, c, tasks) = await (git, changes, bgTasks)
         guard id == cascadeId else { return }
-        hasGitChanges = g.map { !$0.files.isEmpty } ?? false
+        if let tasks {
+            globalBackgroundTasks = tasks
+        }
+        let hasFiles = !(g?.files.isEmpty ?? true)
+        let prs = g?.pullRequests ?? []
+        hasGitChanges = hasFiles || !prs.isEmpty
+        if let firstPR = prs.first, firstPR.number > 0 {
+            gitChipLabel = hasFiles ? "Commit · #\(firstPR.number)" : "PR #\(firstPR.number)"
+        } else {
+            gitChipLabel = "Commit"
+        }
         hasSessionChanges = c?.hasChanges ?? false
+    }
+
+    // MARK: - 会话章节目录 TOC (Antigravity 2.30.0 GetChapterTitles)
+
+    public func refreshChapterTitles() {
+        guard let url = settings.serverURL, !isLocalDraftSession, !isLoadingChapterTitles else { return }
+        let currentChapters = chapters
+        let ranges: [CascadeStepRange] = currentChapters.enumerated().compactMap { idx, ch in
+            guard let s = ch.startStepIndex else { return nil }
+            let isLast = (idx == currentChapters.count - 1)
+            let rawEnd = isLast ? max(ch.endStepIndexExclusive ?? 0, stepCount) : (ch.endStepIndexExclusive ?? stepCount)
+            guard rawEnd > s else { return nil }
+            return CascadeStepRange(startStepIndex: s, endStepIndexExclusive: rawEnd)
+        }
+        guard !ranges.isEmpty else { return }
+        let id = cascadeId
+        isLoadingChapterTitles = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.isLoadingChapterTitles = false }
+            guard let items = try? await self.apiClient.fetchChapterTitles(cascadeId: id, ranges: ranges, baseURL: url),
+                  id == self.cascadeId else { return }
+            var updated = self.chapterTitles
+            for item in items where !item.title.isEmpty {
+                updated["\(item.startStepIndex):\(item.endStepIndexExclusive)"] = item.title
+                updated["start:\(item.startStepIndex)"] = item.title
+            }
+            self.chapterTitles = updated
+        }
     }
 
     // MARK: - 本会话改动

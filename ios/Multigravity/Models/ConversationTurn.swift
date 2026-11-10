@@ -28,6 +28,8 @@ public struct ConversationTurn: Identifiable, Sendable, Hashable {
     public let timestamp: String?
     /// 本轮是否为语音交互提问
     public let isVoiceTurn: Bool
+    /// 本轮起始的步骤索引（用于 Antigravity 2.30.0 GetChapterTitles 章节标题生成）
+    public let startStepIndex: Int?
     
     public init(
         id: String,
@@ -43,7 +45,8 @@ public struct ConversationTurn: Identifiable, Sendable, Hashable {
         isActive: Bool,
         modelName: String?,
         timestamp: String? = nil,
-        isVoiceTurn: Bool = false
+        isVoiceTurn: Bool = false,
+        startStepIndex: Int? = nil
     ) {
         self.id = id
         self.turnIndex = turnIndex
@@ -59,23 +62,42 @@ public struct ConversationTurn: Identifiable, Sendable, Hashable {
         self.modelName = modelName
         self.timestamp = timestamp
         self.isVoiceTurn = isVoiceTurn
+        self.startStepIndex = startStepIndex
     }
 }
 
-/// 超长对话的章节分段（对齐 Antigravity 2.28.1 Chapters 规范）
+/// 超长对话的章节分段（对齐 Antigravity 2.30.0 GetChapterTitles 规范）
 public struct ConversationChapter: Identifiable, Sendable, Hashable {
     public let id: String
     public let title: String
+    public let subtitle: String?
     public let rangeText: String
     public let dateText: String?
     public let turns: [ConversationTurn]
+    public let startStepIndex: Int?
+    public let endStepIndexExclusive: Int?
+    public let isAiTitled: Bool
     
-    public init(id: String, title: String, rangeText: String, dateText: String? = nil, turns: [ConversationTurn]) {
+    public init(
+        id: String,
+        title: String,
+        subtitle: String? = nil,
+        rangeText: String,
+        dateText: String? = nil,
+        turns: [ConversationTurn],
+        startStepIndex: Int? = nil,
+        endStepIndexExclusive: Int? = nil,
+        isAiTitled: Bool = false
+    ) {
         self.id = id
         self.title = title
+        self.subtitle = subtitle
         self.rangeText = rangeText
         self.dateText = dateText
         self.turns = turns
+        self.startStepIndex = startStepIndex
+        self.endStepIndexExclusive = endStepIndexExclusive
+        self.isAiTitled = isAiTitled
     }
 }
 
@@ -165,6 +187,7 @@ public enum ConversationTurnBuilder {
                 ?? currentMessages.reversed().compactMap(\.model).first
             
             let turnTimestamp = userMsg?.timestamp ?? currentMessages.compactMap(\.timestamp).first
+            let turnStartStep = userMsg?.stepIndex ?? currentMessages.compactMap(\.stepIndex).min()
             
             turns.append(ConversationTurn(
                 id: turnId,
@@ -180,7 +203,8 @@ public enum ConversationTurnBuilder {
                 isActive: isActive,
                 modelName: model,
                 timestamp: turnTimestamp,
-                isVoiceTurn: isVoice
+                isVoiceTurn: isVoice,
+                startStepIndex: turnStartStep
             ))
             
             currentTurnIndex += 1
@@ -244,7 +268,71 @@ public enum ConversationTurnBuilder {
         return formatter.string(from: date)
     }
 
-    public static func buildChapters(from turns: [ConversationTurn], chunkSize: Int = 10) -> [ConversationChapter] {
+    public static func buildChapters(
+        from turns: [ConversationTurn],
+        chunkSize: Int = 6,
+        aiTitles: [String: String] = [:]
+    ) -> [ConversationChapter] {
+        guard !turns.isEmpty else { return [] }
+        let rawChapters = buildRawChapters(from: turns, chunkSize: max(chunkSize, 3))
+        return enrichChaptersWithStepRangesAndAITitles(rawChapters, aiTitles: aiTitles)
+    }
+
+    private static func enrichChaptersWithStepRangesAndAITitles(
+        _ raw: [ConversationChapter],
+        aiTitles: [String: String]
+    ) -> [ConversationChapter] {
+        guard !raw.isEmpty else { return [] }
+
+        let starts: [Int?] = raw.enumerated().map { idx, ch in
+            let explicit = ch.turns.compactMap(\.startStepIndex).min()
+                ?? ch.turns.flatMap(\.messages).compactMap(\.stepIndex).min()
+            if let s = explicit { return s }
+            return idx == 0 ? 0 : nil
+        }
+
+        return raw.enumerated().map { idx, ch in
+            let s = starts[idx]
+            let e: Int? = {
+                if idx + 1 < raw.count, let nextStart = starts[idx + 1] {
+                    return nextStart
+                }
+                if let maxStep = ch.turns.flatMap(\.messages).compactMap(\.stepIndex).max() {
+                    return maxStep + 1
+                }
+                return nil
+            }()
+
+            var resolvedTitle = ch.title
+            var resolvedSubtitle: String? = ch.subtitle
+            var isAI = false
+
+            if let s = s {
+                let exactKey = e.map { "\(s):\($0)" }
+                let startKey = "start:\(s)"
+                let matched = (exactKey.flatMap { aiTitles[$0] }) ?? aiTitles[startKey]
+                if let ai = matched?.trimmingCharacters(in: .whitespacesAndNewlines), !ai.isEmpty {
+                    resolvedTitle = ai
+                    resolvedSubtitle = ch.title
+                    isAI = true
+                }
+            }
+
+            return ConversationChapter(
+                id: ch.id,
+                title: resolvedTitle,
+                subtitle: resolvedSubtitle,
+                rangeText: ch.rangeText,
+                dateText: ch.dateText,
+                turns: ch.turns,
+                startStepIndex: s,
+                endStepIndexExclusive: e,
+                isAiTitled: isAI
+            )
+        }
+    }
+
+    private static func buildRawChapters(from turns: [ConversationTurn], chunkSize: Int) -> [ConversationChapter] {
         guard !turns.isEmpty else { return [] }
         
         // 尝试按日期跨度分组（跨天长会话自动激活日期章节）
@@ -271,7 +359,7 @@ public enum ConversationTurnBuilder {
                 guard !currentDayTurns.isEmpty, let d = currentDayDate else { return }
                 let label = formatDateLabel(d)
                 
-                if currentDayTurns.count <= 12 {
+                if currentDayTurns.count <= max(chunkSize, 8) {
                     let firstTurn = currentDayTurns.first?.turnIndex ?? 1
                     let lastTurn = currentDayTurns.last?.turnIndex ?? firstTurn
                     let range = firstTurn == lastTurn ? "第 \(firstTurn) 轮" : "第 \(firstTurn)–\(lastTurn) 轮"
@@ -285,7 +373,7 @@ public enum ConversationTurnBuilder {
                     ))
                     chapterIdx += 1
                 } else {
-                    // 单日超过 12 轮时，在日期内按 chunkSize 分段
+                    // 单日轮数较多时，在日期内按 chunkSize 分段
                     var start = 0
                     var subIdx = 1
                     while start < currentDayTurns.count {
@@ -327,14 +415,14 @@ public enum ConversationTurnBuilder {
         }
         
         // 当总轮次不多时，直接作为一个主章节展示
-        if turns.count <= 12 {
+        if turns.count <= chunkSize {
             let range = turns.count == 1 ? "第 1 轮" : "第 1–\(turns.count) 轮"
             let dateLabel = turns.first?.timestamp.flatMap(parseTurnDate).map(formatDateLabel)
             let title = dateLabel != nil ? "\(dateLabel!) · \(range)" : "全部轮次"
             return [ConversationChapter(id: "chapter-all", title: title, rangeText: range, dateText: dateLabel, turns: turns)]
         }
         
-        // 超过 12 轮时，按 chunkSize 自动拆分为 Chapters
+        // 超过 chunkSize 轮时，按 chunkSize 自动拆分为 Chapters
         var chapters: [ConversationChapter] = []
         var startIndex = 0
         var chapterNum = 1

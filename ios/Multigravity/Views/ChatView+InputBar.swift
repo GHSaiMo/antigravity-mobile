@@ -98,14 +98,14 @@ extension ChatView {
                         .transition(.scale(scale: 0.9).combined(with: .opacity))
                     }
                     
-                    // 3. Commit：打开 Git 提交浮窗（会话没有 Git 工作区或没有文件变动时不显示）
+                    // 3. Commit：打开 Git 提交浮窗（会话没有 Git 工作区或没有文件变动/PR 时不显示）
                     if viewModel.hasGitChanges {
                         Button {
                             UIImpactFeedbackGenerator(style: .light).impactOccurred()
                             isInputFocused = false
                             viewModel.openGitSheet()
                         } label: {
-                            Text("Commit")
+                            Text(viewModel.gitChipLabel)
                                 .font(.system(size: 13, weight: .medium))
                                 .foregroundColor(.primary)
                                 .padding(.horizontal, 14)

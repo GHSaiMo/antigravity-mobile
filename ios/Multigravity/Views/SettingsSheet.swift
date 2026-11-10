@@ -199,7 +199,7 @@ public struct SettingsSheet: View {
                     HStack {
                         Text("版本")
                         Spacer()
-                        Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.1.3")
+                        Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.1.4")
                             .foregroundColor(.secondary)
                     }
                 }

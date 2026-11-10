@@ -81,9 +81,9 @@ public final class ChatViewModel {
         ConversationTurnBuilder.buildTurns(from: messages, isRunning: isRunning, isAwaitingResponse: isAwaitingResponse)
     }
     
-    /// 超长会话自动拆分的章节列表
+    /// 超长会话自动拆分的章节列表（合并 Antigravity 2.30.0 GetChapterTitles 语义标题）
     public var chapters: [ConversationChapter] {
-        ConversationTurnBuilder.buildChapters(from: turns)
+        ConversationTurnBuilder.buildChapters(from: turns, aiTitles: chapterTitles)
     }
     
     public var selectedImageData: [Data] = []
@@ -258,6 +258,8 @@ public final class ChatViewModel {
     var lastAutoApprovedInteractionId: String? = nil
     public var queuedMessages: [QueuedMessageItem] = []
     public var runningTasks: [RunningTaskItem] = []
+    public var globalBackgroundTasks: [GlobalBackgroundTaskItem] = []
+    public var hasAnyBackgroundTasks: Bool { !runningTasks.isEmpty || !globalBackgroundTasks.isEmpty }
     /// 本会话派发的子代理（来自 stream，不入缓存）。
     public var subagents: [SubagentItem] = []
     /// 非空说明当前会话本身就是子代理，界面只读。
@@ -305,10 +307,14 @@ public final class ChatViewModel {
 
     public var changesSheet: ChangesSheetState? = nil
     public var gitSheet: GitSheetState? = nil
-    /// Commit / Changes 快捷按钮的动态可见性：会话没有 Git 工作区、或没有文件变动时不显示。
+    /// Commit / Changes 快捷按钮的动态可见性：会话没有 Git 工作区、或没有文件变动及 PR 时不显示。
     public var hasGitChanges: Bool = false
+    public var gitChipLabel: String = "Commit"
     public var hasSessionChanges: Bool = false
     public var exportedMarkdownFile: ExportedMarkdownFile? = nil
+    /// Antigravity 2.30.0 GetChapterTitles 生成的章节标题缓存（key: "start:end" 或 "start:s"）
+    public var chapterTitles: [String: String] = [:]
+    public var isLoadingChapterTitles: Bool = false
     
     /// ID of the first message of the latest response turn (e.g., tool batch or agent response following the last user message)
     public var latestTurnStartMessageId: String? {

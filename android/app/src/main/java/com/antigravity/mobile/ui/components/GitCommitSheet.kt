@@ -11,6 +11,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -18,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -26,6 +28,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.GitFileStatus
+import com.antigravity.mobile.data.model.GitPullRequestItem
 import com.antigravity.mobile.data.model.GitStatusResponse
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 import com.antigravity.mobile.ui.viewmodel.GitSheetState
@@ -137,6 +140,10 @@ fun GitCommitSheet(
                 status != null -> {
                     BranchHeader(status)
                     Spacer(Modifier.height(10.dp))
+                    if (status.pullRequests.isNotEmpty()) {
+                        PullRequestsSection(status.pullRequests)
+                        Spacer(Modifier.height(10.dp))
+                    }
                     if (status.clean) {
                         NoticeRow("工作区没有可提交的改动", isError = false)
                         if (status.ahead > 0 && status.upstream != null) {
@@ -213,8 +220,11 @@ fun GitCommitSheet(
 @Composable
 private fun BranchHeader(status: GitStatusResponse) {
     val colors = AntigravityTheme.colors
+    val repoLabel = status.githubTarget?.takeIf { it.owner.isNotBlank() && it.repo.isNotBlank() }
+        ?.let { "${it.owner}/${it.repo}" }
+        ?: status.repoName
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(status.repoName, fontSize = 13.sp, color = colors.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+        Text(repoLabel, fontSize = 13.sp, color = colors.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
         Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(6.dp))
@@ -226,6 +236,96 @@ private fun BranchHeader(status: GitStatusResponse) {
         if (status.ahead > 0) Text("↑${status.ahead}", fontSize = 12.sp, color = colors.textSecondary, fontFamily = FontFamily.Monospace)
         if (status.behind > 0) Text("↓${status.behind}", fontSize = 12.sp, color = colors.accentOrange, fontFamily = FontFamily.Monospace)
         if (status.upstream == null && !status.detached) Text("未设置上游", fontSize = 11.sp, color = colors.textMuted)
+    }
+}
+
+@Composable
+private fun PullRequestsSection(prs: List<GitPullRequestItem>) {
+    val colors = AntigravityTheme.colors
+    val uriHandler = LocalUriHandler.current
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            text = "GitHub Pull Requests",
+            fontSize = 11.5.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = colors.textMuted
+        )
+        prs.forEach { pr ->
+            val stateUpper = pr.state.uppercase()
+            val stateColor = when (stateUpper) {
+                "MERGED" -> Color(0xFFAB47BC)
+                "DRAFT" -> colors.textSecondary
+                "CLOSED" -> Color(0xFFEF5350)
+                else -> Color(0xFF4CAF50)
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(colors.surfaceVariant.copy(alpha = 0.7f))
+                    .border(0.5.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+                    .clickable(enabled = pr.url.isNotBlank()) {
+                        runCatching { uriHandler.openUri(pr.url) }
+                    }
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(5.dp))
+                        .background(stateColor.copy(alpha = 0.16f))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = stateUpper,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace,
+                        color = stateColor
+                    )
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        if (pr.number > 0) {
+                            Text(
+                                text = "#${pr.number}",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                fontFamily = FontFamily.Monospace,
+                                color = colors.textSecondary
+                            )
+                        }
+                        Text(
+                            text = pr.title,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = colors.textPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    if (!pr.headRefName.isNullOrBlank() && !pr.baseRefName.isNullOrBlank()) {
+                        Text(
+                            text = "${pr.headRefName} → ${pr.baseRefName}",
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = colors.textMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+                if (pr.url.isNotBlank()) {
+                    Icon(
+                        imageVector = Icons.Default.OpenInNew,
+                        contentDescription = "Open PR",
+                        tint = colors.textMuted,
+                        modifier = Modifier.size(15.dp)
+                    )
+                }
+            }
+        }
     }
 }
 

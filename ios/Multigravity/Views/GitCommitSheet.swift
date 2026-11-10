@@ -13,6 +13,7 @@ public struct GitCommitSheet: View {
     /// 「让 Agent 写提交信息并提交」：保留原有行为，由 ChatView 把指令放进输入框。
     let onDelegateToAgent: () -> Void
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
 
     @State private var unchecked: Set<String> = []
     @State private var message: String = ""
@@ -73,6 +74,13 @@ public struct GitCommitSheet: View {
         return List {
             Section {
                 branchHeader(status)
+            }
+            if let prs = status.pullRequests, !prs.isEmpty {
+                Section("GitHub Pull Requests") {
+                    ForEach(prs) { pr in
+                        pullRequestRow(pr)
+                    }
+                }
             }
             if status.clean {
                 Section {
@@ -158,8 +166,14 @@ public struct GitCommitSheet: View {
     }
 
     private func branchHeader(_ status: GitStatusResponse) -> some View {
-        HStack(spacing: 8) {
-            Text(status.repoName)
+        let repoLabel: String = {
+            if let t = status.githubTarget, !t.owner.isEmpty, !t.repo.isEmpty {
+                return "\(t.owner)/\(t.repo)"
+            }
+            return status.repoName
+        }()
+        return HStack(spacing: 8) {
+            Text(repoLabel)
                 .font(.system(size: 13))
                 .foregroundColor(.secondary)
                 .lineLimit(1)
@@ -181,6 +195,60 @@ public struct GitCommitSheet: View {
             }
             Spacer()
         }
+    }
+
+    private func pullRequestRow(_ pr: GitPullRequestItem) -> some View {
+        let stateUpper = pr.state.uppercased()
+        let stateTint: Color = {
+            switch stateUpper {
+            case "MERGED": return .purple
+            case "DRAFT": return .secondary
+            case "CLOSED": return .red
+            default: return .green
+            }
+        }()
+        return Button {
+            if let url = URL(string: pr.url) {
+                openURL(url)
+            }
+        } label: {
+            HStack(spacing: 10) {
+                Text(stateUpper)
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundColor(stateTint)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2.5)
+                    .background(stateTint.opacity(0.14))
+                    .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 5) {
+                        if pr.number > 0 {
+                            Text("#\(pr.number)")
+                                .font(.system(size: 12.5, weight: .semibold, design: .monospaced))
+                                .foregroundColor(.secondary)
+                        }
+                        Text(pr.title)
+                            .font(.system(size: 13.5, weight: .medium))
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                    }
+                    if let head = pr.headRefName, let base = pr.baseRefName, !head.isEmpty, !base.isEmpty {
+                        Text("\(head) → \(base)")
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer()
+                if !pr.url.isEmpty {
+                    Image(systemName: "arrow.up.right.square")
+                        .font(.system(size: 13))
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        .buttonStyle(.plain)
     }
 
     private func fileRow(_ file: GitFileStatus) -> some View {

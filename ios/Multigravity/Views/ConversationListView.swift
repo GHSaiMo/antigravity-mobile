@@ -13,6 +13,7 @@ public struct ConversationListView: View {
     @State private var showNewConversation = false
     @State private var pendingCreatedConversation: ConversationItem? = nil
     @State private var showAccountQuota = false
+    @State private var showBackgroundTasksSheet = false
     @State private var navigationPath: [ConversationItem] = []
     @State private var shareInbox = ShareInbox.shared
     @State private var pendingShareItem: ConversationItem? = nil
@@ -142,6 +143,20 @@ public struct ConversationListView: View {
             )
             .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $showBackgroundTasksSheet) {
+            McpSkillsSheet(
+                initialTab: .tasks,
+                currentConversationId: navigationPath.last?.id,
+                onSelectConversation: { targetId in
+                    openConversationById(targetId)
+                },
+                onTasksChanged: { updated in
+                    viewModel.globalBackgroundTasks = updated
+                }
+            )
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
         .alert("重命名会话", isPresented: $showRenameAlert) {
             TextField("输入新标题", text: $renameText)
             Button("取消", role: .cancel) {}
@@ -223,6 +238,11 @@ public struct ConversationListView: View {
                 viewModel.conversations.removeAll(where: { $0.id == draftId })
             }
             viewModel.reloadFromCache()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openConversationFromTaskCenter)) { notif in
+            if let targetId = notif.object as? String {
+                openConversationById(targetId)
+            }
         }
         .onOpenURL { url in
             if url.isFileURL {
@@ -306,6 +326,61 @@ public struct ConversationListView: View {
         } else {
             navigationPath.append(item)
         }
+    }
+
+    private func openConversationById(_ targetId: String) {
+        if let found = viewModel.conversations.first(where: { $0.id == targetId }) {
+            navigationPath = [found]
+            return
+        }
+        let fallback = ConversationItem(
+            id: targetId,
+            title: viewModel.globalBackgroundTasks.first(where: { $0.conversationId == targetId })?.conversationTitle ?? "会话详情",
+            status: .running,
+            stepCount: 1,
+            workspaceName: viewModel.globalBackgroundTasks.first(where: { $0.conversationId == targetId })?.workspaceName ?? "",
+            lastModified: Date()
+        )
+        navigationPath = [fallback]
+    }
+
+    private var globalBackgroundTasksCapsule: some View {
+        let count = viewModel.globalBackgroundTasks.count
+        let daemonCount = viewModel.globalBackgroundTasks.filter(\.isDaemon).count
+        return Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            showBackgroundTasksSheet = true
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "terminal.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.indigo)
+
+                Text(daemonCount > 0 ? "\(count) 个后台任务运行中（\(daemonCount) 个常驻）" : "\(count) 个后台任务运行中")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+
+                Spacer(minLength: 4)
+
+                HStack(spacing: 3) {
+                    Text("管理")
+                        .font(.system(size: 11.5, weight: .semibold))
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9.5, weight: .bold))
+                }
+                .foregroundColor(.indigo)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color(uiColor: .secondarySystemBackground))
+            .clipShape(Capsule())
+            .overlay(
+                Capsule()
+                    .stroke(Color.indigo.opacity(0.28), lineWidth: 0.8)
+            )
+        }
+        .buttonStyle(.plain)
     }
     
     /// The conversation list with its navigation chrome (title, search, toolbar).
@@ -540,6 +615,13 @@ public struct ConversationListView: View {
                 .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 6, trailing: 16))
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
+            }
+
+            if !viewModel.globalBackgroundTasks.isEmpty {
+                globalBackgroundTasksCapsule
+                    .listRowInsets(EdgeInsets(top: 2, leading: 16, bottom: 6, trailing: 16))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
             }
             
             ForEach(viewModel.filteredConversations) { item in

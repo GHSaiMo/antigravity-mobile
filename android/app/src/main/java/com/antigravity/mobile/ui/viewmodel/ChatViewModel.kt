@@ -76,6 +76,7 @@ data class ChatUiState(
     val workspaceFolder: String? = null,
     val messages: List<GatewayMessageItem> = emptyList(),
     val runningTasks: List<RunningTaskItem> = emptyList(),
+    val globalBackgroundTasks: List<GlobalBackgroundTaskItem> = emptyList(),
     /** 本会话派发的子代理（来自 stream，不入缓存）。 */
     val subagents: List<SubagentItem> = emptyList(),
     /** 非空说明当前会话本身就是子代理，界面只读。 */
@@ -125,9 +126,13 @@ data class ChatUiState(
     val selectedSlashCommand: SlashCommandOption? = null,
     val changesSheet: ChangesSheetState? = null,
     val gitSheet: GitSheetState? = null,
-    /** Commit / Changes 快捷按钮的动态可见性：会话没有 Git 工作区、或没有文件变动时不显示。 */
+    /** Commit / Changes 快捷按钮的动态可见性：会话没有 Git 工作区、或没有文件变动及 PR 时不显示。 */
     val hasGitChanges: Boolean = false,
+    val gitChipLabel: String = "Commit",
     val hasSessionChanges: Boolean = false,
+    /** Antigravity 2.30.0 GetChapterTitles 生成的章节标题缓存（key: "start:end" 或 "start:s"）。 */
+    val chapterTitles: Map<String, String> = emptyMap(),
+    val isLoadingChapterTitles: Boolean = false,
     val focusInputTrigger: Int = 0
 )
 

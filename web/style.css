@@ -6253,3 +6253,109 @@ html[data-clipped] #view-conversations::after {
   cursor: pointer;
 }
 .vtb-btn-primary { background: #5856d6; color: #fff; font-weight: 600; padding: 8px 18px; }
+
+/* GitHub Pull Requests in Git Sheet (Antigravity 2.30.0) */
+.git-pr-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.git-pr-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: var(--ios-tertiary-bg, rgba(128, 128, 128, 0.1));
+  color: inherit;
+  text-decoration: none;
+}
+.git-pr-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 5px;
+  letter-spacing: 0.3px;
+  flex-shrink: 0;
+}
+.git-pr-badge.open { background: rgba(48, 209, 88, 0.18); color: #30d158; }
+.git-pr-badge.draft { background: rgba(142, 142, 147, 0.22); color: var(--ios-secondary-label); }
+.git-pr-badge.merged { background: rgba(191, 90, 242, 0.2); color: #bf5af2; }
+.git-pr-badge.closed { background: rgba(255, 69, 58, 0.18); color: #ff453a; }
+.git-pr-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.git-pr-title {
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.git-pr-num {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  opacity: 0.7;
+}
+.git-pr-meta {
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  color: var(--ios-secondary-label);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.git-pr-ext {
+  font-size: 12px;
+  opacity: 0.55;
+  flex-shrink: 0;
+}
+
+/* Global Background Tasks Capsule Bar */
+.global-tasks-bar {
+  padding: 0 16px 8px;
+}
+.global-tasks-capsule {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.28);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.global-tasks-capsule:active {
+  background: rgba(16, 185, 129, 0.16);
+}
+.global-tasks-icon {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  color: #10B981;
+  background: rgba(16, 185, 129, 0.15);
+  padding: 2px 6px;
+  border-radius: 5px;
+  flex-shrink: 0;
+}
+#global-tasks-label {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ios-label);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.global-tasks-manage {
+  font-size: 11px;
+  font-weight: 600;
+  color: #10B981;
+  flex-shrink: 0;
+}
+

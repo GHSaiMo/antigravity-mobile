@@ -108,6 +108,7 @@ import com.antigravity.mobile.ui.viewmodel.exportMarkdown
 import com.antigravity.mobile.ui.viewmodel.openChangesSheet
 import com.antigravity.mobile.ui.viewmodel.openGitSheet
 import com.antigravity.mobile.ui.viewmodel.refreshActionAvailability
+import com.antigravity.mobile.ui.viewmodel.refreshChapterTitles
 import com.antigravity.mobile.ui.viewmodel.refreshGitStatus
 import com.antigravity.mobile.ui.viewmodel.retryGitPush
 import com.antigravity.mobile.ui.viewmodel.confirmUndo
@@ -142,6 +143,7 @@ import com.antigravity.mobile.ui.viewmodel.skipInteraction
 import com.antigravity.mobile.ui.viewmodel.stopSubagent
 import com.antigravity.mobile.ui.viewmodel.stopTask
 import com.antigravity.mobile.ui.viewmodel.submitInteraction
+import com.antigravity.mobile.ui.viewmodel.updateGlobalBackgroundTasks
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
@@ -205,8 +207,8 @@ fun ChatScreen(
     val turns = remember(uiState.messages, uiState.isRunning, uiState.isAwaitingResponse) {
         ConversationTurnBuilder.buildTurns(uiState.messages, uiState.isRunning, uiState.isAwaitingResponse)
     }
-    val chapters = remember(turns) {
-        ConversationTurnBuilder.buildChapters(turns)
+    val chapters = remember(turns, uiState.chapterTitles) {
+        ConversationTurnBuilder.buildChapters(turns, aiTitles = uiState.chapterTitles)
     }
 
     // Scroll state tracking: distinguish initial logical entry alignment vs in-session incremental scroll
@@ -918,15 +920,34 @@ fun ChatScreen(
                     }
                 },
                 actions = {
+                    val hasAnyBgTasks = uiState.runningTasks.isNotEmpty() || uiState.globalBackgroundTasks.isNotEmpty()
                     IconButton(onClick = {
                         haptic.light()
                         showMcpSkillsSheet = true
                     }) {
-                        Icon(
-                            imageVector = Icons.Default.Build,
-                            contentDescription = "MCP 工具与技能看板",
-                            tint = colors.accentBlue
-                        )
+                        if (hasAnyBgTasks) {
+                            Box(
+                                modifier = Modifier
+                                    .size(26.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .border(1.5.dp, colors.accentBlue, RoundedCornerShape(6.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = ">_",
+                                    fontSize = 11.sp,
+                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    color = colors.accentBlue
+                                )
+                            }
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Build,
+                                contentDescription = "MCP 工具与技能看板",
+                                tint = colors.accentBlue
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -1303,6 +1324,7 @@ fun ChatScreen(
                                     dismissKeyboard()
                                     viewModel.openGitSheet()
                                 },
+                                commitLabel = uiState.gitChipLabel,
                                 onShowChanges = {
                                     dismissKeyboard()
                                     viewModel.openChangesSheet()
@@ -1599,12 +1621,18 @@ fun ChatScreen(
         }
     }
 
-    // 对话导轨与大纲导航抽屉 (Antigravity 2.28.1 对齐)
+    // 对话导轨与大纲导航抽屉 (Antigravity 2.30.0 对齐)
+    LaunchedEffect(showNavigatorSheet) {
+        if (showNavigatorSheet) {
+            viewModel.refreshChapterTitles(chapters)
+        }
+    }
     if (showNavigatorSheet) {
         ConversationNavigatorSheet(
             turns = turns,
             chapters = chapters,
             currentTurnIndex = currentTurnIndex,
+            isLoadingChapterTitles = uiState.isLoadingChapterTitles,
             onSelectTurn = { turn ->
                 showNavigatorSheet = false
                 lockedTurnIndex = turn.turnIndex
@@ -1650,9 +1678,24 @@ fun ChatScreen(
         )
     }
 
-    // MCP 工具与技能看板 (Phase 3 对齐)
+    // MCP 工具与技能看板 / 全局后台任务中心
     if (showMcpSkillsSheet) {
-        McpSkillsSheet(onDismiss = { showMcpSkillsSheet = false })
+        val hasAnyBgTasks = uiState.runningTasks.isNotEmpty() || uiState.globalBackgroundTasks.isNotEmpty()
+        McpSkillsSheet(
+            initialTab = if (hasAnyBgTasks) 2 else 0,
+            currentConversationId = uiState.cascadeId,
+            onSelectConversation = { targetId, targetTitle ->
+                openSubagent(
+                    com.antigravity.mobile.data.model.SubagentItem(
+                        conversationId = targetId,
+                        title = targetTitle,
+                        status = "running"
+                    )
+                )
+            },
+            onTasksChanged = { viewModel.updateGlobalBackgroundTasks(it) },
+            onDismiss = { showMcpSkillsSheet = false }
+        )
     }
 
     // "+" attachment panel (camera, recent photos, add file)
