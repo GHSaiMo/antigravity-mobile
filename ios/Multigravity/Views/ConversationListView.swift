@@ -212,6 +212,9 @@ public struct ConversationListView: View {
                 Task {
                     await ProjectCacheManager.shared.fetchAndCacheProjects()
                 }
+                Task {
+                    await CacheManager.shared.fetchAndCacheMcpAndSkills()
+                }
             }
         }
         .onDisappear {

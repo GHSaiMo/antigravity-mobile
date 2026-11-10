@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -55,6 +56,22 @@ fun ConversationNavigatorSheet(
     var collapsedChapterIds by remember { mutableStateOf(setOf<String>()) }
     val allCollapsed = chapters.isNotEmpty() && chapters.all { it.id in collapsedChapterIds }
     val chapterOffsets = remember { mutableStateMapOf<String, Int>() }
+    var selectedChapterId by remember {
+        mutableStateOf(
+            chapters.firstOrNull { ch -> ch.turns.any { it.turnIndex == currentTurnIndex } }?.id
+                ?: chapters.firstOrNull()?.id
+        )
+    }
+    LaunchedEffect(chapters, currentTurnIndex) {
+        if (selectedChapterId == null || chapters.none { it.id == selectedChapterId }) {
+            selectedChapterId = chapters.firstOrNull { ch -> ch.turns.any { it.turnIndex == currentTurnIndex } }?.id
+                ?: chapters.firstOrNull()?.id
+        }
+    }
+    val activeChapterId = selectedChapterId
+        ?.takeIf { id -> chapters.any { it.id == id } }
+        ?: chapters.firstOrNull { ch -> ch.turns.any { it.turnIndex == currentTurnIndex } }?.id
+        ?: chapters.firstOrNull()?.id
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -215,31 +232,55 @@ fun ConversationNavigatorSheet(
 
             // Horizontal Chapter TOC Jump Bar (when multiple chapters exist)
             if (chapters.size > 1) {
+                val chapterTabScrollState = rememberScrollState()
+                var tabViewportWidth by remember { mutableIntStateOf(0) }
+                val tabBounds = remember { mutableStateMapOf<String, Pair<Int, Int>>() }
+
+                LaunchedEffect(activeChapterId, tabViewportWidth) {
+                    val id = activeChapterId ?: return@LaunchedEffect
+                    val (tabX, tabW) = tabBounds[id] ?: return@LaunchedEffect
+                    if (tabViewportWidth > 0) {
+                        val targetX = (tabX + tabW / 2 - tabViewportWidth / 2).coerceIn(0, chapterTabScrollState.maxValue)
+                        chapterTabScrollState.animateScrollTo(targetX)
+                    }
+                }
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
+                        .onGloballyPositioned { tabViewportWidth = it.size.width }
+                        .horizontalScroll(chapterTabScrollState)
                         .padding(bottom = 10.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     chapters.forEachIndexed { idx, chapter ->
-                        val isCurrent = chapter.turns.any { it.turnIndex == currentTurnIndex }
+                        val isSelected = (chapter.id == activeChapterId)
                         Surface(
                             onClick = {
+                                selectedChapterId = chapter.id
+                                val wasCollapsed = chapter.id in collapsedChapterIds
                                 collapsedChapterIds = collapsedChapterIds - chapter.id
-                                chapterOffsets[chapter.id]?.let { targetY ->
-                                    coroutineScope.launch {
+                                coroutineScope.launch {
+                                    if (wasCollapsed) {
+                                        withFrameNanos { }
+                                    }
+                                    chapterOffsets[chapter.id]?.let { targetY ->
                                         scrollState.animateScrollTo(targetY.coerceAtLeast(0))
                                     }
                                 }
                             },
                             shape = RoundedCornerShape(16.dp),
-                            color = if (isCurrent) colors.accentIndigo else colors.surface,
-                            border = if (isCurrent) null else androidx.compose.foundation.BorderStroke(
+                            color = if (isSelected) colors.accentIndigo else colors.surface,
+                            border = if (isSelected) null else androidx.compose.foundation.BorderStroke(
                                 1.dp,
                                 colors.accentIndigo.copy(alpha = 0.22f)
-                            )
+                            ),
+                            modifier = Modifier.onGloballyPositioned { coords ->
+                                if (coords.isAttached) {
+                                    tabBounds[chapter.id] = coords.positionInParent().x.toInt() to coords.size.width
+                                }
+                            }
                         ) {
                             Row(
                                 modifier = Modifier
@@ -251,14 +292,14 @@ fun ConversationNavigatorSheet(
                                 Icon(
                                     imageVector = if (chapter.isAiTitled) Icons.Default.AutoAwesome else Icons.Default.Bookmark,
                                     contentDescription = null,
-                                    tint = if (isCurrent) Color.White else colors.accentIndigo,
+                                    tint = if (isSelected) Color.White else colors.accentIndigo,
                                     modifier = Modifier.size(12.dp)
                                 )
                                 Text(
                                     text = "§${idx + 1} ${chapter.title}",
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Medium,
-                                    color = if (isCurrent) Color.White else colors.textPrimary,
+                                    color = if (isSelected) Color.White else colors.textPrimary,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -311,6 +352,7 @@ fun ConversationNavigatorSheet(
                     chapters.forEach { chapter ->
                         val isCollapsed = chapter.id in collapsedChapterIds
                         val containsCurrent = chapter.turns.any { it.turnIndex == currentTurnIndex }
+                        val isSelectedChapter = (chapter.id == activeChapterId)
                         val containsError = chapter.turns.any { it.hasError }
                         val containsActive = chapter.turns.any { it.isActive }
                         val chevronRotation by animateFloatAsState(targetValue = if (isCollapsed) -90f else 0f)
@@ -318,10 +360,11 @@ fun ConversationNavigatorSheet(
                         // 可折叠章节卡片头部
                         Surface(
                             onClick = {
-                                collapsedChapterIds = if (isCollapsed) {
-                                    collapsedChapterIds - chapter.id
+                                if (isCollapsed) {
+                                    selectedChapterId = chapter.id
+                                    collapsedChapterIds = collapsedChapterIds - chapter.id
                                 } else {
-                                    collapsedChapterIds + chapter.id
+                                    collapsedChapterIds = collapsedChapterIds + chapter.id
                                 }
                             },
                             shape = RoundedCornerShape(10.dp),
@@ -330,9 +373,8 @@ fun ConversationNavigatorSheet(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .onGloballyPositioned { coords ->
-                                    val root = contentRootCoords
-                                    if (root != null && root.isAttached && coords.isAttached) {
-                                        chapterOffsets[chapter.id] = root.localPositionOf(coords, Offset.Zero).y.toInt()
+                                    if (coords.isAttached) {
+                                        chapterOffsets[chapter.id] = coords.positionInParent().y.toInt()
                                     }
                                 }
                                 .padding(top = 10.dp, bottom = 6.dp)
@@ -350,7 +392,7 @@ fun ConversationNavigatorSheet(
                                         else -> Icons.Default.Bookmark
                                     },
                                     contentDescription = null,
-                                    tint = if (chapter.isAiTitled || containsCurrent) colors.accentIndigo else colors.textSecondary,
+                                    tint = if (chapter.isAiTitled || containsCurrent || isSelectedChapter) colors.accentIndigo else colors.textSecondary,
                                     modifier = Modifier.size(14.dp)
                                 )
 
@@ -361,7 +403,7 @@ fun ConversationNavigatorSheet(
                                         text = chapter.title,
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (containsCurrent) colors.textPrimary else colors.textSecondary,
+                                        color = if (containsCurrent || isSelectedChapter) colors.textPrimary else colors.textSecondary,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )

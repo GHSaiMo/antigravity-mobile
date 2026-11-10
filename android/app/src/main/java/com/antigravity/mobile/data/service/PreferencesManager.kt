@@ -8,7 +8,9 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.antigravity.mobile.data.model.ConversationItem
 import com.antigravity.mobile.data.model.LocalDraftSession
+import com.antigravity.mobile.data.model.McpServerState
 import com.antigravity.mobile.data.model.ProjectItem
+import com.antigravity.mobile.data.model.SkillInfo
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -250,6 +252,66 @@ class PreferencesManager(context: Context) {
     var cachedDraftSessionsJson: String?
         get() = prefs.getString(KEY_DRAFT_SESSIONS, null)
         set(value) = prefs.edit().putString(KEY_DRAFT_SESSIONS, value).apply()
+
+    var cachedMcpServersJson: String?
+        get() = prefs.getString(KEY_CACHED_MCP_SERVERS, null)
+        set(value) = prefs.edit().putString(KEY_CACHED_MCP_SERVERS, value).apply()
+
+    var cachedSkillsJson: String?
+        get() = prefs.getString(KEY_CACHED_SKILLS, null)
+        set(value) = prefs.edit().putString(KEY_CACHED_SKILLS, value).apply()
+
+    fun loadCachedMcpServers(): List<McpServerState> {
+        memMcpServers?.let { if (it.isNotEmpty()) return it }
+        val raw = cachedMcpServersJson
+        if (!raw.isNullOrBlank()) {
+            try {
+                val list = draftJson.decodeFromString<List<McpServerState>>(raw)
+                if (list.isNotEmpty()) {
+                    memMcpServers = list
+                }
+                return list
+            } catch (e: Exception) {
+                Log.w("PreferencesManager", "Failed to decode cached MCP servers: ${e.message}")
+            }
+        }
+        return emptyList()
+    }
+
+    fun saveCachedMcpServers(list: List<McpServerState>) {
+        memMcpServers = list
+        try {
+            cachedMcpServersJson = draftJson.encodeToString(list)
+        } catch (e: Exception) {
+            Log.w("PreferencesManager", "Failed to encode cached MCP servers: ${e.message}")
+        }
+    }
+
+    fun loadCachedSkills(): List<SkillInfo> {
+        memSkills?.let { if (it.isNotEmpty()) return it }
+        val raw = cachedSkillsJson
+        if (!raw.isNullOrBlank()) {
+            try {
+                val list = draftJson.decodeFromString<List<SkillInfo>>(raw)
+                if (list.isNotEmpty()) {
+                    memSkills = list
+                }
+                return list
+            } catch (e: Exception) {
+                Log.w("PreferencesManager", "Failed to decode cached skills: ${e.message}")
+            }
+        }
+        return emptyList()
+    }
+
+    fun saveCachedSkills(list: List<SkillInfo>) {
+        memSkills = list
+        try {
+            cachedSkillsJson = draftJson.encodeToString(list)
+        } catch (e: Exception) {
+            Log.w("PreferencesManager", "Failed to encode cached skills: ${e.message}")
+        }
+    }
 
     fun updateEndpoints(
         lan: String? = null,
@@ -619,11 +681,18 @@ class PreferencesManager(context: Context) {
     fun clear() {
         securePrefs?.edit()?.clear()?.apply()
         prefs.edit().clear().apply()
+        memMcpServers = null
+        memSkills = null
         _themeModeFlow.value = "system"
         _gatewayPlatformFlow.value = null
     }
 
     companion object {
+        @Volatile
+        private var memMcpServers: List<McpServerState>? = null
+        @Volatile
+        private var memSkills: List<SkillInfo>? = null
+
         private const val KEY_GATEWAY_PLATFORM = "gateway_platform"
         private const val KEY_GATEWAY_URL = "gateway_base_url"
         private const val KEY_PRIMARY_CLOUD_URL = "primary_cloud_url"
@@ -645,6 +714,8 @@ class PreferencesManager(context: Context) {
         private const val KEY_CACHED_PROJECTS = "cached_projects_json"
         private const val KEY_CACHED_CONVERSATIONS = "cached_conversations_json"
         private const val KEY_DRAFT_SESSIONS = "cached_draft_sessions_json"
+        private const val KEY_CACHED_MCP_SERVERS = "cached_mcp_servers_json"
+        private const val KEY_CACHED_SKILLS = "cached_skills_json"
         private const val KEY_DELETED_CONVERSATIONS = "ag_deleted_conversations"
         private const val KEY_PINNED_CONVERSATIONS = "ag_pinned_conversations"
     }

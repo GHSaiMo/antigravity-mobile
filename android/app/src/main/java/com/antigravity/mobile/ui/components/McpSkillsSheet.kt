@@ -33,6 +33,7 @@ import com.antigravity.mobile.data.service.ApiClient
 import com.antigravity.mobile.data.service.PreferencesManager
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 import com.antigravity.mobile.ui.util.rememberHaptic
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -50,10 +51,11 @@ fun McpSkillsSheet(
     val context = LocalContext.current
     val haptic = rememberHaptic()
     val scope = rememberCoroutineScope()
+    val prefs = remember { PreferencesManager(context.applicationContext) }
     val apiClient = remember {
         ApiClient.defaultInstance ?: ApiClient(
             context.applicationContext,
-            PreferencesManager(context.applicationContext)
+            prefs
         )
     }
 
@@ -62,8 +64,8 @@ fun McpSkillsSheet(
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    var mcpServers by remember { mutableStateOf<List<McpServerState>>(emptyList()) }
-    var skills by remember { mutableStateOf<List<SkillInfo>>(emptyList()) }
+    var mcpServers by remember { mutableStateOf(prefs.loadCachedMcpServers()) }
+    var skills by remember { mutableStateOf(prefs.loadCachedSkills()) }
     var backgroundTasks by remember { mutableStateOf<List<GlobalBackgroundTaskItem>>(emptyList()) }
     var expandedServers by remember { mutableStateOf<Set<String>>(emptySet()) }
     var expandedTools by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -138,20 +140,32 @@ fun McpSkillsSheet(
             isLoading = true
             errorMessage = null
             try {
-                apiClient.fetchGlobalBackgroundTasks().onSuccess {
+                val tasksDeferred = async { apiClient.fetchGlobalBackgroundTasks() }
+                val mcpDeferred = async { apiClient.fetchMcpServerStates() }
+                val skillsDeferred = async { apiClient.fetchAllSkills() }
+
+                tasksDeferred.await().onSuccess {
                     backgroundTasks = it
                     onTasksChanged?.invoke(it)
                 }
-                val mcpRes = apiClient.fetchMcpServerStates()
-                val skillsRes = apiClient.fetchAllSkills()
-                if (mcpRes.isSuccess && skillsRes.isSuccess) {
-                    mcpServers = mcpRes.getOrNull() ?: emptyList()
-                    skills = skillsRes.getOrNull() ?: emptyList()
-                } else {
+                val mcpRes = mcpDeferred.await()
+                val skillsRes = skillsDeferred.await()
+
+                mcpRes.onSuccess {
+                    mcpServers = it
+                    prefs.saveCachedMcpServers(it)
+                }
+                skillsRes.onSuccess {
+                    skills = it
+                    prefs.saveCachedSkills(it)
+                }
+                if (mcpRes.isFailure && skillsRes.isFailure && mcpServers.isEmpty() && skills.isEmpty()) {
                     applyDemoData()
                 }
             } catch (_: Exception) {
-                applyDemoData()
+                if (mcpServers.isEmpty() && skills.isEmpty()) {
+                    applyDemoData()
+                }
             } finally {
                 isLoading = false
             }
@@ -498,7 +512,19 @@ fun McpSkillsSheet(
                     }
                 }
 
-                if (filteredTasks.isEmpty()) {
+                if (isLoading && backgroundTasks.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(
+                            color = colors.accentIndigo,
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
+                } else if (filteredTasks.isEmpty()) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()

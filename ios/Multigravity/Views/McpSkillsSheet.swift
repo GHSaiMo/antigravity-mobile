@@ -41,6 +41,8 @@ public struct McpSkillsSheet: View {
         onTasksChanged: (([GlobalBackgroundTaskItem]) -> Void)? = nil
     ) {
         self._selectedTab = State(initialValue: initialTab)
+        self._mcpServers = State(initialValue: CacheManager.shared.loadMcpServers())
+        self._skills = State(initialValue: CacheManager.shared.loadSkills())
         self.currentConversationId = currentConversationId
         self.onSelectConversation = onSelectConversation
         self.onTasksChanged = onTasksChanged
@@ -509,7 +511,18 @@ public struct McpSkillsSheet: View {
     @ViewBuilder
     private var backgroundTasksSection: some View {
         let list = filteredBackgroundTasks
-        if list.isEmpty {
+        if isLoading && backgroundTasks.isEmpty {
+            Section {
+                VStack(spacing: 10) {
+                    ProgressView()
+                    Text("正在同步后台任务...")
+                        .font(.system(size: 13))
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 28)
+            }
+        } else if list.isEmpty {
             Section {
                 VStack(spacing: 10) {
                     Image(systemName: "terminal")
@@ -862,28 +875,37 @@ public struct McpSkillsSheet: View {
         }
         
         guard let url = settings.serverURL else {
-            errorMessage = "未连接网关"
+            if mcpServers.isEmpty && skills.isEmpty {
+                errorMessage = "未连接网关"
+            }
             isLoading = false
             return
         }
         
-        if let tasksResult = try? await APIClient.shared.fetchGlobalBackgroundTasks(baseURL: url) {
+        async let fetchTasks = try? APIClient.shared.fetchGlobalBackgroundTasks(baseURL: url)
+        async let fetchMcp = try? APIClient.shared.fetchMcpServerStates(baseURL: url)
+        async let fetchSkills = try? APIClient.shared.fetchAllSkills(baseURL: url)
+        
+        let (tasksResult, mcpResult, skillsResult) = await (fetchTasks, fetchMcp, fetchSkills)
+        
+        if let tasksResult {
             self.backgroundTasks = tasksResult
             self.onTasksChanged?(tasksResult)
         }
-        
-        do {
-            async let fetchMcp = APIClient.shared.fetchMcpServerStates(baseURL: url)
-            async let fetchSkills = APIClient.shared.fetchAllSkills(baseURL: url)
-            
-            let (mcpResult, skillsResult) = try await (fetchMcp, fetchSkills)
+        if let mcpResult {
             self.mcpServers = mcpResult
+            CacheManager.shared.saveMcpServers(mcpResult)
+        }
+        if let skillsResult {
             self.skills = skillsResult
-        } catch {
+            CacheManager.shared.saveSkills(skillsResult)
+        }
+        
+        if mcpResult == nil && skillsResult == nil && mcpServers.isEmpty && skills.isEmpty {
             if settings.isDemoMode {
                 applyDemoData()
             } else if backgroundTasks.isEmpty {
-                errorMessage = error.localizedDescription
+                errorMessage = "无法获取 MCP 服务与技能清单，请检查网关连接"
             }
         }
         isLoading = false
