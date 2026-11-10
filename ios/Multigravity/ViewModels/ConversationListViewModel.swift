@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import SwiftUI
 
 @Observable
 @MainActor
@@ -306,7 +307,7 @@ public final class ConversationListViewModel {
             let draftIds = Set(drafts.map(\.id))
             let nonDraftEnriched = enriched.filter { !draftIds.contains($0.id) && !$0.isDraft }
             let all = Self.sortItems(drafts + nonDraftEnriched)
-            self.conversations = all
+            updateConversationsWithAnimation(all)
             cacheManager.saveConversations(nonDraftEnriched)
             cacheManager.prewarmSessions(for: all.prefix(15).map(\.id))
             self.isLoading = false
@@ -344,7 +345,7 @@ public final class ConversationListViewModel {
                     let nonDraftEnriched = enriched.filter { !draftIds.contains($0.id) && !$0.isDraft }
                     let pinnedIds = cacheManager.getPinnedConversationIDs()
                     let all = (drafts + nonDraftEnriched).map { $0.withPinned(pinnedIds.contains($0.id)) }
-                    self.conversations = Self.sortItems(all)
+                    updateConversationsWithAnimation(Self.sortItems(all))
                     cacheManager.saveConversations(nonDraftEnriched)
                     cacheManager.prewarmSessions(for: all.prefix(15).map(\.id))
                     self.isLoading = false
@@ -432,25 +433,43 @@ public final class ConversationListViewModel {
         }
     }
     
+    private func updateConversationsWithAnimation(_ newItems: [ConversationItem]) {
+        let oldIDs = self.conversations.map(\.id)
+        let newIDs = newItems.map(\.id)
+        if oldIDs != newIDs && !oldIDs.isEmpty {
+            withAnimation(.spring(response: 0.42, dampingFraction: 0.72)) {
+                self.conversations = newItems
+            }
+        } else {
+            self.conversations = newItems
+        }
+    }
+
     @MainActor
     public func upsertConversation(_ item: ConversationItem) {
         guard !item.isSubagent && !item.isDraft && !pendingDeleteCascadeIDs.contains(item.id) && recentlyDeletedIDs[item.id] == nil else { return }
         let resolved = item.withPinned(cacheManager.isPinned(cascadeId: item.id))
-        if let idx = conversations.firstIndex(where: { $0.id == resolved.id }) {
-            conversations[idx] = resolved
+        var updated = conversations
+        if let idx = updated.firstIndex(where: { $0.id == resolved.id }) {
+            updated[idx] = resolved
         } else {
-            conversations.append(resolved)
+            updated.append(resolved)
         }
-        conversations = Self.sortItems(conversations)
+        let sorted = Self.sortItems(updated)
+        updateConversationsWithAnimation(sorted)
     }
     
     @MainActor
     public func togglePin(item: ConversationItem) {
         let newPinned = cacheManager.togglePin(cascadeId: item.id)
         if let idx = conversations.firstIndex(where: { $0.id == item.id }) {
-            conversations[idx] = conversations[idx].withPinned(newPinned)
-            conversations = Self.sortItems(conversations)
-            cacheManager.saveConversations(conversations.filter { !$0.isDraft && !$0.isSubagent })
+            var updated = conversations
+            updated[idx] = updated[idx].withPinned(newPinned)
+            let sorted = Self.sortItems(updated)
+            withAnimation(.spring(response: 0.42, dampingFraction: 0.72)) {
+                self.conversations = sorted
+            }
+            cacheManager.saveConversations(sorted.filter { !$0.isDraft && !$0.isSubagent })
         }
         
         guard let url = settings.serverURL, settings.isPaired else { return }

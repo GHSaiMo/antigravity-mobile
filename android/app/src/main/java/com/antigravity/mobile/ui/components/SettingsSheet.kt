@@ -641,30 +641,7 @@ private fun MainSettingsContent(
             }
         }
 
-        // MARK: - 5. 存储
-        SettingsSection(
-            title = "存储",
-            footer = "清除本地缓存的会话与文档数据，下次访问时将从网关重新拉取。"
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(colors.surface)
-                    .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
-                    .clickable { onPromptClearCache() }
-                    .padding(horizontal = 16.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "清空本地缓存",
-                    color = colors.accentRed,
-                    fontSize = 15.sp
-                )
-            }
-        }
-
-        // MARK: - 6. 外观与主题
+        // MARK: - 5. 外观与主题
         var weeklyPaceCursor by remember { mutableStateOf(prefs.weeklyPaceCursorEnabled) }
         SettingsSection(
             title = "外观与主题",
@@ -745,6 +722,29 @@ private fun MainSettingsContent(
                         )
                     )
                 }
+            }
+        }
+
+        // MARK: - 6. 存储 (整体下移一行，放在关于的上面)
+        SettingsSection(
+            title = "存储",
+            footer = "清除本地缓存的会话与文档数据，下次访问时将从网关重新拉取。"
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(colors.surface)
+                    .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
+                    .clickable { onPromptClearCache() }
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "清空本地缓存",
+                    color = colors.accentRed,
+                    fontSize = 15.sp
+                )
             }
         }
 
