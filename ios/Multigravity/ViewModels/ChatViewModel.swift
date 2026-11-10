@@ -76,14 +76,37 @@ public final class ChatViewModel {
     
     public var messages: [ChatMessage] = []
     
+    @ObservationIgnored private var _cachedTurnsKey: String = ""
+    @ObservationIgnored private var _cachedTurns: [ConversationTurn] = []
+    @ObservationIgnored private var _cachedChaptersKey: String = ""
+    @ObservationIgnored private var _cachedChapters: [ConversationChapter] = []
+    @ObservationIgnored private var draftSaveTask: Task<Void, Never>? = nil
+    
     /// 当前会话按问答轮次自动聚合的结构列表（对齐 Antigravity 2.28.1 对话步骤导轨规范）
     public var turns: [ConversationTurn] {
-        ConversationTurnBuilder.buildTurns(from: messages, isRunning: isRunning, isAwaitingResponse: isAwaitingResponse)
+        let firstId = messages.first?.id ?? ""
+        let lastMsg = messages.last
+        let key = "\(messages.count)|\(firstId)|\(lastMsg?.id ?? "")|\(lastMsg?.content.count ?? 0)|\(lastMsg?.toolCount ?? 0)|\(lastMsg?.isError == true)|\(isRunning)|\(isAwaitingResponse)"
+        if key == _cachedTurnsKey {
+            return _cachedTurns
+        }
+        let built = ConversationTurnBuilder.buildTurns(from: messages, isRunning: isRunning, isAwaitingResponse: isAwaitingResponse)
+        _cachedTurnsKey = key
+        _cachedTurns = built
+        return built
     }
     
     /// 超长会话自动拆分的章节列表（合并 Antigravity 2.30.0 GetChapterTitles 语义标题）
     public var chapters: [ConversationChapter] {
-        ConversationTurnBuilder.buildChapters(from: turns, aiTitles: chapterTitles)
+        let currentTurns = turns
+        let key = "\(_cachedTurnsKey)|\(chapterTitles.count)"
+        if key == _cachedChaptersKey {
+            return _cachedChapters
+        }
+        let built = ConversationTurnBuilder.buildChapters(from: currentTurns, aiTitles: chapterTitles)
+        _cachedChaptersKey = key
+        _cachedChapters = built
+        return built
     }
     
     public var selectedImageData: [Data] = []
@@ -95,7 +118,7 @@ public final class ChatViewModel {
     public var inputText: String = "" {
         didSet {
             guard !isInitializing else { return }
-            saveCurrentDraft()
+            scheduleDebouncedDraftSave()
         }
     }
     
@@ -181,11 +204,28 @@ public final class ChatViewModel {
         saveCurrentDraft()
     }
     
-    public func saveCurrentDraft() {
+    private func scheduleDebouncedDraftSave() {
+        draftSaveTask?.cancel()
+        if inputText.isEmpty {
+            saveCurrentDraft(includeImages: false)
+            return
+        }
+        draftSaveTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            guard !Task.isCancelled else { return }
+            self?.saveCurrentDraft(includeImages: false)
+        }
+    }
+
+    public func saveCurrentDraft(includeImages: Bool = true) {
+        draftSaveTask?.cancel()
+        draftSaveTask = nil
         guard !isInitializing else { return }
         let key = draftKey
         guard !key.isEmpty else { return }
-        cacheManager.saveDraftImages(key: key, images: selectedImageData)
+        if includeImages {
+            cacheManager.saveDraftImages(key: key, images: selectedImageData)
+        }
         cacheManager.saveDraft(key: key, text: inputText)
         cacheManager.recordDraftDate(key: key)
         if !cascadeId.isEmpty && (messages.isEmpty || isNewConversation) {

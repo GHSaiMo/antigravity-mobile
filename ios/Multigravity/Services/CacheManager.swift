@@ -874,7 +874,8 @@ public final class CacheManager: @unchecked Sendable {
         }
         lock.unlock()
         
-        if old != text {
+        let wasEmpty = (old ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if old != text && (wasEmpty || key.hasPrefix("local_draft_")) {
             DispatchQueue.main.async {
                 NotificationCenter.default.post(name: .conversationDraftChanged, object: key)
             }
