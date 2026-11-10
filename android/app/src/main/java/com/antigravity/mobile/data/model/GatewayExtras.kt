@@ -169,10 +169,12 @@ object ModelDefaults {
         modelId.contains("claude", ignoreCase = true) ||
             CLAUDE_ENUM_TOKENS.any { modelId.contains(it, ignoreCase = true) }
 
-    /** 格式化模型选择器选项展示名：过滤掉 "New" 标签及前导的点符号，避免手机端全量标记 New 造成视觉冗余。 */
+    private val IGNORED_PICKER_TAGS = setOf("new", "fast")
+
+    /** 格式化模型选择器选项展示名：过滤掉 "New" / "Fast" 等冗余特性标签及前导的点符号，保持手机端菜单简洁。 */
     fun formatPickerLabel(name: String, tag: String?): String {
         val cleanTag = tag?.trim()
-        return if (!cleanTag.isNullOrBlank() && !cleanTag.equals("new", ignoreCase = true)) {
+        return if (!cleanTag.isNullOrBlank() && cleanTag.lowercase() !in IGNORED_PICKER_TAGS) {
             "$name · $cleanTag"
         } else {
             name
