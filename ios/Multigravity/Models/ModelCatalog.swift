@@ -11,6 +11,7 @@ public struct ModelOption: Codable, Sendable, Identifiable, Hashable {
     public var `enum`: String?
     public var supportsImages: Bool?
     public var thinking: Bool?
+    public var tag: String?
 }
 
 public struct ModelsResponse: Codable, Sendable {
@@ -35,9 +36,36 @@ public enum ModelDefaultsLogic {
     public static let fallbackGemini = "gemini-3.8-flash-high"
     public static let fallbackClaude = "claude-opus-4-6-thinking"
 
+    private static let claudeEnumTokens = ["m26", "m35", "m400", "m401", "m402", "m403", "m404", "m405"]
+
+    public static let staticEnumByID: [String: String] = [
+        "gemini-4-argon-high": "MODEL_PLACEHOLDER_M417",
+        "gemini-4-argon-medium": "MODEL_PLACEHOLDER_M418",
+        "gemini-4-argon-low": "MODEL_PLACEHOLDER_M419",
+        "gemini-3.8-flash-high": "MODEL_PLACEHOLDER_M318",
+        "gemini-3.8-flash-medium": "MODEL_PLACEHOLDER_M319",
+        "gemini-3.8-flash-low": "MODEL_PLACEHOLDER_M320",
+        "gemini-3.1-pro-high": "MODEL_PLACEHOLDER_M37",
+        "gemini-3.1-pro-low": "MODEL_PLACEHOLDER_M36",
+        "claude-opus-5-5-high": "MODEL_PLACEHOLDER_M402",
+        "claude-opus-5-5-medium": "MODEL_PLACEHOLDER_M401",
+        "claude-opus-5-5-low": "MODEL_PLACEHOLDER_M400",
+        "claude-sonnet-5-5-high": "MODEL_PLACEHOLDER_M405",
+        "claude-sonnet-5-5-medium": "MODEL_PLACEHOLDER_M404",
+        "claude-sonnet-5-5-low": "MODEL_PLACEHOLDER_M403",
+        "claude-opus-4-6-thinking": "MODEL_PLACEHOLDER_M26",
+        "claude-sonnet-4-6": "MODEL_PLACEHOLDER_M35",
+        "gpt-oss-120b-medium": "MODEL_OPENAI_GPT_OSS_120B_MEDIUM",
+    ]
+
+    public static let staticIDByEnum: [String: String] = Dictionary(
+        uniqueKeysWithValues: staticEnumByID.map { ($0.value, $0.key) }
+    )
+
     public static func isClaude(_ modelId: String) -> Bool {
         let lower = modelId.lowercased()
-        return lower.contains("claude") || lower.contains("m26")
+        if lower.contains("claude") { return true }
+        return claudeEnumTokens.contains(where: { lower.contains($0) })
     }
 
     /// 输入框上方胶囊的文字：只有厂商名，保持简洁。
@@ -116,13 +144,19 @@ public final class ModelCatalogStore {
         catalog?.models.first(where: { $0.id == id })?.name
     }
 
-    /// 枚举：目录里有就用目录的，没有就由调用方回退到内置映射。
+    /// 枚举：目录里有就用目录的，没有就回退到内置静态映射表。
     public func modelEnum(forID id: String) -> String? {
-        catalog?.models.first(where: { $0.id == id })?.enum.flatMap { $0.isEmpty ? nil : $0 }
+        if let found = catalog?.models.first(where: { $0.id == id })?.enum, !found.isEmpty {
+            return found
+        }
+        return ModelDefaultsLogic.staticEnumByID[id.lowercased()]
     }
 
     public func id(forEnum modelEnum: String) -> String? {
-        catalog?.models.first(where: { $0.enum == modelEnum })?.id
+        if let found = catalog?.models.first(where: { $0.enum == modelEnum })?.id, !found.isEmpty {
+            return found
+        }
+        return ModelDefaultsLogic.staticIDByEnum[modelEnum]
     }
 
     /// 从网关刷新目录；成功后同步校验设置里的默认模型。

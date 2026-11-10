@@ -47,6 +47,8 @@ type CascadeMessageItem struct {
 	Workflow *WorkflowItem `json:"workflow,omitempty"`
 	// Timestamp is the RFC3339 timestamp when this step or turn was created.
 	Timestamp string `json:"timestamp,omitempty"`
+	// ClientMessageID is the client-supplied UUID (Antigravity 2.30+ native field or mgy-client tag) for user messages.
+	ClientMessageID string `json:"clientMessageId,omitempty"`
 }
 
 // QueuedMessageItem represents a pending follow-up user message queued for execution.
@@ -234,6 +236,26 @@ type TrajectoryUserInput struct {
 		ApprovalStatus interface{} `json:"approvalStatus"`
 		Comment        string      `json:"comment,omitempty"`
 	} `json:"artifactComments,omitempty"`
+	ClientMessageID string   `json:"clientMessageId,omitempty"`
+	Tags            []string `json:"tags,omitempty"`
+}
+
+// ResolvedClientMessageID returns the client message ID from the native 2.30+ field or fallback mgy-client tag.
+func (ui *TrajectoryUserInput) ResolvedClientMessageID() string {
+	if ui == nil {
+		return ""
+	}
+	if cid := strings.TrimSpace(ui.ClientMessageID); clientMessageIDRe.MatchString(cid) {
+		return cid
+	}
+	for _, t := range ui.Tags {
+		if strings.HasPrefix(t, clientTagPrefix) {
+			if id := strings.TrimPrefix(t, clientTagPrefix); clientMessageIDRe.MatchString(id) {
+				return id
+			}
+		}
+	}
+	return ""
 }
 
 var defaultSystemSlashIcons = map[string]string{

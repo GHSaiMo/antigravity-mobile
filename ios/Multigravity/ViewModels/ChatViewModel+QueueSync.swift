@@ -44,8 +44,14 @@ extension ChatViewModel {
         media: [String]?,
         imageUrls: [String]?,
         enqueuedAfterMessageId: String? = nil,
+        clientMessageId: String? = nil,
         userMessages: [ChatMessage]
     ) -> Bool {
+        if let cid = clientMessageId, !cid.isEmpty {
+            if userMessages.contains(where: { $0.clientMessageId == cid }) {
+                return true
+            }
+        }
         let normText = normalizeForComparison(text)
         let hasAttachments = (media != nil && !media!.isEmpty) || (imageUrls != nil && !imageUrls!.isEmpty)
         
@@ -77,6 +83,7 @@ extension ChatViewModel {
             media: item.media,
             imageUrls: item.imageUrls,
             enqueuedAfterMessageId: nil,
+            clientMessageId: item.clientMessageId,
             userMessages: userMessages
         )
     }
@@ -123,6 +130,7 @@ extension ChatViewModel {
                 media: opt.media,
                 imageUrls: opt.imageUrls,
                 enqueuedAfterMessageId: opt.enqueuedAfterMessageId,
+                clientMessageId: opt.clientMessageId,
                 userMessages: userMessages
             )
             let isTombstoned = tombstoneIds.contains(opt.id) || (!normOpt.isEmpty && tombstoneTexts.contains(normOpt))
@@ -143,6 +151,7 @@ extension ChatViewModel {
                     media: sItem.media,
                     imageUrls: sItem.imageUrls,
                     enqueuedAfterMessageId: nil,
+                    clientMessageId: sItem.clientMessageId,
                     userMessages: userMessages
                 )
                 let isTombstoned = tombstoneIds.contains(sItem.id) || (!normItem.isEmpty && tombstoneTexts.contains(normItem))
@@ -160,6 +169,7 @@ extension ChatViewModel {
                     media: qm.media,
                     imageUrls: qm.imageUrls,
                     enqueuedAfterMessageId: nil,
+                    clientMessageId: qm.clientMessageId,
                     userMessages: userMessages
                 )
                 let isTombstoned = tombstoneIds.contains(qm.id) || (!normItem.isEmpty && tombstoneTexts.contains(normItem))
@@ -190,6 +200,7 @@ extension ChatViewModel {
                 media: opt.media,
                 imageUrls: opt.imageUrls,
                 enqueuedAfterMessageId: opt.enqueuedAfterMessageId,
+                clientMessageId: opt.clientMessageId,
                 userMessages: userMessages
             )
             if inChat {
@@ -224,9 +235,7 @@ extension ChatViewModel {
         json["plannerConfig"] = plannerConfig
         
         var checkpointConfig = json["checkpointConfig"] as? [String: Any] ?? [:]
-        let isClaude = modelEnum.lowercased().contains("claude") ||
-            modelName.lowercased().contains("claude") ||
-            modelEnum == "MODEL_PLACEHOLDER_M26"
+        let isClaude = ModelDefaultsLogic.isClaude(modelEnum) || ModelDefaultsLogic.isClaude(modelName)
         
         if isClaude {
             checkpointConfig["maxTokenLimit"] = 160000
@@ -397,7 +406,7 @@ extension ChatViewModel {
             let icon = SlashCommandIconCatalog.resolveIcon(name: slash, icon: matched?.icon, kind: kind)
             return [SlashCommandMention(name: slash, icon: icon, kind: kind)]
         }()
-        messages.append(ChatMessage(id: optId, sender: .user, content: displayText, imageDataList: images ?? [], slashCommands: optSlashMentions))
+        messages.append(ChatMessage(id: optId, sender: .user, content: displayText, imageDataList: images ?? [], slashCommands: optSlashMentions, clientMessageId: clientMessageId))
         triggerScrollToBottom()
         self.pendingOptimisticMessageId = optId
         self.isAwaitingResponse = true

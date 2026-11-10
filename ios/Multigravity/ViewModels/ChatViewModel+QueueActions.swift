@@ -44,7 +44,7 @@ extension ChatViewModel {
         let clientMessageId = UUID().uuidString
         let optId = "optimistic-\(clientMessageId)"
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-            self.messages.append(ChatMessage(id: optId, sender: .user, content: item.text, imageDataList: imgDataList))
+            self.messages.append(ChatMessage(id: optId, sender: .user, content: item.text, imageDataList: imgDataList, clientMessageId: clientMessageId))
         }
         triggerScrollToBottom()
         self.pendingOptimisticMessageId = optId
@@ -678,6 +678,7 @@ extension ChatViewModel {
         isRunning = false
         canProceed = false
         // Only stop turn-blocking tasks; standing daemons (IsDaemon=true) stay alive and remain in the overlay.
+        let hasDaemon = self.runningTasks.contains(where: { $0.isDaemon == true })
         let tasksToStop = self.runningTasks.blockingTasks
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
             self.runningTasks = self.runningTasks.filter { !$0.blocksTurn }
@@ -685,7 +686,7 @@ extension ChatViewModel {
         stopPollingFallback()
         
         do {
-            try await apiClient.cancelTask(cascadeId: cascadeId, baseURL: url)
+            try await apiClient.cancelTask(cascadeId: cascadeId, killBackgroundTasks: !hasDaemon, baseURL: url)
             for task in tasksToStop {
                 try? await apiClient.stopTask(cascadeId: cascadeId, stepIndex: task.stepIndex, taskId: task.id, baseURL: url)
             }

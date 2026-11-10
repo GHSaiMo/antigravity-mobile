@@ -674,12 +674,15 @@ class ApiClient(
     /**
      * Cancel ongoing invocation
      */
-    suspend fun cancelInvocation(cascadeId: String): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun cancelInvocation(cascadeId: String, killBackgroundTasks: Boolean? = null): Result<Unit> = withContext(Dispatchers.IO) {
         val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
         val url = "$baseUrl/api/exa.language_server_pb.LanguageServerService/CancelCascadeInvocation"
 
         val payload = buildJsonObject {
             put("cascadeId", cascadeId)
+            if (killBackgroundTasks != null) {
+                put("killBackgroundTasks", killBackgroundTasks)
+            }
         }
 
         try {

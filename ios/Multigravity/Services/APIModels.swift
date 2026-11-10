@@ -136,6 +136,8 @@ public struct PaginatedMessagesResponse: Codable, Sendable {
         public let workflow: WorkflowItem?
         /// type == "user" 时引用的斜杠命令 / 技能列表。
         public let slashCommands: [SlashCommandMention]?
+        /// 客户端发送时生成的幂等标识（Antigravity 2.30+）。
+        public let clientMessageId: String?
     }
 }
 

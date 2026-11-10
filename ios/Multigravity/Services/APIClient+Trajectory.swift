@@ -65,7 +65,8 @@ extension APIClient {
                         subagent: item.subagent,
                         workflow: item.workflow,
                         timestamp: item.timestamp,
-                        slashCommands: item.slashCommands
+                        slashCommands: item.slashCommands,
+                        clientMessageId: item.clientMessageId
                     )
                 }
                 

@@ -465,3 +465,28 @@ func TestHandleModels_ParsesVendorPickerList(t *testing.T) {
 		t.Errorf("live=%v defaults=%v", res.Live, res.Defaults)
 	}
 }
+
+func TestBuildModelTables_Antigravity230ModelsAndTags(t *testing.T) {
+	resetLiveModels(t)
+	g := "MODEL_PROVIDER_GOOGLE"
+	a := "MODEL_PROVIDER_ANTHROPIC"
+	raw := map[string]upstreamModel{
+		"gemini-4-argon-high":   {DisplayName: "Gemini 4 Argon (High)", Model: "MODEL_PLACEHOLDER_M417", ModelProvider: g, Recommended: true, Thinking: true, SupportsImages: true, TagTitle: "New"},
+		"gemini-4-argon-medium": {DisplayName: "Gemini 4 Argon (Medium)", Model: "MODEL_PLACEHOLDER_M418", ModelProvider: g, Recommended: true, Thinking: true, SupportsImages: true, TagTitle: "New"},
+		"claude-sonnet-5-5-high": {DisplayName: "Claude Sonnet 5.5 (High)", Model: "MODEL_PLACEHOLDER_M405", ModelProvider: a, Recommended: true, Thinking: true, SupportsImages: true, TagTitle: "New"},
+		"claude-opus-5-5-high":   {DisplayName: "Claude Opus 5.5 (High)", Model: "MODEL_PLACEHOLDER_M402", ModelProvider: a, Recommended: true, Thinking: true, SupportsImages: true, TagTitle: "New"},
+	}
+	curated := []string{"gemini-4-argon-high", "gemini-4-argon-medium", "claude-sonnet-5-5-high", "claude-opus-5-5-high"}
+	o, bi, be := buildModelTables(raw, curated)
+	liveModels.set(o, bi, be, "gemini-4-argon-medium")
+
+	res, live := liveModels.snapshot()
+	if !live || res.Defaults["gemini"] != "gemini-4-argon-medium" || res.Defaults["claude"] != "claude-opus-5-5-high" {
+		t.Fatalf("2.30 defaults = %v (live=%v)", res.Defaults, live)
+	}
+	for _, m := range res.Models {
+		if m.Tag != "New" {
+			t.Errorf("expected Tag='New' on %s, got %q", m.ID, m.Tag)
+		}
+	}
+}

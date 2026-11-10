@@ -153,8 +153,9 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 			writeJSONError(w, slashErr.Error(), http.StatusBadRequest)
 			return
 		}
-		// Tag the message with the client's id so it can be recognised in the pending queue later.
-		// Only queued / injected messages (those carrying a deliveryStrategy) ever show up in the pending queue.
+		// Inject native clientMessageId (Antigravity 2.30+) for all valid client message IDs,
+		// and also tag queued messages (carrying a deliveryStrategy) for backward compatibility.
+		clientIDApplied := applyClientMessageID(rawMap, clientMsgID)
 		tagApplied := false
 		if _, queued := rawMap["deliveryStrategy"]; queued {
 			tagApplied = applyClientMessageTag(rawMap, clientMsgID)
@@ -265,7 +266,7 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 		_, hasModel := rawMap["model"]
 		_, hasCfgRaw := rawMap["cascadeConfigRaw"]
 		_, hasText := rawMap["text"]
-		needsModification := targetModel != "" || hasModel || hasCfgRaw || hasText || attachmentsApplied || slashApplied || tagApplied || imagesDropped
+		needsModification := targetModel != "" || hasModel || hasCfgRaw || hasText || attachmentsApplied || slashApplied || clientIDApplied || tagApplied || imagesDropped
 
 		if !needsModification {
 			// No changes required — forward original bytes as-is.

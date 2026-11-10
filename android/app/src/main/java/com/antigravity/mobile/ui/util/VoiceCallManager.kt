@@ -99,11 +99,20 @@ class VoiceCallManager(private val context: Context) {
                 if (num != null && num > 0) return 1000 + num
             }
             return when (raw.lowercase()) {
+                "gemini-4-argon-high" -> 1417
+                "gemini-4-argon-medium" -> 1418
+                "gemini-4-argon-low" -> 1419
                 "gemini-3.8-flash-high" -> 1318
                 "gemini-3.8-flash-medium" -> 1319
                 "gemini-3.8-flash-low" -> 1320
                 "gemini-3.1-pro-high" -> 1037
                 "gemini-3.1-pro-low" -> 1036
+                "claude-opus-5-5-high" -> 1402
+                "claude-opus-5-5-medium" -> 1401
+                "claude-opus-5-5-low" -> 1400
+                "claude-sonnet-5-5-high" -> 1405
+                "claude-sonnet-5-5-medium" -> 1404
+                "claude-sonnet-5-5-low" -> 1403
                 "claude-opus-4-6-thinking" -> 1026
                 "claude-sonnet-4-6" -> 1035
                 else -> 0

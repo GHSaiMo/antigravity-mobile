@@ -11,9 +11,12 @@ const MODEL_DEFAULT_KEY = (provider) => `agy_default_${provider}_model`;
 
 let modelCatalog = { models: [], defaults: {}, live: false };
 
+const CLAUDE_ENUM_TOKENS = ["m26", "m35", "m400", "m401", "m402", "m403", "m404", "m405"];
+
 function isClaudeModel(id) {
   const lower = String(id || "").toLowerCase();
-  return lower.includes("claude") || lower.includes("m26");
+  if (lower.includes("claude")) return true;
+  return CLAUDE_ENUM_TOKENS.some((tok) => lower.includes(tok));
 }
 
 // 输入框上方胶囊的文字：只有厂商名
@@ -102,7 +105,10 @@ function renderDefaultModelSettings() {
     const options = modelCatalog.models.filter((m) => m.provider === provider);
     const current = getDefaultModel(provider);
     const list = options.length ? options : [{ id: current, name: current }];
-    select.innerHTML = list.map((m) => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.name || m.id)}</option>`).join("");
+    select.innerHTML = list.map((m) => {
+      const label = (m.name || m.id) + (m.tag ? ` · ${m.tag}` : "");
+      return `<option value="${escapeHtml(m.id)}">${escapeHtml(label)}</option>`;
+    }).join("");
     select.value = current;
   }
   const note = document.getElementById("settings-models-note");

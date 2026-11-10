@@ -218,6 +218,9 @@ func (p *Proxy) HandleCreateCascade(w http.ResponseWriter, r *http.Request) {
 				{"text": prompt},
 			},
 		}
+		if clientMessageIDRe.MatchString(clientMsgID) {
+			msgPayload["clientMessageId"] = clientMsgID
+		}
 
 		var cfgObj interface{}
 		if cfg := p.GetCascadeConfig(cascadeID, port, token); len(cfg) > 0 {
@@ -353,9 +356,7 @@ func applyModelToCascadeConfig(cfgObj interface{}, modelEnum string, modelName s
 	// Claude Opus 4.6 Thinking: 250k context, maxOutputTokens: 64000.
 	// LanguageServer asserts: maxTokenLimit <= ContextWindow (250000) - MaxOutputTokens (64000) = 186000.
 	// Desktop Antigravity uses maxTokenLimit: 160000, tokenThreshold: 50000 for Claude.
-	isClaude := strings.Contains(strings.ToLower(modelEnum), "claude") ||
-		strings.Contains(strings.ToLower(modelName), "claude") ||
-		modelEnum == "MODEL_PLACEHOLDER_M26"
+	isClaude := isClaudeModelOrEnum(modelEnum) || isClaudeModelOrEnum(modelName)
 
 	var checkpointConfig map[string]interface{}
 	if cp, ok := cfgMap["checkpointConfig"].(map[string]interface{}); ok && cp != nil {
@@ -383,6 +384,20 @@ func applyModelToCascadeConfig(cfgObj interface{}, modelEnum string, modelName s
 	cfgMap["checkpointConfig"] = checkpointConfig
 
 	return cfgMap
+}
+
+func isClaudeModelOrEnum(s string) bool {
+	lower := strings.ToLower(strings.TrimSpace(s))
+	if strings.Contains(lower, "claude") {
+		return true
+	}
+	switch strings.ToUpper(strings.TrimSpace(s)) {
+	case "MODEL_PLACEHOLDER_M26", "MODEL_PLACEHOLDER_M35",
+		"MODEL_PLACEHOLDER_M400", "MODEL_PLACEHOLDER_M401", "MODEL_PLACEHOLDER_M402",
+		"MODEL_PLACEHOLDER_M403", "MODEL_PLACEHOLDER_M404", "MODEL_PLACEHOLDER_M405":
+		return true
+	}
+	return false
 }
 
 func getNumberAsInt(val interface{}) (int, bool) {

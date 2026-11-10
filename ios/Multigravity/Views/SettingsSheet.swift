@@ -284,7 +284,8 @@ extension SettingsSheet {
                 Text(selection.wrappedValue).tag(selection.wrappedValue)
             }
             ForEach(options) { option in
-                Text(option.name).tag(option.id)
+                let label = (option.tag?.isEmpty == false) ? "\(option.name) · \(option.tag!)" : option.name
+                Text(label).tag(option.id)
             }
         }
         .pickerStyle(.menu)

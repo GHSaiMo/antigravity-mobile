@@ -98,12 +98,31 @@ func TestSendTagsQueuedMessagesWithClientID(t *testing.T) {
 	if len(tags) != 1 || tags[0] != "mgy-client:0b8f-uuid" {
 		t.Fatalf("queued message must carry the client id tag, got %v", sent["tags"])
 	}
+	if sent["clientMessageId"] != "0b8f-uuid" {
+		t.Fatalf("message must carry native clientMessageId, got %v", sent["clientMessageId"])
+	}
+
+	// 普通非排队消息同样注入原生 clientMessageId（但不打 tags）
+	sent = nil
+	rec = doSend(p, `{"cascadeId":"c1","items":[{"text":"立即发送"}]}`, map[string]string{"X-Client-Message-Id": "immediate-uuid-1"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	if sent["clientMessageId"] != "immediate-uuid-1" {
+		t.Fatalf("immediate message must carry native clientMessageId, got %v", sent["clientMessageId"])
+	}
+	if _, has := sent["tags"]; has {
+		t.Errorf("immediate message must not carry queue tags, got %v", sent["tags"])
+	}
 
 	// 没有 client id：不打标签
 	sent = nil
 	doSend(p, `{"cascadeId":"c1","items":[{"text":"排队2"}],"deliveryStrategy":2}`, nil)
 	if _, has := sent["tags"]; has {
 		t.Errorf("no client id => no tag, got %v", sent["tags"])
+	}
+	if _, has := sent["clientMessageId"]; has {
+		t.Errorf("no client id => no clientMessageId, got %v", sent["clientMessageId"])
 	}
 	// 非法 client id（例如带冒号）：忽略，消息照常发送
 	sent = nil
@@ -113,5 +132,8 @@ func TestSendTagsQueuedMessagesWithClientID(t *testing.T) {
 	}
 	if _, has := sent["tags"]; has {
 		t.Errorf("invalid id must not be tagged, got %v", sent["tags"])
+	}
+	if _, has := sent["clientMessageId"]; has {
+		t.Errorf("invalid id must not set clientMessageId, got %v", sent["clientMessageId"])
 	}
 }

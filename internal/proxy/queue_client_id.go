@@ -19,6 +19,20 @@ const clientTagPrefix = "mgy-client:"
 
 var clientMessageIDRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
+// applyClientMessageID sets the native clientMessageId field (Antigravity 2.30+) on an outgoing
+// SendUserCascadeMessage body. Invalid ids are ignored.
+func applyClientMessageID(rawMap map[string]interface{}, clientMsgID string) bool {
+	clientMsgID = strings.TrimSpace(clientMsgID)
+	if !clientMessageIDRe.MatchString(clientMsgID) {
+		return false
+	}
+	if existing, ok := rawMap["clientMessageId"].(string); ok && existing == clientMsgID {
+		return false
+	}
+	rawMap["clientMessageId"] = clientMsgID
+	return true
+}
+
 // applyClientMessageTag adds the client message id as a tag on an outgoing SendUserCascadeMessage body.
 // It reports whether the body changed. Invalid ids are ignored (they are only used for correlation).
 func applyClientMessageTag(rawMap map[string]interface{}, clientMsgID string) bool {
@@ -116,6 +130,12 @@ func extractQueuedClientMessageID(pam upstreamAgentMessage) string {
 			return true
 		}
 		protoFields(val, func(f uint64, v []byte) bool {
+			if f == 19 { // UserInput.client_message_id (Antigravity 2.30+)
+				if id := strings.TrimSpace(string(v)); clientMessageIDRe.MatchString(id) {
+					found = id
+					return false
+				}
+			}
 			if f == 16 { // UserInput.tags
 				if s := string(v); strings.HasPrefix(s, clientTagPrefix) {
 					if id := strings.TrimPrefix(s, clientTagPrefix); clientMessageIDRe.MatchString(id) {

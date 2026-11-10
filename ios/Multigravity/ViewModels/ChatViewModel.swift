@@ -498,9 +498,9 @@ public final class ChatViewModel {
                 initialModel = knownID
             } else {
                 let lower = cfg.lowercased()
-                if lower.contains("m26") || lower.contains("claude") {
+                if ModelDefaultsLogic.isClaude(lower) {
                     initialModel = resolvedSettings.defaultClaudeModel
-                } else if lower.contains("m318") || lower.contains("gemini") {
+                } else if lower.contains("m318") || lower.contains("m417") || lower.contains("m418") || lower.contains("m419") || lower.contains("gemini") {
                     initialModel = resolvedSettings.defaultGeminiModel
                 }
             }

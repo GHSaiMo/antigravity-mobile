@@ -134,8 +134,8 @@ extension APIClient {
     }
     
     // Cancel task execution
-    public func cancelTask(cascadeId: String, baseURL: URL) async throws {
-        let req = CancelCascadeInvocationRequest(cascadeId: cascadeId)
+    public func cancelTask(cascadeId: String, killBackgroundTasks: Bool? = nil, baseURL: URL) async throws {
+        let req = CancelCascadeInvocationRequest(cascadeId: cascadeId, killBackgroundTasks: killBackgroundTasks)
         let _: EmptyResponse = try await rpc(
             method: "CancelCascadeInvocation",
             body: req,

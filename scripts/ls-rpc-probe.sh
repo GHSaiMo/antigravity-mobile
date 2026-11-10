@@ -13,11 +13,34 @@
 #   报错信息里的 snake_case（如 project_path is required）只是提示缺字段。
 set -euo pipefail
 [[ $# -ge 1 ]] || { sed -n 2,12p "$0"; exit 2; }
+BODY="${2:-"{}"}"
+
+# 1. 优先从 ~/.gemini/antigravity/daemon/{hub,ls}_*.json 读取（Antigravity 2.30+ 默认无 --csrf_token 命令行参数）
+DAEMON_DIR="${HOME}/.gemini/antigravity/daemon"
+if [[ -d "$DAEMON_DIR" ]]; then
+  for f in $(ls -t "$DAEMON_DIR"/hub_*.json "$DAEMON_DIR"/ls_*.json 2>/dev/null || true); do
+    P="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("httpsPort") or "")' "$f" 2>/dev/null || true)"
+    CSRF="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("csrfToken") or "")' "$f" 2>/dev/null || true)"
+    if [[ -n "$P" && -n "$CSRF" ]]; then
+      CODE="$(curl -sk -o /dev/null -w '%{http_code}' -m 2 \
+        -X POST "https://127.0.0.1:$P/exa.language_server_pb.LanguageServerService/GetStatus" \
+        -H 'Content-Type: application/json' -H 'Connect-Protocol-Version: 1' \
+        -H "x-codeium-csrf-token: $CSRF" -d '{}' || true)"
+      if [[ "$CODE" == "200" ]]; then
+        R="$(curl -sk -m 10 -X POST "https://127.0.0.1:$P/exa.language_server_pb.LanguageServerService/$1" \
+              -H 'Content-Type: application/json' -H 'Connect-Protocol-Version: 1' \
+              -H "x-codeium-csrf-token: $CSRF" -d "$BODY" || true)"
+        [[ -n "$R" ]] && { echo "$R"; exit 0; }
+      fi
+    fi
+  done
+fi
+
+# 2. 回退：从进程参数读取 --csrf_token
 PID="$(pgrep -f 'language_server( |$)' | while read -r p; do
   ps -o args= -p "$p" | grep -q -- '--csrf_token' && { echo "$p"; break; }; done)"
 [[ -n "$PID" ]] || { echo "未找到运行中的 language_server" >&2; exit 3; }
 CSRF="$(ps -o args= -p "$PID" | grep -oE -- '--csrf_token +[0-9a-fA-F-]+' | awk '{print $2}')"
-BODY="${2:-"{}"}"
 for P in $(lsof -nP -a -p "$PID" -iTCP -sTCP:LISTEN 2>/dev/null | awk 'NR>1{n=split($9,a,":"); print a[n]}'); do
   R="$(curl -sk -m 10 -X POST "https://127.0.0.1:$P/exa.language_server_pb.LanguageServerService/$1" \
         -H 'Content-Type: application/json' -H 'Connect-Protocol-Version: 1' \

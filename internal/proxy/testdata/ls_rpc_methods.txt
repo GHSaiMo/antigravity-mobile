@@ -1,5 +1,5 @@
 # language_server RPC baseline
-# generated: 2026-10-21 ide_version: 2.25.0 count: 346
+# generated: 2026-11-10 ide_version: 2.30.0 count: 371
 AcceptTermsOfService
 AcknowledgeCascadeCodeEdit
 AcknowledgeCodeActionStep
@@ -9,8 +9,10 @@ AddTrackedWorkspace
 ApplyUpdate
 AuthLogout
 BrowserValidateCascadeOrCancelOverlay
+CallMcpAppTool
 CancelCascadeInvocation
 CancelCascadeSteps
+CancelLogin
 CaptureConsoleLogs
 CaptureScreenshot
 CheckDevToolsActivePort
@@ -36,6 +38,7 @@ CreateTrajectoryShare
 CreateTrigger
 CreateWorktree
 DeleteAgentMessage
+DeleteAllUserData
 DeleteCascadeMemory
 DeleteCascadeTrajectory
 DeleteFileOrDirectory
@@ -59,6 +62,7 @@ EndBattleMode
 EndNarration
 Exit
 FetchAdminControls
+FetchSandboxPort
 FetchUserInfo
 FigAmend
 FigCommit
@@ -68,6 +72,7 @@ FocusUserPage
 ForceBackgroundResearchRefresh
 ForceStopCascadeTree
 ForkConversation
+FulfillAgentBrowserRequest
 GenerateCommitMessage
 GenerateEnvironmentName
 GenerateSkillInstallationCL
@@ -100,6 +105,7 @@ GetCascadeTrajectoryGeneratorMetadata
 GetCascadeTrajectorySteps
 GetChangelistStatus
 GetChangelog
+GetChapterTitles
 GetCodeActionDiff
 GetCodeFrequencyForRepo
 GetCodeValidationStates
@@ -110,6 +116,10 @@ GetConversationMetadata
 GetCustomizationStates
 GetDebugDiagnostics
 GetDefaultProjectDir
+GetDefinition
+GetGerritChangeStatus
+GetGitHubPullRequests
+GetGoogleChatLinkInfo
 GetGrantedScopes
 GetHover
 GetInputCompletion
@@ -117,8 +127,10 @@ GetJJWorktrees
 GetKnowledgeItems
 GetLoadCodeAssist
 GetLocalUserInfo
+GetLoginSession
 GetMarketplaceBundles
 GetMarketplaceCustomization
+GetMarketplaceFeatured
 GetMatchingContextScopeItems
 GetMcpAppResource
 GetMcpPrompt
@@ -127,12 +139,14 @@ GetMcpServerTemplates
 GetMendelFlags
 GetModelResponse
 GetModelStatuses
+GetOnboardingPersonas
 GetPatchAndCodeChange
+GetPermissionSettings
 GetPlugin
 GetProfileData
+GetReferences
 GetRemoteControlInfo
 GetRepoInfos
-GetResolvedCascadeConfig
 GetRevertPreview
 GetRevisionArtifact
 GetServerConfiguration
@@ -148,12 +162,13 @@ GetTeamOrganizationalControls
 GetTermsOfService
 GetTokenBase
 GetTrajectoryFileDiffs
-GetTrajectoryTurn
+GetTrajectoryTurns
 GetTranscription
 GetTurnDiff
 GetUnleashData
 GetUpdateStatus
 GetUserAnalyticsSummary
+GetUserDataDeletionStatus
 GetUserMemories
 GetUserSettings
 GetUserStatus
@@ -162,10 +177,12 @@ GetUserTrajectoryDebug
 GetUserTrajectoryDescriptions
 GetVersionControlFileContent
 GetVersionControlState
+GetVoiceCallDebug
 GetWebDocsOptions
 GetWorkingDirectories
 GetWorkspaceChangelists
 GetWorkspaceEditState
+GetWorkspaceGitHubPullRequests
 GetWorkspaceInfos
 GetWorktreeDiff
 GitCommit
@@ -199,6 +216,7 @@ JjSync
 JjUpload
 LaunchMcpApp
 ListAvailableResources
+ListBackgroundTasks
 ListContextProviders
 ListCustomizationPathsByFile
 ListEnvironments
@@ -267,6 +285,7 @@ Restart
 RetrieveUserQuotaSummary
 RevertToCascadeStep
 RunCommand
+RunTrigger
 SaveAgentScriptCommandSpec
 SaveMediaAsArtifact
 SaveScreenRecording
@@ -295,6 +314,7 @@ SetCloudCodeURL
 SetDefaultPluginAuthAccount
 SetMendelFlagOverrides
 SetOrVerifyStaticConfig
+SetPluginAuthAccountLabel
 SetUserInfo
 SetUserSettings
 SetWorkingDirectories
@@ -311,6 +331,7 @@ SmartFocusConversation
 SmartOpenBrowser
 StartBattleMode
 StartCascade
+StartMcpOAuthSignIn
 StartNarration
 StartPluginAuthSignIn
 StartScreenRecording
@@ -324,10 +345,12 @@ StreamSearchCode
 StreamTerminalOutput
 StreamTerminalShellCommand
 StreamUserTrajectoryReactiveUpdates
+SubscribeToAgentBrowserRequests
 SubscribeToMcpServerStates
 SubscribeToPlugins
 SubscribeToSidecars
 ToggleMcpServer
+UpdateAgentBrowserSubscription
 UpdateCascadeMemory
 UpdateConversationAnnotations
 UpdateCustomization
@@ -335,6 +358,7 @@ UpdateCustomizationPathsFile
 UpdateDevExperiments
 UpdateEnterpriseExperimentsFromUrl
 UpdatePRForWorktree
+UpdatePermissionSettings
 UpdateProject
 UpdateTrigger
 UploadToDrive
@@ -342,6 +366,7 @@ ValidateProject
 ValidateTerminalSetupScript
 WaitForConversationFullyIdle
 WarmUpAgentProcess
+WarmUpEnvironment
 WatchDirectory
 WatchVersionControlState
 WellSupportedLanguages

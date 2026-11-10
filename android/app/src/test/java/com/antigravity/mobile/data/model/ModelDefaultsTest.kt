@@ -12,8 +12,12 @@ class ModelDefaultsTest {
     @Test
     fun providerDetectionAndLabel() {
         assertTrue(ModelDefaults.isClaude("claude-opus-4-6-thinking"))
+        assertTrue(ModelDefaults.isClaude("claude-opus-5-5-high"))
         assertTrue(ModelDefaults.isClaude("MODEL_PLACEHOLDER_M26"))
+        assertTrue(ModelDefaults.isClaude("MODEL_PLACEHOLDER_M402"))
+        assertTrue(ModelDefaults.isClaude("MODEL_PLACEHOLDER_M405"))
         assertFalse(ModelDefaults.isClaude("gemini-3.8-flash-high"))
+        assertFalse(ModelDefaults.isClaude("MODEL_PLACEHOLDER_M417"))
         assertEquals("Claude", ModelDefaults.providerLabel("claude-sonnet-4-6"))
         assertEquals("Gemini", ModelDefaults.providerLabel("gemini-3.1-pro-low"))
         assertEquals("GPT", ModelDefaults.providerLabel("gpt-oss-120b-medium"))
