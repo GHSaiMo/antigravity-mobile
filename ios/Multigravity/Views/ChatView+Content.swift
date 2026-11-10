@@ -302,7 +302,7 @@ extension ChatView {
     /// 现代设备将普通 VStack 阈值扩充至 100 条消息（覆盖绝大多数 15-25 轮常规会话），免除虚拟化抖动与空白。
     @ViewBuilder
     func messagesStack<C: View>(@ViewBuilder _ content: () -> C) -> some View {
-        if viewModel.messages.count <= 100 {
+        if viewModel.messages.count <= 24 {
             VStack(spacing: 8) { content() }
         } else {
             LazyVStack(spacing: 8) { content() }
