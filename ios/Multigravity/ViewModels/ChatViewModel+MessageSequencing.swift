@@ -143,6 +143,7 @@ extension ChatViewModel {
         if let optId = currentOptId {
             optimisticMessage = messages.first(where: { $0.id == optId })
             let serverHasNewUserMsg = incoming.contains(where: {
+                ($0.sender == .user && optimisticMessage?.clientMessageId != nil && $0.clientMessageId == optimisticMessage?.clientMessageId) ||
                 ($0.sender == .user && !knownServerMessageIds.contains($0.id)) ||
                 ($0.sender == .user && optimisticMessage != nil && $0.content == optimisticMessage?.content)
             })
@@ -184,6 +185,7 @@ extension ChatViewModel {
             optimisticMessage = messages.first(where: { $0.id == optId })
             // Server only incorporates the new turn if incoming contains a user message with a NEW ID not known before sending, or matching text
             let serverHasNewUserMsg = incoming.contains(where: {
+                ($0.sender == .user && optimisticMessage?.clientMessageId != nil && $0.clientMessageId == optimisticMessage?.clientMessageId) ||
                 ($0.sender == .user && !knownServerMessageIds.contains($0.id)) ||
                 ($0.sender == .user && optimisticMessage != nil && $0.content == optimisticMessage?.content)
             })

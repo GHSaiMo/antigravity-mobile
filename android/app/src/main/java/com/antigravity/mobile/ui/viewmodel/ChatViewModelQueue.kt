@@ -38,8 +38,12 @@ internal fun ChatViewModel.isQueuedItemInMessages(
     media: List<String>?,
     imageUrls: List<String>?,
     enqueuedAfterMessageId: String? = null,
+    clientMessageId: String? = null,
     userMessages: List<GatewayMessageItem>
 ): Boolean {
+    if (!clientMessageId.isNullOrEmpty() && userMessages.any { it.clientMessageId == clientMessageId }) {
+        return true
+    }
     val normText = normalizeForComparison(text)
     val hasAttachments = !media.isNullOrEmpty() || !imageUrls.isNullOrEmpty()
 
@@ -98,6 +102,7 @@ internal fun ChatViewModel.syncQueuedMessages(
             media = opt.media,
             imageUrls = opt.imageUrls,
             enqueuedAfterMessageId = opt.enqueuedAfterMessageId,
+            clientMessageId = opt.clientMessageId,
             userMessages = userMessages
         )
         val isTombstoned = tombstoneIds.contains(opt.id) || (normOpt.isNotEmpty() && tombstoneTexts.contains(normOpt))
@@ -117,6 +122,7 @@ internal fun ChatViewModel.syncQueuedMessages(
                 media = sItem.media,
                 imageUrls = sItem.imageUrls,
                 enqueuedAfterMessageId = null,
+                clientMessageId = sItem.clientMessageId,
                 userMessages = userMessages
             )
             val isTombstoned = tombstoneIds.contains(sItem.id) || (normItem.isNotEmpty() && tombstoneTexts.contains(normItem))
@@ -134,6 +140,7 @@ internal fun ChatViewModel.syncQueuedMessages(
                 media = qm.media,
                 imageUrls = qm.imageUrls,
                 enqueuedAfterMessageId = null,
+                clientMessageId = qm.clientMessageId,
                 userMessages = userMessages
             )
             val isTombstoned = tombstoneIds.contains(qm.id) || (normItem.isNotEmpty() && tombstoneTexts.contains(normItem))
@@ -164,6 +171,7 @@ internal fun ChatViewModel.syncQueuedMessages(
             media = opt.media,
             imageUrls = opt.imageUrls,
             enqueuedAfterMessageId = opt.enqueuedAfterMessageId,
+            clientMessageId = opt.clientMessageId,
             userMessages = userMessages
         )
         if (inChat) {

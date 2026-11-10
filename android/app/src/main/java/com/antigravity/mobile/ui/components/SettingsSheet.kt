@@ -977,8 +977,9 @@ private fun ModelPickerRow(
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEach { option ->
+                val itemLabel = if (!option.tag.isNullOrBlank()) "${option.name} · ${option.tag}" else option.name
                 DropdownMenuItem(
-                    text = { Text(option.name) },
+                    text = { Text(itemLabel) },
                     trailingIcon = {
                         if (option.id == selectedId) {
                             Icon(Icons.Default.Check, contentDescription = null, tint = colors.accentIndigo, modifier = Modifier.size(18.dp))

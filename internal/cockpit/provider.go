@@ -587,11 +587,13 @@ func GetQuotas(activeEmails ...string) (*CockpitQuotaResponse, error) {
 					item.Claude5h = nil
 					item.Gemini5h = nil
 					if item.ClaudeWeekly == nil {
-						if m, ok := cp.Payload.Models["claude-opus-4-6-thinking"]; ok && m.QuotaInfo.RemainingFraction != nil {
-							item.ClaudeWeekly = makeMetric(m.QuotaInfo.RemainingFraction, m.QuotaInfo.ResetTime)
-						} else if m, ok := cp.Payload.Models["claude-sonnet-4-6"]; ok && m.QuotaInfo.RemainingFraction != nil {
-							item.ClaudeWeekly = makeMetric(m.QuotaInfo.RemainingFraction, m.QuotaInfo.ResetTime)
-						} else {
+						for _, k := range []string{"claude-opus-5-5-high", "claude-sonnet-5-5-high", "claude-opus-4-6-thinking", "claude-sonnet-4-6"} {
+							if m, ok := cp.Payload.Models[k]; ok && m.QuotaInfo.RemainingFraction != nil {
+								item.ClaudeWeekly = makeMetric(m.QuotaInfo.RemainingFraction, m.QuotaInfo.ResetTime)
+								break
+							}
+						}
+						if item.ClaudeWeekly == nil {
 							for k, m := range cp.Payload.Models {
 								lk := strings.ToLower(k)
 								if (strings.Contains(lk, "claude") || strings.Contains(lk, "gpt")) && m.QuotaInfo.RemainingFraction != nil {
@@ -620,10 +622,11 @@ func GetQuotas(activeEmails ...string) (*CockpitQuotaResponse, error) {
 					}
 				} else {
 					if item.Claude5h == nil {
-						if m, ok := cp.Payload.Models["claude-opus-4-6-thinking"]; ok && m.QuotaInfo.RemainingFraction != nil {
-							item.Claude5h = makeMetric(m.QuotaInfo.RemainingFraction, m.QuotaInfo.ResetTime)
-						} else if m, ok := cp.Payload.Models["claude-sonnet-4-6"]; ok && m.QuotaInfo.RemainingFraction != nil {
-							item.Claude5h = makeMetric(m.QuotaInfo.RemainingFraction, m.QuotaInfo.ResetTime)
+						for _, k := range []string{"claude-opus-5-5-high", "claude-sonnet-5-5-high", "claude-opus-4-6-thinking", "claude-sonnet-4-6"} {
+							if m, ok := cp.Payload.Models[k]; ok && m.QuotaInfo.RemainingFraction != nil {
+								item.Claude5h = makeMetric(m.QuotaInfo.RemainingFraction, m.QuotaInfo.ResetTime)
+								break
+							}
 						}
 					}
 					if item.Gemini5h == nil {

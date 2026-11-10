@@ -458,9 +458,11 @@ public struct DeleteAgentMessageRequest: Codable, Sendable {
 // Request to cancel a task
 public struct CancelCascadeInvocationRequest: Codable, Sendable {
     public let cascadeId: String
+    public let killBackgroundTasks: Bool?
     
-    public init(cascadeId: String) {
+    public init(cascadeId: String, killBackgroundTasks: Bool? = nil) {
         self.cascadeId = cascadeId
+        self.killBackgroundTasks = killBackgroundTasks
     }
 }
 
@@ -554,6 +556,8 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
     public let timestamp: String?
     /// 用户消息里引用的斜杠命令 / 技能（可选，兼容旧版缓存解码）
     public let slashCommands: [SlashCommandMention]?
+    /// 客户端发送时生成的幂等标识（Antigravity 2.30+ 原生字段或网关 tags 还原）
+    public let clientMessageId: String?
     
     public enum MessageSender: Hashable, Sendable, Codable {
         case user
@@ -627,7 +631,8 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
         subagent: SubagentItem? = nil,
         workflow: WorkflowItem? = nil,
         timestamp: String? = nil,
-        slashCommands: [SlashCommandMention]? = nil
+        slashCommands: [SlashCommandMention]? = nil,
+        clientMessageId: String? = nil
     ) {
         self.model = model
         self.modelName = modelName
@@ -635,6 +640,7 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
         self.workflow = workflow
         self.timestamp = timestamp
         self.slashCommands = slashCommands
+        self.clientMessageId = clientMessageId
         self.id = id
         self.sender = sender
         self.content = content

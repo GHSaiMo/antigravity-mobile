@@ -347,14 +347,43 @@ func (p *Proxy) handleCancelCascadeInvocation(w http.ResponseWriter, r *http.Req
 	}
 	defer cleanup()
 
-	var payload struct {
-		CascadeID      string `json:"cascadeId"`
-		ConversationID string `json:"conversationId"`
-	}
-	_ = json.Unmarshal(bodyBytes, &payload)
-	targetID := strings.TrimSpace(payload.CascadeID)
-	if targetID == "" {
-		targetID = strings.TrimSpace(payload.ConversationID)
+	var rawMap map[string]interface{}
+	targetID := ""
+	if err := json.Unmarshal(bodyBytes, &rawMap); err == nil && rawMap != nil {
+		if cid, ok := rawMap["cascadeId"].(string); ok {
+			targetID = strings.TrimSpace(cid)
+		}
+		if targetID == "" {
+			if cid, ok := rawMap["conversationId"].(string); ok {
+				targetID = strings.TrimSpace(cid)
+			}
+		}
+		// Antigravity 2.30+ supports killBackgroundTasks on CancelCascadeInvocation.
+		// Default to true when the caller did not specify it, unless the session has a standing daemon (IsDaemon=true).
+		if strings.HasSuffix(reqPath, "/CancelCascadeInvocation") {
+			if _, hasKill := rawMap["killBackgroundTasks"]; !hasKill {
+				hasDaemon := false
+				if targetID != "" {
+					defaultTrajCache.trajCacheMu.RLock()
+					entry := defaultTrajCache.trajCache[targetID]
+					defaultTrajCache.trajCacheMu.RUnlock()
+					if entry != nil && entry.data != nil {
+						for _, t := range buildRunningTasks(entry.data.Trajectory.Steps) {
+							if t.IsDaemon {
+								hasDaemon = true
+								break
+							}
+						}
+					}
+				}
+				if !hasDaemon {
+					rawMap["killBackgroundTasks"] = true
+					if patched, err := json.Marshal(rawMap); err == nil {
+						bodyBytes = patched
+					}
+				}
+			}
+		}
 	}
 
 	fwdReq := r.Clone(r.Context())

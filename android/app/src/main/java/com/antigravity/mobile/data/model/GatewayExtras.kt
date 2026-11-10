@@ -98,7 +98,8 @@ data class ModelOption(
     val provider: String = "other",
     val enum: String? = null,
     val supportsImages: Boolean = false,
-    val thinking: Boolean = false
+    val thinking: Boolean = false,
+    val tag: String? = null
 )
 
 @Serializable
@@ -115,8 +116,11 @@ object ModelDefaults {
     const val FALLBACK_GEMINI = "gemini-3.8-flash-high"
     const val FALLBACK_CLAUDE = "claude-opus-4-6-thinking"
 
+    private val CLAUDE_ENUM_TOKENS = listOf("m26", "m35", "m400", "m401", "m402", "m403", "m404", "m405")
+
     fun isClaude(modelId: String): Boolean =
-        modelId.contains("claude", ignoreCase = true) || modelId.contains("m26", ignoreCase = true)
+        modelId.contains("claude", ignoreCase = true) ||
+            CLAUDE_ENUM_TOKENS.any { modelId.contains(it, ignoreCase = true) }
 
     /** 输入框上方胶囊的文字：只有厂商名，保持简洁。 */
     fun providerLabel(modelId: String): String = when {

@@ -168,7 +168,10 @@ internal fun ChatViewModel.mergeIncomingMessages(incoming: List<GatewayMessageIt
     if (currentOptId != null) {
         optimisticMessage = currentMessages.firstOrNull { it.id == currentOptId }
         val serverHasUserTurn = incoming.any {
-            it.isUser && (it.id != currentOptId && (optimisticMessage == null || it.effectiveText == optimisticMessage.effectiveText))
+            it.isUser && (
+                (!optimisticMessage?.clientMessageId.isNullOrEmpty() && it.clientMessageId == optimisticMessage?.clientMessageId) ||
+                (it.id != currentOptId && (optimisticMessage == null || it.effectiveText == optimisticMessage.effectiveText))
+            )
         }
         if (serverHasUserTurn) {
             pendingOptimisticMessageId = null

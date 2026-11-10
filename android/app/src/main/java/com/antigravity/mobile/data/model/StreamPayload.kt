@@ -72,6 +72,8 @@ data class GatewayMessageItem(
     val workflow: WorkflowItem? = null,
     /** type == "user" 时引用的斜杠命令 / 技能列表。 */
     val slashCommands: List<SlashCommandMention>? = null,
+    /** 客户端发送时生成的幂等标识（Antigravity 2.30+）。 */
+    val clientMessageId: String? = null,
     @kotlinx.serialization.Transient val imageDataList: List<ByteArray> = emptyList()
 ) {
     val effectiveRole: String

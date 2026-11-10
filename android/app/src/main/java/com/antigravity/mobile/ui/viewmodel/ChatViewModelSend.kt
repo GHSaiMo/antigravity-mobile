@@ -282,7 +282,8 @@ internal fun ChatViewModel.sendMessage(
         text = displayText,
         content = displayText,
         imageDataList = imageBytesList,
-        slashCommands = optSlashMentions
+        slashCommands = optSlashMentions,
+        clientMessageId = optId
     )
     _uiState.value = _uiState.value.copy(
         messages = _uiState.value.messages + optimisticUserMsg,
@@ -464,6 +465,7 @@ internal fun ChatViewModel.sendMessage(
 internal fun ChatViewModel.cancelExecution() {
     val cascadeId = _uiState.value.cascadeId
     // 只停止阻塞回合的任务；常驻守护任务（IsDaemon=true）保持运行并留在浮层中供手动停止。
+    val hasDaemon = _uiState.value.runningTasks.any { it.isDaemon }
     val tasksToStop = _uiState.value.runningTasks.blockingTasks
     tasksToStop.forEach { task ->
         stoppedTaskKeys.add("${task.id}:${task.stepIndex}")
@@ -478,7 +480,7 @@ internal fun ChatViewModel.cancelExecution() {
     notifyConversationUpdated()
     saveSessionToCache()
     viewModelScope.launch {
-        apiClient.cancelInvocation(cascadeId)
+        apiClient.cancelInvocation(cascadeId, killBackgroundTasks = !hasDaemon)
         tasksToStop.forEach { task ->
             apiClient.stopTask(cascadeId, task.id, task.stepIndex)
         }

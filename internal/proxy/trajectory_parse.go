@@ -216,16 +216,17 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 			if (trimmed != "" && !isSystemApproval) || len(mediaList) > 0 || len(userImageURLs) > 0 || len(nonImageMediaFiles) > 0 {
 				stepIdx := idx
 				allMessages = append(allMessages, CascadeMessageItem{
-					ID:            fmt.Sprintf("step-%d", idx),
-					Type:          "user",
-					Role:          "user",
-					Text:          text,
-					Content:       text,
-					StepIndex:     &stepIdx,
-					Media:         mediaList,
-					ImageURLs:     userImageURLs,
-					SlashCommands: slashCommands,
-					Timestamp:     s.Metadata.CreatedAt,
+					ID:              fmt.Sprintf("step-%d", idx),
+					Type:            "user",
+					Role:            "user",
+					Text:            text,
+					Content:         text,
+					StepIndex:       &stepIdx,
+					Media:           mediaList,
+					ImageURLs:       userImageURLs,
+					SlashCommands:   slashCommands,
+					Timestamp:       s.Metadata.CreatedAt,
+					ClientMessageID: s.UserInput.ResolvedClientMessageID(),
 				})
 			}
 		} else if stepType == "CORTEX_STEP_TYPE_PLANNER_RESPONSE" {
@@ -785,7 +786,7 @@ func modelDisplayNameFor(activeModel string) string {
 	modelDisplayName := ""
 	if activeModel != "" {
 		lower := strings.ToLower(activeModel)
-		if strings.Contains(lower, "claude") {
+		if isClaudeModelOrEnum(activeModel) {
 			modelDisplayName = "Claude"
 		} else if strings.Contains(lower, "gemini") {
 			modelDisplayName = "Gemini"

@@ -297,8 +297,10 @@ async function cancelCurrentTask() {
     RunningTasksManager.stopTask(t.stepIndex, t.id, true);
   }
 
+  const hasDaemon = !!(RunningTasksManager.tasks && RunningTasksManager.tasks.some(t => t.isDaemon));
+
   try {
-    await rpc("CancelCascadeInvocation", { cascadeId: activeCascadeId });
+    await rpc("CancelCascadeInvocation", { cascadeId: activeCascadeId, killBackgroundTasks: !hasDaemon });
     if (currentTrajectories[activeCascadeId]) {
       currentTrajectories[activeCascadeId].status = "CASCADE_RUN_STATUS_IDLE";
     }

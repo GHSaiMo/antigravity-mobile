@@ -37,6 +37,7 @@ type ModelOption struct {
 	Enum           string `json:"enum,omitempty"`
 	SupportsImages bool   `json:"supportsImages,omitempty"`
 	Thinking       bool   `json:"thinking,omitempty"`
+	Tag            string `json:"tag,omitempty"`
 }
 
 // ModelsResponse is the response of /gateway/models.
@@ -48,19 +49,28 @@ type ModelsResponse struct {
 	Live bool `json:"live"`
 }
 
-// 兜底默认值：实时列表里存在时才会被采用。
-var preferredDefaults = map[string]string{
-	"gemini": "gemini-3.8-flash-high",
-	"claude": "claude-opus-4-6-thinking",
+// 兜底默认值候选（按优先级排列）：实时列表里存在时才会被采用。
+var preferredDefaults = map[string][]string{
+	"gemini": {"gemini-3.8-flash-high", "gemini-4-argon-high"},
+	"claude": {"claude-opus-4-6-thinking", "claude-opus-5-5-high"},
 }
 
 // fallbackModels is used until the first successful query, or when language_server is unreachable.
 var fallbackModels = []ModelOption{
-	{ID: "gemini-3.8-flash-high", Name: "Gemini 3.8 Flash (High)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M318"},
-	{ID: "gemini-3.8-flash-medium", Name: "Gemini 3.8 Flash (Medium)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M319"},
-	{ID: "gemini-3.8-flash-low", Name: "Gemini 3.8 Flash (Low)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M320"},
-	{ID: "claude-opus-4-6-thinking", Name: "Claude Opus 4.6 (Thinking)", Provider: "claude", Enum: "MODEL_PLACEHOLDER_M26"},
-	{ID: "claude-sonnet-4-6", Name: "Claude Sonnet 4.6 (Thinking)", Provider: "claude", Enum: "MODEL_PLACEHOLDER_M35"},
+	{ID: "gemini-4-argon-high", Name: "Gemini 4 Argon (High)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M417", SupportsImages: true, Thinking: true, Tag: "New"},
+	{ID: "gemini-4-argon-medium", Name: "Gemini 4 Argon (Medium)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M418", SupportsImages: true, Thinking: true, Tag: "New"},
+	{ID: "gemini-4-argon-low", Name: "Gemini 4 Argon (Low)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M419", SupportsImages: true, Thinking: true, Tag: "New"},
+	{ID: "gemini-3.8-flash-high", Name: "Gemini 3.8 Flash (High)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M318", SupportsImages: true, Thinking: true},
+	{ID: "gemini-3.8-flash-medium", Name: "Gemini 3.8 Flash (Medium)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M319", SupportsImages: true, Thinking: true},
+	{ID: "gemini-3.8-flash-low", Name: "Gemini 3.8 Flash (Low)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M320", SupportsImages: true, Thinking: true},
+	{ID: "claude-opus-5-5-high", Name: "Claude Opus 5.5 (High)", Provider: "claude", Enum: "MODEL_PLACEHOLDER_M402", SupportsImages: true, Thinking: true, Tag: "New"},
+	{ID: "claude-opus-5-5-medium", Name: "Claude Opus 5.5 (Medium)", Provider: "claude", Enum: "MODEL_PLACEHOLDER_M401", SupportsImages: true, Thinking: true, Tag: "New"},
+	{ID: "claude-opus-5-5-low", Name: "Claude Opus 5.5 (Low)", Provider: "claude", Enum: "MODEL_PLACEHOLDER_M400", SupportsImages: true, Thinking: true, Tag: "New"},
+	{ID: "claude-sonnet-5-5-high", Name: "Claude Sonnet 5.5 (High)", Provider: "claude", Enum: "MODEL_PLACEHOLDER_M405", SupportsImages: true, Thinking: true, Tag: "New"},
+	{ID: "claude-sonnet-5-5-medium", Name: "Claude Sonnet 5.5 (Medium)", Provider: "claude", Enum: "MODEL_PLACEHOLDER_M404", SupportsImages: true, Thinking: true, Tag: "New"},
+	{ID: "claude-sonnet-5-5-low", Name: "Claude Sonnet 5.5 (Low)", Provider: "claude", Enum: "MODEL_PLACEHOLDER_M403", SupportsImages: true, Thinking: true, Tag: "New"},
+	{ID: "claude-opus-4-6-thinking", Name: "Claude Opus 4.6 (Thinking)", Provider: "claude", Enum: "MODEL_PLACEHOLDER_M26", SupportsImages: true, Thinking: true},
+	{ID: "claude-sonnet-4-6", Name: "Claude Sonnet 4.6 (Thinking)", Provider: "claude", Enum: "MODEL_PLACEHOLDER_M35", SupportsImages: true, Thinking: true},
 }
 
 // upstreamModel mirrors the fields of GetAvailableModels we care about.
@@ -197,6 +207,10 @@ func buildModelTables(raw map[string]upstreamModel, curatedIDs []string) (option
 		if m.DisplayName == "" || m.IsInternal || strings.HasPrefix(id, "chat_") {
 			continue
 		}
+		tag := strings.TrimSpace(m.TagTitle)
+		if isLeavingSoon(tag) {
+			tag = ""
+		}
 		opt := ModelOption{
 			ID:             id,
 			Name:           m.DisplayName,
@@ -204,6 +218,7 @@ func buildModelTables(raw map[string]upstreamModel, curatedIDs []string) (option
 			Enum:           m.Model,
 			SupportsImages: m.SupportsImages,
 			Thinking:       m.Thinking,
+			Tag:            tag,
 		}
 		byID[strings.ToLower(id)] = opt
 		if isLeavingSoon(m.TagTitle) {
@@ -308,23 +323,29 @@ func (r *modelRegistry) snapshot() (ModelsResponse, bool) {
 		options = fallbackModels
 	}
 	out := ModelsResponse{Models: append([]ModelOption(nil), options...), Defaults: map[string]string{}, Live: live}
-	// 厂商给的默认 agent 模型优先，其次是网关内置的偏好，最后是该厂商列表里的第一个
-	wanted := map[string]string{}
-	for provider, id := range preferredDefaults {
-		wanted[provider] = id
+	// 厂商给的默认 agent 模型优先，其次是网关内置的偏好候选列表，最后是该厂商列表里的第一个
+	wanted := map[string][]string{}
+	for provider, ids := range preferredDefaults {
+		wanted[provider] = append([]string(nil), ids...)
 	}
 	if r.officialDef != "" {
 		for _, o := range out.Models {
 			if o.ID == r.officialDef && o.Provider != "other" {
-				wanted[o.Provider] = o.ID
+				wanted[o.Provider] = append([]string{o.ID}, wanted[o.Provider]...)
 			}
 		}
 	}
-	for provider, want := range wanted {
+	for provider, candidates := range wanted {
 		chosen := ""
-		for _, o := range out.Models {
-			if o.Provider == provider && o.ID == want {
-				chosen = o.ID
+		for _, want := range candidates {
+			for _, o := range out.Models {
+				if o.Provider == provider && o.ID == want {
+					chosen = o.ID
+					break
+				}
+			}
+			if chosen != "" {
+				break
 			}
 		}
 		if chosen == "" {

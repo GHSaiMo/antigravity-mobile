@@ -651,12 +651,26 @@ public final class VoiceCallManager: ObservableObject {
             return 1000 + num
         }
         let lower = raw.lowercased()
+        if let mappedEnum = ModelDefaultsLogic.staticEnumByID[lower],
+           mappedEnum.hasPrefix("MODEL_PLACEHOLDER_M"),
+           let num = Int(mappedEnum.dropFirst("MODEL_PLACEHOLDER_M".count)), num > 0 {
+            return 1000 + num
+        }
         switch lower {
+        case "gemini-4-argon-high": return 1417
+        case "gemini-4-argon-medium": return 1418
+        case "gemini-4-argon-low": return 1419
         case "gemini-3.8-flash-high": return 1318
         case "gemini-3.8-flash-medium": return 1319
         case "gemini-3.8-flash-low": return 1320
         case "gemini-3.1-pro-high": return 1037
         case "gemini-3.1-pro-low": return 1036
+        case "claude-opus-5-5-high": return 1402
+        case "claude-opus-5-5-medium": return 1401
+        case "claude-opus-5-5-low": return 1400
+        case "claude-sonnet-5-5-high": return 1405
+        case "claude-sonnet-5-5-medium": return 1404
+        case "claude-sonnet-5-5-low": return 1403
         case "claude-opus-4-6-thinking": return 1026
         case "claude-sonnet-4-6": return 1035
         default: return nil
