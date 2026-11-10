@@ -214,7 +214,9 @@ function calculateQuotaPace(title, bucket, tier) {
   if (isNaN(remainingMillis) || remainingMillis <= 0) return null;
   const lowerTitle = (title || "").toLowerCase();
   let is5h = false;
-  if (lowerTitle.includes("argon")) {
+  if (lowerTitle.includes("carbon")) {
+    is5h = false;
+  } else if (lowerTitle.includes("argon")) {
     const isUltra = (tier && typeof tier === "string") && tier.toUpperCase().includes("ULTRA");
     is5h = isUltra;
   } else if (lowerTitle.includes("5h")) {
@@ -279,7 +281,6 @@ function buildAccountQuotaCard(acc, isCurrent) {
   const gWk = acc.gemini_weekly || { remaining_percent: 0, reset_friendly: "未知" };
   const c5h = acc.claude_5h || { remaining_percent: 0, reset_friendly: "未知" };
   const cWk = acc.claude_weekly || { remaining_percent: 0, reset_friendly: "未知" };
-  const argon = acc.gemini_4_argon || null;
 
   const card = document.createElement("div");
   card.className = `quota-account-card ${isCurrent ? "current-account-card" : ""}`;
@@ -289,26 +290,56 @@ function buildAccountQuotaCard(acc, isCurrent) {
   const switchBtnHtml = (!isCurrent && isCockpitSwitchEnabled())
     ? `<button class="quota-switch-btn" data-id="${escapeHtml(acc.id)}" data-email="${escapeHtml(acc.email)}">切换</button>`
     : "";
-  const argonStatusClass = argon && typeof argon.remaining_percent === "number"
-    ? (argon.remaining_percent < 20 ? "danger" : "argon")
-    : "argon";
-  const argonPace = argon && typeof argon.remaining_percent === "number"
-    ? calculateQuotaPace("Gemini 4 Argon", argon, acc.subscription_tier)
-    : null;
-  let argonCursorHtml = "";
-  let argonPaceTooltip = "";
-  if (argonPace) {
-    argonPaceTooltip = `\n• 消耗节奏：${argonPace.status}\n• 已使用：${argonPace.used.toFixed(1)}% (${argonPace.windowLabel}匀速应耗 ${argonPace.expectedUsed.toFixed(1)}%)\n• 理论应剩：${argonPace.expectedRemaining.toFixed(1)}% (白色游标位置)`;
-    argonCursorHtml = `<div class="weekly-pace-cursor ${argonPace.isOver ? "over-pacing" : ""}" style="left: ${argonPace.expectedRemaining.toFixed(1)}%;" title="${argonPace.windowLabel}匀速基准线: ${argonPace.expectedRemaining.toFixed(1)}%"></div>`;
-  }
-  const argonResetText = argon ? getQuotaResetDisplayText(argon) : "";
-  const argonFullTitle = `${argonResetText}${argonPaceTooltip}`;
-  const argonHtml = argon && typeof argon.remaining_percent === "number"
-    ? `
-      <!-- 5. Bottom Full Width: Gemini 4 Argon (dynamically shown only when available) -->
+  const isUltra = (acc.subscription_tier && acc.subscription_tier.toUpperCase() === "ULTRA");
+  let bottomBarHtml = "";
+  if (isUltra) {
+    const carbon = acc.gemini_weekly || acc.gemini_4_argon || null;
+    if (carbon && typeof carbon.remaining_percent === "number") {
+      const carbonStatusClass = carbon.remaining_percent < 20 ? "danger" : "carbon";
+      const carbonPace = calculateQuotaPace("Gemini 4 Carbon Weekly", carbon, acc.subscription_tier);
+      let carbonCursorHtml = "";
+      let carbonPaceTooltip = "";
+      if (carbonPace) {
+        carbonPaceTooltip = `\n• 消耗节奏：${carbonPace.status}\n• 已使用：${carbonPace.used.toFixed(1)}% (${carbonPace.windowLabel}匀速应耗 ${carbonPace.expectedUsed.toFixed(1)}%)\n• 理论应剩：${carbonPace.expectedRemaining.toFixed(1)}% (白色游标位置)`;
+        carbonCursorHtml = `<div class="weekly-pace-cursor ${carbonPace.isOver ? "over-pacing" : ""}" style="left: ${carbonPace.expectedRemaining.toFixed(1)}%;" title="${carbonPace.windowLabel}匀速基准线: ${carbonPace.expectedRemaining.toFixed(1)}%"></div>`;
+      }
+      const carbonResetText = getQuotaResetDisplayText(carbon);
+      const carbonFullTitle = `${carbonResetText}${carbonPaceTooltip}`;
+      bottomBarHtml = `
+      <!-- 5. Bottom Full Width: Gemini 4 Carbon Weekly (Ultra exclusive) -->
+      <div class="metric-box metric-box-full metric-box-carbon" title="${escapeHtml(carbonFullTitle)}">
+        <div class="metric-box-header">
+          <div class="metric-box-title-wrap">
+            <span class="metric-box-title carbon">Gemini 4 Carbon Weekly</span>
+            <span class="carbon-micro-badge">CARBON</span>
+          </div>
+          <span class="metric-box-value ${carbonStatusClass}">${carbon.remaining_percent.toFixed(1)}%</span>
+        </div>
+        <div class="metric-mini-track carbon-track">
+          <div class="metric-mini-fill ${carbonStatusClass}" style="width: ${Math.min(100, Math.max(0, carbon.remaining_percent))}%;"></div>
+          ${carbonCursorHtml}
+        </div>
+        <span class="metric-box-reset" title="${escapeHtml(carbonFullTitle)}">${escapeHtml(carbonResetText)}</span>
+      </div>`;
+    }
+  } else {
+    const argon = acc.gemini_4_argon || null;
+    if (argon && typeof argon.remaining_percent === "number") {
+      const argonStatusClass = argon.remaining_percent < 20 ? "danger" : "argon";
+      const argonPace = calculateQuotaPace("Gemini 4 Argon Weekly", argon, acc.subscription_tier);
+      let argonCursorHtml = "";
+      let argonPaceTooltip = "";
+      if (argonPace) {
+        argonPaceTooltip = `\n• 消耗节奏：${argonPace.status}\n• 已使用：${argonPace.used.toFixed(1)}% (${argonPace.windowLabel}匀速应耗 ${argonPace.expectedUsed.toFixed(1)}%)\n• 理论应剩：${argonPace.expectedRemaining.toFixed(1)}% (白色游标位置)`;
+        argonCursorHtml = `<div class="weekly-pace-cursor ${argonPace.isOver ? "over-pacing" : ""}" style="left: ${argonPace.expectedRemaining.toFixed(1)}%;" title="${argonPace.windowLabel}匀速基准线: ${argonPace.expectedRemaining.toFixed(1)}%"></div>`;
+      }
+      const argonResetText = getQuotaResetDisplayText(argon);
+      const argonFullTitle = `${argonResetText}${argonPaceTooltip}`;
+      bottomBarHtml = `
+      <!-- 5. Bottom Full Width: Gemini 4 Argon Weekly (dynamically shown only when available) -->
       <div class="metric-box metric-box-full metric-box-argon" title="${escapeHtml(argonFullTitle)}">
         <div class="metric-box-header">
-          <span class="metric-box-title argon">Gemini 4 Argon</span>
+          <span class="metric-box-title argon">Gemini 4 Argon Weekly</span>
           <span class="metric-box-value ${argonStatusClass}">${argon.remaining_percent.toFixed(1)}%</span>
         </div>
         <div class="metric-mini-track argon-track">
@@ -316,8 +347,9 @@ function buildAccountQuotaCard(acc, isCurrent) {
           ${argonCursorHtml}
         </div>
         <span class="metric-box-reset" title="${escapeHtml(argonFullTitle)}">${escapeHtml(argonResetText)}</span>
-      </div>`
-    : "";
+      </div>`;
+    }
+  }
 
   const isFree = (acc.subscription_tier && acc.subscription_tier.toUpperCase() === "FREE") ||
     (!acc.claude_5h && !acc.gemini_5h);
@@ -328,7 +360,7 @@ function buildAccountQuotaCard(acc, isCurrent) {
 
       <!-- 2. Right: Gemini Weekly -->
       ${renderPacedMetricBox("Gemini Weekly", "gemini", gWk, acc.subscription_tier)}
-      ${argonHtml}
+      ${bottomBarHtml}
   ` : `
       <!-- 1. Left Top: Claude 5h -->
       ${renderPacedMetricBox("Claude 5h", "claude", c5h, acc.subscription_tier)}
@@ -341,7 +373,7 @@ function buildAccountQuotaCard(acc, isCurrent) {
 
       <!-- 4. Right Bottom: Gemini Weekly -->
       ${renderPacedMetricBox("Gemini Weekly", "gemini", gWk, acc.subscription_tier)}
-      ${argonHtml}
+      ${bottomBarHtml}
   `;
 
   card.innerHTML = `

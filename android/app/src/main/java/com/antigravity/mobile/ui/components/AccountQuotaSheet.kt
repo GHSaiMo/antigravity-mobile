@@ -504,18 +504,36 @@ private fun AccountQuotaCard(
                 }
             }
 
-            // Optional: Dynamically display Gemini 4 Argon only when the account has it
-            account.gemini4Argon?.let { argon ->
-                val argonPaceInfo = if (showWeeklyPaceCursor) argon.calculatePaceForTitle("Gemini 4 Argon", account.subscriptionTier) else null
-                QuotaMetricCell(
-                    title = "Gemini 4 Argon",
-                    bucket = argon,
-                    isArgon = true,
-                    tier = account.subscriptionTier,
-                    showPaceCursor = showWeeklyPaceCursor && argonPaceInfo != null,
-                    onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Gemini 4 Argon", it) } },
-                    modifier = Modifier.fillMaxWidth()
-                )
+            val isUltra = account.subscriptionTier?.trim()?.equals("ULTRA", ignoreCase = true) == true
+            if (isUltra) {
+                // Ultra 专属通栏：展示 Gemini 4 Carbon Weekly，数据对齐 geminiWeekly
+                val carbonBucket = account.geminiWeekly ?: account.gemini4Argon
+                carbonBucket?.let { carbon ->
+                    val carbonPaceInfo = if (showWeeklyPaceCursor) carbon.calculatePaceForTitle("Gemini 4 Carbon Weekly", account.subscriptionTier) else null
+                    QuotaMetricCell(
+                        title = "Gemini 4 Carbon Weekly",
+                        bucket = carbon,
+                        isCarbon = true,
+                        tier = account.subscriptionTier,
+                        showPaceCursor = showWeeklyPaceCursor && carbonPaceInfo != null,
+                        onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Gemini 4 Carbon Weekly", it) } },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            } else {
+                // 非 Ultra（如 Pro）：若具备 Argon 额度，展示 Gemini 4 Argon Weekly
+                account.gemini4Argon?.let { argon ->
+                    val argonPaceInfo = if (showWeeklyPaceCursor) argon.calculatePaceForTitle("Gemini 4 Argon Weekly", account.subscriptionTier) else null
+                    QuotaMetricCell(
+                        title = "Gemini 4 Argon Weekly",
+                        bucket = argon,
+                        isArgon = true,
+                        tier = account.subscriptionTier,
+                        showPaceCursor = showWeeklyPaceCursor && argonPaceInfo != null,
+                        onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Gemini 4 Argon Weekly", it) } },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             }
         }
     }
@@ -614,6 +632,7 @@ private fun QuotaMetricCell(
     title: String,
     bucket: CockpitQuotaBucket?,
     isArgon: Boolean = false,
+    isCarbon: Boolean = false,
     tier: String? = null,
     showPaceCursor: Boolean = true,
     onWeeklyClick: ((com.antigravity.mobile.data.model.WeeklyPaceInfo) -> Unit)? = null,
@@ -624,46 +643,77 @@ private fun QuotaMetricCell(
     val isPaceSupported = title.contains("Weekly", ignoreCase = true) ||
         title.contains("5h", ignoreCase = true) ||
         isArgon ||
-        title.contains("Argon", ignoreCase = true)
+        isCarbon ||
+        title.contains("Argon", ignoreCase = true) ||
+        title.contains("Carbon", ignoreCase = true)
     val paceInfo = remember(bucket, title, tier) {
         if (isPaceSupported) bucket?.calculatePaceForTitle(title, tier) else null
     }
     val argonAccent = if (colors.isDark) Color(0xFFFF9F0A) else Color(0xFFD97706)
+    val carbonAccent = if (colors.isDark) Color(0xFF00E5FF) else Color(0xFF0D9488)
     val isDanger = percent < 20.0
     val color = when {
+        isCarbon -> if (isDanger) colors.accentRed else carbonAccent
         isArgon -> if (isDanger) colors.accentRed else argonAccent
         percent >= 50 -> colors.accentGreen
         percent >= 20 -> colors.accentOrange
         else -> colors.accentRed
     }
-    val cellShape = RoundedCornerShape(if (isArgon) 10.dp else 8.dp)
-    var baseModifier = if (isArgon) {
-        modifier
-            .clip(cellShape)
-            .background(
-                Brush.linearGradient(
-                    colors = listOf(
-                        Color(0xFFFF9F0A).copy(alpha = if (colors.isDark) 0.13f else 0.11f),
-                        Color(0xFFF97316).copy(alpha = if (colors.isDark) 0.06f else 0.05f)
+    val isSpecial = isArgon || isCarbon
+    val cellShape = RoundedCornerShape(if (isSpecial) 10.dp else 8.dp)
+    var baseModifier = when {
+        isCarbon -> {
+            modifier
+                .clip(cellShape)
+                .background(
+                    Brush.linearGradient(
+                        colors = listOf(
+                            Color(0xFF00E5FF).copy(alpha = if (colors.isDark) 0.12f else 0.10f),
+                            Color(0xFF10B981).copy(alpha = if (colors.isDark) 0.05f else 0.04f)
+                        )
                     )
                 )
-            )
-            .border(
-                1.dp,
-                Brush.linearGradient(
-                    colors = listOf(
-                        Color(0xFFFFCA28).copy(alpha = if (colors.isDark) 0.42f else 0.48f),
-                        Color(0xFFFF9F0A).copy(alpha = if (colors.isDark) 0.22f else 0.28f)
+                .border(
+                    1.dp,
+                    Brush.linearGradient(
+                        colors = listOf(
+                            Color(0xFF00E5FF).copy(alpha = if (colors.isDark) 0.45f else 0.50f),
+                            Color(0xFF10B981).copy(alpha = if (colors.isDark) 0.25f else 0.30f)
+                        )
+                    ),
+                    cellShape
+                )
+                .padding(horizontal = 11.dp, vertical = 10.dp)
+        }
+        isArgon -> {
+            modifier
+                .clip(cellShape)
+                .background(
+                    Brush.linearGradient(
+                        colors = listOf(
+                            Color(0xFFFF9F0A).copy(alpha = if (colors.isDark) 0.13f else 0.11f),
+                            Color(0xFFF97316).copy(alpha = if (colors.isDark) 0.06f else 0.05f)
+                        )
                     )
-                ),
-                cellShape
-            )
-            .padding(horizontal = 10.dp, vertical = 6.5.dp)
-    } else {
-        modifier
-            .clip(cellShape)
-            .background(colors.surfaceVariant.copy(alpha = if (colors.isDark) 0.85f else 0.55f))
-            .padding(horizontal = 9.dp, vertical = 6.5.dp)
+                )
+                .border(
+                    1.dp,
+                    Brush.linearGradient(
+                        colors = listOf(
+                            Color(0xFFFFCA28).copy(alpha = if (colors.isDark) 0.42f else 0.48f),
+                            Color(0xFFFF9F0A).copy(alpha = if (colors.isDark) 0.22f else 0.28f)
+                        )
+                    ),
+                    cellShape
+                )
+                .padding(horizontal = 11.dp, vertical = 10.dp)
+        }
+        else -> {
+            modifier
+                .clip(cellShape)
+                .background(colors.surfaceVariant.copy(alpha = if (colors.isDark) 0.85f else 0.55f))
+                .padding(horizontal = 9.dp, vertical = 9.5.dp)
+        }
     }
 
     if (isPaceSupported && paceInfo != null && onWeeklyClick != null) {
@@ -672,22 +722,64 @@ private fun QuotaMetricCell(
 
     Column(
         modifier = baseModifier,
-        verticalArrangement = Arrangement.spacedBy(if (isArgon) 4.dp else 3.5.dp)
+        verticalArrangement = Arrangement.spacedBy(if (isSpecial) 5.5.dp else 5.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(
-                text = title,
-                color = if (isArgon) argonAccent else colors.textSecondary,
-                fontSize = if (isArgon) 11.5.sp else 11.sp,
-                lineHeight = 13.sp,
-                fontWeight = if (isArgon) FontWeight.SemiBold else FontWeight.Medium,
-                style = CompactTextStyle,
-                maxLines = 1
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                modifier = Modifier.weight(1f, fill = false)
+            ) {
+                Text(
+                    text = title,
+                    color = when {
+                        isCarbon -> carbonAccent
+                        isArgon -> argonAccent
+                        else -> colors.textSecondary
+                    },
+                    fontSize = if (isSpecial) 11.5.sp else 11.sp,
+                    lineHeight = 13.sp,
+                    fontWeight = if (isSpecial) FontWeight.SemiBold else FontWeight.Medium,
+                    style = CompactTextStyle,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (isCarbon) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(3.5.dp))
+                            .background(
+                                Brush.horizontalGradient(
+                                    colors = listOf(Color(0xFF00E5FF), Color(0xFF10B981))
+                                )
+                            )
+                            .padding(horizontal = 4.dp, vertical = 1.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "CARBON",
+                            color = Color(0xFF062326),
+                            fontSize = 8.5.sp,
+                            lineHeight = 9.5.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            letterSpacing = 0.4.sp,
+                            style = TextStyle(
+                                platformStyle = CompactPlatformTextStyle,
+                                shadow = Shadow(
+                                    color = Color(0x33000000),
+                                    offset = Offset(0f, 0.5f),
+                                    blurRadius = 1f
+                                )
+                            )
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.width(6.dp))
             Text(
                 text = String.format(Locale.US, "%.1f%%", percent),
                 color = color,
@@ -714,8 +806,11 @@ private fun QuotaMetricCell(
                     .height(4.5.dp)
                     .clip(CircleShape)
                     .background(
-                        if (isArgon) Color(0xFFFF9F0A).copy(alpha = if (colors.isDark) 0.16f else 0.18f)
-                        else colors.border.copy(alpha = 0.5f)
+                        when {
+                            isCarbon -> Color(0xFF00E5FF).copy(alpha = if (colors.isDark) 0.16f else 0.18f)
+                            isArgon -> Color(0xFFFF9F0A).copy(alpha = if (colors.isDark) 0.16f else 0.18f)
+                            else -> colors.border.copy(alpha = 0.5f)
+                        }
                     )
             ) {
                 val fillModifier = Modifier
@@ -723,14 +818,24 @@ private fun QuotaMetricCell(
                     .fillMaxHeight()
                     .clip(CircleShape)
                 Box(
-                    modifier = if (isArgon && !isDanger) {
-                        fillModifier.background(
-                            Brush.horizontalGradient(
-                                colors = listOf(Color(0xFFFF9F0A), Color(0xFFFFD60A))
+                    modifier = when {
+                        isCarbon && !isDanger -> {
+                            fillModifier.background(
+                                Brush.horizontalGradient(
+                                    colors = listOf(Color(0xFF00E5FF), Color(0xFF10B981))
+                                )
                             )
-                        )
-                    } else {
-                        fillModifier.background(color)
+                        }
+                        isArgon && !isDanger -> {
+                            fillModifier.background(
+                                Brush.horizontalGradient(
+                                    colors = listOf(Color(0xFFFF9F0A), Color(0xFFFFD60A))
+                                )
+                            )
+                        }
+                        else -> {
+                            fillModifier.background(color)
+                        }
                     }
                 )
             }
@@ -738,7 +843,11 @@ private fun QuotaMetricCell(
             // Vertical Pace Cursor Needle
             if (hasCursor) {
                 val expectedFrac = (paceInfo.expectedRemainingPercent / 100.0).toFloat().coerceIn(0f, 1f)
-                val needleColor = if (paceInfo.isOverPacing) Color(0xFFFF9F0A) else Color.White.copy(alpha = 0.90f)
+                val needleColor = when {
+                    paceInfo.isOverPacing && isCarbon -> Color(0xFF00E5FF)
+                    paceInfo.isOverPacing -> Color(0xFFFF9F0A)
+                    else -> Color.White.copy(alpha = 0.90f)
+                }
                 BoxWithConstraints(
                     modifier = Modifier
                         .fillMaxWidth()
