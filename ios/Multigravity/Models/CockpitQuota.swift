@@ -90,7 +90,9 @@ public struct CockpitQuotaBucket: Codable, Sendable {
     public func calculatePaceForTitle(_ title: String, tier: String? = nil) -> WeeklyPaceInfo? {
         let lower = title.lowercased()
         let hours: Double
-        if lower.contains("argon") {
+        if lower.contains("carbon") {
+            hours = 168.0
+        } else if lower.contains("argon") {
             let isUltra = tier?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased().contains("ULTRA") == true
             hours = isUltra ? 5.0 : 168.0
         } else if lower.contains("5h") {

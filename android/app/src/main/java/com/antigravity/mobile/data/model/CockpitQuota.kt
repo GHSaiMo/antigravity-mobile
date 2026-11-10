@@ -40,6 +40,7 @@ data class CockpitQuotaBucket(
 
     fun calculatePaceForTitle(title: String, tier: String? = null): WeeklyPaceInfo? {
         val hours = when {
+            title.contains("carbon", ignoreCase = true) -> 168.0
             title.contains("argon", ignoreCase = true) -> {
                 val isUltra = tier?.trim()?.contains("ULTRA", ignoreCase = true) == true
                 if (isUltra) 5.0 else 168.0

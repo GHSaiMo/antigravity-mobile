@@ -338,9 +338,17 @@ public struct AccountQuotaSheet: View {
                     }
                 }
                 
-                // Dynamically display Gemini 4 Argon only when the account has it
-                if let argon = acc.gemini4Argon {
-                    metricCell(title: "Gemini 4 Argon", bucket: argon, isArgon: true, tier: acc.subscriptionTier)
+                let isUltra = (acc.subscriptionTier?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() == "ULTRA")
+                if isUltra {
+                    // Ultra 专属通栏：展示 Gemini 4 Carbon Weekly，数据对齐 geminiWeekly
+                    if let carbon = acc.geminiWeekly ?? acc.gemini4Argon {
+                        metricCell(title: "Gemini 4 Carbon Weekly", bucket: carbon, isCarbon: true, tier: acc.subscriptionTier)
+                    }
+                } else {
+                    // 非 Ultra（如 Pro）：若具备 Argon 额度，展示 Gemini 4 Argon Weekly
+                    if let argon = acc.gemini4Argon {
+                        metricCell(title: "Gemini 4 Argon Weekly", bucket: argon, isArgon: true, tier: acc.subscriptionTier)
+                    }
                 }
             }
         }
@@ -414,29 +422,62 @@ public struct AccountQuotaSheet: View {
     }
     
     @ViewBuilder
-    private func metricCell(title: String, bucket: CockpitQuotaBucket?, isArgon: Bool = false, tier: String? = nil) -> some View {
+    private func metricCell(title: String, bucket: CockpitQuotaBucket?, isArgon: Bool = false, isCarbon: Bool = false, tier: String? = nil) -> some View {
         let percent = bucket?.remainingPercent ?? 0.0
         let isDark = colorScheme == .dark
         let argonAccent = isDark
             ? Color(red: 1.0, green: 159.0 / 255.0, blue: 10.0 / 255.0)
             : Color(red: 217.0 / 255.0, green: 119.0 / 255.0, blue: 6.0 / 255.0)
-        let color = isArgon
-            ? (percent < 20.0 ? Color.red : argonAccent)
-            : colorForPercent(percent)
+        let carbonAccent = isDark
+            ? Color(red: 0.0, green: 229.0 / 255.0, blue: 1.0)
+            : Color(red: 13.0 / 255.0, green: 148.0 / 255.0, blue: 136.0 / 255.0)
+        let isSpecial = isArgon || isCarbon
+        let color: Color = {
+            if isCarbon {
+                return percent < 20.0 ? Color.red : carbonAccent
+            } else if isArgon {
+                return percent < 20.0 ? Color.red : argonAccent
+            } else {
+                return colorForPercent(percent)
+            }
+        }()
         
         let isPaceSupported = title.localizedCaseInsensitiveContains("Weekly") ||
             title.localizedCaseInsensitiveContains("5h") ||
             isArgon ||
-            title.localizedCaseInsensitiveContains("Argon")
+            isCarbon ||
+            title.localizedCaseInsensitiveContains("Argon") ||
+            title.localizedCaseInsensitiveContains("Carbon")
         let paceInfo = isPaceSupported ? bucket?.calculatePaceForTitle(title, tier: tier) : nil
         let showCursor = isPaceSupported && AppSettings.shared.weeklyPaceCursorEnabled && paceInfo != nil
         
-        VStack(alignment: .leading, spacing: isArgon ? 5 : 4) {
-            HStack {
+        VStack(alignment: .leading, spacing: isSpecial ? 5 : 4) {
+            HStack(spacing: 5) {
                 Text(title)
-                    .font(.system(size: isArgon ? 11.5 : 11, weight: isArgon ? .semibold : .medium))
-                    .foregroundColor(isArgon ? argonAccent : .secondary)
+                    .font(.system(size: isSpecial ? 11.5 : 11, weight: isSpecial ? .semibold : .medium))
+                    .foregroundColor(isCarbon ? carbonAccent : (isArgon ? argonAccent : .secondary))
                     .lineLimit(1)
+                
+                if isCarbon {
+                    Text("CARBON")
+                        .font(.system(size: 8.5, weight: .heavy))
+                        .tracking(0.4)
+                        .foregroundColor(Color(red: 6.0 / 255.0, green: 35.0 / 255.0, blue: 38.0 / 255.0))
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(
+                            LinearGradient(
+                                colors: [
+                                    Color(red: 0.0, green: 229.0 / 255.0, blue: 1.0),
+                                    Color(red: 16.0 / 255.0, green: 185.0 / 255.0, blue: 129.0 / 255.0)
+                                ],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 3.5, style: .continuous))
+                }
+                
                 Spacer()
                 Text(String(format: "%.1f%%", percent))
                     .font(.system(size: 12, weight: .bold, design: .monospaced))
@@ -448,11 +489,27 @@ public struct AccountQuotaSheet: View {
                 ZStack(alignment: .leading) {
                     Capsule()
                         .fill(
-                            isArgon
-                                ? Color(red: 1.0, green: 159.0 / 255.0, blue: 10.0 / 255.0).opacity(isDark ? 0.16 : 0.18)
-                                : Color.primary.opacity(0.08)
+                            isCarbon
+                                ? Color(red: 0.0, green: 229.0 / 255.0, blue: 1.0).opacity(isDark ? 0.16 : 0.18)
+                                : (isArgon
+                                    ? Color(red: 1.0, green: 159.0 / 255.0, blue: 10.0 / 255.0).opacity(isDark ? 0.16 : 0.18)
+                                    : Color.primary.opacity(0.08))
                         )
-                    if isArgon && percent >= 20.0 {
+                    if isCarbon && percent >= 20.0 {
+                        Capsule()
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        Color(red: 0.0, green: 229.0 / 255.0, blue: 1.0),
+                                        Color(red: 16.0 / 255.0, green: 185.0 / 255.0, blue: 129.0 / 255.0)
+                                    ],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
+                            .frame(width: max(0, min(geo.size.width, geo.size.width * CGFloat(percent / 100.0))))
+                            .shadow(color: Color(red: 0.0, green: 229.0 / 255.0, blue: 1.0).opacity(0.35), radius: 3, x: 0, y: 0)
+                    } else if isArgon && percent >= 20.0 {
                         Capsule()
                             .fill(
                                 LinearGradient(
@@ -475,7 +532,9 @@ public struct AccountQuotaSheet: View {
                     if showCursor, let info = paceInfo {
                         let expectedFrac = CGFloat(info.expectedRemainingPercent / 100.0)
                         let needleOffset = max(0, min(geo.size.width - 1.5, geo.size.width * expectedFrac - 0.75))
-                        let needleColor = info.isOverPacing ? Color(red: 1.0, green: 159.0 / 255.0, blue: 10.0 / 255.0) : Color.white.opacity(0.92)
+                        let needleColor = info.isOverPacing
+                            ? (isCarbon ? Color(red: 0.0, green: 229.0 / 255.0, blue: 1.0) : Color(red: 1.0, green: 159.0 / 255.0, blue: 10.0 / 255.0))
+                            : Color.white.opacity(0.92)
                         
                         RoundedRectangle(cornerRadius: 0.75, style: .continuous)
                             .fill(needleColor)
@@ -494,11 +553,23 @@ public struct AccountQuotaSheet: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
         }
-        .padding(.horizontal, isArgon ? 11 : 9)
+        .padding(.horizontal, isSpecial ? 11 : 9)
         .padding(.vertical, 9)
         .background(
             Group {
-                if isArgon {
+                if isCarbon {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color(red: 0.0, green: 229.0 / 255.0, blue: 1.0).opacity(isDark ? 0.12 : 0.10),
+                                    Color(red: 16.0 / 255.0, green: 185.0 / 255.0, blue: 129.0 / 255.0).opacity(isDark ? 0.05 : 0.04)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                } else if isArgon {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .fill(
                             LinearGradient(
@@ -518,7 +589,20 @@ public struct AccountQuotaSheet: View {
         )
         .overlay(
             Group {
-                if isArgon {
+                if isCarbon {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(
+                            LinearGradient(
+                                colors: [
+                                    Color(red: 0.0, green: 229.0 / 255.0, blue: 1.0).opacity(isDark ? 0.45 : 0.50),
+                                    Color(red: 16.0 / 255.0, green: 185.0 / 255.0, blue: 129.0 / 255.0).opacity(isDark ? 0.25 : 0.30)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 1
+                        )
+                } else if isArgon {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .stroke(
                             LinearGradient(
