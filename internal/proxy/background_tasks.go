@@ -253,20 +253,21 @@ func (p *Proxy) lookupConversationMetaForTasks(ctx context.Context, port int, to
 
 	resolveWorkspace := p.BuildWorkspaceDisplayNameResolver()
 	for cid, s := range env.TrajectorySummaries {
+		// Keep the historical priority: live workspaces[] first, then trajectoryMetadata.workspaceUris.
 		var wsURIs []string
 		var pid string
-		if s.TrajectoryMetadata != nil {
-			pid = strings.TrimSpace(s.TrajectoryMetadata.ProjectID)
-			for _, u := range s.TrajectoryMetadata.WorkspaceUris {
-				if trimmed := strings.TrimSpace(u); trimmed != "" {
-					wsURIs = append(wsURIs, trimmed)
-				}
+		for _, w := range s.Workspaces {
+			if trimmed := strings.TrimSpace(w.WorkspaceFolderAbsoluteUri); trimmed != "" {
+				wsURIs = append(wsURIs, trimmed)
 			}
 		}
-		if len(wsURIs) == 0 {
-			for _, w := range s.Workspaces {
-				if trimmed := strings.TrimSpace(w.WorkspaceFolderAbsoluteUri); trimmed != "" {
-					wsURIs = append(wsURIs, trimmed)
+		if s.TrajectoryMetadata != nil {
+			pid = strings.TrimSpace(s.TrajectoryMetadata.ProjectID)
+			if len(wsURIs) == 0 {
+				for _, u := range s.TrajectoryMetadata.WorkspaceUris {
+					if trimmed := strings.TrimSpace(u); trimmed != "" {
+						wsURIs = append(wsURIs, trimmed)
+					}
 				}
 			}
 		}

@@ -51,7 +51,9 @@ data class TrajectorySummary(
     val runningTaskCount: Int? = null,
     val hasRunningSubagents: Boolean? = null,
     val notFullyIdle: Boolean? = null,
-    val backgroundTaskCount: Int? = null
+    val backgroundTaskCount: Int? = null,
+    /** Official project display name (alias or project.name) resolved by the gateway. */
+    val workspaceName: String? = null
 ) {
     val isSubagent: Boolean
         get() {
@@ -173,10 +175,12 @@ data class ConversationItem(
                 ?: summary.workspaces?.firstOrNull()?.workspaceFolderAbsoluteUri
                 ?: ""
 
-            val workspaceName = if (wsUri.isNotBlank()) {
-                wsUri.trimEnd('/').substringAfterLast('/').ifBlank { "Chat" }
-            } else {
-                "Chat"
+            // Prefer the gateway-resolved official project name / alias, then fall back to the folder name.
+            val explicitWsName = summary.workspaceName?.trim().orEmpty()
+            val workspaceName = when {
+                explicitWsName.isNotEmpty() -> explicitWsName
+                wsUri.isNotBlank() -> wsUri.trimEnd('/').substringAfterLast('/').ifBlank { "Chat" }
+                else -> "Chat"
             }
 
             val resolvedTime = summary.lastModifiedTime?.takeIf { it.isNotBlank() }

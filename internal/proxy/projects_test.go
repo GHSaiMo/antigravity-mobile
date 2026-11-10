@@ -980,53 +980,82 @@ func TestGetProjects_StrictOfficialAlignment(t *testing.T) {
 
 func TestBuildWorkspaceDisplayNameResolver(t *testing.T) {
 	tmpHome := t.TempDir()
-	origHome := os.Getenv("HOME")
-	origAppData := os.Getenv("ANTIGRAVITY_APP_DATA_DIR")
-	os.Setenv("HOME", tmpHome)
-	os.Setenv("ANTIGRAVITY_APP_DATA_DIR", filepath.Join(tmpHome, ".gemini", "antigravity"))
-	defer func() {
-		os.Setenv("HOME", origHome)
-		if origAppData != "" {
-			os.Setenv("ANTIGRAVITY_APP_DATA_DIR", origAppData)
-		} else {
-			os.Unsetenv("ANTIGRAVITY_APP_DATA_DIR")
-		}
-	}()
+	t.Setenv("HOME", tmpHome)
+	t.Setenv("ANTIGRAVITY_APP_DATA_DIR", filepath.Join(tmpHome, ".gemini", "antigravity"))
+	t.Setenv("MULTIGRAVITY_DATA_DIR", filepath.Join(tmpHome, ".multigravity"))
+	t.Setenv("APPDATA", "")
 
-	projDir := filepath.Join(tmpHome, ".gemini", "config", "projects")
-	_ = os.MkdirAll(projDir, 0755)
-	repoDir := filepath.Join(tmpHome, "Projects", "wechat-bot")
-	_ = os.MkdirAll(repoDir, 0755)
-
-	projCfg := fmt.Sprintf(`{
-		"id": "proj-truck-9000",
-		"name": "Truck9000",
-		"projectResources": {
-			"resources": [
-				{
-					"gitFolder": {
-						"folderUri": "file://%s"
-					}
-				}
-			]
+	cfgDir := filepath.Join(tmpHome, ".gemini", "config")
+	projDir := filepath.Join(cfgDir, "projects")
+	if err := os.MkdirAll(projDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	mkRepo := func(name string) string {
+		dir := filepath.Join(tmpHome, "Projects", name)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
 		}
-	}`, filepath.ToSlash(repoDir))
-	_ = os.WriteFile(filepath.Join(projDir, "proj-truck-9000.json"), []byte(projCfg), 0644)
+		return dir
+	}
+	fileURI := func(dir string) string { return "file://" + filepath.ToSlash(dir) }
+	writeProject := func(id, name, dir string) {
+		cfg := fmt.Sprintf(`{"id": %q, "name": %q, "projectResources": {"resources": [{"gitFolder": {"folderUri": %q}}]}}`,
+			id, name, fileURI(dir))
+		if err := os.WriteFile(filepath.Join(projDir, id+".json"), []byte(cfg), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	repoDir := mkRepo("wechat-bot")
+	aliasDir := mkRepo("alias-repo")
+	sidecarDir := mkRepo("sidecar-repo")
+	writeProject("proj-truck-9000", "Truck9000", repoDir)
+	writeProject("proj-alias", "AliasProj", aliasDir)
+
+	// Sidecar shadow project: declared in config.json and only visible through the ReadProjects cache.
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.json"),
+		[]byte(`{"sidecars": {"sc-1": {"projectId": "proj-sidecar"}}}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Workspace alias for aliasDir must take priority over the project's official name.
+	if err := saveWorkspaceAlias(aliasDir, "别名项目"); err != nil {
+		t.Fatal(err)
+	}
 
 	insp := inspector.NewInspector(5 * time.Second)
 	p := NewProxy(insp)
+	p.projectsCacheMu.Lock()
+	p.lastReadProjectsResp = []byte(fmt.Sprintf(
+		`{"projects": [{"id": "proj-sidecar", "name": "Scheduled Task", "projectResources": {"resources": [{"folderUri": %q}]}}]}`,
+		fileURI(sidecarDir)))
+	p.projectsCacheMu.Unlock()
 	resolve := p.BuildWorkspaceDisplayNameResolver()
 
 	// 1. Resolve by projectId even when folder name differs ("wechat-bot" vs "Truck9000")
-	pid, disp := resolve("proj-truck-9000", []string{"file://" + filepath.ToSlash(repoDir)})
-	if pid != "proj-truck-9000" || disp != "Truck9000" {
+	if pid, disp := resolve("proj-truck-9000", []string{fileURI(repoDir)}); pid != "proj-truck-9000" || disp != "Truck9000" {
 		t.Fatalf("expected (proj-truck-9000, Truck9000), got (%q, %q)", pid, disp)
 	}
 
 	// 2. Backfill projectId and display name from workspaceURI when projectId is missing
-	pid2, disp2 := resolve("", []string{"file://" + filepath.ToSlash(repoDir)})
-	if pid2 != "proj-truck-9000" || disp2 != "Truck9000" {
-		t.Fatalf("expected backfilled (proj-truck-9000, Truck9000), got (%q, %q)", pid2, disp2)
+	if pid, disp := resolve("", []string{fileURI(repoDir)}); pid != "proj-truck-9000" || disp != "Truck9000" {
+		t.Fatalf("expected backfilled (proj-truck-9000, Truck9000), got (%q, %q)", pid, disp)
+	}
+
+	// 3. Workspace alias wins over the official project name
+	if pid, disp := resolve("proj-alias", nil); pid != "proj-alias" || disp != "别名项目" {
+		t.Fatalf("expected (proj-alias, 别名项目), got (%q, %q)", pid, disp)
+	}
+
+	// 4. Sidecar shadow projects must never be resolved or back-filled
+	for _, inputPID := range []string{"", "proj-sidecar", "outside-of-project"} {
+		if pid, disp := resolve(inputPID, []string{fileURI(sidecarDir)}); pid != "" || disp != "" {
+			t.Fatalf("input %q: expected sidecar workspace to stay unresolved, got (%q, %q)", inputPID, pid, disp)
+		}
+	}
+
+	// 5. A known-but-unregistered projectId must not borrow another project's name via its folder
+	if pid, disp := resolve("proj-unknown", []string{fileURI(repoDir)}); pid != "proj-unknown" || disp == "Truck9000" {
+		t.Fatalf("expected (proj-unknown, not Truck9000), got (%q, %q)", pid, disp)
 	}
 }
-

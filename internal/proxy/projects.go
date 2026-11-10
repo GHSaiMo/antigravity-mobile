@@ -104,6 +104,7 @@ func (p *Proxy) GetProjects() ([]ProjectItem, error) {
 	}
 
 	projectMap := make(map[string]*ProjectItem)
+	projectIDStatsApplied := make(map[string]bool)
 
 	mergeProject := func(prj ProjectItem) {
 		norm := normalizeURI(prj.URI)
@@ -152,8 +153,11 @@ func (p *Proxy) GetProjects() ([]ProjectItem, error) {
 				itemCopy.LastActive = &t
 			}
 		}
-		if itemCopy.ID != "" {
+		if itemCopy.ID != "" && !projectIDStatsApplied[itemCopy.ID] {
 			if pstat, ok := projectIDStats[itemCopy.ID]; ok {
+				// Apply the per-projectId aggregate only to the first item of that project,
+				// so multi-folder projects don't report the whole project's count on every folder.
+				projectIDStatsApplied[itemCopy.ID] = true
 				if pstat.count > itemCopy.SessionCount {
 					itemCopy.SessionCount = pstat.count
 				}
@@ -273,9 +277,19 @@ func (p *Proxy) GetProjects() ([]ProjectItem, error) {
 // BuildWorkspaceDisplayNameResolver returns a fast lookup closure that resolves
 // a trajectory's projectID and official project display name (Alias or Name)
 // from its projectId and/or workspaceURIs without per-trajectory RPC calls.
+//
+// Sidecar shadow projects (scheduled tasks etc.) are never registered, and a
+// sidecar / outside-of-project input ID is treated as missing, so the resolver
+// can never back-fill a sidecar projectId. When the caller passes a valid
+// projectId, workspace-URI matches that belong to a *different* project are
+// ignored to avoid pairing one project's ID with another project's name.
 func (p *Proxy) BuildWorkspaceDisplayNameResolver() func(projectID string, workspaceURIs []string) (string, string) {
 	cfgProjects := fetchProjectsFromGeminiConfig()
 	aliases := loadWorkspaceAliases()
+	sidecarIDs := fetchSidecarProjectIDs()
+	isPlaceholderID := func(id string) bool {
+		return id == "" || id == "outside-of-project" || sidecarIDs[id]
+	}
 
 	byID := make(map[string]string, len(cfgProjects))
 	type uriEntry struct {
@@ -286,6 +300,10 @@ func (p *Proxy) BuildWorkspaceDisplayNameResolver() func(projectID string, works
 	byPath := make(map[string]uriEntry, len(cfgProjects))
 
 	register := func(id, name, uri, path string) {
+		id = strings.TrimSpace(id)
+		if isPlaceholderID(id) {
+			return
+		}
 		disp := strings.TrimSpace(name)
 		normURI := normalizeURI(uri)
 		cleanPath := ""
@@ -338,7 +356,7 @@ func (p *Proxy) BuildWorkspaceDisplayNameResolver() func(projectID string, works
 		}
 		if err := json.Unmarshal(cachedReadResp, &readResp); err == nil {
 			for _, prj := range readResp.Projects {
-				if prj.ID == "" || prj.ID == "outside-of-project" {
+				if isPlaceholderID(prj.ID) {
 					continue
 				}
 				if prj.ProjectResources != nil {
@@ -360,26 +378,34 @@ func (p *Proxy) BuildWorkspaceDisplayNameResolver() func(projectID string, works
 
 	return func(projectID string, workspaceURIs []string) (string, string) {
 		resolvedID := strings.TrimSpace(projectID)
-		if resolvedID != "" && resolvedID != "outside-of-project" {
+		if isPlaceholderID(resolvedID) {
+			resolvedID = ""
+		}
+		hasKnownID := resolvedID != ""
+		if hasKnownID {
 			if disp, ok := byID[resolvedID]; ok && disp != "" {
 				return resolvedID, disp
 			}
+		}
+		// accept reports whether a URI/path match may be used for this trajectory.
+		accept := func(e uriEntry) bool {
+			return !hasKnownID || e.id == "" || e.id == resolvedID
 		}
 		for _, wsURI := range workspaceURIs {
 			if wsURI == "" {
 				continue
 			}
 			norm := normalizeURI(wsURI)
-			if e, ok := byURI[norm]; ok {
-				if resolvedID == "" || resolvedID == "outside-of-project" {
+			if e, ok := byURI[norm]; ok && accept(e) {
+				if resolvedID == "" {
 					resolvedID = e.id
 				}
 				return resolvedID, e.name
 			}
 			if tPath := uriToPath(norm); tPath != "" {
 				cleanT := filepath.Clean(tPath)
-				if e, ok := byPath[cleanT]; ok {
-					if resolvedID == "" || resolvedID == "outside-of-project" {
+				if e, ok := byPath[cleanT]; ok && accept(e) {
+					if resolvedID == "" {
 						resolvedID = e.id
 					}
 					return resolvedID, e.name
