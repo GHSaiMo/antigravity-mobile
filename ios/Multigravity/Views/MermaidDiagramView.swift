@@ -421,6 +421,105 @@ private enum MermaidHTMLTemplate {
                 }
                 return;
               }
+
+              function repairMermaid(code) {
+                if (!code || typeof code !== 'string') return code;
+                try {
+                  const lines = code.split('\\n');
+                  const repairedLines = lines.map(function(line) {
+                    let l = line;
+                    const trimmed = l.trim();
+                    if (trimmed.indexOf('%%') === 0 || trimmed.indexOf('graph ') === 0 || trimmed.indexOf('flowchart ') === 0 || trimmed.indexOf('sequenceDiagram') === 0 || trimmed.indexOf('classDiagram') === 0 || trimmed.indexOf('stateDiagram') === 0 || trimmed.indexOf('erDiagram') === 0) {
+                      return l;
+                    }
+
+                    const stashedStrings = [];
+                    l = l.replace(/"([^"\\\\]*(?:\\\\.[^"\\\\]*)*)"/g, function(match) {
+                      const token = '___STR_' + stashedStrings.length + '___';
+                      stashedStrings.push(match);
+                      return token;
+                    });
+
+                    // Subgraph with unquoted sensitive characters
+                    l = l.replace(/^(\\s*subgraph\\s+)([A-Za-z0-9_\\-\\u4e00-\\u9fa5]+)\\s*\\[([^\\[\\]\\r\\n]+)\\](?=[^\\]]|$)/g, function(match, prefix, id, content) {
+                      const cTrim = content.trim();
+                      if (cTrim.indexOf('___STR_') === 0 && cTrim.slice(-3) === '___') return match;
+                      if (/[()\\[\\]{}+*#;:]/.test(cTrim)) {
+                        const safe = cTrim.replace(/"/g, "'");
+                        const token = '___STR_' + stashedStrings.length + '___';
+                        stashedStrings.push('"' + safe + '"');
+                        return prefix + id + '[' + token + ']';
+                      }
+                      return match;
+                    });
+
+                    // Double curly braces (Hexagon): ID{{content}}
+                    l = l.replace(/(^|[>\\s\\-|&,;])([A-Za-z0-9_\\-\\u4e00-\\u9fa5]+)\\s*\\{\\{([^{}\\r\\n]+)\\}\\}(?=[^}]|$)/g, function(match, prefix, id, content) {
+                      const cTrim = content.trim();
+                      if (cTrim.indexOf('___STR_') === 0 && cTrim.slice(-3) === '___') return match;
+                      if (/[()\\[\\]{}+*#;:]/.test(cTrim)) {
+                        const safe = cTrim.replace(/"/g, "'");
+                        const token = '___STR_' + stashedStrings.length + '___';
+                        stashedStrings.push('"' + safe + '"');
+                        return prefix + id + '{{' + token + '}}';
+                      }
+                      return match;
+                    });
+
+                    // Single curly braces (Rhombus/Diamond): ID{content}
+                    l = l.replace(/(^|[>\\s\\-|&,;])([A-Za-z0-9_\\-\\u4e00-\\u9fa5]+)\\s*\\{([^{}\\r\\n]+)\\}(?=[^}]|$)/g, function(match, prefix, id, content) {
+                      const cTrim = content.trim();
+                      if (cTrim.indexOf('___STR_') === 0 && cTrim.slice(-3) === '___') return match;
+                      if (/[()\\[\\]{}+*#;:]/.test(cTrim)) {
+                        const safe = cTrim.replace(/"/g, "'");
+                        const token = '___STR_' + stashedStrings.length + '___';
+                        stashedStrings.push('"' + safe + '"');
+                        return prefix + id + '{' + token + '}';
+                      }
+                      return match;
+                    });
+
+                    // Square brackets: ID[content]
+                    l = l.replace(/(^|[>\\s\\-|&,;])([A-Za-z0-9_\\-\\u4e00-\\u9fa5]+)\\s*\\[([^\\[\\]\\r\\n]+)\\](?=[^\\]]|$)/g, function(match, prefix, id, content) {
+                      const cTrim = content.trim();
+                      if (cTrim.indexOf('___STR_') === 0 && cTrim.slice(-3) === '___') return match;
+                      if (cTrim.indexOf('(') === 0 && cTrim.slice(-1) === ')') return match;
+                      if (/[()\\[\\]{}+*#;:]/.test(cTrim)) {
+                        const safe = cTrim.replace(/"/g, "'");
+                        const token = '___STR_' + stashedStrings.length + '___';
+                        stashedStrings.push('"' + safe + '"');
+                        return prefix + id + '[' + token + ']';
+                      }
+                      return match;
+                    });
+
+                    // Round parentheses: ID(content)
+                    l = l.replace(/(^|[>\\s\\-|&,;])([A-Za-z0-9_\\-\\u4e00-\\u9fa5]+)\\s*\\(([^()\\r\\n]+)\\)(?=[^)]|$)/g, function(match, prefix, id, content) {
+                      const cTrim = content.trim();
+                      if (cTrim.indexOf('___STR_') === 0 && cTrim.slice(-3) === '___') return match;
+                      if (cTrim.indexOf('[') === 0 && cTrim.slice(-1) === ']') return match;
+                      if (/[()\\[\\]{}+*#;:]/.test(cTrim)) {
+                        const safe = cTrim.replace(/"/g, "'");
+                        const token = '___STR_' + stashedStrings.length + '___';
+                        stashedStrings.push('"' + safe + '"');
+                        return prefix + id + '(' + token + ')';
+                      }
+                      return match;
+                    });
+
+                    // Restore stashed strings
+                    for (let i = 0; i < stashedStrings.length; i++) {
+                      l = l.split('___STR_' + i + '___').join(stashedStrings[i]);
+                    }
+
+                    return l;
+                  });
+
+                  return repairedLines.join('\\n');
+                } catch (e) {
+                  return code;
+                }
+              }
               
               try {
                 mermaid.initialize({
@@ -448,31 +547,42 @@ private enum MermaidHTMLTemplate {
                   }
                 });
 
-                const id = 'mermaid_' + Math.random().toString(36).substring(2, 9);
-                mermaid.render(id, rawCode).then(function(result) {
-                  const container = document.getElementById('container');
-                  container.innerHTML = result.svg;
-                  
-                  setTimeout(function() {
-                    let h = 200, w = 300;
-                    const svgEl = container.querySelector('svg');
-                    if (svgEl) {
-                      const rect = svgEl.getBoundingClientRect();
-                      h = Math.ceil(rect.height || svgEl.clientHeight || 200) + 20;
-                      w = Math.ceil(rect.width || svgEl.clientWidth || 300);
-                    } else {
-                      h = Math.ceil(document.body.scrollHeight || 200);
+                function doRender(targetCode, isRetry) {
+                  const id = 'mermaid_' + Math.random().toString(36).substring(2, 9);
+                  mermaid.render(id, targetCode).then(function(result) {
+                    const container = document.getElementById('container');
+                    container.innerHTML = result.svg;
+                    
+                    setTimeout(function() {
+                      let h = 200, w = 300;
+                      const svgEl = container.querySelector('svg');
+                      if (svgEl) {
+                        const rect = svgEl.getBoundingClientRect();
+                        h = Math.ceil(rect.height || svgEl.clientHeight || 200) + 20;
+                        w = Math.ceil(rect.width || svgEl.clientWidth || 300);
+                      } else {
+                        h = Math.ceil(document.body.scrollHeight || 200);
+                      }
+                      if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.sizeNotifier) {
+                        window.webkit.messageHandlers.sizeNotifier.postMessage({ height: h, width: w });
+                      }
+                    }, 60);
+                  }).catch(function(err) {
+                    if (!isRetry) {
+                      const repaired = repairMermaid(targetCode);
+                      if (repaired && repaired !== targetCode) {
+                        doRender(repaired, true);
+                        return;
+                      }
                     }
-                    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.sizeNotifier) {
-                      window.webkit.messageHandlers.sizeNotifier.postMessage({ height: h, width: w });
+                    const msg = (err && err.message) ? err.message : String(err);
+                    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.errorNotifier) {
+                      window.webkit.messageHandlers.errorNotifier.postMessage({ error: msg });
                     }
-                  }, 60);
-                }).catch(function(err) {
-                  const msg = (err && err.message) ? err.message : String(err);
-                  if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.errorNotifier) {
-                    window.webkit.messageHandlers.errorNotifier.postMessage({ error: msg });
-                  }
-                });
+                  });
+                }
+
+                doRender(rawCode, false);
               } catch (e) {
                 if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.errorNotifier) {
                   window.webkit.messageHandlers.errorNotifier.postMessage({ error: String(e) });
