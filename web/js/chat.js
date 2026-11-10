@@ -494,7 +494,18 @@ function updateChatControls(isRunning, wsUri, hasAction = false) {
 
   if (wsText) {
     if (wsUri) {
-      const wsName = wsUri.split("/").filter(Boolean).pop() || "Chat";
+      // Prefer the gateway-resolved official project name/alias when wsUri belongs to the active conversation.
+      let resolvedName = "";
+      const activeSummary = typeof currentTrajectories !== "undefined" && activeCascadeId ? currentTrajectories[activeCascadeId] : null;
+      if (activeSummary?.workspaceName) {
+        const norm = (u) => String(u || "").replace(/\/+$/, "");
+        const summaryUris = [
+          ...(activeSummary.trajectoryMetadata?.workspaceUris || activeSummary.workspaceUris || []),
+          ...(activeSummary.workspaces || []).map((w) => w?.workspaceFolderAbsoluteUri),
+        ].filter(Boolean).map(norm);
+        if (summaryUris.includes(norm(wsUri))) resolvedName = activeSummary.workspaceName;
+      }
+      const wsName = resolvedName || wsUri.split("/").filter(Boolean).pop() || "Chat";
       wsText.textContent = wsName;
       wsText.title = wsUri;
     } else {
