@@ -427,6 +427,50 @@ enum VoiceTranscriptCleaner {
         options: .caseInsensitive
     )
 
+    static func isCJK(_ cp: UInt32) -> Bool {
+        return (0x4E00...0x9FFF).contains(cp) ||
+               (0x3400...0x4DBF).contains(cp) ||
+               (0x3040...0x309F).contains(cp) ||
+               (0x30A0...0x30FF).contains(cp) ||
+               (0xAC00...0xD7AF).contains(cp) ||
+               (0x3000...0x303F).contains(cp) ||
+               (0xFF01...0xFF60).contains(cp)
+    }
+
+    /// 规范化中日韩（CJK）语音识别转文字的字间空格。
+    /// 消除流式 ASR 中汉字与假名之间的突兀空格，完整保留英文单词及数字间的正常空格。
+    static func normalizeCJKSpacing(_ text: String) -> String {
+        guard !text.isEmpty else { return text }
+        var result = ""
+        result.reserveCapacity(text.count)
+        let chars = Array(text)
+        var i = 0
+        let n = chars.count
+        while i < n {
+            let c = chars[i]
+            if c.isWhitespace {
+                let prevCp = result.last.flatMap { $0.unicodeScalars.first?.value } ?? 0
+                var j = i + 1
+                while j < n && chars[j].isWhitespace {
+                    j += 1
+                }
+                let nextCp = j < n ? (chars[j].unicodeScalars.first?.value ?? 0) : 0
+                if prevCp != 0 && isCJK(prevCp) && nextCp != 0 && isCJK(nextCp) {
+                    i = j
+                    continue
+                } else {
+                    result.append(" ")
+                    i = j
+                    continue
+                }
+            } else {
+                result.append(c)
+                i += 1
+            }
+        }
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     static func isVoiceMessage(body: String, files: [AttachmentRules.ParsedFile] = []) -> Bool {
         let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.contains("<talker_agent_context>") || trimmed.contains("</talker_agent_context>") {
@@ -487,7 +531,8 @@ enum VoiceTranscriptCleaner {
                     text = String(text.dropLast()).trimmingCharacters(in: .whitespacesAndNewlines)
                 }
                 if !text.isEmpty {
-                    let formatted = "\(role)\(text)"
+                    let normalizedText = normalizeCJKSpacing(text)
+                    let formatted = "\(role)\(normalizedText)"
                     if cleaned.last != formatted {
                         cleaned.append(formatted)
                     }

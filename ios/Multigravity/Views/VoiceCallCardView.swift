@@ -15,22 +15,43 @@ public struct VoiceCallCardView: View {
         self.onStopAgentTask = onStopAgentTask
     }
 
+    private var effectiveTranscriptText: String {
+        if !voiceCall.liveTranscriptText.isEmpty {
+            return voiceCall.liveTranscriptText
+        }
+        switch voiceCall.callState {
+        case .connecting:
+            return "正在准备麦克风与连接语音服务..."
+        case .reconnecting:
+            return "语音服务重连中..."
+        default:
+            return ""
+        }
+    }
+
+    private var effectiveTranscriptRole: VoiceCallManager.TranscriptRole {
+        if !voiceCall.liveTranscriptText.isEmpty {
+            return voiceCall.liveTranscriptRole
+        }
+        return .ai
+    }
+
     public var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            if !voiceCall.liveTranscriptText.isEmpty {
+            if !effectiveTranscriptText.isEmpty {
                 HStack(alignment: .top, spacing: 6) {
-                    Text(voiceCall.liveTranscriptRole == .ai ? "AI" : "我")
+                    Text(effectiveTranscriptRole == .ai ? "AI" : "我")
                         .font(.system(size: 10, weight: .bold))
                         .foregroundColor(.white)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1.5)
                         .background(
                             Capsule()
-                                .fill(voiceCall.liveTranscriptRole == .ai ? Color.cyan : Color.indigo)
+                                .fill(effectiveTranscriptRole == .ai ? Color.cyan : Color.indigo)
                         )
                         .padding(.top, 1.5)
 
-                    Text(voiceCall.liveTranscriptText)
+                    Text(effectiveTranscriptText)
                         .font(.system(size: 13, weight: .regular))
                         .foregroundColor(.primary.opacity(0.92))
                         .lineLimit(2)
@@ -157,7 +178,7 @@ public struct VoiceCallCardView: View {
             }
         }
         .padding(.bottom, 6)
-        .animation(.spring(response: 0.25, dampingFraction: 0.82), value: voiceCall.liveTranscriptText.isEmpty)
+        .animation(.spring(response: 0.25, dampingFraction: 0.82), value: effectiveTranscriptText.isEmpty)
     }
 
     private var statusDotColor: Color {

@@ -63,4 +63,15 @@ class ModelDefaultsTest {
         // 兜底（非实时）列表不应触发重置
         assertEquals("gemini-1.0-gone", ModelDefaults.validated("gemini-1.0-gone", "gemini", catalog.copy(live = false)))
     }
+
+    @Test
+    fun formatPickerLabelFiltersNewTag() {
+        assertEquals("Claude Opus 5.5 (High)", ModelDefaults.formatPickerLabel("Claude Opus 5.5 (High)", "New"))
+        assertEquals("Claude Opus 5.5 (High)", ModelDefaults.formatPickerLabel("Claude Opus 5.5 (High)", "new"))
+        assertEquals("Claude Opus 5.5 (High)", ModelDefaults.formatPickerLabel("Claude Opus 5.5 (High)", " NEW "))
+        assertEquals("Claude Opus 5.5 (High)", ModelDefaults.formatPickerLabel("Claude Opus 5.5 (High)", null))
+        assertEquals("Claude Opus 5.5 (High)", ModelDefaults.formatPickerLabel("Claude Opus 5.5 (High)", "   "))
+        assertEquals("Gemini 3.8 Flash (High) · Fast", ModelDefaults.formatPickerLabel("Gemini 3.8 Flash (High)", "Fast"))
+        assertEquals("GPT-OSS 120B (Medium) · Notice", ModelDefaults.formatPickerLabel("GPT-OSS 120B (Medium)", "Notice"))
+    }
 }

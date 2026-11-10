@@ -626,8 +626,9 @@ public final class VoiceCallManager: ObservableObject {
     private func updateLiveTranscript(text: String, role: TranscriptRole) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        let normalized = VoiceTranscriptCleaner.normalizeCJKSpacing(trimmed)
         liveTranscriptRole = role
-        liveTranscriptText = trimmed
+        liveTranscriptText = normalized
 
         transcriptClearTask?.cancel()
         transcriptClearTask = Task { [weak self] in

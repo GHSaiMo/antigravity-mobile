@@ -169,6 +169,16 @@ object ModelDefaults {
         modelId.contains("claude", ignoreCase = true) ||
             CLAUDE_ENUM_TOKENS.any { modelId.contains(it, ignoreCase = true) }
 
+    /** 格式化模型选择器选项展示名：过滤掉 "New" 标签及前导的点符号，避免手机端全量标记 New 造成视觉冗余。 */
+    fun formatPickerLabel(name: String, tag: String?): String {
+        val cleanTag = tag?.trim()
+        return if (!cleanTag.isNullOrBlank() && !cleanTag.equals("new", ignoreCase = true)) {
+            "$name · $cleanTag"
+        } else {
+            name
+        }
+    }
+
     /** 输入框上方胶囊的文字：只有厂商名，保持简洁。 */
     fun providerLabel(modelId: String): String = when {
         isClaude(modelId) -> "Claude"

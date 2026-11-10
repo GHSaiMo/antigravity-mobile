@@ -100,6 +100,17 @@ fun VoiceCallCard(
         String.format(Locale.US, "%.2fx", playbackSpeed)
     }
 
+    val effectiveTranscript = when {
+        liveTranscriptText.isNotBlank() -> liveTranscriptText
+        callState == VoiceCallState.CONNECTING -> "正在准备麦克风与连接语音服务..."
+        callState == VoiceCallState.RECONNECTING -> "语音服务重连中..."
+        else -> ""
+    }
+    val effectiveRole = when {
+        liveTranscriptText.isNotBlank() -> liveTranscriptRole
+        else -> VoiceTranscriptRole.AI
+    }
+
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -113,7 +124,7 @@ fun VoiceCallCard(
         verticalArrangement = Arrangement.spacedBy(7.dp)
     ) {
         AnimatedVisibility(
-            visible = liveTranscriptText.isNotBlank(),
+            visible = effectiveTranscript.isNotBlank(),
             enter = expandVertically() + fadeIn(),
             exit = shrinkVertically() + fadeOut()
         ) {
@@ -128,12 +139,12 @@ fun VoiceCallCard(
                     modifier = Modifier
                         .padding(top = 1.5.dp)
                         .clip(RoundedCornerShape(50))
-                        .background(if (liveTranscriptRole == VoiceTranscriptRole.AI) cyanColor else colors.accentIndigo)
+                        .background(if (effectiveRole == VoiceTranscriptRole.AI) cyanColor else colors.accentIndigo)
                         .padding(horizontal = 6.dp, vertical = 1.5.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = if (liveTranscriptRole == VoiceTranscriptRole.AI) "AI" else "我",
+                        text = if (effectiveRole == VoiceTranscriptRole.AI) "AI" else "我",
                         color = Color.White,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold
@@ -141,7 +152,7 @@ fun VoiceCallCard(
                 }
 
                 Text(
-                    text = liveTranscriptText,
+                    text = effectiveTranscript,
                     color = colors.textPrimary.copy(alpha = 0.92f),
                     fontSize = 13.sp,
                     lineHeight = 18.sp,

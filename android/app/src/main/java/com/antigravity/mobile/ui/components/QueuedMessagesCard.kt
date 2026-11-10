@@ -40,6 +40,7 @@ fun QueuedMessagesCard(
     onSendNow: (QueuedMessageItem) -> Unit,
     onEdit: (QueuedMessageItem) -> Unit,
     onDelete: (QueuedMessageItem) -> Unit,
+    hasActiveBackgroundWork: Boolean = false,
     onToggleExpand: ((Boolean) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -109,13 +110,30 @@ fun QueuedMessagesCard(
                         )
                     }
 
-                    Text(
-                        text = "当前任务完成后自动发送",
-                        color = colors.textSecondary,
-                        fontSize = 12.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    if (hasActiveBackgroundWork) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFFFF9800))
+                        )
+                        Text(
+                            text = "后台任务运行中，完成后出列",
+                            color = Color(0xFFFF9800),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    } else {
+                        Text(
+                            text = "当前任务完成后自动发送",
+                            color = colors.textSecondary,
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
 
                 Icon(

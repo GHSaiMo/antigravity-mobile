@@ -977,7 +977,7 @@ private fun ModelPickerRow(
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEach { option ->
-                val itemLabel = if (!option.tag.isNullOrBlank()) "${option.name} · ${option.tag}" else option.name
+                val itemLabel = ModelDefaults.formatPickerLabel(option.name, option.tag)
                 DropdownMenuItem(
                     text = { Text(itemLabel) },
                     trailingIcon = {

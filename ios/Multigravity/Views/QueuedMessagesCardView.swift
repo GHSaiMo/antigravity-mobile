@@ -2,6 +2,7 @@ import SwiftUI
 
 public struct QueuedMessagesCardView: View {
     public let items: [QueuedMessageItem]
+    public let hasActiveBackgroundWork: Bool
     public let onSendNow: @MainActor @Sendable (QueuedMessageItem) -> Void
     public let onEdit: @MainActor @Sendable (QueuedMessageItem) -> Void
     public let onDelete: @MainActor @Sendable (QueuedMessageItem) -> Void
@@ -13,12 +14,14 @@ public struct QueuedMessagesCardView: View {
     
     public init(
         items: [QueuedMessageItem],
+        hasActiveBackgroundWork: Bool = false,
         onSendNow: @escaping @MainActor @Sendable (QueuedMessageItem) -> Void,
         onEdit: @escaping @MainActor @Sendable (QueuedMessageItem) -> Void,
         onDelete: @escaping @MainActor @Sendable (QueuedMessageItem) -> Void,
         onToggleExpand: (@MainActor @Sendable (Bool) -> Void)? = nil
     ) {
         self.items = items
+        self.hasActiveBackgroundWork = hasActiveBackgroundWork
         self.onSendNow = onSendNow
         self.onEdit = onEdit
         self.onDelete = onDelete
@@ -42,9 +45,15 @@ public struct QueuedMessagesCardView: View {
                     .background(Color(uiColor: .tertiarySystemFill))
                     .clipShape(Capsule())
                 
-                Text("当前任务完成后自动发送")
+                if hasActiveBackgroundWork {
+                    Circle()
+                        .fill(Color.orange)
+                        .frame(width: 6, height: 6)
+                }
+
+                Text(hasActiveBackgroundWork ? "后台任务运行中，完成后出列" : "当前任务完成后自动发送")
                     .font(.system(size: 12))
-                    .foregroundColor(.secondary)
+                    .foregroundColor(hasActiveBackgroundWork ? .orange : .secondary)
                     .lineLimit(1)
                 
                 Spacer()

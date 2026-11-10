@@ -32,6 +32,7 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import com.antigravity.mobile.ui.components.VoiceTranscriptCleaner
 import okio.ByteString
 import okio.ByteString.Companion.toByteString
 import java.io.ByteArrayOutputStream
@@ -612,8 +613,9 @@ class VoiceCallManager(private val context: Context) {
     private fun updateLiveTranscript(text: String, role: VoiceTranscriptRole) {
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return
+        val normalized = VoiceTranscriptCleaner.normalizeCJKSpacing(trimmed)
         _liveTranscriptRole.value = role
-        _liveTranscriptText.value = trimmed
+        _liveTranscriptText.value = normalized
         transcriptClearJob?.cancel()
         transcriptClearJob = scope.launch {
             delay(3200)
