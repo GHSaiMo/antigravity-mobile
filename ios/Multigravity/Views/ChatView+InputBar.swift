@@ -4,39 +4,14 @@ import AVFoundation
 
 extension ChatView {
     /// 悬浮在输入栏顶部横线上方、覆盖在会话界面底部的斜杠命令/技能选择气泡弹窗
+    /// 独立为子 View 以隔离 viewModel.inputText 的 @Observable 订阅，避免每次按键重绘整个 ChatView.body 与历史消息列表
     @ViewBuilder
     var floatingSlashCommandPopup: some View {
-        if GatewayCompatStore.shared.isAvailable(GatewayFeature.slash),
-           !isSlashPickerDismissed,
-           let slashQuery = SlashCommandFilter.query(of: viewModel.inputText) {
-            let maxTotal = currentViewportHeight > 0 ? min(max(currentViewportHeight - 16, 200), 360) : 300
-            let maxList = max(maxTotal - 46, 154)
-            SlashCommandPickerView(
-                commands: SlashCommandFilter.filter(viewModel.slashCommands, query: slashQuery),
-                isLoading: viewModel.isLoadingSlashCommands,
-                maxListHeight: maxList,
-                onSelect: { cmd in
-                    isSlashPickerDismissed = false
-                    viewModel.selectSlashCommand(cmd)
-                },
-                onDismiss: {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    withAnimation(.easeOut(duration: 0.18)) {
-                        isSlashPickerDismissed = true
-                    }
-                }
-            )
-            .padding(.horizontal, 12)
-            .padding(.bottom, 8)
-            .zIndex(100)
-            .transition(
-                .asymmetric(
-                    insertion: .opacity.combined(with: .scale(scale: 0.96, anchor: .bottom)).combined(with: .offset(y: 6)),
-                    removal: .opacity.combined(with: .scale(scale: 0.96, anchor: .bottom))
-                )
-            )
-            .onAppear { viewModel.ensureSlashCommands() }
-        }
+        ChatFloatingSlashPopupHost(
+            viewModel: viewModel,
+            isSlashPickerDismissed: $isSlashPickerDismissed,
+            currentViewportHeight: currentViewportHeight
+        )
     }
 
     var inputBar: some View {
@@ -266,122 +241,17 @@ extension ChatView {
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
             
-            // Input field and send/stop button
-            HStack(alignment: .bottom, spacing: 10) {
-                TextField("", text: $viewModel.inputText, prompt: Text(viewModel.isActivelyRunning ? "向队列添加指令..." : "发送对 Agent 的指令..."), axis: .vertical)
-                    .font(.system(size: 16))
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 11)
-                    .frame(minHeight: 44)
-                    .background(Color(uiColor: .secondarySystemBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                    .lineLimit(1...5)
-                    .focused($isInputFocused)
-                
-                if voiceCall.isInCall && !hasSendableDraft {
-                    Button {
-                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                        voiceCall.endCall()
-                    } label: {
-                        ZStack {
-                            Circle()
-                                .fill(Color.red)
-                                .frame(width: 44, height: 44)
-                                .shadow(color: Color.red.opacity(0.28), radius: 4, x: 0, y: 2)
-
-                            Image(systemName: "phone.down.fill")
-                                .font(.system(size: 16, weight: .bold))
-                                .foregroundColor(.white)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("挂断实时语音通话")
-                    .transition(.scale.combined(with: .opacity))
-                } else if hasSendableDraft || (!viewModel.isActivelyRunning && !AppSettings.shared.enableVoiceMode) {
-                    Button(action: handleSend) {
-                        ZStack {
-                            Circle()
-                                .fill(isSendDisabled ? Color(uiColor: .tertiarySystemFill) : Color.indigo)
-                                .frame(width: 44, height: 44)
-                                .overlay(
-                                    Circle()
-                                        .stroke(Color.secondary.opacity(isSendDisabled ? 0.22 : 0), lineWidth: 0.8)
-                                )
-                            
-                            Image(systemName: "arrow.up")
-                                .font(.system(size: 18, weight: .semibold))
-                                .foregroundColor(isSendDisabled ? Color(uiColor: .tertiaryLabel) : .white)
-                        }
-                    }
-                    .disabled(isSendDisabled)
-                    .buttonStyle(.plain)
-                    .keyboardShortcut(.return, modifiers: .command)
-                    .transition(.scale.combined(with: .opacity))
-                } else if viewModel.isActivelyRunning {
-                    Button(action: handleCancel) {
-                        ZStack {
-                            Circle()
-                                .fill(Color(uiColor: .secondarySystemBackground))
-                                .frame(width: 44, height: 44)
-                                .overlay(
-                                    Circle()
-                                        .stroke(Color.secondary.opacity(0.25), lineWidth: 0.8)
-                                )
-                            
-                            Image(systemName: "stop.fill")
-                                .font(.system(size: 15, weight: .bold))
-                                .foregroundColor(.red)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .transition(.scale.combined(with: .opacity))
-                } else {
-                    // Voice Mode idle button: 1:1 desktop Antigravity parity
-                    ZStack {
-                        Circle()
-                            .fill(Color(uiColor: UIColor { trait in
-                                if trait.userInterfaceStyle == .dark {
-                                    return UIColor(red: 71/255.0, green: 85/255.0, blue: 88/255.0, alpha: 1.0)
-                                } else {
-                                    return UIColor(red: 67/255.0, green: 81/255.0, blue: 85/255.0, alpha: 1.0)
-                                }
-                            }))
-                            .frame(width: 44, height: 44)
-                            .overlay(
-                                Circle()
-                                    .stroke(Color.white.opacity(0.14), lineWidth: 0.8)
-                            )
-                            .shadow(color: Color.black.opacity(0.16), radius: 3, x: 0, y: 1.5)
-
-                        AntigravityVoiceShape()
-                            .fill(Color.white)
-                            .frame(width: 22, height: 22)
-                    }
-                    .contentShape(Circle())
-                    .onTapGesture {
-                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                        handleStartVoiceCall()
-                    }
-                    .onLongPressGesture(minimumDuration: 0.45) {
-                        UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
-                        handleAudioRecordAction()
-                    }
-                    .accessibilityLabel("实时语音对话，长按录制语音消息")
-                    .transition(.scale.combined(with: .opacity))
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 12)
-            .animation(.easeInOut(duration: 0.2), value: viewModel.isActivelyRunning)
-            .animation(.easeInOut(duration: 0.2), value: voiceCall.isInCall)
-            .animation(.easeInOut(duration: 0.18), value: hasSendableDraft)
-            .onChange(of: viewModel.inputText) { oldText, newText in
-                if SlashCommandFilter.query(of: newText) == nil {
-                    isSlashPickerDismissed = false
-                } else if newText.hasSuffix("/") && !oldText.hasSuffix("/") {
-                    isSlashPickerDismissed = false
-                }
-            }
+            // Input field and send/stop button (isolated into child View so typing never invalidates ChatView.body)
+            ChatInputTextAndSendRow(
+                viewModel: viewModel,
+                voiceCall: voiceCall,
+                isInputFocused: $isInputFocused,
+                isSlashPickerDismissed: $isSlashPickerDismissed,
+                onSend: handleSend,
+                onCancel: handleCancel,
+                onStartVoiceCall: handleStartVoiceCall,
+                onAudioRecord: handleAudioRecordAction
+            )
         }
         .readableChatWidth(horizontalSizeClass == .regular)
         .background(Color(uiColor: .systemBackground))
@@ -408,6 +278,188 @@ extension ChatView {
             || !hasSendableDraft
     }
     
+}
+
+private struct ChatFloatingSlashPopupHost: View {
+    @Bindable var viewModel: ChatViewModel
+    @Binding var isSlashPickerDismissed: Bool
+    let currentViewportHeight: CGFloat
+
+    var body: some View {
+        if GatewayCompatStore.shared.isAvailable(GatewayFeature.slash),
+           !isSlashPickerDismissed,
+           let slashQuery = SlashCommandFilter.query(of: viewModel.inputText) {
+            let maxTotal = currentViewportHeight > 0 ? min(max(currentViewportHeight - 16, 200), 360) : 300
+            let maxList = max(maxTotal - 46, 154)
+            SlashCommandPickerView(
+                commands: SlashCommandFilter.filter(viewModel.slashCommands, query: slashQuery),
+                isLoading: viewModel.isLoadingSlashCommands,
+                maxListHeight: maxList,
+                onSelect: { cmd in
+                    isSlashPickerDismissed = false
+                    viewModel.selectSlashCommand(cmd)
+                },
+                onDismiss: {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        isSlashPickerDismissed = true
+                    }
+                }
+            )
+            .padding(.horizontal, 12)
+            .padding(.bottom, 8)
+            .zIndex(100)
+            .transition(
+                .asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.96, anchor: .bottom)).combined(with: .offset(y: 6)),
+                    removal: .opacity.combined(with: .scale(scale: 0.96, anchor: .bottom))
+                )
+            )
+            .onAppear { viewModel.ensureSlashCommands() }
+        }
+    }
+}
+
+private struct ChatInputTextAndSendRow: View {
+    @Bindable var viewModel: ChatViewModel
+    @ObservedObject var voiceCall: VoiceCallManager
+    var isInputFocused: FocusState<Bool>.Binding
+    @Binding var isSlashPickerDismissed: Bool
+    let onSend: () -> Void
+    let onCancel: () -> Void
+    let onStartVoiceCall: () -> Void
+    let onAudioRecord: () -> Void
+
+    private var hasSendableDraft: Bool {
+        !viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !viewModel.selectedImageData.isEmpty
+            || !viewModel.selectedFiles.isEmpty
+            || viewModel.selectedSlashCommand != nil
+    }
+
+    private var isSendDisabled: Bool {
+        viewModel.isSending
+            || viewModel.selectedFiles.contains(where: { !$0.isUploaded })
+            || !hasSendableDraft
+    }
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 10) {
+            TextField("", text: $viewModel.inputText, prompt: Text(viewModel.isActivelyRunning ? "向队列添加指令..." : "发送对 Agent 的指令..."), axis: .vertical)
+                .font(.system(size: 16))
+                .padding(.horizontal, 16)
+                .padding(.vertical, 11)
+                .frame(minHeight: 44)
+                .background(Color(uiColor: .secondarySystemBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .lineLimit(1...5)
+                .focused(isInputFocused)
+            
+            if voiceCall.isInCall && !hasSendableDraft {
+                Button {
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    voiceCall.endCall()
+                } label: {
+                    ZStack {
+                        Circle()
+                            .fill(Color.red)
+                            .frame(width: 44, height: 44)
+                            .shadow(color: Color.red.opacity(0.28), radius: 4, x: 0, y: 2)
+
+                        Image(systemName: "phone.down.fill")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundColor(.white)
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("挂断实时语音通话")
+                .transition(.scale.combined(with: .opacity))
+            } else if hasSendableDraft || (!viewModel.isActivelyRunning && !AppSettings.shared.enableVoiceMode) {
+                Button(action: onSend) {
+                    ZStack {
+                        Circle()
+                            .fill(isSendDisabled ? Color(uiColor: .tertiarySystemFill) : Color.indigo)
+                            .frame(width: 44, height: 44)
+                            .overlay(
+                                Circle()
+                                    .stroke(Color.secondary.opacity(isSendDisabled ? 0.22 : 0), lineWidth: 0.8)
+                            )
+                        
+                        Image(systemName: "arrow.up")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(isSendDisabled ? Color(uiColor: .tertiaryLabel) : .white)
+                    }
+                }
+                .disabled(isSendDisabled)
+                .buttonStyle(.plain)
+                .keyboardShortcut(.return, modifiers: .command)
+                .transition(.scale.combined(with: .opacity))
+            } else if viewModel.isActivelyRunning {
+                Button(action: onCancel) {
+                    ZStack {
+                        Circle()
+                            .fill(Color(uiColor: .secondarySystemBackground))
+                            .frame(width: 44, height: 44)
+                            .overlay(
+                                Circle()
+                                    .stroke(Color.secondary.opacity(0.25), lineWidth: 0.8)
+                            )
+                        
+                        Image(systemName: "stop.fill")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundColor(.red)
+                    }
+                }
+                .buttonStyle(.plain)
+                .transition(.scale.combined(with: .opacity))
+            } else {
+                // Voice Mode idle button: 1:1 desktop Antigravity parity
+                ZStack {
+                    Circle()
+                        .fill(Color(uiColor: UIColor { trait in
+                            if trait.userInterfaceStyle == .dark {
+                                return UIColor(red: 71/255.0, green: 85/255.0, blue: 88/255.0, alpha: 1.0)
+                            } else {
+                                return UIColor(red: 67/255.0, green: 81/255.0, blue: 85/255.0, alpha: 1.0)
+                            }
+                        }))
+                        .frame(width: 44, height: 44)
+                        .overlay(
+                            Circle()
+                                .stroke(Color.white.opacity(0.14), lineWidth: 0.8)
+                        )
+                        .shadow(color: Color.black.opacity(0.16), radius: 3, x: 0, y: 1.5)
+
+                    AntigravityVoiceShape()
+                        .fill(Color.white)
+                        .frame(width: 22, height: 22)
+                }
+                .contentShape(Circle())
+                .onTapGesture {
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    onStartVoiceCall()
+                }
+                .onLongPressGesture(minimumDuration: 0.45) {
+                    UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+                    onAudioRecord()
+                }
+                .accessibilityLabel("实时语音对话，长按录制语音消息")
+                .transition(.scale.combined(with: .opacity))
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 12)
+        .animation(.easeInOut(duration: 0.2), value: viewModel.isActivelyRunning)
+        .animation(.easeInOut(duration: 0.2), value: voiceCall.isInCall)
+        .animation(.easeInOut(duration: 0.18), value: hasSendableDraft)
+        .onChange(of: viewModel.inputText) { oldText, newText in
+            if SlashCommandFilter.query(of: newText) == nil {
+                isSlashPickerDismissed = false
+            } else if newText.hasSuffix("/") && !oldText.hasSuffix("/") {
+                isSlashPickerDismissed = false
+            }
+        }
+    }
 }
 
 /// 1:1 对齐 Antigravity 桌面端（main.js tuc() 组件）的 3 波形条 + 4 芒星矢量图标
