@@ -1,5 +1,5 @@
 # language_server RPC baseline
-# generated: 2026-11-10 ide_version: 2.30.0 count: 371
+# generated: 2026-11-10 ide_version: 2.31.0 count: 373
 AcceptTermsOfService
 AcknowledgeCascadeCodeEdit
 AcknowledgeCodeActionStep
@@ -182,7 +182,6 @@ GetWebDocsOptions
 GetWorkingDirectories
 GetWorkspaceChangelists
 GetWorkspaceEditState
-GetWorkspaceGitHubPullRequests
 GetWorkspaceInfos
 GetWorktreeDiff
 GitCommit
@@ -295,6 +294,7 @@ SearchContext
 SearchConversations
 SearchDriveFiles
 SearchFiles
+SearchGcpProjects
 SearchMarketplace
 SearchMarketplaceCustomizations
 SelectLicense
@@ -345,10 +345,12 @@ StreamSearchCode
 StreamTerminalOutput
 StreamTerminalShellCommand
 StreamUserTrajectoryReactiveUpdates
+SubmitLoginAuthCode
 SubscribeToAgentBrowserRequests
 SubscribeToMcpServerStates
 SubscribeToPlugins
 SubscribeToSidecars
+SwitchLoginToAuthCode
 ToggleMcpServer
 UpdateAgentBrowserSubscription
 UpdateCascadeMemory

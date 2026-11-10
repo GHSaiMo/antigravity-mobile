@@ -53,7 +53,7 @@ var Features = []Feature{
 	{ID: "account", RPCs: []string{"GetUserStatus", "GetAuthStatus", "GetCascadeNuxes", "RetrieveUserQuotaSummary"}},
 	{ID: "mcp", RPCs: []string{"GetMcpServerStates", "GetAllSkills"}},
 	{ID: "chapters", RPCs: []string{"GetChapterTitles"}},
-	{ID: "github", RPCs: []string{"GetWorkspaceGitHubPullRequests"}},
+	{ID: "github", RPCs: []string{"GetGitHubPullRequests"}},
 	{ID: "background_tasks", RPCs: []string{"ListBackgroundTasks"}},
 }
 

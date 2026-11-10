@@ -463,8 +463,82 @@ func normalizeGitHubPRState(raw interface{}) string {
 	return "OPEN"
 }
 
-// fetchWorkspaceGitHubPullRequests queries Antigravity 2.30.0 GetWorkspaceGitHubPullRequests
-// for the workspace's GitHub branch target and associated pull requests.
+// parseGitHubRemoteURL extracts host, owner, and repository name from a git remote URL.
+// Supports both SSH (git@github.com:owner/repo.git) and HTTPS (https://github.com/owner/repo.git).
+func parseGitHubRemoteURL(raw string) (host, owner, repo string, ok bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", "", "", false
+	}
+	// SCP style: [user@]host:owner/repo[.git]
+	if strings.Contains(raw, ":") && !strings.Contains(raw, "://") {
+		parts := strings.SplitN(raw, ":", 2)
+		hostPart := parts[0]
+		if at := strings.LastIndex(hostPart, "@"); at >= 0 {
+			hostPart = hostPart[at+1:]
+		}
+		pathPart := strings.TrimPrefix(parts[1], "/")
+		pathPart = strings.TrimSuffix(pathPart, ".git")
+		segs := strings.Split(pathPart, "/")
+		if len(segs) == 2 && segs[0] != "" && segs[1] != "" {
+			return hostPart, segs[0], segs[1], true
+		}
+	}
+	// URL style: https://... or ssh://...
+	if u, err := url.Parse(raw); err == nil && u.Host != "" {
+		host := u.Hostname()
+		path := strings.TrimPrefix(u.Path, "/")
+		path = strings.TrimSuffix(path, ".git")
+		segs := strings.Split(path, "/")
+		if len(segs) == 2 && segs[0] != "" && segs[1] != "" {
+			return host, segs[0], segs[1], true
+		}
+	}
+	return "", "", "", false
+}
+
+// fetchGitHubPRsFromGH invokes local `gh pr list` CLI to retrieve PRs when available.
+func fetchGitHubPRsFromGH(ctx context.Context, repoRoot string) []GitPullRequestItem {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "gh", "pr", "list", "--state", "all", "--limit", "20",
+		"--json", "number,title,url,state,author,headRefName,baseRefName")
+	cmd.Dir = repoRoot
+	out, err := cmd.Output()
+	if err != nil || len(out) == 0 {
+		return nil
+	}
+	var rawItems []struct {
+		Number int    `json:"number"`
+		Title  string `json:"title"`
+		URL    string `json:"url"`
+		State  string `json:"state"`
+		Author struct {
+			Login string `json:"login"`
+		} `json:"author"`
+		HeadRefName string `json:"headRefName"`
+		BaseRefName string `json:"baseRefName"`
+	}
+	if err := json.Unmarshal(out, &rawItems); err != nil {
+		return nil
+	}
+	prs := make([]GitPullRequestItem, 0, len(rawItems))
+	for _, it := range rawItems {
+		prs = append(prs, GitPullRequestItem{
+			Number:      it.Number,
+			Title:       strings.TrimSpace(it.Title),
+			URL:         strings.TrimSpace(it.URL),
+			State:       normalizeGitHubPRState(it.State),
+			AuthorLogin: strings.TrimSpace(it.Author.Login),
+			HeadRefName: strings.TrimSpace(it.HeadRefName),
+			BaseRefName: strings.TrimSpace(it.BaseRefName),
+		})
+	}
+	return prs
+}
+
+// fetchWorkspaceGitHubPullRequests queries Antigravity GetGitHubPullRequests
+// or local `gh pr list` CLI for the workspace's GitHub branch target and associated pull requests.
 // Best-effort with a 2s timeout and 30s per-(port, repoRoot, branch) cache so git status is never blocked.
 func (p *Proxy) fetchWorkspaceGitHubPullRequests(parent context.Context, repoRoot, branch string, port int, token string) (*GitHubBranchTarget, []GitPullRequestItem) {
 	if port <= 0 || repoRoot == "" {
@@ -478,6 +552,17 @@ func (p *Proxy) fetchWorkspaceGitHubPullRequests(parent context.Context, repoRoo
 	}
 	gitPRCacheMu.Unlock()
 
+	var target *GitHubBranchTarget
+	remoteURL, _ := runGit(parent, repoRoot, gitStatusTimeout, "remote", "get-url", "origin")
+	if host, owner, repo, ok := parseGitHubRemoteURL(remoteURL); ok {
+		target = &GitHubBranchTarget{
+			Host:   host,
+			Owner:  owner,
+			Repo:   repo,
+			Branch: branch,
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(parent, 2*time.Second)
 	defer cancel()
 
@@ -485,13 +570,13 @@ func (p *Proxy) fetchWorkspaceGitHubPullRequests(parent context.Context, repoRoo
 		"workspaceUris": []string{localPathToFileURI(repoRoot)},
 	})
 	if err != nil {
-		return nil, nil
+		return target, nil
 	}
 
-	rpcURL := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetWorkspaceGitHubPullRequests", port)
+	rpcURL := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetGitHubPullRequests", port)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rpcURL, bytes.NewReader(payload))
 	if err != nil {
-		return nil, nil
+		return target, nil
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Connect-Protocol-Version", "1")
@@ -504,74 +589,112 @@ func (p *Proxy) fetchWorkspaceGitHubPullRequests(parent context.Context, repoRoo
 		client = http.DefaultClient
 	}
 	resp, err := client.Do(req)
-	if err != nil {
-		return nil, nil
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, nil
-	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 512*1024))
-	if err != nil {
-		return nil, nil
-	}
-
-	var parsed struct {
-		Workspaces []struct {
-			Target *struct {
-				Host   string `json:"host"`
-				Owner  string `json:"owner"`
-				Repo   string `json:"repo"`
-				Branch string `json:"branch"`
-			} `json:"target"`
-			PullRequests []struct {
-				Ref struct {
-					Number int `json:"number"`
-				} `json:"ref"`
-				Number      int         `json:"number"`
-				URL         string      `json:"url"`
-				Title       string      `json:"title"`
-				State       interface{} `json:"state"`
-				AuthorLogin string      `json:"authorLogin"`
-				HeadRefName string      `json:"headRefName"`
-				BaseRefName string      `json:"baseRefName"`
-			} `json:"pullRequests"`
-		} `json:"workspaces"`
-	}
-	if err := json.Unmarshal(body, &parsed); err != nil || len(parsed.Workspaces) == 0 {
-		return nil, nil
-	}
-
-	ws := parsed.Workspaces[0]
-	var target *GitHubBranchTarget
-	if ws.Target != nil && (ws.Target.Owner != "" || ws.Target.Repo != "") {
-		target = &GitHubBranchTarget{
-			Host:   ws.Target.Host,
-			Owner:  ws.Target.Owner,
-			Repo:   ws.Target.Repo,
-			Branch: ws.Target.Branch,
+	var prs []GitPullRequestItem
+	if err == nil {
+		defer resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 512*1024))
+			var parsed struct {
+				Statuses []struct {
+					Ref struct {
+						Host   string `json:"host"`
+						Owner  string `json:"owner"`
+						Repo   string `json:"repo"`
+						Number int    `json:"number"`
+					} `json:"ref"`
+					Number      int         `json:"number"`
+					URL         string      `json:"url"`
+					Title       string      `json:"title"`
+					State       interface{} `json:"state"`
+					AuthorLogin string      `json:"authorLogin"`
+					HeadRefName string      `json:"headRefName"`
+					BaseRefName string      `json:"baseRefName"`
+				} `json:"statuses"`
+				Workspaces []struct {
+					Target *struct {
+						Host   string `json:"host"`
+						Owner  string `json:"owner"`
+						Repo   string `json:"repo"`
+						Branch string `json:"branch"`
+					} `json:"target"`
+					PullRequests []struct {
+						Ref struct {
+							Number int `json:"number"`
+						} `json:"ref"`
+						Number      int         `json:"number"`
+						URL         string      `json:"url"`
+						Title       string      `json:"title"`
+						State       interface{} `json:"state"`
+						AuthorLogin string      `json:"authorLogin"`
+						HeadRefName string      `json:"headRefName"`
+						BaseRefName string      `json:"baseRefName"`
+					} `json:"pullRequests"`
+				} `json:"workspaces"`
+			}
+			if json.Unmarshal(body, &parsed) == nil {
+				if len(parsed.Statuses) > 0 {
+					for _, s := range parsed.Statuses {
+						num := s.Ref.Number
+						if num == 0 {
+							num = s.Number
+						}
+						if target == nil && (s.Ref.Owner != "" || s.Ref.Repo != "") {
+							target = &GitHubBranchTarget{
+								Host:   s.Ref.Host,
+								Owner:  s.Ref.Owner,
+								Repo:   s.Ref.Repo,
+								Branch: branch,
+							}
+						}
+						prs = append(prs, GitPullRequestItem{
+							Number:      num,
+							Title:       strings.TrimSpace(s.Title),
+							URL:         strings.TrimSpace(s.URL),
+							State:       normalizeGitHubPRState(s.State),
+							AuthorLogin: strings.TrimSpace(s.AuthorLogin),
+							HeadRefName: strings.TrimSpace(s.HeadRefName),
+							BaseRefName: strings.TrimSpace(s.BaseRefName),
+						})
+					}
+				} else if len(parsed.Workspaces) > 0 {
+					ws := parsed.Workspaces[0]
+					if target == nil && ws.Target != nil && (ws.Target.Owner != "" || ws.Target.Repo != "") {
+						target = &GitHubBranchTarget{
+							Host:   ws.Target.Host,
+							Owner:  ws.Target.Owner,
+							Repo:   ws.Target.Repo,
+							Branch: ws.Target.Branch,
+						}
+					}
+					for _, pr := range ws.PullRequests {
+						num := pr.Ref.Number
+						if num == 0 {
+							num = pr.Number
+						}
+						if num <= 0 && pr.URL == "" && pr.Title == "" {
+							continue
+						}
+						prs = append(prs, GitPullRequestItem{
+							Number:      num,
+							Title:       strings.TrimSpace(pr.Title),
+							URL:         strings.TrimSpace(pr.URL),
+							State:       normalizeGitHubPRState(pr.State),
+							AuthorLogin: strings.TrimSpace(pr.AuthorLogin),
+							HeadRefName: strings.TrimSpace(pr.HeadRefName),
+							BaseRefName: strings.TrimSpace(pr.BaseRefName),
+						})
+					}
+				}
+			}
 		}
 	}
 
-	prs := make([]GitPullRequestItem, 0, len(ws.PullRequests))
-	for _, pr := range ws.PullRequests {
-		num := pr.Ref.Number
-		if num == 0 {
-			num = pr.Number
+	// 降级：若上游 RPC 未返回 PR 列表，尝试调用本机 gh CLI 补齐
+	if len(prs) == 0 {
+		if cliPRs := fetchGitHubPRsFromGH(parent, repoRoot); len(cliPRs) > 0 {
+			prs = cliPRs
 		}
-		if num <= 0 && pr.URL == "" && pr.Title == "" {
-			continue
-		}
-		prs = append(prs, GitPullRequestItem{
-			Number:      num,
-			Title:       strings.TrimSpace(pr.Title),
-			URL:         strings.TrimSpace(pr.URL),
-			State:       normalizeGitHubPRState(pr.State),
-			AuthorLogin: strings.TrimSpace(pr.AuthorLogin),
-			HeadRefName: strings.TrimSpace(pr.HeadRefName),
-			BaseRefName: strings.TrimSpace(pr.BaseRefName),
-		})
 	}
 
 	gitPRCacheMu.Lock()
