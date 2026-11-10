@@ -264,20 +264,8 @@ extension ChatView {
                 .ignoresSafeArea()
         }
     }
-    
-    var hasSendableDraft: Bool {
-        !viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            || !viewModel.selectedImageData.isEmpty
-            || !viewModel.selectedFiles.isEmpty
-            || viewModel.selectedSlashCommand != nil
-    }
-
-    var isSendDisabled: Bool {
-        viewModel.isSending
-            || viewModel.selectedFiles.contains(where: { !$0.isUploaded })
-            || !hasSendableDraft
-    }
-    
+    // hasSendableDraft / isSendDisabled 仅在 ChatInputTextAndSendRow 内部计算：
+    // 不要在 ChatView 上重新声明并在 body 中读取，否则会把 inputText 订阅带回 ChatView.body，打字时整页重绘。
 }
 
 private struct ChatFloatingSlashPopupHost: View {

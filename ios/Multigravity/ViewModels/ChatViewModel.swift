@@ -74,8 +74,14 @@ public final class ChatViewModel {
     public var originDraftId: String? = nil
     var isInitializing: Bool = true
     
-    public var messages: [ChatMessage] = []
+    public var messages: [ChatMessage] = [] {
+        didSet { messagesRevision &+= 1 }
+    }
     
+    /// messages / chapterTitles 每次赋值（含整体替换与原地修改）都会递增的版本号，
+    /// 用作 turns / chapters 缓存键：O(1) 比较，且不会漏掉列表中间消息或同名章节标题的变化。
+    @ObservationIgnored private var messagesRevision: UInt64 = 0
+    @ObservationIgnored private var chapterTitlesRevision: UInt64 = 0
     @ObservationIgnored private var _cachedTurnsKey: String = ""
     @ObservationIgnored private var _cachedTurns: [ConversationTurn] = []
     @ObservationIgnored private var _cachedChaptersKey: String = ""
@@ -84,13 +90,13 @@ public final class ChatViewModel {
     
     /// 当前会话按问答轮次自动聚合的结构列表（对齐 Antigravity 2.28.1 对话步骤导轨规范）
     public var turns: [ConversationTurn] {
-        let firstId = messages.first?.id ?? ""
-        let lastMsg = messages.last
-        let key = "\(messages.count)|\(firstId)|\(lastMsg?.id ?? "")|\(lastMsg?.content.count ?? 0)|\(lastMsg?.toolCount ?? 0)|\(lastMsg?.isError == true)|\(isRunning)|\(isAwaitingResponse)"
+        // 读取 messages 以保留 Observation 依赖追踪，版本号本身不被观察
+        let currentMessages = messages
+        let key = "\(messagesRevision)|\(isRunning)|\(isAwaitingResponse)"
         if key == _cachedTurnsKey {
             return _cachedTurns
         }
-        let built = ConversationTurnBuilder.buildTurns(from: messages, isRunning: isRunning, isAwaitingResponse: isAwaitingResponse)
+        let built = ConversationTurnBuilder.buildTurns(from: currentMessages, isRunning: isRunning, isAwaitingResponse: isAwaitingResponse)
         _cachedTurnsKey = key
         _cachedTurns = built
         return built
@@ -99,11 +105,12 @@ public final class ChatViewModel {
     /// 超长会话自动拆分的章节列表（合并 Antigravity 2.30.0 GetChapterTitles 语义标题）
     public var chapters: [ConversationChapter] {
         let currentTurns = turns
-        let key = "\(_cachedTurnsKey)|\(chapterTitles.count)"
+        let titles = chapterTitles
+        let key = "\(_cachedTurnsKey)|\(chapterTitlesRevision)"
         if key == _cachedChaptersKey {
             return _cachedChapters
         }
-        let built = ConversationTurnBuilder.buildChapters(from: currentTurns, aiTitles: chapterTitles)
+        let built = ConversationTurnBuilder.buildChapters(from: currentTurns, aiTitles: titles)
         _cachedChaptersKey = key
         _cachedChapters = built
         return built
@@ -353,7 +360,9 @@ public final class ChatViewModel {
     public var hasSessionChanges: Bool = false
     public var exportedMarkdownFile: ExportedMarkdownFile? = nil
     /// Antigravity 2.30.0 GetChapterTitles 生成的章节标题缓存（key: "start:end" 或 "start:s"）
-    public var chapterTitles: [String: String] = [:]
+    public var chapterTitles: [String: String] = [:] {
+        didSet { chapterTitlesRevision &+= 1 }
+    }
     public var isLoadingChapterTitles: Bool = false
     
     /// ID of the first message of the latest response turn (e.g., tool batch or agent response following the last user message)
