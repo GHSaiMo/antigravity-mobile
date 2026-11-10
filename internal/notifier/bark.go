@@ -46,6 +46,12 @@ func NewBarkClient(cfg config.NotificationConfig) *BarkClient {
 		soundComplete: cfg.SoundComplete,
 		client: &http.Client{
 			Timeout: 10 * time.Second,
+			Transport: &http.Transport{
+				Proxy:               http.ProxyFromEnvironment,
+				MaxIdleConns:        16,
+				MaxIdleConnsPerHost: 8,
+				IdleConnTimeout:     90 * time.Second,
+			},
 		},
 	}
 }
@@ -93,7 +99,7 @@ func (b *BarkClient) Send(ctx context.Context, payload BarkPayload) error {
 			continue
 		}
 
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 		resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {

@@ -35,15 +35,48 @@ type desktopStaticCacheItem struct {
 	gzipBody    []byte
 }
 
+const maxDesktopStaticCacheEntries = 256
+
+type desktopStaticFlight struct {
+	done chan struct{}
+	item *desktopStaticCacheItem
+	status int
+	body []byte
+	err  error
+}
+
 var (
-	desktopStaticCacheMu sync.RWMutex
-	desktopStaticCache   = make(map[string]*desktopStaticCacheItem)
+	desktopStaticCacheMu     sync.RWMutex
+	desktopStaticCache       = make(map[string]*desktopStaticCacheItem)
+	desktopStaticFlightsMu   sync.Mutex
+	desktopStaticFlights     = make(map[string]*desktopStaticFlight)
 
 	desktopIndexCacheMu    sync.RWMutex
 	desktopIndexCacheHTML  []byte
 	desktopIndexCachePort  int
 	desktopIndexCacheToken string
+
+	reDesktopCSRF           = regexp.MustCompile(`"csrfToken":"[^"]*"`)
+	reDesktopProduct        = regexp.MustCompile(`"productName":"[^"]*"`)
+	reDesktopTitle          = regexp.MustCompile(`(?i)<title>[^<]*</title>`)
+	reDesktopPreconnect     = regexp.MustCompile(`(?s)<link\s+rel="preconnect"\s+href="https?://(?:fonts\.|[a-z0-9-]+\.)?gstatic\.com[^"]*"\s*(?:crossorigin)?\s*/?>\s*`)
+	reDesktopFontPreconnect = regexp.MustCompile(`(?s)<link\s+rel="preconnect"\s+href="https?://fonts\.googleapis\.com[^"]*"\s*(?:crossorigin)?\s*/?>\s*`)
+	reDesktopFavicon        = regexp.MustCompile(`(?s)<link\s+(?:[^"'<>]|"[^"]*"|'[^']*')*rel=["'](?:shortcut\s+)?icon["'](?:[^"'<>]|"[^"]*"|'[^']*')*/?\s*>`)
 )
+
+func putDesktopStaticCache(path string, item *desktopStaticCacheItem) {
+	desktopStaticCacheMu.Lock()
+	if len(desktopStaticCache) >= maxDesktopStaticCacheEntries {
+		for k := range desktopStaticCache {
+			if k != "/main.js" {
+				delete(desktopStaticCache, k)
+				break
+			}
+		}
+	}
+	desktopStaticCache[path] = item
+	desktopStaticCacheMu.Unlock()
+}
 
 // ClearDesktopStaticCache clears cached static assets when the upstream instance changes.
 func ClearDesktopStaticCache() {
@@ -75,13 +108,14 @@ func (p *Proxy) WarmupDesktopStatic(port int, token string) {
 	if token != "" {
 		req.Header.Set("x-codeium-csrf-token", token)
 	}
-	resp, err := p.shortClient.Do(req)
+	resp, err := p.mediumClient.Do(req)
 	if err != nil {
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 		return
 	}
 
@@ -106,9 +140,7 @@ func (p *Proxy) WarmupDesktopStatic(port int, token string) {
 		gzipBody:    gzBuf.Bytes(),
 	}
 
-	desktopStaticCacheMu.Lock()
-	desktopStaticCache["/main.js"] = item
-	desktopStaticCacheMu.Unlock()
+	putDesktopStaticCache("/main.js", item)
 	slog.Info(fmt.Sprintf("[Proxy] ⚡ Pre-warmed localized desktop main.js (%d KB gzip)", gzBuf.Len()/1024))
 
 	// Proactively pre-warm GetAuthStatus and GetCascadeNuxes in background so initial desktop load has 0ms latency
@@ -123,16 +155,20 @@ func (p *Proxy) WarmupDesktopStatic(port int, token string) {
 				authReq.Header.Set("x-codeium-csrf-token", token)
 			}
 			resp, err := p.mediumClient.Do(authReq)
-			if err == nil && resp.StatusCode == http.StatusOK {
-				defer resp.Body.Close()
-				if data, err := io.ReadAll(resp.Body); err == nil && len(data) > 0 {
-					p.authStatusCacheMu.Lock()
-					p.authStatusCacheBody = data
-					p.authStatusCacheHeaders = resp.Header.Clone()
-					p.authStatusCachedAt = time.Now()
-					p.authStatusCacheMu.Unlock()
-					slog.Info("[Proxy] ⚡ Pre-warmed GetAuthStatus cache (0ms first load)")
+			if err == nil {
+				if resp.StatusCode == http.StatusOK {
+					if data, err := io.ReadAll(resp.Body); err == nil && len(data) > 0 {
+						p.authStatusCacheMu.Lock()
+						p.authStatusCacheBody = data
+						p.authStatusCacheHeaders = resp.Header.Clone()
+						p.authStatusCachedAt = time.Now()
+						p.authStatusCacheMu.Unlock()
+						slog.Info("[Proxy] ⚡ Pre-warmed GetAuthStatus cache (0ms first load)")
+					}
+				} else {
+					_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 				}
+				_ = resp.Body.Close()
 			}
 		}
 
@@ -146,16 +182,20 @@ func (p *Proxy) WarmupDesktopStatic(port int, token string) {
 				nuxReq.Header.Set("x-codeium-csrf-token", token)
 			}
 			resp, err := p.shortClient.Do(nuxReq)
-			if err == nil && resp.StatusCode == http.StatusOK {
-				defer resp.Body.Close()
-				if data, err := io.ReadAll(resp.Body); err == nil && len(data) > 0 {
-					p.nuxCacheMu.Lock()
-					p.nuxCacheBody = data
-					p.nuxCacheHeaders = resp.Header.Clone()
-					p.nuxCachedAt = time.Now()
-					p.nuxCacheMu.Unlock()
-					slog.Info("[Proxy] ⚡ Pre-warmed GetCascadeNuxes cache (0ms first load)")
+			if err == nil {
+				if resp.StatusCode == http.StatusOK {
+					if data, err := io.ReadAll(resp.Body); err == nil && len(data) > 0 {
+						p.nuxCacheMu.Lock()
+						p.nuxCacheBody = data
+						p.nuxCacheHeaders = resp.Header.Clone()
+						p.nuxCachedAt = time.Now()
+						p.nuxCacheMu.Unlock()
+						slog.Info("[Proxy] ⚡ Pre-warmed GetCascadeNuxes cache (0ms first load)")
+					}
+				} else {
+					_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 				}
+				_ = resp.Body.Close()
 			}
 		}
 	}()
@@ -191,65 +231,105 @@ func (p *Proxy) HandleDesktopStatic(w http.ResponseWriter, r *http.Request) {
 	desktopStaticCacheMu.RUnlock()
 
 	if item == nil {
-		targetURL := fmt.Sprintf("https://127.0.0.1:%d%s", port, path)
-		req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, targetURL, nil)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+		flightKey := fmt.Sprintf("%d:%s", port, path)
+		desktopStaticFlightsMu.Lock()
+		fl, inFlight := desktopStaticFlights[flightKey]
+		if !inFlight {
+			fl = &desktopStaticFlight{done: make(chan struct{})}
+			desktopStaticFlights[flightKey] = fl
+			desktopStaticFlightsMu.Unlock()
+
+			func() {
+				defer func() {
+					desktopStaticFlightsMu.Lock()
+					delete(desktopStaticFlights, flightKey)
+					desktopStaticFlightsMu.Unlock()
+					close(fl.done)
+				}()
+
+				targetURL := fmt.Sprintf("https://127.0.0.1:%d%s", port, path)
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				defer cancel()
+				req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
+				if err != nil {
+					fl.err = err
+					fl.status = http.StatusInternalServerError
+					return
+				}
+				if token != "" {
+					req.Header.Set("x-codeium-csrf-token", token)
+				}
+				resp, err := p.mediumClient.Do(req)
+				if err != nil {
+					fl.err = err
+					fl.status = http.StatusBadGateway
+					return
+				}
+				defer resp.Body.Close()
+
+				rawBytes, readErr := io.ReadAll(resp.Body)
+				if resp.StatusCode != http.StatusOK {
+					fl.status = resp.StatusCode
+					fl.body = rawBytes
+					return
+				}
+				if readErr != nil {
+					fl.err = readErr
+					fl.status = http.StatusInternalServerError
+					return
+				}
+
+				cType := resp.Header.Get("Content-Type")
+				if cType == "" {
+					cType = "application/javascript; charset=utf-8"
+				}
+				if path == "/main.js" {
+					rawBytes = localizeMainJSChecked(rawBytes)
+				}
+				etag := resp.Header.Get("Etag")
+				if etag == "" || path == "/main.js" {
+					h := sha256.Sum256(rawBytes)
+					etag = fmt.Sprintf(`W/"%x"`, h[:8])
+				}
+
+				var gzBuf bytes.Buffer
+				gw, _ := gzip.NewWriterLevel(&gzBuf, gzip.BestSpeed)
+				_, _ = gw.Write(rawBytes)
+				_ = gw.Close()
+
+				built := &desktopStaticCacheItem{
+					contentType: cType,
+					etag:        etag,
+					rawBody:     rawBytes,
+					gzipBody:    gzBuf.Bytes(),
+				}
+				putDesktopStaticCache(path, built)
+				fl.item = built
+				fl.status = http.StatusOK
+			}()
+		} else {
+			desktopStaticFlightsMu.Unlock()
+			select {
+			case <-fl.done:
+			case <-r.Context().Done():
+				return
+			}
+		}
+
+		if fl.err != nil {
+			http.Error(w, fl.err.Error(), fl.status)
 			return
 		}
-		if token != "" {
-			req.Header.Set("x-codeium-csrf-token", token)
-		}
-		resp, err := p.shortClient.Do(req)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
+		if fl.item == nil {
+			status := fl.status
+			if status == 0 {
+				status = http.StatusBadGateway
+			}
+			w.WriteHeader(status)
+			_, _ = w.Write(fl.body)
 			return
 		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			w.WriteHeader(resp.StatusCode)
-			_, _ = io.Copy(w, resp.Body)
-			return
-		}
-
-		rawBytes, err := io.ReadAll(resp.Body)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		cType := resp.Header.Get("Content-Type")
-		if cType == "" {
-			cType = "application/javascript; charset=utf-8"
-		}
-
-		// Gateway-level zero-runtime-overhead translation for main.js
-		if path == "/main.js" {
-			rawBytes = localizeMainJSChecked(rawBytes)
-		}
-
-		etag := resp.Header.Get("Etag")
-		if etag == "" || path == "/main.js" {
-			h := sha256.Sum256(rawBytes)
-			etag = fmt.Sprintf(`W/"%x"`, h[:8])
-		}
-
-		var gzBuf bytes.Buffer
-		gw, _ := gzip.NewWriterLevel(&gzBuf, gzip.BestSpeed)
-		_, _ = gw.Write(rawBytes)
-		_ = gw.Close()
-
-		item = &desktopStaticCacheItem{
-			contentType: cType,
-			etag:        etag,
-			rawBody:     rawBytes,
-			gzipBody:    gzBuf.Bytes(),
-		}
-
-		desktopStaticCacheMu.Lock()
-		desktopStaticCache[path] = item
-		desktopStaticCacheMu.Unlock()
+		item = fl.item
 	}
 
 	// 304 Not Modified validation
@@ -365,8 +445,7 @@ func (p *Proxy) HandleDesktopIndex(w http.ResponseWriter, r *http.Request) {
 	htmlStr := string(bodyBytes)
 
 	// 1. Ensure fresh CSRF token is injected into window.__APP_CONFIG__
-	reCSRF := regexp.MustCompile(`"csrfToken":"[^"]*"`)
-	htmlStr = reCSRF.ReplaceAllString(htmlStr, fmt.Sprintf(`"csrfToken":%q`, effectiveToken))
+	htmlStr = reDesktopCSRF.ReplaceAllString(htmlStr, fmt.Sprintf(`"csrfToken":%q`, effectiveToken))
 
 	// Set cookie so ConnectRPC client and WebSocket can read it
 	http.SetCookie(w, &http.Cookie{
@@ -377,21 +456,17 @@ func (p *Proxy) HandleDesktopIndex(w http.ResponseWriter, r *http.Request) {
 	})
 
 	// 2. Align productName to Multigravity in window.__APP_CONFIG__
-	reProduct := regexp.MustCompile(`"productName":"[^"]*"`)
-	htmlStr = reProduct.ReplaceAllString(htmlStr, `"productName":"multigravity"`)
+	htmlStr = reDesktopProduct.ReplaceAllString(htmlStr, `"productName":"multigravity"`)
 
 	// 3. Align page title
-	reTitle := regexp.MustCompile(`(?i)<title>[^<]*</title>`)
-	htmlStr = reTitle.ReplaceAllString(htmlStr, "<title>Multigravity</title>")
+	htmlStr = reDesktopTitle.ReplaceAllString(htmlStr, "<title>Multigravity</title>")
 
 	// 4. Update html lang="en" to lang="zh-CN"
 	htmlStr = strings.Replace(htmlStr, `<html lang="en">`, `<html lang="zh-CN">`, 1)
 
 	// 5. Remove blocking external preconnect links to Google font & gstatic CDNs
-	rePreconnect := regexp.MustCompile(`(?s)<link\s+rel="preconnect"\s+href="https?://(?:fonts\.|[a-z0-9-]+\.)?gstatic\.com[^"]*"\s*(?:crossorigin)?\s*/?>\s*`)
-	htmlStr = rePreconnect.ReplaceAllString(htmlStr, "")
-	reFontPreconnect := regexp.MustCompile(`(?s)<link\s+rel="preconnect"\s+href="https?://fonts\.googleapis\.com[^"]*"\s*(?:crossorigin)?\s*/?>\s*`)
-	htmlStr = reFontPreconnect.ReplaceAllString(htmlStr, "")
+	htmlStr = reDesktopPreconnect.ReplaceAllString(htmlStr, "")
+	htmlStr = reDesktopFontPreconnect.ReplaceAllString(htmlStr, "")
 
 	// 6. Cache-busting version parameter on script and stylesheet links to defeat stale browser disk cache
 	htmlStr = strings.ReplaceAll(htmlStr, `src="/main.js"`, fmt.Sprintf(`src="/main.js?v=%s"`, desktopAssetVersion))
@@ -512,9 +587,8 @@ func (p *Proxy) HandleDesktopIndex(w http.ResponseWriter, r *http.Request) {
       })();
     </script>
     <script>` + desktopThemePresetFixJS + desktopRPCMuxJS + `</script>`
-	reFavicon := regexp.MustCompile(`(?s)<link\s+(?:[^"'<>]|"[^"]*"|'[^']*')*rel=["'](?:shortcut\s+)?icon["'](?:[^"'<>]|"[^"]*"|'[^']*')*/?\s*>`)
-	if reFavicon.MatchString(htmlStr) {
-		htmlStr = reFavicon.ReplaceAllString(htmlStr, multigravityIconsMeta)
+	if reDesktopFavicon.MatchString(htmlStr) {
+		htmlStr = reDesktopFavicon.ReplaceAllString(htmlStr, multigravityIconsMeta)
 	} else {
 		htmlStr = strings.Replace(htmlStr, "<head>", "<head>\n"+multigravityIconsMeta, 1)
 	}

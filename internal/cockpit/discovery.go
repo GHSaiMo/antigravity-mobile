@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -90,8 +89,11 @@ func VerifyWsPort(port int, timeout time.Duration) bool {
 
 	wsURL := url.URL{Scheme: "ws", Host: fmt.Sprintf("127.0.0.1:%d", port), Path: "/"}
 	dialer := websocket.Dialer{HandshakeTimeout: timeout}
-	conn, _, err := dialer.Dial(wsURL.String(), nil)
+	conn, resp, err := dialer.Dial(wsURL.String(), nil)
 	if err != nil {
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+		}
 		return false
 	}
 	_ = conn.Close()
@@ -108,8 +110,7 @@ func GetListeningPortsForPID(pid int) []int {
 	var err error
 
 	if runtime.GOOS == "windows" {
-		cmd := exec.Command("netstat", "-ano")
-		out, runErr := cmd.Output()
+		out, runErr := runCmdTimeout(5*time.Second, "netstat", "-ano")
 		if runErr == nil {
 			pidStr := strconv.Itoa(pid)
 			var matchedLines []string
@@ -122,8 +123,7 @@ func GetListeningPortsForPID(pid int) []int {
 		}
 	} else {
 		// macOS / Linux: use lsof
-		cmd := exec.Command("lsof", "-nP", "-a", "-iTCP", "-sTCP:LISTEN", "-p", strconv.Itoa(pid))
-		output, err = cmd.Output()
+		output, err = runCmdTimeout(5*time.Second, "lsof", "-nP", "-a", "-iTCP", "-sTCP:LISTEN", "-p", strconv.Itoa(pid))
 		if err != nil || len(output) == 0 {
 			return nil
 		}
@@ -161,7 +161,7 @@ func FindCockpitPIDs() []int {
 	// Source 2: pgrep on unix
 	if runtime.GOOS != "windows" {
 		for _, pattern := range []string{"cockpit-tools", "Cockpit Tools"} {
-			out, err := exec.Command("pgrep", "-f", pattern).Output()
+			out, err := runCmdTimeout(3*time.Second, "pgrep", "-f", pattern)
 			if err == nil {
 				for _, line := range strings.Split(string(out), "\n") {
 					line = strings.TrimSpace(line)

@@ -2,6 +2,8 @@ package localtls
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 )
@@ -28,16 +30,33 @@ func TestDialTLSContextRejectsNonLoopback(t *testing.T) {
 	}
 }
 
-func TestNewLoopbackTransportRejectsNonLoopback(t *testing.T) {
+func TestNewLoopbackTransportRejectsNonLoopbackAndNegotiatesHTTP2(t *testing.T) {
 	tr := NewLoopbackTransport()
-	if tr == nil || tr.DialTLSContext == nil {
-		t.Fatal("expected non-nil transport and DialTLSContext")
+	if tr == nil || tr.DialContext == nil || !tr.ForceAttemptHTTP2 {
+		t.Fatal("expected non-nil transport with DialContext and ForceAttemptHTTP2")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	_, err := tr.DialTLSContext(ctx, "tcp", "1.1.1.1:443")
+	_, err := tr.DialContext(ctx, "tcp", "1.1.1.1:443")
 	if err == nil {
 		t.Fatal("expected non-loopback dial via transport to fail")
+	}
+
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	srv.EnableHTTP2 = true
+	srv.StartTLS()
+	defer srv.Close()
+
+	client := &http.Client{Transport: tr, Timeout: 2 * time.Second}
+	resp, err := client.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("expected loopback TLS request to succeed, got %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.ProtoMajor != 2 {
+		t.Fatalf("expected HTTP/2 negotiation over LoopbackTransport, got HTTP/%d.%d", resp.ProtoMajor, resp.ProtoMinor)
 	}
 }
 

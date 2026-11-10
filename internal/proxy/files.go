@@ -219,9 +219,11 @@ func IsSafeFilePath(path string) bool {
 	sensitiveDirs := []string{
 		"/.ssh/", "/.gnupg/", "/.aws/", "/.docker/", "/Library/Keychains/",
 		"/Library/Application Support/",
-		"/.kube/", "/.config/gcloud/",
+		"/.kube/", "/.config/gcloud/", "/gcloud/",
 		"/.multigravity/",
 		"/.antigravity-mobile/",
+		"/.antigravity_cockpit/", "/.cockpit-tools/", "/.hal9000/",
+		"/.claude/", "/.codex/", "/.cursor/",
 		"/.acme.sh/", "/.lego/", "/.certbot/",
 		"/.config/gh/", "/.config/hub/", "/.config/rclone/", "/.config/op/", "/.config/doctl/",
 		"/.config/google-chrome/", "/.config/chromium/", "/.config/bravesoftware/", "/.mozilla/",
@@ -245,6 +247,7 @@ func IsSafeFilePath(path string) bool {
 		"hosts.yml", "secrets.json", "secrets.yml", "secrets.yaml", "service-account.json",
 		"oauth_creds.json", "jetski-standalone-oauth-token", "google_accounts.json",
 		"auth_store.json", "credentials.db", "credentials.json",
+		"secure-account-storage.key", "cf_tunnel.json", "admin_token",
 		"server.key", "client.key", "ca.key", "tls.key", "ssl.key", "privkey.key",
 		"privkey.pem", "domain.key", "host.key", "cert.key", "root.key",
 	}
@@ -257,7 +260,7 @@ func IsSafeFilePath(path string) bool {
 		return false
 	}
 	// .key is not blanket-blocked: Keynote decks use that extension.
-	for _, ext := range []string{".pem", ".p12", ".pfx", ".jks"} {
+	for _, ext := range []string{".pem", ".p12", ".pfx", ".jks", ".keystore"} {
 		if strings.HasSuffix(base, ext) {
 			return false
 		}
@@ -266,6 +269,7 @@ func IsSafeFilePath(path string) bool {
 		sensitiveKeyKeywords := []string{
 			"id_", "private", "secret", "tls", "ssl", "server", "client",
 			"cert", "ca", "rsa", "ecdsa", "ed25519", "dsa", "priv", "domain", "host",
+			"storage", "account", "master", "encrypt", "auth", "token", "cred", "api",
 		}
 		for _, kw := range sensitiveKeyKeywords {
 			if strings.Contains(base, kw) {
@@ -499,9 +503,9 @@ func (p *Proxy) HandleFileRaw(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/vnd.ms-excel")
 	case ".pdf":
 		w.Header().Set("Content-Type", "application/pdf")
-	case ".html", ".htm":
+	case ".html", ".htm", ".xhtml", ".mhtml":
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; img-src data: https:;")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox; style-src 'unsafe-inline'; img-src data: https:;")
 	case ".key":
 		w.Header().Set("Content-Type", "application/x-iwork-keynote-sffkey")
 	case ".png":
@@ -515,7 +519,7 @@ func (p *Proxy) HandleFileRaw(w http.ResponseWriter, r *http.Request) {
 	case ".svg":
 		w.Header().Set("Content-Type", "image/svg+xml")
 		// SEC-AUDIT L-5: Restrictive CSP for SVG to prevent script execution in older browsers
-		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox; style-src 'unsafe-inline'")
 	case ".bmp":
 		w.Header().Set("Content-Type", "image/bmp")
 	case ".ico":
@@ -530,6 +534,7 @@ func (p *Proxy) HandleFileRaw(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 	case ".xml":
 		w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
 	case ".yaml", ".yml":
 		w.Header().Set("Content-Type", "text/yaml; charset=utf-8")
 	case ".zip":
@@ -551,9 +556,10 @@ func (p *Proxy) HandleFileRaw(w http.ResponseWriter, r *http.Request) {
 	}
 
 	encodedName := url.PathEscape(fileName)
-	// Force download for potentially dangerous file types to prevent stored XSS
+	// Force download for potentially dangerous file types to prevent stored XSS (SEC-04)
 	disposition := "inline"
-	if ext == ".html" || ext == ".htm" || ext == ".svg" {
+	switch ext {
+	case ".html", ".htm", ".svg", ".xml", ".xhtml", ".mhtml":
 		disposition = "attachment"
 	}
 	w.Header().Set("Content-Disposition", fmt.Sprintf("%s; filename=%q; filename*=UTF-8''%s", disposition, fileName, encodedName))

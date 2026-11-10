@@ -760,13 +760,13 @@ function buildAgentEmbedCard(src) {
           <span class="agent-embed-badge">INTERACTIVE</span>
         </div>
         <div class="agent-embed-actions">
-          <button class="agent-embed-action-btn" onclick="refreshAgentEmbedCard('${cardId}')" title="刷新交互组件" type="button">
+          <button class="agent-embed-action-btn" onclick="refreshAgentEmbedCard('${escapeHtml(cardId)}')" title="刷新交互组件" type="button">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M23 4v6h-6"></path>
               <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
             </svg>
           </button>
-          <button class="agent-embed-action-btn" onclick="toggleFullscreenAgentEmbed('${cardId}')" title="全屏查看" type="button">
+          <button class="agent-embed-action-btn" onclick="toggleFullscreenAgentEmbed('${escapeHtml(cardId)}')" title="全屏查看" type="button">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
             </svg>
@@ -774,7 +774,7 @@ function buildAgentEmbedCard(src) {
         </div>
       </div>
       <div class="agent-embed-viewport">
-        <iframe class="agent-embed-frame" sandbox="allow-scripts allow-same-origin" src="about:blank"></iframe>
+        <iframe class="agent-embed-frame" sandbox="allow-scripts" src="about:blank"></iframe>
       </div>
     </div>
   `;
@@ -1599,13 +1599,14 @@ function renderMarkdown(md) {
       }
 
       const langInfo = resolveLanguageInfo(langClean);
+      const safeLangClass = String(langClean || "").replace(/[^a-zA-Z0-9_-]/g, "");
       blocks.push(`
         <div class="code-block-card">
           <div class="code-block-header">
-            <span class="code-block-lang" style="color: ${langInfo.color};">
-              <span class="code-block-dot" style="background-color: ${langInfo.color};"></span>
+            <span class="code-block-lang" style="color: ${escapeHtml(langInfo.color)};">
+              <span class="code-block-dot" style="background-color: ${escapeHtml(langInfo.color)};"></span>
               ${langInfo.glyph ? `<span class="code-block-glyph">${langInfo.glyph}</span>` : ""}
-              <span>${langInfo.displayName}</span>
+              <span>${escapeHtml(langInfo.displayName)}</span>
             </span>
             <button class="code-copy-btn" onclick="copyCode(this)" type="button" aria-label="复制代码">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1615,7 +1616,7 @@ function renderMarkdown(md) {
               <span>复制</span>
             </button>
           </div>
-          <pre class="code-block-pre"><code class="lang-${langClean}">${codeEscaped}</code></pre>
+          <pre class="code-block-pre"><code class="lang-${escapeHtml(safeLangClass)}">${codeEscaped}</code></pre>
         </div>
       `);
       continue;

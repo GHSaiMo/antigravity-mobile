@@ -161,23 +161,12 @@ func listSignature(raw []byte) (uint64, bool) {
 func (p *Proxy) cascadeSummarySignature(cascadeID string, port int, token string) (uint64, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	raw, err := p.fetchAllTrajectoriesRaw(ctx, port, token)
-	if err != nil {
+	idx, err := p.fetchAllTrajectoriesIndex(ctx, port, token)
+	if err != nil || idx == nil {
 		return 0, false
 	}
-	var env struct {
-		TrajectorySummaries map[string]json.RawMessage `json:"trajectorySummaries"`
-	}
-	if err := json.Unmarshal(raw, &env); err != nil {
-		return 0, false
-	}
-	entry, ok := env.TrajectorySummaries[cascadeID]
-	if !ok {
-		return 0, false
-	}
-	h := fnv.New64a()
-	_, _ = h.Write(entry)
-	return h.Sum64(), true
+	sig, ok := idx.sigByID[cascadeID]
+	return sig, ok
 }
 
 // runEventsDetector polls the shared list snapshot while subscribers exist.
@@ -192,11 +181,11 @@ func (p *Proxy) runEventsDetector(ctx context.Context, nudge <-chan struct{}) {
 		cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 		// The snapshot's own TTL keeps this from adding upstream load beyond what list polls already cause.
-		raw, err := p.fetchAllTrajectoriesRaw(cctx, port, token)
-		if err != nil {
+		idx, err := p.fetchAllTrajectoriesIndex(cctx, port, token)
+		if err != nil || idx == nil {
 			return
 		}
-		if sig, ok := listSignature(raw); ok {
+		if sig, ok := idx.computeListSignature(); ok {
 			p.events.observe(sig)
 		}
 	}
@@ -248,6 +237,7 @@ func (p *Proxy) HandleEvents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	closed := make(chan struct{})
+	conn.SetReadLimit(64 * 1024)
 	_ = conn.SetReadDeadline(time.Now().Add(eventsReadTimeout))
 	conn.SetPongHandler(func(string) error {
 		return conn.SetReadDeadline(time.Now().Add(eventsReadTimeout))

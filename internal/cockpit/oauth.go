@@ -105,8 +105,7 @@ func RefreshGoogleOAuthToken(refreshToken string) (*GoogleTokenResponse, error) 
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := cockpitHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("HTTP request to Google token endpoint failed: %w", err)
 	}

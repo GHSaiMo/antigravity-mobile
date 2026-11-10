@@ -1,14 +1,41 @@
 package cockpit
 
 import (
-	"log/slog"
+	"context"
 	"fmt"
+	"log/slog"
 	"os/exec"
 	"runtime"
 	"strings"
 	"syscall"
 	"time"
 )
+
+func runCmdTimeout(d time.Duration, name string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), d)
+	defer cancel()
+	return exec.CommandContext(ctx, name, args...).Output()
+}
+
+func runCmdCombinedTimeout(d time.Duration, name string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), d)
+	defer cancel()
+	return exec.CommandContext(ctx, name, args...).CombinedOutput()
+}
+
+func runCmdRunTimeout(d time.Duration, name string, args ...string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), d)
+	defer cancel()
+	return exec.CommandContext(ctx, name, args...).Run()
+}
+
+func runCmdStdinTimeout(d time.Duration, stdin string, name string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), d)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Stdin = strings.NewReader(stdin)
+	return cmd.Output()
+}
 
 const (
 	antigravityAppName          = "Antigravity"
@@ -23,29 +50,28 @@ var quitAntigravityBeforeSwitch = quitRunningAntigravity
 
 func antigravityStillRunning() bool {
 	if runtime.GOOS == "windows" {
-		out, err := exec.Command("tasklist", "/fi", "IMAGENAME eq Antigravity.exe").Output()
+		out, err := runCmdTimeout(5*time.Second, "tasklist", "/fi", "IMAGENAME eq Antigravity.exe")
 		if err == nil && strings.Contains(string(out), "Antigravity.exe") {
 			return true
 		}
 		return false
 	}
 	if runtime.GOOS == "linux" {
-		if exec.Command("systemctl", "--user", "is-active", "--quiet", "antigravity-ls").Run() == nil {
+		if runCmdRunTimeout(3*time.Second, "systemctl", "--user", "is-active", "--quiet", "antigravity-ls") == nil {
 			return true
 		}
 		for _, pat := range []string{"language_server", "antigravity"} {
-			if exec.Command("pgrep", "-f", pat).Run() == nil {
+			if runCmdRunTimeout(3*time.Second, "pgrep", "-f", pat) == nil {
 				return true
 			}
 		}
 		return false
 	}
 	if runtime.GOOS != "darwin" {
-		cmd := exec.Command("pgrep", "-f", "Antigravity.app")
-		return cmd.Run() == nil
+		return runCmdRunTimeout(3*time.Second, "pgrep", "-f", "Antigravity.app") == nil
 	}
 	for _, pat := range []string{antigravityMainPattern, antigravityBundlePattern, antigravityIDEBundlePattern} {
-		if exec.Command("pgrep", "-f", pat).Run() == nil {
+		if runCmdRunTimeout(3*time.Second, "pgrep", "-f", pat) == nil {
 			return true
 		}
 	}
@@ -65,17 +91,17 @@ func waitUntilAntigravityExited(d time.Duration) bool {
 
 func signalAntigravity(sig syscall.Signal) {
 	if runtime.GOOS == "windows" {
-		_ = exec.Command("taskkill", "/F", "/IM", "Antigravity.exe", "/T").Run()
-		_ = exec.Command("taskkill", "/F", "/IM", "language_server.exe", "/T").Run()
+		_ = runCmdRunTimeout(5*time.Second, "taskkill", "/F", "/IM", "Antigravity.exe", "/T")
+		_ = runCmdRunTimeout(5*time.Second, "taskkill", "/F", "/IM", "language_server.exe", "/T")
 		return
 	}
 	if runtime.GOOS == "linux" {
-		_ = exec.Command("pkill", fmt.Sprintf("-%d", sig), "-f", "language_server").Run()
+		_ = runCmdRunTimeout(3*time.Second, "pkill", fmt.Sprintf("-%d", sig), "-f", "language_server")
 		return
 	}
 	patterns := []string{antigravityBundlePattern, antigravityIDEBundlePattern}
 	for _, pat := range patterns {
-		_ = exec.Command("pkill", fmt.Sprintf("-%d", sig), "-f", pat).Run()
+		_ = runCmdRunTimeout(3*time.Second, "pkill", fmt.Sprintf("-%d", sig), "-f", pat)
 	}
 }
 
@@ -91,7 +117,7 @@ func quitAppDarwin(name string) error {
 		return fmt.Errorf("application %q is not in the allowed quit list", name)
 	}
 	script := fmt.Sprintf("tell application %q to quit", name)
-	return exec.Command("osascript", "-e", script).Run()
+	return runCmdRunTimeout(3*time.Second, "osascript", "-e", script)
 }
 
 // quitRunningAntigravity stops the live Antigravity app so Cockpit can inject
@@ -107,15 +133,15 @@ func quitRunningAntigravity() error {
 	slog.Info("[Cockpit] Quitting Antigravity before account switch")
 	if runtime.GOOS == "windows" {
 		// 1. Graceful close on Windows (sends WM_CLOSE)
-		_ = exec.Command("taskkill", "/IM", "Antigravity.exe").Run()
+		_ = runCmdRunTimeout(5*time.Second, "taskkill", "/IM", "Antigravity.exe")
 		if waitUntilAntigravityExited(6 * time.Second) {
 			slog.Info("[Cockpit] Antigravity quit cleanly on Windows")
 			return nil
 		}
 
 		slog.Info("[Cockpit] Antigravity still running; force killing tree on Windows")
-		_ = exec.Command("taskkill", "/F", "/IM", "Antigravity.exe", "/T").Run()
-		_ = exec.Command("taskkill", "/F", "/IM", "language_server.exe", "/T").Run()
+		_ = runCmdRunTimeout(5*time.Second, "taskkill", "/F", "/IM", "Antigravity.exe", "/T")
+		_ = runCmdRunTimeout(5*time.Second, "taskkill", "/F", "/IM", "language_server.exe", "/T")
 		if waitUntilAntigravityExited(3 * time.Second) {
 			return nil
 		}
@@ -123,16 +149,16 @@ func quitRunningAntigravity() error {
 	}
 
 	if runtime.GOOS == "linux" {
-		if exec.Command("systemctl", "--user", "is-active", "--quiet", "antigravity-ls").Run() == nil {
-			_ = exec.Command("systemctl", "--user", "stop", "antigravity-ls").Run()
+		if runCmdRunTimeout(3*time.Second, "systemctl", "--user", "is-active", "--quiet", "antigravity-ls") == nil {
+			_ = runCmdRunTimeout(5*time.Second, "systemctl", "--user", "stop", "antigravity-ls")
 		} else {
-			_ = exec.Command("pkill", "-f", "language_server").Run()
+			_ = runCmdRunTimeout(3*time.Second, "pkill", "-f", "language_server")
 		}
 		if waitUntilAntigravityExited(5 * time.Second) {
 			slog.Info("[Cockpit] Antigravity stopped cleanly on Linux")
 			return nil
 		}
-		_ = exec.Command("pkill", "-9", "-f", "language_server").Run()
+		_ = runCmdRunTimeout(3*time.Second, "pkill", "-9", "-f", "language_server")
 		return nil
 	}
 

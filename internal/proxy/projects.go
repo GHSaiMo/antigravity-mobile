@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -24,6 +25,25 @@ type ProjectItem struct {
 	LastActive   *time.Time `json:"lastActive,omitempty"`
 }
 
+const projectsListCacheTTL = 5 * time.Second
+
+func cloneProjectItems(src []ProjectItem) []ProjectItem {
+	if src == nil {
+		return nil
+	}
+	out := make([]ProjectItem, len(src))
+	copy(out, src)
+	return out
+}
+
+func (p *Proxy) invalidateProjectsCache() {
+	p.projectsCacheMu.Lock()
+	p.cachedProjectsKey = ""
+	p.cachedProjectsList = nil
+	p.cachedProjectsAt = time.Time{}
+	p.projectsCacheMu.Unlock()
+}
+
 // GetProjects discovers all projects from local IDE database and trajectory history.
 // Merges official projects, workspaceStorage folders, state.vscdb history, and active trajectories.
 func (p *Proxy) GetProjects() ([]ProjectItem, error) {
@@ -31,6 +51,42 @@ func (p *Proxy) GetProjects() ([]ProjectItem, error) {
 	port := p.activePort
 	token := p.activeToken
 	p.mu.RUnlock()
+
+	cacheKey := fmt.Sprintf("%d|%s|%s|%s|%s",
+		port,
+		os.Getenv("MGY_INCLUDE_WORKSPACE_CACHE"),
+		os.Getenv("HOME"),
+		os.Getenv("APPDATA"),
+		os.Getenv("ANTIGRAVITY_APP_DATA_DIR"),
+	)
+
+	p.projectsCacheMu.RLock()
+	if p.cachedProjectsList != nil && p.cachedProjectsKey == cacheKey && time.Since(p.cachedProjectsAt) < projectsListCacheTTL {
+		cp := cloneProjectItems(p.cachedProjectsList)
+		p.projectsCacheMu.RUnlock()
+		return cp, nil
+	}
+	p.projectsCacheMu.RUnlock()
+
+	items, err := p.projectsFlights.do(cacheKey, func() ([]ProjectItem, error) {
+		res, buildErr := p.buildProjectsList(port, token)
+		if buildErr != nil {
+			return nil, buildErr
+		}
+		p.projectsCacheMu.Lock()
+		p.cachedProjectsKey = cacheKey
+		p.cachedProjectsList = cloneProjectItems(res)
+		p.cachedProjectsAt = time.Now()
+		p.projectsCacheMu.Unlock()
+		return res, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return cloneProjectItems(items), nil
+}
+
+func (p *Proxy) buildProjectsList(port int, token string) ([]ProjectItem, error) {
 
 	// 1. Fetch active/historical sessions statistics if upstream is connected
 	sessionStats := make(map[string]struct {
@@ -431,29 +487,35 @@ func (p *Proxy) FindProjectIDForWorkspaces(workspaceURIs []string) string {
 	if len(workspaceURIs) == 0 {
 		return ""
 	}
+	cfgProjects := fetchProjectsFromGeminiConfig()
 	projects, err := p.GetProjects()
 	if err != nil || len(projects) == 0 {
-		projects = fetchProjectsFromGeminiConfig()
+		projects = cfgProjects
 	}
+	return matchProjectIDFromProjects(workspaceURIs, projects, cfgProjects)
+}
+
+func matchProjectIDFromProjects(workspaceURIs []string, projects []ProjectItem, cfgProjects []ProjectItem) string {
 	for _, wsURI := range workspaceURIs {
 		if wsURI == "" {
 			continue
 		}
 		targetNorm := normalizeURI(wsURI)
 		targetPath := uriToPath(targetNorm)
+		cleanTarget := filepath.Clean(targetPath)
 		for _, prj := range projects {
 			if prj.ID == "" {
 				continue
 			}
-			if normalizeURI(prj.URI) == targetNorm || uriToPath(prj.URI) == targetPath || (prj.Path != "" && filepath.Clean(prj.Path) == filepath.Clean(targetPath)) {
+			if normalizeURI(prj.URI) == targetNorm || uriToPath(prj.URI) == targetPath || (prj.Path != "" && filepath.Clean(prj.Path) == cleanTarget) {
 				return prj.ID
 			}
 		}
-		for _, prj := range fetchProjectsFromGeminiConfig() {
+		for _, prj := range cfgProjects {
 			if prj.ID == "" {
 				continue
 			}
-			if normalizeURI(prj.URI) == targetNorm || uriToPath(prj.URI) == targetPath || (prj.Path != "" && filepath.Clean(prj.Path) == filepath.Clean(targetPath)) {
+			if normalizeURI(prj.URI) == targetNorm || uriToPath(prj.URI) == targetPath || (prj.Path != "" && filepath.Clean(prj.Path) == cleanTarget) {
 				return prj.ID
 			}
 		}

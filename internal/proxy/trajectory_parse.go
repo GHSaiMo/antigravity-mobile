@@ -452,17 +452,14 @@ func extractArtifactsFromStep(s TrajectoryStep) []ArtifactItem {
 		hasDiskMeta := false
 		if filePath != "" {
 			metaPath := filePath + ".metadata.json"
-			if metaBytes, err := os.ReadFile(metaPath); err == nil {
-				var meta ArtifactMetadata
-				if err := json.Unmarshal(metaBytes, &meta); err == nil {
-					hasDiskMeta = true
-					if summary == "" {
-						summary = strings.TrimSpace(meta.Summary)
-					}
-					userFacing = meta.IsUserFacing()
-					if meta.RequestFeedback {
-						reqFeedback = true
-					}
+			if meta, ok := readCachedArtifactMetadata(metaPath); ok {
+				hasDiskMeta = true
+				if summary == "" {
+					summary = strings.TrimSpace(meta.Summary)
+				}
+				userFacing = meta.IsUserFacing()
+				if meta.RequestFeedback {
+					reqFeedback = true
 				}
 			}
 		}
@@ -577,11 +574,14 @@ func CleanInternalSystemMessage(text string) string {
 		return ""
 	}
 
-	// 1. Remove standard system notification preamble first (before stripping <SYSTEM_MESSAGE> tags)
-	cleaned := systemMessageIntroRegex.ReplaceAllString(t, "")
-	// 2. Remove closed <SYSTEM_MESSAGE>...</SYSTEM_MESSAGE> blocks
-	cleaned = systemMessageTagRegex.ReplaceAllString(cleaned, "")
-	cleaned = strings.TrimSpace(cleaned)
+	cleaned := t
+	if strings.Contains(t, "SYSTEM_MESSAGE") || strings.Contains(t, "system_message") {
+		// 1. Remove standard system notification preamble first (before stripping <SYSTEM_MESSAGE> tags)
+		cleaned = systemMessageIntroRegex.ReplaceAllString(t, "")
+		// 2. Remove closed <SYSTEM_MESSAGE>...</SYSTEM_MESSAGE> blocks
+		cleaned = systemMessageTagRegex.ReplaceAllString(cleaned, "")
+		cleaned = strings.TrimSpace(cleaned)
+	}
 
 	// 3. If nothing left or only leftover closing/opening tags
 	if cleaned == "" || cleaned == "</SYSTEM_MESSAGE>" || cleaned == "<SYSTEM_MESSAGE>" {
@@ -619,6 +619,9 @@ func IsInternalSystemMessage(text string) bool {
 // Desktop client parity: only true brain artifacts with valid on-disk user-facing metadata are extracted.
 // Regular workspace code/doc links (e.g. docs/foo.md) are strictly excluded from artifact cards.
 func extractArtifactsFromText(text string) []ArtifactItem {
+	if !strings.Contains(text, "](") || (!strings.Contains(text, ".md") && !strings.Contains(text, ".MD") && !strings.Contains(text, ".markdown") && !strings.Contains(text, ".MARKDOWN")) {
+		return nil
+	}
 	var results []ArtifactItem
 	matches := markdownFileLinkRegex.FindAllStringSubmatch(text, -1)
 	for _, m := range matches {
@@ -642,8 +645,8 @@ func extractArtifactsFromText(text string) []ArtifactItem {
 
 		filePath := strings.TrimPrefix(uri, "file://")
 		metaPath := filePath + ".metadata.json"
-		metaBytes, err := os.ReadFile(metaPath)
-		if err != nil {
+		meta, hasMeta := readCachedArtifactMetadata(metaPath)
+		if !hasMeta {
 			// 只有标准内置 plan/walkthrough 允许在无独立 metadata 文件时被识别
 			isStandardPlan := strings.HasSuffix(lower, "implementation_plan.md") || strings.HasSuffix(lower, "walkthrough.md")
 			if !isStandardPlan {
@@ -661,10 +664,6 @@ func extractArtifactsFromText(text string) []ArtifactItem {
 			continue
 		}
 
-		var meta ArtifactMetadata
-		if err := json.Unmarshal(metaBytes, &meta); err != nil {
-			continue
-		}
 		if !meta.IsUserFacing() {
 			continue
 		}
@@ -827,9 +826,7 @@ func resolveTrajectoryTitle(rawResp *upstreamTrajectoryResp, steps []TrajectoryS
 	}
 
 	if title != "" && title != "未命名会话" && rawResp.Trajectory.CascadeID != "" {
-		defaultTrajCache.cascadeTitlesMu.Lock()
-		defaultTrajCache.cascadeTitles[rawResp.Trajectory.CascadeID] = title
-		defaultTrajCache.cascadeTitlesMu.Unlock()
+		setCachedCascadeTitle(rawResp.Trajectory.CascadeID, title)
 	}
 	return title
 }

@@ -660,14 +660,12 @@ func (p *Proxy) handleUpdateConversationAnnotations(w http.ResponseWriter, r *ht
 
 		title := strings.TrimSpace(payload.Annotations.Title)
 		if title != "" && title != "未命名会话" {
-			defaultTrajCache.cascadeTitlesMu.Lock()
 			for _, cid := range activeIDs {
 				if cid != "" {
-					defaultTrajCache.cascadeTitles[cid] = title
+					setCachedCascadeTitle(cid, title)
 					writeAnnotationTitle(cid, title)
 				}
 			}
-			defaultTrajCache.cascadeTitlesMu.Unlock()
 		}
 
 		if payload.Annotations.Pinned != nil {

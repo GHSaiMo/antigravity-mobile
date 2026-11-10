@@ -501,3 +501,59 @@ func TestGetFileContent_RejectsBinaryFiles(t *testing.T) {
 		t.Errorf("expected Content-Type image/jpeg, got: %s", ct)
 	}
 }
+
+func TestIsSafeFilePath_CockpitAndToolCredentialsAndXmlSandbox(t *testing.T) {
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	resetWorkspaceRootsForTest()
+	t.Cleanup(resetWorkspaceRootsForTest)
+
+	blocked := []string{
+		".antigravity_cockpit/secure-account-storage.key",
+		".cockpit-tools/accounts.json",
+		".hal9000/cf_tunnel.json",
+		".claude/credentials.json",
+		".codex/auth.json",
+		".cursor/state.vscdb",
+		"Desktop/release.keystore",
+		"Desktop/admin_token",
+		"Desktop/private.key",
+	}
+	for _, rel := range blocked {
+		if IsSafeFilePath(filepath.Join(home, rel)) {
+			t.Errorf("expected %s to be blocked by IsSafeFilePath", rel)
+		}
+	}
+
+	// Ordinary presentation .key file without sensitive keywords must remain allowed.
+	if !IsSafeFilePath(filepath.Join(home, "Desktop", "deck.key")) {
+		t.Error("expected ordinary presentation Desktop/deck.key to remain allowed")
+	}
+
+	// Verify HandleFileRaw forces attachment + sandbox CSP on .xml files (SEC-04).
+	desktopDir := filepath.Join(home, "Desktop")
+	if err := os.MkdirAll(desktopDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	xmlFile := filepath.Join(desktopDir, "payload.xml")
+	if err := os.WriteFile(xmlFile, []byte(`<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"/>`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	p := &Proxy{}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/files/raw?uri="+xmlFile, nil)
+	rr := httptest.NewRecorder()
+	p.HandleFileRaw(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 for HandleFileRaw on .xml, got %d", rr.Code)
+	}
+	if cd := rr.Header().Get("Content-Disposition"); !strings.HasPrefix(cd, "attachment") {
+		t.Errorf("expected Content-Disposition attachment for .xml, got %q", cd)
+	}
+	if csp := rr.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "sandbox") {
+		t.Errorf("expected Content-Security-Policy containing 'sandbox' for .xml, got %q", csp)
+	}
+}

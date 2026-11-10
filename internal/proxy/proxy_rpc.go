@@ -615,6 +615,23 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 	runningSubagentParents := make(map[string]bool)
 	sidecarProjectIDs := fetchSidecarProjectIDs()
 	resolveWorkspace := p.BuildWorkspaceDisplayNameResolver()
+	var (
+		fallbackProjectsLoaded bool
+		fallbackProjects       []ProjectItem
+		fallbackCfgProjects    []ProjectItem
+	)
+	lazyMatchProjectID := func(wsURIs []string) string {
+		if !fallbackProjectsLoaded {
+			fallbackProjectsLoaded = true
+			fallbackCfgProjects = fetchProjectsFromGeminiConfig()
+			if prjs, err := p.GetProjects(); err == nil && len(prjs) > 0 {
+				fallbackProjects = prjs
+			} else {
+				fallbackProjects = fallbackCfgProjects
+			}
+		}
+		return matchProjectIDFromProjects(wsURIs, fallbackProjects, fallbackCfgProjects)
+	}
 	// Enrich missing titles, filter out subagent sessions, deleted sessions, and stale abandoned drafts
 	for id, s := range summaries {
 		// Filter out recently deleted sessions (tombstone protection against upstream sync delays)
@@ -735,7 +752,7 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 		resolvedPID, resolvedWSName := resolveWorkspace(lookupPID, wsURIs)
 		if (curPID == "" || curPID == "outside-of-project" || sidecarProjectIDs[curPID]) && len(wsURIs) > 0 {
 			if resolvedPID == "" {
-				resolvedPID = p.FindProjectIDForWorkspaces(wsURIs)
+				resolvedPID = lazyMatchProjectID(wsURIs)
 				if resolvedPID != "" && resolvedWSName == "" {
 					_, resolvedWSName = resolveWorkspace(resolvedPID, wsURIs)
 				}

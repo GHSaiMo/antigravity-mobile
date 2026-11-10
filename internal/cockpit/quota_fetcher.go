@@ -20,6 +20,16 @@ const (
 	CloudCodeUserAgent    = "antigravity/2.25.0 (aidev_client; os_type=windows; arch=amd64; cl=1003475615)"
 )
 
+var cockpitHTTPClient = &http.Client{
+	Timeout: 15 * time.Second,
+	Transport: &http.Transport{
+		Proxy:               http.ProxyFromEnvironment,
+		MaxIdleConns:        32,
+		MaxIdleConnsPerHost: 16,
+		IdleConnTimeout:     90 * time.Second,
+	},
+}
+
 // FetchRemoteQuotaForAccount queries Google's Cloud Code APIs directly using the account's access token
 // and saves the resulting quota snapshot to Cockpit Tools' cache directory.
 func FetchRemoteQuotaForAccount(detail *CockpitAccountDetail) error {
@@ -36,7 +46,7 @@ func FetchRemoteQuotaForAccount(detail *CockpitAccountDetail) error {
 		_ = SaveAccountDetail(detail)
 	}
 
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := cockpitHTTPClient
 
 	// 1. Fetch retrieveUserQuotaSummary
 	summaryURL := fmt.Sprintf("%s/v1internal:retrieveUserQuotaSummary", CloudCodeDailyBaseURL)
@@ -73,13 +83,6 @@ func FetchRemoteQuotaForAccount(detail *CockpitAccountDetail) error {
 
 	// 2. Fetch fetchAvailableModels
 	modelsURL := fmt.Sprintf("%s/v1internal:fetchAvailableModels", CloudCodeDailyBaseURL)
-	modelsReq, err := http.NewRequest(http.MethodPost, modelsURL, strings.NewReader("{}"))
-	if err == nil {
-		modelsReq.Header.Set("Authorization", "Bearer "+detail.Token.AccessToken)
-		modelsReq.Header.Set("Content-Type", "application/json")
-		modelsReq.Header.Set("User-Agent", CloudCodeUserAgent)
-	}
-	modelsResp, err := client.Do(modelsReq)
 	var modelsMap map[string]struct {
 		DisplayName string `json:"displayName"`
 		QuotaInfo   struct {
@@ -87,20 +90,29 @@ func FetchRemoteQuotaForAccount(detail *CockpitAccountDetail) error {
 			ResetTime         string   `json:"resetTime"`
 		} `json:"quotaInfo"`
 	}
-	if err == nil && modelsResp.StatusCode == http.StatusOK {
-		defer modelsResp.Body.Close()
-		modelsBody, _ := io.ReadAll(io.LimitReader(modelsResp.Body, 2<<20))
-		var mData struct {
-			Models map[string]struct {
-				DisplayName string `json:"displayName"`
-				QuotaInfo   struct {
-					RemainingFraction *float64 `json:"remainingFraction"`
-					ResetTime         string   `json:"resetTime"`
-				} `json:"quotaInfo"`
-			} `json:"models"`
-		}
-		if json.Unmarshal(modelsBody, &mData) == nil {
-			modelsMap = mData.Models
+	modelsReq, err := http.NewRequest(http.MethodPost, modelsURL, strings.NewReader("{}"))
+	if err == nil {
+		modelsReq.Header.Set("Authorization", "Bearer "+detail.Token.AccessToken)
+		modelsReq.Header.Set("Content-Type", "application/json")
+		modelsReq.Header.Set("User-Agent", CloudCodeUserAgent)
+		modelsResp, doErr := client.Do(modelsReq)
+		if doErr == nil && modelsResp != nil {
+			modelsBody, _ := io.ReadAll(io.LimitReader(modelsResp.Body, 2<<20))
+			_ = modelsResp.Body.Close()
+			if modelsResp.StatusCode == http.StatusOK {
+				var mData struct {
+					Models map[string]struct {
+						DisplayName string `json:"displayName"`
+						QuotaInfo   struct {
+							RemainingFraction *float64 `json:"remainingFraction"`
+							ResetTime         string   `json:"resetTime"`
+						} `json:"quotaInfo"`
+					} `json:"models"`
+				}
+				if json.Unmarshal(modelsBody, &mData) == nil {
+					modelsMap = mData.Models
+				}
+			}
 		}
 	}
 
@@ -115,7 +127,7 @@ func FetchRemoteQuotaForAccount(detail *CockpitAccountDetail) error {
 		return err
 	}
 	cacheDir := filepath.Join(dataDir, "cache", "quota_api_v1_desktop", "authorized")
-	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+	if err := os.MkdirAll(cacheDir, 0700); err != nil {
 		return fmt.Errorf("create cache dir: %w", err)
 	}
 
@@ -130,7 +142,7 @@ func FetchRemoteQuotaForAccount(detail *CockpitAccountDetail) error {
 	}
 
 	tmpFile := cacheFilePath + ".tmp"
-	if err := os.WriteFile(tmpFile, append(cpBytes, '\n'), 0644); err != nil {
+	if err := os.WriteFile(tmpFile, append(cpBytes, '\n'), 0600); err != nil {
 		return fmt.Errorf("write tmp cache file: %w", err)
 	}
 	if err := os.Rename(tmpFile, cacheFilePath); err != nil {
@@ -148,6 +160,7 @@ func FetchAllRemoteQuotas() error {
 		return fmt.Errorf("no accounts available in storage: %v", err)
 	}
 
+	sem := make(chan struct{}, 4)
 	var wg sync.WaitGroup
 	for _, acc := range accounts {
 		if acc.Disabled || acc.Token.RefreshToken == "" {
@@ -156,6 +169,8 @@ func FetchAllRemoteQuotas() error {
 		wg.Add(1)
 		go func(a *CockpitAccountDetail) {
 			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
 			if err := FetchRemoteQuotaForAccount(a); err != nil {
 				slog.Warn(fmt.Sprintf("[Cockpit] Direct remote quota error for %s", a.Email), "err", err)
 			}

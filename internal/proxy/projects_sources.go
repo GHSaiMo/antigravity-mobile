@@ -306,7 +306,11 @@ func (p *Proxy) fetchOfficialProjects(port int, token string, sessionStats map[s
 				req.Header.Set("x-codeium-csrf-token", token)
 			}
 			resp, err := p.mediumClient.Do(req)
-			if err == nil && resp.StatusCode == http.StatusOK {
+			if err == nil && resp != nil && resp.StatusCode != http.StatusOK {
+				_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+				_ = resp.Body.Close()
+			}
+			if err == nil && resp != nil && resp.StatusCode == http.StatusOK {
 				defer resp.Body.Close()
 				var reader io.Reader = resp.Body
 				if strings.EqualFold(resp.Header.Get("Content-Encoding"), "gzip") {

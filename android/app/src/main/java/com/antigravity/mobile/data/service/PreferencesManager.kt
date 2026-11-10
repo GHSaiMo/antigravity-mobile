@@ -131,7 +131,15 @@ class PreferencesManager(context: Context) {
         set(value) = prefs.edit().putString(KEY_GATEWAY_URL, value?.trimEnd('/')).apply()
 
     var deviceToken: String?
-        get() = securePrefs?.getString(KEY_DEVICE_TOKEN, null)
+        get() {
+            if (memDeviceTokenLoaded) {
+                return memDeviceToken
+            }
+            val loaded = securePrefs?.getString(KEY_DEVICE_TOKEN, null)
+            memDeviceToken = loaded
+            memDeviceTokenLoaded = true
+            return loaded
+        }
         set(value) {
             val sp = securePrefs
             if (sp != null) {
@@ -140,6 +148,8 @@ class PreferencesManager(context: Context) {
                 } else {
                     sp.edit().remove(KEY_DEVICE_TOKEN).apply()
                 }
+                memDeviceToken = value
+                memDeviceTokenLoaded = true
             } else {
                 Log.e("PreferencesManager", "Cannot store deviceToken: EncryptedSharedPreferences unavailable. Refusing plain storage.")
             }
@@ -601,17 +611,29 @@ class PreferencesManager(context: Context) {
     // MARK: - Deletion Tombstone Persistence (TTL 10 min, aligned with iOS CacheManager)
     private val deletedTombstoneTTL = 600_000L
 
+    private fun loadDeletedConversationsMap(): Map<String, Long> {
+        memDeletedConversations?.let { return it }
+        val raw = prefs.getString(KEY_DELETED_CONVERSATIONS, null)
+        val parsed: Map<String, Long> = if (raw.isNullOrBlank()) {
+            emptyMap()
+        } else {
+            try {
+                draftJson.decodeFromString<Map<String, Long>>(raw)
+            } catch (_: Exception) {
+                emptyMap()
+            }
+        }
+        memDeletedConversations = parsed
+        return parsed
+    }
+
     fun recordDeletedConversation(cascadeId: String) {
         if (cascadeId.isBlank()) return
         val now = System.currentTimeMillis()
-        val raw = prefs.getString(KEY_DELETED_CONVERSATIONS, null)
-        val map = try {
-            if (!raw.isNullOrBlank()) draftJson.decodeFromString<Map<String, Long>>(raw).toMutableMap() else mutableMapOf()
-        } catch (_: Exception) {
-            mutableMapOf()
-        }
+        val map = loadDeletedConversationsMap().toMutableMap()
         map[cascadeId] = now
         val cleaned = map.filter { now - it.value < deletedTombstoneTTL }
+        memDeletedConversations = cleaned
         prefs.edit().putString(KEY_DELETED_CONVERSATIONS, draftJson.encodeToString(cleaned)).apply()
 
         val pinned = getPinnedConversationIds()
@@ -656,31 +678,28 @@ class PreferencesManager(context: Context) {
     fun isDeletedConversation(cascadeId: String): Boolean {
         if (cascadeId.isBlank()) return false
         val now = System.currentTimeMillis()
-        val raw = prefs.getString(KEY_DELETED_CONVERSATIONS, null) ?: return false
-        return try {
-            val map = draftJson.decodeFromString<Map<String, Long>>(raw)
-            val ts = map[cascadeId] ?: return false
-            now - ts < deletedTombstoneTTL
-        } catch (_: Exception) {
-            false
-        }
+        val map = loadDeletedConversationsMap()
+        val ts = map[cascadeId] ?: return false
+        return now - ts < deletedTombstoneTTL
     }
 
     fun purgeExpiredTombstones() {
         val now = System.currentTimeMillis()
-        val raw = prefs.getString(KEY_DELETED_CONVERSATIONS, null) ?: return
-        try {
-            val map = draftJson.decodeFromString<Map<String, Long>>(raw)
-            val cleaned = map.filter { now - it.value < deletedTombstoneTTL }
-            if (cleaned.size != map.size) {
-                prefs.edit().putString(KEY_DELETED_CONVERSATIONS, draftJson.encodeToString(cleaned)).apply()
-            }
-        } catch (_: Exception) {}
+        val map = loadDeletedConversationsMap()
+        if (map.isEmpty()) return
+        val cleaned = map.filter { now - it.value < deletedTombstoneTTL }
+        if (cleaned.size != map.size) {
+            memDeletedConversations = cleaned
+            prefs.edit().putString(KEY_DELETED_CONVERSATIONS, draftJson.encodeToString(cleaned)).apply()
+        }
     }
 
     fun clear() {
         securePrefs?.edit()?.clear()?.apply()
         prefs.edit().clear().apply()
+        memDeviceToken = null
+        memDeviceTokenLoaded = false
+        memDeletedConversations = null
         memMcpServers = null
         memSkills = null
         _themeModeFlow.value = "system"
@@ -688,6 +707,12 @@ class PreferencesManager(context: Context) {
     }
 
     companion object {
+        @Volatile
+        private var memDeviceTokenLoaded: Boolean = false
+        @Volatile
+        private var memDeviceToken: String? = null
+        @Volatile
+        private var memDeletedConversations: Map<String, Long>? = null
         @Volatile
         private var memMcpServers: List<McpServerState>? = null
         @Volatile

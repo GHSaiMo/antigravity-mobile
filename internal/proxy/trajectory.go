@@ -34,6 +34,9 @@ func extractImageURLsFromText(text string) []string {
 	if text == "" {
 		return nil
 	}
+	if !strings.Contains(text, "![") && !strings.Contains(text, "](") && !strings.Contains(text, "MEDIA:") {
+		return nil
+	}
 	var imgURLs []string
 	seen := make(map[string]bool)
 
@@ -149,7 +152,7 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	details := p.ParseTrajectoryDetails(rawResp)
+	details := p.ParseTrajectoryDetailsCached(rawResp)
 	details.Subagents = p.enrichSubagents(details.Subagents)
 	for _, sa := range details.Subagents {
 		if sa.Status == subagentStatusRunning {

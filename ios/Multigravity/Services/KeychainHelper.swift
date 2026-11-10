@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Security
 
 /// KeychainHelper provides secure storage for sensitive gateway credentials using iOS Keychain.
@@ -6,6 +7,7 @@ public final class KeychainHelper: Sendable {
     public static let shared = KeychainHelper()
     
     private let serviceName = "com.antigravity.mobile.auth"
+    private let memoryCache = OSAllocatedUnfairLock(initialState: [String: String?]())
     
     private init() {}
     
@@ -18,19 +20,34 @@ public final class KeychainHelper: Sendable {
     @discardableResult
     public func save(key: Key, value: String) -> Bool {
         guard let data = value.data(using: .utf8) else { return false }
-        return save(key: key.rawValue, data: data)
+        let ok = save(key: key.rawValue, data: data)
+        if ok {
+            memoryCache.withLock { $0[key.rawValue] = .some(value) }
+        }
+        return ok
     }
     
-    /// Reads a string value from the Keychain.
+    /// Reads a string value from the Keychain (backed by a write-through in-memory cache).
     public func read(key: Key) -> String? {
-        guard let data = read(key: key.rawValue) else { return nil }
-        return String(data: data, encoding: .utf8)
+        if let cached = memoryCache.withLock({ $0[key.rawValue] }) {
+            return cached
+        }
+        let val: String?
+        if let data = read(key: key.rawValue) {
+            val = String(data: data, encoding: .utf8)
+        } else {
+            val = nil
+        }
+        memoryCache.withLock { $0[key.rawValue] = .some(val) }
+        return val
     }
     
     /// Deletes a key from the Keychain.
     @discardableResult
     public func delete(key: Key) -> Bool {
-        delete(key: key.rawValue)
+        let ok = delete(key: key.rawValue)
+        memoryCache.withLock { $0[key.rawValue] = .some(nil) }
+        return ok
     }
     
     /// Deletes all credentials associated with the service.

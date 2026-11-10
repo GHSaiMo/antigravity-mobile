@@ -230,6 +230,7 @@ let listEventsReconnectTimer = null;
 let listEventsRefreshTimer = null;
 let listEventsAttempts = 0;
 let listEventsHadConnection = false;
+let listEventsSeq = 0;
 
 function isConversationListActive() {
   return !activeCascadeId && !activeDraftSession;
@@ -244,6 +245,7 @@ function scheduleListRefresh() {
 }
 
 function closeListEventsSocket() {
+  listEventsSeq++;
   if (listEventsReconnectTimer) {
     clearTimeout(listEventsReconnectTimer);
     listEventsReconnectTimer = null;
@@ -274,6 +276,7 @@ async function connectListEvents() {
   if (!listEventsWanted || document.visibilityState !== "visible") return;
   if (listEventsWs && (listEventsWs.readyState === WebSocket.OPEN || listEventsWs.readyState === WebSocket.CONNECTING)) return;
   closeListEventsSocket();
+  const mySeq = listEventsSeq;
 
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   let wsUrl = `${proto}//${location.host}/gateway/events`;
@@ -285,9 +288,9 @@ async function connectListEvents() {
       if (data && data.ticket) wsUrl += `?ticket=${encodeURIComponent(data.ticket)}`;
     }
   } catch (_) {}
-  // The route may have changed while the ticket was in flight.
-  if (!listEventsWanted || document.visibilityState !== "visible") return;
-  closeListEventsSocket();
+  // The route may have changed or another connectListEvents superseded us while the ticket was in flight.
+  if (mySeq !== listEventsSeq || !listEventsWanted || document.visibilityState !== "visible") return;
+  if (listEventsWs && (listEventsWs.readyState === WebSocket.OPEN || listEventsWs.readyState === WebSocket.CONNECTING)) return;
 
   try {
     const ws = new WebSocket(wsUrl);

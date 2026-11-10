@@ -43,11 +43,42 @@ func normalizeWorkspaceKey(raw string) string {
 	return strings.TrimRight(cleaned, "/\\")
 }
 
-func loadWorkspaceAliases() map[string]string {
-	workspaceAliasesMu.RLock()
-	defer workspaceAliasesMu.RUnlock()
+var (
+	cachedAliasesPath  string
+	cachedAliasesMTime time.Time
+	cachedAliasesSize  int64
+	cachedAliasesMap   map[string]string
+)
 
+func cloneAliasesMap(src map[string]string) map[string]string {
+	out := make(map[string]string, len(src))
+	for k, v := range src {
+		out[k] = v
+	}
+	return out
+}
+
+func loadWorkspaceAliases() map[string]string {
 	filePath := getWorkspaceAliasesFilePath()
+	fi, err := os.Stat(filePath)
+	if err != nil {
+		return make(map[string]string)
+	}
+
+	workspaceAliasesMu.RLock()
+	if cachedAliasesMap != nil &&
+		cachedAliasesPath == filePath &&
+		cachedAliasesMTime.Equal(fi.ModTime()) &&
+		cachedAliasesSize == fi.Size() {
+		cp := cloneAliasesMap(cachedAliasesMap)
+		workspaceAliasesMu.RUnlock()
+		return cp
+	}
+	workspaceAliasesMu.RUnlock()
+
+	workspaceAliasesMu.Lock()
+	defer workspaceAliasesMu.Unlock()
+
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return make(map[string]string)
@@ -60,9 +91,13 @@ func loadWorkspaceAliases() map[string]string {
 	}
 
 	if store.Aliases == nil {
-		return make(map[string]string)
+		store.Aliases = make(map[string]string)
 	}
-	return store.Aliases
+	cachedAliasesPath = filePath
+	cachedAliasesMTime = fi.ModTime()
+	cachedAliasesSize = fi.Size()
+	cachedAliasesMap = cloneAliasesMap(store.Aliases)
+	return cloneAliasesMap(store.Aliases)
 }
 
 func saveWorkspaceAlias(rawKey string, alias string) error {
@@ -120,6 +155,15 @@ func saveWorkspaceAlias(rawKey string, alias string) error {
 		return fmt.Errorf("failed to replace aliases file: %w", err)
 	}
 
+	if fi, statErr := os.Stat(filePath); statErr == nil {
+		cachedAliasesPath = filePath
+		cachedAliasesMTime = fi.ModTime()
+		cachedAliasesSize = fi.Size()
+		cachedAliasesMap = cloneAliasesMap(store.Aliases)
+	} else {
+		cachedAliasesMap = nil
+	}
+
 	return nil
 }
 
@@ -153,6 +197,7 @@ func (p *Proxy) HandleProjectAlias(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	p.invalidateProjectsCache()
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

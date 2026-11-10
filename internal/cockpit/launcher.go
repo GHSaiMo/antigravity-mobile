@@ -20,21 +20,20 @@ var (
 // isCockpitProcessRunning checks if the Cockpit Tools executable process is already running.
 func isCockpitProcessRunning() bool {
 	if runtime.GOOS == "windows" {
-		out, err := exec.Command("tasklist", "/fi", "IMAGENAME eq cockpit-tools.exe").Output()
+		out, err := runCmdTimeout(5*time.Second, "tasklist", "/fi", "IMAGENAME eq cockpit-tools.exe")
 		if err == nil && strings.Contains(strings.ToLower(string(out)), "cockpit-tools.exe") {
 			return true
 		}
 		return false
 	}
 	if runtime.GOOS != "darwin" {
-		cmd := exec.Command("pgrep", "-f", "cockpit-tools")
-		return cmd.Run() == nil
+		return runCmdRunTimeout(3*time.Second, "pgrep", "-f", "cockpit-tools") == nil
 	}
 	// macOS: check exact binary name or bundle path
-	if exec.Command("pgrep", "-x", "cockpit-tools").Run() == nil {
+	if runCmdRunTimeout(3*time.Second, "pgrep", "-x", "cockpit-tools") == nil {
 		return true
 	}
-	if exec.Command("pgrep", "-f", "Cockpit Tools.app").Run() == nil {
+	if runCmdRunTimeout(3*time.Second, "pgrep", "-f", "Cockpit Tools.app") == nil {
 		return true
 	}
 	return false
@@ -54,7 +53,7 @@ func getFrontmostAppBundleID() string {
 	if runtime.GOOS != "darwin" {
 		return ""
 	}
-	out, err := exec.Command("osascript", "-e", `tell application "System Events" to get bundle identifier of first application process whose frontmost is true`).Output()
+	out, err := runCmdTimeout(3*time.Second, "osascript", "-e", `tell application "System Events" to get bundle identifier of first application process whose frontmost is true`)
 	if err != nil {
 		return ""
 	}
@@ -78,7 +77,7 @@ func guardMacOSFocus(prevBundleID string) {
 		end if
 	end if
 end tell`
-			_ = exec.Command("osascript", "-e", script).Run()
+			_ = runCmdRunTimeout(3*time.Second, "osascript", "-e", script)
 
 			// 2. If the user had an active application and Cockpit stole focus, restore it
 			cleanID := sanitizeBundleID(prevBundleID)
@@ -90,7 +89,7 @@ end tell`
 		tell application id "%s" to activate
 	end if
 end tell`, cleanID)
-				_ = exec.Command("osascript", "-e", restoreScript).Run()
+				_ = runCmdRunTimeout(3*time.Second, "osascript", "-e", restoreScript)
 			}
 		}
 	}()
@@ -133,8 +132,7 @@ func defaultLaunchCockpit() error {
 	prevAppID := getFrontmostAppBundleID()
 
 	// Priority 1: Launch via app bundle name silently in background (-j -g)
-	cmd := exec.Command("open", "-j", "-g", "-a", "Cockpit Tools")
-	if err := cmd.Run(); err == nil {
+	if err := runCmdRunTimeout(5*time.Second, "open", "-j", "-g", "-a", "Cockpit Tools"); err == nil {
 		guardMacOSFocus(prevAppID)
 		return nil
 	}
@@ -142,12 +140,12 @@ func defaultLaunchCockpit() error {
 	// Priority 2: Fallback to standard /Applications path
 	appPath := "/Applications/Cockpit Tools.app"
 	if _, err := os.Stat(appPath); err == nil {
-		cmdFallback := exec.Command("open", "-j", "-g", appPath)
-		if err := cmdFallback.Run(); err == nil {
+		if err := runCmdRunTimeout(5*time.Second, "open", "-j", "-g", appPath); err == nil {
 			guardMacOSFocus(prevAppID)
 			return nil
+		} else {
+			return err
 		}
-		return err
 	}
 
 	return fmt.Errorf("Cockpit Tools application not found in /Applications")
@@ -178,11 +176,11 @@ func QuitCockpitApp() error {
 	}
 
 	if runtime.GOOS == "windows" {
-		_ = exec.Command("taskkill", "/IM", "cockpit-tools.exe").Run()
+		_ = runCmdRunTimeout(5*time.Second, "taskkill", "/IM", "cockpit-tools.exe")
 	} else if runtime.GOOS == "darwin" {
-		_ = exec.Command("osascript", "-e", `tell application "Cockpit Tools" to quit`).Run()
+		_ = runCmdRunTimeout(3*time.Second, "osascript", "-e", `tell application "Cockpit Tools" to quit`)
 	} else {
-		_ = exec.Command("pkill", "-f", "cockpit-tools").Run()
+		_ = runCmdRunTimeout(3*time.Second, "pkill", "-f", "cockpit-tools")
 	}
 
 	deadline := time.Now().Add(5 * time.Second)
@@ -195,12 +193,12 @@ func QuitCockpitApp() error {
 
 	// Force kill if graceful termination timed out
 	if runtime.GOOS == "windows" {
-		_ = exec.Command("taskkill", "/F", "/IM", "cockpit-tools.exe", "/T").Run()
+		_ = runCmdRunTimeout(5*time.Second, "taskkill", "/F", "/IM", "cockpit-tools.exe", "/T")
 	} else if runtime.GOOS == "darwin" {
-		_ = exec.Command("pkill", "-9", "-f", "Cockpit Tools").Run()
-		_ = exec.Command("pkill", "-9", "-f", "cockpit-tools").Run()
+		_ = runCmdRunTimeout(3*time.Second, "pkill", "-9", "-f", "Cockpit Tools")
+		_ = runCmdRunTimeout(3*time.Second, "pkill", "-9", "-f", "cockpit-tools")
 	} else {
-		_ = exec.Command("pkill", "-9", "-f", "cockpit-tools").Run()
+		_ = runCmdRunTimeout(3*time.Second, "pkill", "-9", "-f", "cockpit-tools")
 	}
 	time.Sleep(300 * time.Millisecond)
 	return nil

@@ -61,3 +61,46 @@ func TestMiddlewareRejectsRebindingAndCSRFOnLoopback(t *testing.T) {
 		t.Errorf("cross-site POST: %d", c)
 	}
 }
+
+func TestCookieWriteCSRFOK(t *testing.T) {
+	cases := []struct {
+		name         string
+		method       string
+		host         string
+		origin       string
+		referer      string
+		secFetchSite string
+		want         bool
+	}{
+		{"safe GET always allowed", "GET", "gw.example.com", "https://evil.example.com", "", "cross-site", true},
+		{"same-origin Origin allowed", "POST", "gw.example.com:58900", "https://gw.example.com:58900", "", "same-origin", true},
+		{"same-origin Sec-Fetch-Site without Origin allowed", "POST", "gw.example.com", "", "", "same-origin", true},
+		{"cross-site Sec-Fetch-Site rejected", "POST", "gw.example.com", "https://gw.example.com", "", "cross-site", false},
+		{"same-site subdomain Sec-Fetch-Site rejected", "POST", "gw.example.com", "https://sub.example.com", "", "same-site", false},
+		{"cross-origin Origin rejected", "POST", "gw.example.com", "https://evil.example.com", "", "", false},
+		{"null Origin rejected", "POST", "gw.example.com", "null", "", "", false},
+		{"port mismatch Origin rejected", "POST", "127.0.0.1:58900", "http://127.0.0.1:8080", "", "", false},
+		{"same-origin Referer fallback allowed", "DELETE", "127.0.0.1:58900", "", "http://127.0.0.1:58900/settings", "", true},
+		{"cross-origin Referer fallback rejected", "DELETE", "127.0.0.1:58900", "", "https://evil.example.com/page", "", false},
+		{"non-browser caller without Origin Referer or Sec-Fetch-Site allowed", "POST", "gw.example.com", "", "", "", true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest(tc.method, "/api/v1/cockpit/switch", nil)
+			r.Host = tc.host
+			if tc.origin != "" {
+				r.Header.Set("Origin", tc.origin)
+			}
+			if tc.referer != "" {
+				r.Header.Set("Referer", tc.referer)
+			}
+			if tc.secFetchSite != "" {
+				r.Header.Set("Sec-Fetch-Site", tc.secFetchSite)
+			}
+			if got := CookieWriteCSRFOK(r); got != tc.want {
+				t.Errorf("CookieWriteCSRFOK() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

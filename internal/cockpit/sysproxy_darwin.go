@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
-	"os/exec"
 	"strings"
 	"time"
 )
@@ -31,17 +30,13 @@ func IsProxyPortListening(port int, timeout time.Duration) bool {
 // GetPrimaryNetworkService detects the primary active network service name (e.g. "Ethernet", "Wi-Fi").
 func GetPrimaryNetworkService() (string, error) {
 	// 1. Try scutil to resolve the PrimaryService ID
-	cmd := exec.Command("scutil")
-	cmd.Stdin = strings.NewReader("show State:/Network/Global/IPv4\nquit\n")
-	if out, err := cmd.Output(); err == nil {
+	if out, err := runCmdStdinTimeout(3*time.Second, "show State:/Network/Global/IPv4\nquit\n", "scutil"); err == nil {
 		for _, line := range strings.Split(string(out), "\n") {
 			if strings.Contains(line, "PrimaryService") {
 				parts := strings.Split(line, ":")
 				if len(parts) >= 2 {
 					serviceID := strings.TrimSpace(parts[1])
-					nameCmd := exec.Command("scutil")
-					nameCmd.Stdin = strings.NewReader(fmt.Sprintf("show Setup:/Network/Service/%s\nquit\n", serviceID))
-					if nameOut, nErr := nameCmd.Output(); nErr == nil {
+					if nameOut, nErr := runCmdStdinTimeout(3*time.Second, fmt.Sprintf("show Setup:/Network/Service/%s\nquit\n", serviceID), "scutil"); nErr == nil {
 						for _, nLine := range strings.Split(string(nameOut), "\n") {
 							if strings.Contains(nLine, "UserDefinedName") {
 								nParts := strings.Split(nLine, ":")
@@ -60,8 +55,7 @@ func GetPrimaryNetworkService() (string, error) {
 	}
 
 	// 2. Fallback: inspect default route device and match via networksetup -listnetworkserviceorder
-	routeCmd := exec.Command("route", "-n", "get", "default")
-	if rOut, rErr := routeCmd.Output(); rErr == nil {
+	if rOut, rErr := runCmdTimeout(3*time.Second, "route", "-n", "get", "default"); rErr == nil {
 		var iface string
 		for _, line := range strings.Split(string(rOut), "\n") {
 			line = strings.TrimSpace(line)
@@ -74,8 +68,7 @@ func GetPrimaryNetworkService() (string, error) {
 			}
 		}
 		if iface != "" {
-			orderCmd := exec.Command("networksetup", "-listnetworkserviceorder")
-			if oOut, oErr := orderCmd.Output(); oErr == nil {
+			if oOut, oErr := runCmdTimeout(3*time.Second, "networksetup", "-listnetworkserviceorder"); oErr == nil {
 				lines := strings.Split(string(oOut), "\n")
 				for i, l := range lines {
 					if strings.Contains(l, fmt.Sprintf("Device: %s)", iface)) && i > 0 {
@@ -94,7 +87,7 @@ func GetPrimaryNetworkService() (string, error) {
 
 	// 3. Fallback: try standard service names
 	for _, candidate := range []string{"Ethernet", "Wi-Fi"} {
-		if out, err := exec.Command("networksetup", "-getwebproxy", candidate).Output(); err == nil && len(out) > 0 {
+		if out, err := runCmdTimeout(3*time.Second, "networksetup", "-getwebproxy", candidate); err == nil && len(out) > 0 {
 			return candidate, nil
 		}
 	}
@@ -120,7 +113,7 @@ func EnsureSystemProxy(targetPort int) (bool, error) {
 	}
 
 	// Safety check 2: Check current status
-	out, err := exec.Command("networksetup", "-getwebproxy", service).Output()
+	out, err := runCmdTimeout(3*time.Second, "networksetup", "-getwebproxy", service)
 	if err != nil {
 		return false, err
 	}
@@ -133,10 +126,10 @@ func EnsureSystemProxy(targetPort int) (bool, error) {
 
 	if isConfigured && isDisabled {
 		slog.Info(fmt.Sprintf("[Cockpit] 🔧 Detected local proxy %d is active but system proxy on '%s' is disabled. Re-enabling...", targetPort, service))
-		if err := exec.Command("networksetup", "-setwebproxystate", service, "on").Run(); err != nil {
+		if err := runCmdRunTimeout(3*time.Second, "networksetup", "-setwebproxystate", service, "on"); err != nil {
 			slog.Warn("[Cockpit] Failed to enable webproxy", "service", service, "err", err)
 		}
-		if err := exec.Command("networksetup", "-setsecurewebproxystate", service, "on").Run(); err != nil {
+		if err := runCmdRunTimeout(3*time.Second, "networksetup", "-setsecurewebproxystate", service, "on"); err != nil {
 			slog.Warn("[Cockpit] Failed to enable securewebproxy", "service", service, "err", err)
 		}
 		return true, nil

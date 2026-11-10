@@ -44,6 +44,43 @@ type NotificationSink interface {
 	OnTrajectoryUpdate(details *TrajectoryDetails)
 }
 
+type flightCall[T any] struct {
+	done chan struct{}
+	val  T
+	err  error
+}
+
+// flightGroup is a zero-value-ready generic singleflight helper for coalescing concurrent cache misses.
+type flightGroup[T any] struct {
+	mu    sync.Mutex
+	calls map[string]*flightCall[T]
+}
+
+func (g *flightGroup[T]) do(key string, fn func() (T, error)) (T, error) {
+	g.mu.Lock()
+	if g.calls == nil {
+		g.calls = make(map[string]*flightCall[T])
+	}
+	if c, ok := g.calls[key]; ok {
+		g.mu.Unlock()
+		<-c.done
+		return c.val, c.err
+	}
+	c := &flightCall[T]{done: make(chan struct{})}
+	g.calls[key] = c
+	g.mu.Unlock()
+
+	defer func() {
+		g.mu.Lock()
+		delete(g.calls, key)
+		g.mu.Unlock()
+		close(c.done)
+	}()
+
+	c.val, c.err = fn()
+	return c.val, c.err
+}
+
 // Proxy routes and proxies HTTP/RPC requests to the Antigravity language_server.
 type Proxy struct {
 	insp      inspector.UpstreamDiscoverer
@@ -94,6 +131,10 @@ type Proxy struct {
 
 	projectsCacheMu      sync.RWMutex
 	lastReadProjectsResp []byte
+	cachedProjectsKey    string
+	cachedProjectsList   []ProjectItem
+	cachedProjectsAt     time.Time
+	projectsFlights      flightGroup[[]ProjectItem]
 
 	// nuxCache caches GetCascadeNuxes responses for nuxCacheTTL to avoid
 	// 300-900ms upstream latency on every desktop workbench initialization.
@@ -109,10 +150,19 @@ type Proxy struct {
 	authStatusCacheHeaders http.Header
 	authStatusCachedAt     time.Time
 
+	// userStatusMu caches GetActiveUserStatus (email/name) for activeUserStatusTTL.
+	userStatusMu    sync.RWMutex
+	cachedUserEmail string
+	cachedUserName  string
+	cachedUserPort  int
+	cachedUserAt    time.Time
+
 	// Active WebSocket connection tracking for graceful shutdown
 	wsConnsMu sync.Mutex
 	wsConns   map[*websocket.Conn]struct{}
 }
+
+const activeUserStatusTTL = 30 * time.Second
 
 // nuxCacheTTL is the duration to cache GetCascadeNuxes responses.
 // NUX (New User Experience) data changes at most once per feature release; 60s is safe.
@@ -183,6 +233,14 @@ func (p *Proxy) GetActiveUserStatus() (email string, name string, err error) {
 		return "", "", fmt.Errorf("no active Antigravity upstream")
 	}
 
+	p.userStatusMu.RLock()
+	if p.cachedUserPort == port && p.cachedUserEmail != "" && time.Since(p.cachedUserAt) < activeUserStatusTTL {
+		email, name = p.cachedUserEmail, p.cachedUserName
+		p.userStatusMu.RUnlock()
+		return email, name, nil
+	}
+	p.userStatusMu.RUnlock()
+
 	url := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetUserStatus", port)
 	req, err := http.NewRequest(http.MethodPost, url, strings.NewReader("{}"))
 	if err != nil {
@@ -202,6 +260,7 @@ func (p *Proxy) GetActiveUserStatus() (email string, name string, err error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 		return "", "", fmt.Errorf("GetUserStatus returned status %d", resp.StatusCode)
 	}
 
@@ -215,14 +274,24 @@ func (p *Proxy) GetActiveUserStatus() (email string, name string, err error) {
 		return "", "", err
 	}
 
-	return strings.TrimSpace(data.UserStatus.Email), strings.TrimSpace(data.UserStatus.Name), nil
+	email = strings.TrimSpace(data.UserStatus.Email)
+	name = strings.TrimSpace(data.UserStatus.Name)
+	if email != "" {
+		p.userStatusMu.Lock()
+		p.cachedUserEmail = email
+		p.cachedUserName = name
+		p.cachedUserPort = port
+		p.cachedUserAt = time.Now()
+		p.userStatusMu.Unlock()
+	}
+	return email, name, nil
 }
 
 // NewProxy creates a new reverse proxy backed by the inspector.
 func NewProxy(insp inspector.UpstreamDiscoverer) *Proxy {
 	tr := &http.Transport{
 		TLSClientConfig:       localtls.ClientConfig(),
-		DialTLSContext:        localtls.DialTLSContext,
+		DialContext:           localtls.DialContext,
 		ForceAttemptHTTP2:     true,
 		DisableCompression:    true,
 		MaxIdleConns:          200,
@@ -380,6 +449,14 @@ func (p *Proxy) updateUpstream(info inspector.InstanceInfo) {
 	p.activeProxy = rp
 	p.activePort = port
 	p.activeToken = token
+	p.userStatusMu.Lock()
+	p.cachedUserEmail = ""
+	p.cachedUserName = ""
+	p.cachedUserPort = 0
+	p.cachedUserAt = time.Time{}
+	p.userStatusMu.Unlock()
+	p.invalidateAllTrajectories()
+	p.invalidateProjectsCache()
 	if verboseRPC {
 		slog.Info(fmt.Sprintf("[Proxy] Updated upstream proxy to 127.0.0.1:%d", port))
 	}

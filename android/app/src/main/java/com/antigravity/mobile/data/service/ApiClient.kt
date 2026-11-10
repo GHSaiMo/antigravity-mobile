@@ -219,16 +219,19 @@ class ApiClient(
                 val bodyStr = response.body?.string() ?: "{}"
                 val resp = json.decodeFromString<GetAllCascadeTrajectoriesResponse>(bodyStr)
                 val summaries = resp.trajectorySummaries ?: emptyMap()
+                val localPinnedIds = prefs.getPinnedConversationIds()
 
                 val list = summaries.mapNotNull { (id, summary) ->
                     if (summary.isSubagent) return@mapNotNull null
                     val localViewTime = prefs.getLastViewTime(id)
                     val serverPinned = summary.annotations?.pinned
                     val isPinned = if (serverPinned != null) {
-                        prefs.setPinned(id, serverPinned)
+                        if (serverPinned != localPinnedIds.contains(id)) {
+                            prefs.setPinned(id, serverPinned)
+                        }
                         serverPinned
                     } else {
-                        prefs.isPinned(id)
+                        localPinnedIds.contains(id)
                     }
                     val item = ConversationItem.fromSummary(
                         id = id,
@@ -1429,7 +1432,6 @@ class ApiClient(
 
         prefs.deviceToken?.takeIf { it.isNotBlank() }?.let { token ->
             builder.header("Authorization", "Bearer $token")
-            builder.header("x-device-token", token)
         }
         return builder
     }
@@ -1443,6 +1445,19 @@ class RouteFailoverInterceptor(
     private val prefs: PreferencesManager,
     private val connectionManager: ConnectionManager?
 ) : okhttp3.Interceptor {
+    private fun canSafelyFailover(request: Request, error: IOException): Boolean {
+        val method = request.method.uppercase()
+        if (method == "GET" || method == "HEAD") {
+            return true
+        }
+        // For state-mutating requests (POST/PUT/PATCH/DELETE), only failover on pre-transmission
+        // connection establishment errors — never on read SocketTimeoutException after payload dispatch.
+        return error is java.net.ConnectException ||
+            error is java.net.UnknownHostException ||
+            error is java.net.NoRouteToHostException ||
+            (error is java.net.SocketTimeoutException && error.message?.contains("connect", ignoreCase = true) == true)
+    }
+
     override fun intercept(chain: okhttp3.Interceptor.Chain): okhttp3.Response {
         val request = chain.request()
         val originalUrl = request.url
@@ -1459,6 +1474,9 @@ class RouteFailoverInterceptor(
         try {
             return initialChain.proceed(request)
         } catch (e: IOException) {
+            if (!canSafelyFailover(request, e)) {
+                throw e
+            }
             val cloud = prefs.primaryCloudUrl?.trim()?.trimEnd('/')
             if (!cloud.isNullOrBlank()) {
                 val cloudHost = ConnectionManager.extractHost(cloud)
@@ -1468,6 +1486,9 @@ class RouteFailoverInterceptor(
                         val cloudUri = java.net.URI(if (!cloud.contains("://")) "https://$cloud" else cloud)
                         val newScheme = cloudUri.scheme ?: "https"
                         val newHost = cloudUri.host ?: cloudHost
+                        if (!newScheme.equals("https", ignoreCase = true) && !ConnectionManager.isLanHost(newHost)) {
+                            throw e
+                        }
                         val newPort = if (cloudUri.port != -1) cloudUri.port else (if (newScheme.equals("https", ignoreCase = true)) 443 else 80)
 
                         val fallbackUrl = originalUrl.newBuilder()

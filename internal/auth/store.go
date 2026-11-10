@@ -223,6 +223,29 @@ func (s *AuthStore) ValidateWSTicket(ticket string) (*PairedDevice, bool) {
 	if !ok || deviceID == "" {
 		return nil, false
 	}
+	if deviceID == "admin-local" {
+		now := time.Now()
+		return &PairedDevice{
+			DeviceID:   "admin-local",
+			DeviceName: "Local Administrator",
+			Platform:   "local",
+			CreatedAt:  now,
+			LastSeenAt: now,
+			LastSeenIP: "127.0.0.1",
+		}, true
+	}
+	if strings.HasPrefix(deviceID, "lan-") {
+		ip := strings.TrimPrefix(deviceID, "lan-")
+		now := time.Now()
+		return &PairedDevice{
+			DeviceID:   deviceID,
+			DeviceName: "LAN (" + ip + ")",
+			Platform:   "lan",
+			CreatedAt:  now,
+			LastSeenAt: now,
+			LastSeenIP: ip,
+		}, true
+	}
 	s.mu.RLock()
 	dev, exists := s.devices[deviceID]
 	s.mu.RUnlock()

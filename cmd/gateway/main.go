@@ -10,8 +10,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"net/http/httputil"
-	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -586,11 +584,15 @@ func runListCmd(args []string) {
 		req.Header.Set("Authorization", "Bearer "+adminToken)
 	}
 
-	if resp, err := client.Do(req); err == nil && resp.StatusCode == http.StatusOK {
-		mode = "在线模式 (网关实时探测)"
-		_ = json.NewDecoder(resp.Body).Decode(&devices)
-		resp.Body.Close()
-	} else {
+	if resp, err := client.Do(req); err == nil {
+		if resp.StatusCode == http.StatusOK {
+			mode = "在线模式 (网关实时探测)"
+			_ = json.NewDecoder(resp.Body).Decode(&devices)
+		}
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+		_ = resp.Body.Close()
+	}
+	if mode != "在线模式 (网关实时探测)" {
 		store, err := auth.NewAuthStore("")
 		if err == nil {
 			devices = store.ListDevices()
@@ -670,14 +672,18 @@ func runClearCmd(args []string) {
 		req.Header.Set("Authorization", "Bearer "+adminToken)
 	}
 
-	if resp, err := client.Do(req); err == nil && (resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusNoContent) {
-		resp.Body.Close()
-		if target == "all" {
-			fmt.Println("✅ [在线网关] 已成功清除所有已配对设备授权。")
-		} else {
-			fmt.Printf("✅ [在线网关] 已成功清除设备 [%s] 的授权。\n", target)
+	if resp, err := client.Do(req); err == nil {
+		status := resp.StatusCode
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+		_ = resp.Body.Close()
+		if status == http.StatusOK || status == http.StatusNoContent {
+			if target == "all" {
+				fmt.Println("✅ [在线网关] 已成功清除所有已配对设备授权。")
+			} else {
+				fmt.Printf("✅ [在线网关] 已成功清除设备 [%s] 的授权。\n", target)
+			}
+			return
 		}
-		return
 	}
 
 	// Offline fallback
@@ -714,6 +720,7 @@ func buildRouter(
 	// Auth endpoints
 	rootMux.HandleFunc("/api/v1/auth/pair", authHandler.HandlePair)
 	rootMux.HandleFunc("/api/v1/auth/unpair", authHandler.HandleUnpair)
+	rootMux.HandleFunc("/api/v1/auth/logout", authHandler.HandleLogout)
 	rootMux.HandleFunc("/api/v1/auth/session", authHandler.HandleNewPairingSession)
 	rootMux.HandleFunc("/api/v1/auth/endpoints", authHandler.HandleEndpoints)
 	rootMux.HandleFunc("POST /api/v1/auth/ws-ticket", authHandler.HandleWSTicket)
@@ -766,27 +773,27 @@ func buildRouter(
 	// Cockpit endpoints
 	// liveQuota reads the current account + 4 quota buckets from the running
 	// Antigravity language server (works without Cockpit).
-	liveQuota := func() (*cockpit.AccountQuota, string) {
+	liveQuota := func() (*cockpit.AccountQuota, string, bool) {
 		port, token := p.ActiveUpstream()
 		if port == 0 {
-			return nil, ""
+			return nil, "", false
 		}
 		acc, err := cockpit.FetchLiveQuota(cockpit.LiveQuotaClient(), fmt.Sprintf("https://127.0.0.1:%d", port), token)
 		if err != nil {
 			slog.Warn("[Cockpit] live quota unavailable", "err", err)
-			return nil, ""
+			return nil, "", true
 		}
-		return acc, acc.Email
+		return acc, acc.Email, true
 	}
 	rootMux.HandleFunc("GET /api/v1/cockpit/quotas", func(w http.ResponseWriter, r *http.Request) {
-		live, liveEmail := liveQuota()
-		if liveEmail == "" {
+		live, liveEmail, upstreamProbed := liveQuota()
+		if liveEmail == "" && !upstreamProbed {
 			liveEmail, _, _ = p.GetActiveUserStatus()
 		}
 		quotas, err := cockpit.BuildQuotaResponse(live, liveEmail)
 		if err != nil {
 			slog.Warn("[Cockpit] GetQuotas failed", "err", err)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to load quotas"})
 			return
 		}
 		writeJSON(w, http.StatusOK, quotas)
@@ -797,14 +804,14 @@ func buildRouter(
 			liveEmail, _, _ := p.GetActiveUserStatus()
 			if _, err := cockpit.RefreshQuotas(liveEmail); err != nil {
 				slog.Warn("[Cockpit] RefreshQuotas failed", "err", err)
-				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to refresh quotas"})
 				return
 			}
 		}
-		live, liveEmail := liveQuota()
+		live, liveEmail, _ := liveQuota()
 		quotas, err := cockpit.BuildQuotaResponse(live, liveEmail)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to load quotas"})
 			return
 		}
 		slog.Info("[Cockpit] Quota refresh completed successfully")
@@ -819,6 +826,10 @@ func buildRouter(
 			return
 		}
 		targetID := strings.TrimSpace(req.AccountID)
+		if !cockpit.IsSafeAccountIdentifier(targetID) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid account_id"})
+			return
+		}
 		if !cockpit.IsCockpitInstalled() {
 			writeJSON(w, http.StatusConflict, map[string]string{"error": cockpit.CockpitInstallHint, "code": "COCKPIT_REQUIRED"})
 			return
@@ -826,7 +837,7 @@ func buildRouter(
 		slog.Info(fmt.Sprintf("[Cockpit] Switching account to: %s (quit Antigravity first, then Cockpit inject+relaunch)", targetID))
 		if err := cockpit.SwitchAccount(targetID); err != nil {
 			slog.Warn("[Cockpit] SwitchAccount failed", "err", err)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to switch account"})
 			return
 		}
 		slog.Info(fmt.Sprintf("[Cockpit] Account switched successfully to: %s", targetID))
@@ -910,10 +921,7 @@ func buildRouter(
 
 	// Proactively redirect /onboarding to root to prevent web clients getting trapped
 	rootMux.HandleFunc("GET /onboarding", func(w http.ResponseWriter, r *http.Request) {
-		redirectURL := r.URL.Query().Get("redirect")
-		if redirectURL == "" || redirectURL == "/onboarding" || strings.HasPrefix(redirectURL, "/onboarding") {
-			redirectURL = "/"
-		}
+		redirectURL := sanitizeLocalRedirect(r.URL.Query().Get("redirect"))
 		http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
 	})
 
@@ -976,69 +984,29 @@ func buildRouter(
 
 	rootMux.Handle("/", adaptiveWebHandler)
 
-	// Inject Cloudflare tunnel domain in response headers for client auto-discovery and healing
+	// Inject Cloudflare tunnel domain in response headers for authenticated client auto-discovery and healing
 	endpointHeadersMiddleware := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if cf := authHandler.CloudflareURL(); cf != "" {
+		if cf := authHandler.CloudflareURL(); cf != "" && authHandler.RequestAuthorized(r) {
 			w.Header().Set("X-Antigravity-Cloud-URL", cf)
 		}
 		rootMux.ServeHTTP(w, r)
 	})
 
 	// Wrap with security headers, body size ceiling (64MB), and authentication policy
-	mgyHandler := auth.SecurityHeadersMiddleware(auth.MaxBytesMiddleware(64*1024*1024, auth.AuthMiddlewareWithPolicy(authStore, endpointHeadersMiddleware, authPolicy)))
-	return wrapHal9000TunnelProxy(mgyHandler)
+	return auth.SecurityHeadersMiddleware(auth.MaxBytesMiddleware(64*1024*1024, auth.AuthMiddlewareWithPolicy(authStore, endpointHeadersMiddleware, authPolicy)))
 }
 
-// wrapHal9000TunnelProxy transparently forwards requests arriving via HAL9000's dedicated
-// Cloudflare Tunnel hostname (e.g. 62626924.jiuge.space, where the remote Worker ingress
-// points to localhost:58900) directly to the local HAL9000 daemon on 127.0.0.1:58990.
-func wrapHal9000TunnelProxy(next http.Handler) http.Handler {
-	targetURL, _ := url.Parse("http://127.0.0.1:58990")
-	rp := httputil.NewSingleHostReverseProxy(targetURL)
-	rp.FlushInterval = -1
-	origDirector := rp.Director
-	rp.Director = func(req *http.Request) {
-		origHost := req.Host
-		origDirector(req)
-		req.Host = origHost
+// sanitizeLocalRedirect restricts ?redirect= targets to safe local paths (SEC-06),
+// preventing open redirects to external hosts or protocol-relative URLs.
+func sanitizeLocalRedirect(raw string) string {
+	u := strings.TrimSpace(raw)
+	if u == "" || !strings.HasPrefix(u, "/") || strings.HasPrefix(u, "//") || strings.ContainsAny(u, "\\\r\n\t") {
+		return "/"
 	}
-
-	var cachedSubdomain string
-	var lastCheck time.Time
-	getHalSubdomain := func() string {
-		if time.Since(lastCheck) < 10*time.Second && cachedSubdomain != "" {
-			return cachedSubdomain
-		}
-		lastCheck = time.Now()
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return cachedSubdomain
-		}
-		data, err := os.ReadFile(filepath.Join(home, ".hal9000", "cf_tunnel.json"))
-		if err != nil {
-			return cachedSubdomain
-		}
-		var res struct {
-			Subdomain string `json:"subdomain"`
-		}
-		if json.Unmarshal(data, &res) == nil && res.Subdomain != "" {
-			cachedSubdomain = strings.ToLower(strings.TrimSpace(res.Subdomain))
-		}
-		return cachedSubdomain
+	if u == "/onboarding" || strings.HasPrefix(u, "/onboarding?") || strings.HasPrefix(u, "/onboarding/") {
+		return "/"
 	}
-
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		host := strings.ToLower(strings.TrimSpace(r.Host))
-		if h, _, err := net.SplitHostPort(host); err == nil {
-			host = h
-		}
-		halSub := getHalSubdomain()
-		if (halSub != "" && host == halSub) || strings.HasPrefix(host, "hal9000.") || r.Header.Get("X-Hal9000-Target") == "1" {
-			rp.ServeHTTP(w, r)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
+	return u
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

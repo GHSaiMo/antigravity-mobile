@@ -18,3 +18,6 @@
   - 全量接入 Gemini 3.8 Flash (Argon Flash) 与 Claude Haiku 5.5，实时语音与配额引擎全量对齐；
   - 原生 `clientMessageId` 双轨精准排队匹配，消除消息闪烁与文本比对误差；
   - Mermaid 架构图语法容错自愈，异常字符自动转义修复重绘。
+- 🔒 **全链路性能与网络安全加固**：
+  - **网关安全加固**：延迟连接级 PROXY protocol 嗅探消除 `Accept` 队头阻塞；补齐 Cookie 同源写保护、`POST /api/v1/auth/logout` 凭证吊销、WebSocket 读帧上限与 RPC 多路复用心跳/并发流控，收紧敏感凭据目录黑名单与 XML 沙箱响应头；
+  - **四端性能优化**：上游切换 HTTP/2 复用与 TLS 会话恢复，消除空闲流状态轮询建连风暴；零分配 FNV-1a 增量帧哈希、轨迹快照一次性预解析与流式缩略图像素限额；修复 iOS WebSocket 路径保留与 RFC 9112 分块解码状态机，补齐 iOS/Android 令牌内存写穿缓存与幂等故障切换守卫。
