@@ -262,11 +262,14 @@ fun ConversationNavigatorSheet(
                                 val wasCollapsed = chapter.id in collapsedChapterIds
                                 collapsedChapterIds = collapsedChapterIds - chapter.id
                                 coroutineScope.launch {
-                                    if (wasCollapsed) {
-                                        withFrameNanos { }
-                                    }
                                     chapterOffsets[chapter.id]?.let { targetY ->
                                         scrollState.animateScrollTo(targetY.coerceAtLeast(0))
+                                    }
+                                    if (wasCollapsed) {
+                                        kotlinx.coroutines.delay(60)
+                                        chapterOffsets[chapter.id]?.let { targetY ->
+                                            scrollState.animateScrollTo(targetY.coerceAtLeast(0))
+                                        }
                                     }
                                 }
                             },
@@ -373,8 +376,10 @@ fun ConversationNavigatorSheet(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .onGloballyPositioned { coords ->
-                                    if (coords.isAttached) {
-                                        chapterOffsets[chapter.id] = coords.positionInParent().y.toInt()
+                                    val root = contentRootCoords
+                                    if (root != null && root.isAttached && coords.isAttached) {
+                                        val relativeY = root.localPositionOf(coords, Offset.Zero).y.toInt()
+                                        chapterOffsets[chapter.id] = relativeY + scrollState.value
                                     }
                                 }
                                 .padding(top = 10.dp, bottom = 6.dp)

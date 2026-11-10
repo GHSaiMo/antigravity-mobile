@@ -14,6 +14,13 @@ public struct ConversationNavigatorSheet: View {
     @State private var collapsedChapterIds: Set<String> = []
     @State private var selectedChapterId: String? = nil
     
+    private struct ScrollTarget: Equatable {
+        let id: String
+        let anchor: UnitPoint
+        let token: UUID = UUID()
+    }
+    @State private var scrollTarget: ScrollTarget? = nil
+    
     private var allCollapsed: Bool {
         guard chapters.count > 1 else { return false }
         return chapters.allSatisfy { collapsedChapterIds.contains($0.id) }
@@ -50,21 +57,21 @@ public struct ConversationNavigatorSheet: View {
     
     public var body: some View {
         NavigationStack {
-            ScrollViewReader { scrollProxy in
+            VStack(alignment: .leading, spacing: 12) {
                 VStack(alignment: .leading, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        headerSummaryBanner
-                        
-                        if chapters.count > 1 {
-                            chapterJumpBar(scrollProxy: scrollProxy)
-                        } else if let first = chapters.first, first.isAiTitled {
-                            singleChapterAIBanner(first)
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 14)
+                    headerSummaryBanner
                     
-                    ScrollView(.vertical, showsIndicators: true) {
+                    if chapters.count > 1 {
+                        chapterJumpBar
+                    } else if let first = chapters.first, first.isAiTitled {
+                        singleChapterAIBanner(first)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 14)
+                
+                ScrollView(.vertical, showsIndicators: true) {
+                    ScrollViewReader { verticalScrollProxy in
                         VStack(alignment: .leading, spacing: 18) {
                             if chapters.count > 1 {
                                 // 多章节呈现
@@ -80,26 +87,36 @@ public struct ConversationNavigatorSheet: View {
                         .padding(.horizontal, 16)
                         .padding(.top, 4)
                         .padding(.bottom, 36)
-                    }
-                }
-                .background(Color(uiColor: .systemGroupedBackground))
-                .onAppear {
-                    if selectedChapterId == nil {
-                        selectedChapterId = activeChapterId
-                    }
-                    if let cur = currentTurnIndex, let target = turns.first(where: { $0.turnIndex == cur }) {
-                        scrollProxy.scrollTo(target.id, anchor: .center)
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                            scrollProxy.scrollTo(target.id, anchor: .center)
+                        .onChange(of: scrollTarget) { _, target in
+                            guard let target = target else { return }
+                            withAnimation(.easeInOut(duration: 0.28)) {
+                                verticalScrollProxy.scrollTo(target.id, anchor: target.anchor)
+                            }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                                withAnimation(.easeOut(duration: 0.18)) {
+                                    verticalScrollProxy.scrollTo(target.id, anchor: target.anchor)
+                                }
+                            }
                         }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
-                            withAnimation(.easeOut(duration: 0.2)) {
-                                scrollProxy.scrollTo(target.id, anchor: .center)
+                        .onAppear {
+                            if selectedChapterId == nil {
+                                selectedChapterId = activeChapterId
+                            }
+                            if let cur = currentTurnIndex, let target = turns.first(where: { $0.turnIndex == cur }) {
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                                    verticalScrollProxy.scrollTo(target.id, anchor: .center)
+                                }
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+                                    withAnimation(.easeOut(duration: 0.2)) {
+                                        verticalScrollProxy.scrollTo(target.id, anchor: .center)
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
+            .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("对话大纲与步骤导轨")
             .navigationBarTitleDisplayMode(.inline)
         }
@@ -172,7 +189,7 @@ public struct ConversationNavigatorSheet: View {
     // MARK: - Chapter TOC Jump Bar & Single Chapter AI Banner
 
     @ViewBuilder
-    private func chapterJumpBar(scrollProxy: ScrollViewProxy) -> some View {
+    private var chapterJumpBar: some View {
         ScrollViewReader { tabScrollProxy in
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
@@ -180,12 +197,12 @@ public struct ConversationNavigatorSheet: View {
                         let isSelected = (chapter.id == activeChapterId)
                         Button {
                             UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            selectedChapterId = chapter.id
+                            collapsedChapterIds.remove(chapter.id)
                             withAnimation(.easeInOut(duration: 0.22)) {
-                                selectedChapterId = chapter.id
-                                collapsedChapterIds.remove(chapter.id)
                                 tabScrollProxy.scrollTo("tab-\(chapter.id)", anchor: .center)
-                                scrollProxy.scrollTo(chapter.id, anchor: .top)
                             }
+                            scrollTarget = ScrollTarget(id: chapter.id, anchor: .top)
                         } label: {
                             HStack(spacing: 5) {
                                 Image(systemName: chapter.isAiTitled ? "sparkles" : "bookmark.fill")
