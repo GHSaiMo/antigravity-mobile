@@ -12,10 +12,22 @@ public struct ConversationNavigatorSheet: View {
     public let onJumpToBottom: () -> Void
     
     @State private var collapsedChapterIds: Set<String> = []
+    @State private var selectedChapterId: String? = nil
     
     private var allCollapsed: Bool {
         guard chapters.count > 1 else { return false }
         return chapters.allSatisfy { collapsedChapterIds.contains($0.id) }
+    }
+    
+    private var activeChapterId: String? {
+        if let selected = selectedChapterId, chapters.contains(where: { $0.id == selected }) {
+            return selected
+        }
+        if let cur = currentTurnIndex,
+           let matched = chapters.first(where: { ch in ch.turns.contains(where: { $0.turnIndex == cur }) }) {
+            return matched.id
+        }
+        return chapters.first?.id
     }
     
     public init(
@@ -39,31 +51,42 @@ public struct ConversationNavigatorSheet: View {
     public var body: some View {
         NavigationStack {
             ScrollViewReader { scrollProxy in
-                ScrollView(.vertical, showsIndicators: true) {
-                    VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 12) {
                         headerSummaryBanner
                         
                         if chapters.count > 1 {
                             chapterJumpBar(scrollProxy: scrollProxy)
-                            // 多章节呈现
-                            ForEach(chapters) { chapter in
-                                chapterSection(chapter: chapter)
-                                    .id(chapter.id)
-                            }
-                        } else {
-                            if let first = chapters.first, first.isAiTitled {
-                                singleChapterAIBanner(first)
-                            }
-                            // 单章节平铺呈现
-                            turnsTimelineList(turns: turns)
+                        } else if let first = chapters.first, first.isAiTitled {
+                            singleChapterAIBanner(first)
                         }
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 14)
-                    .padding(.bottom, 36)
+                    
+                    ScrollView(.vertical, showsIndicators: true) {
+                        VStack(alignment: .leading, spacing: 18) {
+                            if chapters.count > 1 {
+                                // 多章节呈现
+                                ForEach(chapters) { chapter in
+                                    chapterSection(chapter: chapter)
+                                        .id(chapter.id)
+                                }
+                            } else {
+                                // 单章节平铺呈现
+                                turnsTimelineList(turns: turns)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 4)
+                        .padding(.bottom, 36)
+                    }
                 }
                 .background(Color(uiColor: .systemGroupedBackground))
                 .onAppear {
+                    if selectedChapterId == nil {
+                        selectedChapterId = activeChapterId
+                    }
                     if let cur = currentTurnIndex, let target = turns.first(where: { $0.turnIndex == cur }) {
                         scrollProxy.scrollTo(target.id, anchor: .center)
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
@@ -150,40 +173,50 @@ public struct ConversationNavigatorSheet: View {
 
     @ViewBuilder
     private func chapterJumpBar(scrollProxy: ScrollViewProxy) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(Array(chapters.enumerated()), id: \.element.id) { idx, chapter in
-                    let isCurrent = chapter.turns.contains(where: { $0.turnIndex == currentTurnIndex })
-                    Button {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        collapsedChapterIds.remove(chapter.id)
-                        withAnimation(.easeInOut(duration: 0.22)) {
-                            scrollProxy.scrollTo(chapter.id, anchor: .top)
+        ScrollViewReader { tabScrollProxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(Array(chapters.enumerated()), id: \.element.id) { idx, chapter in
+                        let isSelected = (chapter.id == activeChapterId)
+                        Button {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            withAnimation(.easeInOut(duration: 0.22)) {
+                                selectedChapterId = chapter.id
+                                collapsedChapterIds.remove(chapter.id)
+                                tabScrollProxy.scrollTo("tab-\(chapter.id)", anchor: .center)
+                                scrollProxy.scrollTo(chapter.id, anchor: .top)
+                            }
+                        } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: chapter.isAiTitled ? "sparkles" : "bookmark.fill")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundColor(isSelected ? .white : .indigo)
+                                Text("§\(idx + 1) \(chapter.title)")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(isSelected ? .white : .primary)
+                                    .lineLimit(1)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .frame(maxWidth: 220)
+                            .background(isSelected ? Color.indigo : Color(uiColor: .secondarySystemGroupedBackground))
+                            .clipShape(Capsule())
+                            .overlay(
+                                Capsule()
+                                    .stroke(isSelected ? Color.clear : Color.indigo.opacity(0.22), lineWidth: 1)
+                            )
                         }
-                    } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: chapter.isAiTitled ? "sparkles" : "bookmark.fill")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundColor(isCurrent ? .white : .indigo)
-                            Text("§\(idx + 1) \(chapter.title)")
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(isCurrent ? .white : .primary)
-                                .lineLimit(1)
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .frame(maxWidth: 220)
-                        .background(isCurrent ? Color.indigo : Color(uiColor: .secondarySystemGroupedBackground))
-                        .clipShape(Capsule())
-                        .overlay(
-                            Capsule()
-                                .stroke(isCurrent ? Color.clear : Color.indigo.opacity(0.22), lineWidth: 1)
-                        )
+                        .buttonStyle(.plain)
+                        .id("tab-\(chapter.id)")
                     }
-                    .buttonStyle(.plain)
+                }
+                .padding(.vertical, 2)
+            }
+            .onAppear {
+                if let activeId = activeChapterId {
+                    tabScrollProxy.scrollTo("tab-\(activeId)", anchor: .center)
                 }
             }
-            .padding(.vertical, 2)
         }
     }
 
@@ -211,6 +244,7 @@ public struct ConversationNavigatorSheet: View {
     private func chapterSection(chapter: ConversationChapter) -> some View {
         let isCollapsed = collapsedChapterIds.contains(chapter.id)
         let containsCurrent = chapter.turns.contains(where: { $0.turnIndex == currentTurnIndex })
+        let isSelectedChapter = (chapter.id == activeChapterId)
         let containsError = chapter.turns.contains(where: { $0.hasError })
         let containsActive = chapter.turns.contains(where: { $0.isActive })
         
@@ -220,6 +254,7 @@ public struct ConversationNavigatorSheet: View {
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 withAnimation(.easeInOut(duration: 0.22)) {
                     if isCollapsed {
+                        selectedChapterId = chapter.id
                         collapsedChapterIds.remove(chapter.id)
                     } else {
                         collapsedChapterIds.insert(chapter.id)
@@ -229,12 +264,12 @@ public struct ConversationNavigatorSheet: View {
                 HStack(spacing: 8) {
                     Image(systemName: chapter.isAiTitled ? "sparkles" : (chapter.dateText != nil ? "calendar" : "bookmark.fill"))
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(chapter.isAiTitled || containsCurrent ? .indigo : .secondary)
+                        .foregroundColor(chapter.isAiTitled || containsCurrent || isSelectedChapter ? .indigo : .secondary)
                     
                     VStack(alignment: .leading, spacing: 1.5) {
                         Text(chapter.title)
                             .font(.system(size: 13, weight: .bold))
-                            .foregroundColor(containsCurrent ? .primary : .secondary)
+                            .foregroundColor(containsCurrent || isSelectedChapter ? .primary : .secondary)
                             .lineLimit(1)
                         if let sub = chapter.subtitle, !sub.isEmpty {
                             Text(sub)

@@ -77,6 +77,8 @@ public final class CacheManager: @unchecked Sendable {
     private static let encoder = JSONEncoder()
     
     private var memConversations: [ConversationItem]?
+    private var memMcpServers: [McpServerState]?
+    private var memSkills: [SkillInfo]?
     private var memSessions: [String: CachedChatSession] = [:]
     /// Latest not-yet-written snapshot per session. The chat stream saves on every frame (several per
     /// second while an agent runs); disk writes are coalesced to one per `sessionWriteInterval`.
@@ -352,7 +354,92 @@ public final class CacheManager: @unchecked Sendable {
         memSessions.removeAll()
         memDraftImages.removeAll()
         memConversations = nil
+        memMcpServers = nil
+        memSkills = nil
         lock.unlock()
+    }
+    
+    // MARK: - MCP & Skills Cache
+    
+    public func saveMcpServers(_ items: [McpServerState]) {
+        lock.lock()
+        memMcpServers = items
+        lock.unlock()
+        
+        guard let data = try? Self.encoder.encode(items) else { return }
+        let fileURL = cacheDir.appendingPathComponent("mcp_servers.json")
+        ioQueue.async {
+            try? data.write(to: fileURL, options: .atomic)
+        }
+    }
+    
+    public func loadMcpServers() -> [McpServerState] {
+        lock.lock()
+        if let mem = memMcpServers, !mem.isEmpty {
+            lock.unlock()
+            return mem
+        }
+        lock.unlock()
+        
+        let fileURL = cacheDir.appendingPathComponent("mcp_servers.json")
+        guard let data = try? Data(contentsOf: fileURL),
+              let items = try? Self.decoder.decode([McpServerState].self, from: data),
+              !items.isEmpty else {
+            return []
+        }
+        lock.lock()
+        memMcpServers = items
+        lock.unlock()
+        return items
+    }
+    
+    public func saveSkills(_ items: [SkillInfo]) {
+        lock.lock()
+        memSkills = items
+        lock.unlock()
+        
+        guard let data = try? Self.encoder.encode(items) else { return }
+        let fileURL = cacheDir.appendingPathComponent("skills.json")
+        ioQueue.async {
+            try? data.write(to: fileURL, options: .atomic)
+        }
+    }
+    
+    public func loadSkills() -> [SkillInfo] {
+        lock.lock()
+        if let mem = memSkills, !mem.isEmpty {
+            lock.unlock()
+            return mem
+        }
+        lock.unlock()
+        
+        let fileURL = cacheDir.appendingPathComponent("skills.json")
+        guard let data = try? Data(contentsOf: fileURL),
+              let items = try? Self.decoder.decode([SkillInfo].self, from: data),
+              !items.isEmpty else {
+            return []
+        }
+        lock.lock()
+        memSkills = items
+        lock.unlock()
+        return items
+    }
+    
+    public func fetchAndCacheMcpAndSkills(baseURL: URL? = nil) async {
+        guard AppSettings.shared.isPaired else { return }
+        guard let url = baseURL ?? AppSettings.shared.gatewayURL else { return }
+        
+        async let mcpTask: Void = {
+            if let mcp = try? await APIClient.shared.fetchMcpServerStates(baseURL: url) {
+                self.saveMcpServers(mcp)
+            }
+        }()
+        async let skillsTask: Void = {
+            if let skills = try? await APIClient.shared.fetchAllSkills(baseURL: url) {
+                self.saveSkills(skills)
+            }
+        }()
+        _ = await (mcpTask, skillsTask)
     }
     
     // MARK: - Conversations List Cache

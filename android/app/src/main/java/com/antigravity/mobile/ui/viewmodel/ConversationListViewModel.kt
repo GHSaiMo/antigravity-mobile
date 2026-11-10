@@ -98,6 +98,7 @@ class ConversationListViewModel(
             loadConversations()
             loadQuotas()
             loadProjects()
+            prewarmMcpAndSkillsCache()
         } else {
             _uiState.value = ConversationListUiState.Success(emptyList())
         }
@@ -316,10 +317,20 @@ class ConversationListViewModel(
                     } catch (_: Exception) {}
                 }
             }
+            prewarmMcpAndSkillsCache()
         } catch (e: Exception) {
             Log.w("ConvListVM", "loadInitialData failed: ${e.message}")
         }
         return success
+    }
+
+    private fun prewarmMcpAndSkillsCache() {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                apiClient.fetchMcpServerStates().onSuccess { prefs.saveCachedMcpServers(it) }
+                apiClient.fetchAllSkills().onSuccess { prefs.saveCachedSkills(it) }
+            } catch (_: Exception) {}
+        }
     }
 
     fun refresh(onComplete: (() -> Unit)? = null) {
