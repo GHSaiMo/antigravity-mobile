@@ -239,6 +239,7 @@ func (p *Proxy) lookupConversationMetaForTasks(ctx context.Context, port int, to
 		TrajectorySummaries map[string]struct {
 			Summary            string `json:"summary"`
 			TrajectoryMetadata *struct {
+				ProjectID     string   `json:"projectId"`
 				WorkspaceUris []string `json:"workspaceUris"`
 			} `json:"trajectoryMetadata"`
 			Workspaces []struct {
@@ -250,22 +251,29 @@ func (p *Proxy) lookupConversationMetaForTasks(ctx context.Context, port int, to
 		return out
 	}
 
-	aliases := loadWorkspaceAliases()
+	resolveWorkspace := p.BuildWorkspaceDisplayNameResolver()
 	for cid, s := range env.TrajectorySummaries {
-		var wsURI string
-		if len(s.Workspaces) > 0 {
-			wsURI = strings.TrimSpace(s.Workspaces[0].WorkspaceFolderAbsoluteUri)
+		var wsURIs []string
+		var pid string
+		if s.TrajectoryMetadata != nil {
+			pid = strings.TrimSpace(s.TrajectoryMetadata.ProjectID)
+			for _, u := range s.TrajectoryMetadata.WorkspaceUris {
+				if trimmed := strings.TrimSpace(u); trimmed != "" {
+					wsURIs = append(wsURIs, trimmed)
+				}
+			}
 		}
-		if wsURI == "" && s.TrajectoryMetadata != nil && len(s.TrajectoryMetadata.WorkspaceUris) > 0 {
-			wsURI = strings.TrimSpace(s.TrajectoryMetadata.WorkspaceUris[0])
+		if len(wsURIs) == 0 {
+			for _, w := range s.Workspaces {
+				if trimmed := strings.TrimSpace(w.WorkspaceFolderAbsoluteUri); trimmed != "" {
+					wsURIs = append(wsURIs, trimmed)
+				}
+			}
 		}
-		var wsName string
-		if wsURI != "" {
-			localPath := uriToPath(wsURI)
-			normKey := normalizeWorkspaceKey(localPath)
-			if alias, ok := aliases[normKey]; ok && strings.TrimSpace(alias) != "" {
-				wsName = strings.TrimSpace(alias)
-			} else if localPath != "" && !isDriveRoot(localPath) {
+		_, wsName := resolveWorkspace(pid, wsURIs)
+		if wsName == "" && len(wsURIs) > 0 {
+			localPath := uriToPath(wsURIs[0])
+			if localPath != "" && !isDriveRoot(localPath) {
 				wsName = filepath.Base(localPath)
 			}
 		}

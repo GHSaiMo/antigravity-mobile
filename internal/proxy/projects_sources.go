@@ -740,6 +740,7 @@ func fetchProjectsFromStateDB() []ProjectItem {
 type upstreamTrajectorySummaryItem struct {
 	LastModifiedTime   string `json:"lastModifiedTime"`
 	TrajectoryMetadata *struct {
+		ProjectID            string      `json:"projectId,omitempty"`
 		WorkspaceUris        []string    `json:"workspaceUris"`
 		ParentConversationID string      `json:"parentConversationId,omitempty"`
 		SubagentSpec         interface{} `json:"subagentSpec,omitempty"`

@@ -614,6 +614,7 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 
 	runningSubagentParents := make(map[string]bool)
 	sidecarProjectIDs := fetchSidecarProjectIDs()
+	resolveWorkspace := p.BuildWorkspaceDisplayNameResolver()
 	// Enrich missing titles, filter out subagent sessions, deleted sessions, and stale abandoned drafts
 	for id, s := range summaries {
 		// Filter out recently deleted sessions (tombstone protection against upstream sync delays)
@@ -702,40 +703,53 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 			}
 		}
 
-		// Backfill projectId if missing, outside-of-project, or a sidecar shadow projectId
+		// Backfill projectId if missing, outside-of-project, or a sidecar shadow projectId,
+		// and enrich official project display name (workspaceName).
 		meta, _ := s["trajectoryMetadata"].(map[string]interface{})
 		curPID, _ := meta["projectId"].(string)
-		if curPID == "" || curPID == "outside-of-project" || sidecarProjectIDs[curPID] {
-			var wsURIs []string
-			if meta != nil {
-				if uris, ok := meta["workspaceUris"].([]interface{}); ok {
-					for _, u := range uris {
-						if us, ok := u.(string); ok && us != "" {
-							wsURIs = append(wsURIs, us)
+		var wsURIs []string
+		if meta != nil {
+			if uris, ok := meta["workspaceUris"].([]interface{}); ok {
+				for _, u := range uris {
+					if us, ok := u.(string); ok && us != "" {
+						wsURIs = append(wsURIs, us)
+					}
+				}
+			}
+		}
+		if len(wsURIs) == 0 {
+			if wss, ok := s["workspaces"].([]interface{}); ok {
+				for _, w := range wss {
+					if wm, ok := w.(map[string]interface{}); ok {
+						if uri, ok := wm["workspaceFolderAbsoluteUri"].(string); ok && uri != "" {
+							wsURIs = append(wsURIs, uri)
 						}
 					}
 				}
 			}
-			if len(wsURIs) == 0 {
-				if wss, ok := s["workspaces"].([]interface{}); ok {
-					for _, w := range wss {
-						if wm, ok := w.(map[string]interface{}); ok {
-							if uri, ok := wm["workspaceFolderAbsoluteUri"].(string); ok && uri != "" {
-								wsURIs = append(wsURIs, uri)
-							}
-						}
-					}
+		}
+		lookupPID := curPID
+		if lookupPID == "outside-of-project" || sidecarProjectIDs[lookupPID] {
+			lookupPID = ""
+		}
+		resolvedPID, resolvedWSName := resolveWorkspace(lookupPID, wsURIs)
+		if (curPID == "" || curPID == "outside-of-project" || sidecarProjectIDs[curPID]) && len(wsURIs) > 0 {
+			if resolvedPID == "" {
+				resolvedPID = p.FindProjectIDForWorkspaces(wsURIs)
+				if resolvedPID != "" && resolvedWSName == "" {
+					_, resolvedWSName = resolveWorkspace(resolvedPID, wsURIs)
 				}
 			}
-			if len(wsURIs) > 0 {
-				if matchedPID := p.FindProjectIDForWorkspaces(wsURIs); matchedPID != "" {
-					if meta == nil {
-						meta = make(map[string]interface{})
-					}
-					meta["projectId"] = matchedPID
-					s["trajectoryMetadata"] = meta
+			if resolvedPID != "" {
+				if meta == nil {
+					meta = make(map[string]interface{})
 				}
+				meta["projectId"] = resolvedPID
+				s["trajectoryMetadata"] = meta
 			}
+		}
+		if resolvedWSName != "" {
+			s["workspaceName"] = resolvedWSName
 		}
 
 		// Filter out stale empty drafts (0 steps, not running, older than 15 minutes, no custom title)

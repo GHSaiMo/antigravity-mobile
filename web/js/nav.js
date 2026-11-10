@@ -66,7 +66,7 @@ function renderRoute() {
     const summary = currentTrajectories[activeCascadeId];
     const title = formatConversationTitle(summary?.annotations, summary?.summary, "会话详情");
     const wsUri = summary?.workspaceUris?.[0] || summary?.workspaces?.[0]?.workspaceFolderAbsoluteUri || "";
-    const wsName = wsUri.split("/").filter(Boolean).pop() || "";
+    const wsName = summary?.workspaceName || wsUri.split("/").filter(Boolean).pop() || "";
 
     if (titleText) titleText.textContent = title;
     if (wsText) wsText.textContent = wsName ? `📁 ${wsName}` : "";
@@ -493,7 +493,7 @@ function renderConversationList(summaries) {
         ? `<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" class="conv-pin-icon" title="已置顶" style="color: #f59e0b; margin-right: 4px; flex-shrink: 0;"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>`
         : "";
       const wsUri = item.workspaceUris?.[0] || item.workspaces?.[0]?.workspaceFolderAbsoluteUri || "";
-      const wsName = wsUri.split("/").filter(Boolean).pop() || "Chat";
+      const wsName = item.workspaceName || wsUri.split("/").filter(Boolean).pop() || "Chat";
       const timeStr = formatRelativeTime(item.lastModifiedTime);
 
       return `

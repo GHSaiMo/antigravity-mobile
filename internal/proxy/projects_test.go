@@ -978,9 +978,55 @@ func TestGetProjects_StrictOfficialAlignment(t *testing.T) {
 	}
 }
 
+func TestBuildWorkspaceDisplayNameResolver(t *testing.T) {
+	tmpHome := t.TempDir()
+	origHome := os.Getenv("HOME")
+	origAppData := os.Getenv("ANTIGRAVITY_APP_DATA_DIR")
+	os.Setenv("HOME", tmpHome)
+	os.Setenv("ANTIGRAVITY_APP_DATA_DIR", filepath.Join(tmpHome, ".gemini", "antigravity"))
+	defer func() {
+		os.Setenv("HOME", origHome)
+		if origAppData != "" {
+			os.Setenv("ANTIGRAVITY_APP_DATA_DIR", origAppData)
+		} else {
+			os.Unsetenv("ANTIGRAVITY_APP_DATA_DIR")
+		}
+	}()
 
+	projDir := filepath.Join(tmpHome, ".gemini", "config", "projects")
+	_ = os.MkdirAll(projDir, 0755)
+	repoDir := filepath.Join(tmpHome, "Projects", "wechat-bot")
+	_ = os.MkdirAll(repoDir, 0755)
 
+	projCfg := fmt.Sprintf(`{
+		"id": "proj-truck-9000",
+		"name": "Truck9000",
+		"projectResources": {
+			"resources": [
+				{
+					"gitFolder": {
+						"folderUri": "file://%s"
+					}
+				}
+			]
+		}
+	}`, filepath.ToSlash(repoDir))
+	_ = os.WriteFile(filepath.Join(projDir, "proj-truck-9000.json"), []byte(projCfg), 0644)
 
+	insp := inspector.NewInspector(5 * time.Second)
+	p := NewProxy(insp)
+	resolve := p.BuildWorkspaceDisplayNameResolver()
 
+	// 1. Resolve by projectId even when folder name differs ("wechat-bot" vs "Truck9000")
+	pid, disp := resolve("proj-truck-9000", []string{"file://" + filepath.ToSlash(repoDir)})
+	if pid != "proj-truck-9000" || disp != "Truck9000" {
+		t.Fatalf("expected (proj-truck-9000, Truck9000), got (%q, %q)", pid, disp)
+	}
 
+	// 2. Backfill projectId and display name from workspaceURI when projectId is missing
+	pid2, disp2 := resolve("", []string{"file://" + filepath.ToSlash(repoDir)})
+	if pid2 != "proj-truck-9000" || disp2 != "Truck9000" {
+		t.Fatalf("expected backfilled (proj-truck-9000, Truck9000), got (%q, %q)", pid2, disp2)
+	}
+}
 

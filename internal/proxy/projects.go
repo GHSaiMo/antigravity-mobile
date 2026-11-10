@@ -37,6 +37,10 @@ func (p *Proxy) GetProjects() ([]ProjectItem, error) {
 		count      int
 		lastActive time.Time
 	})
+	projectIDStats := make(map[string]struct {
+		count      int
+		lastActive time.Time
+	})
 
 	if port > 0 {
 		trajectories, err := p.fetchTrajectoriesSummary(port, token)
@@ -69,6 +73,17 @@ func (p *Proxy) GetProjects() ([]ProjectItem, error) {
 				if sum.LastModifiedTime != "" {
 					if t, err := parseTime(sum.LastModifiedTime); err == nil {
 						activeTime = t
+					}
+				}
+
+				if sum.TrajectoryMetadata != nil {
+					if pid := strings.TrimSpace(sum.TrajectoryMetadata.ProjectID); pid != "" && pid != "outside-of-project" {
+						pstat := projectIDStats[pid]
+						pstat.count++
+						if activeTime.After(pstat.lastActive) {
+							pstat.lastActive = activeTime
+						}
+						projectIDStats[pid] = pstat
 					}
 				}
 
@@ -135,6 +150,17 @@ func (p *Proxy) GetProjects() ([]ProjectItem, error) {
 			if !stat.lastActive.IsZero() && (itemCopy.LastActive == nil || stat.lastActive.After(*itemCopy.LastActive)) {
 				t := stat.lastActive
 				itemCopy.LastActive = &t
+			}
+		}
+		if itemCopy.ID != "" {
+			if pstat, ok := projectIDStats[itemCopy.ID]; ok {
+				if pstat.count > itemCopy.SessionCount {
+					itemCopy.SessionCount = pstat.count
+				}
+				if !pstat.lastActive.IsZero() && (itemCopy.LastActive == nil || pstat.lastActive.After(*itemCopy.LastActive)) {
+					t := pstat.lastActive
+					itemCopy.LastActive = &t
+				}
 			}
 		}
 		projectMap[norm] = &itemCopy
@@ -242,6 +268,136 @@ func (p *Proxy) GetProjects() ([]ProjectItem, error) {
 	}
 
 	return result, nil
+}
+
+// BuildWorkspaceDisplayNameResolver returns a fast lookup closure that resolves
+// a trajectory's projectID and official project display name (Alias or Name)
+// from its projectId and/or workspaceURIs without per-trajectory RPC calls.
+func (p *Proxy) BuildWorkspaceDisplayNameResolver() func(projectID string, workspaceURIs []string) (string, string) {
+	cfgProjects := fetchProjectsFromGeminiConfig()
+	aliases := loadWorkspaceAliases()
+
+	byID := make(map[string]string, len(cfgProjects))
+	type uriEntry struct {
+		id   string
+		name string
+	}
+	byURI := make(map[string]uriEntry, len(cfgProjects))
+	byPath := make(map[string]uriEntry, len(cfgProjects))
+
+	register := func(id, name, uri, path string) {
+		disp := strings.TrimSpace(name)
+		normURI := normalizeURI(uri)
+		cleanPath := ""
+		if path != "" {
+			cleanPath = filepath.Clean(path)
+		} else if normURI != "" {
+			if parsed := uriToPath(normURI); parsed != "" {
+				cleanPath = filepath.Clean(parsed)
+			}
+		}
+		if len(aliases) > 0 {
+			if cleanPath != "" {
+				if a, ok := aliases[normalizeWorkspaceKey(cleanPath)]; ok && a != "" {
+					disp = a
+				}
+			}
+			if normURI != "" {
+				if a, ok := aliases[normalizeWorkspaceKey(normURI)]; ok && a != "" {
+					disp = a
+				}
+			}
+		}
+		if id != "" && disp != "" {
+			if _, exists := byID[id]; !exists {
+				byID[id] = disp
+			}
+		}
+		if normURI != "" && disp != "" {
+			if _, exists := byURI[normURI]; !exists {
+				byURI[normURI] = uriEntry{id: id, name: disp}
+			}
+		}
+		if cleanPath != "" && disp != "" {
+			if _, exists := byPath[cleanPath]; !exists {
+				byPath[cleanPath] = uriEntry{id: id, name: disp}
+			}
+		}
+	}
+
+	for _, prj := range cfgProjects {
+		register(prj.ID, prj.Name, prj.URI, prj.Path)
+	}
+
+	p.projectsCacheMu.RLock()
+	cachedReadResp := p.lastReadProjectsResp
+	p.projectsCacheMu.RUnlock()
+	if len(cachedReadResp) > 0 {
+		var readResp struct {
+			Projects []geminiProjectConfigFile `json:"projects"`
+		}
+		if err := json.Unmarshal(cachedReadResp, &readResp); err == nil {
+			for _, prj := range readResp.Projects {
+				if prj.ID == "" || prj.ID == "outside-of-project" {
+					continue
+				}
+				if prj.ProjectResources != nil {
+					for _, r := range prj.ProjectResources.Resources {
+						u := r.FolderURI
+						if u == "" && r.GitFolder != nil {
+							u = r.GitFolder.FolderURI
+						}
+						if u != "" {
+							register(prj.ID, prj.Name, u, "")
+						}
+					}
+				} else if prj.Name != "" {
+					register(prj.ID, prj.Name, "", "")
+				}
+			}
+		}
+	}
+
+	return func(projectID string, workspaceURIs []string) (string, string) {
+		resolvedID := strings.TrimSpace(projectID)
+		if resolvedID != "" && resolvedID != "outside-of-project" {
+			if disp, ok := byID[resolvedID]; ok && disp != "" {
+				return resolvedID, disp
+			}
+		}
+		for _, wsURI := range workspaceURIs {
+			if wsURI == "" {
+				continue
+			}
+			norm := normalizeURI(wsURI)
+			if e, ok := byURI[norm]; ok {
+				if resolvedID == "" || resolvedID == "outside-of-project" {
+					resolvedID = e.id
+				}
+				return resolvedID, e.name
+			}
+			if tPath := uriToPath(norm); tPath != "" {
+				cleanT := filepath.Clean(tPath)
+				if e, ok := byPath[cleanT]; ok {
+					if resolvedID == "" || resolvedID == "outside-of-project" {
+						resolvedID = e.id
+					}
+					return resolvedID, e.name
+				}
+				if len(aliases) > 0 {
+					if a, ok := aliases[normalizeWorkspaceKey(cleanT)]; ok && a != "" {
+						return resolvedID, a
+					}
+				}
+			}
+			if len(aliases) > 0 && norm != "" {
+				if a, ok := aliases[normalizeWorkspaceKey(norm)]; ok && a != "" {
+					return resolvedID, a
+				}
+			}
+		}
+		return resolvedID, ""
+	}
 }
 
 // FindProjectIDForWorkspaces matches workspace URIs against known projects and returns the project ID.
