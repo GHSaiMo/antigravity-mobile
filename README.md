@@ -435,8 +435,8 @@ mgy help           # 查看完整命令与启动参数帮助
 - **全双工实时语音与听写体验对齐 (Full-Duplex Voice & Dictation Smoothing)**：
   - 智能消除普通话识别中的 CJK 汉字与标点冗余分词空格，保留英文单词原有空格；
   - 优化语音通话卡片连接（CONNECTING/RECONNECTING）占位状态与即时响应反馈，消除开麦等待空白与未响应感。
-- **Git 提交面板联动 GitHub PR 状态 (`GetWorkspaceGitHubPullRequests` GitHub PR Integration)**：
-  - 网关新增 `POST /gateway/git/prs` 并在 `/gateway/git/overview` 中联动返回当前仓库的 GitHub Pull Requests；优先调用 `GetWorkspaceGitHubPullRequests`，当上游未返回时自动降级调用本机 `gh pr list` 补齐 PR 列表，并自动识别当前分支关联的 PR；
+- **Git 提交面板联动 GitHub PR 状态 (`GetGitHubPullRequests` GitHub PR Integration)**：
+  - 网关新增 `POST /gateway/git/prs` 并在 `/gateway/git/overview` 中联动返回当前仓库的 GitHub Pull Requests；优先调用 `GetGitHubPullRequests`，当上游未返回时自动降级调用本机 `gh pr list` 补齐 PR 列表，并自动识别当前分支关联的 PR；
   - iOS、Android 与 Web 的 Git 提交面板（`GitCommitSheet`）顶部自动展示当前分支关联的 PR 状态胶囊（`Draft` / `Open` / `Merged` / `Closed`、编号 `#N`、标题与分支流向）及仓库近期 PR 列表，点击直接跳转 GitHub PR 页面，打通手机端「改代码 ➔ Commit & Push ➔ 查看 PR 状态」完整闭环。
 - **Antigravity 2.30/2.31 新模型目录、原生 `clientMessageId` 与 `killBackgroundTasks` 精细控制**：
   - 四端同步接入 `MODEL_PLACEHOLDER_M49`（**Gemini 3.8 Flash / Argon Flash**）、`MODEL_PLACEHOLDER_M50`（**Claude Haiku 5.5**）及 Vertex AI Claude 企业别名，实时语音协议同步支持 `M49` 枚举值（`1049`），配额引擎将 `M50` 纳入 Claude 配额家族；

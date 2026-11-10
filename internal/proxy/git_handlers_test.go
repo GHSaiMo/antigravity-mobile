@@ -122,7 +122,7 @@ func TestHandleGitStatus_WithGitHubPullRequests(t *testing.T) {
 					},
 				},
 			})
-		case strings.HasSuffix(r.URL.Path, "/GetWorkspaceGitHubPullRequests"):
+		case strings.HasSuffix(r.URL.Path, "/GetGitHubPullRequests"):
 			prCalls++
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"workspaces": []map[string]interface{}{
@@ -190,6 +190,6 @@ func TestHandleGitStatus_WithGitHubPullRequests(t *testing.T) {
 	// Second call within TTL should hit cache
 	_ = postJSON(t, p.HandleGitStatus, "/gateway/git/status", `{"cascadeId":"casc-pr"}`)
 	if prCalls != 1 {
-		t.Fatalf("expected 1 upstream GetWorkspaceGitHubPullRequests call due to cache, got %d", prCalls)
+		t.Fatalf("expected 1 upstream GetGitHubPullRequests call due to cache, got %d", prCalls)
 	}
 }
