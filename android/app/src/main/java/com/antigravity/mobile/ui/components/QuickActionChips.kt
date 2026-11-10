@@ -31,6 +31,7 @@ fun QuickActionChips(
     selectedSlashCommand: SlashCommandOption? = null,
     onClearSlashCommand: () -> Unit = {},
     onCommitAndPush: () -> Unit,
+    commitLabel: String = "Commit",
     showCommit: Boolean = true,
     onShowChanges: () -> Unit,
     showChanges: Boolean = true,
@@ -132,7 +133,7 @@ fun QuickActionChips(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "Commit",
+                    text = commitLabel,
                     color = colors.textPrimary,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Medium

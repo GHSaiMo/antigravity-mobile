@@ -108,3 +108,88 @@ func TestHandleGit_NotARepoAndPureChat(t *testing.T) {
 		t.Errorf("unknown cascade must not succeed")
 	}
 }
+
+func TestHandleGitStatus_WithGitHubPullRequests(t *testing.T) {
+	root := newTestRepo(t)
+	prCalls := 0
+	p := newFakeLSProxy(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/GetAllCascadeTrajectories"):
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"trajectorySummaries": map[string]interface{}{
+					"casc-pr": map[string]interface{}{
+						"workspaces": []map[string]interface{}{{"workspaceFolderAbsoluteUri": localPathToFileURI(root)}},
+					},
+				},
+			})
+		case strings.HasSuffix(r.URL.Path, "/GetWorkspaceGitHubPullRequests"):
+			prCalls++
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"workspaces": []map[string]interface{}{
+					{
+						"workspaceUri": localPathToFileURI(root),
+						"target": map[string]interface{}{
+							"host":   "github.com",
+							"owner":  "GHSaiMo",
+							"repo":   "antigravity-mobile",
+							"branch": "main",
+						},
+						"pullRequests": []map[string]interface{}{
+							{
+								"ref": map[string]interface{}{
+									"host":   "github.com",
+									"owner":  "GHSaiMo",
+									"repo":   "antigravity-mobile",
+									"number": 42,
+								},
+								"url":         "https://github.com/GHSaiMo/antigravity-mobile/pull/42",
+								"title":       "feat: support Antigravity 2.30.0 RPCs",
+								"state":       "GITHUB_PULL_REQUEST_STATE_OPEN",
+								"authorLogin": "hal9000",
+								"headRefName": "feat/2.30",
+								"baseRefName": "main",
+							},
+							{
+								"ref": map[string]interface{}{
+									"number": 41,
+								},
+								"url":   "https://github.com/GHSaiMo/antigravity-mobile/pull/41",
+								"title": "wip: draft pr",
+								"state": 2,
+							},
+						},
+					},
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	})
+
+	w := postJSON(t, p.HandleGitStatus, "/gateway/git/status", `{"cascadeId":"casc-pr"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: %d %s", w.Code, w.Body.String())
+	}
+	var st GitStatusResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &st); err != nil {
+		t.Fatal(err)
+	}
+	if st.GitHubTarget == nil || st.GitHubTarget.Owner != "GHSaiMo" || st.GitHubTarget.Repo != "antigravity-mobile" {
+		t.Fatalf("unexpected githubTarget: %+v", st.GitHubTarget)
+	}
+	if len(st.PullRequests) != 2 {
+		t.Fatalf("expected 2 PRs, got %+v", st.PullRequests)
+	}
+	if st.PullRequests[0].Number != 42 || st.PullRequests[0].State != "OPEN" || st.PullRequests[0].HeadRefName != "feat/2.30" {
+		t.Fatalf("unexpected first PR: %+v", st.PullRequests[0])
+	}
+	if st.PullRequests[1].Number != 41 || st.PullRequests[1].State != "DRAFT" {
+		t.Fatalf("unexpected second PR: %+v", st.PullRequests[1])
+	}
+
+	// Second call within TTL should hit cache
+	_ = postJSON(t, p.HandleGitStatus, "/gateway/git/status", `{"cascadeId":"casc-pr"}`)
+	if prCalls != 1 {
+		t.Fatalf("expected 1 upstream GetWorkspaceGitHubPullRequests call due to cache, got %d", prCalls)
+	}
+}

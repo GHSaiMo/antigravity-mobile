@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -33,6 +34,7 @@ import com.antigravity.mobile.data.model.ConversationChapter
 import com.antigravity.mobile.data.model.ConversationTurn
 import com.antigravity.mobile.ui.screen.AntigravityVoiceIcon
 import com.antigravity.mobile.ui.theme.AntigravityTheme
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -40,6 +42,7 @@ fun ConversationNavigatorSheet(
     turns: List<ConversationTurn>,
     chapters: List<ConversationChapter>,
     currentTurnIndex: Int?,
+    isLoadingChapterTitles: Boolean = false,
     onSelectTurn: (ConversationTurn) -> Unit,
     onJumpToTop: () -> Unit,
     onJumpToBottom: () -> Unit,
@@ -48,8 +51,10 @@ fun ConversationNavigatorSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val colors = AntigravityTheme.colors
+    val coroutineScope = rememberCoroutineScope()
     var collapsedChapterIds by remember { mutableStateOf(setOf<String>()) }
     val allCollapsed = chapters.isNotEmpty() && chapters.all { it.id in collapsedChapterIds }
+    val chapterOffsets = remember { mutableStateMapOf<String, Int>() }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -139,12 +144,21 @@ fun ConversationNavigatorSheet(
                     } else {
                         "共 ${turns.size} 轮问答步骤"
                     }
-                    Text(
-                        text = summaryText,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = colors.textPrimary
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = summaryText,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = colors.textPrimary
+                        )
+                        if (isLoadingChapterTitles) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(12.dp),
+                                strokeWidth = 1.6.dp,
+                                color = colors.accentIndigo
+                            )
+                        }
+                    }
                     Text(
                         text = "点击任意步骤即可平滑瞬达对应提问与上下文",
                         fontSize = 12.sp,
@@ -199,6 +213,90 @@ fun ConversationNavigatorSheet(
                 }
             }
 
+            // Horizontal Chapter TOC Jump Bar (when multiple chapters exist)
+            if (chapters.size > 1) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(bottom = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    chapters.forEachIndexed { idx, chapter ->
+                        val isCurrent = chapter.turns.any { it.turnIndex == currentTurnIndex }
+                        Surface(
+                            onClick = {
+                                collapsedChapterIds = collapsedChapterIds - chapter.id
+                                chapterOffsets[chapter.id]?.let { targetY ->
+                                    coroutineScope.launch {
+                                        scrollState.animateScrollTo(targetY.coerceAtLeast(0))
+                                    }
+                                }
+                            },
+                            shape = RoundedCornerShape(16.dp),
+                            color = if (isCurrent) colors.accentIndigo else colors.surface,
+                            border = if (isCurrent) null else androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                colors.accentIndigo.copy(alpha = 0.22f)
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .widthIn(max = 220.dp)
+                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (chapter.isAiTitled) Icons.Default.AutoAwesome else Icons.Default.Bookmark,
+                                    contentDescription = null,
+                                    tint = if (isCurrent) Color.White else colors.accentIndigo,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Text(
+                                    text = "§${idx + 1} ${chapter.title}",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = if (isCurrent) Color.White else colors.textPrimary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                val singleAi = chapters.firstOrNull()?.takeIf { it.isAiTitled }
+                if (singleAi != null) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 10.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(colors.accentIndigo.copy(alpha = 0.08f))
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = null,
+                            tint = colors.accentIndigo,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = singleAi.title,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = colors.textPrimary,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+
             // Scrollable Timeline
             Column(
                 modifier = Modifier
@@ -231,6 +329,12 @@ fun ConversationNavigatorSheet(
                             border = androidx.compose.foundation.BorderStroke(0.6.dp, colors.border.copy(alpha = 0.4f)),
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .onGloballyPositioned { coords ->
+                                    val root = contentRootCoords
+                                    if (root != null && root.isAttached && coords.isAttached) {
+                                        chapterOffsets[chapter.id] = root.localPositionOf(coords, Offset.Zero).y.toInt()
+                                    }
+                                }
                                 .padding(top = 10.dp, bottom = 6.dp)
                         ) {
                             Row(
@@ -240,23 +344,37 @@ fun ConversationNavigatorSheet(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
-                                    imageVector = if (chapter.dateText != null) Icons.Default.CalendarToday else Icons.Default.Bookmark,
+                                    imageVector = when {
+                                        chapter.isAiTitled -> Icons.Default.AutoAwesome
+                                        chapter.dateText != null -> Icons.Default.CalendarToday
+                                        else -> Icons.Default.Bookmark
+                                    },
                                     contentDescription = null,
-                                    tint = if (containsCurrent) colors.accentIndigo else colors.textSecondary,
+                                    tint = if (chapter.isAiTitled || containsCurrent) colors.accentIndigo else colors.textSecondary,
                                     modifier = Modifier.size(14.dp)
                                 )
 
                                 Spacer(modifier = Modifier.width(8.dp))
 
-                                Text(
-                                    text = chapter.title,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (containsCurrent) colors.textPrimary else colors.textSecondary,
-                                    modifier = Modifier.weight(1f),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = chapter.title,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (containsCurrent) colors.textPrimary else colors.textSecondary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    if (!chapter.subtitle.isNullOrBlank()) {
+                                        Text(
+                                            text = chapter.subtitle,
+                                            fontSize = 10.5.sp,
+                                            color = colors.textMuted,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
 
                                 if (containsCurrent) {
                                     Text(

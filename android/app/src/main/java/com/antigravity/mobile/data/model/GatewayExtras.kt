@@ -30,6 +30,25 @@ data class GitFileStatus(
 )
 
 @Serializable
+data class GitHubBranchTarget(
+    val host: String? = null,
+    val owner: String = "",
+    val repo: String = "",
+    val branch: String? = null
+)
+
+@Serializable
+data class GitPullRequestItem(
+    val number: Int = 0,
+    val title: String = "",
+    val url: String = "",
+    val state: String = "OPEN", // OPEN / DRAFT / MERGED / CLOSED
+    val authorLogin: String? = null,
+    val headRefName: String? = null,
+    val baseRefName: String? = null
+)
+
+@Serializable
 data class GitStatusResponse(
     val repoName: String = "",
     val branch: String = "",
@@ -38,7 +57,35 @@ data class GitStatusResponse(
     val behind: Int = 0,
     val detached: Boolean = false,
     val files: List<GitFileStatus> = emptyList(),
-    val clean: Boolean = false
+    val clean: Boolean = false,
+    val githubTarget: GitHubBranchTarget? = null,
+    val pullRequests: List<GitPullRequestItem> = emptyList()
+)
+
+/** 会话章节目录 TOC (Antigravity 2.30.0 GetChapterTitles)。 */
+@Serializable
+data class CascadeStepRange(
+    val startStepIndex: Int = 0,
+    val endStepIndexExclusive: Int = 0
+)
+
+@Serializable
+data class CascadeChapterTitleItem(
+    val startStepIndex: Int = 0,
+    val endStepIndexExclusive: Int = 0,
+    val title: String = "",
+    val generatedAt: String? = null
+)
+
+@Serializable
+data class CascadeChaptersRequest(
+    val cascadeId: String = "",
+    val ranges: List<CascadeStepRange> = emptyList()
+)
+
+@Serializable
+data class CascadeChaptersResponse(
+    val chapters: List<CascadeChapterTitleItem> = emptyList()
 )
 
 @Serializable
@@ -380,5 +427,62 @@ object SlashCommandTextTokenizer {
         return segments
     }
 }
+
+// region 全局后台任务中心 (ListBackgroundTasks)
+
+@Serializable
+data class GlobalBackgroundTaskItem(
+    val conversationId: String = "",
+    val conversationTitle: String = "未命名会话",
+    val workspaceName: String? = null,
+    val taskId: String = "",
+    val stepIndex: Int = 0,
+    val toolName: String? = null,
+    val toolSummary: String? = null,
+    val commandLine: String = "",
+    val startTime: String? = null,
+    val logUri: String? = null,
+    val isDaemon: Boolean = false
+) {
+    val uniqueId: String get() = "$conversationId:$taskId:$stepIndex"
+
+    val displayTitle: String
+        get() {
+            val s = toolSummary?.trim().orEmpty()
+            if (s.isNotEmpty()) return s
+            if (toolName == "schedule") return "定时任务"
+            return if (isDaemon) "常驻守护进程" else "后台终端命令"
+        }
+
+    val elapsedText: String?
+        get() {
+            val raw = startTime?.trim().orEmpty()
+            if (raw.isEmpty()) return null
+            val epochMs = runCatching { java.time.Instant.parse(raw).toEpochMilli() }.getOrNull() ?: return null
+            val sec = ((System.currentTimeMillis() - epochMs) / 1000L).coerceAtLeast(0L)
+            if (sec < 60) return "${sec}s"
+            val min = sec / 60
+            if (min < 60) return "${min}m ${sec % 60}s"
+            val hr = min / 60
+            return "${hr}h ${min % 60}m"
+        }
+}
+
+@Serializable
+data class GlobalBackgroundTasksResponse(
+    val tasks: List<GlobalBackgroundTaskItem> = emptyList()
+)
+
+@Serializable
+data class BackgroundTaskLogResponse(
+    val taskId: String = "",
+    val logUri: String = "",
+    val content: String = "",
+    val truncated: Boolean = false,
+    val sizeBytes: Long = 0L
+)
+
+// endregion
+
 
 // endregion

@@ -530,6 +530,7 @@ function initQuotaModule() {
 
   // Initial fetch
   fetchCockpitQuotas();
+  fetchGlobalBackgroundTasksBar();
 
   // Periodic poll every 5 minutes (300,000 ms) while app is open
   setInterval(() => {
@@ -537,4 +538,40 @@ function initQuotaModule() {
       fetchCockpitQuotas();
     }
   }, 5 * 60 * 1000);
+
+  setInterval(() => {
+    if (document.visibilityState === "visible") {
+      fetchGlobalBackgroundTasksBar();
+    }
+  }, 8000);
+}
+
+let cachedGlobalBackgroundTasks = [];
+
+async function fetchGlobalBackgroundTasksBar() {
+  const bar = document.getElementById("global-tasks-bar");
+  const label = document.getElementById("global-tasks-label");
+  if (!bar || !label) return;
+  try {
+    const res = await gwFetch("/gateway/tasks/background");
+    if (!res.ok) return;
+    const data = await res.json();
+    const tasks = Array.isArray(data.tasks) ? data.tasks : [];
+    cachedGlobalBackgroundTasks = tasks;
+    if (tasks.length === 0) {
+      bar.style.display = "none";
+      return;
+    }
+    const daemonCount = tasks.filter(t => t.isDaemon).length;
+    label.textContent = daemonCount > 0
+      ? `${tasks.length} 个后台任务运行中（${daemonCount} 个常驻）`
+      : `${tasks.length} 个后台任务运行中`;
+    bar.style.display = "";
+    bar.onclick = () => {
+      const first = tasks[0];
+      if (first && first.conversationId && typeof openConversation === "function") {
+        openConversation(first.conversationId, first.conversationTitle || "会话详情", first.workspaceName || "");
+      }
+    };
+  } catch { /* ignore */ }
 }

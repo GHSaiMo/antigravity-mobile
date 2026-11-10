@@ -6,6 +6,7 @@ public struct ConversationNavigatorSheet: View {
     public let turns: [ConversationTurn]
     public let chapters: [ConversationChapter]
     public let currentTurnIndex: Int?
+    public let isLoadingChapterTitles: Bool
     public let onSelectTurn: (ConversationTurn) -> Void
     public let onJumpToTop: () -> Void
     public let onJumpToBottom: () -> Void
@@ -21,6 +22,7 @@ public struct ConversationNavigatorSheet: View {
         turns: [ConversationTurn],
         chapters: [ConversationChapter],
         currentTurnIndex: Int? = nil,
+        isLoadingChapterTitles: Bool = false,
         onSelectTurn: @escaping (ConversationTurn) -> Void,
         onJumpToTop: @escaping () -> Void,
         onJumpToBottom: @escaping () -> Void
@@ -28,6 +30,7 @@ public struct ConversationNavigatorSheet: View {
         self.turns = turns
         self.chapters = chapters
         self.currentTurnIndex = currentTurnIndex
+        self.isLoadingChapterTitles = isLoadingChapterTitles
         self.onSelectTurn = onSelectTurn
         self.onJumpToTop = onJumpToTop
         self.onJumpToBottom = onJumpToBottom
@@ -41,11 +44,16 @@ public struct ConversationNavigatorSheet: View {
                         headerSummaryBanner
                         
                         if chapters.count > 1 {
+                            chapterJumpBar(scrollProxy: scrollProxy)
                             // 多章节呈现
                             ForEach(chapters) { chapter in
                                 chapterSection(chapter: chapter)
+                                    .id(chapter.id)
                             }
                         } else {
+                            if let first = chapters.first, first.isAiTitled {
+                                singleChapterAIBanner(first)
+                            }
                             // 单章节平铺呈现
                             turnsTimelineList(turns: turns)
                         }
@@ -89,9 +97,15 @@ public struct ConversationNavigatorSheet: View {
                 .clipShape(Circle())
             
             VStack(alignment: .leading, spacing: 2) {
-                Text(chapters.count > 1 ? "共 \(chapters.count) 个章节 · \(turns.count) 轮问答" : "共 \(turns.count) 轮问答步骤")
-                    .font(.system(size: 14.5, weight: .semibold))
-                    .foregroundColor(.primary)
+                HStack(spacing: 6) {
+                    Text(chapters.count > 1 ? "共 \(chapters.count) 个章节 · \(turns.count) 轮问答" : "共 \(turns.count) 轮问答步骤")
+                        .font(.system(size: 14.5, weight: .semibold))
+                        .foregroundColor(.primary)
+                    if isLoadingChapterTitles {
+                        ProgressView()
+                            .scaleEffect(0.65)
+                    }
+                }
                 
                 Text("点击任意步骤即可平滑瞬达对应提问与上下文")
                     .font(.system(size: 12))
@@ -132,6 +146,65 @@ public struct ConversationNavigatorSheet: View {
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
     
+    // MARK: - Chapter TOC Jump Bar & Single Chapter AI Banner
+
+    @ViewBuilder
+    private func chapterJumpBar(scrollProxy: ScrollViewProxy) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(Array(chapters.enumerated()), id: \.element.id) { idx, chapter in
+                    let isCurrent = chapter.turns.contains(where: { $0.turnIndex == currentTurnIndex })
+                    Button {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        collapsedChapterIds.remove(chapter.id)
+                        withAnimation(.easeInOut(duration: 0.22)) {
+                            scrollProxy.scrollTo(chapter.id, anchor: .top)
+                        }
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: chapter.isAiTitled ? "sparkles" : "bookmark.fill")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundColor(isCurrent ? .white : .indigo)
+                            Text("§\(idx + 1) \(chapter.title)")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(isCurrent ? .white : .primary)
+                                .lineLimit(1)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .frame(maxWidth: 220)
+                        .background(isCurrent ? Color.indigo : Color(uiColor: .secondarySystemGroupedBackground))
+                        .clipShape(Capsule())
+                        .overlay(
+                            Capsule()
+                                .stroke(isCurrent ? Color.clear : Color.indigo.opacity(0.22), lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.vertical, 2)
+        }
+    }
+
+    @ViewBuilder
+    private func singleChapterAIBanner(_ chapter: ConversationChapter) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(.indigo)
+            Text(chapter.title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(.primary)
+                .lineLimit(2)
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.indigo.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
     // MARK: - Chapter Section
     
     @ViewBuilder
@@ -154,14 +227,22 @@ public struct ConversationNavigatorSheet: View {
                 }
             }) {
                 HStack(spacing: 8) {
-                    Image(systemName: chapter.dateText != nil ? "calendar" : "bookmark.fill")
+                    Image(systemName: chapter.isAiTitled ? "sparkles" : (chapter.dateText != nil ? "calendar" : "bookmark.fill"))
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(containsCurrent ? .indigo : .secondary)
+                        .foregroundColor(chapter.isAiTitled || containsCurrent ? .indigo : .secondary)
                     
-                    Text(chapter.title)
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundColor(containsCurrent ? .primary : .secondary)
-                        .lineLimit(1)
+                    VStack(alignment: .leading, spacing: 1.5) {
+                        Text(chapter.title)
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(containsCurrent ? .primary : .secondary)
+                            .lineLimit(1)
+                        if let sub = chapter.subtitle, !sub.isEmpty {
+                            Text(sub)
+                                .font(.system(size: 10.5))
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
                     
                     Spacer()
                     

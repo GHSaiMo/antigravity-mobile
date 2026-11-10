@@ -2,6 +2,8 @@ package com.antigravity.mobile.ui.viewmodel
 
 import androidx.lifecycle.viewModelScope
 import com.antigravity.mobile.data.model.CascadeChangesResponse
+import com.antigravity.mobile.data.model.CascadeStepRange
+import com.antigravity.mobile.data.model.ConversationChapter
 import com.antigravity.mobile.data.model.GitCommitResponse
 import com.antigravity.mobile.data.model.GitStatusResponse
 import com.antigravity.mobile.data.model.SlashCommandOption
@@ -28,20 +30,78 @@ private fun String.isLocalDraft(): Boolean = isBlank() || startsWith("local_draf
 
 // region 快捷按钮可见性
 
-/** 探测当前会话是否有 Git 改动、是否有本会话文件改动；探测失败（纯对话、非 Git 目录、接口缺失）一律视为没有。 */
+/** 探测当前会话是否有 Git 改动、是否有本会话文件改动及全局后台任务；探测失败（纯对话、非 Git 目录、接口缺失）一律视为没有。 */
 suspend fun ChatViewModel.refreshActionAvailability(changesSupported: Boolean) {
     val cascadeId = _uiState.value.cascadeId
+    val bgTasks = apiClient.fetchGlobalBackgroundTasks().getOrNull()
     if (cascadeId.isLocalDraft()) {
-        _uiState.value = _uiState.value.copy(hasGitChanges = false, hasSessionChanges = false)
+        _uiState.value = _uiState.value.copy(
+            hasGitChanges = false,
+            hasSessionChanges = false,
+            globalBackgroundTasks = bgTasks ?: _uiState.value.globalBackgroundTasks
+        )
         return
     }
     val git = apiClient.getGitStatus(cascadeId).getOrNull()
     val changes = if (changesSupported) apiClient.getCascadeChanges(cascadeId).getOrNull() else null
     if (_uiState.value.cascadeId != cascadeId) return
+    val hasFiles = git?.files?.isNotEmpty() == true
+    val prs = git?.pullRequests.orEmpty()
+    val firstPrNum = prs.firstOrNull()?.number ?: 0
+    val chipLabel = when {
+        firstPrNum > 0 && hasFiles -> "Commit · #$firstPrNum"
+        firstPrNum > 0 -> "PR #$firstPrNum"
+        else -> "Commit"
+    }
     _uiState.value = _uiState.value.copy(
-        hasGitChanges = git?.files?.isNotEmpty() == true,
-        hasSessionChanges = changes?.hasChanges == true
+        hasGitChanges = hasFiles || prs.isNotEmpty(),
+        gitChipLabel = chipLabel,
+        hasSessionChanges = changes?.hasChanges == true,
+        globalBackgroundTasks = bgTasks ?: _uiState.value.globalBackgroundTasks
     )
+}
+
+fun ChatViewModel.updateGlobalBackgroundTasks(tasks: List<com.antigravity.mobile.data.model.GlobalBackgroundTaskItem>) {
+    _uiState.value = _uiState.value.copy(globalBackgroundTasks = tasks)
+}
+
+/** 异步拉取 Antigravity 2.30.0 GetChapterTitles 章节语义标题并更新到 UI 状态。 */
+fun ChatViewModel.refreshChapterTitles(chapters: List<ConversationChapter>) {
+    val state = _uiState.value
+    val cascadeId = state.cascadeId
+    if (cascadeId.isLocalDraft() || state.isLoadingChapterTitles || chapters.isEmpty()) return
+    val ranges = chapters.mapIndexedNotNull { idx, ch ->
+        val s = ch.startStepIndex ?: return@mapIndexedNotNull null
+        val isLast = idx == chapters.lastIndex
+        val rawEnd = if (isLast) maxOf(ch.endStepIndexExclusive ?: 0, state.stepCount) else (ch.endStepIndexExclusive ?: state.stepCount)
+        if (rawEnd <= s) null else CascadeStepRange(startStepIndex = s, endStepIndexExclusive = rawEnd)
+    }
+    if (ranges.isEmpty()) return
+
+    _uiState.value = _uiState.value.copy(isLoadingChapterTitles = true)
+    viewModelScope.launch {
+        apiClient.getChapterTitles(cascadeId, ranges)
+            .onSuccess { items ->
+                if (_uiState.value.cascadeId != cascadeId) return@onSuccess
+                val updated = _uiState.value.chapterTitles.toMutableMap()
+                for (item in items) {
+                    val title = item.title.trim()
+                    if (title.isNotEmpty()) {
+                        updated["${item.startStepIndex}:${item.endStepIndexExclusive}"] = title
+                        updated["start:${item.startStepIndex}"] = title
+                    }
+                }
+                _uiState.value = _uiState.value.copy(
+                    chapterTitles = updated,
+                    isLoadingChapterTitles = false
+                )
+            }
+            .onFailure {
+                if (_uiState.value.cascadeId == cascadeId) {
+                    _uiState.value = _uiState.value.copy(isLoadingChapterTitles = false)
+                }
+            }
+    }
 }
 
 // endregion

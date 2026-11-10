@@ -451,6 +451,14 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		p.handleCascadeTaskStop(w, r)
 		return
 	}
+	if r.URL.Path == "/gateway/tasks/background" {
+		p.HandleListBackgroundTasks(w, r)
+		return
+	}
+	if r.URL.Path == "/gateway/tasks/background/log" {
+		p.HandleBackgroundTaskLog(w, r)
+		return
+	}
 	if r.URL.Path == "/gateway/subagent/stop" {
 		p.HandleSubagentStop(w, r)
 		return
@@ -473,6 +481,10 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/gateway/cascade/changes" {
 		p.HandleCascadeChanges(w, r)
+		return
+	}
+	if r.URL.Path == "/gateway/cascade/chapters" {
+		p.HandleCascadeChapters(w, r)
 		return
 	}
 	if r.URL.Path == "/gateway/git/status" {

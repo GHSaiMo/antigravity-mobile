@@ -63,14 +63,37 @@ function renderGitSheet() {
   const st = gitState.status;
   if (!st) return;
 
-  const head = `<div class="git-branch-row"><span class="git-repo">${escapeHtml(st.repoName || "")}</span>
+  const repoDisplay = st.githubTarget && st.githubTarget.owner && st.githubTarget.repo
+    ? `${st.githubTarget.owner}/${st.githubTarget.repo}`
+    : (st.repoName || "");
+  const head = `<div class="git-branch-row"><span class="git-repo">${escapeHtml(repoDisplay)}</span>
     <span class="git-branch">${escapeHtml(st.branch || "")}</span>
     ${st.ahead > 0 ? `<span class="git-ahead">↑${st.ahead}</span>` : ""}${st.behind > 0 ? `<span class="git-behind">↓${st.behind}</span>` : ""}
     ${!st.upstream && !st.detached ? '<span class="git-noup">未设置上游</span>' : ""}</div>`;
 
+  const prs = Array.isArray(st.pullRequests) ? st.pullRequests : [];
+  const prBlock = prs.length > 0
+    ? `<div class="git-section-title">GitHub Pull Requests</div>
+       <div class="git-pr-list">${prs.map((pr) => {
+         const state = String(pr.state || "OPEN").toUpperCase();
+         const stateTone = state === "MERGED" ? "merged" : state === "DRAFT" ? "draft" : state === "CLOSED" ? "closed" : "open";
+         const refMeta = pr.headRefName && pr.baseRefName ? `${pr.headRefName} → ${pr.baseRefName}` : "";
+         const href = pr.url ? ` href="${escapeHtml(pr.url)}" target="_blank" rel="noopener noreferrer"` : "";
+         const tag = pr.url ? "a" : "div";
+         return `<${tag} class="git-pr-item"${href}>
+           <span class="git-pr-badge ${stateTone}">${escapeHtml(state)}</span>
+           <span class="git-pr-main">
+             <span class="git-pr-title"><span class="git-pr-num">#${Number(pr.number) || ""}</span> ${escapeHtml(pr.title || "")}</span>
+             ${refMeta ? `<span class="git-pr-meta">${escapeHtml(refMeta)}</span>` : ""}
+           </span>
+           ${pr.url ? '<span class="git-pr-ext" aria-hidden="true">↗</span>' : ""}
+         </${tag}>`;
+       }).join("")}</div>`
+    : "";
+
   if (st.clean) {
     const canPush = st.ahead > 0 && st.upstream;
-    body.innerHTML = `${head}${gitNotice("工作区没有可提交的改动", "ok")}
+    body.innerHTML = `${head}${prBlock}${gitNotice("工作区没有可提交的改动", "ok")}
       ${canPush ? `<button type="button" class="git-btn primary" data-git="retry-push" ${gitState.working ? "disabled" : ""}>${gitState.working ? "推送中…" : `推送 ${st.ahead} 个未推送的提交`}</button>` : ""}
       ${gitState.actionError ? `<div class="git-error">${escapeHtml(gitState.actionError)}</div>` : ""}`;
     return;
@@ -95,7 +118,7 @@ function renderGitSheet() {
     })
     .join("");
 
-  body.innerHTML = `${head}
+  body.innerHTML = `${head}${prBlock}
     <div class="git-section-title">变更文件</div><div class="git-files">${rows}</div>
     <div class="git-section-title">提交信息</div>
     <textarea id="git-message" class="git-message" rows="3" placeholder="提交信息">${escapeHtml(gitState.message)}</textarea>
@@ -260,6 +283,16 @@ async function refreshActionAvailability() {
     postGatewayJson("/gateway/cascade/changes", { cascadeId: id }).catch(() => null),
   ]);
   if (seq !== actionProbeSeq || id !== activeCascadeId) return;
-  commitBtn?.classList.toggle("hidden", !(git && (git.files || []).length > 0));
+  const hasGitFiles = !!(git && (git.files || []).length > 0);
+  const hasGitPRs = !!(git && (git.pullRequests || []).length > 0);
+  commitBtn?.classList.toggle("hidden", !(hasGitFiles || hasGitPRs));
+  if (commitBtn) {
+    const labelSpan = commitBtn.querySelector("span");
+    if (labelSpan) {
+      const firstPR = hasGitPRs ? git.pullRequests[0] : null;
+      const prSuffix = firstPR && firstPR.number ? ` · #${firstPR.number}` : "";
+      labelSpan.textContent = hasGitFiles ? `Commit${prSuffix}` : (firstPR && firstPR.number ? `PR #${firstPR.number}` : "Commit");
+    }
+  }
   changesBtn?.classList.toggle("hidden", !(changes && changes.hasChanges));
 }

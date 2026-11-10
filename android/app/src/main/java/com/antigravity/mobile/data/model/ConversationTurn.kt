@@ -31,18 +31,24 @@ data class ConversationTurn(
     /** 本轮创建时间戳 (RFC3339) */
     val timestamp: String? = null,
     /** 本轮是否为语音交互提问 */
-    val isVoiceTurn: Boolean = false
+    val isVoiceTurn: Boolean = false,
+    /** 本轮起始的步骤索引（用于 Antigravity 2.30.0 GetChapterTitles 章节标题生成） */
+    val startStepIndex: Int? = null
 )
 
 /**
- * 超长对话的章节分段（对齐 Antigravity 2.28.1 Chapters 规范）
+ * 超长对话的章节分段（对齐 Antigravity 2.30.0 GetChapterTitles 规范）
  */
 data class ConversationChapter(
     val id: String,
     val title: String,
     val rangeText: String,
     val turns: List<ConversationTurn>,
-    val dateText: String? = null
+    val dateText: String? = null,
+    val subtitle: String? = null,
+    val startStepIndex: Int? = null,
+    val endStepIndexExclusive: Int? = null,
+    val isAiTitled: Boolean = false
 )
 
 object ConversationTurnBuilder {
@@ -136,6 +142,7 @@ object ConversationTurnBuilder {
 
             val model = currentMessages.asReversed().firstNotNullOfOrNull { it.modelName ?: it.model }
             val turnTimestamp = userMsg?.timestamp ?: currentMessages.firstNotNullOfOrNull { it.timestamp }
+            val turnStartStep = userMsg?.stepIndex ?: currentMessages.mapNotNull { it.stepIndex }.minOrNull()
 
             turns.add(
                 ConversationTurn(
@@ -152,7 +159,8 @@ object ConversationTurnBuilder {
                     isActive = isActive,
                     modelName = model,
                     timestamp = turnTimestamp,
-                    isVoiceTurn = isVoice
+                    isVoiceTurn = isVoice,
+                    startStepIndex = turnStartStep
                 )
             )
 
@@ -203,7 +211,62 @@ object ConversationTurnBuilder {
         }
     }
 
-    fun buildChapters(turns: List<ConversationTurn>, chunkSize: Int = 10): List<ConversationChapter> {
+    fun buildChapters(
+        turns: List<ConversationTurn>,
+        chunkSize: Int = 6,
+        aiTitles: Map<String, String> = emptyMap()
+    ): List<ConversationChapter> {
+        if (turns.isEmpty()) return emptyList()
+        val raw = buildRawChapters(turns, chunkSize.coerceAtLeast(3))
+        return enrichChaptersWithStepRangesAndAiTitles(raw, aiTitles)
+    }
+
+    private fun enrichChaptersWithStepRangesAndAiTitles(
+        raw: List<ConversationChapter>,
+        aiTitles: Map<String, String>
+    ): List<ConversationChapter> {
+        if (raw.isEmpty()) return emptyList()
+
+        val starts: List<Int?> = raw.mapIndexed { idx, ch ->
+            ch.turns.mapNotNull { it.startStepIndex }.minOrNull()
+                ?: ch.turns.flatMap { it.messages }.mapNotNull { it.stepIndex }.minOrNull()
+                ?: if (idx == 0) 0 else null
+        }
+
+        return raw.mapIndexed { idx, ch ->
+            val s = starts[idx]
+            val e: Int? = if (idx + 1 < raw.size && starts[idx + 1] != null) {
+                starts[idx + 1]
+            } else {
+                ch.turns.flatMap { it.messages }.mapNotNull { it.stepIndex }.maxOrNull()?.let { it + 1 }
+            }
+
+            var resolvedTitle = ch.title
+            var resolvedSubtitle: String? = ch.subtitle
+            var isAi = false
+
+            if (s != null) {
+                val exactKey = e?.let { "$s:$it" }
+                val startKey = "start:$s"
+                val matched = (exactKey?.let { aiTitles[it] } ?: aiTitles[startKey])?.trim()
+                if (!matched.isNullOrEmpty()) {
+                    resolvedTitle = matched
+                    resolvedSubtitle = ch.title
+                    isAi = true
+                }
+            }
+
+            ch.copy(
+                title = resolvedTitle,
+                subtitle = resolvedSubtitle,
+                startStepIndex = s,
+                endStepIndexExclusive = e,
+                isAiTitled = isAi
+            )
+        }
+    }
+
+    private fun buildRawChapters(turns: List<ConversationTurn>, chunkSize: Int): List<ConversationChapter> {
         if (turns.isEmpty()) return emptyList()
 
         // 尝试按日期跨度分组（跨天长会话自动激活日期章节）
@@ -225,7 +288,7 @@ object ConversationTurnBuilder {
                 if (currentDayTurns.isEmpty()) return
                 val label = formatDateLabel(d)
 
-                if (currentDayTurns.size <= 12) {
+                if (currentDayTurns.size <= maxOf(chunkSize, 8)) {
                     val firstTurn = currentDayTurns.firstOrNull()?.turnIndex ?: 1
                     val lastTurn = currentDayTurns.lastOrNull()?.turnIndex ?: firstTurn
                     val range = if (firstTurn == lastTurn) "第 ${firstTurn} 轮" else "第 ${firstTurn}–${lastTurn} 轮"
@@ -241,7 +304,7 @@ object ConversationTurnBuilder {
                     )
                     chapterIdx++
                 } else {
-                    // 单日超过 12 轮时，在日期内按 chunkSize 分段
+                    // 单日轮数较多时，在日期内按 chunkSize 分段
                     var start = 0
                     var subIdx = 1
                     while (start < currentDayTurns.size) {
@@ -285,14 +348,14 @@ object ConversationTurnBuilder {
         }
 
         // 当总轮次不多时，直接作为一个主章节展示
-        if (turns.size <= 12) {
+        if (turns.size <= chunkSize) {
             val range = if (turns.size == 1) "第 1 轮" else "第 1–${turns.size} 轮"
             val dateLabel = turns.firstOrNull()?.timestamp?.let { parseTurnDate(it) }?.let { formatDateLabel(it) }
             val title = if (dateLabel != null) "$dateLabel · $range" else "全部轮次"
             return listOf(ConversationChapter("chapter-all", title, range, turns, dateLabel))
         }
 
-        // 超过 12 轮时，按 chunkSize 自动拆分为 Chapters
+        // 超过 chunkSize 轮时，按 chunkSize 自动拆分为 Chapters
         val chapters = mutableListOf<ConversationChapter>()
         var startIndex = 0
         var chapterNum = 1
