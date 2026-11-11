@@ -6147,48 +6147,52 @@ html[data-kb-open] .ios-sheet-overlay {
   font-size: 8.5px;
   font-weight: 800;
   letter-spacing: 0.4px;
-  padding: 1px 5px;
+  padding: 1.5px 5px;
   border-radius: 4px;
-  background: linear-gradient(90deg, #00e5ff 0%, #10b981 100%);
-  color: #062326;
+  background: linear-gradient(90deg, #4285f4 0%, #9b72cf 50%, #ff7597 100%);
+  color: #ffffff;
   line-height: 1.1;
-  text-shadow: 0 0.5px 1px rgba(0, 0, 0, 0.2);
+  text-shadow: 0 0.8px 1.5px rgba(76, 29, 149, 0.35);
 }
 
 .metric-box.metric-box-carbon {
-  background: linear-gradient(135deg, rgba(0, 229, 255, 0.12) 0%, rgba(16, 185, 129, 0.05) 100%);
-  border: 1px solid rgba(0, 229, 255, 0.35);
+  background: linear-gradient(135deg, rgba(66, 133, 244, 0.12) 0%, rgba(155, 114, 207, 0.10) 50%, rgba(255, 117, 151, 0.08) 100%);
+  border: 1px solid rgba(155, 114, 207, 0.42);
   border-radius: 10px;
   padding: 9px 11px;
   gap: 5px;
   box-shadow:
-    inset 0 1px 0 rgba(0, 229, 255, 0.18),
-    0 2px 10px rgba(0, 229, 255, 0.08);
+    inset 0 1px 0 rgba(197, 138, 249, 0.18),
+    0 2px 10px rgba(155, 114, 207, 0.10);
 }
 
 .metric-box-title.carbon {
   font-size: 11.5px;
   font-weight: 600;
-  color: #00e5ff;
+  background: linear-gradient(90deg, #8ab4f8 0%, #c58af9 50%, #ff8bcb 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: #c58af9;
 }
 
 .metric-box-value.carbon {
-  color: #00e5ff;
+  color: #c58af9;
 }
 
 .metric-mini-track.carbon-track {
   position: relative;
   overflow: visible;
-  background: rgba(0, 229, 255, 0.16);
+  background: rgba(155, 114, 207, 0.18);
 }
 
 .metric-mini-fill.carbon {
-  background: linear-gradient(90deg, #00e5ff 0%, #10b981 100%);
-  box-shadow: 0 0 8px rgba(0, 229, 255, 0.4);
+  background: linear-gradient(90deg, #4285f4 0%, #9b72cf 50%, #ff7597 100%);
+  box-shadow: 0 0 8px rgba(155, 114, 207, 0.42);
 }
 
 .metric-box.metric-box-carbon .metric-box-reset {
-  color: color-mix(in srgb, var(--ios-secondary-label) 85%, #00e5ff 15%);
+  color: color-mix(in srgb, var(--ios-secondary-label) 85%, #c58af9 15%);
 }
 
 @media (prefers-color-scheme: light) {
@@ -6207,19 +6211,35 @@ html[data-kb-open] .ios-sheet-overlay {
     background: rgba(245, 158, 11, 0.18);
   }
 
-  .metric-box.metric-box-carbon {
-    background: linear-gradient(135deg, rgba(0, 229, 255, 0.10) 0%, rgba(16, 185, 129, 0.04) 100%);
-    border-color: rgba(13, 148, 136, 0.35);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.65),
-      0 2px 8px rgba(13, 148, 136, 0.08);
+  .carbon-micro-badge {
+    background: linear-gradient(90deg, #4285f4 0%, #9b72cf 50%, #f06292 100%);
   }
-  .metric-box-title.carbon,
+  .metric-box.metric-box-carbon {
+    background: linear-gradient(135deg, rgba(66, 133, 244, 0.08) 0%, rgba(155, 114, 207, 0.07) 50%, rgba(240, 98, 146, 0.06) 100%);
+    border-color: rgba(155, 114, 207, 0.38);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.68),
+      0 2px 8px rgba(124, 58, 237, 0.08);
+  }
+  .metric-box-title.carbon {
+    background: linear-gradient(90deg, #2563eb 0%, #7c3aed 50%, #db2777 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: #7c3aed;
+  }
   .metric-box-value.carbon {
-    color: #0d9488;
+    color: #7c3aed;
   }
   .metric-mini-track.carbon-track {
-    background: rgba(13, 148, 136, 0.18);
+    background: rgba(124, 58, 237, 0.14);
+  }
+  .metric-mini-fill.carbon {
+    background: linear-gradient(90deg, #4285f4 0%, #9b72cf 50%, #f06292 100%);
+    box-shadow: 0 0 6px rgba(155, 114, 207, 0.30);
+  }
+  .metric-box.metric-box-carbon .metric-box-reset {
+    color: color-mix(in srgb, var(--ios-secondary-label) 85%, #7c3aed 15%);
   }
 }
 

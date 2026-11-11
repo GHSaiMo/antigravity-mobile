@@ -429,8 +429,30 @@ public struct AccountQuotaSheet: View {
             ? Color(red: 1.0, green: 159.0 / 255.0, blue: 10.0 / 255.0)
             : Color(red: 217.0 / 255.0, green: 119.0 / 255.0, blue: 6.0 / 255.0)
         let carbonAccent = isDark
-            ? Color(red: 0.0, green: 229.0 / 255.0, blue: 1.0)
-            : Color(red: 13.0 / 255.0, green: 148.0 / 255.0, blue: 136.0 / 255.0)
+            ? Color(red: 197.0 / 255.0, green: 138.0 / 255.0, blue: 249.0 / 255.0)
+            : Color(red: 124.0 / 255.0, green: 58.0 / 255.0, blue: 237.0 / 255.0)
+        let carbonAuroraColors: [Color] = isDark
+            ? [
+                Color(red: 66.0 / 255.0, green: 133.0 / 255.0, blue: 244.0 / 255.0),
+                Color(red: 155.0 / 255.0, green: 114.0 / 255.0, blue: 207.0 / 255.0),
+                Color(red: 1.0, green: 117.0 / 255.0, blue: 151.0 / 255.0)
+            ]
+            : [
+                Color(red: 66.0 / 255.0, green: 133.0 / 255.0, blue: 244.0 / 255.0),
+                Color(red: 155.0 / 255.0, green: 114.0 / 255.0, blue: 207.0 / 255.0),
+                Color(red: 240.0 / 255.0, green: 98.0 / 255.0, blue: 146.0 / 255.0)
+            ]
+        let carbonTitleColors: [Color] = isDark
+            ? [
+                Color(red: 138.0 / 255.0, green: 180.0 / 255.0, blue: 248.0 / 255.0),
+                Color(red: 197.0 / 255.0, green: 138.0 / 255.0, blue: 249.0 / 255.0),
+                Color(red: 1.0, green: 139.0 / 255.0, blue: 203.0 / 255.0)
+            ]
+            : [
+                Color(red: 37.0 / 255.0, green: 99.0 / 255.0, blue: 235.0 / 255.0),
+                Color(red: 124.0 / 255.0, green: 58.0 / 255.0, blue: 237.0 / 255.0),
+                Color(red: 219.0 / 255.0, green: 39.0 / 255.0, blue: 119.0 / 255.0)
+            ]
         let isSpecial = isArgon || isCarbon
         let color: Color = {
             if isCarbon {
@@ -453,29 +475,40 @@ public struct AccountQuotaSheet: View {
         
         VStack(alignment: .leading, spacing: isSpecial ? 5 : 4) {
             HStack(spacing: 5) {
-                Text(title)
-                    .font(.system(size: isSpecial ? 11.5 : 11, weight: isSpecial ? .semibold : .medium))
-                    .foregroundColor(isCarbon ? carbonAccent : (isArgon ? argonAccent : .secondary))
-                    .lineLimit(1)
-                
                 if isCarbon {
-                    Text("CARBON")
-                        .font(.system(size: 8.5, weight: .heavy))
-                        .tracking(0.4)
-                        .foregroundColor(Color(red: 6.0 / 255.0, green: 35.0 / 255.0, blue: 38.0 / 255.0))
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(
+                    Text(title)
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundStyle(
                             LinearGradient(
-                                colors: [
-                                    Color(red: 0.0, green: 229.0 / 255.0, blue: 1.0),
-                                    Color(red: 16.0 / 255.0, green: 185.0 / 255.0, blue: 129.0 / 255.0)
-                                ],
+                                colors: carbonTitleColors,
                                 startPoint: .leading,
                                 endPoint: .trailing
                             )
                         )
-                        .clipShape(RoundedRectangle(cornerRadius: 3.5, style: .continuous))
+                        .lineLimit(1)
+                } else {
+                    Text(title)
+                        .font(.system(size: isSpecial ? 11.5 : 11, weight: isSpecial ? .semibold : .medium))
+                        .foregroundColor(isArgon ? argonAccent : .secondary)
+                        .lineLimit(1)
+                }
+                
+                if isCarbon {
+                    Text("✦ CARBON")
+                        .font(.system(size: 8.5, weight: .heavy))
+                        .tracking(0.4)
+                        .foregroundColor(.white)
+                        .shadow(color: Color(red: 76.0 / 255.0, green: 29.0 / 255.0, blue: 149.0 / 255.0).opacity(0.35), radius: 1, x: 0, y: 0.8)
+                        .padding(.horizontal, 4.5)
+                        .padding(.vertical, 1.5)
+                        .background(
+                            LinearGradient(
+                                colors: carbonAuroraColors,
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
                 }
                 
                 Spacer()
@@ -490,7 +523,7 @@ public struct AccountQuotaSheet: View {
                     Capsule()
                         .fill(
                             isCarbon
-                                ? Color(red: 0.0, green: 229.0 / 255.0, blue: 1.0).opacity(isDark ? 0.16 : 0.18)
+                                ? Color(red: 155.0 / 255.0, green: 114.0 / 255.0, blue: 207.0 / 255.0).opacity(isDark ? 0.18 : 0.14)
                                 : (isArgon
                                     ? Color(red: 1.0, green: 159.0 / 255.0, blue: 10.0 / 255.0).opacity(isDark ? 0.16 : 0.18)
                                     : Color.primary.opacity(0.08))
@@ -499,16 +532,13 @@ public struct AccountQuotaSheet: View {
                         Capsule()
                             .fill(
                                 LinearGradient(
-                                    colors: [
-                                        Color(red: 0.0, green: 229.0 / 255.0, blue: 1.0),
-                                        Color(red: 16.0 / 255.0, green: 185.0 / 255.0, blue: 129.0 / 255.0)
-                                    ],
+                                    colors: carbonAuroraColors,
                                     startPoint: .leading,
                                     endPoint: .trailing
                                 )
                             )
                             .frame(width: max(0, min(geo.size.width, geo.size.width * CGFloat(percent / 100.0))))
-                            .shadow(color: Color(red: 0.0, green: 229.0 / 255.0, blue: 1.0).opacity(0.35), radius: 3, x: 0, y: 0)
+                            .shadow(color: Color(red: 155.0 / 255.0, green: 114.0 / 255.0, blue: 207.0 / 255.0).opacity(isDark ? 0.42 : 0.30), radius: 3, x: 0, y: 0)
                     } else if isArgon && percent >= 20.0 {
                         Capsule()
                             .fill(
@@ -533,7 +563,7 @@ public struct AccountQuotaSheet: View {
                         let expectedFrac = CGFloat(info.expectedRemainingPercent / 100.0)
                         let needleOffset = max(0, min(geo.size.width - 1.5, geo.size.width * expectedFrac - 0.75))
                         let needleColor = info.isOverPacing
-                            ? (isCarbon ? Color(red: 0.0, green: 229.0 / 255.0, blue: 1.0) : Color(red: 1.0, green: 159.0 / 255.0, blue: 10.0 / 255.0))
+                            ? Color(red: 1.0, green: 159.0 / 255.0, blue: 10.0 / 255.0)
                             : Color.white.opacity(0.92)
                         
                         RoundedRectangle(cornerRadius: 0.75, style: .continuous)
@@ -562,8 +592,9 @@ public struct AccountQuotaSheet: View {
                         .fill(
                             LinearGradient(
                                 colors: [
-                                    Color(red: 0.0, green: 229.0 / 255.0, blue: 1.0).opacity(isDark ? 0.12 : 0.10),
-                                    Color(red: 16.0 / 255.0, green: 185.0 / 255.0, blue: 129.0 / 255.0).opacity(isDark ? 0.05 : 0.04)
+                                    Color(red: 66.0 / 255.0, green: 133.0 / 255.0, blue: 244.0 / 255.0).opacity(isDark ? 0.12 : 0.08),
+                                    Color(red: 155.0 / 255.0, green: 114.0 / 255.0, blue: 207.0 / 255.0).opacity(isDark ? 0.10 : 0.07),
+                                    Color(red: 240.0 / 255.0, green: 98.0 / 255.0, blue: 146.0 / 255.0).opacity(isDark ? 0.08 : 0.06)
                                 ],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
@@ -594,8 +625,9 @@ public struct AccountQuotaSheet: View {
                         .stroke(
                             LinearGradient(
                                 colors: [
-                                    Color(red: 0.0, green: 229.0 / 255.0, blue: 1.0).opacity(isDark ? 0.45 : 0.50),
-                                    Color(red: 16.0 / 255.0, green: 185.0 / 255.0, blue: 129.0 / 255.0).opacity(isDark ? 0.25 : 0.30)
+                                    Color(red: 66.0 / 255.0, green: 133.0 / 255.0, blue: 244.0 / 255.0).opacity(isDark ? 0.45 : 0.42),
+                                    Color(red: 155.0 / 255.0, green: 114.0 / 255.0, blue: 207.0 / 255.0).opacity(isDark ? 0.42 : 0.38),
+                                    Color(red: 240.0 / 255.0, green: 98.0 / 255.0, blue: 146.0 / 255.0).opacity(isDark ? 0.38 : 0.36)
                                 ],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
