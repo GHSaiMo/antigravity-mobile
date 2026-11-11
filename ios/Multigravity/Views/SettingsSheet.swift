@@ -178,6 +178,7 @@ public struct SettingsSheet: View {
                     .pickerStyle(.segmented)
                     .padding(.vertical, 2)
                     .onChange(of: settings.themeMode) { _, _ in
+                        settings.applyAppearance()
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     }
 
@@ -218,7 +219,6 @@ public struct SettingsSheet: View {
             .navigationTitle("设置")
             .navigationBarTitleDisplayMode(.inline)
             .presentationDragIndicator(.visible)
-            .preferredColorScheme(settings.colorScheme)
         }
         .presentationDragIndicator(.visible)
         .onAppear {

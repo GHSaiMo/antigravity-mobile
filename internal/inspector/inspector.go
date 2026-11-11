@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -126,14 +127,25 @@ func (i *Inspector) Stop() {
 }
 
 var (
-	csrfRegex = regexp.MustCompile(`--csrf_token\s+([0-9a-fA-F-]+)`)
+	csrfRegex = regexp.MustCompile(`--csrf_token[=\s]+([0-9a-fA-F-]+)`)
 	lsofRegex = regexp.MustCompile(`:(\d+)\s+\(LISTEN\)`)
 )
 
 // Scan performs one inspection pass to detect and verify the language_server instance.
-// If an active instance is already known and healthy, a lightweight HTTP verification is
-// attempted first, avoiding unnecessary subprocess forks of ps and lsof.
+// Daemon discovery files (~/.gemini/antigravity/daemon/{hub,ls}_*.json) are checked first so
+// that an authoritative desktop/daemon instance under $HOME always takes precedence and can
+// immediately preempt any fallback process discovered during a desktop restart window.
 func (i *Inspector) Scan() *InstanceInfo {
+	// 1. Authoritative fast path: check daemon discovery files (~/.gemini/antigravity/daemon/{hub,ls}_*.json)
+	if dInfo := i.findFromDaemon(); dInfo != nil {
+		i.failedScanMu.Lock()
+		i.failedBackoff = 0
+		i.failedScanMu.Unlock()
+
+		i.update(dInfo)
+		return dInfo
+	}
+
 	i.mu.RLock()
 	curr := i.current
 	i.mu.RUnlock()
@@ -142,16 +154,6 @@ func (i *Inspector) Scan() *InstanceInfo {
 		if i.verifyPort(curr.Port, curr.CSRFToken) {
 			return curr
 		}
-	}
-
-	// Fast path: check daemon discovery files (~/.gemini/antigravity/daemon/ls_*.json)
-	if dInfo := i.findFromDaemon(); dInfo != nil {
-		i.failedScanMu.Lock()
-		i.failedBackoff = 0
-		i.failedScanMu.Unlock()
-
-		i.update(dInfo)
-		return dInfo
 	}
 
 	// PERF-3: exponential backoff — skip expensive ps+lsof if we recently failed.
@@ -320,16 +322,24 @@ func (i *Inspector) findFromDaemon() *InstanceInfo {
 
 	type fileEntry struct {
 		path    string
+		isHub   bool
 		modTime time.Time
 	}
 	var entries []fileEntry
 	for _, f := range files {
 		st, err := os.Stat(f)
 		if err == nil {
-			entries = append(entries, fileEntry{path: f, modTime: st.ModTime()})
+			entries = append(entries, fileEntry{
+				path:    f,
+				isHub:   strings.HasPrefix(filepath.Base(f), "hub_"),
+				modTime: st.ModTime(),
+			})
 		}
 	}
 	sort.Slice(entries, func(a, b int) bool {
+		if entries[a].isHub != entries[b].isHub {
+			return entries[a].isHub
+		}
 		return entries[a].modTime.After(entries[b].modTime)
 	})
 

@@ -25,4 +25,5 @@
   - **三端统一同步**：iOS、Android 原生端与 Web 控制台视觉规范全量对齐。
 - 🔒 **全链路性能与网络安全加固**：
   - **网关安全加固**：延迟连接级 PROXY protocol 嗅探消除 `Accept` 队头阻塞；补齐 Cookie 同源写保护、`POST /api/v1/auth/logout` 凭证吊销、WebSocket 读帧上限与 RPC 多路复用心跳/并发流控，收紧敏感凭据目录黑名单与 XML 沙箱响应头；
-  - **四端性能优化**：上游切换 HTTP/2 复用与 TLS 会话恢复，消除空闲流状态轮询建连风暴；零分配 FNV-1a 增量帧哈希、轨迹快照一次性预解析与流式缩略图像素限额；修复 iOS WebSocket 路径保留与 RFC 9112 分块解码状态机，补齐 iOS/Android 令牌内存写穿缓存与幂等故障切换守卫。
+  - **四端性能优化**：上游切换 HTTP/2 复用与 TLS 会话恢复，消除空闲流状态轮询建连风暴；零分配 FNV-1a 增量帧哈希、轨迹快照一次性预解析与流式缩略图像素限额；修复 iOS WebSocket 路径保留与 RFC 9112 分块解码状态机，补齐 iOS/Android 令牌内存写穿缓存与幂等故障切换守卫；
+  - **多实例精准识别与 iOS 主题即时刷新**：Inspector 与 Cockpit 新增桌面 Antigravity (`agy`) 主实例优先级识别，自动区分并过滤 `--standalone` / 隔离 `--app_data_dir` 的无头后台进程（如 `groupchat-runtime`）；修复 iOS 浅色系统下设置面板从「深色」切回「跟随系统」时模态卡片未即时刷新的问题。

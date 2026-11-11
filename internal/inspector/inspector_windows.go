@@ -50,15 +50,31 @@ func (i *Inspector) findProcess(ctx context.Context) (int, string, error) {
 		return 0, "", fmt.Errorf("unexpected output from PowerShell: %s", trimmed)
 	}
 
+	var (
+		bestPID      int
+		bestCSRF     string
+		bestPriority int
+	)
+
 	for _, p := range procs {
-		if strings.Contains(p.CommandLine, "language_server") {
-			var csrfToken string
-			matches := csrfRegex.FindStringSubmatch(p.CommandLine)
-			if len(matches) > 1 {
-				csrfToken = matches[1]
-			}
-			return p.ProcessID, csrfToken, nil
+		ok, priority := ClassifyLanguageServerCmdline(p.CommandLine)
+		if !ok || p.ProcessID <= 0 {
+			continue
 		}
+		var csrfToken string
+		matches := csrfRegex.FindStringSubmatch(p.CommandLine)
+		if len(matches) > 1 {
+			csrfToken = matches[1]
+		}
+		if priority > bestPriority || (priority == bestPriority && p.ProcessID > bestPID) {
+			bestPID = p.ProcessID
+			bestCSRF = csrfToken
+			bestPriority = priority
+		}
+	}
+
+	if bestPID > 0 {
+		return bestPID, bestCSRF, nil
 	}
 
 	return 0, "", fmt.Errorf("language_server process not found")

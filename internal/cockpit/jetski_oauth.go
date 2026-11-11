@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -586,7 +587,7 @@ func liveUserEmail() (string, error) {
 }
 
 func lookupLanguageServer() (int, string, error) {
-	// Fast path: check daemon discovery files
+	// Fast path: check daemon discovery files (hub_*.json preferred, newest first, verified listening)
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
 		daemonDir := filepath.Join(home, ".gemini", "antigravity", "daemon")
 		var files []string
@@ -596,14 +597,35 @@ func lookupLanguageServer() (int, string, error) {
 			}
 		}
 		if len(files) > 0 {
+			type fileEntry struct {
+				path    string
+				isHub   bool
+				modTime time.Time
+			}
+			var entries []fileEntry
+			for _, f := range files {
+				if st, err := os.Stat(f); err == nil {
+					entries = append(entries, fileEntry{
+						path:    f,
+						isHub:   strings.HasPrefix(filepath.Base(f), "hub_"),
+						modTime: st.ModTime(),
+					})
+				}
+			}
+			sort.Slice(entries, func(a, b int) bool {
+				if entries[a].isHub != entries[b].isHub {
+					return entries[a].isHub
+				}
+				return entries[a].modTime.After(entries[b].modTime)
+			})
 			type daemonInfo struct {
 				HTTPSPort int    `json:"httpsPort"`
 				CSRFToken string `json:"csrfToken"`
 			}
-			for _, f := range files {
-				if data, err := os.ReadFile(f); err == nil {
+			for _, entry := range entries {
+				if data, err := os.ReadFile(entry.path); err == nil {
 					var d daemonInfo
-					if json.Unmarshal(data, &d) == nil && d.HTTPSPort > 0 {
+					if json.Unmarshal(data, &d) == nil && d.HTTPSPort > 0 && IsCockpitListening(d.HTTPSPort, 300*time.Millisecond) {
 						return d.HTTPSPort, d.CSRFToken, nil
 					}
 				}
@@ -637,7 +659,9 @@ func lookupLanguageServer() (int, string, error) {
 		var pid int
 		var csrf string
 		for _, p := range procs {
-			if strings.Contains(p.CommandLine, "language_server") {
+			if strings.Contains(p.CommandLine, "language_server") &&
+				!strings.Contains(p.CommandLine, "--headless") &&
+				!strings.Contains(p.CommandLine, "groupchat-runtime") {
 				pid = p.ProcessID
 				if m := lsCSRFRE.FindStringSubmatch(p.CommandLine); len(m) > 1 {
 					csrf = m[1]
@@ -680,7 +704,7 @@ func lookupLanguageServer() (int, string, error) {
 		if !strings.Contains(line, "language_server") {
 			continue
 		}
-		if strings.Contains(line, "multicall") {
+		if strings.Contains(line, "multicall") || strings.Contains(line, "--headless") || strings.Contains(line, "groupchat-runtime") {
 			continue
 		}
 		fields := strings.Fields(line)

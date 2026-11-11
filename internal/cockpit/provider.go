@@ -997,7 +997,7 @@ func EnsureCockpitAntigravityConfig() error {
 	slog.Info("[Cockpit] Auto-aligned config.json: antigravity_launch_on_switch=false", "antigravity_app_path", rawMap["antigravity_app_path"])
 
 	// 5. If Cockpit Tools process is running, restart it so the in-memory config is reloaded
-	if isCockpitProcessRunning() {
+	if cockpitProcessChecker() {
 		slog.Info("[Cockpit] Restarting Cockpit Tools to reload updated configuration into memory...")
 		if rErr := RestartCockpitApp(); rErr != nil {
 			slog.Warn("[Cockpit] Warning: failed to restart Cockpit Tools", "err", rErr)
