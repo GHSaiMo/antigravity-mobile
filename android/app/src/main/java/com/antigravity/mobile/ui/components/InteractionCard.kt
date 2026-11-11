@@ -21,6 +21,8 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
@@ -85,6 +87,8 @@ fun InteractionCard(
     val pg = interaction.permissionGrant
     val headerIcon = when {
         pg != null -> Icons.Default.Lock
+        interaction.type == "browser_download" -> Icons.Default.FileDownload
+        interaction.type == "approval" -> Icons.Default.CheckCircle
         interaction.type == "permission" || interaction.type == "file_permission" -> Icons.Default.Lock
         interaction.type == "ask_question" -> Icons.AutoMirrored.Filled.HelpOutline
         interaction.type == "run_command" -> Icons.Default.Terminal
@@ -93,6 +97,8 @@ fun InteractionCard(
 
     val headerColor = when {
         pg != null -> colors.accentOrange
+        interaction.type == "browser_download" -> colors.accentBlue
+        interaction.type == "approval" -> colors.accentGreen
         interaction.type == "permission" || interaction.type == "file_permission" -> colors.accentBlue
         interaction.type == "ask_question" -> colors.accentOrange
         interaction.type == "run_command" -> colors.accentOrange

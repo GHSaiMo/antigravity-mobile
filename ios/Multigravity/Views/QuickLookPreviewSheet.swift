@@ -127,6 +127,8 @@ public struct QuickLookPreviewSheet: View {
                 } else if isVideo(url: url) {
                     NativeVideoPlayerViewer(url: url)
                         .ignoresSafeArea(edges: .bottom)
+                } else if isNotebook(url: url) {
+                    NotebookPreviewView(url: url)
                 } else {
                     QuickLookControllerRepresentable(url: url)
                         .ignoresSafeArea(edges: .bottom)
@@ -243,6 +245,16 @@ public struct QuickLookPreviewSheet: View {
         if let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
            let uri = comps.queryItems?.first(where: { $0.name == "uri" })?.value {
             return (uri as NSString).pathExtension.lowercased() == "svg"
+        }
+        return false
+    }
+
+    private func isNotebook(url: URL) -> Bool {
+        let ext = url.pathExtension.lowercased()
+        if ext == "ipynb" { return true }
+        if let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
+           let uri = comps.queryItems?.first(where: { $0.name == "uri" })?.value {
+            return (uri as NSString).pathExtension.lowercased() == "ipynb"
         }
         return false
     }

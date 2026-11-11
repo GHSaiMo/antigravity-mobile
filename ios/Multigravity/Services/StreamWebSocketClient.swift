@@ -42,6 +42,7 @@ public struct StreamUpdatePayload: Decodable, Sendable {
     /// delta=1 frames: `messages` holds only new/changed items and `messageIds` the full ordered window.
     public let delta: Bool?
     public let messageIds: [String]?
+    public let swarm: SwarmBrief?
 }
 
 @Observable

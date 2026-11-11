@@ -44,11 +44,13 @@ internal fun ParagraphBlockView(
     val cleanText = replaceHtmlBreaks(text).trim()
     val segments = remember(cleanText) { parsePlanSegments(cleanText) }
 
+    val bodyScale = if (LocalShareExport.current) 1.0f else LocalMarkdownBodyScale.current
+    val scaledBaseSize = (15f * bodyScale).sp
     if (segments.size <= 1 && segments.firstOrNull() !is PlanSegment.PlanButton) {
         RichTextRenderer(
             text = cleanText,
             colors = colors,
-            baseFontSize = 15.sp,
+            baseFontSize = scaledBaseSize,
             onPlanClick = onPlanClick
         )
     } else {
@@ -64,7 +66,7 @@ internal fun ParagraphBlockView(
                             RichTextRenderer(
                                 text = trimmed,
                                 colors = colors,
-                                baseFontSize = 15.sp,
+                                baseFontSize = scaledBaseSize,
                                 onPlanClick = onPlanClick
                             )
                         }

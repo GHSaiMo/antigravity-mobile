@@ -41,6 +41,8 @@ public enum MarkdownPlainText {
             case .agentEmbed(_, let src):
                 let filename = (src as NSString).lastPathComponent
                 parts.append("[交互组件: \(filename)]")
+            case .pluginCard(_, let catalogId):
+                parts.append("[推荐插件: \(catalogId)]")
             case .carousel(_, let slides):
                 let slideTexts = slides.map { convert($0.content) }
                 parts.append(slideTexts.joined(separator: "\n\n"))

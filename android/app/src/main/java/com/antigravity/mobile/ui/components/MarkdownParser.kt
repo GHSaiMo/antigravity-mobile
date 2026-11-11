@@ -239,6 +239,14 @@ object MarkdownParser {
                 continue
             }
 
+            // 6b2. Standalone plugin card: <plugin-card catalog-id="..."></plugin-card>
+            val standalonePlugin = parseStandalonePluginCard(trimmed)
+            if (standalonePlugin != null) {
+                blocks.add(MarkdownBlock.PluginCard("block-${blockIdx++}", standalonePlugin))
+                i++
+                continue
+            }
+
             // 6c. Blockquote & GitHub Alerts (> [!NOTE], > [!TIP], > ...)
             if (trimmed.startsWith(">")) {
                 val quoteLines = mutableListOf<String>()
@@ -301,7 +309,8 @@ object MarkdownParser {
                     isBulletListItem(nTrimmed) ||
                     ORDERED_LIST_REGEX.containsMatchIn(nTrimmed) ||
                     parseStandaloneImage(nTrimmed) != null ||
-                    parseStandaloneAgentEmbed(nTrimmed) != null
+                    parseStandaloneAgentEmbed(nTrimmed) != null ||
+                    parseStandalonePluginCard(nTrimmed) != null
                 ) {
                     break
                 }
@@ -311,13 +320,15 @@ object MarkdownParser {
             val paraText = paraLines.joinToString("\n")
             val imagesInPara = findImages(paraText)
             val embedsInPara = findAgentEmbeds(paraText)
+            val pluginsInPara = findPluginCards(paraText)
 
-            if (imagesInPara.isEmpty() && embedsInPara.isEmpty()) {
+            if (imagesInPara.isEmpty() && embedsInPara.isEmpty() && pluginsInPara.isEmpty()) {
                 blocks.add(MarkdownBlock.Paragraph("block-${blockIdx++}", paraText))
             } else {
                 val allItems = mutableListOf<ParagraphInlineItem>()
                 imagesInPara.forEach { allItems.add(ParagraphInlineItem.Img(it.alt, it.url, it.range)) }
                 embedsInPara.forEach { allItems.add(ParagraphInlineItem.Embed(it.src, it.range)) }
+                pluginsInPara.forEach { allItems.add(ParagraphInlineItem.PluginCardItem(it.pluginId, it.range)) }
                 allItems.sortBy { it.range.first }
 
                 // Exclude overlapping ranges
@@ -341,6 +352,7 @@ object MarkdownParser {
                     when (item) {
                         is ParagraphInlineItem.Img -> blocks.add(MarkdownBlock.Image("block-${blockIdx++}", item.alt, item.url))
                         is ParagraphInlineItem.Embed -> blocks.add(MarkdownBlock.AgentEmbed("block-${blockIdx++}", item.src))
+                        is ParagraphInlineItem.PluginCardItem -> blocks.add(MarkdownBlock.PluginCard("block-${blockIdx++}", item.pluginId))
                     }
                     curIdx = item.range.last + 1
                 }
@@ -458,9 +470,35 @@ object MarkdownParser {
         return null
     }
 
+    private val pluginCardRegex = Regex("""<plugin-card\b[^>]*?\bcatalog-id=["']([^"']+)["'][^>]*>(?:\s*<\/plugin-card>)?""", RegexOption.IGNORE_CASE)
+
+    private data class FoundPluginCard(val pluginId: String, val range: IntRange)
+
+    private fun findPluginCards(text: String): List<FoundPluginCard> {
+        if (!text.contains("plugin-card", ignoreCase = true)) return emptyList()
+        val results = mutableListOf<FoundPluginCard>()
+        pluginCardRegex.findAll(text).forEach { match ->
+            val pid = match.groups[1]?.value?.trim().orEmpty()
+            if (pid.isNotEmpty()) {
+                results.add(FoundPluginCard(pid, match.range))
+            }
+        }
+        return results.sortedBy { it.range.first }
+    }
+
+    private fun parseStandalonePluginCard(trimmed: String): String? {
+        val found = findPluginCards(trimmed)
+        if (found.size != 1) return null
+        val item = found[0]
+        val before = trimmed.substring(0, item.range.first).trim()
+        val after = trimmed.substring(item.range.last + 1).trim()
+        return if (before.isEmpty() && after.isEmpty()) item.pluginId else null
+    }
+
     private sealed class ParagraphInlineItem(val range: IntRange) {
         class Img(val alt: String, val url: String, range: IntRange) : ParagraphInlineItem(range)
         class Embed(val src: String, range: IntRange) : ParagraphInlineItem(range)
+        class PluginCardItem(val pluginId: String, range: IntRange) : ParagraphInlineItem(range)
     }
 
     private fun isSlideSeparatorLine(line: String): Pair<Boolean, String?> {

@@ -1073,6 +1073,46 @@ func buildPendingInteraction(rawResp *upstreamTrajectoryResp, steps []Trajectory
 					{ID: "2", Text: "No", IsDeny: true},
 				}
 				applyDenyWriteIn(pi)
+			} else if req.ApprovalInteraction != nil {
+				pi.Type = "approval"
+				pi.Title = "操作审批确认"
+				if req.ApprovalInteraction.Title != "" {
+					pi.Title = req.ApprovalInteraction.Title
+				}
+				if req.ApprovalInteraction.Description != "" {
+					pi.Description = req.ApprovalInteraction.Description
+				}
+				descLower := strings.ToLower(pi.Description + " " + pi.Title)
+				if strings.Contains(descLower, "download") || strings.Contains(descLower, "下载") {
+					pi.Type = "browser_download"
+					if pi.Title == "操作审批确认" {
+						pi.Title = "浏览器文件下载审批"
+					}
+				}
+				pi.Options = []InteractionOption{
+					{ID: "1", Text: "允许 (Allow)", Scope: 1},
+					{ID: "2", Text: "拒绝 (Deny)", IsDeny: true},
+				}
+				applyDenyWriteIn(pi)
+			} else if req.Mcp != nil {
+				pi.Type = "approval"
+				pi.Title = "MCP 工具调用确认"
+				pi.Options = []InteractionOption{
+					{ID: "1", Text: "允许执行", Scope: 1},
+					{ID: "2", Text: "拒绝", IsDeny: true},
+				}
+				applyDenyWriteIn(pi)
+			} else if req.Elicitation != nil {
+				pi.Type = "approval"
+				pi.Title = "输入补充信息"
+				if req.Elicitation.Message != "" {
+					pi.Description = req.Elicitation.Message
+				}
+				pi.Options = []InteractionOption{
+					{ID: "1", Text: "提交", Scope: 1},
+					{ID: "2", Text: "取消", IsDeny: true},
+				}
+				applyDenyWriteIn(pi)
 			}
 			pendingInteraction = pi
 			break

@@ -51,12 +51,15 @@ type ModelsResponse struct {
 
 // 兜底默认值候选（按优先级排列）：实时列表里存在时才会被采用。
 var preferredDefaults = map[string][]string{
-	"gemini": {"gemini-3.8-flash-high", "gemini-4-argon-high"},
+	"gemini": {"gemini-3.8-flash-high", "gemini-4-carbon-high", "gemini-4-argon-high"},
 	"claude": {"claude-opus-4-6-thinking", "claude-opus-5-5-high"},
 }
 
 // fallbackModels is used until the first successful query, or when language_server is unreachable.
 var fallbackModels = []ModelOption{
+	{ID: "gemini-4-carbon-high", Name: "Gemini 4 Carbon (High)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M420", SupportsImages: true, Thinking: true, Tag: "New"},
+	{ID: "gemini-4-carbon-medium", Name: "Gemini 4 Carbon (Medium)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M421", SupportsImages: true, Thinking: true, Tag: "New"},
+	{ID: "gemini-4-carbon-low", Name: "Gemini 4 Carbon (Low)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M422", SupportsImages: true, Thinking: true, Tag: "New"},
 	{ID: "gemini-4-argon-high", Name: "Gemini 4 Argon (High)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M417", SupportsImages: true, Thinking: true, Tag: "New"},
 	{ID: "gemini-4-argon-medium", Name: "Gemini 4 Argon (Medium)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M418", SupportsImages: true, Thinking: true, Tag: "New"},
 	{ID: "gemini-4-argon-low", Name: "Gemini 4 Argon (Low)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M419", SupportsImages: true, Thinking: true, Tag: "New"},

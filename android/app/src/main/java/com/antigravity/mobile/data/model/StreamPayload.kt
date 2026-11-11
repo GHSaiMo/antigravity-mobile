@@ -246,7 +246,8 @@ data class StreamUpdatePayload(
     val startedAt: String? = null,
     /** delta=1 增量帧：messages 仅含新增/变化项，messageIds 为当前窗口完整有序 ID（见 StreamDeltaReassembler）。 */
     val delta: Boolean = false,
-    val messageIds: List<String>? = null
+    val messageIds: List<String>? = null,
+    val swarm: SwarmBrief? = null
 )
 
 @Serializable

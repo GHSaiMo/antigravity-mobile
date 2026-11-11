@@ -5,7 +5,7 @@ extension MarkdownContentView {
     
     @ViewBuilder
     func headingView(level: Int, text: String) -> some View {
-        let size: CGFloat = {
+        let baseSize: CGFloat = {
             switch level {
             case 1: return 20
             case 2: return 18
@@ -14,6 +14,7 @@ extension MarkdownContentView {
             default: return 14
             }
         }()
+        let size = baseSize * (isShareExport ? 1.0 : AppSettings.shared.fontSizeScale.bodyScale)
         
         Self.renderRichText(text, size: size, weight: .bold)
             .font(.system(size: size, weight: .bold))
@@ -68,9 +69,10 @@ extension MarkdownContentView {
             Divider()
             
             // Code text
+            let codeScale = isShareExport ? 1.0 : AppSettings.shared.fontSizeScale.codeScale
             ExportAwareHorizontalScroll {
                 Text(code)
-                    .font(.system(size: 12.5, design: .monospaced))
+                    .font(.system(size: 12.5 * codeScale, design: .monospaced))
                     .padding(10)
             }
             .fixedSize(horizontal: false, vertical: true)
@@ -155,15 +157,16 @@ extension MarkdownContentView {
     
     @ViewBuilder
     func listView(items: [String]) -> some View {
+        let bodyScale = isShareExport ? 1.0 : AppSettings.shared.fontSizeScale.bodyScale
         VStack(alignment: .leading, spacing: 4) {
             ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                 let parsed = Self.parseTaskListItem(item)
                 HStack(alignment: .top, spacing: 6) {
                     Text(parsed.marker ?? "•")
-                        .font(.system(size: parsed.marker != nil ? 14.5 : 14, weight: .bold))
+                        .font(.system(size: (parsed.marker != nil ? 14.5 : 14) * bodyScale, weight: .bold))
                         .foregroundColor(parsed.isChecked ? .blue : .secondary)
                         .padding(.top, 2)
-                    paragraphView(text: parsed.content, size: 15)
+                    paragraphView(text: parsed.content, size: 15 * bodyScale)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
@@ -172,16 +175,17 @@ extension MarkdownContentView {
     
     @ViewBuilder
     func orderedListView(startIndex: Int, items: [String]) -> some View {
+        let bodyScale = isShareExport ? 1.0 : AppSettings.shared.fontSizeScale.bodyScale
         VStack(alignment: .leading, spacing: 4) {
             ForEach(Array(items.enumerated()), id: \.offset) { idx, item in
                 let parsed = Self.parseTaskListItem(item)
                 let displayContent = parsed.marker != nil ? "\(parsed.marker!) \(parsed.content)" : item
                 HStack(alignment: .top, spacing: 6) {
                     Text("\(startIndex + idx).")
-                        .font(.system(size: 13.5, weight: .semibold, design: .monospaced))
+                        .font(.system(size: 13.5 * bodyScale, weight: .semibold, design: .monospaced))
                         .foregroundColor(.secondary)
                         .padding(.top, 2)
-                    paragraphView(text: displayContent, size: 15)
+                    paragraphView(text: displayContent, size: 15 * bodyScale)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }

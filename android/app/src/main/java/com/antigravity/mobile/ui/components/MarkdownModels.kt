@@ -48,6 +48,7 @@ sealed class MarkdownBlock {
     data class Paragraph(val id: String, val text: String) : MarkdownBlock()
     data class Image(val id: String, val alt: String, val url: String) : MarkdownBlock()
     data class AgentEmbed(val id: String, val src: String) : MarkdownBlock()
+    data class PluginCard(val id: String, val pluginId: String) : MarkdownBlock()
     data class Carousel(
         val id: String,
         val slides: List<MarkdownCarouselSlide>

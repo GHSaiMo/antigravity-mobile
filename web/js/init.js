@@ -201,6 +201,25 @@ function initApp() {
     });
   }
 
+  // Font Size Scale in Settings (Antigravity 2.31+)
+  const fontSelect = document.getElementById("settings-font-size-scale");
+  const savedFontScale = localStorage.getItem("antigravity_font_scale") || "default";
+  if (savedFontScale === "compact") {
+    document.body.classList.add("font-compact");
+  } else if (savedFontScale === "comfortable") {
+    document.body.classList.add("font-comfortable");
+  }
+  if (fontSelect) {
+    fontSelect.value = savedFontScale;
+    fontSelect.addEventListener("change", (e) => {
+      const val = e.target.value;
+      localStorage.setItem("antigravity_font_scale", val);
+      document.body.classList.remove("font-compact", "font-comfortable");
+      if (val === "compact") document.body.classList.add("font-compact");
+      if (val === "comfortable") document.body.classList.add("font-comfortable");
+    });
+  }
+
   // Expand / Collapse Running Tasks Card
   document.getElementById("btn-tasks-expand")?.addEventListener("click", () => {
     RunningTasksManager.toggleExpand();

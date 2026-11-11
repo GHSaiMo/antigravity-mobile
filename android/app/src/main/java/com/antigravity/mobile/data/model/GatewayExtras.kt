@@ -496,5 +496,209 @@ data class BackgroundTaskLogResponse(
 
 // endregion
 
+// region Swarm 蜂群协同 (对齐 internal/proxy/swarm.go)
+
+@Serializable
+data class SwarmBrief(
+    val active: Boolean = false,
+    val coordinatorId: String = "",
+    val title: String = "",
+    val phase: String = "",
+    val headline: String = "",
+    val workingCount: Int = 0,
+    val totalMembers: Int = 0,
+    val latestSeq: Int = 0,
+    val attentionCount: Int = 0
+)
+
+@Serializable
+data class SwarmMemberInfo(
+    val name: String = "",
+    val conversationId: String = "",
+    val model: String = "",
+    val role: String = "",
+    val wakeMode: String = "",
+    val waitSince: String? = null,
+    val lastReadSeq: Int = 0,
+    val lastNudgedSeq: Int = 0,
+    val killed: Boolean = false,
+    val status: String = "waiting", // working, waiting, killed, error, stuck
+    val lastActivity: String? = null,
+    val unreadCount: Int = 0,
+    val isCurrent: Boolean = false
+)
+
+@Serializable
+data class SwarmBoardMessage(
+    val seq: Int = 0,
+    val agent: String = "",
+    val text: String = "",
+    val time: String = "",
+    val channel: String? = null,
+    val mentions: List<String> = emptyList()
+)
+
+@Serializable
+data class SwarmViewPhase(
+    val label: String = "",
+    val index: Int = 0,
+    val total: Int = 0
+)
+
+@Serializable
+data class SwarmViewAttention(
+    val id: String = "",
+    val kind: String = "",
+    val severity: String = "med",
+    val title: String = "",
+    val why: String? = null
+)
+
+@Serializable
+data class SwarmViewWorkstream(
+    val id: String = "",
+    val title: String = "",
+    val owners: List<String> = emptyList(),
+    val state: String = "active",
+    val note: String? = null
+)
+
+@Serializable
+data class SwarmViewTextItem(
+    val id: String = "",
+    val text: String = ""
+)
+
+@Serializable
+data class SwarmView(
+    val version: String = "",
+    val as_of_seq: Int = 0,
+    val updated_at: String = "",
+    val headline: String = "",
+    val phase: SwarmViewPhase? = null,
+    val attention: List<SwarmViewAttention> = emptyList(),
+    val workstreams: List<SwarmViewWorkstream> = emptyList(),
+    val milestones: List<SwarmViewTextItem> = emptyList(),
+    val risks: List<SwarmViewTextItem> = emptyList()
+)
+
+@Serializable
+data class SwarmSnapshot(
+    val cascadeId: String = "",
+    val coordinatorId: String = "",
+    val title: String = "",
+    val etag: String = "",
+    val brief: SwarmBrief = SwarmBrief(),
+    val members: List<SwarmMemberInfo> = emptyList(),
+    val messages: List<SwarmBoardMessage> = emptyList(),
+    val view: SwarmView? = null
+)
+
+@Serializable
+data class SwarmFeedbackRequest(
+    val cascadeId: String,
+    val coordinatorId: String? = null,
+    val feedback: String
+)
+
+@Serializable
+data class SwarmNudgeRequest(
+    val cascadeId: String,
+    val coordinatorId: String? = null,
+    val workerName: String
+)
+
+// endregion
+
+// region 插件与自动化 (对齐 internal/proxy/plugins.go 与 automations.go)
+
+@Serializable
+data class CascadePluginItem(
+    val id: String = "",
+    val name: String = "",
+    val description: String = "",
+    val version: String? = null,
+    val enabled: Boolean = false,
+    val installed: Boolean = false,
+    val kind: String? = null,
+    val icon: String? = null,
+    val authStatus: String? = null,
+    val accounts: List<String> = emptyList()
+) {
+    val effectiveId: String get() = id.ifBlank { name }
+}
+
+@Serializable
+data class PluginAuthProviderItem(
+    val id: String = "",
+    val name: String = "",
+    val signedIn: Boolean = false
+)
+
+@Serializable
+data class CascadePluginsResponse(
+    val plugins: List<CascadePluginItem> = emptyList(),
+    val providers: List<PluginAuthProviderItem> = emptyList()
+)
+
+@Serializable
+data class PluginInstallRequest(
+    val pluginId: String,
+    val cascadeId: String? = null,
+    val autoResume: Boolean = true
+)
+
+@Serializable
+data class PluginInstallResponse(
+    val status: String = "",
+    val success: Boolean = false,
+    val id: String = "",
+    val pluginId: String = "",
+    val installed: Boolean = false,
+    val resumed: Boolean = false,
+    val message: String = ""
+)
+
+@Serializable
+data class AutomationSidecarItem(
+    val id: String = "",
+    val name: String = "",
+    val description: String? = null,
+    val status: String = "STOPPED", // READY, RUNNING, STOPPED, ERROR
+    val cronExpression: String? = null,
+    val prompt: String? = null,
+    val lastRunAt: String? = null,
+    val nextRunAt: String? = null,
+    val enabled: Boolean = false,
+    val workspaceUri: String? = null
+) {
+    val targetSidecarId: String get() = id.ifBlank { name }
+    val isRunning: Boolean get() = status.equals("RUNNING", ignoreCase = true) || status.equals("READY", ignoreCase = true) || enabled
+}
+
+@Serializable
+data class AutomationEventItem(
+    val id: String = "",
+    val scheduleId: String = "",
+    val conversationId: String? = null,
+    val timestamp: String = "",
+    val status: String = "",
+    val message: String? = null
+)
+
+@Serializable
+data class AutomationsResponse(
+    val automations: List<AutomationSidecarItem> = emptyList(),
+    val events: List<AutomationEventItem> = emptyList()
+)
+
+@Serializable
+data class AutomationManageRequest(
+    val sidecarId: String,
+    val action: String
+)
+
+// endregion
+
 
 // endregion

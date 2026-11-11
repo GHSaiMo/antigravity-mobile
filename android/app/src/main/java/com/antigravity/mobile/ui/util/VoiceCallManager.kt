@@ -100,6 +100,10 @@ class VoiceCallManager(private val context: Context) {
                 if (num != null && num > 0) return 1000 + num
             }
             return when (raw.lowercase()) {
+                "gemini-4-carbon-high" -> 1420
+                "gemini-4-carbon-medium" -> 1421
+                "gemini-4-carbon-low" -> 1422
+                "gemini-4-carbon" -> 1420
                 "gemini-4-argon-high" -> 1417
                 "gemini-4-argon-medium" -> 1418
                 "gemini-4-argon-low" -> 1419
@@ -446,12 +450,16 @@ class VoiceCallManager(private val context: Context) {
             else -> "ws://$cleanBase"
         }
         val planModelInt = resolvePlanModelInt(modelIdOrEnum)
-        val wsUrl = Uri.parse("$wsBase/voice/ws").buildUpon()
+        val uriBuilder = Uri.parse("$wsBase/voice/ws").buildUpon()
             .appendQueryParameter("conversation_id", cascadeId)
-            .appendQueryParameter("plan_model", planModelInt.toString())
             .appendQueryParameter("sample_rate", MIC_SAMPLE_RATE.toString())
-            .build()
-            .toString()
+
+        if (planModelInt > 0) {
+            uriBuilder.appendQueryParameter("plan_model", planModelInt.toString())
+        } else if (!modelIdOrEnum.isNullOrBlank()) {
+            uriBuilder.appendQueryParameter("plan_model", modelIdOrEnum)
+        }
+        val wsUrl = uriBuilder.build().toString()
 
         val reqBuilder = Request.Builder()
             .url(wsUrl)
@@ -692,6 +700,9 @@ class VoiceCallManager(private val context: Context) {
                             updateLiveTranscript(it, VoiceTranscriptRole.USER)
                         }
                         9 -> clearPlaybackQueue()
+                        11 -> extractFirstStringField(slice)?.let {
+                            Log.d("VoiceCallManager", "AskQuestion progress: $it")
+                        }
                     }
                 }
                 else -> return
@@ -702,6 +713,7 @@ class VoiceCallManager(private val context: Context) {
     private fun handleSessionStatus(bytes: ByteArray) {
         val idx = intArrayOf(0)
         var stateVal = 0
+        var failureReason = 0
         var returnedCascadeId = ""
 
         while (idx[0] < bytes.size) {
@@ -712,6 +724,7 @@ class VoiceCallManager(private val context: Context) {
                 0 -> {
                     val v = readVarint(bytes, idx)?.toInt() ?: return
                     if (field == 1) stateVal = v
+                    if (field == 2) failureReason = v
                 }
                 1 -> idx[0] += 8
                 5 -> idx[0] += 4
@@ -731,6 +744,10 @@ class VoiceCallManager(private val context: Context) {
         if (returnedCascadeId.isNotEmpty() && returnedCascadeId != activeCascadeId) {
             activeCascadeId = returnedCascadeId
             scope.launch { onCascadeBound?.invoke(returnedCascadeId) }
+        }
+
+        if (failureReason == 5) {
+            Log.w("VoiceCallManager", "Voice session access denied: OAuth token may be expired (reason 5)")
         }
 
         when (stateVal) {

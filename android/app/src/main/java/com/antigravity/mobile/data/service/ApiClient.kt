@@ -1424,6 +1424,160 @@ class ApiClient(
         }
     }
 
+    // MARK: - Swarm 蜂群协同接口
+
+    suspend fun fetchSwarmSnapshot(cascadeId: String): Result<SwarmSnapshot> = withContext(Dispatchers.IO) {
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(RuntimeException("未配置网关地址"))
+        try {
+            val url = "$baseUrl/gateway/swarm?cascadeId=${URLEncoder.encode(cascadeId, "UTF-8")}"
+            val request = buildAuthorizedRequest(url).get().build()
+            client.newCall(request).await().use { response ->
+                val respStr = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(RuntimeException("HTTP ${response.code}"))
+                }
+                Result.success(json.decodeFromString<SwarmSnapshot>(respStr))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun sendSwarmFeedback(cascadeId: String, content: String, coordinatorId: String? = null): Result<Unit> = withContext(Dispatchers.IO) {
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(RuntimeException("未配置网关地址"))
+        try {
+            val payload = json.encodeToString(
+                SwarmFeedbackRequest(
+                    cascadeId = cascadeId,
+                    coordinatorId = coordinatorId?.takeIf { it.isNotBlank() },
+                    feedback = content
+                )
+            )
+            val request = buildAuthorizedRequest("$baseUrl/gateway/swarm/feedback")
+                .post(payload.toRequestBody(jsonMediaType))
+                .build()
+            client.newCall(request).await().use { response ->
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(RuntimeException("HTTP ${response.code}"))
+                }
+                Result.success(Unit)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun nudgeSwarmMember(cascadeId: String, member: String, coordinatorId: String? = null): Result<Unit> = withContext(Dispatchers.IO) {
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(RuntimeException("未配置网关地址"))
+        try {
+            val payload = json.encodeToString(
+                SwarmNudgeRequest(
+                    cascadeId = cascadeId,
+                    coordinatorId = coordinatorId?.takeIf { it.isNotBlank() },
+                    workerName = member
+                )
+            )
+            val request = buildAuthorizedRequest("$baseUrl/gateway/swarm/nudge")
+                .post(payload.toRequestBody(jsonMediaType))
+                .build()
+            client.newCall(request).await().use { response ->
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(RuntimeException("HTTP ${response.code}"))
+                }
+                Result.success(Unit)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    // MARK: - Plugins 插件市场接口
+
+    suspend fun fetchPluginsCatalog(): Result<CascadePluginsResponse> = withContext(Dispatchers.IO) {
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(RuntimeException("未配置网关地址"))
+        try {
+            val request = buildAuthorizedRequest("$baseUrl/gateway/plugins").get().build()
+            client.newCall(request).await().use { response ->
+                val respStr = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(RuntimeException("HTTP ${response.code}"))
+                }
+                val parsed = json.decodeFromString<CascadePluginsResponse>(respStr)
+                Result.success(parsed)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchPlugins(): Result<List<CascadePluginItem>> =
+        fetchPluginsCatalog().map { it.plugins }
+
+    suspend fun installPlugin(id: String, conversationId: String? = null, autoResume: Boolean = true): Result<PluginInstallResponse> = withContext(Dispatchers.IO) {
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(RuntimeException("未配置网关地址"))
+        try {
+            val payload = json.encodeToString(
+                PluginInstallRequest(
+                    pluginId = id,
+                    cascadeId = conversationId?.takeIf { it.isNotBlank() },
+                    autoResume = autoResume
+                )
+            )
+            val request = buildAuthorizedRequest("$baseUrl/gateway/plugins/install")
+                .post(payload.toRequestBody(jsonMediaType))
+                .build()
+            client.newCall(request).await().use { response ->
+                val respStr = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(RuntimeException("HTTP ${response.code}"))
+                }
+                Result.success(json.decodeFromString<PluginInstallResponse>(respStr))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    // MARK: - Automations 定时与守护任务接口
+
+    suspend fun fetchAutomationsData(): Result<AutomationsResponse> = withContext(Dispatchers.IO) {
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(RuntimeException("未配置网关地址"))
+        try {
+            val request = buildAuthorizedRequest("$baseUrl/gateway/automations").get().build()
+            client.newCall(request).await().use { response ->
+                val respStr = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(RuntimeException("HTTP ${response.code}"))
+                }
+                val parsed = json.decodeFromString<AutomationsResponse>(respStr)
+                Result.success(parsed)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchAutomations(): Result<List<AutomationSidecarItem>> =
+        fetchAutomationsData().map { it.automations }
+
+    suspend fun manageAutomation(action: String, sidecarId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(RuntimeException("未配置网关地址"))
+        try {
+            val payload = json.encodeToString(AutomationManageRequest(sidecarId = sidecarId, action = action))
+            val request = buildAuthorizedRequest("$baseUrl/gateway/automations/manage")
+                .post(payload.toRequestBody(jsonMediaType))
+                .build()
+            client.newCall(request).await().use { response ->
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(RuntimeException("HTTP ${response.code}"))
+                }
+                Result.success(Unit)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     private fun buildAuthorizedRequest(url: String): Request.Builder {
         val builder = Request.Builder()
             .url(url)

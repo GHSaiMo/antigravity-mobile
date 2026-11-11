@@ -751,11 +751,12 @@ func (p *Proxy) HandleCascadeInteraction(w http.ResponseWriter, r *http.Request)
 	}
 
 	type userInteractionPayload struct {
-		TrajectoryID string                 `json:"trajectoryId"`
-		StepIndex    int                    `json:"stepIndex"`
-		Permission   map[string]interface{} `json:"permission,omitempty"`
-		AskQuestion  map[string]interface{} `json:"askQuestion,omitempty"`
-		RunCommand   map[string]interface{} `json:"runCommand,omitempty"`
+		TrajectoryID        string                 `json:"trajectoryId"`
+		StepIndex           int                    `json:"stepIndex"`
+		Permission          map[string]interface{} `json:"permission,omitempty"`
+		AskQuestion         map[string]interface{} `json:"askQuestion,omitempty"`
+		RunCommand          map[string]interface{} `json:"runCommand,omitempty"`
+		ApprovalInteraction map[string]interface{} `json:"approvalInteraction,omitempty"`
 	}
 
 	type rpcRequest struct {
@@ -849,6 +850,12 @@ func (p *Proxy) HandleCascadeInteraction(w http.ResponseWriter, r *http.Request)
 		interaction.RunCommand = map[string]interface{}{
 			"confirm":              req.Allow && !req.Skipped,
 			"submittedCommandLine": req.Target,
+		}
+
+	case "approval", "browser_download":
+		confirm := req.Allow && !req.Skipped && req.OptionID != "2" && req.OptionID != "5" && req.OptionID != "deny"
+		interaction.ApprovalInteraction = map[string]interface{}{
+			"confirm": confirm,
 		}
 
 	default:

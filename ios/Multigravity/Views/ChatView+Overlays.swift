@@ -194,7 +194,7 @@ extension ChatView {
         
         // 1. Images, Presentations, Videos, Audio & Office documents (PNG, JPG, MP4, MOV, M4A, MP3, PPTX, PPT, KEY, DOCX, XLSX, PDF, HTML, etc.)
         let isHTML = lower.hasSuffix(".html") || lower.hasSuffix(".htm") || pathLower.hasSuffix(".html") || pathLower.hasSuffix(".htm")
-        let documentExtensions = [".pptx", ".ppt", ".key", ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".numbers", ".pages", ".html", ".htm", ".txt", ".csv", ".json", ".log"]
+        let documentExtensions = [".pptx", ".ppt", ".key", ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".numbers", ".pages", ".ipynb", ".html", ".htm", ".txt", ".csv", ".json", ".log"]
         let imageExtensions = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".heic", ".heif", ".bmp", ".svg", ".ico", ".tiff", ".tif"]
         let videoExtensions = [".mp4", ".mov", ".m4v", ".webm", ".avi", ".mkv", ".3gp", ".ts", ".flv"]
         let audioExtensions = [".m4a", ".mp3", ".wav", ".aac", ".caf", ".flac", ".ogg", ".wma"]

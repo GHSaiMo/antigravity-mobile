@@ -88,6 +88,8 @@ func TestResolveModelEnum(t *testing.T) {
 		expected string
 	}{
 		{"gemini-3.8-flash-high", "MODEL_PLACEHOLDER_M318"},
+		{"gemini-4-carbon-high", "MODEL_PLACEHOLDER_M420"},
+		{"gemini-4-carbon", "MODEL_PLACEHOLDER_M420"},
 		{"gemini-4-argon-high", "MODEL_PLACEHOLDER_M417"},
 		{"gemini-4-argon-medium", "MODEL_PLACEHOLDER_M418"},
 		{"gemini-4-argon-low", "MODEL_PLACEHOLDER_M419"},

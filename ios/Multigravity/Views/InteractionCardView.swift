@@ -111,6 +111,10 @@ public struct InteractionCardView: View {
         switch interaction.type {
         case "permission", "file_permission":
             return "hand.raised.fill"
+        case "browser_download":
+            return "arrow.down.doc.fill"
+        case "approval":
+            return "checkmark.shield.fill"
         case "ask_question":
             return "questionmark.bubble.fill"
         case "run_command":
@@ -127,6 +131,10 @@ public struct InteractionCardView: View {
         switch interaction.type {
         case "permission", "file_permission":
             return .blue
+        case "browser_download":
+            return .orange
+        case "approval":
+            return .indigo
         case "ask_question":
             return .orange
         case "run_command":

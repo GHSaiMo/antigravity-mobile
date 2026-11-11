@@ -73,6 +73,7 @@ public enum MarkdownBlock: Identifiable {
     case paragraph(id: String, text: String)
     case image(id: String, alt: String, url: String)
     case agentEmbed(id: String, src: String)
+    case pluginCard(id: String, catalogId: String)
     case carousel(id: String, slides: [MarkdownCarouselSlide])
     
     public var id: String {
@@ -89,6 +90,7 @@ public enum MarkdownBlock: Identifiable {
         case .paragraph(let id, _): return id
         case .image(let id, _, _): return id
         case .agentEmbed(let id, _): return id
+        case .pluginCard(let id, _): return id
         case .carousel(let id, _): return id
         }
     }

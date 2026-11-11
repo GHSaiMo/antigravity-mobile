@@ -27,7 +27,7 @@ object FileIconResolver {
 
     private val documentExtensions = listOf(
         ".pdf", ".pptx", ".ppt", ".key", ".docx", ".doc", ".xlsx", ".xls",
-        ".numbers", ".pages", ".html", ".htm", ".txt", ".csv", ".json", ".log"
+        ".numbers", ".pages", ".html", ".htm", ".txt", ".csv", ".json", ".log", ".ipynb"
     )
 
     private val imageExtensions = listOf(

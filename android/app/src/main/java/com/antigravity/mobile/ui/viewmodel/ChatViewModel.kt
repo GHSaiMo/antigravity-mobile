@@ -79,6 +79,8 @@ data class ChatUiState(
     val globalBackgroundTasks: List<GlobalBackgroundTaskItem> = emptyList(),
     /** 本会话派发的子代理（来自 stream，不入缓存）。 */
     val subagents: List<SubagentItem> = emptyList(),
+    /** 本会话关联的 Swarm 蜂群状态（来自 stream）。 */
+    val swarmBrief: SwarmBrief? = null,
     /** 非空说明当前会话本身就是子代理，界面只读。 */
     val parentConversationId: String? = null,
     val subagentRole: String? = null,
