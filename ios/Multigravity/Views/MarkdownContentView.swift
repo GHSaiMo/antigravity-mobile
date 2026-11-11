@@ -1,5 +1,16 @@
 import SwiftUI
 
+private struct CurrentCascadeIdKey: EnvironmentKey {
+    static let defaultValue: String? = nil
+}
+
+extension EnvironmentValues {
+    public var currentCascadeId: String? {
+        get { self[CurrentCascadeIdKey.self] }
+        set { self[CurrentCascadeIdKey.self] = newValue }
+    }
+}
+
 public struct MarkdownContentView: View {
     public let content: String
     public let onImageTap: ((URL) -> Void)?
@@ -7,6 +18,11 @@ public struct MarkdownContentView: View {
     
     @State var internalPreviewImage: IdentifiableImage? = nil
     @Environment(\.isShareExport) var isShareExport
+    @Environment(\.currentCascadeId) private var currentCascadeId
+
+    private var fontScale: AppSettings.FontSizeScale {
+        isShareExport ? .standard : AppSettings.shared.fontSizeScale
+    }
     
     public init(content: String, onImageTap: ((URL) -> Void)? = nil) {
         self.content = content
@@ -64,7 +80,7 @@ public struct MarkdownContentView: View {
                     blockquoteView(content: quoteContent)
                     
                 case .paragraph(_, let text):
-                    paragraphView(text: text, size: 15)
+                    paragraphView(text: text, size: 15 * fontScale.bodyScale)
                     
                 case .image(_, let alt, let url):
                     markdownImageView(alt: alt, urlString: url)
@@ -74,6 +90,13 @@ public struct MarkdownContentView: View {
                         shareExportPlaceholder("交互内容，请在 App 中查看")
                     } else {
                         AgentEmbedView(src: src)
+                    }
+
+                case .pluginCard(_, let catalogId):
+                    if isShareExport {
+                        shareExportPlaceholder("推荐插件：\(catalogId)，请在 App 中查看")
+                    } else {
+                        PluginCardBlockView(catalogId: catalogId, conversationId: currentCascadeId)
                     }
                     
                 case .carousel(_, let slides):
@@ -91,6 +114,86 @@ public struct MarkdownContentView: View {
             ImageViewerSheet(item: item)
                 .presentationBackground(.clear)
                 .ignoresSafeArea()
+        }
+    }
+}
+
+private struct PluginCardBlockView: View {
+    let catalogId: String
+    let conversationId: String?
+
+    @State private var isInstalling = false
+    @State private var isInstalled = false
+    @State private var statusText: String? = nil
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "puzzlepiece.extension.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.blue)
+
+                Text(catalogId)
+                    .font(.system(size: 13.5, weight: .bold, design: .monospaced))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+
+                Spacer()
+
+                if isInstalled {
+                    Label("已安装", systemImage: "checkmark.circle.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.green)
+                } else {
+                    Button(action: install) {
+                        if isInstalling {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Text("一键安装")
+                                .font(.system(size: 12, weight: .semibold))
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .disabled(isInstalling)
+                }
+            }
+
+            Text(statusText ?? "来自 Antigravity 官方 / 社区插件市场，安装后自动续聊恢复任务。")
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
+        }
+        .padding(12)
+        .background(Color.blue.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.blue.opacity(0.25), lineWidth: 0.8)
+        )
+    }
+
+    private func install() {
+        guard let baseURL = AppSettings.shared.serverURL else {
+            statusText = "未连接网关"
+            return
+        }
+        isInstalling = true
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        Task {
+            do {
+                let resp = try await APIClient.shared.installPlugin(
+                    id: catalogId,
+                    conversationId: conversationId,
+                    autoResume: true,
+                    baseURL: baseURL
+                )
+                isInstalled = resp.isSuccess
+                statusText = resp.resumed == true ? "插件已安装，已自动续接当前对话。" : "插件安装成功。"
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            } catch {
+                statusText = "安装失败: \(error.localizedDescription)"
+            }
+            isInstalling = false
         }
     }
 }

@@ -270,6 +270,7 @@ var defaultSystemSlashIcons = map[string]string{
 	"learn":      "lightbulb_2",
 	"boost":      "bolt",
 	"btw":        "chat_add_on",
+	"swarm":      "hub",
 }
 
 // ResolveSlashCommandIcon returns the desktop-aligned icon name for a slash command or skill.
@@ -422,6 +423,17 @@ type TrajectoryStep struct {
 		FilePermission *struct {
 			AbsolutePathURI string `json:"absolutePathUri"`
 		} `json:"filePermission"`
+		ApprovalInteraction *struct {
+			Title       string `json:"title,omitempty"`
+			Description string `json:"description,omitempty"`
+			Confirm     bool   `json:"confirm,omitempty"`
+		} `json:"approvalInteraction,omitempty"`
+		Mcp *struct {
+			Confirm bool `json:"confirm,omitempty"`
+		} `json:"mcp,omitempty"`
+		Elicitation *struct {
+			Message string `json:"message,omitempty"`
+		} `json:"elicitation,omitempty"`
 	} `json:"requestedInteraction"`
 	ErrorMessage *struct {
 		Error struct {

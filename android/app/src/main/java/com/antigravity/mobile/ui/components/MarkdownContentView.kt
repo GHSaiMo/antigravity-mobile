@@ -165,6 +165,17 @@ fun MarkdownContentView(
                     }
                 }
 
+                is MarkdownBlock.PluginCard -> {
+                    if (isExport) {
+                        ShareExportPlaceholder("推荐插件：${block.pluginId}，请在 App 中查看")
+                    } else {
+                        PluginCardBlockView(
+                            pluginId = block.pluginId,
+                            colors = colors
+                        )
+                    }
+                }
+
                 is MarkdownBlock.Carousel -> {
                     if (isExport) {
                         ShareExportPlaceholder("图片轮播（${block.slides.size} 张），请在 App 中查看")

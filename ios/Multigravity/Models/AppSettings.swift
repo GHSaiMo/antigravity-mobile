@@ -37,8 +37,42 @@ public final class AppSettings {
     private let enableVoiceModeKey = "antigravity.enable_voice_mode"
     private let weeklyPaceCursorKey = "antigravity.weekly_pace_cursor"
     private let themeModeKey = "antigravity.theme_mode"
+    private let fontSizeScaleKey = "antigravity.font_size_scale"
+    private let knowledgeModeKey = "antigravity.knowledge_mode_enabled"
     private let gatewayPlatformKey = "antigravity.gateway_platform"
     private let demoModeKey = "antigravity.demo_mode"
+
+    public enum FontSizeScale: String, CaseIterable, Identifiable, Sendable {
+        case compact = "compact"
+        case standard = "standard"
+        case comfortable = "comfortable"
+
+        public var id: String { rawValue }
+
+        public var displayName: String {
+            switch self {
+            case .compact: return "紧凑 (90%)"
+            case .standard: return "标准 (100%)"
+            case .comfortable: return "舒适 (115%)"
+            }
+        }
+
+        public var bodyScale: CGFloat {
+            switch self {
+            case .compact: return 0.90
+            case .standard: return 1.00
+            case .comfortable: return 1.15
+            }
+        }
+
+        public var codeScale: CGFloat {
+            switch self {
+            case .compact: return 0.88
+            case .standard: return 1.00
+            case .comfortable: return 1.12
+            }
+        }
+    }
     
     public var gatewayPlatform: String? {
         didSet {
@@ -175,6 +209,20 @@ public final class AppSettings {
         didSet {
             UserDefaults.standard.set(themeMode, forKey: themeModeKey)
             applyAppearance()
+        }
+    }
+
+    /// 字体缩放比例：紧凑、标准、舒适
+    public var fontSizeScale: FontSizeScale {
+        didSet {
+            UserDefaults.standard.set(fontSizeScale.rawValue, forKey: fontSizeScaleKey)
+        }
+    }
+
+    /// 知识工作流模式（精简界面，突出阅读与文档生成）
+    public var isKnowledgeModeEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(isKnowledgeModeEnabled, forKey: knowledgeModeKey)
         }
     }
 
@@ -559,6 +607,9 @@ public final class AppSettings {
             self.weeklyPaceCursorEnabled = UserDefaults.standard.bool(forKey: weeklyPaceCursorKey)
         }
         self.themeMode = UserDefaults.standard.string(forKey: themeModeKey) ?? "system"
+        let savedScale = UserDefaults.standard.string(forKey: fontSizeScaleKey) ?? "standard"
+        self.fontSizeScale = FontSizeScale(rawValue: savedScale) ?? .standard
+        self.isKnowledgeModeEnabled = UserDefaults.standard.bool(forKey: knowledgeModeKey)
         self.gatewayPlatform = UserDefaults.standard.string(forKey: gatewayPlatformKey)
     }
 }

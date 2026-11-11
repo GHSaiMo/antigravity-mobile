@@ -1432,6 +1432,11 @@ function renderMarkdown(md) {
   if (!md) return "";
   md = processMathSymbols(md);
 
+  // Plugin card custom tag support (Antigravity 2.31+)
+  md = md.replace(/<plugin-card\s+catalog-id=["']([^"']+)["'][^>]*>(?:<\/plugin-card>)?/gi, (match, id) => {
+    return `\n\n:::plugin-card ${id}:::\n\n`;
+  });
+
   const lines = md.split("\n");
   const blocks = [];
   let i = 0;
@@ -1502,6 +1507,22 @@ function renderMarkdown(md) {
     }
 
     // HTML <style>...</style> Block detection
+    if (trimmed.startsWith(":::plugin-card")) {
+      const match = trimmed.match(/:::plugin-card\s+([^\s:]+)/);
+      const pluginId = match ? match[1] : "";
+      blocks.push(`
+        <div class="plugin-card-view" data-plugin-id="${escapeHtml(pluginId)}">
+          <div class="plugin-card-header">
+            <span class="plugin-card-title">🧩 推荐插件：${escapeHtml(pluginId)}</span>
+            <button class="plugin-card-install-btn" onclick="installPluginFromCard('${escapeHtml(pluginId)}')">一键安装</button>
+          </div>
+          <div class="plugin-card-desc">来自 Antigravity 官方 / 社区插件市场。安装后自动为您续接对话。</div>
+        </div>
+      `);
+      i++;
+      continue;
+    }
+
     if (trimmed.toLowerCase().startsWith("<style")) {
       const styleLines = [];
       let foundEnd = false;
@@ -2568,5 +2589,61 @@ const ImageViewerManager = {
     if (this.currentUrl) {
       window.open(this.currentUrl, "_blank");
     }
+  }
+};
+
+// --- Antigravity 2.31 Plugin Card & Jupyter Notebook Handlers ---
+window.installPluginFromCard = async function(pluginId) {
+  const cascadeId = (typeof activeCascadeId !== "undefined" && activeCascadeId) ||
+                    (typeof currentCascadeId !== "undefined" && currentCascadeId) || "";
+  try {
+    const res = await fetch("/gateway/plugins/install", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pluginId, cascadeId, autoResume: true })
+    });
+    if (res.ok) {
+      alert("插件已成功安装！已自动为您继续对话。");
+    } else {
+      const err = await res.json().catch(() => ({}));
+      alert("安装失败: " + (err.error || "未知错误"));
+    }
+  } catch (e) {
+    alert("请求出错: " + e.message);
+  }
+};
+
+window.renderJupyterNotebook = function(jsonStr) {
+  try {
+    const nb = typeof jsonStr === "string" ? JSON.parse(jsonStr) : jsonStr;
+    if (!nb || !Array.isArray(nb.cells)) return null;
+    let html = '<div class="ipynb-notebook">';
+    nb.cells.forEach((cell) => {
+      const cellType = cell.cell_type;
+      const src = Array.isArray(cell.source) ? cell.source.join("") : (cell.source || "");
+      if (cellType === "markdown") {
+        html += `<div class="ipynb-cell ipynb-markdown-cell"><div class="ipynb-cell-prompt">Markdown</div><div class="markdown-content" style="padding:10px;">${renderMarkdown(src)}</div></div>`;
+      } else if (cellType === "code") {
+        const count = cell.execution_count != null ? cell.execution_count : " ";
+        html += `<div class="ipynb-cell ipynb-code-cell"><div class="ipynb-cell-prompt">In [${count}]:</div><pre class="ipynb-code-area"><code>${escapeHtml(src)}</code></pre>`;
+        if (Array.isArray(cell.outputs) && cell.outputs.length > 0) {
+          html += '<div class="ipynb-output-area">';
+          cell.outputs.forEach(out => {
+            if (out.text) {
+              const outText = Array.isArray(out.text) ? out.text.join("") : out.text;
+              html += `<pre style="margin:0; font-family:ui-monospace, monospace; color:#a1a1aa;">${escapeHtml(outText)}</pre>`;
+            } else if (out.data && out.data["image/png"]) {
+              html += `<img src="data:image/png;base64,${out.data["image/png"]}" alt="Cell Output Image" />`;
+            }
+          });
+          html += '</div>';
+        }
+        html += '</div>';
+      }
+    });
+    html += '</div>';
+    return html;
+  } catch (e) {
+    return null;
   }
 };

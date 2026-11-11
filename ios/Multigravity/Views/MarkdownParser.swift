@@ -285,6 +285,14 @@ public enum MarkdownParser {
                 i += 1
                 continue
             }
+
+            // Standalone plugin card line: <plugin-card catalog-id="..."></plugin-card>
+            if let catalogId = parseStandalonePluginCard(trimmed) {
+                blocks.append(.pluginCard(id: "block-\(blockIdx)", catalogId: catalogId))
+                blockIdx += 1
+                i += 1
+                continue
+            }
             
             // Blockquote & GitHub Alert (> [!NOTE], > [!TIP], > ...)
             if trimmed.hasPrefix(">") {
@@ -519,14 +527,64 @@ public enum MarkdownParser {
         return embed.src
     }
     
+    // MARK: - Plugin Card syntax (<plugin-card catalog-id="..."></plugin-card>)
+
+    private static let pluginCardRegex = try? NSRegularExpression(
+        pattern: #"<plugin-card\b[^>]*?\bcatalog-id=["']([^"']+)["'][^>]*>(?:\s*<\/plugin-card>)?"#,
+        options: [.caseInsensitive]
+    )
+
+    static func findPluginCards(in text: String) -> [(catalogId: String, range: NSRange)] {
+        guard text.localizedCaseInsensitiveContains("plugin-card"), let regex = pluginCardRegex else { return [] }
+        let ns = text as NSString
+        let full = NSRange(location: 0, length: ns.length)
+        let codeSpans = text.contains("`") ? codeSpanIndexSet(in: text) : IndexSet()
+        var results: [(catalogId: String, range: NSRange)] = []
+
+        for match in regex.matches(in: text, range: full) {
+            let range = match.range
+            guard range.location != NSNotFound, range.length > 0 else { continue }
+            if !codeSpans.intersection(IndexSet(integersIn: range.location ..< (range.location + range.length))).isEmpty {
+                continue
+            }
+            if match.numberOfRanges > 1 {
+                let idRange = match.range(at: 1)
+                if idRange.location != NSNotFound {
+                    let catalogId = ns.substring(with: idRange).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !catalogId.isEmpty {
+                        results.append((catalogId: catalogId, range: range))
+                    }
+                }
+            }
+        }
+        return results
+    }
+
+    static func parseStandalonePluginCard(_ trimmed: String) -> String? {
+        let cards = findPluginCards(in: trimmed)
+        guard cards.count == 1 else { return nil }
+        let card = cards[0]
+        let ns = trimmed as NSString
+        let before = ns.substring(to: card.range.location)
+        let afterStart = card.range.location + card.range.length
+        let after = afterStart < ns.length ? ns.substring(from: afterStart) : ""
+        guard before.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              after.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return card.catalogId
+    }
+
     private enum ParagraphInlineItem {
         case image(alt: String, url: String, range: NSRange)
         case agentEmbed(src: String, range: NSRange)
+        case pluginCard(catalogId: String, range: NSRange)
         
         var range: NSRange {
             switch self {
             case .image(_, _, let range): return range
             case .agentEmbed(_, let range): return range
+            case .pluginCard(_, let range): return range
             }
         }
     }
@@ -534,8 +592,9 @@ public enum MarkdownParser {
     static func splitParagraphIntoBlocks(text: String, blockIdx: inout Int) -> [MarkdownBlock] {
         let images = findImages(in: text)
         let embeds = findAgentEmbeds(in: text)
+        let pluginCards = findPluginCards(in: text)
         
-        if images.isEmpty && embeds.isEmpty {
+        if images.isEmpty && embeds.isEmpty && pluginCards.isEmpty {
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return [] }
             let block = MarkdownBlock.paragraph(id: "block-\(blockIdx)", text: text)
@@ -549,6 +608,9 @@ public enum MarkdownParser {
         }
         for emb in embeds {
             allItems.append(.agentEmbed(src: emb.src, range: emb.range))
+        }
+        for card in pluginCards {
+            allItems.append(.pluginCard(catalogId: card.catalogId, range: card.range))
         }
         allItems.sort { $0.range.location < $1.range.location }
         
@@ -583,6 +645,8 @@ public enum MarkdownParser {
                 blocks.append(.image(id: "block-\(blockIdx)", alt: alt, url: url))
             case .agentEmbed(let src, _):
                 blocks.append(.agentEmbed(id: "block-\(blockIdx)", src: src))
+            case .pluginCard(let catalogId, _):
+                blocks.append(.pluginCard(id: "block-\(blockIdx)", catalogId: catalogId))
             }
             blockIdx += 1
             cursor = item.range.location + item.range.length

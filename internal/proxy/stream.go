@@ -43,6 +43,7 @@ type StreamUpdatePayload struct {
 	ActiveModelName    string               `json:"activeModelName,omitempty"`
 	ModelDisplayName   string               `json:"modelDisplayName,omitempty"`
 	StartedAt          string               `json:"startedAt,omitempty"`
+	Swarm              *SwarmBrief          `json:"swarm,omitempty"`
 
 	// Delta framing, only set for clients that connect with delta=1 (see streamDeltaState).
 	Delta      bool     `json:"delta,omitempty"`
@@ -86,8 +87,12 @@ func (p *StreamUpdatePayload) Fingerprint() string {
 		lastMsg := p.Messages[len(p.Messages)-1]
 		msgsKey = fmt.Sprintf("%d:%s:%d:%x", p.TotalMessages, lastMsg.ID, len(lastMsg.Text), hashStrings(lastMsg.Text))
 	}
+	swarmKey := "none"
+	if p.Swarm != nil && p.Swarm.Active {
+		swarmKey = fmt.Sprintf("%s:%d:%d:%d:%d:%s", p.Swarm.CoordinatorID, p.Swarm.WorkingCount, p.Swarm.TotalMembers, p.Swarm.LatestSeq, p.Swarm.AttentionCount, p.Swarm.Phase)
+	}
 	if len(p.Steps) == 0 {
-		return fmt.Sprintf("%s:%t:%s:%t:%s:%s:%s:%s:%s", p.Status, p.HasError, msgsKey, p.CanProceed, piKey, queuedKey, tasksKey, p.ActiveModel, p.Title)
+		return fmt.Sprintf("%s:%t:%s:%t:%s:%s:%s:%s:%s:%s", p.Status, p.HasError, msgsKey, p.CanProceed, piKey, queuedKey, tasksKey, p.ActiveModel, p.Title, swarmKey)
 	}
 	last := p.Steps[len(p.Steps)-1]
 	lastLen := 0
@@ -110,7 +115,7 @@ func (p *StreamUpdatePayload) Fingerprint() string {
 	} else {
 		contentHash = hashStrings(last.Content)
 	}
-	return fmt.Sprintf("%s:%t:%d:%d:%s:%s:%d:%s:%t:%s:%s:%s:%s:%s:%x", p.Status, p.HasError, p.TotalSteps, p.TotalTools, last.Type, last.Status, lastLen, msgsKey, p.CanProceed, piKey, queuedKey, tasksKey, p.ActiveModel, p.Title, contentHash)
+	return fmt.Sprintf("%s:%t:%d:%d:%s:%s:%d:%s:%t:%s:%s:%s:%s:%s:%s:%x", p.Status, p.HasError, p.TotalSteps, p.TotalTools, last.Type, last.Status, lastLen, msgsKey, p.CanProceed, piKey, queuedKey, tasksKey, p.ActiveModel, p.Title, swarmKey, contentHash)
 }
 
 // rawTrajectorySignature computes an O(1) lightweight fingerprint of the raw upstream response
@@ -404,6 +409,7 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			ActiveModelName:    details.ActiveModelName,
 			ModelDisplayName:   details.ModelDisplayName,
 			StartedAt:          details.StartedAt,
+			Swarm:              GetSwarmBrief(cascadeID),
 		}
 
 		if !isMessagesOnly {

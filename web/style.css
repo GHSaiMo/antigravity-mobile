@@ -6448,3 +6448,353 @@ html[data-clipped] #view-conversations::after {
   flex-shrink: 0;
 }
 
+/* ==========================================================================
+   Swarm UI Styles (Antigravity 2.31+)
+   ========================================================================== */
+.swarm-header-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(139, 92, 246, 0.15);
+  border: 1px solid rgba(139, 92, 246, 0.35);
+  border-radius: 14px;
+  padding: 4px 10px;
+  color: #a78bfa;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.swarm-header-pill:hover {
+  background: rgba(139, 92, 246, 0.25);
+}
+.swarm-header-pill .swarm-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 6px #10b981;
+}
+.swarm-header-pill .swarm-pill-badge {
+  background: #8b5cf6;
+  color: #fff;
+  border-radius: 10px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 700;
+}
+.swarm-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(8px);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.swarm-modal-overlay.hidden {
+  display: none;
+}
+.swarm-modal-dialog {
+  background: var(--bg-secondary, #18181b);
+  border: 1px solid var(--border-color, #27272a);
+  border-radius: 16px;
+  width: 100%;
+  max-width: 680px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+}
+.swarm-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border-color, #27272a);
+}
+.swarm-modal-title-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.swarm-modal-title-box h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+.swarm-phase-tag {
+  background: rgba(139, 92, 246, 0.18);
+  color: #c084fc;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 6px;
+}
+.swarm-close-btn {
+  background: transparent;
+  border: none;
+  font-size: 22px;
+  color: var(--text-secondary, #a1a1aa);
+  cursor: pointer;
+}
+.swarm-tabs-nav {
+  display: flex;
+  background: rgba(0, 0, 0, 0.2);
+  border-bottom: 1px solid var(--border-color, #27272a);
+  padding: 0 12px;
+}
+.swarm-tab-btn {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary, #a1a1aa);
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.swarm-tab-btn.active {
+  color: #a78bfa;
+  border-bottom-color: #a78bfa;
+}
+.swarm-modal-body {
+  padding: 16px;
+  overflow-y: auto;
+  flex: 1;
+}
+.swarm-member-card {
+  background: var(--bg-tertiary, #27272a);
+  border: 1px solid var(--border-color, #3f3f46);
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+.swarm-member-card.is-current {
+  border-color: #8b5cf6;
+}
+.swarm-member-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.swarm-member-name-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.swarm-member-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.swarm-member-status-dot.status-working {
+  background: #10b981;
+  box-shadow: 0 0 6px #10b981;
+}
+.swarm-member-status-dot.status-waiting {
+  background: #f59e0b;
+}
+.swarm-member-status-dot.status-killed {
+  background: #71717a;
+}
+.swarm-member-status-dot.status-error {
+  background: #ef4444;
+}
+.swarm-role-tag, .swarm-current-tag {
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 1.5px 6px;
+  border-radius: 4px;
+}
+.swarm-role-tag {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary, #a1a1aa);
+}
+.swarm-current-tag {
+  background: rgba(139, 92, 246, 0.2);
+  color: #c084fc;
+}
+.swarm-nudge-btn, .swarm-jump-btn {
+  background: rgba(139, 92, 246, 0.15);
+  border: 1px solid rgba(139, 92, 246, 0.35);
+  border-radius: 6px;
+  color: #c084fc;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 8px;
+  cursor: pointer;
+  margin-left: 6px;
+}
+.swarm-nudge-btn:hover, .swarm-jump-btn:hover {
+  background: rgba(139, 92, 246, 0.28);
+}
+.swarm-board-msg {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 8px 0;
+}
+.swarm-msg-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-size: 11px;
+}
+.swarm-msg-agent {
+  font-weight: 700;
+  color: #c084fc;
+}
+.swarm-msg-seq {
+  color: var(--text-secondary, #71717a);
+  font-family: monospace;
+}
+.swarm-msg-time {
+  color: var(--text-secondary, #71717a);
+}
+.swarm-msg-text {
+  font-size: 13px;
+  line-height: 1.45;
+}
+.swarm-mention-pill {
+  background: rgba(139, 92, 246, 0.22);
+  color: #c084fc;
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-weight: 600;
+}
+.swarm-feedback-box {
+  margin-top: 14px;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border-color, #27272a);
+  border-radius: 10px;
+}
+.swarm-feedback-input-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.swarm-feedback-input-row input {
+  flex: 1;
+  background: var(--bg-tertiary, #27272a);
+  border: 1px solid var(--border-color, #3f3f46);
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: var(--text-primary, #fff);
+  font-size: 13px;
+}
+.swarm-feedback-input-row button {
+  background: #8b5cf6;
+  border: none;
+  border-radius: 8px;
+  color: #fff;
+  font-weight: 600;
+  padding: 0 16px;
+  cursor: pointer;
+}
+
+/* Plugin Card Custom Element */
+plugin-card, .plugin-card-view {
+  display: block;
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin: 10px 0;
+}
+.plugin-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.plugin-card-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #60a5fa;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.plugin-card-install-btn {
+  background: #3b82f6;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+.plugin-card-install-btn:hover {
+  background: #2563eb;
+}
+.plugin-card-desc {
+  font-size: 12.5px;
+  color: var(--text-secondary, #94a3b8);
+  line-height: 1.4;
+}
+
+/* Jupyter Notebook (.ipynb) cell rendering */
+.ipynb-notebook {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-family: inherit;
+}
+.ipynb-cell {
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg-tertiary, rgba(0, 0, 0, 0.2));
+}
+.ipynb-cell-prompt {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 11px;
+  color: #a1a1aa;
+  padding: 4px 10px;
+  background: rgba(0, 0, 0, 0.2);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.ipynb-code-area {
+  padding: 10px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 12.5px;
+  overflow-x: auto;
+}
+.ipynb-output-area {
+  border-top: 1px dashed rgba(255, 255, 255, 0.08);
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.3);
+  font-size: 12px;
+}
+.ipynb-output-area img {
+  max-width: 100%;
+  border-radius: 6px;
+}
+
+/* Three-tier Font Size Scaling (Antigravity 2.31+) */
+body.font-compact {
+  font-size: 13.5px;
+}
+body.font-compact .message-body, body.font-compact .markdown-content {
+  font-size: 13.5px;
+}
+body.font-compact pre, body.font-compact code {
+  font-size: 11.5px;
+}
+body.font-comfortable {
+  font-size: 16.5px;
+}
+body.font-comfortable .message-body, body.font-comfortable .markdown-content {
+  font-size: 16.5px;
+}
+body.font-comfortable pre, body.font-comfortable code {
+  font-size: 14.5px;
+}
+
+

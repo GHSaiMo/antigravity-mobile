@@ -168,7 +168,7 @@ public struct SettingsSheet: View {
                 // MARK: - 5. 外观与主题
                 Section(
                     header: Text("外观与主题"),
-                    footer: Text("选择浅色、深色模式，并可控制额度条上的时间均速刻度游标。")
+                    footer: Text("选择浅色、深色模式，界面字号缩放，并可控制额度条上的时间均速刻度游标。")
                 ) {
                     Picker("外观模式", selection: $settings.themeMode) {
                         Text("跟随系统").tag("system")
@@ -181,6 +181,22 @@ public struct SettingsSheet: View {
                         settings.applyAppearance()
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     }
+
+                    Picker("字号缩放", selection: $settings.fontSizeScale) {
+                        ForEach(AppSettings.FontSizeScale.allCases) { scale in
+                            Text(scale.displayName).tag(scale)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.vertical, 2)
+                    .onChange(of: settings.fontSizeScale) { _, _ in
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    }
+
+                    Toggle("知识工作流精简模式", isOn: $settings.isKnowledgeModeEnabled)
+                        .onChange(of: settings.isKnowledgeModeEnabled) { _, _ in
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        }
 
                     Toggle("额度匀速指标", isOn: $settings.weeklyPaceCursorEnabled)
                         .onChange(of: settings.weeklyPaceCursorEnabled) { _, _ in

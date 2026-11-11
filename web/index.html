@@ -415,6 +415,18 @@
             </label>
           </div>
 
+          <!-- 界面与代码字号 (Antigravity 2.31+) -->
+          <div class="ios-grouped-section">
+            <div class="ios-cell between">
+              <span class="cell-label">界面与代码字号</span>
+              <select id="settings-font-size-scale" style="background: transparent; color: var(--color-text-primary, #fff); border: none; font-size: 13px; font-weight: 500; outline: none; padding: 4px;">
+                <option value="compact">紧凑 (小字号)</option>
+                <option value="default" selected>标准 (默认)</option>
+                <option value="comfortable">舒适 (大字号)</option>
+              </select>
+            </div>
+          </div>
+
           <!-- 默认模型：输入框上方「Gemini / Claude」胶囊切换到的具体模型（js/models.js） -->
           <div class="ios-grouped-section">
             <div class="ios-cell between">
@@ -718,6 +730,7 @@
   <script defer src="/js/git.js?v=2"></script>
   <script defer src="/js/models.js?v=1"></script>
   <script defer src="/js/subagents.js?v=3"></script>
+  <script defer src="/js/swarm.js?v=1"></script>
   <script defer src="/js/egg.js?v=1"></script>
   <!-- init.js 必须最后加载：它在执行时就会调用 initApp()，依赖前面所有脚本里的函数 -->
   <script defer src="/js/init.js?v=40"></script>

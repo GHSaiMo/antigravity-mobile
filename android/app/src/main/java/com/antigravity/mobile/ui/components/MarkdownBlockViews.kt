@@ -24,6 +24,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.PriorityHigh
@@ -31,6 +32,9 @@ import androidx.compose.material.icons.filled.Report
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.launch
+import com.antigravity.mobile.data.service.ApiClient
+import com.antigravity.mobile.data.service.PreferencesManager
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -48,6 +52,10 @@ import com.antigravity.mobile.ui.theme.AppColors
 
 /** 为 true 时表示正在为分享长图离屏渲染：代码块 / 表格不再横向滚动，而是铺满宽度自动换行。 */
 internal val LocalShareExport = compositionLocalOf { false }
+internal val LocalMarkdownBodyScale = compositionLocalOf { 1.0f }
+internal val LocalMarkdownCodeScale = compositionLocalOf { 1.0f }
+internal val LocalCurrentCascadeId = compositionLocalOf<String?> { null }
+internal val LocalKnowledgeModeEnabled = compositionLocalOf { false }
 
 @Composable
 internal fun HeadingBlockView(
@@ -56,13 +64,15 @@ internal fun HeadingBlockView(
     colors: AppColors,
     onPlanClick: ((String, String) -> Unit)?
 ) {
-    val fontSize = when (level) {
-        1 -> 20.sp
-        2 -> 18.sp
-        3 -> 16.sp
-        4 -> 15.sp
-        else -> 14.sp
+    val baseSize = when (level) {
+        1 -> 20f
+        2 -> 18f
+        3 -> 16f
+        4 -> 15f
+        else -> 14f
     }
+    val bodyScale = if (LocalShareExport.current) 1.0f else LocalMarkdownBodyScale.current
+    val fontSize = (baseSize * bodyScale).sp
 
     val topPadding = if (level <= 2) 6.dp else 2.dp
 
@@ -162,6 +172,7 @@ internal fun CodeBlockView(
         HorizontalDivider(color = colors.border.copy(alpha = 0.4f), thickness = 0.5.dp)
 
         // Horizontally Scrollable Monospaced Code
+        val codeScale = if (LocalShareExport.current) 1.0f else LocalMarkdownCodeScale.current
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -171,9 +182,9 @@ internal fun CodeBlockView(
             Text(
                 text = code.trimEnd(),
                 color = colors.textPrimary,
-                fontSize = 12.5.sp,
+                fontSize = (12.5f * codeScale).sp,
                 fontFamily = FontFamily.Monospace,
-                lineHeight = 18.sp
+                lineHeight = (18f * codeScale).sp
             )
         }
     }
@@ -384,6 +395,7 @@ internal fun BulletListBlockView(
     colors: AppColors,
     onPlanClick: ((String, String) -> Unit)?
 ) {
+    val bodyScale = if (LocalShareExport.current) 1.0f else LocalMarkdownBodyScale.current
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         items.forEach { item ->
             val parsed = parseTaskListItem(item)
@@ -396,7 +408,7 @@ internal fun BulletListBlockView(
                     Text(
                         text = parsed.marker ?: "•",
                         color = if (parsed.isChecked) colors.accentBlue else colors.textSecondary,
-                        fontSize = if (parsed.marker != null) 14.5.sp else 14.sp,
+                        fontSize = ((if (parsed.marker != null) 14.5f else 14f) * bodyScale).sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(top = 2.dp)
                     )
@@ -420,6 +432,7 @@ internal fun OrderedListBlockView(
     colors: AppColors,
     onPlanClick: ((String, String) -> Unit)?
 ) {
+    val bodyScale = if (LocalShareExport.current) 1.0f else LocalMarkdownBodyScale.current
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         items.forEachIndexed { idx, item ->
             val parsed = parseTaskListItem(item)
@@ -433,7 +446,7 @@ internal fun OrderedListBlockView(
                     Text(
                         text = "${startIndex + idx}.",
                         color = colors.textSecondary,
-                        fontSize = 13.5.sp,
+                        fontSize = (13.5f * bodyScale).sp,
                         fontWeight = FontWeight.SemiBold,
                         fontFamily = FontFamily.Monospace,
                         modifier = Modifier.padding(top = 2.dp)
@@ -770,6 +783,109 @@ internal fun CarouselBlockView(
                 }
             }
         }
+    }
+}
+
+@Composable
+internal fun PluginCardBlockView(
+    pluginId: String,
+    colors: AppColors,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val cascadeId = LocalCurrentCascadeId.current
+    val haptic = com.antigravity.mobile.ui.util.rememberHaptic()
+
+    var isInstalling by remember { mutableStateOf(false) }
+    var isInstalled by remember { mutableStateOf(false) }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(colors.accentIndigo.copy(alpha = 0.08f))
+            .border(1.dp, colors.accentIndigo.copy(alpha = 0.28f), RoundedCornerShape(12.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Extension,
+                    contentDescription = null,
+                    tint = colors.accentIndigo,
+                    modifier = Modifier.size(16.dp)
+                )
+                Text(
+                    text = "推荐插件：$pluginId",
+                    color = colors.textPrimary,
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            if (isInstalled) {
+                Box(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(colors.accentGreen.copy(alpha = 0.14f))
+                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                ) {
+                    Text(
+                        text = "已安装",
+                        color = colors.accentGreen,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            } else {
+                Button(
+                    onClick = {
+                        if (isInstalling) return@Button
+                        haptic.medium()
+                        isInstalling = true
+                        errorMsg = null
+                        scope.launch {
+                            val client = ApiClient.defaultInstance
+                                ?: ApiClient(context.applicationContext, PreferencesManager(context.applicationContext))
+                            val res = client.installPlugin(pluginId, cascadeId, autoResume = true)
+                            res.onSuccess { resp ->
+                                isInstalled = resp.installed || resp.success
+                                Toast.makeText(context, "插件已安装并续接对话", Toast.LENGTH_SHORT).show()
+                            }.onFailure { err ->
+                                errorMsg = err.message ?: "安装失败"
+                            }
+                            isInstalling = false
+                        }
+                    },
+                    enabled = !isInstalling,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                    modifier = Modifier.height(30.dp)
+                ) {
+                    if (isInstalling) {
+                        CircularProgressIndicator(modifier = Modifier.size(13.dp), strokeWidth = 1.6.dp)
+                    } else {
+                        Text("一键安装", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+        }
+
+        Text(
+            text = errorMsg ?: "来自 Antigravity 插件市场。点击一键安装后将自动为您续接当前对话。",
+            color = if (errorMsg != null) Color(0xFFEF4444) else colors.textSecondary,
+            fontSize = 11.5.sp
+        )
     }
 }
 

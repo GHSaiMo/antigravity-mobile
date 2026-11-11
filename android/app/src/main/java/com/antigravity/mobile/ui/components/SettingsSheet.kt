@@ -682,6 +682,80 @@ private fun MainSettingsContent(
                     )
                 }
 
+                val currentFontScale by prefs.fontSizeScaleFlow.collectAsState()
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(colors.surfaceVariant)
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    ThemeOptionSegment(
+                        title = "紧凑 90%",
+                        icon = Icons.Default.FormatSize,
+                        isSelected = currentFontScale == "compact",
+                        onClick = { prefs.fontSizeScale = "compact" },
+                        modifier = Modifier.weight(1f)
+                    )
+                    ThemeOptionSegment(
+                        title = "标准 100%",
+                        icon = Icons.Default.FormatSize,
+                        isSelected = currentFontScale == "standard",
+                        onClick = { prefs.fontSizeScale = "standard" },
+                        modifier = Modifier.weight(1f)
+                    )
+                    ThemeOptionSegment(
+                        title = "舒适 115%",
+                        icon = Icons.Default.FormatSize,
+                        isSelected = currentFontScale == "comfortable",
+                        onClick = { prefs.fontSizeScale = "comfortable" },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                var knowledgeMode by remember { mutableStateOf(prefs.isKnowledgeModeEnabled) }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(colors.surface)
+                        .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 12.dp)
+                    ) {
+                        Text(
+                            text = "知识工作流精简模式",
+                            color = colors.textPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "精简非关键折叠与工具，专注阅读与文档生成",
+                            color = colors.textSecondary,
+                            fontSize = 11.5.sp,
+                            lineHeight = 15.sp
+                        )
+                    }
+                    Switch(
+                        checked = knowledgeMode,
+                        onCheckedChange = {
+                            knowledgeMode = it
+                            prefs.isKnowledgeModeEnabled = it
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = colors.surface,
+                            checkedTrackColor = colors.accentIndigo
+                        )
+                    )
+                }
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()

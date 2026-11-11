@@ -66,10 +66,16 @@ fun McpSkillsSheet(
 
     var mcpServers by remember { mutableStateOf(prefs.loadCachedMcpServers()) }
     var skills by remember { mutableStateOf(prefs.loadCachedSkills()) }
+    var plugins by remember { mutableStateOf<List<CascadePluginItem>>(emptyList()) }
+    var pluginProviders by remember { mutableStateOf<List<PluginAuthProviderItem>>(emptyList()) }
+    var automations by remember { mutableStateOf<List<AutomationSidecarItem>>(emptyList()) }
+    var automationEvents by remember { mutableStateOf<List<AutomationEventItem>>(emptyList()) }
     var backgroundTasks by remember { mutableStateOf<List<GlobalBackgroundTaskItem>>(emptyList()) }
     var expandedServers by remember { mutableStateOf<Set<String>>(emptySet()) }
     var expandedTools by remember { mutableStateOf<Set<String>>(emptySet()) }
     var viewingSkill by remember { mutableStateOf<SkillInfo?>(null) }
+    val installingPluginIds = remember { mutableStateListOf<String>() }
+    val managingAutomationNames = remember { mutableStateListOf<String>() }
 
     var expandedLogTaskIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var taskLogs by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
@@ -143,10 +149,20 @@ fun McpSkillsSheet(
                 val tasksDeferred = async { apiClient.fetchGlobalBackgroundTasks() }
                 val mcpDeferred = async { apiClient.fetchMcpServerStates() }
                 val skillsDeferred = async { apiClient.fetchAllSkills() }
+                val pluginsDeferred = async { apiClient.fetchPluginsCatalog() }
+                val automationsDeferred = async { apiClient.fetchAutomationsData() }
 
                 tasksDeferred.await().onSuccess {
                     backgroundTasks = it
                     onTasksChanged?.invoke(it)
+                }
+                pluginsDeferred.await().onSuccess {
+                    plugins = it.plugins
+                    pluginProviders = it.providers
+                }
+                automationsDeferred.await().onSuccess {
+                    automations = it.automations
+                    automationEvents = it.events
                 }
                 val mcpRes = mcpDeferred.await()
                 val skillsRes = skillsDeferred.await()
@@ -294,10 +310,11 @@ fun McpSkillsSheet(
                     },
                     text = {
                         Text(
-                            text = "MCP 服务 (${mcpServers.size})",
+                            text = "MCP",
                             fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Normal,
-                            fontSize = 12.5.sp,
-                            maxLines = 1
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 )
@@ -309,10 +326,11 @@ fun McpSkillsSheet(
                     },
                     text = {
                         Text(
-                            text = "技能清单 (${skills.size})",
+                            text = "技能",
                             fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Normal,
-                            fontSize = 12.5.sp,
-                            maxLines = 1
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 )
@@ -324,10 +342,43 @@ fun McpSkillsSheet(
                     },
                     text = {
                         Text(
-                            text = "后台任务 (${backgroundTasks.size})",
+                            text = "插件",
                             fontWeight = if (selectedTab == 2) FontWeight.Bold else FontWeight.Normal,
-                            fontSize = 12.5.sp,
-                            maxLines = 1
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                )
+                Tab(
+                    selected = selectedTab == 3,
+                    onClick = {
+                        haptic.light()
+                        selectedTab = 3
+                    },
+                    text = {
+                        Text(
+                            text = "定时",
+                            fontWeight = if (selectedTab == 3) FontWeight.Bold else FontWeight.Normal,
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                )
+                Tab(
+                    selected = selectedTab == 4,
+                    onClick = {
+                        haptic.light()
+                        selectedTab = 4
+                    },
+                    text = {
+                        Text(
+                            text = if (backgroundTasks.isNotEmpty()) "任务(${backgroundTasks.size})" else "任务",
+                            fontWeight = if (selectedTab == 4) FontWeight.Bold else FontWeight.Normal,
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 )
@@ -342,6 +393,8 @@ fun McpSkillsSheet(
                         when (selectedTab) {
                             0 -> "搜索 MCP 服务或工具名称"
                             1 -> "搜索技能名称或描述"
+                            2 -> "搜索插件名称或描述"
+                            3 -> "搜索定时任务或表达式"
                             else -> "搜索命令、会话标题或工作区"
                         },
                         fontSize = 13.sp,
@@ -499,8 +552,236 @@ fun McpSkillsSheet(
                         }
                     }
                 }
+            } else if (selectedTab == 2) {
+                // Plugins Tab
+                val query = searchText.trim().lowercase()
+                val filteredPlugins = remember(plugins, query) {
+                    if (query.isEmpty()) plugins
+                    else plugins.filter { p ->
+                        p.name.lowercase().contains(query) ||
+                        p.effectiveId.lowercase().contains(query) ||
+                        p.description.lowercase().contains(query)
+                    }
+                }
+
+                if (filteredPlugins.isEmpty() && pluginProviders.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "暂无插件或未找到匹配项",
+                            fontSize = 14.sp,
+                            color = colors.textSecondary
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = PaddingValues(bottom = 24.dp)
+                    ) {
+                        if (pluginProviders.isNotEmpty()) {
+                            item(key = "plugin_providers_header") {
+                                Text(
+                                    text = "插件账号与认证状态 (${pluginProviders.size})",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = colors.textSecondary,
+                                    modifier = Modifier.padding(top = 2.dp, bottom = 2.dp)
+                                )
+                            }
+                            items(pluginProviders, key = { "prov_${it.id}_${it.name}" }) { prov ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(colors.surface)
+                                        .border(0.5.dp, colors.border, RoundedCornerShape(10.dp))
+                                        .padding(horizontal = 12.dp, vertical = 9.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = prov.name.ifBlank { prov.id },
+                                        color = colors.textPrimary,
+                                        fontSize = 13.5.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    Text(
+                                        text = if (prov.signedIn) "已连接" else "未登录",
+                                        color = if (prov.signedIn) colors.accentGreen else colors.textSecondary,
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+                        }
+
+                        if (filteredPlugins.isNotEmpty()) {
+                            item(key = "plugins_header") {
+                                Text(
+                                    text = "已安装 / 可用插件 (${filteredPlugins.size})",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = colors.textSecondary,
+                                    modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
+                                )
+                            }
+                            items(filteredPlugins, key = { it.effectiveId }) { plugin ->
+                                val pid = plugin.effectiveId
+                                PluginCard(
+                                    plugin = plugin,
+                                    isInstalling = installingPluginIds.contains(pid),
+                                    onInstall = {
+                                        scope.launch {
+                                            installingPluginIds.add(pid)
+                                            apiClient.installPlugin(pid, currentConversationId, autoResume = true)
+                                            apiClient.fetchPluginsCatalog().onSuccess {
+                                                plugins = it.plugins
+                                                pluginProviders = it.providers
+                                            }
+                                            installingPluginIds.remove(pid)
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            } else if (selectedTab == 3) {
+                // Automations Tab
+                val query = searchText.trim().lowercase()
+                val filteredAutomations = remember(automations, query) {
+                    if (query.isEmpty()) automations
+                    else automations.filter { a ->
+                        a.name.lowercase().contains(query) ||
+                        (a.description?.lowercase()?.contains(query) == true) ||
+                        (a.cronExpression?.lowercase()?.contains(query) == true) ||
+                        (a.prompt?.lowercase()?.contains(query) == true)
+                    }
+                }
+                val filteredEvents = remember(automationEvents, query) {
+                    if (query.isEmpty()) automationEvents
+                    else automationEvents.filter { ev ->
+                        ev.scheduleId.lowercase().contains(query) ||
+                        (ev.message?.lowercase()?.contains(query) == true)
+                    }
+                }
+
+                if (filteredAutomations.isEmpty() && filteredEvents.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "暂无定时自动化任务或未找到匹配项",
+                            fontSize = 14.sp,
+                            color = colors.textSecondary
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = PaddingValues(bottom = 24.dp)
+                    ) {
+                        items(filteredAutomations, key = { it.targetSidecarId }) { sidecar ->
+                            val sid = sidecar.targetSidecarId
+                            AutomationCard(
+                                sidecar = sidecar,
+                                isManaging = managingAutomationNames.contains(sid),
+                                onToggle = {
+                                    scope.launch {
+                                        val action = if (sidecar.isRunning) "stop" else "start"
+                                        managingAutomationNames.add(sid)
+                                        apiClient.manageAutomation(action, sid)
+                                        apiClient.fetchAutomationsData().onSuccess {
+                                            automations = it.automations
+                                            automationEvents = it.events
+                                        }
+                                        managingAutomationNames.remove(sid)
+                                    }
+                                }
+                            )
+                        }
+
+                        if (filteredEvents.isNotEmpty()) {
+                            item(key = "automation_events_header") {
+                                Text(
+                                    text = "近期运行记录 (${filteredEvents.size})",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = colors.textSecondary,
+                                    modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
+                                )
+                            }
+                            items(filteredEvents, key = { "ev_${it.id}_${it.timestamp}" }) { ev ->
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(colors.surface)
+                                        .border(0.5.dp, colors.border, RoundedCornerShape(10.dp))
+                                        .clickable(enabled = !ev.conversationId.isNullOrBlank()) {
+                                            val cid = ev.conversationId
+                                            if (!cid.isNullOrBlank()) {
+                                                onDismiss()
+                                                onSelectConversation?.invoke(cid, "自动化任务记录")
+                                            }
+                                        }
+                                        .padding(10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(
+                                            text = ev.scheduleId.ifBlank { "自动化执行" },
+                                            color = colors.textPrimary,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        Text(
+                                            text = ev.status,
+                                            color = if (ev.status.equals("error", true)) Color(0xFFEF4444) else colors.accentGreen,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                    if (!ev.message.isNullOrBlank()) {
+                                        Text(
+                                            text = ev.message,
+                                            color = colors.textSecondary,
+                                            fontSize = 12.sp,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    if (ev.timestamp.isNotBlank()) {
+                                        Text(
+                                            text = ev.timestamp,
+                                            color = colors.textMuted,
+                                            fontSize = 10.5.sp
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             } else {
-                // Background Tasks Tab (selectedTab == 2)
+                // Background Tasks Tab (selectedTab == 4)
                 val query = searchText.trim().lowercase()
                 val filteredTasks = remember(backgroundTasks, query) {
                     if (query.isEmpty()) backgroundTasks
@@ -1396,6 +1677,198 @@ private fun GlobalBackgroundTaskCard(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun PluginCard(
+    plugin: CascadePluginItem,
+    isInstalling: Boolean,
+    onInstall: () -> Unit
+) {
+    val colors = AntigravityTheme.colors
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(colors.surface)
+            .border(0.5.dp, colors.border, RoundedCornerShape(10.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    text = plugin.name,
+                    color = colors.textPrimary,
+                    fontSize = 14.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (plugin.installed) {
+                    Box(
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(if (plugin.enabled) colors.accentGreen.copy(alpha = 0.12f) else colors.surfaceVariant)
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = if (plugin.enabled) "已启用" else "已停用",
+                            color = if (plugin.enabled) colors.accentGreen else colors.textSecondary,
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
+
+            if (!plugin.installed) {
+                Button(
+                    onClick = onInstall,
+                    enabled = !isInstalling,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                    modifier = Modifier.height(28.dp)
+                ) {
+                    if (isInstalling) {
+                        CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 1.5.dp)
+                    } else {
+                        Text("安装", fontSize = 11.5.sp)
+                    }
+                }
+            }
+        }
+
+        Text(
+            text = plugin.effectiveId,
+            color = colors.textSecondary,
+            fontSize = 11.sp,
+            fontFamily = FontFamily.Monospace
+        )
+
+        if (plugin.description.isNotBlank()) {
+            Text(
+                text = plugin.description,
+                color = colors.textSecondary,
+                fontSize = 12.5.sp,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun AutomationCard(
+    sidecar: AutomationSidecarItem,
+    isManaging: Boolean,
+    onToggle: () -> Unit
+) {
+    val colors = AntigravityTheme.colors
+    val isRunning = sidecar.isRunning
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(colors.surface)
+            .border(0.5.dp, colors.border, RoundedCornerShape(10.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    text = sidecar.name.ifBlank { sidecar.targetSidecarId },
+                    color = colors.textPrimary,
+                    fontSize = 14.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Box(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(if (isRunning) colors.accentGreen.copy(alpha = 0.12f) else colors.surfaceVariant)
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = sidecar.status.ifBlank { if (isRunning) "运行中" else "已停止" },
+                        color = if (isRunning) colors.accentGreen else colors.textSecondary,
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+
+            OutlinedButton(
+                onClick = onToggle,
+                enabled = !isManaging,
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                modifier = Modifier.height(28.dp)
+            ) {
+                if (isManaging) {
+                    CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 1.5.dp)
+                } else {
+                    Text(if (isRunning) "停止" else "启动", fontSize = 11.5.sp)
+                }
+            }
+        }
+
+        if (!sidecar.cronExpression.isNullOrBlank()) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Schedule,
+                    contentDescription = null,
+                    tint = colors.textSecondary,
+                    modifier = Modifier.size(12.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = sidecar.cronExpression,
+                    color = colors.textSecondary,
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+        }
+
+        if (!sidecar.description.isNullOrBlank()) {
+            Text(
+                text = sidecar.description,
+                color = colors.textSecondary,
+                fontSize = 12.5.sp,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        if (!sidecar.prompt.isNullOrBlank()) {
+            Text(
+                text = sidecar.prompt,
+                color = colors.textMuted,
+                fontSize = 11.5.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }

@@ -268,6 +268,11 @@ extension ChatViewModel {
         
         let newSubagents = payload.subagents ?? []
         if newSubagents != self.subagents { self.subagents = newSubagents }
+        if let swarm = payload.swarm {
+            self.swarmBrief = swarm
+        } else if payload.isFullSnapshot == true {
+            self.swarmBrief = nil
+        }
         let newParent = payload.parentConversationId?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.parentConversationId = (newParent?.isEmpty == false) ? newParent : nil
         self.subagentRole = payload.subagentRole

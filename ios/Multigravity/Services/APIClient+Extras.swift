@@ -213,4 +213,129 @@ extension APIClient {
             failurePrefix: "读取日志失败"
         )
     }
+
+    // MARK: - Swarm 蜂群协同接口
+
+    /// 获取当前会话关联的 Swarm 蜂群快照（/gateway/swarm?cascadeId=...）。
+    public func fetchSwarmSnapshot(cascadeId: String, baseURL: URL) async throws -> SwarmSnapshot {
+        var components = URLComponents(url: baseURL.appendingPathComponent("gateway/swarm"), resolvingAgainstBaseURL: false)
+        components?.queryItems = [URLQueryItem(name: "cascadeId", value: cascadeId)]
+        guard let url = components?.url else { throw APIError.invalidURL }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 15
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await transport.send(request: request)
+        } catch {
+            throw APIError.networkError(error.localizedDescription)
+        }
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+            let msg = (try? JSONDecoder().decode(GatewayErrorBody.self, from: data))?.error ?? "获取 Swarm 快照失败"
+            throw APIError.serverError(statusCode: code, message: msg)
+        }
+        do {
+            return try JSONDecoder().decode(SwarmSnapshot.self, from: data)
+        } catch {
+            throw APIError.decodingError(error.localizedDescription)
+        }
+    }
+
+    /// 向 Swarm 协作板注入人类反馈（POST /gateway/swarm/feedback）。
+    public func sendSwarmFeedback(cascadeId: String, coordinatorId: String? = nil, content: String, baseURL: URL) async throws {
+        let _: EmptyResponse = try await gatewayPost(
+            path: "gateway/swarm/feedback",
+            body: SwarmFeedbackRequest(cascadeId: cascadeId, coordinatorId: coordinatorId, feedback: content),
+            baseURL: baseURL,
+            timeout: 15,
+            failurePrefix: "发送反馈失败"
+        )
+    }
+
+    /// 催促/唤醒 Swarm 某个休眠或卡顿的成员（POST /gateway/swarm/nudge）。
+    public func nudgeSwarmMember(cascadeId: String, coordinatorId: String? = nil, member: String, baseURL: URL) async throws {
+        let _: EmptyResponse = try await gatewayPost(
+            path: "gateway/swarm/nudge",
+            body: SwarmNudgeRequest(cascadeId: cascadeId, coordinatorId: coordinatorId, workerName: member),
+            baseURL: baseURL,
+            timeout: 15,
+            failurePrefix: "催促成员失败"
+        )
+    }
+
+    // MARK: - Plugins 插件市场接口
+
+    /// 获取所有插件清单及鉴权状态（GET /gateway/plugins）。
+    public func fetchPlugins(baseURL: URL) async throws -> CascadePluginsResponse {
+        let url = baseURL.appendingPathComponent("gateway/plugins")
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 15
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await transport.send(request: request)
+        } catch {
+            throw APIError.networkError(error.localizedDescription)
+        }
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+            throw APIError.serverError(statusCode: code, message: "获取插件清单失败")
+        }
+        do {
+            return try JSONDecoder().decode(CascadePluginsResponse.self, from: data)
+        } catch {
+            throw APIError.decodingError(error.localizedDescription)
+        }
+    }
+
+    /// 安装指定插件并可选自动恢复会话（POST /gateway/plugins/install）。
+    public func installPlugin(id: String, conversationId: String? = nil, autoResume: Bool = true, baseURL: URL) async throws -> PluginInstallResponse {
+        try await gatewayPost(
+            path: "gateway/plugins/install",
+            body: PluginInstallRequest(pluginId: id, cascadeId: conversationId, autoResume: autoResume),
+            baseURL: baseURL,
+            timeout: 30,
+            failurePrefix: "安装插件失败"
+        )
+    }
+
+    // MARK: - Automations 定时与守护任务接口
+
+    /// 获取所有定时自动化任务状态与触发记录（GET /gateway/automations）。
+    public func fetchAutomations(baseURL: URL) async throws -> AutomationsResponse {
+        let url = baseURL.appendingPathComponent("gateway/automations")
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 15
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await transport.send(request: request)
+        } catch {
+            throw APIError.networkError(error.localizedDescription)
+        }
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+            throw APIError.serverError(statusCode: code, message: "获取自动化任务失败")
+        }
+        do {
+            return try JSONDecoder().decode(AutomationsResponse.self, from: data)
+        } catch {
+            throw APIError.decodingError(error.localizedDescription)
+        }
+    }
+
+    /// 管理定时任务运行状态（POST /gateway/automations/manage）。
+    public func manageAutomation(action: String, sidecarId: String, baseURL: URL) async throws {
+        let _: EmptyResponse = try await gatewayPost(
+            path: "gateway/automations/manage",
+            body: AutomationManageRequest(sidecarId: sidecarId, action: action),
+            baseURL: baseURL,
+            timeout: 15,
+            failurePrefix: "操作定时任务失败"
+        )
+    }
 }

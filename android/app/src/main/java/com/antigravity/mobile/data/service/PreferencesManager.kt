@@ -177,6 +177,26 @@ class PreferencesManager(context: Context) {
             _themeModeFlow.value = value
         }
 
+    var fontSizeScale: String
+        get() = prefs.getString(KEY_FONT_SIZE_SCALE, "standard") ?: "standard"
+        set(value) {
+            prefs.edit().putString(KEY_FONT_SIZE_SCALE, value).apply()
+            _fontSizeScaleFlow.value = value
+        }
+
+    private val _fontSizeScaleFlow = MutableStateFlow(fontSizeScale)
+    val fontSizeScaleFlow: StateFlow<String> = _fontSizeScaleFlow.asStateFlow()
+
+    var isKnowledgeModeEnabled: Boolean
+        get() = prefs.getBoolean(KEY_KNOWLEDGE_MODE, false)
+        set(value) {
+            prefs.edit().putBoolean(KEY_KNOWLEDGE_MODE, value).apply()
+            _knowledgeModeFlow.value = value
+        }
+
+    private val _knowledgeModeFlow = MutableStateFlow(isKnowledgeModeEnabled)
+    val knowledgeModeFlow: StateFlow<Boolean> = _knowledgeModeFlow.asStateFlow()
+
     /** 「默认模型」：输入框上方 Gemini / Claude 胶囊切换时使用的具体模型。 */
     var defaultGeminiModel: String
         get() = prefs.getString(KEY_DEFAULT_GEMINI_MODEL, null)?.takeIf { it.isNotBlank() } ?: ModelDefaults.FALLBACK_GEMINI
@@ -707,6 +727,18 @@ class PreferencesManager(context: Context) {
     }
 
     companion object {
+        fun bodyScaleFactor(scale: String): Float = when (scale) {
+            "compact" -> 0.88f
+            "comfortable" -> 1.15f
+            else -> 1.0f
+        }
+
+        fun codeScaleFactor(scale: String): Float = when (scale) {
+            "compact" -> 0.90f
+            "comfortable" -> 1.12f
+            else -> 1.0f
+        }
+
         @Volatile
         private var memDeviceTokenLoaded: Boolean = false
         @Volatile
@@ -724,6 +756,8 @@ class PreferencesManager(context: Context) {
         private const val KEY_DEVICE_TOKEN = "device_token"
         private const val KEY_DEVICE_ID = "device_id"
         private const val KEY_THEME_MODE = "theme_mode"
+        private const val KEY_FONT_SIZE_SCALE = "font_size_scale"
+        private const val KEY_KNOWLEDGE_MODE = "knowledge_mode_enabled"
         private const val KEY_DEFAULT_GEMINI_MODEL = "default_gemini_model"
         private const val KEY_DEFAULT_CLAUDE_MODEL = "default_claude_model"
         private const val KEY_AUTO_APPROVE = "auto_approve_permissions"

@@ -11,11 +11,17 @@ public struct McpSkillsSheet: View {
     
     @State private var mcpServers: [McpServerState] = []
     @State private var skills: [SkillInfo] = []
+    @State private var plugins: [CascadePluginItem] = []
+    @State private var pluginProviders: [PluginAuthProviderItem] = []
+    @State private var automations: [AutomationSidecarItem] = []
+    @State private var automationEvents: [AutomationEventItem] = []
     @State private var backgroundTasks: [GlobalBackgroundTaskItem] = []
     
     @State private var expandedServerNames: Set<String> = []
     @State private var expandedToolIds: Set<String> = []
     @State private var viewingSkill: SkillInfo? = nil
+    @State private var installingPluginIds: Set<String> = []
+    @State private var managingAutomationNames: Set<String> = []
     
     @State private var expandedLogTaskIds: Set<String> = []
     @State private var taskLogs: [String: String] = [:]
@@ -28,9 +34,11 @@ public struct McpSkillsSheet: View {
     private let onTasksChanged: (([GlobalBackgroundTaskItem]) -> Void)?
     
     public enum Tab: String, CaseIterable, Identifiable {
-        case mcp = "MCP 服务"
-        case skills = "扩展技能"
-        case tasks = "后台任务"
+        case mcp = "MCP"
+        case skills = "技能"
+        case plugins = "插件"
+        case automations = "定时"
+        case tasks = "任务"
         public var id: String { rawValue }
     }
     
@@ -53,9 +61,11 @@ public struct McpSkillsSheet: View {
             VStack(spacing: 0) {
                 // Segmented control
                 Picker("类别", selection: $selectedTab) {
-                    Text("MCP 服务 (\(mcpServers.count))").tag(Tab.mcp)
-                    Text("技能清单 (\(skills.count))").tag(Tab.skills)
-                    Text("后台任务 (\(backgroundTasks.count))").tag(Tab.tasks)
+                    Text("MCP").tag(Tab.mcp)
+                    Text("技能").tag(Tab.skills)
+                    Text("插件").tag(Tab.plugins)
+                    Text("定时").tag(Tab.automations)
+                    Text("任务").tag(Tab.tasks)
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal, 16)
@@ -69,7 +79,7 @@ public struct McpSkillsSheet: View {
                         .font(.system(size: 14))
                         .foregroundColor(.secondary)
                     Spacer()
-                } else if let error = errorMessage, mcpServers.isEmpty && skills.isEmpty && backgroundTasks.isEmpty {
+                } else if let error = errorMessage, mcpServers.isEmpty && skills.isEmpty && plugins.isEmpty && automations.isEmpty && backgroundTasks.isEmpty {
                     errorStateView(error)
                 } else {
                     List {
@@ -78,6 +88,10 @@ public struct McpSkillsSheet: View {
                             mcpServersSection
                         case .skills:
                             skillsSection
+                        case .plugins:
+                            pluginsSection
+                        case .automations:
+                            automationsSection
                         case .tasks:
                             backgroundTasksSection
                         }
@@ -106,6 +120,8 @@ public struct McpSkillsSheet: View {
         switch selectedTab {
         case .mcp: return "搜索 MCP 服务或工具名称"
         case .skills: return "搜索技能名称或描述"
+        case .plugins: return "搜索插件名称或描述"
+        case .automations: return "搜索定时任务或表达式"
         case .tasks: return "搜索命令、会话标题或工作区"
         }
     }
@@ -495,6 +511,256 @@ public struct McpSkillsSheet: View {
         }
     }
     
+    // MARK: - Plugins Section
+
+    private var filteredPlugins: [CascadePluginItem] {
+        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if q.isEmpty { return plugins }
+        return plugins.filter { p in
+            p.id.lowercased().contains(q) ||
+            p.name.lowercased().contains(q) ||
+            p.description.lowercased().contains(q)
+        }
+    }
+
+    @ViewBuilder
+    private var pluginsSection: some View {
+        if !pluginProviders.isEmpty {
+            Section(header: Text("已授权服务账号")) {
+                ForEach(pluginProviders) { provider in
+                    HStack {
+                        Image(systemName: provider.signedIn ? "checkmark.seal.fill" : "exclamationmark.circle")
+                            .foregroundColor(provider.signedIn ? .green : .orange)
+                        Text(provider.name)
+                            .font(.system(size: 14, weight: .medium))
+                        Spacer()
+                        Text(provider.signedIn ? "已登录" : "需重连")
+                            .font(.system(size: 11.5, weight: .medium))
+                            .foregroundColor(provider.signedIn ? .green : .orange)
+                    }
+                }
+            }
+        }
+
+        if filteredPlugins.isEmpty {
+            Section {
+                VStack(spacing: 8) {
+                    Image(systemName: "puzzlepiece.extension")
+                        .font(.system(size: 32))
+                        .foregroundColor(.secondary)
+                    Text("暂无插件或未找到匹配项")
+                        .font(.system(size: 14))
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 24)
+            }
+        } else {
+            Section(header: Text("已装载插件 (\(filteredPlugins.count))")) {
+                ForEach(filteredPlugins) { plugin in
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(alignment: .center, spacing: 8) {
+                            Text(plugin.name)
+                                .font(.system(size: 15, weight: .bold))
+
+                            if plugin.installed {
+                                Text(plugin.enabled ? "已启用" : "已停用")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundColor(plugin.enabled ? .green : .secondary)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background((plugin.enabled ? Color.green : Color.secondary).opacity(0.12))
+                                    .clipShape(Capsule())
+                            }
+
+                            if let ver = plugin.version, !ver.isEmpty {
+                                Text("v\(ver)")
+                                    .font(.system(size: 10.5, design: .monospaced))
+                                    .foregroundColor(.secondary)
+                            }
+
+                            Spacer()
+
+                            if !plugin.installed {
+                                Button(action: { installPlugin(plugin.id) }) {
+                                    if installingPluginIds.contains(plugin.id) {
+                                        ProgressView().scaleEffect(0.7)
+                                    } else {
+                                        Text("安装")
+                                            .font(.system(size: 12, weight: .semibold))
+                                    }
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(installingPluginIds.contains(plugin.id))
+                            }
+                        }
+
+                        Text(plugin.id)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundColor(.secondary)
+
+                        if !plugin.description.isEmpty {
+                            Text(plugin.description)
+                                .font(.system(size: 12.5))
+                                .foregroundColor(.secondary)
+                                .lineLimit(3)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+        }
+    }
+
+    private func installPlugin(_ id: String) {
+        guard let url = settings.serverURL else { return }
+        installingPluginIds.insert(id)
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        Task {
+            _ = try? await APIClient.shared.installPlugin(id: id, conversationId: currentConversationId, autoResume: true, baseURL: url)
+            if let refreshed = try? await APIClient.shared.fetchPlugins(baseURL: url) {
+                self.plugins = refreshed.plugins
+                self.pluginProviders = refreshed.providers
+            }
+            installingPluginIds.remove(id)
+        }
+    }
+
+    // MARK: - Automations Section
+
+    private var filteredAutomations: [AutomationSidecarItem] {
+        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if q.isEmpty { return automations }
+        return automations.filter { a in
+            a.name.lowercased().contains(q) ||
+            (a.description?.lowercased().contains(q) == true) ||
+            (a.cronExpression?.lowercased().contains(q) == true) ||
+            (a.prompt?.lowercased().contains(q) == true)
+        }
+    }
+
+    @ViewBuilder
+    private var automationsSection: some View {
+        if filteredAutomations.isEmpty && automationEvents.isEmpty {
+            Section {
+                VStack(spacing: 8) {
+                    Image(systemName: "clock.arrow.2.circlepath")
+                        .font(.system(size: 32))
+                        .foregroundColor(.secondary)
+                    Text("暂无定时自动化任务或未找到匹配项")
+                        .font(.system(size: 14))
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 24)
+            }
+        } else {
+            if !filteredAutomations.isEmpty {
+                Section(header: Text("定时计划 (\(filteredAutomations.count))")) {
+                    ForEach(filteredAutomations) { sidecar in
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(alignment: .center, spacing: 8) {
+                                Text(sidecar.name)
+                                    .font(.system(size: 15, weight: .bold))
+
+                                Text(sidecar.isRunning ? "运行中" : "已停止")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundColor(sidecar.isRunning ? .green : .secondary)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background((sidecar.isRunning ? Color.green : Color.secondary).opacity(0.12))
+                                    .clipShape(Capsule())
+
+                                Spacer()
+
+                                Button(action: {
+                                    toggleAutomation(sidecar)
+                                }) {
+                                    if managingAutomationNames.contains(sidecar.id) {
+                                        ProgressView().scaleEffect(0.7)
+                                    } else {
+                                        Text(sidecar.isRunning ? "停止" : "启动")
+                                            .font(.system(size: 12, weight: .semibold))
+                                    }
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(managingAutomationNames.contains(sidecar.id))
+                            }
+
+                            if let cron = sidecar.cronExpression, !cron.isEmpty {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "clock")
+                                        .font(.system(size: 10))
+                                    Text(cron)
+                                        .font(.system(size: 11, design: .monospaced))
+                                }
+                                .foregroundColor(.secondary)
+                            }
+
+                            if let desc = sidecar.description ?? sidecar.prompt, !desc.isEmpty {
+                                Text(desc)
+                                    .font(.system(size: 12.5))
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(3)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+            }
+
+            if !automationEvents.isEmpty {
+                Section(header: Text("最近触发记录")) {
+                    ForEach(automationEvents) { ev in
+                        Button(action: {
+                            if let cid = ev.conversationId, !cid.isEmpty {
+                                dismiss()
+                                onSelectConversation?(cid)
+                            }
+                        }) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Text(ev.scheduleId)
+                                        .font(.system(size: 13.5, weight: .semibold))
+                                        .foregroundColor(.primary)
+                                    Spacer()
+                                    if !ev.timestamp.isEmpty {
+                                        Text(ev.timestamp)
+                                            .font(.system(size: 11))
+                                            .foregroundColor(.secondary)
+                                    }
+                                }
+                                if let msg = ev.message, !msg.isEmpty {
+                                    Text(msg)
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(2)
+                                }
+                            }
+                            .padding(.vertical, 2)
+                        }
+                        .disabled(ev.conversationId?.isEmpty != false)
+                    }
+                }
+            }
+        }
+    }
+
+    private func toggleAutomation(_ sidecar: AutomationSidecarItem) {
+        guard let url = settings.serverURL else { return }
+        let action = sidecar.isRunning ? "stop" : "start"
+        managingAutomationNames.insert(sidecar.id)
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        Task {
+            _ = try? await APIClient.shared.manageAutomation(action: action, sidecarId: sidecar.id, baseURL: url)
+            if let refreshed = try? await APIClient.shared.fetchAutomations(baseURL: url) {
+                self.automations = refreshed.automations
+                self.automationEvents = refreshed.events
+            }
+            managingAutomationNames.remove(sidecar.id)
+        }
+    }
+
     // MARK: - Background Tasks Section
 
     private var filteredBackgroundTasks: [GlobalBackgroundTaskItem] {
@@ -885,8 +1151,10 @@ public struct McpSkillsSheet: View {
         async let fetchTasks = try? APIClient.shared.fetchGlobalBackgroundTasks(baseURL: url)
         async let fetchMcp = try? APIClient.shared.fetchMcpServerStates(baseURL: url)
         async let fetchSkills = try? APIClient.shared.fetchAllSkills(baseURL: url)
+        async let fetchPlugins = try? APIClient.shared.fetchPlugins(baseURL: url)
+        async let fetchAutomations = try? APIClient.shared.fetchAutomations(baseURL: url)
         
-        let (tasksResult, mcpResult, skillsResult) = await (fetchTasks, fetchMcp, fetchSkills)
+        let (tasksResult, mcpResult, skillsResult, pluginsResult, automationsResult) = await (fetchTasks, fetchMcp, fetchSkills, fetchPlugins, fetchAutomations)
         
         if let tasksResult {
             self.backgroundTasks = tasksResult
@@ -899,6 +1167,14 @@ public struct McpSkillsSheet: View {
         if let skillsResult {
             self.skills = skillsResult
             CacheManager.shared.saveSkills(skillsResult)
+        }
+        if let pluginsResult {
+            self.plugins = pluginsResult.plugins
+            self.pluginProviders = pluginsResult.providers
+        }
+        if let automationsResult {
+            self.automations = automationsResult.automations
+            self.automationEvents = automationsResult.events
         }
         
         if mcpResult == nil && skillsResult == nil && mcpServers.isEmpty && skills.isEmpty {

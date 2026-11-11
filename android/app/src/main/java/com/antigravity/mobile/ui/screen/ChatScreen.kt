@@ -192,6 +192,7 @@ fun ChatScreen(
     // 对话导轨与章节大纲状态 (Antigravity 2.28.1 对齐)
     var showNavigatorSheet by remember { mutableStateOf(false) }
     var showMcpSkillsSheet by remember { mutableStateOf(false) }
+    var showSwarmSheet by remember { mutableStateOf(false) }
     var showSendQueuedNowConfirmDialog by remember { mutableStateOf(false) }
     var queuedItemToSendNow by remember { mutableStateOf<com.antigravity.mobile.data.model.QueuedMessageItem?>(null) }
     var lockedTurnIndex by remember { mutableStateOf<Int?>(null) }
@@ -466,6 +467,8 @@ fun ChatScreen(
     }
     val voicePrefs = remember { viewModel.prefs ?: com.antigravity.mobile.data.service.PreferencesManager(context) }
     val enableVoiceMode by voicePrefs.enableVoiceModeFlow.collectAsState()
+    val fontSizeScaleSetting by voicePrefs.fontSizeScaleFlow.collectAsState()
+    val isKnowledgeModeEnabled by voicePrefs.knowledgeModeFlow.collectAsState()
 
     LaunchedEffect(enableVoiceMode) {
         if (!enableVoiceMode && isInVoiceCall) {
@@ -848,6 +851,12 @@ fun ChatScreen(
         }
     }
 
+    CompositionLocalProvider(
+        com.antigravity.mobile.ui.components.LocalMarkdownBodyScale provides com.antigravity.mobile.data.service.PreferencesManager.bodyScaleFactor(fontSizeScaleSetting),
+        com.antigravity.mobile.ui.components.LocalMarkdownCodeScale provides com.antigravity.mobile.data.service.PreferencesManager.codeScaleFactor(fontSizeScaleSetting),
+        com.antigravity.mobile.ui.components.LocalCurrentCascadeId provides uiState.cascadeId,
+        com.antigravity.mobile.ui.components.LocalKnowledgeModeEnabled provides isKnowledgeModeEnabled
+    ) {
     Scaffold(
         modifier = modifier.fillMaxSize(),
         // Bottom insets are applied inside the input surface so its background reaches the screen
@@ -967,6 +976,15 @@ fun ChatScreen(
                 .consumeWindowInsets(padding)
                 .imePadding()
         ) {
+            val swarm = uiState.swarmBrief
+            if (swarm != null && swarm.active) {
+                SwarmBanner(
+                    brief = swarm,
+                    onClick = { showSwarmSheet = true },
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                )
+            }
+
             // Content Area (Loading / Error / Empty / Messages)
             Box(
                 modifier = Modifier
@@ -1693,7 +1711,7 @@ fun ChatScreen(
     if (showMcpSkillsSheet) {
         val hasAnyBgTasks = uiState.runningTasks.isNotEmpty() || uiState.globalBackgroundTasks.isNotEmpty()
         McpSkillsSheet(
-            initialTab = if (hasAnyBgTasks) 2 else 0,
+            initialTab = if (hasAnyBgTasks) 4 else 0,
             currentConversationId = uiState.cascadeId,
             onSelectConversation = { targetId, targetTitle ->
                 openSubagent(
@@ -1706,6 +1724,24 @@ fun ChatScreen(
             },
             onTasksChanged = { viewModel.updateGlobalBackgroundTasks(it) },
             onDismiss = { showMcpSkillsSheet = false }
+        )
+    }
+
+    // Swarm 蜂群协同看板
+    if (showSwarmSheet) {
+        SwarmSheet(
+            cascadeId = uiState.cascadeId,
+            apiClient = viewModel.apiClient,
+            onSelectConversation = { targetId ->
+                showSwarmSheet = false
+                onOpenSubagent(
+                    com.antigravity.mobile.data.model.SubagentItem(
+                        conversationId = targetId,
+                        status = "running"
+                    )
+                )
+            },
+            onDismiss = { showSwarmSheet = false }
         )
     }
 
@@ -1760,13 +1796,24 @@ fun ChatScreen(
         )
     }
 
-    // Document Preview Sheet (PDF, HTML, Office, Text)
+    // Document Preview Sheet (PDF, HTML, Office, Text, Jupyter Notebook)
     uiState.previewDocumentFile?.let { docFile ->
-        DocumentPreviewSheet(
-            file = docFile,
-            title = uiState.previewDocumentTitle,
-            onDismiss = { viewModel.closeDocumentPreview() }
-        )
+        if (docFile.name.endsWith(".ipynb", ignoreCase = true)) {
+            val notebookContent = remember(docFile) {
+                try { docFile.readText() } catch (_: Exception) { "" }
+            }
+            NotebookPreviewDialog(
+                jsonContent = notebookContent,
+                fileName = uiState.previewDocumentTitle.ifBlank { docFile.name },
+                onDismiss = { viewModel.closeDocumentPreview() }
+            )
+        } else {
+            DocumentPreviewSheet(
+                file = docFile,
+                title = uiState.previewDocumentTitle,
+                onDismiss = { viewModel.closeDocumentPreview() }
+            )
+        }
     }
 
     // 会话切换、Agent 运行状态翻转（跑完了）、提交/改动面板关闭后重新探测 Commit / Changes 是否该显示
@@ -1896,6 +1943,7 @@ fun ChatScreen(
             containerColor = colors.surface,
             shape = RoundedCornerShape(16.dp)
         )
+    }
     }
 }
 

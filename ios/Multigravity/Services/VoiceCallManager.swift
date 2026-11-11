@@ -237,10 +237,17 @@ public final class VoiceCallManager: ObservableObject {
         path += "voice/ws"
         components.path = path
 
-        let planModelInt = Self.resolvePlanModelInt(modelIdOrEnum) ?? 0
+        let planModelParam: String
+        if let planModelInt = Self.resolvePlanModelInt(modelIdOrEnum), planModelInt > 0 {
+            planModelParam = String(planModelInt)
+        } else if let raw = modelIdOrEnum?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty {
+            planModelParam = raw
+        } else {
+            planModelParam = "0"
+        }
         components.queryItems = [
             URLQueryItem(name: "conversation_id", value: cascadeId),
-            URLQueryItem(name: "plan_model", value: String(planModelInt)),
+            URLQueryItem(name: "plan_model", value: planModelParam),
             URLQueryItem(name: "sample_rate", value: "16000")
         ]
 
@@ -658,6 +665,9 @@ public final class VoiceCallManager: ObservableObject {
             return 1000 + num
         }
         switch lower {
+        case "gemini-4-carbon", "gemini-4-carbon-high": return 1420
+        case "gemini-4-carbon-medium": return 1421
+        case "gemini-4-carbon-low": return 1422
         case "gemini-4-argon-high": return 1417
         case "gemini-4-argon-medium": return 1418
         case "gemini-4-argon-low": return 1419
@@ -758,6 +768,8 @@ public final class VoiceCallManager: ObservableObject {
                     }
                 case 9: // clear_audio (ClearAudio)
                     clearPlaybackQueue()
+                case 11: // ask_question_progress (Antigravity 2.31+)
+                    NotificationCenter.default.post(name: .voiceAskQuestionProgress, object: nil, userInfo: ["data": subSlice])
                 default:
                     break
                 }
@@ -771,6 +783,7 @@ public final class VoiceCallManager: ObservableObject {
         let bytes = [UInt8](statusData)
         var offset = 0
         var stateVal: Int = 0
+        var failureReason: Int = 0
         var messageText: String = ""
         var returnedCascadeId: String = ""
 
@@ -782,6 +795,7 @@ public final class VoiceCallManager: ObservableObject {
             case 0:
                 if let v = Self.readVarint(bytes, offset: &offset) {
                     if field == 1 { stateVal = Int(v) }
+                    else if field == 2 { failureReason = Int(v) }
                 }
             case 2:
                 guard let lenU64 = Self.readVarint(bytes, offset: &offset) else { return }
@@ -816,7 +830,12 @@ public final class VoiceCallManager: ObservableObject {
         case 4: // STOPPING
             endCall()
         case 5: // FAILED
-            let errMsg = messageText.isEmpty ? "语音会话启动失败" : messageText
+            var errMsg = messageText.isEmpty ? "语音会话启动失败" : messageText
+            if failureReason == 5 {
+                errMsg = "桌面端 Antigravity 账号授权已过期，请在电脑端重新登录后再发起语音"
+            } else if failureReason == 2 {
+                errMsg = "语音服务并发受限，请稍后重试"
+            }
             callState = .failed(errMsg)
             endCall(preserveFailure: true)
         default:
@@ -910,4 +929,8 @@ final class VoiceWebSocketDelegate: NSObject, URLSessionWebSocketDelegate, Senda
         }
         completionHandler(.performDefaultHandling, nil)
     }
+}
+
+extension Notification.Name {
+    public static let voiceAskQuestionProgress = Notification.Name("antigravity.voiceAskQuestionProgress")
 }

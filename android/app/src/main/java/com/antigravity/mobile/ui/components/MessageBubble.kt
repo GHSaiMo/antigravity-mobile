@@ -261,14 +261,36 @@ fun MessageBubble(
             .padding(vertical = 4.dp),
         horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
     ) {
-        // Render folded tools capsule if any
+        // Render folded tools capsule (simplified in Knowledge Mode)
         if (!message.toolCalls.isNullOrEmpty()) {
-            ToolStepCollapseCard(
-                toolCalls = message.toolCalls,
-                modifier = Modifier
-                    .fillMaxWidth(0.95f)
-                    .padding(bottom = 6.dp)
-            )
+            if (LocalKnowledgeModeEnabled.current) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth(0.95f)
+                        .padding(bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AutoAwesome,
+                        contentDescription = null,
+                        tint = colors.textSecondary,
+                        modifier = Modifier.size(12.dp)
+                    )
+                    Text(
+                        text = "已完成 ${message.toolCalls.size} 项检索与命令操作",
+                        color = colors.textSecondary,
+                        fontSize = 11.5.sp
+                    )
+                }
+            } else {
+                ToolStepCollapseCard(
+                    toolCalls = message.toolCalls,
+                    modifier = Modifier
+                        .fillMaxWidth(0.95f)
+                        .padding(bottom = 6.dp)
+                )
+            }
         }
 
         // Render Reasoning / Thinking section if present

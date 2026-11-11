@@ -39,6 +39,10 @@ public enum ModelDefaultsLogic {
     private static let claudeEnumTokens = ["m26", "m35", "m400", "m401", "m402", "m403", "m404", "m405"]
 
     public static let staticEnumByID: [String: String] = [
+        "gemini-4-carbon-high": "MODEL_PLACEHOLDER_M420",
+        "gemini-4-carbon-medium": "MODEL_PLACEHOLDER_M421",
+        "gemini-4-carbon-low": "MODEL_PLACEHOLDER_M422",
+        "gemini-4-carbon": "MODEL_PLACEHOLDER_M420",
         "gemini-4-argon-high": "MODEL_PLACEHOLDER_M417",
         "gemini-4-argon-medium": "MODEL_PLACEHOLDER_M418",
         "gemini-4-argon-low": "MODEL_PLACEHOLDER_M419",

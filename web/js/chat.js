@@ -150,12 +150,19 @@ function renderInteractionCard() {
   if (!container || !currentPendingInteraction) return;
 
   const interaction = currentPendingInteraction;
-  const isPermission = interaction.type === "permission";
+  const isPermission = interaction.type === "permission" || interaction.type === "file_permission";
+  const isDownload = interaction.type === "browser_download";
+  const isApproval = interaction.type === "approval" || isDownload;
   const hasMultiQuestions = interaction.questions && interaction.questions.length > 1;
 
-  const iconSvg = isPermission
-    ? `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>`
-    : `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>`;
+  let iconSvg = '';
+  if (isDownload) {
+    iconSvg = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>`;
+  } else if (isPermission) {
+    iconSvg = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>`;
+  } else {
+    iconSvg = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>`;
+  }
 
   let contentHtml = '';
   if (hasMultiQuestions) {
@@ -691,6 +698,7 @@ async function connectStreamWs(cascadeId) {
 
         RunningTasksManager.syncFromServer(data.runningTasks);
         SubagentManager.sync(data);
+        if (typeof SwarmManager !== "undefined") SwarmManager.sync(data);
 
         if (data.steps) {
           scheduleRenderMessages(data.steps, isRunning);

@@ -38,6 +38,17 @@ public struct MessageBubbleView: View {
             case .toolBatch(let count, let tools):
                 if isActiveToolBatch {
                     activeToolBatchCard(count: count, tools: tools)
+                } else if AppSettings.shared.isKnowledgeModeEnabled {
+                    HStack(spacing: 6) {
+                        Image(systemName: "doc.text.magnifyingglass")
+                            .font(.system(size: 10.5))
+                            .foregroundColor(.secondary)
+                        Text("已完成 \(max(count, tools.count)) 项检索与命令操作")
+                            .font(.system(size: 11.5))
+                            .foregroundColor(.secondary)
+                        Spacer()
+                    }
+                    .padding(.vertical, 2)
                 } else {
                     ToolBatchAccordionView(count: count, tools: tools)
                 }

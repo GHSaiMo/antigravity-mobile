@@ -577,6 +577,40 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Swarm endpoints (Antigravity 2.31+)
+	if r.URL.Path == "/gateway/swarm" {
+		p.HandleGetSwarm(w, r)
+		return
+	}
+	if r.URL.Path == "/gateway/swarm/feedback" {
+		p.HandleSwarmFeedback(w, r)
+		return
+	}
+	if r.URL.Path == "/gateway/swarm/nudge" {
+		p.HandleSwarmNudge(w, r)
+		return
+	}
+
+	// Plugins endpoints (Antigravity 2.31+)
+	if r.URL.Path == "/gateway/plugins" {
+		p.HandleGetPlugins(w, r)
+		return
+	}
+	if r.URL.Path == "/gateway/plugins/install" {
+		p.HandleInstallPlugin(w, r)
+		return
+	}
+
+	// Automations endpoints (GetSidecars / schedule)
+	if r.URL.Path == "/gateway/automations" {
+		p.HandleGetAutomations(w, r)
+		return
+	}
+	if r.URL.Path == "/gateway/automations/manage" {
+		p.HandleManageAutomation(w, r)
+		return
+	}
+
 	if r.URL.Path == "/gateway/rpc-mux" {
 		p.HandleRPCMux(w, r)
 		return

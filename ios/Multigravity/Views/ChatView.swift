@@ -38,6 +38,7 @@ public struct ChatView: View {
     @State var showAttachmentSheet = false
     @State var showNavigatorSheet = false
     @State var showMcpSkillsSheet = false
+    @State var showSwarmSheet = false
     @State var currentVisibleTurnIndex: Int = 1
     @State var lockedTurnIndex: Int? = nil
     @State var lastVisibleMessageGeometries: [VisibleMessageGeometry] = []
@@ -120,6 +121,13 @@ public struct ChatView: View {
         VStack(spacing: 0) {
             ZStack(alignment: .bottom) {
                 VStack(spacing: 0) {
+                    if let brief = viewModel.swarmBrief, brief.active {
+                        SwarmBannerView(brief: brief) {
+                            showSwarmSheet = true
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 6)
+                    }
                     contentArea
                     errorBanner
                     floatingCards
@@ -252,6 +260,7 @@ public struct ChatView: View {
         .environment(\.openURL, OpenURLAction { url in
             handleURLTap(url)
         })
+        .environment(\.currentCascadeId, viewModel.cascadeId)
         .sheet(isPresented: $showAttachmentSheet) {
             AttachmentPickerSheet(
                 remainingImageSlots: max(0, 5 - viewModel.selectedImageData.count),
@@ -345,6 +354,19 @@ public struct ChatView: View {
                 },
                 onTasksChanged: { updated in
                     viewModel.globalBackgroundTasks = updated
+                }
+            )
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showSwarmSheet) {
+            SwarmSheet(
+                cascadeId: viewModel.cascadeId,
+                onSelectConversation: { targetId in
+                    NotificationCenter.default.post(
+                        name: .openConversationFromTaskCenter,
+                        object: targetId
+                    )
                 }
             )
             .presentationDetents([.large])

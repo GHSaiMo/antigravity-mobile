@@ -309,6 +309,9 @@ public final class ChatViewModel {
     public var hasAnyBackgroundTasks: Bool { !runningTasks.isEmpty || !globalBackgroundTasks.isEmpty }
     /// 本会话派发的子代理（来自 stream，不入缓存）。
     public var subagents: [SubagentItem] = []
+    /// 本会话关联的 Swarm 蜂群状态（来自 stream）。
+    public var swarmBrief: SwarmBrief? = nil
+    public var isSwarmActive: Bool { swarmBrief?.active == true }
     /// 非空说明当前会话本身就是子代理，界面只读。
     public var parentConversationId: String? = nil
     public var subagentRole: String? = nil
