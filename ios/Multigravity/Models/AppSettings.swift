@@ -195,14 +195,26 @@ public final class AppSettings {
     }
 
     public func applyAppearance() {
-        DispatchQueue.main.async {
+        let update = {
             let style = self.userInterfaceStyle
             let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             for scene in scenes {
                 for window in scene.windows {
                     window.overrideUserInterfaceStyle = style
+                    var currentVC = window.rootViewController
+                    while let vc = currentVC {
+                        if !(vc is SingleImagePreviewController) && !(vc is FullScreenGalleryViewController) {
+                            vc.overrideUserInterfaceStyle = style
+                        }
+                        currentVC = vc.presentedViewController
+                    }
                 }
             }
+        }
+        if Thread.isMainThread {
+            update()
+        } else {
+            DispatchQueue.main.async(execute: update)
         }
     }
     

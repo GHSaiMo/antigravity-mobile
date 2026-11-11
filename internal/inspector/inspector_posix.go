@@ -22,37 +22,51 @@ func (i *Inspector) findProcess(ctx context.Context) (int, string, error) {
 		return 0, "", fmt.Errorf("failed to run ps: %w", err)
 	}
 
+	var (
+		bestPID      int
+		bestCSRF     string
+		bestPriority int
+	)
+
 	lines := strings.Split(string(out), "\n")
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		if line == "" || strings.Contains(line, "grep") || strings.Contains(line, "<defunct>") || strings.Contains(line, "multicall") {
+		ok, priority := ClassifyLanguageServerCmdline(line)
+		if !ok {
 			continue
 		}
 
-		if strings.Contains(line, "language_server") {
-			fields := strings.Fields(line)
-			if len(fields) < 2 {
-				continue
-			}
-			pid, err := strconv.Atoi(fields[0])
-			if err != nil {
-				continue
-			}
-
-			// Verify the command actually executes language_server (not a shell wrapper or python script)
-			cmdPath := fields[1]
-			base := filepath.Base(cmdPath)
-			if !strings.Contains(base, "language_server") {
-				continue
-			}
-
-			var csrfToken string
-			matches := csrfRegex.FindStringSubmatch(line)
-			if len(matches) > 1 {
-				csrfToken = matches[1]
-			}
-			return pid, csrfToken, nil
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
 		}
+		pid, err := strconv.Atoi(fields[0])
+		if err != nil || pid <= 0 {
+			continue
+		}
+
+		// Verify the command actually executes language_server (not a shell wrapper or python script)
+		cmdPath := fields[1]
+		base := filepath.Base(cmdPath)
+		if !strings.Contains(base, "language_server") {
+			continue
+		}
+
+		var csrfToken string
+		matches := csrfRegex.FindStringSubmatch(line)
+		if len(matches) > 1 {
+			csrfToken = matches[1]
+		}
+
+		if priority > bestPriority || (priority == bestPriority && pid > bestPID) {
+			bestPID = pid
+			bestCSRF = csrfToken
+			bestPriority = priority
+		}
+	}
+
+	if bestPID > 0 {
+		return bestPID, bestCSRF, nil
 	}
 
 	return 0, "", fmt.Errorf("language_server process not found")

@@ -187,6 +187,10 @@ func TestFormatResetFriendly(t *testing.T) {
 }
 
 func TestEnsureCockpitAntigravityConfig_AlignsConfig(t *testing.T) {
+	origChecker := cockpitProcessChecker
+	cockpitProcessChecker = func() bool { return false }
+	t.Cleanup(func() { cockpitProcessChecker = origChecker })
+
 	tmpDir := t.TempDir()
 	t.Setenv("COCKPIT_DATA_DIR", tmpDir)
 

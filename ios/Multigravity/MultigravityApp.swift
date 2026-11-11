@@ -18,7 +18,6 @@ struct MultigravityApp: App {
         WindowGroup {
             ConversationListView()
                 .tint(.indigo)
-                .preferredColorScheme(settings.colorScheme)
                 .onAppear {
                     settings.applyAppearance()
                 }
