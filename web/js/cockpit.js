@@ -311,7 +311,7 @@ function buildAccountQuotaCard(acc, isCurrent) {
         <div class="metric-box-header">
           <div class="metric-box-title-wrap">
             <span class="metric-box-title carbon">Gemini 4 Carbon Weekly</span>
-            <span class="carbon-micro-badge">CARBON</span>
+            <span class="carbon-micro-badge">✦ CARBON</span>
           </div>
           <span class="metric-box-value ${carbonStatusClass}">${carbon.remaining_percent.toFixed(1)}%</span>
         </div>

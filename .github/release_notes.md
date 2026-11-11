@@ -19,7 +19,7 @@
   - 原生 `clientMessageId` 双轨精准排队匹配，消除消息闪烁与文本比对误差；
   - Mermaid 架构图语法容错自愈，异常字符自动转义修复重绘。
 - ⚡ **双端配额引擎与 Carbon / Argon Weekly 视觉升级**：
-  - **Ultra 专属 Gemini 4 Carbon Weekly**：新增电光翠绿与科技黑曜青冷调流光渐变（`#00E5FF` → `#10B981`）与 `CARBON` 微光胶囊徽标，数据直连 Gemini Weekly 168h 周度基准线；
+  - **Ultra 专属 Gemini 4 Carbon Weekly**：新增 Google AI Gemini 幻彩极光流光渐变（`#4285F4` → `#9B72CF` → `#FF7597`）与 `✦ CARBON` 幻彩胶囊徽标，数据直连 Gemini Weekly 168h 周度基准线；
   - **Pro 专属 Gemini 4 Argon Weekly**：标题与匀速节奏分析全量升级为 Weekly 周度周期，保留原温暖琥珀金质感；
   - **Android 额度组块呼吸感重构**：纵向内边距提升至 9.5dp，行内间距增至 5dp，全面解决拥挤感，对齐 iOS 旗舰质感；
   - **三端统一同步**：iOS、Android 原生端与 Web 控制台视觉规范全量对齐。

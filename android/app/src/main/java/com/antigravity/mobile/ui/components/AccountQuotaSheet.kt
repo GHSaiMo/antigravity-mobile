@@ -26,11 +26,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -650,7 +653,17 @@ private fun QuotaMetricCell(
         if (isPaceSupported) bucket?.calculatePaceForTitle(title, tier) else null
     }
     val argonAccent = if (colors.isDark) Color(0xFFFF9F0A) else Color(0xFFD97706)
-    val carbonAccent = if (colors.isDark) Color(0xFF00E5FF) else Color(0xFF0D9488)
+    val carbonAccent = if (colors.isDark) Color(0xFFC58AF9) else Color(0xFF7C3AED)
+    val carbonAuroraColors = if (colors.isDark) {
+        listOf(Color(0xFF4285F4), Color(0xFF9B72CF), Color(0xFFFF7597))
+    } else {
+        listOf(Color(0xFF4285F4), Color(0xFF9B72CF), Color(0xFFF06292))
+    }
+    val carbonTitleColors = if (colors.isDark) {
+        listOf(Color(0xFF8AB4F8), Color(0xFFC58AF9), Color(0xFFFF8BCB))
+    } else {
+        listOf(Color(0xFF2563EB), Color(0xFF7C3AED), Color(0xFFDB2777))
+    }
     val isDanger = percent < 20.0
     val color = when {
         isCarbon -> if (isDanger) colors.accentRed else carbonAccent
@@ -668,8 +681,9 @@ private fun QuotaMetricCell(
                 .background(
                     Brush.linearGradient(
                         colors = listOf(
-                            Color(0xFF00E5FF).copy(alpha = if (colors.isDark) 0.12f else 0.10f),
-                            Color(0xFF10B981).copy(alpha = if (colors.isDark) 0.05f else 0.04f)
+                            Color(0xFF4285F4).copy(alpha = if (colors.isDark) 0.12f else 0.08f),
+                            Color(0xFF9B72CF).copy(alpha = if (colors.isDark) 0.10f else 0.07f),
+                            Color(0xFFF06292).copy(alpha = if (colors.isDark) 0.08f else 0.06f)
                         )
                     )
                 )
@@ -677,8 +691,9 @@ private fun QuotaMetricCell(
                     1.dp,
                     Brush.linearGradient(
                         colors = listOf(
-                            Color(0xFF00E5FF).copy(alpha = if (colors.isDark) 0.45f else 0.50f),
-                            Color(0xFF10B981).copy(alpha = if (colors.isDark) 0.25f else 0.30f)
+                            Color(0xFF4285F4).copy(alpha = if (colors.isDark) 0.45f else 0.42f),
+                            Color(0xFF9B72CF).copy(alpha = if (colors.isDark) 0.42f else 0.38f),
+                            Color(0xFFF06292).copy(alpha = if (colors.isDark) 0.38f else 0.36f)
                         )
                     ),
                     cellShape
@@ -734,35 +749,43 @@ private fun QuotaMetricCell(
                 horizontalArrangement = Arrangement.spacedBy(5.dp),
                 modifier = Modifier.weight(1f, fill = false)
             ) {
-                Text(
-                    text = title,
-                    color = when {
-                        isCarbon -> carbonAccent
-                        isArgon -> argonAccent
-                        else -> colors.textSecondary
-                    },
-                    fontSize = if (isSpecial) 11.5.sp else 11.sp,
-                    lineHeight = 13.sp,
-                    fontWeight = if (isSpecial) FontWeight.SemiBold else FontWeight.Medium,
-                    style = CompactTextStyle,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                if (isCarbon) {
+                    Text(
+                        text = buildAnnotatedString {
+                            withStyle(SpanStyle(brush = Brush.horizontalGradient(carbonTitleColors))) {
+                                append(title)
+                            }
+                        },
+                        fontSize = 11.5.sp,
+                        lineHeight = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        style = CompactTextStyle,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                } else {
+                    Text(
+                        text = title,
+                        color = if (isArgon) argonAccent else colors.textSecondary,
+                        fontSize = if (isSpecial) 11.5.sp else 11.sp,
+                        lineHeight = 13.sp,
+                        fontWeight = if (isSpecial) FontWeight.SemiBold else FontWeight.Medium,
+                        style = CompactTextStyle,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
                 if (isCarbon) {
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(3.5.dp))
-                            .background(
-                                Brush.horizontalGradient(
-                                    colors = listOf(Color(0xFF00E5FF), Color(0xFF10B981))
-                                )
-                            )
-                            .padding(horizontal = 4.dp, vertical = 1.dp),
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(Brush.horizontalGradient(colors = carbonAuroraColors))
+                            .padding(horizontal = 4.5.dp, vertical = 1.5.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "CARBON",
-                            color = Color(0xFF062326),
+                            text = "✦ CARBON",
+                            color = Color.White,
                             fontSize = 8.5.sp,
                             lineHeight = 9.5.sp,
                             fontWeight = FontWeight.ExtraBold,
@@ -770,9 +793,9 @@ private fun QuotaMetricCell(
                             style = TextStyle(
                                 platformStyle = CompactPlatformTextStyle,
                                 shadow = Shadow(
-                                    color = Color(0x33000000),
-                                    offset = Offset(0f, 0.5f),
-                                    blurRadius = 1f
+                                    color = Color(0x554C1D95),
+                                    offset = Offset(0f, 0.8f),
+                                    blurRadius = 1.5f
                                 )
                             )
                         )
@@ -807,7 +830,7 @@ private fun QuotaMetricCell(
                     .clip(CircleShape)
                     .background(
                         when {
-                            isCarbon -> Color(0xFF00E5FF).copy(alpha = if (colors.isDark) 0.16f else 0.18f)
+                            isCarbon -> Color(0xFF9B72CF).copy(alpha = if (colors.isDark) 0.18f else 0.14f)
                             isArgon -> Color(0xFFFF9F0A).copy(alpha = if (colors.isDark) 0.16f else 0.18f)
                             else -> colors.border.copy(alpha = 0.5f)
                         }
@@ -820,11 +843,7 @@ private fun QuotaMetricCell(
                 Box(
                     modifier = when {
                         isCarbon && !isDanger -> {
-                            fillModifier.background(
-                                Brush.horizontalGradient(
-                                    colors = listOf(Color(0xFF00E5FF), Color(0xFF10B981))
-                                )
-                            )
+                            fillModifier.background(Brush.horizontalGradient(colors = carbonAuroraColors))
                         }
                         isArgon && !isDanger -> {
                             fillModifier.background(
@@ -843,11 +862,7 @@ private fun QuotaMetricCell(
             // Vertical Pace Cursor Needle
             if (hasCursor) {
                 val expectedFrac = (paceInfo.expectedRemainingPercent / 100.0).toFloat().coerceIn(0f, 1f)
-                val needleColor = when {
-                    paceInfo.isOverPacing && isCarbon -> Color(0xFF00E5FF)
-                    paceInfo.isOverPacing -> Color(0xFFFF9F0A)
-                    else -> Color.White.copy(alpha = 0.90f)
-                }
+                val needleColor = if (paceInfo.isOverPacing) Color(0xFFFF9F0A) else Color.White.copy(alpha = 0.92f)
                 BoxWithConstraints(
                     modifier = Modifier
                         .fillMaxWidth()
