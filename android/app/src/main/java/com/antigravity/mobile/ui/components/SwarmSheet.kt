@@ -1,7 +1,7 @@
 package com.antigravity.mobile.ui.components
 
-import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -13,12 +13,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.*
 import com.antigravity.mobile.data.service.ApiClient
 import com.antigravity.mobile.ui.theme.AntigravityTheme
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -39,38 +40,57 @@ fun SwarmSheet(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val colors = AntigravityTheme.colors
-    val context = LocalContext.current
+    val isDark = AntigravityTheme.colors.isDark
     val scope = rememberCoroutineScope()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    var selectedTab by remember { mutableStateOf(0) } // 0: 概览, 1: 协作板, 2: 成员, 3: 拓扑
+    var selectedTab by remember { mutableIntStateOf(1) } // 0: 概览, 1: 协作板, 2: 成员, 3: 拓扑
     val tabs = listOf("概览", "协作板", "成员", "拓扑")
 
     var snapshot by remember { mutableStateOf<SwarmSnapshot?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
+    // Overview feedback
     var feedbackText by remember { mutableStateOf("") }
     var isSendingFeedback by remember { mutableStateOf(false) }
     val nudgingMembers = remember { mutableStateListOf<String>() }
 
-    fun loadData() {
+    // Board filter & expand
+    var boardSearch by remember { mutableStateOf("") }
+    var boardAgentFilter by remember { mutableStateOf<String?>(null) }
+    val expandedSeqs = remember { mutableStateListOf<Int>() }
+
+    // Members filter
+    var memberSearch by remember { mutableStateOf("") }
+    var showRetiredMembers by remember { mutableStateOf(false) }
+    var selectedMemberForActions by remember { mutableStateOf<String?>(null) }
+
+    fun loadData(silent: Boolean = false) {
         scope.launch {
-            isLoading = true
-            errorMessage = null
+            if (!silent) {
+                isLoading = true
+                errorMessage = null
+            }
             val res = apiClient.fetchSwarmSnapshot(cascadeId)
             res.onSuccess {
                 snapshot = it
+                if (!silent) errorMessage = null
             }.onFailure {
-                errorMessage = it.message ?: "加载快照失败"
+                if (!silent || snapshot == null) {
+                    errorMessage = it.message ?: "加载快照失败"
+                }
             }
-            isLoading = false
+            if (!silent) isLoading = false
         }
     }
 
     LaunchedEffect(cascadeId) {
-        loadData()
+        loadData(silent = false)
+        while (true) {
+            delay(3000)
+            loadData(silent = true)
+        }
     }
 
     ModalBottomSheet(
@@ -84,56 +104,92 @@ fun SwarmSheet(
             .fillMaxWidth()
             .fillMaxHeight()
     ) {
-        TallSheetBody(containerColor = colors.background, onDismiss = onDismiss) {
+        TallSheetBody(containerColor = SwarmColors.bg(isDark), onDismiss = onDismiss) {
             BackHandler { onDismiss() }
 
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .fillMaxHeight()
+                    .background(SwarmColors.bg(isDark))
             ) {
-                // Top Header Bar
+                // Top Header Bar (No "完成" Button)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         text = snapshot?.title?.ifBlank { "蜂群协同 (Swarm)" } ?: "蜂群协同",
-                        color = colors.textPrimary,
-                        fontSize = 17.sp,
+                        color = SwarmColors.ink(isDark),
+                        fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
                     )
 
-                    IconButton(onClick = onDismiss) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "关闭",
-                            tint = colors.textSecondary
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    Row(
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(SwarmColors.cardBg(isDark))
+                            .clickable { loadData(silent = false) }
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(7.dp)
+                                .clip(CircleShape)
+                                .background(if (isLoading) SwarmColors.warnAmber(isDark) else SwarmColors.liveGreen(isDark))
+                        )
+                        Text(
+                            text = "Live",
+                            color = SwarmColors.muted(isDark),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
                         )
                     }
                 }
 
-                // Tab Row
+                // Desktop-style Underline Tab Row
+                val boardCount = snapshot?.messages?.size ?: 0
+                val memberCount = snapshot?.members?.size ?: 0
+
                 TabRow(
                     selectedTabIndex = selectedTab,
-                    containerColor = colors.surface,
-                    contentColor = colors.accentBlue,
+                    containerColor = SwarmColors.bg(isDark),
+                    contentColor = SwarmColors.accent(isDark),
+                    indicator = { tabPositions ->
+                        TabRowDefaults.SecondaryIndicator(
+                            Modifier.tabIndicatorOffset(tabPositions[selectedTab]),
+                            color = SwarmColors.accent(isDark),
+                            height = 2.dp
+                        )
+                    },
+                    divider = {
+                        HorizontalDivider(thickness = 0.8.dp, color = SwarmColors.border(isDark))
+                    },
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     tabs.forEachIndexed { index, title ->
+                        val countText = when (index) {
+                            1 -> if (boardCount > 0) " $boardCount" else ""
+                            2 -> if (memberCount > 0) " $memberCount" else ""
+                            else -> ""
+                        }
                         Tab(
                             selected = selectedTab == index,
-                            selectedContentColor = colors.accentBlue,
-                            unselectedContentColor = colors.textSecondary,
+                            selectedContentColor = SwarmColors.ink(isDark),
+                            unselectedContentColor = SwarmColors.muted(isDark),
                             onClick = { selectedTab = index },
                             text = {
                                 Text(
-                                    text = title,
+                                    text = "$title$countText",
                                     fontSize = 13.5.sp,
                                     fontWeight = if (selectedTab == index) FontWeight.SemiBold else FontWeight.Normal
                                 )
@@ -142,79 +198,88 @@ fun SwarmSheet(
                     }
                 }
 
-                // Content
+                // Content Views
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
                 ) {
-                    if (isLoading && snapshot == null) {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            CircularProgressView("正在同步蜂群看板与成员状态...")
+                    when {
+                        isLoading && snapshot == null -> {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(color = SwarmColors.accent(isDark), strokeWidth = 2.5.dp)
+                            }
                         }
-                    } else if (errorMessage != null && snapshot == null) {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Text(text = errorMessage ?: "", color = colors.accentOrange, fontSize = 14.sp)
-                                Button(onClick = { loadData() }) {
-                                    Text("重试")
+                        errorMessage != null && snapshot == null -> {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text("加载蜂群快照失败", color = SwarmColors.ink(isDark), fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                    Text(errorMessage ?: "", color = SwarmColors.muted(isDark), fontSize = 12.5.sp)
+                                    Button(
+                                        onClick = { loadData(silent = false) },
+                                        colors = ButtonDefaults.buttonColors(containerColor = SwarmColors.accent(isDark))
+                                    ) {
+                                        Text("重试", color = Color.White)
+                                    }
                                 }
                             }
                         }
-                    } else if (snapshot != null) {
-                        val snap = snapshot!!
-                        when (selectedTab) {
-                            0 -> SwarmOverviewTab(
-                                snap = snap,
-                                feedbackText = feedbackText,
-                                isSendingFeedback = isSendingFeedback,
-                                onFeedbackChange = { feedbackText = it },
-                                onSendFeedback = {
-                                    val text = feedbackText.trim()
-                                    if (text.isNotEmpty()) {
+                        snapshot != null -> {
+                            val snap = snapshot!!
+                            when (selectedTab) {
+                                0 -> SwarmOverviewTab(
+                                    snap = snap,
+                                    feedbackText = feedbackText,
+                                    isSendingFeedback = isSendingFeedback,
+                                    onFeedbackChange = { feedbackText = it },
+                                    onSendFeedback = {
                                         scope.launch {
                                             isSendingFeedback = true
-                                            val coordId = snap.coordinatorId.ifBlank { snap.brief.coordinatorId }
-                                            val res = apiClient.sendSwarmFeedback(cascadeId, text, coordId)
-                                            res.onSuccess {
-                                                feedbackText = ""
-                                                Toast.makeText(context, "反馈已发送至 @narrator", Toast.LENGTH_SHORT).show()
-                                                loadData()
-                                            }.onFailure {
-                                                Toast.makeText(context, "发送失败: ${it.message}", Toast.LENGTH_SHORT).show()
-                                            }
+                                            apiClient.sendSwarmFeedback(cascadeId, feedbackText, snap.coordinatorId)
+                                            feedbackText = ""
+                                            loadData(silent = true)
                                             isSendingFeedback = false
                                         }
                                     }
-                                }
-                            )
-                            1 -> SwarmBoardTab(snap = snap)
-                            2 -> SwarmMembersTab(
-                                snap = snap,
-                                nudgingMembers = nudgingMembers,
-                                onNudge = { memberName ->
-                                    scope.launch {
-                                        nudgingMembers.add(memberName)
-                                        val coordId = snap.coordinatorId.ifBlank { snap.brief.coordinatorId }
-                                        val res = apiClient.nudgeSwarmMember(cascadeId, memberName, coordId)
-                                        res.onSuccess {
-                                            Toast.makeText(context, "已催促唤醒 @$memberName", Toast.LENGTH_SHORT).show()
-                                            loadData()
-                                        }.onFailure {
-                                            Toast.makeText(context, "催促失败: ${it.message}", Toast.LENGTH_SHORT).show()
-                                        }
-                                        nudgingMembers.remove(memberName)
+                                )
+                                1 -> SwarmBoardTabNative(
+                                    snap = snap,
+                                    search = boardSearch,
+                                    agentFilter = boardAgentFilter,
+                                    expandedSeqs = expandedSeqs,
+                                    onSearchChange = { boardSearch = it },
+                                    onFilterChange = { boardAgentFilter = it },
+                                    onToggleExpand = { seq ->
+                                        if (expandedSeqs.contains(seq)) expandedSeqs.remove(seq) else expandedSeqs.add(seq)
                                     }
-                                },
-                                onSelectConversation = { convId ->
-                                    onDismiss()
-                                    onSelectConversation(convId)
-                                }
-                            )
-                            3 -> SwarmGraphTab(snap = snap)
+                                )
+                                2 -> SwarmMembersTabNative(
+                                    snap = snap,
+                                    search = memberSearch,
+                                    showRetired = showRetiredMembers,
+                                    selectedMember = selectedMemberForActions,
+                                    nudgingMembers = nudgingMembers,
+                                    onSearchChange = { memberSearch = it },
+                                    onToggleRetired = { showRetiredMembers = !showRetiredMembers },
+                                    onSelectMemberRow = { name ->
+                                        selectedMemberForActions = if (selectedMemberForActions == name) null else name
+                                    },
+                                    onNudge = { name ->
+                                        scope.launch {
+                                            nudgingMembers.add(name)
+                                            apiClient.nudgeSwarmMember(cascadeId, name, snap.coordinatorId)
+                                            delay(1000)
+                                            nudgingMembers.remove(name)
+                                            loadData(silent = true)
+                                        }
+                                    },
+                                    onSelectConversation = onSelectConversation
+                                )
+                                3 -> SwarmGraphTab(
+                                    snap = snap,
+                                    onSelectConversation = onSelectConversation
+                                )
+                            }
                         }
                     }
                 }
@@ -222,6 +287,8 @@ fun SwarmSheet(
         }
     }
 }
+
+// MARK: - Overview Tab (Warm Colors)
 
 @Composable
 private fun SwarmOverviewTab(
@@ -231,241 +298,93 @@ private fun SwarmOverviewTab(
     onFeedbackChange: (String) -> Unit,
     onSendFeedback: () -> Unit
 ) {
-    val colors = AntigravityTheme.colors
-    val phaseText = snap.view?.phase?.label?.ifBlank { snap.brief.phase } ?: snap.brief.phase
-    val headlineText = snap.view?.headline?.ifBlank { snap.brief.headline } ?: snap.brief.headline
+    val isDark = AntigravityTheme.colors.isDark
+    val phaseLabel = snap.view?.phase?.label ?: snap.brief.phase
 
     LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
-            // Task Header Card
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
-                    .background(colors.surface)
-                    .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
+                    .background(SwarmColors.cardBg(isDark))
+                    .border(0.7.dp, SwarmColors.border(isDark), RoundedCornerShape(12.dp))
                     .padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = snap.title.ifBlank { snap.brief.title.ifBlank { "无标题蜂群任务" } },
-                        color = colors.textPrimary,
+                        text = snap.title.ifBlank { "蜂群协同任务" },
+                        color = SwarmColors.ink(isDark),
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(1f)
                     )
-                    if (phaseText.isNotBlank()) {
+
+                    if (phaseLabel.isNotBlank()) {
                         Box(
                             modifier = Modifier
                                 .clip(CircleShape)
-                                .background(colors.accentBlue.copy(alpha = 0.12f))
+                                .background(SwarmColors.accent(isDark).copy(alpha = 0.12f))
                                 .padding(horizontal = 8.dp, vertical = 3.dp)
                         ) {
                             Text(
-                                text = phaseText,
-                                color = colors.accentBlue,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
+                                text = phaseLabel,
+                                color = SwarmColors.accent(isDark),
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.SemiBold
                             )
                         }
                     }
                 }
 
-                if (headlineText.isNotBlank()) {
+                val headline = snap.view?.headline ?: snap.brief.headline
+                if (headline.isNotBlank()) {
                     Text(
-                        text = headlineText,
-                        color = colors.textSecondary,
-                        fontSize = 13.sp,
+                        text = headline,
+                        color = SwarmColors.muted(isDark),
+                        fontSize = 13.5.sp,
                         lineHeight = 18.sp
                     )
                 }
 
-                // Stats Row
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    StatPill(
-                        title = "工作中成员",
+                    StatBox(
+                        title = "活跃成员",
                         value = "${snap.brief.workingCount} / ${snap.brief.totalMembers}",
+                        color = SwarmColors.liveGreen(isDark),
                         modifier = Modifier.weight(1f)
                     )
-                    StatPill(
+                    StatBox(
                         title = "协作消息",
-                        value = "${snap.brief.latestSeq}",
+                        value = "${maxOf(snap.messages.size, snap.brief.latestSeq)}",
+                        color = SwarmColors.infoBlue(isDark),
                         modifier = Modifier.weight(1f)
                     )
-                    StatPill(
+                    StatBox(
                         title = "待关注",
                         value = "${snap.brief.attentionCount}",
-                        isWarning = snap.brief.attentionCount > 0,
+                        color = if (snap.brief.attentionCount > 0) SwarmColors.warnAmber(isDark) else SwarmColors.muted(isDark),
                         modifier = Modifier.weight(1f)
                     )
-                }
-            }
-        }
-
-        val attentionItems = snap.view?.attention.orEmpty()
-        if (attentionItems.isNotEmpty()) {
-            item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(colors.surface)
-                        .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
-                        .padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = "待关注事项 (${attentionItems.size})",
-                        color = colors.textPrimary,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    attentionItems.forEach { att ->
-                        val sevColor = when {
-                            att.severity.equals("high", ignoreCase = true) -> Color(0xFFEF4444)
-                            att.severity.equals("low", ignoreCase = true) -> colors.accentBlue
-                            else -> colors.accentOrange
-                        }
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(sevColor.copy(alpha = 0.08f))
-                                .border(0.5.dp, sevColor.copy(alpha = 0.25f), RoundedCornerShape(8.dp))
-                                .padding(10.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .background(sevColor.copy(alpha = 0.16f))
-                                        .padding(horizontal = 5.dp, vertical = 1.dp)
-                                ) {
-                                    Text(
-                                        text = att.kind.uppercase(),
-                                        color = sevColor,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        fontFamily = FontFamily.Monospace
-                                    )
-                                }
-                                Text(
-                                    text = att.title,
-                                    color = colors.textPrimary,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                            if (!att.why.isNullOrBlank()) {
-                                Text(
-                                    text = att.why,
-                                    color = colors.textSecondary,
-                                    fontSize = 12.sp
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        val workstreams = snap.view?.workstreams.orEmpty()
-        if (workstreams.isNotEmpty()) {
-            item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(colors.surface)
-                        .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
-                        .padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = "工作流推进 (${workstreams.size})",
-                        color = colors.textPrimary,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    workstreams.forEach { ws ->
-                        val wsColor = when (ws.state.lowercase()) {
-                            "active", "done" -> colors.accentGreen
-                            "blocked", "failed" -> Color(0xFFEF4444)
-                            "review" -> colors.accentOrange
-                            else -> colors.textSecondary
-                        }
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(colors.surfaceVariant.copy(alpha = 0.45f))
-                                .padding(10.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text(
-                                    text = ws.title,
-                                    color = colors.textPrimary,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                Text(
-                                    text = ws.state,
-                                    color = wsColor,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                            if (ws.owners.isNotEmpty()) {
-                                Text(
-                                    text = "负责人: ${ws.owners.joinToString(", ")}",
-                                    color = colors.textSecondary,
-                                    fontSize = 11.5.sp
-                                )
-                            }
-                            if (!ws.note.isNullOrBlank()) {
-                                Text(
-                                    text = ws.note,
-                                    color = colors.textSecondary,
-                                    fontSize = 12.sp
-                                )
-                            }
-                        }
-                    }
                 }
             }
         }
 
         item {
-            // Feedback Relay
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
-                    .background(colors.surface)
-                    .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
+                    .background(SwarmColors.cardBg(isDark))
+                    .border(0.7.dp, SwarmColors.border(isDark), RoundedCornerShape(12.dp))
                     .padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
@@ -473,21 +392,21 @@ private fun SwarmOverviewTab(
                     Icon(
                         imageVector = Icons.Default.Campaign,
                         contentDescription = null,
-                        tint = colors.accentBlue,
-                        modifier = Modifier.size(18.dp)
+                        tint = SwarmColors.accent(isDark),
+                        modifier = Modifier.size(17.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = "协同指挥 / 用户反馈",
-                        color = colors.textPrimary,
-                        fontSize = 15.sp,
+                        color = SwarmColors.ink(isDark),
+                        fontSize = 14.5.sp,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
 
                 Text(
-                    text = "直接向蜂群公共协作板留言（自动以 @narrator user feedback: 发送至协调员）。",
-                    color = colors.textSecondary,
+                    text = "直接向蜂群公共协作板留言（发送至协调者）。",
+                    color = SwarmColors.muted(isDark),
                     fontSize = 12.sp
                 )
 
@@ -506,12 +425,13 @@ private fun SwarmOverviewTab(
 
                     Button(
                         onClick = onSendFeedback,
-                        enabled = feedbackText.isNotBlank() && !isSendingFeedback
+                        enabled = feedbackText.isNotBlank() && !isSendingFeedback,
+                        colors = ButtonDefaults.buttonColors(containerColor = SwarmColors.accent(isDark))
                     ) {
                         if (isSendingFeedback) {
-                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
                         } else {
-                            Text("发板")
+                            Text("发板", color = Color.White)
                         }
                     }
                 }
@@ -521,105 +441,154 @@ private fun SwarmOverviewTab(
 }
 
 @Composable
-private fun StatPill(
-    title: String,
-    value: String,
-    modifier: Modifier = Modifier,
-    isWarning: Boolean = false
-) {
-    val colors = AntigravityTheme.colors
-    val accent = if (isWarning) colors.accentOrange else colors.accentBlue
-
+private fun StatBox(title: String, value: String, color: Color, modifier: Modifier = Modifier) {
+    val isDark = AntigravityTheme.colors.isDark
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(accent.copy(alpha = 0.08f))
-            .padding(vertical = 8.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .clip(RoundedCornerShape(10.dp))
+            .background(color.copy(alpha = 0.09f))
+            .padding(vertical = 10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Text(text = value, color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-        Text(text = title, color = colors.textSecondary, fontSize = 10.5.sp)
+        Text(text = value, color = SwarmColors.ink(isDark), fontSize = 14.5.sp, fontWeight = FontWeight.Bold)
+        Text(text = title, color = SwarmColors.muted(isDark), fontSize = 11.sp)
     }
 }
 
+// MARK: - Board Tab Native
+
 @Composable
-private fun SwarmBoardTab(snap: SwarmSnapshot) {
-    val colors = AntigravityTheme.colors
+private fun SwarmBoardTabNative(
+    snap: SwarmSnapshot,
+    search: String,
+    agentFilter: String?,
+    expandedSeqs: List<Int>,
+    onSearchChange: (String) -> Unit,
+    onFilterChange: (String?) -> Unit,
+    onToggleExpand: (Int) -> Unit
+) {
+    val isDark = AntigravityTheme.colors.isDark
+    var showFilterMenu by remember { mutableStateOf(false) }
 
-    if (snap.messages.isEmpty()) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("暂无协作留言", color = colors.textSecondary, fontSize = 14.sp)
+    val agents = remember(snap.messages) {
+        snap.messages.map { it.agent }.distinct().sortedWith { a, b ->
+            if (a.equals("coordinator", ignoreCase = true)) -1
+            else if (b.equals("coordinator", ignoreCase = true)) 1
+            else a.compareTo(b)
         }
-    } else {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+    }
+
+    val filteredMessages = remember(snap.messages, search, agentFilter) {
+        val q = search.trim().lowercase()
+        snap.messages.filter { msg ->
+            if (agentFilter != null) {
+                if (agentFilter == "@all") {
+                    if (!msg.mentions.any { it.equals("all", ignoreCase = true) }) return@filter false
+                } else if (agentFilter == "@none") {
+                    if (msg.mentions.isNotEmpty()) return@filter false
+                } else {
+                    val matchSender = msg.agent.equals(agentFilter, ignoreCase = true)
+                    val matchMention = msg.mentions.any { it.equals(agentFilter, ignoreCase = true) }
+                    if (!matchSender && !matchMention) return@filter false
+                }
+            }
+            if (q.isNotEmpty()) {
+                val hay = "${msg.agent} ${msg.mentions.joinToString(" ")} ${msg.text}".lowercase()
+                if (!hay.contains(q)) return@filter false
+            }
+            true
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        // Search & Filter header
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(snap.messages) { msg ->
-                Column(
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(9.dp))
+                    .background(SwarmColors.fieldBg(isDark))
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Search,
+                    contentDescription = null,
+                    tint = SwarmColors.faint(isDark),
+                    modifier = Modifier.size(15.dp)
+                )
+                OutlinedTextField(
+                    value = search,
+                    onValueChange = onSearchChange,
+                    placeholder = { Text("Search", fontSize = 13.5.sp, color = SwarmColors.faint(isDark)) },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color.Transparent,
+                        unfocusedBorderColor = Color.Transparent
+                    ),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            Box {
+                IconButton(
+                    onClick = { showFilterMenu = true },
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(colors.surface)
-                        .border(0.5.dp, colors.border, RoundedCornerShape(10.dp))
-                        .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(9.dp))
+                        .background(SwarmColors.fieldBg(isDark))
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        val isCoordinator = msg.agent == "narrator" || msg.agent == "coordinator"
-                        Box(
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .background(if (isCoordinator) colors.accentBlue.copy(alpha = 0.12f) else colors.surfaceVariant)
-                                .padding(horizontal = 7.dp, vertical = 2.5.dp)
-                        ) {
-                            Text(
-                                text = msg.agent,
-                                color = if (isCoordinator) colors.accentBlue else colors.textPrimary,
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
+                    Icon(
+                        imageVector = Icons.Default.FilterList,
+                        contentDescription = "Filter",
+                        tint = if (agentFilter == null) SwarmColors.muted(isDark) else SwarmColors.accent(isDark),
+                        modifier = Modifier.size(17.dp)
+                    )
+                }
 
-                        Text(
-                            text = "#${msg.seq}",
-                            color = colors.textSecondary,
-                            fontSize = 10.5.sp,
-                            fontFamily = FontFamily.Monospace
-                        )
-
-                        msg.mentions.forEach { mention ->
-                            Box(
-                                modifier = Modifier
-                                    .clip(CircleShape)
-                                    .background(colors.accentBlue.copy(alpha = 0.08f))
-                                    .padding(horizontal = 5.dp, vertical = 2.dp)
-                            ) {
-                                Text(
-                                    text = "@$mention",
-                                    color = colors.accentBlue,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.weight(1f))
-
-                        if (msg.time.isNotBlank()) {
-                            Text(text = msg.time, color = colors.textSecondary, fontSize = 10.sp)
+                DropdownMenu(
+                    expanded = showFilterMenu,
+                    onDismissRequest = { showFilterMenu = false }
+                ) {
+                    DropdownMenuItem(text = { Text("全部成员") }, onClick = { onFilterChange(null); showFilterMenu = false })
+                    DropdownMenuItem(text = { Text("仅看 @all 广播") }, onClick = { onFilterChange("@all"); showFilterMenu = false })
+                    DropdownMenuItem(text = { Text("未指定接收者") }, onClick = { onFilterChange("@none"); showFilterMenu = false })
+                    if (agents.isNotEmpty()) {
+                        HorizontalDivider()
+                        agents.forEach { ag ->
+                            DropdownMenuItem(text = { Text("@$ag") }, onClick = { onFilterChange(ag); showFilterMenu = false })
                         }
                     }
+                }
+            }
+        }
 
-                    Text(
-                        text = msg.text,
-                        color = colors.textPrimary,
-                        fontSize = 13.sp,
-                        lineHeight = 18.sp
+        if (filteredMessages.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(if (snap.messages.isEmpty()) "暂无协作留言" else "没有匹配筛选条件的消息", color = SwarmColors.muted(isDark), fontSize = 14.sp)
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 16.dp)
+            ) {
+                items(filteredMessages, key = { it.seq }) { msg ->
+                    BoardMessageRowNative(
+                        msg = msg,
+                        isExpanded = expandedSeqs.contains(msg.seq),
+                        onToggleExpand = { onToggleExpand(msg.seq) }
+                    )
+                    HorizontalDivider(
+                        modifier = Modifier.padding(start = 56.dp),
+                        thickness = 0.6.dp,
+                        color = SwarmColors.border(isDark).copy(alpha = 0.6f)
                     )
                 }
             }
@@ -628,249 +597,492 @@ private fun SwarmBoardTab(snap: SwarmSnapshot) {
 }
 
 @Composable
-private fun SwarmMembersTab(
+private fun BoardMessageRowNative(
+    msg: SwarmBoardMessage,
+    isExpanded: Boolean,
+    onToggleExpand: () -> Unit
+) {
+    val isDark = AntigravityTheme.colors.isDark
+    val targets = remember(msg) {
+        msg.mentions.filter { !it.equals(msg.agent, ignoreCase = true) }.distinct()
+    }
+    val cleanBody = remember(msg, targets) {
+        if (targets.isEmpty()) msg.text else stripLeadingMentions(msg.text)
+    }
+
+    val needsClamp = cleanBody.length > 160 || cleanBody.count { it == '\n' } >= 4
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(11.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        SwarmPixelBee(
+            name = msg.agent,
+            pose = SwarmBeePose.LANDED,
+            size = 30.dp,
+            modifier = Modifier.padding(top = 2.dp)
+        )
+
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                Text(
+                    text = "@${msg.agent}",
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = SwarmColors.ink(isDark)
+                )
+
+                if (targets.isNotEmpty()) {
+                    Text(text = "→", fontSize = 12.sp, color = SwarmColors.faint(isDark))
+                    Text(
+                        text = targets.joinToString(" ") { "@$it" },
+                        fontSize = 13.sp,
+                        color = SwarmColors.muted(isDark),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                }
+
+                Spacer(modifier = Modifier.weight(1f))
+
+                Text(
+                    text = "#${msg.seq} · ${formatClock(msg.time)}",
+                    fontSize = 11.5.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = SwarmColors.faint(isDark)
+                )
+            }
+
+            Text(
+                text = cleanBody,
+                fontSize = 13.sp,
+                lineHeight = 18.sp,
+                color = SwarmColors.ink(isDark),
+                maxLines = if (needsClamp && !isExpanded) 4 else Int.MAX_VALUE,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            if (needsClamp) {
+                Text(
+                    text = if (isExpanded) "收起" else "展开更多",
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = SwarmColors.accent(isDark),
+                    modifier = Modifier
+                        .clickable { onToggleExpand() }
+                        .padding(top = 2.dp)
+                )
+            }
+        }
+    }
+}
+
+// MARK: - Members Tab Native
+
+@Composable
+private fun SwarmMembersTabNative(
     snap: SwarmSnapshot,
+    search: String,
+    showRetired: Boolean,
+    selectedMember: String?,
     nudgingMembers: List<String>,
+    onSearchChange: (String) -> Unit,
+    onToggleRetired: () -> Unit,
+    onSelectMemberRow: (String) -> Unit,
     onNudge: (String) -> Unit,
     onSelectConversation: (String) -> Unit
 ) {
-    val colors = AntigravityTheme.colors
+    val isDark = AntigravityTheme.colors.isDark
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+    val matching = remember(snap.members, search) {
+        val q = search.trim().lowercase()
+        snap.members.filter { m ->
+            if (q.isEmpty()) true
+            else "${m.name} ${m.role} ${m.model} ${m.lastActivity ?: ""}".lowercase().contains(q)
+        }
+    }
+
+    val coordinator = matching.firstOrNull { it.name.equals("coordinator", ignoreCase = true) || it.role.equals("coordinator", ignoreCase = true) }
+    val workers = matching.filter { !it.name.equals("coordinator", ignoreCase = true) && !it.role.equals("coordinator", ignoreCase = true) }
+    val liveWorkers = workers.filter { !it.killed }
+    val activeWorkers = liveWorkers.filter {
+        val st = it.status.lowercase()
+        st == "working" || st == "error" || st == "stuck"
+    }
+    val standbyWorkers = liveWorkers.filter {
+        val st = it.status.lowercase()
+        st != "working" && st != "error" && st != "stuck"
+    }
+    val retiredWorkers = workers.filter { it.killed }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        // Search bar
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp)
+                .clip(RoundedCornerShape(9.dp))
+                .background(SwarmColors.fieldBg(isDark))
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Search,
+                contentDescription = null,
+                tint = SwarmColors.faint(isDark),
+                modifier = Modifier.size(15.dp)
+            )
+            OutlinedTextField(
+                value = search,
+                onValueChange = onSearchChange,
+                placeholder = { Text("Search members", fontSize = 13.5.sp, color = SwarmColors.faint(isDark)) },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Color.Transparent,
+                    unfocusedBorderColor = Color.Transparent
+                ),
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        if (matching.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("未找到匹配的成员", color = SwarmColors.muted(isDark), fontSize = 14.sp)
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                coordinator?.let { coord ->
+                    item(key = "coord") {
+                        MemberCardRow(
+                            member = coord,
+                            snap = snap,
+                            highlighted = false,
+                            isSelected = selectedMember == coord.name,
+                            isNudging = nudgingMembers.contains(coord.name),
+                            onRowClick = { onSelectMemberRow(coord.name) },
+                            onNudge = { onNudge(coord.name) },
+                            onSelectConversation = onSelectConversation
+                        )
+                    }
+                }
+
+                if (activeWorkers.isNotEmpty()) {
+                    item(key = "hdr_active") {
+                        MemberGroupHeader(title = "ACTIVE", count = activeWorkers.size)
+                    }
+                    items(activeWorkers, key = { it.name }) { m ->
+                        MemberCardRow(
+                            member = m,
+                            snap = snap,
+                            highlighted = true,
+                            isSelected = selectedMember == m.name,
+                            isNudging = nudgingMembers.contains(m.name),
+                            onRowClick = { onSelectMemberRow(m.name) },
+                            onNudge = { onNudge(m.name) },
+                            onSelectConversation = onSelectConversation
+                        )
+                    }
+                }
+
+                if (standbyWorkers.isNotEmpty()) {
+                    item(key = "hdr_standby") {
+                        MemberGroupHeader(title = "STANDING BY", count = standbyWorkers.size)
+                    }
+                    items(standbyWorkers, key = { it.name }) { m ->
+                        MemberCardRow(
+                            member = m,
+                            snap = snap,
+                            highlighted = false,
+                            isSelected = selectedMember == m.name,
+                            isNudging = nudgingMembers.contains(m.name),
+                            onRowClick = { onSelectMemberRow(m.name) },
+                            onNudge = { onNudge(m.name) },
+                            onSelectConversation = onSelectConversation
+                        )
+                    }
+                }
+
+                if (retiredWorkers.isNotEmpty()) {
+                    item(key = "hdr_retired") {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onToggleRetired() }
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = "RETIRED",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = SwarmColors.faint(isDark)
+                            )
+                            Text(
+                                text = "${retiredWorkers.size}",
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = SwarmColors.faint(isDark)
+                            )
+                            Icon(
+                                imageVector = if (showRetired) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                contentDescription = null,
+                                tint = SwarmColors.faint(isDark),
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                    }
+                    if (showRetired) {
+                        items(retiredWorkers, key = { it.name }) { m ->
+                            MemberCardRow(
+                                member = m,
+                                snap = snap,
+                                highlighted = false,
+                                isSelected = selectedMember == m.name,
+                                isNudging = false,
+                                onRowClick = { onSelectMemberRow(m.name) },
+                                onNudge = {},
+                                onSelectConversation = onSelectConversation
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MemberGroupHeader(title: String, count: Int) {
+    val isDark = AntigravityTheme.colors.isDark
+    Row(
+        modifier = Modifier.padding(top = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        items(snap.members) { member ->
-            val lowerStatus = member.status.lowercase()
-            val isWorking = lowerStatus == "working"
-            val isWaiting = lowerStatus == "waiting"
-            val isKilled = member.killed || lowerStatus == "killed"
-            val isError = lowerStatus == "error" || lowerStatus == "stuck"
+        Text(
+            text = title,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            color = SwarmColors.faint(isDark)
+        )
+        Text(
+            text = "$count",
+            fontSize = 11.sp,
+            fontFamily = FontFamily.Monospace,
+            color = SwarmColors.faint(isDark)
+        )
+    }
+}
 
-            val stateColor = when {
-                isKilled -> Color.Gray
-                isError -> Color(0xFFEF4444)
-                isWorking -> colors.accentGreen
-                isWaiting -> colors.accentOrange
-                else -> colors.textSecondary
-            }
+@Composable
+private fun MemberCardRow(
+    member: SwarmMemberInfo,
+    snap: SwarmSnapshot,
+    highlighted: Boolean,
+    isSelected: Boolean,
+    isNudging: Boolean,
+    onRowClick: () -> Unit,
+    onNudge: () -> Unit,
+    onSelectConversation: (String) -> Unit
+) {
+    val isDark = AntigravityTheme.colors.isDark
+    val isCoord = member.name.equals("coordinator", ignoreCase = true) || member.role.equals("coordinator", ignoreCase = true)
+    val st = member.status.lowercase()
+    val isWorking = !member.killed && st == "working"
+    val isError = !member.killed && (st == "error" || st == "stuck")
 
-            val stateLabel = when {
-                isKilled -> "已终止"
-                lowerStatus == "error" -> "报错"
-                lowerStatus == "stuck" -> "卡住"
-                isWorking -> "工作中"
-                isWaiting -> "等待中"
-                else -> member.status
-            }
+    val pose = when {
+        member.killed -> SwarmBeePose.LANDED
+        isWorking -> SwarmBeePose.WORKING
+        else -> SwarmBeePose.ASLEEP
+    }
+    val dotColor = when {
+        isWorking -> SwarmColors.liveGreen(isDark)
+        isError -> SwarmColors.errorRed(isDark)
+        else -> null
+    }
+
+    val lastPost = remember(snap.messages, member.name) {
+        snap.messages.lastOrNull { it.agent.equals(member.name, ignoreCase = true) }
+    }
+
+    val bodyPreview = when {
+        isWorking && !member.lastActivity.isNullOrBlank() -> member.lastActivity
+        isError && !member.lastActivity.isNullOrBlank() -> member.lastActivity
+        lastPost != null -> stripLeadingMentions(lastPost.text).replace('\n', ' ')
+        else -> member.lastActivity ?: ""
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (highlighted) SwarmColors.cardBg(isDark) else Color.Transparent)
+            .border(
+                width = if (highlighted) 0.7.dp else 0.dp,
+                color = if (highlighted) SwarmColors.border(isDark) else Color.Transparent,
+                shape = RoundedCornerShape(10.dp)
+            )
+            .clickable { onRowClick() }
+            .padding(horizontal = if (highlighted) 12.dp else 4.dp, vertical = if (highlighted) 10.dp else 6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(11.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            SwarmPixelBee(
+                name = member.name,
+                pose = pose,
+                size = 36.dp,
+                statusDotColor = dotColor
+            )
 
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(colors.surface)
-                    .border(
-                        if (member.isCurrent) 1.dp else 0.5.dp,
-                        if (member.isCurrent) colors.accentBlue.copy(alpha = 0.5f) else colors.border,
-                        RoundedCornerShape(10.dp)
-                    )
-                    .padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(7.dp)
-                            .clip(CircleShape)
-                            .background(stateColor)
+                    Text(
+                        text = "@${member.name}",
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (member.killed) SwarmColors.faint(isDark) else SwarmColors.ink(isDark)
                     )
 
+                    val statusLabel = when {
+                        isCoord -> if (isWorking) "Coordinator · Working" else "Coordinator"
+                        member.killed -> "Retired"
+                        isWorking -> "Working"
+                        isError -> "Error"
+                        else -> member.role.ifBlank { "worker" }
+                    }
+
                     Text(
-                        text = member.name,
-                        color = colors.textPrimary,
-                        fontSize = 14.5.sp,
-                        fontWeight = FontWeight.Bold
+                        text = statusLabel,
+                        fontSize = 12.sp,
+                        fontWeight = if (isWorking) FontWeight.SemiBold else FontWeight.Medium,
+                        color = when {
+                            isWorking -> SwarmColors.accent(isDark)
+                            isError -> SwarmColors.errorRed(isDark)
+                            isCoord -> SwarmColors.muted(isDark)
+                            else -> SwarmColors.faint(isDark)
+                        }
                     )
 
                     if (member.isCurrent) {
                         Box(
                             modifier = Modifier
                                 .clip(CircleShape)
-                                .background(colors.accentBlue.copy(alpha = 0.14f))
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                .background(SwarmColors.infoBlue(isDark).copy(alpha = 0.12f))
+                                .padding(horizontal = 5.dp, vertical = 1.dp)
                         ) {
-                            Text(text = "当前", color = colors.accentBlue, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .background(stateColor.copy(alpha = 0.12f))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Text(text = stateLabel, color = stateColor, fontSize = 10.5.sp, fontWeight = FontWeight.Medium)
-                    }
-
-                    if (member.unreadCount > 0) {
-                        Box(
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .background(colors.accentOrange.copy(alpha = 0.14f))
-                                .padding(horizontal = 5.dp, vertical = 1.5.dp)
-                        ) {
-                            Text(text = "${member.unreadCount} 未读", color = colors.accentOrange, fontSize = 10.sp)
+                            Text(
+                                text = "当前",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = SwarmColors.infoBlue(isDark)
+                            )
                         }
                     }
 
                     Spacer(modifier = Modifier.weight(1f))
 
-                    if (member.model.isNotBlank()) {
+                    val modelLabel = member.model.replace(Regex("-(?:dropdown|high|medium)$", RegexOption.IGNORE_CASE), "")
+                    val meta = listOfNotNull(
+                        modelLabel.ifBlank { null },
+                        lastPost?.seq?.let { "#$it" }
+                    ).joinToString(" · ")
+
+                    if (meta.isNotBlank()) {
                         Text(
-                            text = member.model,
-                            color = colors.textSecondary,
-                            fontSize = 10.5.sp,
-                            fontFamily = FontFamily.Monospace
+                            text = meta,
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = SwarmColors.faint(isDark)
                         )
                     }
                 }
 
-                if (member.role.isNotBlank()) {
+                if (!bodyPreview.isNullOrBlank()) {
                     Text(
-                        text = member.role,
-                        color = colors.textPrimary,
+                        text = bodyPreview,
                         fontSize = 12.5.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-
-                if (!member.lastActivity.isNullOrBlank()) {
-                    Text(
-                        text = member.lastActivity,
-                        color = colors.textSecondary,
-                        fontSize = 12.sp,
+                        color = if (isWorking || isCoord) SwarmColors.ink(isDark).copy(alpha = 0.88f) else SwarmColors.muted(isDark),
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-
-                // Action buttons: Nudge & Jump
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    if (!isKilled) {
-                        val isNudging = nudgingMembers.contains(member.name)
-                        OutlinedButton(
-                            onClick = { onNudge(member.name) },
-                            enabled = !isNudging,
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                            modifier = Modifier.height(30.dp)
-                        ) {
-                            if (isNudging) {
-                                CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 1.5.dp)
-                            } else {
-                                Icon(
-                                    imageVector = Icons.Default.Bolt,
-                                    contentDescription = null,
-                                    tint = colors.accentOrange,
-                                    modifier = Modifier.size(13.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("催促 / 唤醒", fontSize = 11.5.sp, color = colors.accentOrange)
-                            }
-                        }
-                    }
-
-                    if (member.conversationId.isNotBlank() && !member.isCurrent) {
-                        OutlinedButton(
-                            onClick = { onSelectConversation(member.conversationId) },
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                            modifier = Modifier.height(30.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.OpenInNew,
-                                contentDescription = null,
-                                modifier = Modifier.size(13.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("进入子会话", fontSize = 11.5.sp)
-                        }
-                    }
-                }
             }
         }
-    }
-}
 
-@Composable
-private fun SwarmGraphTab(snap: SwarmSnapshot) {
-    val colors = AntigravityTheme.colors
-
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        items(snap.members) { m ->
-            val mentionsOut = snap.messages.filter { it.agent == m.name }.flatMap { it.mentions }.distinct()
-            val mentionsIn = snap.messages.filter { it.mentions.contains(m.name) }.map { it.agent }.distinct()
-
-            Column(
+        AnimatedVisibility(visible = isSelected) {
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(colors.surface)
-                    .border(0.5.dp, colors.border, RoundedCornerShape(10.dp))
-                    .padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                    .padding(start = 47.dp, top = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(text = m.name, color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(text = m.role, color = colors.textSecondary, fontSize = 12.sp)
-                }
-
-                if (mentionsOut.isNotEmpty()) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                if (!member.killed) {
+                    Box(
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(SwarmColors.accent(isDark).copy(alpha = 0.12f))
+                            .clickable(enabled = !isNudging) { onNudge() }
+                            .padding(horizontal = 10.dp, vertical = 5.dp)
                     ) {
-                        Text(text = "→ 提及:", color = colors.textSecondary, fontSize = 11.sp)
-                        mentionsOut.forEach {
-                            Text(text = "@$it", color = colors.accentBlue, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            if (isNudging) {
+                                CircularProgressIndicator(modifier = Modifier.size(10.dp), strokeWidth = 1.5.dp, color = SwarmColors.accent(isDark))
+                            } else {
+                                Icon(imageVector = Icons.Default.Bolt, contentDescription = null, tint = SwarmColors.accent(isDark), modifier = Modifier.size(11.dp))
+                            }
+                            Text("催促 / 唤醒", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = SwarmColors.accent(isDark))
                         }
                     }
                 }
 
-                if (mentionsIn.isNotEmpty()) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                if (member.conversationId.isNotBlank() && !member.isCurrent) {
+                    Box(
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(SwarmColors.infoBlue(isDark).copy(alpha = 0.12f))
+                            .clickable { onSelectConversation(member.conversationId) }
+                            .padding(horizontal = 10.dp, vertical = 5.dp)
                     ) {
-                        Text(text = "← 被提及:", color = colors.textSecondary, fontSize = 11.sp)
-                        mentionsIn.forEach {
-                            Text(text = "@$it", color = colors.accentIndigo, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Icon(imageVector = Icons.Default.OpenInNew, contentDescription = null, tint = SwarmColors.infoBlue(isDark), modifier = Modifier.size(11.dp))
+                            Text("进入子会话", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = SwarmColors.infoBlue(isDark))
                         }
                     }
+                }
+
+                Spacer(modifier = Modifier.weight(1f))
+
+                if (member.unreadCount > 0) {
+                    Text("未读 ${member.unreadCount}", fontSize = 11.sp, color = SwarmColors.faint(isDark))
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun CircularProgressView(message: String) {
-    val colors = AntigravityTheme.colors
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        CircularProgressIndicator(color = colors.accentBlue, strokeWidth = 2.5.dp)
-        Text(text = message, color = colors.textSecondary, fontSize = 13.sp)
     }
 }

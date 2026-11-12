@@ -15,9 +15,11 @@ public struct SwarmBannerView: View {
             onTap()
         }) {
             HStack(spacing: 8) {
-                Image(systemName: "circle.hexagongrid.fill")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.accentColor)
+                SwarmPixelBeeView(
+                    name: "coordinator",
+                    pose: brief.workingCount > 0 ? .working : .landed,
+                    size: 28
+                )
 
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
@@ -29,10 +31,10 @@ public struct SwarmBannerView: View {
                         if !brief.phase.isEmpty {
                             Text(brief.phase)
                                 .font(.system(size: 10, weight: .bold))
-                                .foregroundColor(.accentColor)
+                                .foregroundColor(SwarmTheme.accent)
                                 .padding(.horizontal, 5)
                                 .padding(.vertical, 1.5)
-                                .background(Color.accentColor.opacity(0.12))
+                                .background(SwarmTheme.accent.opacity(0.12))
                                 .clipShape(Capsule())
                         }
                     }
@@ -68,10 +70,10 @@ public struct SwarmBannerView: View {
                         Text("\(brief.attentionCount) 待关注")
                             .font(.system(size: 11, weight: .medium))
                     }
-                    .foregroundColor(.orange)
+                    .foregroundColor(SwarmTheme.warnAmber)
                     .padding(.horizontal, 7)
                     .padding(.vertical, 3)
-                    .background(Color.orange.opacity(0.12))
+                    .background(SwarmTheme.warnAmber.opacity(0.12))
                     .clipShape(Capsule())
                 }
 
@@ -85,7 +87,7 @@ public struct SwarmBannerView: View {
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(Color.accentColor.opacity(0.25), lineWidth: 0.8)
+                    .stroke(SwarmTheme.accent.opacity(0.28), lineWidth: 0.8)
             )
         }
         .buttonStyle(.plain)

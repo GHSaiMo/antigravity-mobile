@@ -113,6 +113,7 @@ public struct PaginatedMessagesResponse: Codable, Sendable {
     public let startedAt: String?
     public let hasError: Bool?
     public let errorMessage: String?
+    public let swarm: SwarmBrief?
     
     public struct GatewayMessageItem: Codable, Sendable {
         public let id: String
@@ -162,4 +163,5 @@ public struct FetchMessagesResult: Sendable {
     public let startedAt: String?
     public let hasError: Bool
     public let errorMessage: String?
+    public let swarm: SwarmBrief?
 }

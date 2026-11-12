@@ -230,6 +230,7 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 		CanProceed:         details.CanProceed,
 		ProceedArtifactURI: details.ProceedArtifactURI,
 		PendingInteraction: details.PendingInteraction,
+		Swarm:              GetSwarmBrief(cascadeID),
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

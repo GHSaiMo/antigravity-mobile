@@ -2,11 +2,13 @@ package proxy
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestSwarmParsingAndEndpoints(t *testing.T) {
@@ -108,5 +110,101 @@ func TestSwarmParsingAndEndpoints(t *testing.T) {
 	var resSnap SwarmSnapshot
 	if err := json.Unmarshal(w.Body.Bytes(), &resSnap); err != nil {
 		t.Errorf("failed to unmarshal HTTP response: %v", err)
+	}
+}
+
+func TestSwarmNumericWaitSinceMtimeSortAndTranscript(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// Clear cache between test runs
+	swarmCoordMu.Lock()
+	memberToCoordCache = make(map[string]string)
+	swarmCoordMu.Unlock()
+
+	brainBase := filepath.Join(home, ".gemini", "antigravity", "brain")
+
+	// Create 30 older directories whose names sort AFTER "0000-coord" alphabetically
+	olderTime := time.Now().Add(-2 * time.Hour)
+	for i := 0; i < 30; i++ {
+		d := filepath.Join(brainBase, fmt.Sprintf("ffff-old-%02d", i))
+		if err := os.MkdirAll(d, 0755); err != nil {
+			t.Fatal(err)
+		}
+		_ = os.Chtimes(d, olderTime, olderTime)
+	}
+
+	coordID := "0000-coord-newest"
+	workerID := "aaaa-worker-1"
+	swarmDir := filepath.Join(brainBase, coordID, ".system_generated", "swarm")
+	if err := os.MkdirAll(swarmDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Real Antigravity 2.31+ members.json uses integer wait_since
+	membersJSON := `{
+		"title": "数字 wait_since 测试",
+		"members": {
+			"coordinator": {
+				"conversation_id": "0000-coord-newest",
+				"model": "gemini-3.8-flash-high",
+				"role": "coordinator",
+				"wake_mode": "mentions",
+				"wait_since": 6,
+				"last_read_seq": 6,
+				"last_nudged_seq": 6,
+				"killed": false
+			},
+			"worker-1": {
+				"conversation_id": "aaaa-worker-1",
+				"model": "gemini-3.8-flash-high",
+				"role": "worker",
+				"wake_mode": "working",
+				"wait_since": 3,
+				"last_read_seq": 4,
+				"killed": false
+			}
+		}
+	}`
+	_ = os.WriteFile(filepath.Join(swarmDir, "members.json"), []byte(membersJSON), 0644)
+	_ = os.WriteFile(filepath.Join(swarmDir, "board.jsonl"), []byte(`{"seq":6,"agent":"coordinator","text":"@worker-1 check","time":"2026-11-13 00:05:00"}`+"\n"), 0644)
+
+	// Coordinator transcript parked in swarm_wait; worker transcript actively calling read_file
+	coordLogDir := filepath.Join(brainBase, coordID, ".system_generated", "logs")
+	workerLogDir := filepath.Join(brainBase, workerID, ".system_generated", "logs")
+	_ = os.MkdirAll(coordLogDir, 0755)
+	_ = os.MkdirAll(workerLogDir, 0755)
+	_ = os.WriteFile(filepath.Join(coordLogDir, "transcript.jsonl"), []byte(
+		`{"step_index":1,"type":"PLANNER_RESPONSE","status":"DONE","tool_calls":[{"name":"swarm_wait","args":{"since":"6"}}]}`+"\n"+
+			`{"step_index":2,"type":"GENERIC","status":"DONE","content":"Waiting for a message that calls on you by name"}`+"\n",
+	), 0644)
+	_ = os.WriteFile(filepath.Join(workerLogDir, "transcript.jsonl"), []byte(
+		`{"step_index":1,"type":"PLANNER_RESPONSE","status":"DONE","tool_calls":[{"name":"read_file"}]}`+"\n",
+	), 0644)
+
+	// Worker should resolve coordinator despite 30 alphabetically larger directories
+	snap, notMod, err := GetSwarmSnapshot(workerID, 0, "")
+	if err != nil || notMod || snap == nil {
+		t.Fatalf("expected worker to resolve swarm snapshot, err=%v notMod=%v", err, notMod)
+	}
+	if snap.CoordinatorID != coordID {
+		t.Fatalf("expected coordinator %s, got %s", coordID, snap.CoordinatorID)
+	}
+	if snap.Brief.WorkingCount != 1 {
+		t.Errorf("expected 1 working member (worker-1), got %d", snap.Brief.WorkingCount)
+	}
+
+	byName := map[string]SwarmMemberInfo{}
+	for _, m := range snap.Members {
+		byName[m.Name] = m
+	}
+	if byName["coordinator"].WaitSince != "6" || byName["coordinator"].Status != "waiting" {
+		t.Errorf("unexpected coordinator info: %+v", byName["coordinator"])
+	}
+	if byName["worker-1"].WaitSince != "3" || byName["worker-1"].Status != "working" || !byName["worker-1"].IsCurrent {
+		t.Errorf("unexpected worker-1 info: %+v", byName["worker-1"])
+	}
+	if sig := GetSwarmSignature(workerID); sig == "" {
+		t.Errorf("expected non-empty swarm signature for worker")
 	}
 }

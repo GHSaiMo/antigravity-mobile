@@ -202,6 +202,7 @@ type CascadeMessagesResponse struct {
 	CanProceed         bool                 `json:"canProceed"`
 	ProceedArtifactURI string               `json:"proceedArtifactUri,omitempty"`
 	PendingInteraction *PendingInteraction  `json:"pendingInteraction,omitempty"`
+	Swarm              *SwarmBrief          `json:"swarm,omitempty"`
 }
 
 type TrajectoryMediaItem struct {

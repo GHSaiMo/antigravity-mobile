@@ -30,8 +30,10 @@ public struct McpSkillsSheet: View {
     @State private var copiedTaskId: String? = nil
     
     private let currentConversationId: String?
+    private let hasActiveSwarm: Bool
     private let onSelectConversation: ((String) -> Void)?
     private let onTasksChanged: (([GlobalBackgroundTaskItem]) -> Void)?
+    private let onOpenSwarm: (() -> Void)?
     
     public enum Tab: String, CaseIterable, Identifiable {
         case mcp = "MCP"
@@ -45,15 +47,19 @@ public struct McpSkillsSheet: View {
     public init(
         initialTab: Tab = .mcp,
         currentConversationId: String? = nil,
+        hasActiveSwarm: Bool = false,
         onSelectConversation: ((String) -> Void)? = nil,
-        onTasksChanged: (([GlobalBackgroundTaskItem]) -> Void)? = nil
+        onTasksChanged: (([GlobalBackgroundTaskItem]) -> Void)? = nil,
+        onOpenSwarm: (() -> Void)? = nil
     ) {
         self._selectedTab = State(initialValue: initialTab)
         self._mcpServers = State(initialValue: CacheManager.shared.loadMcpServers())
         self._skills = State(initialValue: CacheManager.shared.loadSkills())
         self.currentConversationId = currentConversationId
+        self.hasActiveSwarm = hasActiveSwarm
         self.onSelectConversation = onSelectConversation
         self.onTasksChanged = onTasksChanged
+        self.onOpenSwarm = onOpenSwarm
     }
     
     public var body: some View {
@@ -592,6 +598,17 @@ public struct McpSkillsSheet: View {
                                 }
                                 .buttonStyle(.borderedProminent)
                                 .disabled(installingPluginIds.contains(plugin.id))
+                            } else if (plugin.id.lowercased() == "swarm" || plugin.name.lowercased() == "swarm"),
+                                      hasActiveSwarm,
+                                      let onOpenSwarm {
+                                Button(action: {
+                                    dismiss()
+                                    onOpenSwarm()
+                                }) {
+                                    Text("打开看板")
+                                        .font(.system(size: 12, weight: .semibold))
+                                }
+                                .buttonStyle(.borderedProminent)
                             }
                         }
 
