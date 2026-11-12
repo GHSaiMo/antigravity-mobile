@@ -490,3 +490,69 @@ func TestBuildModelTables_Antigravity230ModelsAndTags(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildModelTables_StripsNoticeTag(t *testing.T) {
+	raw := map[string]upstreamModel{
+		"claude-sonnet-4-6": {
+			DisplayName:    "Claude Sonnet 4.6 (Thinking)",
+			Model:          "MODEL_PLACEHOLDER_M35",
+			ModelProvider:  "MODEL_PROVIDER_ANTHROPIC",
+			Recommended:    true,
+			Thinking:       true,
+			SupportsImages: true,
+			TagTitle:       "Notice",
+		},
+		"gemini-3.8-flash-high": {
+			DisplayName:   "Gemini 3.8 Flash (High)",
+			Model:         "MODEL_PLACEHOLDER_M318",
+			ModelProvider: "MODEL_PROVIDER_GOOGLE",
+			Recommended:   true,
+			TagTitle:      "Fast",
+		},
+	}
+	options, _, _ := buildModelTables(raw, []string{"gemini-3.8-flash-high", "claude-sonnet-4-6"})
+	for _, m := range options {
+		if m.ID == "claude-sonnet-4-6" && m.Tag != "" {
+			t.Errorf("expected Notice tag stripped, got %q", m.Tag)
+		}
+	}
+}
+
+func TestRefreshLiveModelsAfterSwitch_ReplacesOldAccountCache(t *testing.T) {
+	resetLiveModels(t)
+	// First upstream returns account A models
+	p := newFakeLSProxy(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/GetAvailableModels") {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"response": map[string]interface{}{
+			"models": map[string]upstreamModel{
+				"claude-opus-5-5-high": {DisplayName: "Claude Opus 5.5 (High)", Model: "MODEL_PLACEHOLDER_M402", ModelProvider: "MODEL_PROVIDER_ANTHROPIC", Recommended: true},
+			},
+		}})
+	})
+	p.HandleModels(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/gateway/models", nil))
+	res, live := liveModels.snapshot()
+	if !live || len(res.Models) != 1 || res.Models[0].ID != "claude-opus-5-5-high" {
+		t.Fatalf("expected account A cache, got live=%v models=%+v", live, res.Models)
+	}
+
+	// Switch upstream to account B (only has claude-sonnet-4-6)
+	pB := newFakeLSProxy(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/GetAvailableModels") {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"response": map[string]interface{}{
+			"models": map[string]upstreamModel{
+				"claude-sonnet-4-6": {DisplayName: "Claude Sonnet 4.6 (Thinking)", Model: "MODEL_PLACEHOLDER_M35", ModelProvider: "MODEL_PROVIDER_ANTHROPIC", Recommended: true},
+			},
+		}})
+	})
+	pB.RefreshLiveModelsAfterSwitch(t.Context())
+	res, live = liveModels.snapshot()
+	if !live || len(res.Models) != 1 || res.Models[0].ID != "claude-sonnet-4-6" {
+		t.Fatalf("expected account B models after switch refresh, got live=%v models=%+v", live, res.Models)
+	}
+}

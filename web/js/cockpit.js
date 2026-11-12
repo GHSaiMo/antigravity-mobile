@@ -437,6 +437,9 @@ async function switchCockpitAccount(accountId, accountEmail, btn) {
     }
     await new Promise((r) => setTimeout(r, 600));
     await fetchCockpitQuotas(false);
+    if (typeof loadModelCatalog === "function") {
+      await loadModelCatalog(true);
+    }
   } catch (err) {
     console.error("[Cockpit] Switch failed:", err);
     alert("切换账号失败: " + err.message);

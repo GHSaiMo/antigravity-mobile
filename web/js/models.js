@@ -8,6 +8,30 @@ const MODEL_FALLBACK = { gemini: "gemini-3.8-flash-high", claude: "claude-opus-4
 const MODEL_ENUM_FALLBACK = { gemini: "MODEL_PLACEHOLDER_M318", claude: "MODEL_PLACEHOLDER_M26" };
 const MODEL_CATALOG_KEY = "agy_model_catalog";
 const MODEL_DEFAULT_KEY = (provider) => `agy_default_${provider}_model`;
+const IGNORED_PICKER_TAGS = new Set(["new", "fast", "notice", "提示"]);
+const MODEL_STATIC_NAMES = {
+  "gemini-4-carbon-high": "Gemini 4 Carbon (High)",
+  "gemini-4-carbon-medium": "Gemini 4 Carbon (Medium)",
+  "gemini-4-carbon-low": "Gemini 4 Carbon (Low)",
+  "gemini-4-carbon": "Gemini 4 Carbon",
+  "gemini-4-argon-high": "Gemini 4 Argon (High)",
+  "gemini-4-argon-medium": "Gemini 4 Argon (Medium)",
+  "gemini-4-argon-low": "Gemini 4 Argon (Low)",
+  "gemini-3.8-flash-high": "Gemini 3.8 Flash (High)",
+  "gemini-3.8-flash-medium": "Gemini 3.8 Flash (Medium)",
+  "gemini-3.8-flash-low": "Gemini 3.8 Flash (Low)",
+  "gemini-3.1-pro-high": "Gemini 3.1 Pro (High)",
+  "gemini-3.1-pro-low": "Gemini 3.1 Pro (Low)",
+  "claude-opus-5-5-high": "Claude Opus 5.5 (High)",
+  "claude-opus-5-5-medium": "Claude Opus 5.5 (Medium)",
+  "claude-opus-5-5-low": "Claude Opus 5.5 (Low)",
+  "claude-sonnet-5-5-high": "Claude Sonnet 5.5 (High)",
+  "claude-sonnet-5-5-medium": "Claude Sonnet 5.5 (Medium)",
+  "claude-sonnet-5-5-low": "Claude Sonnet 5.5 (Low)",
+  "claude-opus-4-6-thinking": "Claude Opus 4.6 (Thinking)",
+  "claude-sonnet-4-6": "Claude Sonnet 4.6 (Thinking)",
+  "gpt-oss-120b-medium": "GPT-OSS 120B (Medium)",
+};
 
 let modelCatalog = { models: [], defaults: {}, live: false };
 
@@ -26,9 +50,46 @@ function modelProviderLabel(id) {
   return "Gemini";
 }
 
+function formatModelIDAsDisplayName(id) {
+  const trimmed = String(id || "").trim();
+  if (!trimmed) return "";
+  const staticHit = MODEL_STATIC_NAMES[trimmed.toLowerCase()];
+  if (staticHit) return staticHit;
+  const tokens = trimmed.split("-").filter(Boolean);
+  if (!tokens.length) return trimmed;
+  const qualifiers = new Set(["high", "medium", "low", "thinking"]);
+  let qualifier = null;
+  if (tokens.length > 1 && qualifiers.has(tokens[tokens.length - 1].toLowerCase())) {
+    const q = tokens.pop().toLowerCase();
+    qualifier = q.charAt(0).toUpperCase() + q.slice(1);
+  }
+  const parts = [];
+  for (const tok of tokens) {
+    if (/^\d+$/.test(tok) && parts.length && /^[\d.]+$/.test(parts[parts.length - 1])) {
+      parts[parts.length - 1] += `.${tok}`;
+    } else if (/^(gpt|oss)$/i.test(tok)) {
+      parts.push(tok.toUpperCase());
+    } else if (/^[a-z]/i.test(tok)) {
+      parts.push(tok.charAt(0).toUpperCase() + tok.slice(1));
+    } else {
+      parts.push(tok);
+    }
+  }
+  const base = parts.join(" ");
+  return qualifier ? `${base} (${qualifier})` : base;
+}
+
+function formatPickerLabel(name, tag) {
+  const cleanTag = String(tag || "").trim();
+  if (cleanTag && !IGNORED_PICKER_TAGS.has(cleanTag.toLowerCase())) {
+    return `${name} · ${cleanTag}`;
+  }
+  return name;
+}
+
 function modelDisplayName(id) {
   const m = modelCatalog.models.find((x) => x.id === id);
-  return m ? m.name : id;
+  return (m && m.name) ? m.name : formatModelIDAsDisplayName(id);
 }
 
 // 默认模型：用户在设置里选的（且仍在实时目录里）→ 网关建议 → 内置兜底
@@ -80,14 +141,16 @@ function applyModelCatalog(data) {
   renderDefaultModelSettings();
 }
 
-async function loadModelCatalog() {
+async function loadModelCatalog(force = false) {
   // 先用上次缓存，保证离线 / 网关慢时设置页也有内容
+  if (!force) {
+    try {
+      const cached = JSON.parse(localStorage.getItem(MODEL_CATALOG_KEY) || "null");
+      if (cached) applyModelCatalog(cached);
+    } catch (_) {}
+  }
   try {
-    const cached = JSON.parse(localStorage.getItem(MODEL_CATALOG_KEY) || "null");
-    if (cached) applyModelCatalog(cached);
-  } catch (_) {}
-  try {
-    const resp = await fetch("/gateway/models");
+    const resp = await fetch(force ? "/gateway/models?refresh=1" : "/gateway/models");
     if (!resp.ok) return;
     const data = await resp.json();
     applyModelCatalog(data);
@@ -104,9 +167,10 @@ function renderDefaultModelSettings() {
     if (!select) continue;
     const options = modelCatalog.models.filter((m) => m.provider === provider);
     const current = getDefaultModel(provider);
-    const list = options.length ? options : [{ id: current, name: current }];
+    if (modelCatalog.live && current) setDefaultModel(provider, current);
+    const list = options.length ? options : [{ id: current, name: modelDisplayName(current) }];
     select.innerHTML = list.map((m) => {
-      const label = (m.name || m.id) + (m.tag ? ` · ${m.tag}` : "");
+      const label = formatPickerLabel(m.name || modelDisplayName(m.id), m.tag);
       return `<option value="${escapeHtml(m.id)}">${escapeHtml(label)}</option>`;
     }).join("");
     select.value = current;

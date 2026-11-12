@@ -584,7 +584,7 @@ fun ConversationListScreen(
                 onNavigateToPair()
             },
             onDismiss = { showSettingsSheet = false },
-            onLoadModels = { viewModel.loadModelCatalog() }
+            onLoadModels = { viewModel.loadModelCatalog(force = true) }
         )
     }
 

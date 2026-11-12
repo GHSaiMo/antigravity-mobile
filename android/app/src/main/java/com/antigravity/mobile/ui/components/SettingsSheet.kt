@@ -643,106 +643,62 @@ private fun MainSettingsContent(
 
         // MARK: - 5. 外观与主题
         var weeklyPaceCursor by remember { mutableStateOf(prefs.weeklyPaceCursorEnabled) }
+        val currentFontScale by prefs.fontSizeScaleFlow.collectAsState()
+        var knowledgeMode by remember { mutableStateOf(prefs.isKnowledgeModeEnabled) }
+        val themeOptions = remember {
+            listOf(
+                PickerMenuOption("system", "跟随系统"),
+                PickerMenuOption("light", "浅色"),
+                PickerMenuOption("dark", "深色")
+            )
+        }
+        val fontScaleOptions = remember {
+            listOf(
+                PickerMenuOption("compact", "紧凑 (90%)"),
+                PickerMenuOption("standard", "标准 (100%)"),
+                PickerMenuOption("comfortable", "舒适 (115%)")
+            )
+        }
         SettingsSection(
             title = "外观与主题",
-            footer = "选择浅色、深色模式，并可控制额度条上的时间均速刻度游标。"
+            footer = "选择浅色、深色模式与界面字号缩放；开启精简模式可收起工具执行细节、专注阅读正文；并可控制额度条上的时间均速刻度游标。"
         ) {
             Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(colors.surface)
+                    .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
             ) {
+                SettingsMenuPickerRow(
+                    label = "外观模式",
+                    selectedLabel = themeOptions.firstOrNull { it.id == currentThemeMode }?.label ?: "跟随系统",
+                    selectedId = currentThemeMode,
+                    options = themeOptions,
+                    onSelect = onThemeModeChange
+                )
+                HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
+                SettingsMenuPickerRow(
+                    label = "字号缩放",
+                    selectedLabel = fontScaleOptions.firstOrNull { it.id == currentFontScale }?.label ?: "标准 (100%)",
+                    selectedId = currentFontScale,
+                    options = fontScaleOptions,
+                    onSelect = { prefs.fontSizeScale = it }
+                )
+                HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(colors.surfaceVariant)
-                        .padding(4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    ThemeOptionSegment(
-                        title = "跟随系统",
-                        icon = Icons.Default.SettingsBrightness,
-                        isSelected = currentThemeMode == "system",
-                        onClick = { onThemeModeChange("system") },
-                        modifier = Modifier.weight(1f)
-                    )
-                    ThemeOptionSegment(
-                        title = "浅色模式",
-                        icon = Icons.Default.LightMode,
-                        isSelected = currentThemeMode == "light",
-                        onClick = { onThemeModeChange("light") },
-                        modifier = Modifier.weight(1f)
-                    )
-                    ThemeOptionSegment(
-                        title = "深色模式",
-                        icon = Icons.Default.DarkMode,
-                        isSelected = currentThemeMode == "dark",
-                        onClick = { onThemeModeChange("dark") },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-
-                val currentFontScale by prefs.fontSizeScaleFlow.collectAsState()
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(colors.surfaceVariant)
-                        .padding(4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    ThemeOptionSegment(
-                        title = "紧凑 90%",
-                        icon = Icons.Default.FormatSize,
-                        isSelected = currentFontScale == "compact",
-                        onClick = { prefs.fontSizeScale = "compact" },
-                        modifier = Modifier.weight(1f)
-                    )
-                    ThemeOptionSegment(
-                        title = "标准 100%",
-                        icon = Icons.Default.FormatSize,
-                        isSelected = currentFontScale == "standard",
-                        onClick = { prefs.fontSizeScale = "standard" },
-                        modifier = Modifier.weight(1f)
-                    )
-                    ThemeOptionSegment(
-                        title = "舒适 115%",
-                        icon = Icons.Default.FormatSize,
-                        isSelected = currentFontScale == "comfortable",
-                        onClick = { prefs.fontSizeScale = "comfortable" },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-
-                var knowledgeMode by remember { mutableStateOf(prefs.isKnowledgeModeEnabled) }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(colors.surface)
-                        .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
                         .padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(end = 12.dp)
-                    ) {
-                        Text(
-                            text = "知识工作流精简模式",
-                            color = colors.textPrimary,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            text = "精简非关键折叠与工具，专注阅读与文档生成",
-                            color = colors.textSecondary,
-                            fontSize = 11.5.sp,
-                            lineHeight = 15.sp
-                        )
-                    }
+                    Text(
+                        text = "精简模式",
+                        color = colors.textPrimary,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium
+                    )
                     Switch(
                         checked = knowledgeMode,
                         onCheckedChange = {
@@ -755,13 +711,10 @@ private fun MainSettingsContent(
                         )
                     )
                 }
-
+                HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(colors.surface)
-                        .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
                         .padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
@@ -904,43 +857,71 @@ private fun SettingsSection(
     }
 }
 
+private data class PickerMenuOption(
+    val id: String,
+    val label: String
+)
+
 @Composable
-private fun ThemeOptionSegment(
-    title: String,
-    icon: ImageVector,
-    isSelected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
+private fun SettingsMenuPickerRow(
+    label: String,
+    selectedLabel: String,
+    selectedId: String,
+    options: List<PickerMenuOption>,
+    onSelect: (String) -> Unit,
+    enabled: Boolean = options.isNotEmpty()
 ) {
     val colors = AntigravityTheme.colors
     val haptic = rememberHaptic()
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(if (isSelected) colors.surface else Color.Transparent)
-            .clickable {
-                haptic.light()
-                onClick()
-            }
-            .padding(vertical = 8.dp),
-        contentAlignment = Alignment.Center
-    ) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Box {
         Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(enabled = enabled) {
+                    haptic.light()
+                    expanded = true
+                }
+                .padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = title,
-                tint = if (isSelected) colors.accentIndigo else colors.textSecondary,
-                modifier = Modifier.size(15.dp)
-            )
-            Text(
-                text = title,
-                color = if (isSelected) colors.textPrimary else colors.textSecondary,
-                fontSize = 12.sp,
-                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
-            )
+            Text(text = label, color = colors.textPrimary, fontSize = 15.sp)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = selectedLabel,
+                    color = if (enabled) colors.accentIndigo else colors.textSecondary,
+                    fontSize = 14.sp,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = 220.dp)
+                )
+                if (enabled) {
+                    Icon(
+                        imageVector = Icons.Default.UnfoldMore,
+                        contentDescription = null,
+                        tint = colors.accentIndigo,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(option.label) },
+                    trailingIcon = {
+                        if (option.id == selectedId) {
+                            Icon(Icons.Default.Check, contentDescription = null, tint = colors.accentIndigo, modifier = Modifier.size(18.dp))
+                        }
+                    },
+                    onClick = {
+                        expanded = false
+                        onSelect(option.id)
+                    }
+                )
+            }
         }
     }
 }
@@ -955,23 +936,24 @@ private fun DefaultModelSection(
     onLoadModels: suspend () -> Result<ModelsResponse>
 ) {
     val colors = AntigravityTheme.colors
-    var catalog by remember { mutableStateOf<ModelsResponse?>(null) }
-    var loadState by remember { mutableStateOf("loading") } // loading | ok | failed
-    var gemini by remember { mutableStateOf(prefs.defaultGeminiModel) }
-    var claude by remember { mutableStateOf(prefs.defaultClaudeModel) }
+    val catalog by prefs.modelCatalogFlow.collectAsState()
+    val gemini by prefs.defaultGeminiModelFlow.collectAsState()
+    val claude by prefs.defaultClaudeModelFlow.collectAsState()
+    var loadState by remember { mutableStateOf(if (catalog != null) "ok" else "loading") } // loading | ok | failed
 
     LaunchedEffect(Unit) {
         onLoadModels()
             .onSuccess { c ->
-                catalog = c
+                prefs.updateModelCatalog(c)
                 loadState = "ok"
-                // 已保存的默认模型若已下线，换成网关建议的默认值，避免之后发消息时解析失败
-                val g = ModelDefaults.validated(gemini, "gemini", c)
-                if (g != gemini) { gemini = g; prefs.defaultGeminiModel = g }
-                val cl = ModelDefaults.validated(claude, "claude", c)
-                if (cl != claude) { claude = cl; prefs.defaultClaudeModel = cl }
             }
-            .onFailure { loadState = "failed" }
+            .onFailure {
+                if (catalog == null) {
+                    loadState = "failed"
+                } else {
+                    loadState = "ok"
+                }
+            }
     }
 
     val footer = when (loadState) {
@@ -992,14 +974,14 @@ private fun DefaultModelSection(
                 label = "Gemini",
                 selectedId = gemini,
                 options = catalog?.models?.filter { it.provider == "gemini" }.orEmpty(),
-                onSelect = { gemini = it; prefs.defaultGeminiModel = it }
+                onSelect = { prefs.defaultGeminiModel = it }
             )
             HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
             ModelPickerRow(
                 label = "Claude",
                 selectedId = claude,
                 options = catalog?.models?.filter { it.provider == "claude" }.orEmpty(),
-                onSelect = { claude = it; prefs.defaultClaudeModel = it }
+                onSelect = { prefs.defaultClaudeModel = it }
             )
         }
     }
@@ -1012,59 +994,15 @@ private fun ModelPickerRow(
     options: List<ModelOption>,
     onSelect: (String) -> Unit
 ) {
-    val colors = AntigravityTheme.colors
-    val haptic = rememberHaptic()
-    var expanded by remember { mutableStateOf(false) }
-    val selectedName = options.firstOrNull { it.id == selectedId }?.name ?: selectedId
-
-    Box {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(enabled = options.isNotEmpty()) {
-                    haptic.light()
-                    expanded = true
-                }
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(text = label, color = colors.textPrimary, fontSize = 15.sp)
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    text = selectedName,
-                    color = colors.textSecondary,
-                    fontSize = 14.sp,
-                    maxLines = 1,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                    modifier = Modifier.widthIn(max = 220.dp)
-                )
-                if (options.isNotEmpty()) {
-                    Icon(
-                        imageVector = Icons.Default.UnfoldMore,
-                        contentDescription = null,
-                        tint = colors.textMuted,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-            }
-        }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            options.forEach { option ->
-                val itemLabel = ModelDefaults.formatPickerLabel(option.name, option.tag)
-                DropdownMenuItem(
-                    text = { Text(itemLabel) },
-                    trailingIcon = {
-                        if (option.id == selectedId) {
-                            Icon(Icons.Default.Check, contentDescription = null, tint = colors.accentIndigo, modifier = Modifier.size(18.dp))
-                        }
-                    },
-                    onClick = {
-                        expanded = false
-                        onSelect(option.id)
-                    }
-                )
-            }
-        }
+    val selectedName = ModelDefaults.displayName(selectedId, options)
+    val menuOptions = remember(options) {
+        options.map { PickerMenuOption(id = it.id, label = ModelDefaults.formatPickerLabel(it.name, it.tag)) }
     }
+    SettingsMenuPickerRow(
+        label = label,
+        selectedLabel = selectedName,
+        selectedId = selectedId,
+        options = menuOptions,
+        onSelect = onSelect
+    )
 }

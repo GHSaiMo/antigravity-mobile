@@ -169,9 +169,74 @@ object ModelDefaults {
         modelId.contains("claude", ignoreCase = true) ||
             CLAUDE_ENUM_TOKENS.any { modelId.contains(it, ignoreCase = true) }
 
-    private val IGNORED_PICKER_TAGS = setOf("new", "fast")
+    private val IGNORED_PICKER_TAGS = setOf("new", "fast", "notice", "提示")
 
-    /** 格式化模型选择器选项展示名：过滤掉 "New" / "Fast" 等冗余特性标签及前导的点符号，保持手机端菜单简洁。 */
+    /** 内置/预设模型 ID → 统一展示名映射，避免离线、未拉取目录或切号过渡期露出小写裸 ID。 */
+    val STATIC_DISPLAY_NAME_BY_ID: Map<String, String> = mapOf(
+        "gemini-4-carbon-high" to "Gemini 4 Carbon (High)",
+        "gemini-4-carbon-medium" to "Gemini 4 Carbon (Medium)",
+        "gemini-4-carbon-low" to "Gemini 4 Carbon (Low)",
+        "gemini-4-carbon" to "Gemini 4 Carbon",
+        "gemini-4-argon-high" to "Gemini 4 Argon (High)",
+        "gemini-4-argon-medium" to "Gemini 4 Argon (Medium)",
+        "gemini-4-argon-low" to "Gemini 4 Argon (Low)",
+        "gemini-3.8-flash-high" to "Gemini 3.8 Flash (High)",
+        "gemini-3.8-flash-medium" to "Gemini 3.8 Flash (Medium)",
+        "gemini-3.8-flash-low" to "Gemini 3.8 Flash (Low)",
+        "gemini-3.1-pro-high" to "Gemini 3.1 Pro (High)",
+        "gemini-3.1-pro-low" to "Gemini 3.1 Pro (Low)",
+        "claude-opus-5-5-high" to "Claude Opus 5.5 (High)",
+        "claude-opus-5-5-medium" to "Claude Opus 5.5 (Medium)",
+        "claude-opus-5-5-low" to "Claude Opus 5.5 (Low)",
+        "claude-sonnet-5-5-high" to "Claude Sonnet 5.5 (High)",
+        "claude-sonnet-5-5-medium" to "Claude Sonnet 5.5 (Medium)",
+        "claude-sonnet-5-5-low" to "Claude Sonnet 5.5 (Low)",
+        "claude-opus-4-6-thinking" to "Claude Opus 4.6 (Thinking)",
+        "claude-sonnet-4-6" to "Claude Sonnet 4.6 (Thinking)",
+        "gpt-oss-120b-medium" to "GPT-OSS 120B (Medium)"
+    )
+
+    /** 将未知模型 ID 转为统一规范的展示名（如 `claude-sonnet-5-5-high` → `Claude Sonnet 5.5 (High)`）。 */
+    fun formatIDAsDisplayName(id: String): String {
+        val trimmed = id.trim()
+        if (trimmed.isEmpty()) return ""
+        STATIC_DISPLAY_NAME_BY_ID[trimmed.lowercase()]?.let { return it }
+
+        val tokens = trimmed.split("-").filter { it.isNotEmpty() }.toMutableList()
+        if (tokens.isEmpty()) return trimmed
+        val qualifiers = setOf("high", "medium", "low", "thinking")
+        var qualifier: String? = null
+        if (tokens.size > 1 && tokens.last().lowercase() in qualifiers) {
+            val q = tokens.removeAt(tokens.lastIndex).lowercase()
+            qualifier = q.replaceFirstChar { it.uppercase() }
+        }
+        val parts = mutableListOf<String>()
+        for (token in tokens) {
+            val isDigits = token.all { it.isDigit() }
+            if (isDigits && parts.isNotEmpty() && parts.last().all { it.isDigit() || it == '.' }) {
+                parts[parts.lastIndex] = parts.last() + "." + token
+            } else if (token.equals("gpt", ignoreCase = true) || token.equals("oss", ignoreCase = true)) {
+                parts.add(token.uppercase())
+            } else if (token.first().isLetter()) {
+                parts.add(token.replaceFirstChar { it.uppercase() })
+            } else {
+                parts.add(token)
+            }
+        }
+        val base = parts.joinToString(" ")
+        return if (qualifier != null) "$base ($qualifier)" else base
+    }
+
+    /** 始终返回人类可读的统一展示名（实时目录 → 静态映射 → 规范格式化），不暴露小写裸 ID。 */
+    fun displayName(id: String, options: List<ModelOption> = emptyList()): String {
+        val key = id.trim()
+        options.firstOrNull { it.id.equals(key, ignoreCase = true) }?.name
+            ?.takeIf { it.isNotBlank() }
+            ?.let { return it }
+        return formatIDAsDisplayName(key)
+    }
+
+    /** 格式化模型选择器选项展示名：过滤掉 "New" / "Fast" / "Notice" 等冗余特性标签及前导的点符号，保持手机端菜单简洁。 */
     fun formatPickerLabel(name: String, tag: String?): String {
         val cleanTag = tag?.trim()
         return if (!cleanTag.isNullOrBlank() && cleanTag.lowercase() !in IGNORED_PICKER_TAGS) {

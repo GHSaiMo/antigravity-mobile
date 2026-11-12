@@ -128,6 +128,12 @@ func isLeavingSoon(tag string) bool {
 	return strings.EqualFold(t, "Leaving Soon") || strings.EqualFold(t, "Unavailable")
 }
 
+// isIgnoredModelTag reports redundant display badges (such as "Notice") that shouldn't appear in pickers.
+func isIgnoredModelTag(tag string) bool {
+	t := strings.TrimSpace(tag)
+	return strings.EqualFold(t, "Notice") || strings.EqualFold(t, "提示")
+}
+
 // isRetiredEnum reports enums that language_server still lists but the gateway remaps elsewhere.
 func isRetiredEnum(enum string) bool {
 	return strings.HasPrefix(enum, "MODEL_GOOGLE_GEMINI_2_5_")
@@ -211,7 +217,7 @@ func buildModelTables(raw map[string]upstreamModel, curatedIDs []string) (option
 			continue
 		}
 		tag := strings.TrimSpace(m.TagTitle)
-		if isLeavingSoon(tag) {
+		if isLeavingSoon(tag) || isIgnoredModelTag(tag) {
 			tag = ""
 		}
 		opt := ModelOption{
@@ -286,6 +292,18 @@ func (r *modelRegistry) set(options []ModelOption, byID, byEnum map[string]Model
 	r.fetchedAt = time.Now()
 }
 
+// invalidate drops cached picker options and freshness timestamps so the next query
+// fetches the newly active account's models instead of serving a stale 5-minute cache.
+// Existing byID/byEnum entries remain as lookup fallback until the fresh fetch lands.
+func (r *modelRegistry) invalidate() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.options = nil
+	r.officialDef = ""
+	r.fetchedAt = time.Time{}
+	r.lastAttempt = time.Time{}
+}
+
 func (r *modelRegistry) enumForID(id string) string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -310,7 +328,7 @@ func (r *modelRegistry) displayName(idOrEnum string) string {
 		return o.Name
 	}
 	for _, o := range fallbackModels {
-		if o.ID == key || o.Enum == key {
+		if strings.EqualFold(o.ID, key) || o.Enum == key {
 			return o.Name
 		}
 	}
@@ -486,6 +504,44 @@ func (p *Proxy) refreshLiveModels(ctx context.Context, port int, token string) e
 	}
 	liveModels.set(options, byID, byEnum, list.DefaultAgentID)
 	return nil
+}
+
+// RefreshLiveModelsAfterSwitch invalidates cached models and fetches the new account's
+// available models once Antigravity has relaunched and signed in.
+func (p *Proxy) RefreshLiveModelsAfterSwitch(ctx context.Context) {
+	liveModels.invalidate()
+	p.userStatusMu.Lock()
+	p.cachedUserEmail = ""
+	p.cachedUserName = ""
+	p.cachedUserPort = 0
+	p.cachedUserAt = time.Time{}
+	p.userStatusMu.Unlock()
+
+	deadline := time.Now().Add(6 * time.Second)
+	for attempt := 0; attempt < 3; attempt++ {
+		if ctx.Err() != nil {
+			return
+		}
+		port, token := p.ActiveUpstream()
+		if port != 0 && liveModels.beginRefresh(true) {
+			rctx, cancel := context.WithTimeout(ctx, liveModelsTimeout)
+			err := p.refreshLiveModels(rctx, port, token)
+			cancel()
+			liveModels.endRefresh()
+			if err == nil {
+				return
+			}
+			slog.Warn("[Models] post-switch refresh attempt failed", "attempt", attempt+1, "err", err)
+		}
+		if time.Now().After(deadline) {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
 }
 
 // HandleModels handles GET/POST /gateway/models.

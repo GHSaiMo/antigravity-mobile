@@ -140,7 +140,9 @@ object ConversationTurnBuilder {
             val hasError = currentMessages.any { it.isError }
             val isActive = isLastTurn && (isRunning || isAwaitingResponse)
 
-            val model = currentMessages.asReversed().firstNotNullOfOrNull { it.modelName ?: it.model }
+            val model = currentMessages.asReversed().firstNotNullOfOrNull { msg ->
+                msg.modelName?.takeIf { it.isNotBlank() } ?: msg.model?.takeIf { it.isNotBlank() }?.let { ModelDefaults.displayName(it) }
+            }
             val turnTimestamp = userMsg?.timestamp ?: currentMessages.firstNotNullOfOrNull { it.timestamp }
             val turnStartStep = userMsg?.stepIndex ?: currentMessages.mapNotNull { it.stepIndex }.minOrNull()
 

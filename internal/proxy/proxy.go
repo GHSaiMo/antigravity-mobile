@@ -446,6 +446,9 @@ func (p *Proxy) updateUpstream(info inspector.InstanceInfo) {
 		return nil
 	}
 
+	prevPort, prevToken := p.activePort, p.activeToken
+	upstreamSwitched := prevPort != 0 && (prevPort != port || prevToken != token)
+
 	p.activeProxy = rp
 	p.activePort = port
 	p.activeToken = token
@@ -457,6 +460,10 @@ func (p *Proxy) updateUpstream(info inspector.InstanceInfo) {
 	p.userStatusMu.Unlock()
 	p.invalidateAllTrajectories()
 	p.invalidateProjectsCache()
+	if upstreamSwitched {
+		liveModels.invalidate()
+		go p.ensureLiveModels(context.Background())
+	}
 	if verboseRPC {
 		slog.Info(fmt.Sprintf("[Proxy] Updated upstream proxy to 127.0.0.1:%d", port))
 	}
