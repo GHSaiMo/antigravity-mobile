@@ -304,6 +304,8 @@ fun McpSkillsSheet(
             ) {
                 Tab(
                     selected = selectedTab == 0,
+                    selectedContentColor = colors.accentIndigo,
+                    unselectedContentColor = colors.textSecondary,
                     onClick = {
                         haptic.light()
                         selectedTab = 0
@@ -320,6 +322,8 @@ fun McpSkillsSheet(
                 )
                 Tab(
                     selected = selectedTab == 1,
+                    selectedContentColor = colors.accentIndigo,
+                    unselectedContentColor = colors.textSecondary,
                     onClick = {
                         haptic.light()
                         selectedTab = 1
@@ -336,6 +340,8 @@ fun McpSkillsSheet(
                 )
                 Tab(
                     selected = selectedTab == 2,
+                    selectedContentColor = colors.accentIndigo,
+                    unselectedContentColor = colors.textSecondary,
                     onClick = {
                         haptic.light()
                         selectedTab = 2
@@ -352,6 +358,8 @@ fun McpSkillsSheet(
                 )
                 Tab(
                     selected = selectedTab == 3,
+                    selectedContentColor = colors.accentIndigo,
+                    unselectedContentColor = colors.textSecondary,
                     onClick = {
                         haptic.light()
                         selectedTab = 3
@@ -368,6 +376,8 @@ fun McpSkillsSheet(
                 )
                 Tab(
                     selected = selectedTab == 4,
+                    selectedContentColor = colors.accentIndigo,
+                    unselectedContentColor = colors.textSecondary,
                     onClick = {
                         haptic.light()
                         selectedTab = 4

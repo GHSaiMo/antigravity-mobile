@@ -35,6 +35,9 @@ private val LightMaterialColorScheme = lightColorScheme(
     onSurface = LightLabel,
     surfaceVariant = LightSecondarySystemBackground,
     onSurfaceVariant = LightSecondaryLabel,
+    surfaceContainer = LightSecondarySystemGroupedBackground,
+    surfaceContainerLow = LightSystemGroupedBackground,
+    surfaceContainerHigh = LightSecondarySystemGroupedBackground,
     outline = LightBorder
 )
 
@@ -49,6 +52,9 @@ private val DarkMaterialColorScheme = darkColorScheme(
     onSurface = DarkLabel,
     surfaceVariant = DarkSecondarySystemBackground,
     onSurfaceVariant = DarkSecondaryLabel,
+    surfaceContainer = DarkSecondarySystemBackground,
+    surfaceContainerLow = DarkSecondarySystemGroupedBackground,
+    surfaceContainerHigh = DarkSecondarySystemBackground,
     outline = DarkBorder
 )
 

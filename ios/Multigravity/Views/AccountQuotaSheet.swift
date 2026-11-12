@@ -364,6 +364,20 @@ public struct AccountQuotaSheet: View {
         )
     }
     
+    private func carbonAuroraGradientColors(isDark: Bool) -> [Color] {
+        isDark
+            ? [
+                Color(red: 66.0 / 255.0, green: 133.0 / 255.0, blue: 244.0 / 255.0),
+                Color(red: 155.0 / 255.0, green: 114.0 / 255.0, blue: 207.0 / 255.0),
+                Color(red: 1.0, green: 117.0 / 255.0, blue: 151.0 / 255.0)
+            ]
+            : [
+                Color(red: 66.0 / 255.0, green: 133.0 / 255.0, blue: 244.0 / 255.0),
+                Color(red: 155.0 / 255.0, green: 114.0 / 255.0, blue: 207.0 / 255.0),
+                Color(red: 240.0 / 255.0, green: 98.0 / 255.0, blue: 146.0 / 255.0)
+            ]
+    }
+    
     @ViewBuilder
     private func tierBadge(for rawTier: String?) -> some View {
         let tier = rawTier?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() ?? ""
@@ -372,18 +386,14 @@ public struct AccountQuotaSheet: View {
                 .font(.system(size: 9.5, weight: .heavy))
                 .tracking(0.5)
                 .foregroundColor(.white)
-                .shadow(color: Color(red: 124.0 / 255.0, green: 45.0 / 255.0, blue: 18.0 / 255.0).opacity(0.35), radius: 1, x: 0, y: 0.8)
+                .shadow(color: Color(red: 76.0 / 255.0, green: 29.0 / 255.0, blue: 149.0 / 255.0).opacity(0.35), radius: 1, x: 0, y: 0.8)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2.5)
                 .background(
                     LinearGradient(
-                        colors: [
-                            Color(red: 217.0 / 255.0, green: 119.0 / 255.0, blue: 6.0 / 255.0),
-                            Color(red: 245.0 / 255.0, green: 158.0 / 255.0, blue: 11.0 / 255.0),
-                            Color(red: 234.0 / 255.0, green: 88.0 / 255.0, blue: 12.0 / 255.0)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
+                        colors: carbonAuroraGradientColors(isDark: colorScheme == .dark),
+                        startPoint: .leading,
+                        endPoint: .trailing
                     )
                 )
                 .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
@@ -431,17 +441,7 @@ public struct AccountQuotaSheet: View {
         let carbonAccent = isDark
             ? Color(red: 197.0 / 255.0, green: 138.0 / 255.0, blue: 249.0 / 255.0)
             : Color(red: 124.0 / 255.0, green: 58.0 / 255.0, blue: 237.0 / 255.0)
-        let carbonAuroraColors: [Color] = isDark
-            ? [
-                Color(red: 66.0 / 255.0, green: 133.0 / 255.0, blue: 244.0 / 255.0),
-                Color(red: 155.0 / 255.0, green: 114.0 / 255.0, blue: 207.0 / 255.0),
-                Color(red: 1.0, green: 117.0 / 255.0, blue: 151.0 / 255.0)
-            ]
-            : [
-                Color(red: 66.0 / 255.0, green: 133.0 / 255.0, blue: 244.0 / 255.0),
-                Color(red: 155.0 / 255.0, green: 114.0 / 255.0, blue: 207.0 / 255.0),
-                Color(red: 240.0 / 255.0, green: 98.0 / 255.0, blue: 146.0 / 255.0)
-            ]
+        let carbonAuroraColors = carbonAuroraGradientColors(isDark: isDark)
         let carbonTitleColors: [Color] = isDark
             ? [
                 Color(red: 138.0 / 255.0, green: 180.0 / 255.0, blue: 248.0 / 255.0),
@@ -491,24 +491,6 @@ public struct AccountQuotaSheet: View {
                         .font(.system(size: isSpecial ? 11.5 : 11, weight: isSpecial ? .semibold : .medium))
                         .foregroundColor(isArgon ? argonAccent : .secondary)
                         .lineLimit(1)
-                }
-                
-                if isCarbon {
-                    Text("✦ CARBON")
-                        .font(.system(size: 8.5, weight: .heavy))
-                        .tracking(0.4)
-                        .foregroundColor(.white)
-                        .shadow(color: Color(red: 76.0 / 255.0, green: 29.0 / 255.0, blue: 149.0 / 255.0).opacity(0.35), radius: 1, x: 0, y: 0.8)
-                        .padding(.horizontal, 4.5)
-                        .padding(.vertical, 1.5)
-                        .background(
-                            LinearGradient(
-                                colors: carbonAuroraColors,
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
                 }
                 
                 Spacer()

@@ -3125,10 +3125,10 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
 }
 
 .quota-tier-badge.ultra {
-  background: linear-gradient(135deg, #d97706 0%, #f59e0b 50%, #ea580c 100%);
+  background: linear-gradient(90deg, #4285f4 0%, #9b72cf 50%, #ff7597 100%);
   color: #ffffff;
   font-weight: 800;
-  text-shadow: 0 1px 1.5px rgba(124, 45, 18, 0.35);
+  text-shadow: 0 0.8px 1.5px rgba(76, 29, 149, 0.35);
   letter-spacing: 0.05em;
 }
 
@@ -6137,24 +6137,6 @@ html[data-kb-open] .ios-sheet-overlay {
   color: color-mix(in srgb, var(--ios-secondary-label) 85%, #ff9f0a 15%);
 }
 
-.metric-box-title-wrap {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.carbon-micro-badge {
-  font-size: 8.5px;
-  font-weight: 800;
-  letter-spacing: 0.4px;
-  padding: 1.5px 5px;
-  border-radius: 4px;
-  background: linear-gradient(90deg, #4285f4 0%, #9b72cf 50%, #ff7597 100%);
-  color: #ffffff;
-  line-height: 1.1;
-  text-shadow: 0 0.8px 1.5px rgba(76, 29, 149, 0.35);
-}
-
 .metric-box.metric-box-carbon {
   background: linear-gradient(135deg, rgba(66, 133, 244, 0.12) 0%, rgba(155, 114, 207, 0.10) 50%, rgba(255, 117, 151, 0.08) 100%);
   border: 1px solid rgba(155, 114, 207, 0.42);
@@ -6211,7 +6193,7 @@ html[data-kb-open] .ios-sheet-overlay {
     background: rgba(245, 158, 11, 0.18);
   }
 
-  .carbon-micro-badge {
+  .quota-tier-badge.ultra {
     background: linear-gradient(90deg, #4285f4 0%, #9b72cf 50%, #f06292 100%);
   }
   .metric-box.metric-box-carbon {
