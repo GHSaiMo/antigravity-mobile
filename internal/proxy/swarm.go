@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -114,6 +116,29 @@ var (
 	memberToCoordCache = make(map[string]string)
 )
 
+// flexString unmarshals either a JSON string, number, or null into a string.
+// Antigravity 2.31+ writes wait_since as an integer sequence number in members.json,
+// while older/mock fixtures may use a string.
+type flexString string
+
+func (f *flexString) UnmarshalJSON(data []byte) error {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		*f = ""
+		return nil
+	}
+	if trimmed[0] == '"' {
+		var s string
+		if err := json.Unmarshal(trimmed, &s); err != nil {
+			return err
+		}
+		*f = flexString(s)
+		return nil
+	}
+	*f = flexString(string(trimmed))
+	return nil
+}
+
 // resolveSwarmDir locates the .system_generated/swarm directory for a conversation ID.
 // If the conversation is itself the coordinator, returns its own swarm dir.
 // If it is a worker member, finds the coordinator owning this member.
@@ -144,18 +169,37 @@ func resolveSwarmDir(cascadeID string) (string, string) {
 		}
 	}
 
-	// 3. Scan recent brain dirs for members.json
+	// 3. Scan brain dirs ordered by modification time descending (newest first),
+	// since os.ReadDir returns entries in UUID alphabetical order.
 	entries, err := os.ReadDir(brainBase)
 	if err != nil {
 		return "", ""
 	}
-	// Limit to the most recent 15 directories
-	for i := len(entries) - 1; i >= 0 && i >= len(entries)-25; i-- {
-		e := entries[i]
+	type dirMod struct {
+		name  string
+		mtime int64
+	}
+	cands := make([]dirMod, 0, len(entries))
+	for _, e := range entries {
 		if !e.IsDir() || e.Name() == cascadeID {
 			continue
 		}
-		candCoord := e.Name()
+		var mt int64
+		if info, err := e.Info(); err == nil {
+			mt = info.ModTime().UnixNano()
+		}
+		cands = append(cands, dirMod{name: e.Name(), mtime: mt})
+	}
+	sort.Slice(cands, func(i, j int) bool {
+		return cands[i].mtime > cands[j].mtime
+	})
+
+	limit := len(cands)
+	if limit > 100 {
+		limit = 100
+	}
+	for i := 0; i < limit; i++ {
+		candCoord := cands[i].name
 		candDir := filepath.Join(brainBase, candCoord, ".system_generated", "swarm")
 		membersPath := filepath.Join(candDir, "members.json")
 		data, err := os.ReadFile(membersPath)
@@ -183,6 +227,28 @@ func resolveSwarmDir(cascadeID string) (string, string) {
 	}
 
 	return "", ""
+}
+
+// GetSwarmSignature returns a lightweight mtime+size signature for the conversation's swarm files
+// so stream fast-path polling can detect swarm state changes immediately.
+func GetSwarmSignature(cascadeID string) string {
+	swarmDir, coordID := resolveSwarmDir(cascadeID)
+	if swarmDir == "" {
+		return ""
+	}
+	var mMod, mSize, bMod, bSize, vMod int64
+	if fi, err := os.Stat(filepath.Join(swarmDir, "members.json")); err == nil {
+		mMod = fi.ModTime().UnixNano()
+		mSize = fi.Size()
+	}
+	if fi, err := os.Stat(filepath.Join(swarmDir, "board.jsonl")); err == nil {
+		bMod = fi.ModTime().UnixNano()
+		bSize = fi.Size()
+	}
+	if fi, err := os.Stat(filepath.Join(swarmDir, "view.json")); err == nil {
+		vMod = fi.ModTime().UnixNano()
+	}
+	return fmt.Sprintf("%s:%d-%d:%d-%d:%d", coordID, mMod, mSize, bMod, bSize, vMod)
 }
 
 // GetSwarmBrief extracts a lightweight brief of the swarm for streaming.
@@ -243,6 +309,7 @@ func GetSwarmBrief(cascadeID string) *SwarmBrief {
 	if boardFile, err := os.Open(filepath.Join(swarmDir, "board.jsonl")); err == nil {
 		defer boardFile.Close()
 		scanner := bufio.NewScanner(boardFile)
+		scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 		latestSeq := 0
 		for scanner.Scan() {
 			line := scanner.Bytes()
@@ -260,6 +327,127 @@ func GetSwarmBrief(cascadeID string) *SwarmBrief {
 	}
 
 	return brief
+}
+
+// readMemberTranscriptActivity inspects the last line(s) of a member's transcript.jsonl
+// to extract its live runtime status ("working", "waiting", "error") and activity summary.
+func readMemberTranscriptActivity(transcriptPath string) (statusOverride string, lastActivity string) {
+	tFile, err := os.Open(transcriptPath)
+	if err != nil {
+		return "", ""
+	}
+	defer tFile.Close()
+
+	scanner := bufio.NewScanner(tFile)
+	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	var prevLine, lastLine []byte
+	for scanner.Scan() {
+		b := scanner.Bytes()
+		if len(b) > 0 {
+			prevLine = append(prevLine[:0], lastLine...)
+			lastLine = append(lastLine[:0], b...)
+		}
+	}
+	if len(lastLine) == 0 {
+		return "", ""
+	}
+
+	type transcriptStep struct {
+		Type      string `json:"type"`
+		Status    string `json:"status"`
+		Content   string `json:"content"`
+		ToolCalls []struct {
+			Name string `json:"name"`
+		} `json:"tool_calls"`
+		// Legacy camelCase fallbacks
+		ToolCall *struct {
+			Name        string `json:"name"`
+			ToolSummary string `json:"toolSummary"`
+		} `json:"toolCall"`
+		PlannerResponse *struct {
+			Response string `json:"response"`
+		} `json:"plannerResponse"`
+		ErrorMessage *struct {
+			Error struct {
+				ShortError string `json:"shortError"`
+			} `json:"error"`
+		} `json:"errorMessage"`
+	}
+
+	var step transcriptStep
+	if err := json.Unmarshal(lastLine, &step); err != nil {
+		return "", ""
+	}
+
+	if step.Status == "ERROR" || step.Type == "ERROR_MESSAGE" {
+		msg := strings.TrimSpace(step.Content)
+		if msg == "" && step.ErrorMessage != nil {
+			msg = step.ErrorMessage.Error.ShortError
+		}
+		if len(msg) > 120 {
+			msg = msg[:120] + "..."
+		}
+		return "error", msg
+	}
+	if step.ErrorMessage != nil && step.ErrorMessage.Error.ShortError != "" {
+		return "error", step.ErrorMessage.Error.ShortError
+	}
+
+	if step.ToolCall != nil {
+		if step.ToolCall.ToolSummary != "" {
+			return "working", step.ToolCall.ToolSummary
+		}
+		return "working", "调用工具 " + step.ToolCall.Name
+	}
+
+	if len(step.ToolCalls) > 0 {
+		names := make([]string, 0, len(step.ToolCalls))
+		hasSwarmWait := false
+		for _, tc := range step.ToolCalls {
+			if tc.Name != "" {
+				names = append(names, tc.Name)
+			}
+			if tc.Name == "swarm_wait" {
+				hasSwarmWait = true
+			}
+		}
+		if hasSwarmWait && step.Status == "DONE" && len(names) == 1 {
+			return "waiting", "等待唤醒 (swarm_wait)"
+		}
+		if len(names) > 0 {
+			return "working", "调用工具 " + strings.Join(names, ", ")
+		}
+	}
+
+	if step.Type == "PLANNER_RESPONSE" {
+		if step.Status == "DONE" && len(step.ToolCalls) == 0 {
+			return "waiting", "等待新消息"
+		}
+		return "working", "思考与回复中..."
+	}
+
+	if step.Type == "GENERIC" && step.Status == "DONE" {
+		if strings.Contains(step.Content, "Waiting for a message") {
+			return "waiting", "等待唤醒 (swarm_wait)"
+		}
+		// Check if previous planner step called swarm_wait
+		if len(prevLine) > 0 {
+			var prevStep transcriptStep
+			if json.Unmarshal(prevLine, &prevStep) == nil {
+				for _, tc := range prevStep.ToolCalls {
+					if tc.Name == "swarm_wait" {
+						return "waiting", "等待唤醒 (swarm_wait)"
+					}
+				}
+			}
+		}
+		return "working", "处理工具返回..."
+	}
+
+	if step.PlannerResponse != nil && step.PlannerResponse.Response != "" {
+		return "working", "回复中..."
+	}
+	return "", ""
 }
 
 // GetSwarmSnapshot returns full details of the swarm, checking ETag.
@@ -300,14 +488,14 @@ func GetSwarmSnapshot(cascadeID string, afterSeq int, clientETag string) (*Swarm
 	var rawMembers struct {
 		Title   string `json:"title"`
 		Members map[string]struct {
-			ConversationID string `json:"conversation_id"`
-			Model          string `json:"model"`
-			Role           string `json:"role"`
-			WakeMode       string `json:"wake_mode"`
-			WaitSince      string `json:"wait_since"`
-			LastReadSeq    int    `json:"last_read_seq"`
-			LastNudgedSeq  int    `json:"last_nudged_seq"`
-			Killed         bool   `json:"killed"`
+			ConversationID string     `json:"conversation_id"`
+			Model          string     `json:"model"`
+			Role           string     `json:"role"`
+			WakeMode       string     `json:"wake_mode"`
+			WaitSince      flexString `json:"wait_since"`
+			LastReadSeq    int        `json:"last_read_seq"`
+			LastNudgedSeq  int        `json:"last_nudged_seq"`
+			Killed         bool       `json:"killed"`
 		} `json:"members"`
 	}
 	if err := json.Unmarshal(membersData, &rawMembers); err != nil {
@@ -320,6 +508,7 @@ func GetSwarmSnapshot(cascadeID string, afterSeq int, clientETag string) (*Swarm
 	if boardFile, err := os.Open(boardPath); err == nil {
 		defer boardFile.Close()
 		scanner := bufio.NewScanner(boardFile)
+		scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 		for scanner.Scan() {
 			line := scanner.Bytes()
 			if len(line) == 0 {
@@ -356,58 +545,21 @@ func GetSwarmSnapshot(cascadeID string, afterSeq int, clientETag string) (*Swarm
 		if rm.Killed {
 			status = "killed"
 		} else {
-			workingCount++
 			status = "working"
 		}
 
 		lastActivity := ""
-		// Inspect worker's transcript.jsonl tail if available
-		if rm.ConversationID != "" {
+		if !rm.Killed && rm.ConversationID != "" {
 			tPath := filepath.Join(brainBase, rm.ConversationID, ".system_generated", "logs", "transcript.jsonl")
-			if tFile, err := os.Open(tPath); err == nil {
-				defer tFile.Close()
-				// Read last non-empty line
-				scanner := bufio.NewScanner(tFile)
-				var lastLine []byte
-				for scanner.Scan() {
-					b := scanner.Bytes()
-					if len(b) > 0 {
-						lastLine = append(lastLine[:0], b...)
-					}
+			if st, act := readMemberTranscriptActivity(tPath); st != "" || act != "" {
+				if st != "" {
+					status = st
 				}
-				if len(lastLine) > 0 {
-					var step struct {
-						Type            string `json:"type"`
-						Status          string `json:"status"`
-						ToolCall        *struct {
-							Name        string `json:"name"`
-							ToolSummary string `json:"toolSummary"`
-						} `json:"toolCall"`
-						PlannerResponse *struct {
-							Response string `json:"response"`
-						} `json:"plannerResponse"`
-						ErrorMessage    *struct {
-							Error struct {
-								ShortError string `json:"shortError"`
-							} `json:"error"`
-						} `json:"errorMessage"`
-					}
-					if err := json.Unmarshal(lastLine, &step); err == nil {
-						if step.ErrorMessage != nil && step.ErrorMessage.Error.ShortError != "" {
-							status = "error"
-							lastActivity = step.ErrorMessage.Error.ShortError
-						} else if step.ToolCall != nil {
-							if step.ToolCall.ToolSummary != "" {
-								lastActivity = step.ToolCall.ToolSummary
-							} else {
-								lastActivity = "调用工具 " + step.ToolCall.Name
-							}
-						} else if step.PlannerResponse != nil && step.PlannerResponse.Response != "" {
-							lastActivity = "回复中..."
-						}
-					}
-				}
+				lastActivity = act
 			}
+		}
+		if status == "working" {
+			workingCount++
 		}
 
 		unread := latestSeq - rm.LastReadSeq
@@ -421,7 +573,7 @@ func GetSwarmSnapshot(cascadeID string, afterSeq int, clientETag string) (*Swarm
 			Model:          rm.Model,
 			Role:           rm.Role,
 			WakeMode:       rm.WakeMode,
-			WaitSince:      rm.WaitSince,
+			WaitSince:      string(rm.WaitSince),
 			LastReadSeq:    rm.LastReadSeq,
 			LastNudgedSeq:  rm.LastNudgedSeq,
 			Killed:         rm.Killed,
@@ -431,6 +583,17 @@ func GetSwarmSnapshot(cascadeID string, afterSeq int, clientETag string) (*Swarm
 			IsCurrent:      rm.ConversationID == cascadeID,
 		})
 	}
+	sort.Slice(members, func(i, j int) bool {
+		if members[i].Role != members[j].Role {
+			if members[i].Role == "coordinator" {
+				return true
+			}
+			if members[j].Role == "coordinator" {
+				return false
+			}
+		}
+		return members[i].Name < members[j].Name
+	})
 
 	var view *SwarmView
 	if viewData, err := os.ReadFile(viewPath); err == nil && len(viewData) > 0 {
@@ -623,9 +786,11 @@ func (p *Proxy) HandleSwarmNudge(w http.ResponseWriter, r *http.Request) {
 // sendCascadeTextMessage sends a single text prompt to the upstream language_server for a cascade.
 func (p *Proxy) sendCascadeTextMessage(cascadeID, text string) error {
 	port, token := p.ActiveUpstream()
-	if cur := p.insp.Current(); cur != nil && cur.IsHealthy && cur.Port > 0 {
-		port = cur.Port
-		token = cur.CSRFToken
+	if p.insp != nil {
+		if cur := p.insp.Current(); cur != nil && cur.IsHealthy && cur.Port > 0 {
+			port = cur.Port
+			token = cur.CSRFToken
+		}
 	}
 	if port <= 0 {
 		return fmt.Errorf("upstream language_server unavailable")

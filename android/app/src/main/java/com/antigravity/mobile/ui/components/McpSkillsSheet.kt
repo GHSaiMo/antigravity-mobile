@@ -42,8 +42,10 @@ fun McpSkillsSheet(
     onDismiss: () -> Unit,
     initialTab: Int = 0,
     currentConversationId: String? = null,
+    hasActiveSwarm: Boolean = false,
     onSelectConversation: ((cascadeId: String, title: String) -> Unit)? = null,
     onTasksChanged: ((List<GlobalBackgroundTaskItem>) -> Unit)? = null,
+    onOpenSwarm: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -644,6 +646,7 @@ fun McpSkillsSheet(
                             }
                             items(filteredPlugins, key = { it.effectiveId }) { plugin ->
                                 val pid = plugin.effectiveId
+                                val isSwarmPlugin = pid.equals("swarm", ignoreCase = true) || plugin.name.equals("swarm", ignoreCase = true)
                                 PluginCard(
                                     plugin = plugin,
                                     isInstalling = installingPluginIds.contains(pid),
@@ -657,7 +660,13 @@ fun McpSkillsSheet(
                                             }
                                             installingPluginIds.remove(pid)
                                         }
-                                    }
+                                    },
+                                    onOpenSwarm = if (isSwarmPlugin && hasActiveSwarm && onOpenSwarm != null) {
+                                        {
+                                            onDismiss()
+                                            onOpenSwarm()
+                                        }
+                                    } else null
                                 )
                             }
                         }
@@ -1695,7 +1704,8 @@ private fun GlobalBackgroundTaskCard(
 private fun PluginCard(
     plugin: CascadePluginItem,
     isInstalling: Boolean,
-    onInstall: () -> Unit
+    onInstall: () -> Unit,
+    onOpenSwarm: (() -> Unit)? = null
 ) {
     val colors = AntigravityTheme.colors
 
@@ -1755,6 +1765,14 @@ private fun PluginCard(
                     } else {
                         Text("安装", fontSize = 11.5.sp)
                     }
+                }
+            } else if (onOpenSwarm != null) {
+                Button(
+                    onClick = onOpenSwarm,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                    modifier = Modifier.height(28.dp)
+                ) {
+                    Text("打开看板", fontSize = 11.5.sp)
                 }
             }
         }

@@ -1713,6 +1713,7 @@ fun ChatScreen(
         McpSkillsSheet(
             initialTab = if (hasAnyBgTasks) 4 else 0,
             currentConversationId = uiState.cascadeId,
+            hasActiveSwarm = uiState.swarmBrief?.active == true,
             onSelectConversation = { targetId, targetTitle ->
                 openSubagent(
                     com.antigravity.mobile.data.model.SubagentItem(
@@ -1723,6 +1724,7 @@ fun ChatScreen(
                 )
             },
             onTasksChanged = { viewModel.updateGlobalBackgroundTasks(it) },
+            onOpenSwarm = { showSwarmSheet = true },
             onDismiss = { showMcpSkillsSheet = false }
         )
     }

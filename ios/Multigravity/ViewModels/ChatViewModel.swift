@@ -828,6 +828,11 @@ public final class ChatViewModel {
             }
             if let name = result.activeModelName, !name.isEmpty { self.activeModelName = name }
             if let started = result.startedAt, !started.isEmpty { self.startedAt = started }
+            if let swarm = result.swarm {
+                self.swarmBrief = swarm
+            } else if !isBackgroundPoll {
+                self.swarmBrief = nil
+            }
             
             if result.messages.isEmpty {
                 if self.pendingOptimisticMessageId == nil {

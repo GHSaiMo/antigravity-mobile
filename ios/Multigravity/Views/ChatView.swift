@@ -346,6 +346,7 @@ public struct ChatView: View {
             McpSkillsSheet(
                 initialTab: viewModel.hasAnyBackgroundTasks ? .tasks : .mcp,
                 currentConversationId: viewModel.cascadeId,
+                hasActiveSwarm: viewModel.isSwarmActive,
                 onSelectConversation: { targetId in
                     NotificationCenter.default.post(
                         name: .openConversationFromTaskCenter,
@@ -354,6 +355,11 @@ public struct ChatView: View {
                 },
                 onTasksChanged: { updated in
                     viewModel.globalBackgroundTasks = updated
+                },
+                onOpenSwarm: {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                        showSwarmSheet = true
+                    }
                 }
             )
             .presentationDetents([.large])

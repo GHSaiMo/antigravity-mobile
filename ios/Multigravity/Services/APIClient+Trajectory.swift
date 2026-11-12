@@ -96,7 +96,8 @@ extension APIClient {
                     modelDisplayName: decoded.modelDisplayName,
                     startedAt: decoded.startedAt,
                     hasError: isErr,
-                    errorMessage: errMsg
+                    errorMessage: errMsg,
+                    swarm: decoded.swarm
                 )
             }
         } catch {
@@ -124,7 +125,8 @@ extension APIClient {
             modelDisplayName: nil,
             startedAt: nil,
             hasError: hasErr,
-            errorMessage: errMsg
+            errorMessage: errMsg,
+            swarm: nil
         )
     }
     

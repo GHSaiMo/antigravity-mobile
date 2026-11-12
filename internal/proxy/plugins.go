@@ -43,9 +43,11 @@ func (p *Proxy) HandleGetPlugins(w http.ResponseWriter, r *http.Request) {
 	}
 
 	port, token := p.ActiveUpstream()
-	if cur := p.insp.Current(); cur != nil && cur.IsHealthy && cur.Port > 0 {
-		port = cur.Port
-		token = cur.CSRFToken
+	if p.insp != nil {
+		if cur := p.insp.Current(); cur != nil && cur.IsHealthy && cur.Port > 0 {
+			port = cur.Port
+			token = cur.CSRFToken
+		}
 	}
 	if port <= 0 {
 		writeJSONError(w, "upstream language_server unavailable", http.StatusServiceUnavailable)
@@ -55,6 +57,53 @@ func (p *Proxy) HandleGetPlugins(w http.ResponseWriter, r *http.Request) {
 	resp := PayloadPluginsResp{
 		Plugins: make([]PluginItem, 0),
 	}
+
+	// Query GetSidecars first (or concurrently) to resolve runtime enabled/running state
+	// for sidecar-backed builtin/global plugins such as swarm.
+	type sidecarState struct {
+		sidecarID  string
+		pluginPath string
+		status     string
+		enabled    bool
+		hasEnabled bool
+	}
+	var sidecars []sidecarState
+	sidecarsURL := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetSidecars", port)
+	reqSidecars, _ := http.NewRequestWithContext(r.Context(), http.MethodPost, sidecarsURL, strings.NewReader("{}"))
+	reqSidecars.Header.Set("Content-Type", "application/json")
+	reqSidecars.Header.Set("Connect-Protocol-Version", "1")
+	if token != "" {
+		reqSidecars.Header.Set("x-codeium-csrf-token", token)
+	}
+	if resSc, err := p.mediumClient.Do(reqSidecars); err == nil {
+		defer resSc.Body.Close()
+		scBody, _ := io.ReadAll(resSc.Body)
+		var rawSc struct {
+			Sidecars []struct {
+				SidecarID  string `json:"sidecarId"`
+				Status     string `json:"status"`
+				PluginPath string `json:"pluginPath"`
+				UserConfig *struct {
+					Enabled *bool `json:"enabled"`
+				} `json:"userConfig"`
+			} `json:"sidecars"`
+		}
+		if json.Unmarshal(scBody, &rawSc) == nil {
+			for _, sc := range rawSc.Sidecars {
+				st := sidecarState{
+					sidecarID:  strings.TrimSpace(sc.SidecarID),
+					pluginPath: strings.TrimSpace(sc.PluginPath),
+					status:     strings.TrimSpace(sc.Status),
+				}
+				if sc.UserConfig != nil && sc.UserConfig.Enabled != nil {
+					st.hasEnabled = true
+					st.enabled = *sc.UserConfig.Enabled
+				}
+				sidecars = append(sidecars, st)
+			}
+		}
+	}
+
 	// Query GetAllPlugins
 	allURL := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetAllPlugins", port)
 	req1, _ := http.NewRequestWithContext(r.Context(), http.MethodPost, allURL, strings.NewReader("{}"))
@@ -72,26 +121,85 @@ func (p *Proxy) HandleGetPlugins(w http.ResponseWriter, r *http.Request) {
 			Plugins []struct {
 				ID          string `json:"id"`
 				Name        string `json:"name"`
+				DisplayName string `json:"displayName"`
+				Path        string `json:"path"`
 				Description string `json:"description"`
 				Version     string `json:"version"`
-				Enabled     bool   `json:"enabled"`
+				Enabled     *bool  `json:"enabled"`
+				Disabled    bool   `json:"disabled"`
+				IsGlobal    bool   `json:"isGlobal"`
+				IsBuiltin   bool   `json:"isBuiltin"`
 				Kind        string `json:"kind"`
+				Sidecars    []struct {
+					SidecarID string `json:"sidecarId"`
+				} `json:"sidecars"`
 			} `json:"plugins"`
 		}
 		if json.Unmarshal(body, &raw) == nil {
 			for _, pl := range raw.Plugins {
 				pid := strings.TrimSpace(pl.ID)
 				if pid == "" {
-					pid = pl.Name
+					pid = strings.TrimSpace(pl.Name)
 				}
+				displayName := strings.TrimSpace(pl.DisplayName)
+				if displayName == "" {
+					displayName = strings.TrimSpace(pl.Name)
+				}
+				if displayName == "" {
+					displayName = pid
+				}
+				kind := strings.TrimSpace(pl.Kind)
+				if kind == "" {
+					if pl.IsBuiltin {
+						kind = "builtin"
+					} else if pl.IsGlobal {
+						kind = "global"
+					}
+				}
+
+				// Determine enabled state: GetAllPlugins omits "enabled" when active
+				// and exposes sidecar runtime/userConfig state via GetSidecars.
+				enabled := !pl.Disabled
+				if !pl.Disabled && pl.Enabled != nil {
+					enabled = *pl.Enabled
+				} else if !pl.Disabled && len(sidecars) > 0 {
+					pluginSidecarIDs := make(map[string]bool, len(pl.Sidecars))
+					for _, ps := range pl.Sidecars {
+						if ps.SidecarID != "" {
+							pluginSidecarIDs[ps.SidecarID] = true
+						}
+					}
+					matchedAny := false
+					anyActive := false
+					for _, sc := range sidecars {
+						matches := pluginSidecarIDs[sc.sidecarID] ||
+							(pl.Path != "" && sc.pluginPath == pl.Path) ||
+							(pl.Name != "" && strings.HasPrefix(sc.sidecarID, pl.Name+"/"))
+						if !matches {
+							continue
+						}
+						matchedAny = true
+						if (sc.hasEnabled && sc.enabled) ||
+							sc.status == "SIDECAR_STATUS_RUNNING" ||
+							sc.status == "RUNNING" ||
+							sc.status == "READY" {
+							anyActive = true
+							break
+						}
+					}
+					if matchedAny {
+						enabled = anyActive
+					}
+				}
+
 				resp.Plugins = append(resp.Plugins, PluginItem{
 					ID:          pid,
-					Name:        pl.Name,
+					Name:        displayName,
 					Description: pl.Description,
 					Version:     pl.Version,
-					Enabled:     pl.Enabled,
+					Enabled:     enabled,
 					Installed:   true,
-					Kind:        pl.Kind,
+					Kind:        kind,
 				})
 			}
 		}
@@ -170,9 +278,11 @@ func (p *Proxy) HandleInstallPlugin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	port, token := p.ActiveUpstream()
-	if cur := p.insp.Current(); cur != nil && cur.IsHealthy && cur.Port > 0 {
-		port = cur.Port
-		token = cur.CSRFToken
+	if p.insp != nil {
+		if cur := p.insp.Current(); cur != nil && cur.IsHealthy && cur.Port > 0 {
+			port = cur.Port
+			token = cur.CSRFToken
+		}
 	}
 	if port <= 0 {
 		writeJSONError(w, "upstream language_server unavailable", http.StatusServiceUnavailable)
