@@ -840,6 +840,10 @@ func buildRouter(
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to switch account"})
 			return
 		}
+		if insp != nil {
+			insp.Scan()
+		}
+		p.RefreshLiveModelsAfterSwitch(r.Context())
 		slog.Info(fmt.Sprintf("[Cockpit] Account switched successfully to: %s", targetID))
 		writeJSON(w, http.StatusOK, map[string]any{
 			"status":     "ok",

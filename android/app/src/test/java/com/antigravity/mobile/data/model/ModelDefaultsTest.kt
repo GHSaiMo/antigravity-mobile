@@ -65,15 +65,26 @@ class ModelDefaultsTest {
     }
 
     @Test
-    fun formatPickerLabelFiltersNewAndFastTags() {
+    fun formatPickerLabelFiltersNewFastAndNoticeTags() {
         assertEquals("Claude Opus 5.5 (High)", ModelDefaults.formatPickerLabel("Claude Opus 5.5 (High)", "New"))
         assertEquals("Claude Opus 5.5 (High)", ModelDefaults.formatPickerLabel("Claude Opus 5.5 (High)", "new"))
         assertEquals("Claude Opus 5.5 (High)", ModelDefaults.formatPickerLabel("Claude Opus 5.5 (High)", " NEW "))
         assertEquals("Gemini 3.8 Flash (High)", ModelDefaults.formatPickerLabel("Gemini 3.8 Flash (High)", "Fast"))
         assertEquals("Gemini 3.8 Flash (High)", ModelDefaults.formatPickerLabel("Gemini 3.8 Flash (High)", "FAST"))
         assertEquals("Gemini 3.8 Flash (High)", ModelDefaults.formatPickerLabel("Gemini 3.8 Flash (High)", " fast "))
+        assertEquals("Claude Sonnet 4.6 (Thinking)", ModelDefaults.formatPickerLabel("Claude Sonnet 4.6 (Thinking)", "Notice"))
+        assertEquals("Claude Sonnet 4.6 (Thinking)", ModelDefaults.formatPickerLabel("Claude Sonnet 4.6 (Thinking)", "notice"))
+        assertEquals("Claude Sonnet 4.6 (Thinking)", ModelDefaults.formatPickerLabel("Claude Sonnet 4.6 (Thinking)", " NOTICE "))
         assertEquals("Claude Opus 5.5 (High)", ModelDefaults.formatPickerLabel("Claude Opus 5.5 (High)", null))
         assertEquals("Claude Opus 5.5 (High)", ModelDefaults.formatPickerLabel("Claude Opus 5.5 (High)", "   "))
-        assertEquals("GPT-OSS 120B (Medium) · Notice", ModelDefaults.formatPickerLabel("GPT-OSS 120B (Medium)", "Notice"))
+        assertEquals("GPT-OSS 120B (Medium) · Beta", ModelDefaults.formatPickerLabel("GPT-OSS 120B (Medium)", "Beta"))
+    }
+
+    @Test
+    fun displayNameUnifiesPresetAndUnknownIds() {
+        assertEquals("Gemini 3.8 Flash (High)", ModelDefaults.displayName("gemini-3.8-flash-high"))
+        assertEquals("Claude Opus 4.6 (Thinking)", ModelDefaults.displayName("claude-opus-4-6-thinking"))
+        assertEquals("Claude Sonnet 4.6 (Thinking)", ModelDefaults.displayName("claude-sonnet-4-6"))
+        assertEquals("Claude Opus 6 (High)", ModelDefaults.displayName("claude-opus-6-high"))
     }
 }

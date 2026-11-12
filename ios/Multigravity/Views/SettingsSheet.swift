@@ -168,15 +168,14 @@ public struct SettingsSheet: View {
                 // MARK: - 5. 外观与主题
                 Section(
                     header: Text("外观与主题"),
-                    footer: Text("选择浅色、深色模式，界面字号缩放，并可控制额度条上的时间均速刻度游标。")
+                    footer: Text("选择浅色、深色模式与界面字号缩放；开启精简模式可收起工具执行细节、专注阅读正文；并可控制额度条上的时间均速刻度游标。")
                 ) {
                     Picker("外观模式", selection: $settings.themeMode) {
                         Text("跟随系统").tag("system")
                         Text("浅色").tag("light")
                         Text("深色").tag("dark")
                     }
-                    .pickerStyle(.segmented)
-                    .padding(.vertical, 2)
+                    .pickerStyle(.menu)
                     .onChange(of: settings.themeMode) { _, _ in
                         settings.applyAppearance()
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -187,13 +186,12 @@ public struct SettingsSheet: View {
                             Text(scale.displayName).tag(scale)
                         }
                     }
-                    .pickerStyle(.segmented)
-                    .padding(.vertical, 2)
+                    .pickerStyle(.menu)
                     .onChange(of: settings.fontSizeScale) { _, _ in
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     }
 
-                    Toggle("知识工作流精简模式", isOn: $settings.isKnowledgeModeEnabled)
+                    Toggle("精简模式", isOn: $settings.isKnowledgeModeEnabled)
                         .onChange(of: settings.isKnowledgeModeEnabled) { _, _ in
                             UIImpactFeedbackGenerator(style: .light).impactOccurred()
                         }
@@ -246,7 +244,7 @@ public struct SettingsSheet: View {
         }
         .task {
             if let url = settings.serverURL, !settings.isDemoMode {
-                await modelCatalog.refresh(settings: settings, baseURL: url)
+                await modelCatalog.refresh(settings: settings, baseURL: url, force: true)
             }
         }
         .alert(settings.isDemoMode ? "确定退出演示模式？" : "确定解除设备配对？", isPresented: $showUnpairAlert) {
@@ -303,13 +301,13 @@ extension SettingsSheet {
         return "输入框上方的 Gemini / Claude 切换会使用这里选定的模型；已有会话继续沿用它正在使用的模型。"
     }
 
-    /// 列表来自网关实时取到的可用模型；已保存的模型不在列表里时仍显示它的 id，避免选择器空白。
+    /// 列表来自网关实时取到的可用模型；已保存的模型不在列表里时显示统一可读名称，避免露出小写裸 ID。
     @ViewBuilder
     fileprivate func defaultModelPicker(title: String, provider: String, selection: Binding<String>) -> some View {
         let options = modelCatalog.options(for: provider)
         Picker(title, selection: selection) {
             if !options.contains(where: { $0.id == selection.wrappedValue }) {
-                Text(selection.wrappedValue).tag(selection.wrappedValue)
+                Text(modelCatalog.resolvedDisplayName(forID: selection.wrappedValue)).tag(selection.wrappedValue)
             }
             ForEach(options) { option in
                 let label = ModelDefaultsLogic.formatPickerLabel(name: option.name, tag: option.tag)

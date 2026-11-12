@@ -66,15 +66,85 @@ public enum ModelDefaultsLogic {
         uniqueKeysWithValues: staticEnumByID.map { ($0.value, $0.key) }
     )
 
+    /// 内置/预设模型 ID → 统一展示名映射，避免离线、未拉取目录或切号过渡期露出小写裸 ID。
+    public static let staticDisplayNameByID: [String: String] = [
+        "gemini-4-carbon-high": "Gemini 4 Carbon (High)",
+        "gemini-4-carbon-medium": "Gemini 4 Carbon (Medium)",
+        "gemini-4-carbon-low": "Gemini 4 Carbon (Low)",
+        "gemini-4-carbon": "Gemini 4 Carbon",
+        "gemini-4-argon-high": "Gemini 4 Argon (High)",
+        "gemini-4-argon-medium": "Gemini 4 Argon (Medium)",
+        "gemini-4-argon-low": "Gemini 4 Argon (Low)",
+        "gemini-3.8-flash-high": "Gemini 3.8 Flash (High)",
+        "gemini-3.8-flash-medium": "Gemini 3.8 Flash (Medium)",
+        "gemini-3.8-flash-low": "Gemini 3.8 Flash (Low)",
+        "gemini-3.1-pro-high": "Gemini 3.1 Pro (High)",
+        "gemini-3.1-pro-low": "Gemini 3.1 Pro (Low)",
+        "claude-opus-5-5-high": "Claude Opus 5.5 (High)",
+        "claude-opus-5-5-medium": "Claude Opus 5.5 (Medium)",
+        "claude-opus-5-5-low": "Claude Opus 5.5 (Low)",
+        "claude-sonnet-5-5-high": "Claude Sonnet 5.5 (High)",
+        "claude-sonnet-5-5-medium": "Claude Sonnet 5.5 (Medium)",
+        "claude-sonnet-5-5-low": "Claude Sonnet 5.5 (Low)",
+        "claude-opus-4-6-thinking": "Claude Opus 4.6 (Thinking)",
+        "claude-sonnet-4-6": "Claude Sonnet 4.6 (Thinking)",
+        "gpt-oss-120b-medium": "GPT-OSS 120B (Medium)",
+    ]
+
+    /// 将未知模型 ID 转为统一规范的展示名（如 `claude-sonnet-5-5-high` → `Claude Sonnet 5.5 (High)`）。
+    public static func formatIDAsDisplayName(_ id: String) -> String {
+        let trimmed = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        if let known = staticDisplayNameByID[trimmed.lowercased()] {
+            return known
+        }
+        let tokens = trimmed.split(separator: "-").map(String.init)
+        guard !tokens.isEmpty else { return trimmed }
+        let trailingQualifiers: Set<String> = ["high", "medium", "low", "thinking"]
+        var qualifier: String? = nil
+        var core = tokens
+        if let last = core.last, trailingQualifiers.contains(last.lowercased()), core.count > 1 {
+            qualifier = last.prefix(1).uppercased() + last.dropFirst().lowercased()
+            core.removeLast()
+        }
+        var parts: [String] = []
+        for token in core {
+            let isDigits = !token.isEmpty && token.allSatisfy(\.isNumber)
+            if isDigits, let prev = parts.last, prev.allSatisfy({ $0.isNumber || $0 == "." }) {
+                parts[parts.count - 1] = prev + "." + token
+            } else if token.lowercased() == "gpt" || token.lowercased() == "oss" {
+                parts.append(token.uppercased())
+            } else if token.first?.isLetter == true {
+                parts.append(token.prefix(1).uppercased() + token.dropFirst())
+            } else {
+                parts.append(token)
+            }
+        }
+        let base = parts.joined(separator: " ")
+        if let q = qualifier {
+            return "\(base) (\(q))"
+        }
+        return base
+    }
+
+    public static func displayName(forID id: String, options: [ModelOption] = []) -> String {
+        let key = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let match = options.first(where: { $0.id.caseInsensitiveCompare(key) == .orderedSame }),
+           !match.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return match.name
+        }
+        return formatIDAsDisplayName(key)
+    }
+
     public static func isClaude(_ modelId: String) -> Bool {
         let lower = modelId.lowercased()
         if lower.contains("claude") { return true }
         return claudeEnumTokens.contains(where: { lower.contains($0) })
     }
 
-    private static let ignoredPickerTags: Set<String> = ["new", "fast"]
+    private static let ignoredPickerTags: Set<String> = ["new", "fast", "notice", "提示"]
 
-    /// 格式化模型选择器选项展示名：过滤掉 "New" / "Fast" 等冗余特性标签及前导的点符号，保持手机端菜单简洁。
+    /// 格式化模型选择器选项展示名：过滤掉 "New" / "Fast" / "Notice" 等冗余特性标签及前导的点符号，保持手机端菜单简洁。
     public static func formatPickerLabel(name: String, tag: String?) -> String {
         guard let tag = tag?.trimmingCharacters(in: .whitespacesAndNewlines),
               !tag.isEmpty,
@@ -157,7 +227,12 @@ public final class ModelCatalogStore {
     }
 
     public func displayName(forID id: String) -> String? {
-        catalog?.models.first(where: { $0.id == id })?.name
+        catalog?.models.first(where: { $0.id.caseInsensitiveCompare(id) == .orderedSame })?.name
+    }
+
+    /// 始终返回人类可读的统一展示名（实时目录 → 静态映射 → 规范格式化），不暴露小写裸 ID。
+    public func resolvedDisplayName(forID id: String) -> String {
+        ModelDefaultsLogic.displayName(forID: id, options: catalog?.models ?? [])
     }
 
     /// 枚举：目录里有就用目录的，没有就回退到内置静态映射表。
@@ -175,19 +250,24 @@ public final class ModelCatalogStore {
         return ModelDefaultsLogic.staticIDByEnum[modelEnum]
     }
 
-    /// 从网关刷新目录；成功后同步校验设置里的默认模型。
-    public func refresh(apiClient: APIClient = .shared, settings: AppSettings, baseURL: URL) async {
+    /// 从网关刷新目录；成功后同步校验设置里的默认模型与当前激活模型。
+    public func refresh(apiClient: APIClient = .shared, settings: AppSettings, baseURL: URL, force: Bool = false) async {
         isLoading = true
         loadFailed = false
         defer { isLoading = false }
         do {
-            let fresh = try await apiClient.fetchModels(baseURL: baseURL)
+            let fresh = try await apiClient.fetchModels(baseURL: baseURL, refresh: force)
             catalog = fresh
             if let data = try? JSONEncoder().encode(fresh) {
                 UserDefaults.standard.set(data, forKey: Self.storageKey)
             }
-            settings.defaultGeminiModel = ModelDefaultsLogic.validated(saved: settings.defaultGeminiModel, provider: "gemini", catalog: fresh)
-            settings.defaultClaudeModel = ModelDefaultsLogic.validated(saved: settings.defaultClaudeModel, provider: "claude", catalog: fresh)
+            let validatedGemini = ModelDefaultsLogic.validated(saved: settings.defaultGeminiModel, provider: "gemini", catalog: fresh)
+            let validatedClaude = ModelDefaultsLogic.validated(saved: settings.defaultClaudeModel, provider: "claude", catalog: fresh)
+            settings.defaultGeminiModel = validatedGemini
+            settings.defaultClaudeModel = validatedClaude
+            if fresh.isLive && !fresh.models.contains(where: { $0.id == settings.activeModel }) {
+                settings.activeModel = ModelDefaultsLogic.isClaude(settings.activeModel) ? validatedClaude : validatedGemini
+            }
         } catch {
             loadFailed = true
         }

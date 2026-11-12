@@ -9,6 +9,7 @@ import androidx.security.crypto.MasterKey
 import com.antigravity.mobile.data.model.ConversationItem
 import com.antigravity.mobile.data.model.LocalDraftSession
 import com.antigravity.mobile.data.model.McpServerState
+import com.antigravity.mobile.data.model.ModelsResponse
 import com.antigravity.mobile.data.model.ProjectItem
 import com.antigravity.mobile.data.model.SkillInfo
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -200,11 +201,45 @@ class PreferencesManager(context: Context) {
     /** 「默认模型」：输入框上方 Gemini / Claude 胶囊切换时使用的具体模型。 */
     var defaultGeminiModel: String
         get() = prefs.getString(KEY_DEFAULT_GEMINI_MODEL, null)?.takeIf { it.isNotBlank() } ?: ModelDefaults.FALLBACK_GEMINI
-        set(value) = prefs.edit().putString(KEY_DEFAULT_GEMINI_MODEL, value.trim()).apply()
+        set(value) {
+            val trimmed = value.trim()
+            prefs.edit().putString(KEY_DEFAULT_GEMINI_MODEL, trimmed).apply()
+            _defaultGeminiModelFlow.value = trimmed.ifBlank { ModelDefaults.FALLBACK_GEMINI }
+        }
+
+    private val _defaultGeminiModelFlow = MutableStateFlow(defaultGeminiModel)
+    val defaultGeminiModelFlow: StateFlow<String> = _defaultGeminiModelFlow.asStateFlow()
 
     var defaultClaudeModel: String
         get() = prefs.getString(KEY_DEFAULT_CLAUDE_MODEL, null)?.takeIf { it.isNotBlank() } ?: ModelDefaults.FALLBACK_CLAUDE
-        set(value) = prefs.edit().putString(KEY_DEFAULT_CLAUDE_MODEL, value.trim()).apply()
+        set(value) {
+            val trimmed = value.trim()
+            prefs.edit().putString(KEY_DEFAULT_CLAUDE_MODEL, trimmed).apply()
+            _defaultClaudeModelFlow.value = trimmed.ifBlank { ModelDefaults.FALLBACK_CLAUDE }
+        }
+
+    private val _defaultClaudeModelFlow = MutableStateFlow(defaultClaudeModel)
+    val defaultClaudeModelFlow: StateFlow<String> = _defaultClaudeModelFlow.asStateFlow()
+
+    val cachedModelCatalog: ModelsResponse?
+        get() {
+            val raw = prefs.getString(KEY_CACHED_MODEL_CATALOG, null) ?: return null
+            return runCatching { draftJson.decodeFromString<ModelsResponse>(raw) }.getOrNull()
+        }
+
+    private val _modelCatalogFlow = MutableStateFlow(cachedModelCatalog)
+    val modelCatalogFlow: StateFlow<ModelsResponse?> = _modelCatalogFlow.asStateFlow()
+
+    fun updateModelCatalog(catalog: ModelsResponse) {
+        _modelCatalogFlow.value = catalog
+        runCatching { draftJson.encodeToString(catalog) }.getOrNull()?.let { encoded ->
+            prefs.edit().putString(KEY_CACHED_MODEL_CATALOG, encoded).apply()
+        }
+        val g = ModelDefaults.validated(defaultGeminiModel, "gemini", catalog)
+        if (g != defaultGeminiModel) defaultGeminiModel = g
+        val cl = ModelDefaults.validated(defaultClaudeModel, "claude", catalog)
+        if (cl != defaultClaudeModel) defaultClaudeModel = cl
+    }
 
     var autoApprovePermissions: Boolean
         get() = prefs.getBoolean(KEY_AUTO_APPROVE, false)
@@ -724,6 +759,9 @@ class PreferencesManager(context: Context) {
         memSkills = null
         _themeModeFlow.value = "system"
         _gatewayPlatformFlow.value = null
+        _modelCatalogFlow.value = null
+        _defaultGeminiModelFlow.value = ModelDefaults.FALLBACK_GEMINI
+        _defaultClaudeModelFlow.value = ModelDefaults.FALLBACK_CLAUDE
     }
 
     companion object {
@@ -775,6 +813,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_DRAFT_SESSIONS = "cached_draft_sessions_json"
         private const val KEY_CACHED_MCP_SERVERS = "cached_mcp_servers_json"
         private const val KEY_CACHED_SKILLS = "cached_skills_json"
+        private const val KEY_CACHED_MODEL_CATALOG = "cached_model_catalog_json"
         private const val KEY_DELETED_CONVERSATIONS = "ag_deleted_conversations"
         private const val KEY_PINNED_CONVERSATIONS = "ag_pinned_conversations"
     }

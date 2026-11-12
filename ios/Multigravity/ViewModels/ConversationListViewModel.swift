@@ -398,6 +398,7 @@ public final class ConversationListViewModel {
         guard let url = settings.serverURL else { return }
         try await apiClient.switchCockpitAccount(baseURL: url, accountId: id)
         await fetchQuotas(force: true)
+        await ModelCatalogStore.shared.refresh(settings: settings, baseURL: url, force: true)
     }
     
     @MainActor
