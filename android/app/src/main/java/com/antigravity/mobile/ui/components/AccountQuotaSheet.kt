@@ -542,6 +542,12 @@ private fun AccountQuotaCard(
     }
 }
 
+private fun carbonAuroraColors(isDark: Boolean): List<Color> = if (isDark) {
+    listOf(Color(0xFF4285F4), Color(0xFF9B72CF), Color(0xFFFF7597))
+} else {
+    listOf(Color(0xFF4285F4), Color(0xFF9B72CF), Color(0xFFF06292))
+}
+
 @Composable
 private fun TierBadge(tier: String?) {
     val norm = tier?.trim()?.uppercase(Locale.US) ?: return
@@ -552,15 +558,7 @@ private fun TierBadge(tier: String?) {
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(5.dp))
-                    .background(
-                        Brush.linearGradient(
-                            colors = listOf(
-                                Color(0xFFD97706),
-                                Color(0xFFF59E0B),
-                                Color(0xFFEA580C)
-                            )
-                        )
-                    )
+                    .background(Brush.horizontalGradient(colors = carbonAuroraColors(colors.isDark)))
                     .padding(horizontal = 6.dp, vertical = 2.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -574,8 +572,8 @@ private fun TierBadge(tier: String?) {
                     style = TextStyle(
                         platformStyle = CompactPlatformTextStyle,
                         shadow = Shadow(
-                            color = Color(0x557C2D12),
-                            offset = Offset(0f, 1f),
+                            color = Color(0x554C1D95),
+                            offset = Offset(0f, 0.8f),
                             blurRadius = 1.5f
                         )
                     )
@@ -654,11 +652,7 @@ private fun QuotaMetricCell(
     }
     val argonAccent = if (colors.isDark) Color(0xFFFF9F0A) else Color(0xFFD97706)
     val carbonAccent = if (colors.isDark) Color(0xFFC58AF9) else Color(0xFF7C3AED)
-    val carbonAuroraColors = if (colors.isDark) {
-        listOf(Color(0xFF4285F4), Color(0xFF9B72CF), Color(0xFFFF7597))
-    } else {
-        listOf(Color(0xFF4285F4), Color(0xFF9B72CF), Color(0xFFF06292))
-    }
+    val carbonAuroraColors = carbonAuroraColors(colors.isDark)
     val carbonTitleColors = if (colors.isDark) {
         listOf(Color(0xFF8AB4F8), Color(0xFFC58AF9), Color(0xFFFF8BCB))
     } else {
@@ -774,32 +768,6 @@ private fun QuotaMetricCell(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                }
-                if (isCarbon) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(Brush.horizontalGradient(colors = carbonAuroraColors))
-                            .padding(horizontal = 4.5.dp, vertical = 1.5.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "✦ CARBON",
-                            color = Color.White,
-                            fontSize = 8.5.sp,
-                            lineHeight = 9.5.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            letterSpacing = 0.4.sp,
-                            style = TextStyle(
-                                platformStyle = CompactPlatformTextStyle,
-                                shadow = Shadow(
-                                    color = Color(0x554C1D95),
-                                    offset = Offset(0f, 0.8f),
-                                    blurRadius = 1.5f
-                                )
-                            )
-                        )
-                    }
                 }
             }
             Spacer(modifier = Modifier.width(6.dp))

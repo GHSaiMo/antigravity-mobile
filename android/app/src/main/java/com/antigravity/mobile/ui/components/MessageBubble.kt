@@ -166,8 +166,8 @@ fun MessageBubble(
                 modifier = Modifier
                     .fillMaxWidth(0.95f)
                     .clip(RoundedCornerShape(14.dp))
-                    .background(Color(0xFFFEF2F2))
-                    .border(1.dp, Color(0xFFEF4444).copy(alpha = 0.25f), RoundedCornerShape(14.dp))
+                    .background(colors.accentRed.copy(alpha = if (colors.isDark) 0.12f else 0.08f))
+                    .border(1.dp, colors.accentRed.copy(alpha = 0.25f), RoundedCornerShape(14.dp))
                     .padding(12.dp),
                 verticalAlignment = Alignment.Top,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -176,13 +176,13 @@ fun MessageBubble(
                     modifier = Modifier
                         .size(28.dp)
                         .clip(CircleShape)
-                        .background(Color(0xFFEF4444).copy(alpha = 0.15f)),
+                        .background(colors.accentRed.copy(alpha = 0.15f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.Warning,
                         contentDescription = "Error",
-                        tint = Color(0xFFDC2626),
+                        tint = colors.accentRed,
                         modifier = Modifier.size(15.dp)
                     )
                 }
@@ -198,12 +198,12 @@ fun MessageBubble(
                         Box(
                             modifier = Modifier
                                 .clip(CircleShape)
-                                .background(Color(0xFFEF4444).copy(alpha = 0.18f))
+                                .background(colors.accentRed.copy(alpha = 0.18f))
                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                         ) {
                             Text(
                                 text = badgeText.uppercase(),
-                                color = Color(0xFFDC2626),
+                                color = colors.accentRed,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.Monospace
@@ -212,7 +212,7 @@ fun MessageBubble(
 
                         Text(
                             text = titleText,
-                            color = Color(0xFFDC2626),
+                            color = colors.accentRed,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -588,8 +588,8 @@ fun MessageBubble(
                         }
                         if (onUndoClick != null) {
                             DropdownMenuItem(
-                                text = { Text("撤回至此步骤", color = Color(0xFFDC2626)) },
-                                leadingIcon = { Icon(Icons.Default.Undo, contentDescription = "撤回至此步骤", tint = Color(0xFFDC2626)) },
+                                text = { Text("撤回至此步骤", color = colors.accentRed) },
+                                leadingIcon = { Icon(Icons.Default.Undo, contentDescription = "撤回至此步骤", tint = colors.accentRed) },
                                 onClick = {
                                     showContextMenu = false
                                     onUndoClick(message)

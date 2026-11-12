@@ -128,6 +128,8 @@ fun SwarmSheet(
                     tabs.forEachIndexed { index, title ->
                         Tab(
                             selected = selectedTab == index,
+                            selectedContentColor = colors.accentBlue,
+                            unselectedContentColor = colors.textSecondary,
                             onClick = { selectedTab = index },
                             text = {
                                 Text(

@@ -309,10 +309,7 @@ function buildAccountQuotaCard(acc, isCurrent) {
       <!-- 5. Bottom Full Width: Gemini 4 Carbon Weekly (Ultra exclusive) -->
       <div class="metric-box metric-box-full metric-box-carbon" title="${escapeHtml(carbonFullTitle)}">
         <div class="metric-box-header">
-          <div class="metric-box-title-wrap">
-            <span class="metric-box-title carbon">Gemini 4 Carbon Weekly</span>
-            <span class="carbon-micro-badge">✦ CARBON</span>
-          </div>
+          <span class="metric-box-title carbon">Gemini 4 Carbon Weekly</span>
           <span class="metric-box-value ${carbonStatusClass}">${carbon.remaining_percent.toFixed(1)}%</span>
         </div>
         <div class="metric-mini-track carbon-track">

@@ -124,8 +124,20 @@ fun ShareTargetSheet(
                 containerColor = Color.Transparent,
                 contentColor = colors.accentIndigo
             ) {
-                Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("新对话") })
-                Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("现有对话") })
+                Tab(
+                    selected = tab == 0,
+                    selectedContentColor = colors.accentIndigo,
+                    unselectedContentColor = colors.textSecondary,
+                    onClick = { tab = 0 },
+                    text = { Text("新对话") }
+                )
+                Tab(
+                    selected = tab == 1,
+                    selectedContentColor = colors.accentIndigo,
+                    unselectedContentColor = colors.textSecondary,
+                    onClick = { tab = 1 },
+                    text = { Text("现有对话") }
+                )
             }
 
             if (deliverable == 0) {
