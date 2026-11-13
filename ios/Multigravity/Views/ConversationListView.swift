@@ -130,6 +130,11 @@ public struct ConversationListView: View {
         .sheet(isPresented: $showAccountQuota) {
             AccountQuotaSheet(
                 quotaResponse: $viewModel.quotaResponse,
+                tokenHistory: viewModel.tokenHistory,
+                isLoadingTokenHistory: viewModel.isLoadingTokenHistory,
+                onLoadTokenHistory: { force in
+                    await viewModel.fetchTokenHistory(force: force)
+                },
                 onSwitch: { id in
                     try await viewModel.switchCockpitAccount(id: id)
                 },
@@ -247,6 +252,13 @@ public struct ConversationListView: View {
             if let targetId = notif.object as? String {
                 openConversationById(targetId)
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .startNewSessionForWorkspace)) { notif in
+            let wsName = (notif.object as? String) ?? ""
+            let cachedProjects = ProjectCacheManager.shared.loadProjects()
+            let project = cachedProjects.first(where: { !$0.isPureChat && ($0.name == wsName || $0.displayName == wsName) }) ?? ProjectItem.pureChat
+            let session = CacheManager.shared.createLocalDraftSession(project: project)
+            openConversation(session.toConversationItem())
         }
         .onOpenURL { url in
             if url.isFileURL {

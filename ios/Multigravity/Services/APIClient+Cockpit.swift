@@ -56,5 +56,26 @@ extension APIClient {
             throw APIError.serverError(statusCode: httpResp.statusCode, message: msg)
         }
     }
+
+    public func fetchTokenHistory(baseURL: URL, force: Bool = false) async throws -> TokenHistoryResponse {
+        var comps = URLComponents(url: baseURL.appendingPathComponent("api/v1/cockpit/tokens/history"), resolvingAgainstBaseURL: true)
+        if force {
+            comps?.queryItems = [URLQueryItem(name: "force", value: "true")]
+        }
+        guard let url = comps?.url else { throw APIError.invalidURL }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 20
+
+        let (data, response) = try await transport.send(request: request)
+        guard let httpResp = response as? HTTPURLResponse else {
+            throw APIError.networkError("Invalid response type")
+        }
+        guard (200...299).contains(httpResp.statusCode) else {
+            let msg = String(data: data, encoding: .utf8) ?? "HTTP \(httpResp.statusCode)"
+            throw APIError.serverError(statusCode: httpResp.statusCode, message: msg)
+        }
+        return try JSONDecoder().decode(TokenHistoryResponse.self, from: data)
+    }
     
 }

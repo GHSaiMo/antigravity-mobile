@@ -157,3 +157,36 @@ func normalizeErrKey(s string) string {
 	s = strings.TrimRight(s, ".:;, \t\r\n")
 	return s
 }
+
+// ClassifyErrorKind classifies an error message into standard diagnostic categories:
+// "context_overflow", "rate_limited", "network_error", "none", or "unknown"
+func ClassifyErrorKind(errText string) string {
+	if errText == "" {
+		return "none"
+	}
+	s := strings.ToLower(errText)
+	if strings.Contains(s, "context length") ||
+		strings.Contains(s, "maximum context") ||
+		strings.Contains(s, "context window") ||
+		strings.Contains(s, "prompt is too long") ||
+		strings.Contains(s, "exceeded the context") ||
+		strings.Contains(s, "token limit exceeded") ||
+		strings.Contains(s, "payload size exceeds") ||
+		strings.Contains(s, "context_overflow") {
+		return "context_overflow"
+	}
+	if strings.Contains(s, "429") ||
+		strings.Contains(s, "resource has been exhausted") ||
+		strings.Contains(s, "rate limit") ||
+		strings.Contains(s, "quota exceeded") {
+		return "rate_limited"
+	}
+	if strings.Contains(s, "connection refused") ||
+		strings.Contains(s, "timeout") ||
+		strings.Contains(s, "network error") ||
+		strings.Contains(s, "dial tcp") {
+		return "network_error"
+	}
+	return ""
+}
+

@@ -6829,3 +6829,369 @@ body.font-comfortable pre, body.font-comfortable code {
   padding: 4px 10px;
 }
 .link-health-detail { margin-top: 8px; font-size: 12px; color: var(--ios-tertiary-label, #8e8e93); }
+
+/* Context Ring & Speed Pill */
+.chat-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.context-ring-capsule {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(120, 120, 128, 0.12);
+  border-radius: 12px;
+  padding: 2px 7px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s ease;
+}
+.context-ring-capsule:hover {
+  background: rgba(120, 120, 128, 0.22);
+}
+.context-ring-svg {
+  transform: rotate(-90deg);
+}
+.context-ring-val {
+  transition: stroke-dasharray 0.3s ease, stroke 0.3s ease;
+  stroke: var(--ios-green, #34c759);
+}
+.context-ring-val.warn {
+  stroke: var(--ios-orange, #ff9500);
+}
+.context-ring-val.danger {
+  stroke: var(--ios-red, #ff3b30);
+  animation: pulse-danger 1.5s infinite;
+}
+@keyframes pulse-danger {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.context-ring-text {
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ios-label, #000);
+}
+.context-speed-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--ios-blue, #007aff);
+  background: rgba(0, 122, 255, 0.12);
+  border-radius: 6px;
+  padding: 1px 4px;
+}
+
+/* Segmented Control in Sheets */
+.sheet-segmented-bar {
+  display: flex;
+  background: rgba(120, 120, 128, 0.12);
+  border-radius: 9px;
+  padding: 3px;
+  margin: 10px 16px 14px;
+}
+.sheet-segment-btn {
+  flex: 1;
+  border: none;
+  background: transparent;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 7px;
+  color: var(--ios-secondary-label, #8e8e93);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.sheet-segment-btn.active {
+  background: var(--ios-card-bg, #fff);
+  color: var(--ios-label, #000);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+}
+
+/* Token KPI Cards */
+.token-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.token-kpi-card {
+  background: var(--ios-secondary-system-grouped-background, rgba(120, 120, 128, 0.08));
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.token-kpi-card.highlight {
+  grid-column: span 2;
+  background: rgba(0, 122, 255, 0.06);
+  border: 1px solid rgba(0, 122, 255, 0.15);
+}
+.token-kpi-label {
+  font-size: 12px;
+  color: var(--ios-secondary-label, #8e8e93);
+}
+.token-kpi-val {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ios-label, #000);
+}
+.token-kpi-cost {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.cost-usd {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--ios-blue, #007aff);
+}
+.cost-cny {
+  font-size: 13px;
+  color: var(--ios-secondary-label, #8e8e93);
+}
+.token-source-pill {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--ios-secondary-label, #8e8e93);
+  background: rgba(120, 120, 128, 0.06);
+  border-radius: 8px;
+  padding: 6px 12px;
+  margin-bottom: 16px;
+}
+
+/* 52-Week Calendar Heatmap */
+.heatmap-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--ios-label, #000);
+}
+.heatmap-legend {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--ios-tertiary-label, #8e8e93);
+}
+.heat-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  display: inline-block;
+}
+.heat-dot.level-0, .heat-cell.level-0 { background: rgba(120, 120, 128, 0.15); }
+.heat-dot.level-1, .heat-cell.level-1 { background: #9be9a8; }
+.heat-dot.level-2, .heat-cell.level-2 { background: #40c463; }
+.heat-dot.level-3, .heat-cell.level-3 { background: #30a14e; }
+.heat-dot.level-4, .heat-cell.level-4 { background: #216e39; }
+
+.heatmap-scroll-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 8px;
+  margin-bottom: 14px;
+}
+.token-heatmap-grid {
+  display: grid;
+  grid-template-rows: repeat(7, 11px);
+  grid-auto-flow: column;
+  grid-auto-columns: 11px;
+  gap: 3px;
+  width: max-content;
+}
+.heat-cell {
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: transform 0.1s ease;
+}
+.heat-cell:hover, .heat-cell.active {
+  transform: scale(1.35);
+  box-shadow: 0 0 0 1.5px var(--ios-blue, #007aff);
+  z-index: 2;
+}
+
+/* Inline Inspector Card */
+.token-inspector-card {
+  background: var(--ios-secondary-system-grouped-background, rgba(120, 120, 128, 0.08));
+  border-radius: 12px;
+  padding: 12px;
+  margin-bottom: 16px;
+}
+.inspector-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 0.5px solid rgba(120, 120, 128, 0.2);
+}
+.inspector-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+.inspector-row {
+  display: flex;
+  justify-content: space-between;
+}
+.inspector-models {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.inspector-model-tag {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  background: rgba(120, 120, 128, 0.1);
+  padding: 3px 8px;
+  border-radius: 5px;
+}
+
+/* Audit Sheet Components */
+.audit-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.audit-kpi-card {
+  background: var(--ios-secondary-system-grouped-background, rgba(120, 120, 128, 0.08));
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.audit-kpi-label {
+  font-size: 11px;
+  color: var(--ios-secondary-label, #8e8e93);
+}
+.audit-kpi-val {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ios-label, #000);
+}
+.audit-kpi-unit {
+  font-size: 12px;
+  font-weight: normal;
+  color: var(--ios-tertiary-label, #8e8e93);
+}
+.audit-progress-bar {
+  height: 4px;
+  background: rgba(120, 120, 128, 0.15);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+.audit-progress-fill {
+  height: 100%;
+  background: var(--ios-green, #34c759);
+  transition: width 0.3s ease;
+}
+.audit-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--ios-label, #000);
+}
+.audit-breakdown-card {
+  background: var(--ios-secondary-system-grouped-background, rgba(120, 120, 128, 0.08));
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.audit-breakdown-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+}
+.audit-actions-bar {
+  display: flex;
+  gap: 10px;
+}
+.audit-action-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: none;
+  font-size: 14px;
+  font-weight: 600;
+  background: var(--ios-blue, #007aff);
+  color: #fff;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+.audit-action-btn:active {
+  opacity: 0.8;
+}
+
+/* Smart Context Overflow Rescue Bubble */
+.rescue-bubble {
+  background: rgba(255, 59, 48, 0.08);
+  border: 1px solid rgba(255, 59, 48, 0.25);
+  border-radius: 14px;
+  padding: 14px;
+  margin: 10px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rescue-bubble-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ios-red, #ff3b30);
+}
+.rescue-bubble-desc {
+  font-size: 13px;
+  color: var(--ios-label, #000);
+  line-height: 1.4;
+}
+.rescue-bubble-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+.rescue-btn {
+  border: none;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.rescue-btn.primary {
+  background: var(--ios-red, #ff3b30);
+  color: #fff;
+}
+.rescue-btn.secondary {
+  background: rgba(120, 120, 128, 0.15);
+  color: var(--ios-label, #000);
+}
+

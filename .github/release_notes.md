@@ -1,24 +1,14 @@
-# 🚀 Multigravity v1.1.5
+# 🚀 Multigravity v1.1.6
 
 ### ✨ 核心新功能与重要更新
 
-- ⏰ **定时任务（Automations）移动端全链路打通与本地双保险（Go 网关 + iOS + Android）**：
-  - **官方 Language Server 协议精准对齐**：全面逆向并重构网关 `/gateway/automations` 与 `/gateway/automations/manage` 路由，精准适配 Antigravity Language Server `GetSidecars` 的层级结构，完整解析 Cron 表达式、Prompt 指令、DisplayName 与运行状态（RUNNING / STOPPED）；
-  - **纯本地磁盘双保险**：内置本地目录扫描机制，即使 Language Server 离线或休眠，网关直接扫描本地 `~/.gemini/config/sidecars/*/sidecar.json` 及 `config.json`，确保手机端随时随地秒级读取全部定时任务配置；
-  - **下次执行时间精准推算与上次记录**：从 `sidecar.log` 提取调度器排期的 UTC 时间并精准转换为本地时区时间（`NextRunAt`）；自动读取 `sidecar_data/<id>/events/*.json` 获取完整历史触发记录；
-  - **对话一键穿梭**：历史记录中携带每次定时触发生成的 `conversationId`，手机端点击记录即可直接在手机上打开当次生成的完整对话，查看执行产物与日志；
-  - **手机端「立即运行 (Run Now)」与启停控制**：网关对齐 `SIDECAR_ACTION_ENABLE`、`SIDECAR_ACTION_DISABLE`、`SIDECAR_ACTION_RESTART` 与官方原生的 `SIDECAR_ACTION_RUN_NOW`（立即执行一次）；iOS / Android 定时卡片新增「立即运行」按钮与「下次/上次」执行时间指示；设置页「MCP 工具与技能看板」副标题清晰标注涵盖「定时任务 / 后台」。
-- 🐝 **原生 `/swarm` 蜂群多智能体协同看板桌面级复刻（iOS & Android）**：
-  - 完整复刻 Antigravity 官方桌面端蜂群看板体验，像素风小蜜蜂头像（Pixel Bee Avatars）、@mention 消息流与协作板；
-  - 成员名单（Roster）与实时状态感知（waiting / working / stopped / killed）；
-  - 交互式蜂群拓扑图（Topology Graph），展现智能体之间的协作网络。
-- 💓 **连接心跳指示器（Go 网关 + iOS + Android + Web PWA）**：
-  - 首页额度条最右侧新增小圆点，一眼确认手机与电脑端是否真的连上：🟢 已连接（每次心跳轻微呼吸）、🟡 连接不稳 / 电脑端 Antigravity 未就绪 / 重连中、🔴 已断开；
-  - 网关在 `/gateway/events` 长连接上新增应用层 `beat` 帧（每 5 秒，携带电脑端状态，状态翻转立即推送），向后兼容旧客户端；旧网关下自动降级为「已连接」二态；
-  - 额度详情面板标题统一升级为「账户与配额」，界面更加紧凑纯粹；回到前台时若心跳过期会立即重连，不再沿用旧的绿点。
-- 📱 **看板搜索栏与定时任务视觉体验对齐 iOS（Android）**：
-  - 工具与任务看板搜索框全面对齐主页风格，移至屏幕最下方居中悬浮胶囊，内容滚动平滑穿过，提升大屏单手操作体验；
-  - 定时任务列表布局全面对齐 iOS 原生质感：新增清晰的「定时计划」与「最近触发记录」分组容器，任务卡片优化状态胶囊与药丸操作按钮，历史记录统一为内联分组列表并支持一键跳转对应会话。
-- 🎨 **视觉细节与暗黑模式适配优化**：
-  - 优化 Android 暗黑模式下文本与错误卡片配色显示，对齐 Ultra Aurora 渐变徽标质感；
-  - 统一外观菜单选择器与状态指示，多账号无感切换后平滑刷新模型目录。
+- 📊 **全端实时上下文水位环与生成速率监控（Go 网关 + iOS + Android + Web PWA）**：
+  - **官方 Language Server 元数据实时提取**：通过 `GetCascadeTrajectoryGeneratorMetadata` RPC 零侵入提取当前会话真实上下文占用（`usedTokens` / `maxTokens` / `percentage`）、Token 明细（Input / Cache Hit / Output / Thinking）以及生成性能指标（首字延迟 TTFT、流式耗时与实时输出速率 TPS），带 1.2s 高频防抖缓存并随 WebSocket 增量推送；
+  - **顶栏上下文圆环胶囊**：在会话顶部轮次胶囊旁内联 SVG / Canvas / SwiftUI 进度环胶囊（`<70%` 翠绿、`70%-89%` 警示橙、`≥90%` 红色脉冲提醒），生成期间实时展示 `⚡ t/s` 输出速率；
+  - **上下文审计面板（Audit Bottom Sheet）**：点击水位胶囊即可展开完整物理窗口占用进度条、TTFT / TPS / 流式耗时指标卡、最近一步 Token 构成明细，以及底部的「一键压缩 `/compact`」与「开启新会话」快捷入口。
+- 🔥 **Token 历史用量看板与 52 周热力图（Cockpit「账户与配额」全面升级）**：
+  - **免拆包本地全量扫描**：新增 `GET /api/v1/cockpit/tokens/history` 网关接口，自动扫描桌面端 Antigravity 与 `antigravity-cli` 的本地 `transcript.jsonl`（15s 内存缓存 + 文件 size/mtime 增量缓存，支持 `?force=true` 强制重扫），并按主流模型阶梯定价自动折算美元与人民币估算费用；
+  - **分段 Tab 与 GitHub 风格 52 周热力图**：iOS / Android / Web「账户与配额」面板新增「实时配额 | Token 历史」分段切换，展示今日 / 近 7 日 / 累计总 Token / IDE 与 CLI 占比 / API 折算 KPI 卡片、自动滚至最新一周的 52 周横向热力图，以及点击任意日期格即时刷新的内联明细检查器（Input / Cache / Output / Thinking 与 Top 模型分布）。
+- 🛟 **上下文溢出智能诊断与救援气泡（Smart Overflow Rescue）**：
+  - 网关侧 `ClassifyErrorKind` 自动识别 `context_overflow`、`rate_limited`、`network_error` 并注入结构化 `errorKind` / `isOverflow` 标记；
+  - 三端消息流遇上下文窗口超限错误时，自动将原始报错卡片替换为友好的橙色救援卡片，内嵌 **`一键压缩 /compact`** 与 **`开启新会话`** 动作按钮，支持原地延续当前工作区快速开启新草稿会话。

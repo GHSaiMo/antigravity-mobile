@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.CockpitAccountQuota
 import com.antigravity.mobile.data.model.CockpitQuotaBucket
 import com.antigravity.mobile.data.model.CockpitQuotaResponse
+import com.antigravity.mobile.data.model.TokenHistoryResponse
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 import java.text.SimpleDateFormat
 import java.util.*
@@ -51,11 +52,15 @@ fun AccountQuotaSheet(
     quotaData: CockpitQuotaResponse?,
     isRefreshing: Boolean,
     showWeeklyPaceCursor: Boolean = true,
+    tokenHistory: TokenHistoryResponse? = null,
+    isLoadingTokenHistory: Boolean = false,
+    onLoadTokenHistory: (Boolean) -> Unit = {},
     onRefresh: () -> Unit,
     onSwitchAccount: (String) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var selectedTab by remember { mutableIntStateOf(0) }
     var isMasked by remember { mutableStateOf(false) }
     var pendingSwitchAccount by remember { mutableStateOf<CockpitAccountQuota?>(null) }
     var paceDetailTitleAndInfo by remember { mutableStateOf<Pair<String, com.antigravity.mobile.data.model.WeeklyPaceInfo>?>(null) }
@@ -140,14 +145,17 @@ fun AccountQuotaSheet(
                 )
 
                 IconButton(
-                    onClick = onRefresh,
-                    enabled = !isRefreshing,
+                    onClick = {
+                        if (selectedTab == 0) onRefresh() else onLoadTokenHistory(true)
+                    },
+                    enabled = if (selectedTab == 0) !isRefreshing else !isLoadingTokenHistory,
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
                         .padding(end = 8.dp)
                         .size(34.dp)
                 ) {
-                    if (isRefreshing) {
+                    val spin = if (selectedTab == 0) isRefreshing else isLoadingTokenHistory
+                    if (spin) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(18.dp),
                             strokeWidth = 2.dp,
@@ -164,6 +172,44 @@ fun AccountQuotaSheet(
                 }
             }
 
+            // Segmented tabs: 实时配额 | Token 历史
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 10.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(colors.textMuted.copy(alpha = 0.12f))
+                    .padding(3.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                listOf("实时配额", "Token 历史").forEachIndexed { idx, label ->
+                    val active = selectedTab == idx
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (active) colors.surface else Color.Transparent)
+                            .clickable {
+                                selectedTab = idx
+                                if (idx == 1 && tokenHistory == null) {
+                                    onLoadTokenHistory(false)
+                                }
+                            }
+                            .padding(vertical = 6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = label,
+                            fontSize = 13.sp,
+                            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
+                            color = if (active) colors.textPrimary else colors.textSecondary,
+                            style = tightTextStyle
+                        )
+                    }
+                }
+            }
+
             HorizontalDivider(thickness = 0.5.dp, color = colors.border)
 
             Column(
@@ -175,6 +221,13 @@ fun AccountQuotaSheet(
                     .navigationBarsPadding(),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                if (selectedTab == 1) {
+                    TokenHistoryTabContent(
+                        tokenHistory = tokenHistory,
+                        isLoading = isLoadingTokenHistory,
+                        onRetry = { onLoadTokenHistory(true) }
+                    )
+                } else {
                 // Section 1: 当前使用账号
                 if (current != null) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -313,6 +366,7 @@ fun AccountQuotaSheet(
                             .wrapContentWidth(Alignment.CenterHorizontally)
                             .padding(top = 2.dp, bottom = 20.dp)
                     )
+                }
                 }
             }
         }

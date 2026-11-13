@@ -318,6 +318,28 @@ class MainActivity : ComponentActivity() {
                                 val subTitle = URLEncoder.encode(sub.displayName, "UTF-8")
                                 val subStatus = if (sub.isRunning) "RUNNING" else "IDLE"
                                 navController.navigate("chat/${sub.conversationId}/$subTitle?isNew=false&isUnread=false&status=$subStatus")
+                            },
+                            onStartNewSession = {
+                                val currentWs = chatViewModel.uiState.value.workspaceName
+                                val project = conversationListViewModel.projects.value.firstOrNull {
+                                    !it.isPureChat && (it.name == currentWs || it.displayName == currentWs)
+                                } ?: com.antigravity.mobile.data.model.ProjectItem.PURE_CHAT
+                                val draft = conversationListViewModel.createLocalDraftSession(project)
+                                val draftTitle = if (project.isPureChat) "新对话" else project.displayName
+                                chatViewModel.prepareSession(
+                                    cascadeId = draft.id,
+                                    initialTitle = draftTitle,
+                                    isNewConversation = true,
+                                    workspaceName = if (project.isPureChat) "Chat" else project.name,
+                                    isUnread = false,
+                                    conversationStatus = ConversationStatus.IDLE,
+                                    draftProject = project,
+                                    lastModifiedTime = null
+                                )
+                                val encodedDraftTitle = URLEncoder.encode(draftTitle, "UTF-8")
+                                navController.navigate("chat/${draft.id}/$encodedDraftTitle?isNew=true&isUnread=false&status=IDLE") {
+                                    popUpTo("conversations")
+                                }
                             }
                         )
                     }

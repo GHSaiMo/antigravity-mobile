@@ -57,6 +57,7 @@ var Features = []Feature{
 	{ID: "background_tasks", RPCs: []string{"ListBackgroundTasks"}},
 	{ID: "plugins", RPCs: []string{"GetAllPlugins", "InstallCascadePlugin", "ListPluginAuthProviders"}},
 	{ID: "automations", RPCs: []string{"GetSidecars", "GetSidecarEvents", "ManageSidecar"}},
+	{ID: "context_meter", RPCs: []string{"GetCascadeTrajectoryGeneratorMetadata"}},
 }
 
 // Compatibility is the result of comparing the running language_server with what the gateway needs.

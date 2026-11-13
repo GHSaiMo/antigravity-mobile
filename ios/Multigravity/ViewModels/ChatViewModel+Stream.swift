@@ -70,6 +70,7 @@ extension ChatViewModel {
         }
         if let name = payload.activeModelName, !name.isEmpty { self.activeModelName = name }
         if let started = payload.startedAt, !started.isEmpty { self.startedAt = started }
+        if let cm = payload.contextMeter { self.contextMeter = cm }
         
         if let title = payload.title?.trimmingCharacters(in: .whitespacesAndNewlines),
            !title.isEmpty, title != "未命名会话" {
@@ -116,7 +117,9 @@ extension ChatViewModel {
                     workflow: item.workflow,
                     timestamp: item.timestamp,
                     slashCommands: item.slashCommands,
-                    clientMessageId: item.clientMessageId
+                    clientMessageId: item.clientMessageId,
+                    errorKind: item.errorKind,
+                    isOverflow: item.isOverflow
                 )
             }
             var mergedParsedMessages: [ChatMessage] = []

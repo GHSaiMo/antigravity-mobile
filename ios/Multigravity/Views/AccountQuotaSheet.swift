@@ -11,7 +11,12 @@ public struct AccountQuotaSheet: View {
     @State private var errorMessage: String? = nil
     @State private var alertTitle: String = "操作失败"
     @State private var paceDetailItem: WeeklyPaceDetailItem? = nil
+    @State private var selectedTab: Int = 0
+    @State private var selectedHeatmapDate: String? = nil
     @Binding public var quotaResponse: CockpitQuotaResponse?
+    public let tokenHistory: TokenHistoryResponse?
+    public let isLoadingTokenHistory: Bool
+    public let onLoadTokenHistory: ((Bool) async -> Void)?
     public let onSwitch: ((String) async throws -> Void)?
     public let onRefresh: (() async throws -> Void)?
     public let onAppearFetch: (() async -> Void)?
@@ -23,6 +28,9 @@ public struct AccountQuotaSheet: View {
     
     public init(
         quotaResponse: Binding<CockpitQuotaResponse?>,
+        tokenHistory: TokenHistoryResponse? = nil,
+        isLoadingTokenHistory: Bool = false,
+        onLoadTokenHistory: ((Bool) async -> Void)? = nil,
         onSwitch: ((String) async throws -> Void)? = nil,
         onRefresh: (() async throws -> Void)? = nil,
         onAppearFetch: (() async -> Void)? = nil,
@@ -31,6 +39,9 @@ public struct AccountQuotaSheet: View {
     ) {
         self.linkMonitor = linkMonitor
         self._quotaResponse = quotaResponse
+        self.tokenHistory = tokenHistory
+        self.isLoadingTokenHistory = isLoadingTokenHistory
+        self.onLoadTokenHistory = onLoadTokenHistory
         self.onSwitch = onSwitch
         self.onRefresh = onRefresh
         self.onAppearFetch = onAppearFetch
@@ -98,63 +109,83 @@ public struct AccountQuotaSheet: View {
     
     public var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 18) {
-                    if let current = currentAccount {
-                        VStack(alignment: .leading, spacing: 10) {
-                            HStack {
-                                Text("当前使用账号")
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundColor(.secondary)
-                                    .textCase(.uppercase)
-                                
-                                Spacer()
-                                
-                                HStack(spacing: 4) {
-                                    Circle()
-                                        .fill(Color.blue)
-                                        .frame(width: 6, height: 6)
-                                    Text("使用中")
-                                        .font(.system(size: 11, weight: .semibold))
-                                        .foregroundColor(.blue)
-                                }
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
-                                .background(Color.blue.opacity(0.12))
-                                .clipShape(Capsule())
-                            }
-                            .padding(.horizontal, 4)
-                            
-                            accountCard(for: current, isCurrent: true)
-                        }
-                    }
-                    
-                    if quotaResponse?.needsCockpitInstall == true {
-                        cockpitInstallHintCard
-                    } else if !otherAccounts.isEmpty {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("备用账号 (\(otherAccounts.count))")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundColor(.secondary)
-                                .textCase(.uppercase)
-                                .padding(.horizontal, 4)
-                            
-                            ForEach(otherAccounts) { acc in
-                                accountCard(for: acc, isCurrent: false)
-                            }
-                        }
-                    }
-                    
-                    if let updated = quotaResponse?.updatedAt, updated > 0 {
-                        let date = Date(timeIntervalSince1970: Double(updated) / 1000.0)
-                        let timeStr = date.formatted(date: .omitted, time: .standard)
-                        Text("配额数据更新于 \(timeStr)")
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondary.opacity(0.7))
-                            .padding(.top, 4)
+            VStack(spacing: 0) {
+                Picker("视图模式", selection: $selectedTab) {
+                    Text("实时配额").tag(0)
+                    Text("Token 历史").tag(1)
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(Color(uiColor: .systemGroupedBackground))
+                .onChange(of: selectedTab) { _, newTab in
+                    if newTab == 1 && tokenHistory == nil {
+                        Task { await onLoadTokenHistory?(false) }
                     }
                 }
-                .padding(16)
+
+                ScrollView {
+                    VStack(spacing: 18) {
+                        if selectedTab == 1 {
+                            tokenHistorySection
+                        } else {
+                            if let current = currentAccount {
+                                VStack(alignment: .leading, spacing: 10) {
+                                    HStack {
+                                        Text("当前使用账号")
+                                            .font(.system(size: 13, weight: .semibold))
+                                            .foregroundColor(.secondary)
+                                            .textCase(.uppercase)
+                                        
+                                        Spacer()
+                                        
+                                        HStack(spacing: 4) {
+                                            Circle()
+                                                .fill(Color.blue)
+                                                .frame(width: 6, height: 6)
+                                            Text("使用中")
+                                                .font(.system(size: 11, weight: .semibold))
+                                                .foregroundColor(.blue)
+                                        }
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 3)
+                                        .background(Color.blue.opacity(0.12))
+                                        .clipShape(Capsule())
+                                    }
+                                    .padding(.horizontal, 4)
+                                    
+                                    accountCard(for: current, isCurrent: true)
+                                }
+                            }
+                            
+                            if quotaResponse?.needsCockpitInstall == true {
+                                cockpitInstallHintCard
+                            } else if !otherAccounts.isEmpty {
+                                VStack(alignment: .leading, spacing: 10) {
+                                    Text("备用账号 (\(otherAccounts.count))")
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundColor(.secondary)
+                                        .textCase(.uppercase)
+                                        .padding(.horizontal, 4)
+                                    
+                                    ForEach(otherAccounts) { acc in
+                                        accountCard(for: acc, isCurrent: false)
+                                    }
+                                }
+                            }
+                            
+                            if let updated = quotaResponse?.updatedAt, updated > 0 {
+                                let date = Date(timeIntervalSince1970: Double(updated) / 1000.0)
+                                let timeStr = date.formatted(date: .omitted, time: .standard)
+                                Text("配额数据更新于 \(timeStr)")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.secondary.opacity(0.7))
+                                    .padding(.top, 4)
+                            }
+                        }
+                    }
+                    .padding(16)
+                }
             }
             .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("账户与配额")
@@ -170,26 +201,31 @@ public struct AccountQuotaSheet: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(action: {
                         Task {
-                            await performRefresh()
+                            if selectedTab == 0 {
+                                await performRefresh()
+                            } else {
+                                await onLoadTokenHistory?(true)
+                            }
                         }
                     }) {
+                        let spinning = selectedTab == 0 ? isRefreshing : isLoadingTokenHistory
                         if #available(iOS 18.0, *) {
                             Image(systemName: "arrow.clockwise")
                                 .font(.system(size: 15, weight: .semibold))
-                                .symbolEffect(.rotate.clockwise, isActive: isRefreshing)
+                                .symbolEffect(.rotate.clockwise, isActive: spinning)
                         } else {
                             Image(systemName: "arrow.clockwise")
                                 .font(.system(size: 15, weight: .semibold))
-                                .rotationEffect(.degrees(isRefreshing ? 360 : 0))
+                                .rotationEffect(.degrees(spinning ? 360 : 0))
                                 .animation(
-                                    isRefreshing
+                                    spinning
                                         ? .linear(duration: 1).repeatForever(autoreverses: false)
                                         : .default,
-                                    value: isRefreshing
+                                    value: spinning
                                 )
                         }
                     }
-                    .disabled(isRefreshing || switchingAccountId != nil)
+                    .disabled((selectedTab == 0 ? isRefreshing : isLoadingTokenHistory) || switchingAccountId != nil)
                 }
             }
             .presentationDragIndicator(.visible)
@@ -790,5 +826,258 @@ private struct WeeklyPaceDetailSheet: View {
                 .font(.system(size: 13, weight: isPrimary ? .semibold : .medium))
                 .foregroundColor(color ?? (isPrimary ? .primary : .secondary))
         }
+    }
+}
+
+extension AccountQuotaSheet {
+    @ViewBuilder
+    var tokenHistorySection: some View {
+        if tokenHistory == nil && isLoadingTokenHistory {
+            VStack(spacing: 12) {
+                ProgressView()
+                Text("正在统计本地 Transcript Token 历史...")
+                    .font(.system(size: 13))
+                    .foregroundColor(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 48)
+        } else if let history = tokenHistory {
+            let s = history.summary
+            let matrix = history.dailyMatrix
+            let activeDate = selectedHeatmapDate
+                ?? matrix.last(where: { $0.total > 0 })?.date
+                ?? matrix.last?.date
+            let selectedRec = matrix.first(where: { $0.date == activeDate })
+
+            VStack(spacing: 14) {
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
+                    tokenKpiCard(title: "今日消耗", value: Self.formatTokensCompact(s.todayTokens), sub: "\(s.activeDays) 活跃日")
+                    tokenKpiCard(title: "近 7 日", value: Self.formatTokensCompact(s.last7dTokens), sub: "\(s.totalSteps) 轮采样")
+                    tokenKpiCard(title: "累计总 Token", value: Self.formatTokensCompact(s.totalTokens), sub: "IDE \(Self.formatTokensCompact(s.desktopTokens)) · CLI \(Self.formatTokensCompact(s.cliTokens))")
+                    tokenKpiCard(title: "API 折算", value: String(format: "$%.2f", s.estimatedCostUsd), sub: String(format: "≈ ¥%.1f", s.estimatedCostCny))
+                }
+
+                let totalSrc = max(Int64(1), s.desktopTokens + s.cliTokens)
+                let desktopPct = Int((Double(s.desktopTokens) * 100.0) / Double(totalSrc))
+                let cliPct = s.cliTokens > 0 ? (100 - desktopPct) : 0
+                HStack {
+                    Text("桌面端 Antigravity \(desktopPct)% · CLI \(cliPct)%")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text("近 52 周热力图")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary.opacity(0.75))
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .background(Color(uiColor: .secondarySystemGroupedBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+
+                tokenHeatmapCard(matrix: matrix, selectedDate: activeDate)
+
+                if let rec = selectedRec {
+                    tokenInspectorCard(record: rec)
+                }
+
+                if history.updatedAt > 0 {
+                    let date = Date(timeIntervalSince1970: Double(history.updatedAt))
+                    Text("本地历史扫描于 \(date.formatted(date: .omitted, time: .standard))")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary.opacity(0.7))
+                        .padding(.top, 2)
+                }
+            }
+        } else {
+            VStack(spacing: 12) {
+                Text("暂无 Token 历史数据")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.secondary)
+                Button("点击加载") {
+                    Task { await onLoadTokenHistory?(true) }
+                }
+                .buttonStyle(.bordered)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 44)
+        }
+    }
+
+    private func tokenKpiCard(title: String, value: String, sub: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+            Text(value)
+                .font(.system(size: 18, weight: .bold, design: .monospaced))
+                .foregroundColor(.primary)
+                .lineLimit(1)
+            Text(sub)
+                .font(.system(size: 11))
+                .foregroundColor(.secondary.opacity(0.8))
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func tokenHeatmapCard(matrix: [DailyTokenRecord], selectedDate: String?) -> some View {
+        let maxTotal = max(Int64(1), matrix.map(\.total).max() ?? 1)
+        let weeks = Self.buildHeatmapWeeks(matrix)
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("每日活跃密度")
+                    .font(.system(size: 12, weight: .semibold))
+                Spacer()
+                HStack(spacing: 3) {
+                    Text("少").font(.system(size: 10)).foregroundColor(.secondary)
+                    ForEach(0..<5, id: \.self) { lvl in
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(Self.heatColor(level: lvl))
+                            .frame(width: 9, height: 9)
+                    }
+                    Text("多").font(.system(size: 10)).foregroundColor(.secondary)
+                }
+            }
+
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 3) {
+                        ForEach(Array(weeks.enumerated()), id: \.offset) { wIdx, week in
+                            VStack(spacing: 3) {
+                                ForEach(0..<7, id: \.self) { dIdx in
+                                    if dIdx < week.count, let rec = week[dIdx] {
+                                        let ratio = Double(rec.total) / Double(maxTotal)
+                                        let level: Int = {
+                                            if rec.total <= 0 { return 0 }
+                                            if ratio < 0.2 { return 1 }
+                                            if ratio < 0.45 { return 2 }
+                                            if ratio < 0.75 { return 3 }
+                                            return 4
+                                        }()
+                                        let isSel = (rec.date == selectedDate)
+                                        RoundedRectangle(cornerRadius: 2.5)
+                                            .fill(Self.heatColor(level: level))
+                                            .frame(width: 12, height: 12)
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 2.5)
+                                                    .stroke(isSel ? Color.blue : Color.clear, lineWidth: 1.5)
+                                            )
+                                            .onTapGesture {
+                                                selectedHeatmapDate = rec.date
+                                            }
+                                    } else {
+                                        Color.clear.frame(width: 12, height: 12)
+                                    }
+                                }
+                            }
+                            .id("week_\(wIdx)")
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+                .onAppear {
+                    if !weeks.isEmpty {
+                        proxy.scrollTo("week_\(weeks.count - 1)", anchor: .trailing)
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func tokenInspectorCard(record: DailyTokenRecord) -> some View {
+        let topModels = record.models.sorted { $0.value > $1.value }.prefix(4)
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("\(record.date) 用量明细")
+                    .font(.system(size: 13, weight: .semibold))
+                Spacer()
+                Text("\(Self.formatTokensCompact(record.total)) · $\(String(format: "%.3f", record.costUsd))")
+                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                    .foregroundColor(.blue)
+            }
+            Divider()
+            HStack {
+                inspectorCell("Input", Self.formatTokensCompact(record.input))
+                Spacer()
+                inspectorCell("Cache Hit", Self.formatTokensCompact(record.cacheRead))
+                Spacer()
+                inspectorCell("Output", Self.formatTokensCompact(record.output))
+                Spacer()
+                inspectorCell("Thinking", Self.formatTokensCompact(record.thinking))
+            }
+            if !topModels.isEmpty {
+                Divider()
+                VStack(spacing: 4) {
+                    ForEach(Array(topModels), id: \.key) { pair in
+                        HStack {
+                            Text(pair.key)
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                            Spacer()
+                            Text(Self.formatTokensCompact(pair.value))
+                                .font(.system(size: 11, design: .monospaced))
+                        }
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func inspectorCell(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label).font(.system(size: 10)).foregroundColor(.secondary)
+            Text(value).font(.system(size: 12, weight: .semibold, design: .monospaced))
+        }
+    }
+
+    private static func buildHeatmapWeeks(_ matrix: [DailyTokenRecord]) -> [[DailyTokenRecord?]] {
+        guard !matrix.isEmpty else { return [] }
+        let df = DateFormatter()
+        df.locale = Locale(identifier: "en_US_POSIX")
+        df.dateFormat = "yyyy-MM-dd"
+        let cal = Calendar.current
+        var padStart = 0
+        if let firstDate = df.date(from: matrix[0].date) {
+            padStart = max(0, cal.component(.weekday, from: firstDate) - 1)
+        }
+        var padded: [DailyTokenRecord?] = Array(repeating: nil, count: padStart)
+        padded.append(contentsOf: matrix.map { Optional.some($0) })
+        var weeks: [[DailyTokenRecord?]] = []
+        var idx = 0
+        while idx < padded.count {
+            let end = min(idx + 7, padded.count)
+            weeks.append(Array(padded[idx..<end]))
+            idx = end
+        }
+        return weeks
+    }
+
+    private static func heatColor(level: Int) -> Color {
+        switch level {
+        case 0: return Color.secondary.opacity(0.14)
+        case 1: return Color(red: 0.61, green: 0.91, blue: 0.66).opacity(0.7)
+        case 2: return Color(red: 0.25, green: 0.77, blue: 0.39).opacity(0.85)
+        case 3: return Color(red: 0.19, green: 0.63, blue: 0.31)
+        default: return Color(red: 0.13, green: 0.43, blue: 0.22)
+        }
+    }
+
+    public static func formatTokensCompact(_ tokens: Int64) -> String {
+        if tokens >= 1_000_000_000 { return String(format: "%.2fB", Double(tokens) / 1_000_000_000.0) }
+        if tokens >= 1_000_000 { return String(format: "%.2fM", Double(tokens) / 1_000_000.0) }
+        if tokens >= 1_000 { return String(format: "%.1fK", Double(tokens) / 1_000.0) }
+        return "\(tokens)"
     }
 }

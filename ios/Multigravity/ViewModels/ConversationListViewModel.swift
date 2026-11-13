@@ -11,6 +11,8 @@ public final class ConversationListViewModel {
     public var errorMessage: String? = nil
     
     public var quotaResponse: CockpitQuotaResponse? = nil
+    public var tokenHistory: TokenHistoryResponse? = nil
+    public var isLoadingTokenHistory: Bool = false
     public var globalBackgroundTasks: [GlobalBackgroundTaskItem] = []
     
     private let apiClient: APIClient
@@ -394,6 +396,20 @@ public final class ConversationListViewModel {
             self.lastQuotaFetchTime = now
         } catch {
             // Silently ignore quota fetch error to not disturb chat list
+        }
+    }
+
+    @MainActor
+    public func fetchTokenHistory(force: Bool = false) async {
+        guard settings.isPaired else { return }
+        if !force && tokenHistory != nil && isLoadingTokenHistory { return }
+        guard let url = settings.serverURL else { return }
+        isLoadingTokenHistory = true
+        defer { isLoadingTokenHistory = false }
+        do {
+            self.tokenHistory = try await apiClient.fetchTokenHistory(baseURL: url, force: force)
+        } catch {
+            // Silently ignore token history error
         }
     }
     

@@ -156,7 +156,8 @@ fun ChatScreen(
     isNewConversation: Boolean = false,
     isUnreadOnEntry: Boolean = false,
     initialStatus: com.antigravity.mobile.data.model.ConversationStatus? = null,
-    onOpenSubagent: (com.antigravity.mobile.data.model.SubagentItem) -> Unit = {}
+    onOpenSubagent: (com.antigravity.mobile.data.model.SubagentItem) -> Unit = {},
+    onStartNewSession: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val haptic = rememberHaptic()
@@ -193,6 +194,7 @@ fun ChatScreen(
     var showNavigatorSheet by remember { mutableStateOf(false) }
     var showMcpSkillsSheet by remember { mutableStateOf(false) }
     var showSwarmSheet by remember { mutableStateOf(false) }
+    var showContextAuditSheet by remember { mutableStateOf(false) }
     var showSendQueuedNowConfirmDialog by remember { mutableStateOf(false) }
     var queuedItemToSendNow by remember { mutableStateOf<com.antigravity.mobile.data.model.QueuedMessageItem?>(null) }
     var lockedTurnIndex by remember { mutableStateOf<Int?>(null) }
@@ -890,35 +892,61 @@ fun ChatScreen(
                             Spacer(modifier = Modifier.height(2.dp))
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(colors.accentIndigo.copy(alpha = 0.09f))
-                                    .padding(horizontal = 6.dp, vertical = 1.5.dp)
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Text(
-                                    text = "第 $currentTurnIndex/${turns.size} 轮",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = colors.accentIndigo
-                                )
-                                Spacer(modifier = Modifier.width(2.dp))
-                                Icon(
-                                    imageVector = Icons.Default.KeyboardArrowDown,
-                                    contentDescription = null,
-                                    tint = colors.accentIndigo,
-                                    modifier = Modifier.size(11.dp)
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(colors.accentIndigo.copy(alpha = 0.09f))
+                                        .padding(horizontal = 6.dp, vertical = 1.5.dp)
+                                ) {
+                                    Text(
+                                        text = "第 $currentTurnIndex/${turns.size} 轮",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = colors.accentIndigo
+                                    )
+                                    Spacer(modifier = Modifier.width(2.dp))
+                                    Icon(
+                                        imageVector = Icons.Default.KeyboardArrowDown,
+                                        contentDescription = null,
+                                        tint = colors.accentIndigo,
+                                        modifier = Modifier.size(11.dp)
+                                    )
+                                }
+                                ContextRingCapsule(
+                                    meter = uiState.contextMeter,
+                                    isRunning = uiState.isRunning || uiState.isAwaitingResponse,
+                                    onClick = {
+                                        haptic.light()
+                                        showContextAuditSheet = true
+                                    }
                                 )
                             }
                         }
                     } else {
-                        Text(
-                            text = uiState.title,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 16.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            color = colors.textPrimary
-                        )
+                        Column {
+                            Text(
+                                text = uiState.title,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 16.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                color = colors.textPrimary
+                            )
+                            if (uiState.contextMeter != null) {
+                                Spacer(modifier = Modifier.height(2.dp))
+                                ContextRingCapsule(
+                                    meter = uiState.contextMeter,
+                                    isRunning = uiState.isRunning || uiState.isAwaitingResponse,
+                                    onClick = {
+                                        haptic.light()
+                                        showContextAuditSheet = true
+                                    }
+                                )
+                            }
+                        }
                     }
                 },
                 navigationIcon = {
@@ -1091,6 +1119,8 @@ fun ChatScreen(
                                             viewModel.openImageViewer(items = items, initialIndex = index)
                                         },
                                         onSubagentClick = openSubagent,
+                                        onCompactClick = { viewModel.sendCompactCommand() },
+                                        onStartNewSessionClick = onStartNewSession,
                                         onUndoClick = if (compat.isAvailable(com.antigravity.mobile.data.model.GatewayFeature.REVERT)) {
                                             { target -> viewModel.requestUndo(target) }
                                         } else null,
@@ -1705,6 +1735,18 @@ fun ChatScreen(
             },
             onDismiss = { showNavigatorSheet = false }
         )
+    }
+
+    if (showContextAuditSheet) {
+        uiState.contextMeter?.let { meter ->
+            ContextAuditSheet(
+                meter = meter,
+                canCompact = !uiState.cascadeId.startsWith("local_draft_") && uiState.parentConversationId.isNullOrBlank(),
+                onCompact = { viewModel.sendCompactCommand() },
+                onStartNewSession = onStartNewSession,
+                onDismiss = { showContextAuditSheet = false }
+            )
+        }
     }
 
     // MCP 工具与技能看板 / 全局后台任务中心

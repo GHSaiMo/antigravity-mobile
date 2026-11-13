@@ -330,6 +330,7 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 			if parsed.isAttempt {
 				formatted = formatAttemptError(parsed.prefix, parsed.attempt, parsed.maxAttempts, parsed.baseError)
 			}
+			errKind := ClassifyErrorKind(rawErrText)
 
 			allMessages = append(allMessages, CascadeMessageItem{
 				ID:           fmt.Sprintf("step-%d", idx),
@@ -340,6 +341,8 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 				AttemptCount: parsed.attempt,
 				MaxAttempts:  parsed.maxAttempts,
 				Timestamp:    s.Metadata.CreatedAt,
+				ErrorKind:    errKind,
+				IsOverflow:   errKind == "context_overflow",
 			})
 		} else if strings.HasPrefix(stepType, "CORTEX_STEP_TYPE_") && stepType != "CORTEX_STEP_TYPE_SYSTEM_MESSAGE" && stepType != "CORTEX_STEP_TYPE_ERROR_MESSAGE" {
 			pendingTools++

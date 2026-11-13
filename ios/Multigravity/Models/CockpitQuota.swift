@@ -155,3 +155,73 @@ public struct WeeklyPaceInfo: Sendable {
         windowHours <= 5.0 ? "5小时" : "7天"
     }
 }
+
+public struct DailyTokenRecord: Codable, Identifiable, Sendable, Equatable {
+    public var id: String { date }
+    public let date: String
+    public let total: Int64
+    public let input: Int64
+    public let output: Int64
+    public let cacheRead: Int64
+    public let thinking: Int64
+    public let steps: Int
+    public let costUsd: Double
+    public let models: [String: Int64]
+
+    enum CodingKeys: String, CodingKey {
+        case date, total, input, output, thinking, steps, models
+        case cacheRead = "cache_read"
+        case costUsd = "cost_usd"
+    }
+}
+
+public struct TokenHistorySummary: Codable, Sendable, Equatable {
+    public let totalTokens: Int64
+    public let todayTokens: Int64
+    public let last7dTokens: Int64
+    public let desktopTokens: Int64
+    public let cliTokens: Int64
+    public let estimatedCostUsd: Double
+    public let estimatedCostCny: Double
+    public let activeDays: Int
+    public let totalSteps: Int
+
+    enum CodingKeys: String, CodingKey {
+        case totalTokens = "total_tokens"
+        case todayTokens = "today_tokens"
+        case last7dTokens = "last_7d_tokens"
+        case desktopTokens = "desktop_tokens"
+        case cliTokens = "cli_tokens"
+        case estimatedCostUsd = "estimated_cost_usd"
+        case estimatedCostCny = "estimated_cost_cny"
+        case activeDays = "active_days"
+        case totalSteps = "total_steps"
+    }
+}
+
+public struct TokenHistoryResponse: Codable, Sendable, Equatable {
+    public let updatedAt: Int64
+    public let summary: TokenHistorySummary
+    public let dailyMatrix: [DailyTokenRecord]
+
+    enum CodingKeys: String, CodingKey {
+        case summary
+        case updatedAt = "updated_at"
+        case dailyMatrix = "daily_matrix"
+    }
+}
+
+public struct ContextMeterItem: Codable, Sendable, Equatable {
+    public let usedTokens: Int64
+    public let maxTokens: Int64
+    public let percentage: Double
+    public let inputTokens: Int64?
+    public let outputTokens: Int64?
+    public let cacheReadTokens: Int64?
+    public let thinkingTokens: Int64?
+    public let timeToFirstTokenSec: Double?
+    public let streamingDurationSec: Double?
+    public let tokensPerSecond: Double?
+    public let isOverflow: Bool?
+    public let errorKind: String?
+}

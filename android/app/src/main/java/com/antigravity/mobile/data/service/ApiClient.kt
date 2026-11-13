@@ -276,6 +276,28 @@ class ApiClient(
     }
 
     /**
+     * Fetch Cockpit Token History & 52-week Heatmap
+     */
+    suspend fun fetchTokenHistory(force: Boolean = false): Result<TokenHistoryResponse> = withContext(Dispatchers.IO) {
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val url = "$baseUrl/api/v1/cockpit/tokens/history" + if (force) "?force=true" else ""
+
+        try {
+            val req = buildAuthorizedRequest(url).get().build()
+            client.newCall(req).await().use { response ->
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(RuntimeException("获取 Token 历史失败 (${response.code})"))
+                }
+                val bodyStr = response.body?.string() ?: "{}"
+                val historyResp = json.decodeFromString<TokenHistoryResponse>(bodyStr)
+                Result.success(historyResp)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
      * Refresh Cockpit Quota
      */
     suspend fun refreshCockpitQuotas(): Result<CockpitQuotaResponse> = withContext(Dispatchers.IO) {

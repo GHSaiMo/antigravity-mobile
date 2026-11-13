@@ -578,6 +578,7 @@ public enum SlashCommandTextTokenizer {
 
 public extension Notification.Name {
     static let openConversationFromTaskCenter = Notification.Name("openConversationFromTaskCenter")
+    static let startNewSessionForWorkspace = Notification.Name("startNewSessionForWorkspace")
 }
 
 public struct GlobalBackgroundTaskItem: Codable, Sendable, Identifiable, Equatable {

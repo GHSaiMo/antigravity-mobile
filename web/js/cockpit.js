@@ -563,6 +563,7 @@ function initQuotaModule() {
   // Initial fetch
   fetchCockpitQuotas();
   fetchGlobalBackgroundTasksBar();
+  initQuotaTabs();
 
   // Periodic poll every 5 minutes (300,000 ms) while app is open
   setInterval(() => {
@@ -606,4 +607,203 @@ async function fetchGlobalBackgroundTasksBar() {
       }
     };
   } catch { /* ignore */ }
+}
+
+// ==========================================================================
+// Token History & 52-Week Heatmap Module
+// ==========================================================================
+
+let currentTokenHistory = null;
+let selectedHeatCell = null;
+
+function initQuotaTabs() {
+  const bar = document.getElementById("quota-segmented-bar");
+  if (!bar) return;
+
+  const btns = bar.querySelectorAll(".sheet-segment-btn");
+  btns.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const targetTab = btn.getAttribute("data-tab");
+      btns.forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+
+      const realtimeContent = document.getElementById("quota-tab-realtime");
+      const historyContent = document.getElementById("quota-tab-history");
+
+      if (targetTab === "history") {
+        if (realtimeContent) realtimeContent.classList.add("hidden");
+        if (historyContent) historyContent.classList.remove("hidden");
+        if (!currentTokenHistory) {
+          fetchTokenHistory();
+        } else {
+          renderTokenHistory(currentTokenHistory);
+        }
+      } else {
+        if (historyContent) historyContent.classList.add("hidden");
+        if (realtimeContent) realtimeContent.classList.remove("hidden");
+      }
+    });
+  });
+}
+
+function formatTokensCompact(n) {
+  if (n == null || isNaN(n)) return "0";
+  if (n >= 1e9) return (n / 1e9).toFixed(2) + "B";
+  if (n >= 1e6) return (n / 1e6).toFixed(2) + "M";
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + "k";
+  return String(n);
+}
+
+async function fetchTokenHistory(force = false) {
+  try {
+    const resp = await fetch("/api/v1/cockpit/tokens/history" + (force ? "?force=true" : ""));
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    const data = await resp.json();
+    currentTokenHistory = data;
+    renderTokenHistory(data);
+  } catch (err) {
+    console.warn("[TokenHistory] Failed to load token history:", err);
+  }
+}
+
+function renderTokenHistory(data) {
+  if (!data || !data.summary) return;
+  const s = data.summary;
+
+  const todayEl = document.getElementById("kpi-today-tokens");
+  const last7dEl = document.getElementById("kpi-7d-tokens");
+  const totalEl = document.getElementById("kpi-total-tokens");
+  const costUsdEl = document.getElementById("kpi-cost-usd");
+  const costCnyEl = document.getElementById("kpi-cost-cny");
+  const desktopEl = document.getElementById("kpi-desktop-split");
+  const cliEl = document.getElementById("kpi-cli-split");
+
+  if (todayEl) todayEl.textContent = formatTokensCompact(s.today_tokens);
+  if (last7dEl) last7dEl.textContent = formatTokensCompact(s.last_7d_tokens);
+  if (totalEl) totalEl.textContent = formatTokensCompact(s.total_tokens);
+  if (costUsdEl) costUsdEl.textContent = "$" + (s.estimated_cost_usd || 0).toFixed(2);
+  if (costCnyEl) costCnyEl.textContent = "≈ ¥" + (s.estimated_cost_cny || 0).toFixed(2);
+
+  const deskPct = s.total_tokens > 0 ? Math.round((s.desktop_tokens / s.total_tokens) * 100) : 0;
+  const cliPct = s.total_tokens > 0 ? Math.round((s.cli_tokens / s.total_tokens) * 100) : 0;
+  if (desktopEl) desktopEl.textContent = `桌面端: ${formatTokensCompact(s.desktop_tokens)} (${deskPct}%)`;
+  if (cliEl) cliEl.textContent = `CLI 端: ${formatTokensCompact(s.cli_tokens)} (${cliPct}%)`;
+
+  renderHeatmap(data.daily_matrix || []);
+}
+
+function renderHeatmap(matrix) {
+  const container = document.getElementById("token-heatmap-grid");
+  const scrollWrap = document.getElementById("heatmap-scroll-wrap");
+  if (!container) return;
+
+  container.innerHTML = "";
+
+  const recordMap = {};
+  let maxDayTokens = 1;
+  matrix.forEach((rec) => {
+    recordMap[rec.date] = rec;
+    if (rec.total > maxDayTokens) {
+      maxDayTokens = rec.total;
+    }
+  });
+
+  // Calculate 52 weeks (364 days ending today)
+  const today = new Date();
+  const dayOfWeek = today.getDay(); // 0 is Sunday, 6 is Saturday
+  const totalDays = 52 * 7 + (dayOfWeek + 1);
+  const startDate = new Date(today);
+  startDate.setDate(today.getDate() - totalDays + 1);
+
+  const cells = [];
+  const cur = new Date(startDate);
+
+  while (cur <= today) {
+    const y = cur.getFullYear();
+    const m = String(cur.getMonth() + 1).padStart(2, "0");
+    const d = String(cur.getDate()).padStart(2, "0");
+    const dateStr = `${y}-${m}-${d}`;
+
+    const rec = recordMap[dateStr] || {
+      date: dateStr,
+      total: 0,
+      input: 0,
+      output: 0,
+      cache_read: 0,
+      steps: 0,
+      cost_usd: 0,
+    };
+
+    let level = 0;
+    if (rec.total > 0) {
+      const ratio = rec.total / maxDayTokens;
+      if (ratio > 0.7) level = 4;
+      else if (ratio > 0.4) level = 3;
+      else if (ratio > 0.15) level = 2;
+      else level = 1;
+    }
+
+    const cell = document.createElement("div");
+    cell.className = `heat-cell level-${level}`;
+    cell.setAttribute("data-date", dateStr);
+    cell.title = `${dateStr}: ${rec.total ? rec.total.toLocaleString() : "0"} tokens`;
+
+    cell.addEventListener("click", () => {
+      if (selectedHeatCell) selectedHeatCell.classList.remove("active");
+      cell.classList.add("active");
+      selectedHeatCell = cell;
+      renderInspector(rec);
+    });
+
+    container.appendChild(cell);
+    cells.push({ dateStr, cell, rec });
+    cur.setDate(cur.getDate() + 1);
+  }
+
+  // Auto-scroll to the rightmost (most recent)
+  if (scrollWrap) {
+    requestAnimationFrame(() => {
+      scrollWrap.scrollLeft = scrollWrap.scrollWidth;
+    });
+  }
+
+  // Pre-select today
+  const last = cells[cells.length - 1];
+  if (last) {
+    last.cell.classList.add("active");
+    selectedHeatCell = last.cell;
+    renderInspector(last.rec);
+  }
+}
+
+function renderInspector(rec) {
+  const card = document.getElementById("token-inspector-card");
+  if (!card || !rec) return;
+
+  const dateEl = document.getElementById("inspector-date");
+  const costEl = document.getElementById("inspector-cost");
+  const totalEl = document.getElementById("inspector-total");
+  const breakdownEl = document.getElementById("inspector-breakdown");
+  const stepsEl = document.getElementById("inspector-steps");
+  const modelsContainer = document.getElementById("inspector-models");
+
+  if (dateEl) dateEl.textContent = rec.date || "当日明细";
+  if (costEl) costEl.textContent = rec.cost_usd ? `参考 API: $${rec.cost_usd.toFixed(4)}` : "$0.00";
+  if (totalEl) totalEl.textContent = (rec.total || 0).toLocaleString() + " Tokens";
+  if (breakdownEl) {
+    breakdownEl.textContent = `输入 ${(rec.input || 0).toLocaleString()} · 缓存 ${(rec.cache_read || 0).toLocaleString()} · 输出 ${(rec.output || 0).toLocaleString()}`;
+  }
+  if (stepsEl) stepsEl.textContent = `${rec.steps || 0} 轮交互`;
+
+  if (modelsContainer) {
+    modelsContainer.innerHTML = "";
+    if (rec.models && Object.keys(rec.models).length > 0) {
+      Object.entries(rec.models).forEach(([modelName, tokens]) => {
+        const tag = document.createElement("div");
+        tag.className = "inspector-model-tag";
+        tag.innerHTML = `<span>${escapeHtml(modelName)}</span><strong>${tokens.toLocaleString()}</strong>`;
+        modelsContainer.appendChild(tag);
+      });
+    }
+  }
 }

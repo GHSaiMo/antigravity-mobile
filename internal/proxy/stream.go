@@ -44,6 +44,7 @@ type StreamUpdatePayload struct {
 	ModelDisplayName   string               `json:"modelDisplayName,omitempty"`
 	StartedAt          string               `json:"startedAt,omitempty"`
 	Swarm              *SwarmBrief          `json:"swarm,omitempty"`
+	ContextMeter       *ContextMeterItem    `json:"contextMeter,omitempty"`
 
 	// Delta framing, only set for clients that connect with delta=1 (see streamDeltaState).
 	Delta      bool     `json:"delta,omitempty"`
@@ -91,8 +92,12 @@ func (p *StreamUpdatePayload) Fingerprint() string {
 	if p.Swarm != nil && p.Swarm.Active {
 		swarmKey = fmt.Sprintf("%s:%d:%d:%d:%d:%s", p.Swarm.CoordinatorID, p.Swarm.WorkingCount, p.Swarm.TotalMembers, p.Swarm.LatestSeq, p.Swarm.AttentionCount, p.Swarm.Phase)
 	}
+	cmKey := "none"
+	if p.ContextMeter != nil {
+		cmKey = fmt.Sprintf("%d:%d:%.1f", p.ContextMeter.UsedTokens, p.ContextMeter.OutputTokens, p.ContextMeter.TokensPerSecond)
+	}
 	if len(p.Steps) == 0 {
-		return fmt.Sprintf("%s:%t:%s:%t:%s:%s:%s:%s:%s:%s", p.Status, p.HasError, msgsKey, p.CanProceed, piKey, queuedKey, tasksKey, p.ActiveModel, p.Title, swarmKey)
+		return fmt.Sprintf("%s:%t:%s:%t:%s:%s:%s:%s:%s:%s:%s", p.Status, p.HasError, msgsKey, p.CanProceed, piKey, queuedKey, tasksKey, p.ActiveModel, p.Title, swarmKey, cmKey)
 	}
 	last := p.Steps[len(p.Steps)-1]
 	lastLen := 0
@@ -115,7 +120,7 @@ func (p *StreamUpdatePayload) Fingerprint() string {
 	} else {
 		contentHash = hashStrings(last.Content)
 	}
-	return fmt.Sprintf("%s:%t:%d:%d:%s:%s:%d:%s:%t:%s:%s:%s:%s:%s:%s:%x", p.Status, p.HasError, p.TotalSteps, p.TotalTools, last.Type, last.Status, lastLen, msgsKey, p.CanProceed, piKey, queuedKey, tasksKey, p.ActiveModel, p.Title, swarmKey, contentHash)
+	return fmt.Sprintf("%s:%t:%d:%d:%s:%s:%d:%s:%t:%s:%s:%s:%s:%s:%s:%s:%x", p.Status, p.HasError, p.TotalSteps, p.TotalTools, last.Type, last.Status, lastLen, msgsKey, p.CanProceed, piKey, queuedKey, tasksKey, p.ActiveModel, p.Title, swarmKey, cmKey, contentHash)
 }
 
 // rawTrajectorySignature computes an O(1) lightweight fingerprint of the raw upstream response
@@ -365,6 +370,7 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			details.QueuedMessages = []QueuedMessageItem{}
 		}
 		details.QueuedMessages = p.FilterQueuedMessagesAgainstTrajectory(cascadeID, details.QueuedMessages, rawResp.Trajectory.Steps, details.AllMessages)
+		details.ContextMeter = p.fetchUpstreamGeneratorMetadata(cascadeID, port, token)
 		lastDetails = details
 
 		if sink := p.NotificationSink(); sink != nil {
@@ -410,6 +416,7 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			ModelDisplayName:   details.ModelDisplayName,
 			StartedAt:          details.StartedAt,
 			Swarm:              GetSwarmBrief(cascadeID),
+			ContextMeter:       details.ContextMeter,
 		}
 
 		if !isMessagesOnly {
