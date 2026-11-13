@@ -423,7 +423,7 @@ public struct ChatView: View {
                         )
                     }
                 )
-                .presentationDetents([.fraction(0.48), .medium])
+                .presentationDetents([.fraction(0.42), .medium])
                 .presentationDragIndicator(.visible)
             }
         }
@@ -795,85 +795,83 @@ struct ContextAuditSheetView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 16) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("实时上下文水位")
-                            .font(.system(size: 17, weight: .bold))
-                        Text("\(AccountQuotaSheet.formatTokensCompact(meter.usedTokens)) / \(AccountQuotaSheet.formatTokensCompact(meter.maxTokens)) Tokens")
-                            .font(.system(size: 12, design: .monospaced))
-                            .foregroundColor(.secondary)
-                    }
-                    Spacer()
-                    Text(String(format: "%.1f%%", clampedPct))
-                        .font(.system(size: 14, weight: .bold, design: .monospaced))
-                        .foregroundColor(accentColor)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(accentColor.opacity(0.14))
-                        .clipShape(Capsule())
-                }
-
-                ProgressView(value: clampedPct, total: 100)
-                    .tint(accentColor)
-
-                HStack(spacing: 8) {
-                    auditTile(title: "输出速度", value: (meter.tokensPerSecond ?? 0) > 0 ? String(format: "%.1f t/s", meter.tokensPerSecond ?? 0) : "--")
-                    auditTile(title: "首字延迟 (TTFT)", value: (meter.timeToFirstTokenSec ?? 0) > 0 ? String(format: "%.2fs", meter.timeToFirstTokenSec ?? 0) : "--")
-                    auditTile(title: "流式耗时", value: (meter.streamingDurationSec ?? 0) > 0 ? String(format: "%.1fs", meter.streamingDurationSec ?? 0) : "--")
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("最近一步 Token 构成")
-                        .font(.system(size: 12, weight: .semibold))
+        VStack(spacing: 16) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("实时上下文水位")
+                        .font(.system(size: 17, weight: .bold))
+                    Text("\(AccountQuotaSheet.formatTokensCompact(meter.usedTokens)) / \(AccountQuotaSheet.formatTokensCompact(meter.maxTokens)) Tokens")
+                        .font(.system(size: 12, design: .monospaced))
                         .foregroundColor(.secondary)
-                    HStack {
-                        auditCell("Input", AccountQuotaSheet.formatTokensCompact(meter.inputTokens ?? 0))
-                        Spacer()
-                        auditCell("Cache Hit", AccountQuotaSheet.formatTokensCompact(meter.cacheReadTokens ?? 0))
-                        Spacer()
-                        auditCell("Output", AccountQuotaSheet.formatTokensCompact(meter.outputTokens ?? 0))
-                        Spacer()
-                        auditCell("Thinking", AccountQuotaSheet.formatTokensCompact(meter.thinkingTokens ?? 0))
-                    }
                 }
-                .padding(14)
-                .background(Color(uiColor: .secondarySystemGroupedBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+                Spacer()
+                Text(String(format: "%.1f%%", clampedPct))
+                    .font(.system(size: 14, weight: .bold, design: .monospaced))
+                    .foregroundColor(accentColor)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(accentColor.opacity(0.14))
+                    .clipShape(Capsule())
+            }
 
-                HStack(spacing: 10) {
-                    if canCompact {
-                        Button(action: {
-                            dismiss()
-                            onCompact()
-                        }) {
-                            Label("一键压缩 /compact", systemImage: "arrow.down.right.and.arrow.up.left")
-                                .font(.system(size: 13, weight: .semibold))
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 8)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.orange)
-                    }
+            ProgressView(value: clampedPct, total: 100)
+                .tint(accentColor)
+
+            HStack(spacing: 8) {
+                auditTile(title: "输出速度", value: (meter.tokensPerSecond ?? 0) > 0 ? String(format: "%.1f t/s", meter.tokensPerSecond ?? 0) : "--")
+                auditTile(title: "首字延迟 (TTFT)", value: (meter.timeToFirstTokenSec ?? 0) > 0 ? String(format: "%.2fs", meter.timeToFirstTokenSec ?? 0) : "--")
+                auditTile(title: "流式耗时", value: (meter.streamingDurationSec ?? 0) > 0 ? String(format: "%.1fs", meter.streamingDurationSec ?? 0) : "--")
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("最近一步 Token 构成")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.secondary)
+                HStack {
+                    auditCell("Input", AccountQuotaSheet.formatTokensCompact(meter.inputTokens ?? 0))
+                    Spacer()
+                    auditCell("Cache Hit", AccountQuotaSheet.formatTokensCompact(meter.cacheReadTokens ?? 0))
+                    Spacer()
+                    auditCell("Output", AccountQuotaSheet.formatTokensCompact(meter.outputTokens ?? 0))
+                    Spacer()
+                    auditCell("Thinking", AccountQuotaSheet.formatTokensCompact(meter.thinkingTokens ?? 0))
+                }
+            }
+            .padding(14)
+            .background(Color(uiColor: .secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+
+            HStack(spacing: 10) {
+                if canCompact {
                     Button(action: {
                         dismiss()
-                        onStartNewSession()
+                        onCompact()
                     }) {
-                        Label("开启新会话", systemImage: "plus.circle")
+                        Label("一键压缩 /compact", systemImage: "arrow.down.right.and.arrow.up.left")
                             .font(.system(size: 13, weight: .semibold))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 8)
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.borderedProminent)
+                    .tint(.orange)
                 }
-
-                Spacer()
+                Button(action: {
+                    dismiss()
+                    onStartNewSession()
+                }) {
+                    Label("开启新会话", systemImage: "plus.circle")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                }
+                .buttonStyle(.bordered)
             }
-            .padding(20)
-            .background(Color(uiColor: .systemGroupedBackground))
-            .navigationBarTitleDisplayMode(.inline)
         }
+        .padding(.horizontal, 20)
+        .padding(.top, 28)
+        .padding(.bottom, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(Color(uiColor: .systemGroupedBackground))
     }
 
     private func auditTile(title: String, value: String) -> some View {
