@@ -268,22 +268,11 @@ const LINK_TITLES = {
 function renderLinkHealth() {
   const state = evaluateLinkHealth();
   const cls = `link-${state}`;
-  for (const id of ["link-health-dot", "link-health-card-dot"]) {
-    const el = document.getElementById(id);
-    if (!el) continue;
+  const el = document.getElementById("link-health-dot");
+  if (el) {
     el.classList.remove("link-unknown", "link-connected", "link-attention", "link-disconnected");
     el.classList.add(cls);
-    if (id === "link-health-dot") el.setAttribute("aria-label", LINK_LABELS[state]);
-  }
-  const title = document.getElementById("link-health-title");
-  if (title) title.textContent = LINK_TITLES[state];
-  const detail = document.getElementById("link-health-detail");
-  if (detail) {
-    const age = linkHealth.lastBeatAt ? Math.max(0, Math.floor((Date.now() - linkHealth.lastBeatAt) / 1000)) : null;
-    const beat = age === null ? "—" : age < 2 ? "刚刚" : `${age} 秒前`;
-    const desktop = linkHealth.desktop === "ok" ? "已就绪"
-      : linkHealth.desktop === "down" ? "未就绪(请确认电脑端 Antigravity 已打开)" : "未知";
-    detail.textContent = `最近心跳 ${beat} · 电脑端 ${desktop}`;
+    el.setAttribute("aria-label", LINK_LABELS[state]);
   }
 }
 
@@ -305,12 +294,6 @@ function reconnectListEvents() {
 }
 
 setInterval(renderLinkHealth, 1000);
-document.addEventListener("DOMContentLoaded", () => {
-  document.getElementById("btn-link-reconnect")?.addEventListener("click", (e) => {
-    e.stopPropagation();
-    reconnectListEvents();
-  });
-});
 
 function isConversationListActive() {
   return !activeCascadeId && !activeDraftSession;

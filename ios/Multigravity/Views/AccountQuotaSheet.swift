@@ -100,9 +100,6 @@ public struct AccountQuotaSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 18) {
-                    if let monitor = linkMonitor {
-                        LinkHealthDetailCard(monitor: monitor)
-                    }
                     if let current = currentAccount {
                         VStack(alignment: .leading, spacing: 10) {
                             HStack {
@@ -160,7 +157,7 @@ public struct AccountQuotaSheet: View {
                 .padding(16)
             }
             .background(Color(uiColor: .systemGroupedBackground))
-            .navigationTitle("Cockpit Tools")
+            .navigationTitle("账户与配额")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {

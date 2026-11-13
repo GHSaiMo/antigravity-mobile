@@ -54,8 +54,6 @@ fun AccountQuotaSheet(
     onRefresh: () -> Unit,
     onSwitchAccount: (String) -> Unit,
     onDismiss: () -> Unit,
-    linkSnapshot: com.antigravity.mobile.data.service.LinkSnapshot? = null,
-    onReconnect: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var isMasked by remember { mutableStateOf(false) }
@@ -129,7 +127,7 @@ fun AccountQuotaSheet(
                 }
 
                 Text(
-                    text = "Cockpit Tools",
+                    text = "账户与配额",
                     fontWeight = FontWeight.Bold,
                     fontSize = 17.sp,
                     lineHeight = 20.sp,
@@ -177,9 +175,6 @@ fun AccountQuotaSheet(
                     .navigationBarsPadding(),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                if (linkSnapshot != null) {
-                    LinkHealthDetailCard(snapshot = linkSnapshot, onReconnect = onReconnect)
-                }
                 // Section 1: 当前使用账号
                 if (current != null) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

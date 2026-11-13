@@ -536,9 +536,7 @@ fun ConversationListScreen(
             showWeeklyPaceCursor = showWeeklyPaceCursor,
             onRefresh = { viewModel.refreshQuotas() },
             onSwitchAccount = { viewModel.switchCockpitAccount(it) },
-            onDismiss = { showQuotaSheet = false },
-            linkSnapshot = linkSnapshot,
-            onReconnect = { viewModel.reconnectEvents() }
+            onDismiss = { showQuotaSheet = false }
         )
     }
 
