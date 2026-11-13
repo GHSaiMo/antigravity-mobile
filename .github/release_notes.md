@@ -1,43 +1,17 @@
-# 🚀 Multigravity v1.1.4
+# 🚀 Multigravity v1.1.5
 
-### ✨ 核心新功能
-- 🐝 **原生 `/swarm` 蜂群多智能体协同看板（Go 网关 + Web + iOS + Android）**：
-  - 网关新增 `.system_generated/swarm/` 双轨读取与反馈/催促接口（`/gateway/swarm`、`/gateway/swarm/feedback`、`/gateway/swarm/nudge`），并在 WebSocket 增量流实时推送轻量 `SwarmBrief` 摘要；
-  - 对话流展示实时蜂群胶囊横幅（运行成员数、最新消息序号与待介入提醒），点击拉起四栏看板（**概览 / 协作板 / 成员 / 拓扑**），支持向 `@narrator` 发送方向反馈、成员「⚡ 催促/唤醒」以及子会话一键跳转查看。
-- 🛡️ **`2.31.1` 审批门禁全覆盖与 Gemini 4 Carbon 模型同步**：
-  - 网关与交互卡片新增 `ApprovalInteraction` / `Mcp` / `Elicitation` 解析与回传，原生识别**浏览器文件下载审批（`browser_download`）**等确认弹窗；
-  - 四端模型目录、配额与语音枚举同步补齐 **Gemini 4 Carbon（High / Medium / Low）**，实时语音 `plan_model` 支持动态枚举解析与原始标识透传兜底；
-  - 实时语音补充解析 `ask_question_progress`（`field 11`）及 `SessionStatus` `ACCESS_DENIED` / 并发受限状态，账号授权过期时直观提示电脑端重新登录。
-- 🎨 **三档字号缩放与知识工作流精简模式**：
-  - 三端设置新增「紧凑 / 标准 / 舒适」三档界面与代码字号缩放；
-  - iOS / Android 新增「知识工作流精简模式」开关，将密集工具调用折叠块精简为单行进度摘要，专注长文、研报与文档阅读。
-- 🧩 **`<plugin-card>` 原生直装、Automations 定时看板与 Jupyter `.ipynb` 预览**：
-  - 网关新增 `/gateway/plugins`、`/gateway/plugins/install`（支持安装后 `autoResume` 自动续聊）与 `/gateway/automations`、`/gateway/automations/manage`；
-  - 三端 Markdown 原生渲染 `<plugin-card>` 推荐卡片并支持一键安装续聊，iOS / Android 扩展工具面板新增**插件授权**与**定时自动化**管理页签；
-  - iOS / Android 文件预览器原生支持 Jupyter Notebook（`.ipynb`）分格渲染（Markdown、代码输入序号、输出流与 Base64 PNG 内嵌图表），Web 端内置 `renderJupyterNotebook` 解析能力。
-- 🖥️ **全局后台任务中心 (`ListBackgroundTasks`)**：
-  - 跨会话感知运行中的后台命令、常驻守护与定时任务，首页动态展现绿光监控胶囊条（0 任务自动隐藏）；
-  - 聊天页右上角感知按钮自动切换终端入口，一键查看实时终端日志末尾（Log Tail）或安全终止任务。
-- 📑 **长对话章节目录 (TOC)**：
-  - 对接 Antigravity 章节自动提炼 RPC，长会话导轨新增「章节目录」与「全部对话」双模切换，超长对话按主题一键直达。
-- 🛡️ **后台任务防抢跑与排队安全出列**：
-  - 后台命令或子代理执行期间，排队追问卡片动态标记「后台任务运行中，完成后出列」；
-  - 手动插队立即发送增加防冲突二次确认弹窗，杜绝多任务并发打断与抢跑。
-- 🎙️ **全双工实时语音与听写打磨**：
-  - 智能消除普通话识别中的 CJK 汉字与标点冗余分词空格，保留英文单词原有空格；
-  - 麦克风连接状态即时响应反馈，消除开麦等待空白与未响应感。
-- 🔀 **Git 提交联动 GitHub PR**：
-  - 自动发现当前分支关联 PR，三端 Git 提交面板直观呈现 Draft / Open / Merged 状态胶囊，一键直达 PR。
-- 🤖 **Antigravity 2.30/2.31 模型与协议同步**：
-  - 全量接入 Gemini 3.8 Flash (Argon Flash) 与 Claude Haiku 5.5，实时语音与配额引擎全量对齐；
-  - 原生 `clientMessageId` 双轨精准排队匹配，消除消息闪烁与文本比对误差；
-  - Mermaid 架构图语法容错自愈，异常字符自动转义修复重绘。
-- ⚡ **双端配额引擎与 Carbon / Argon Weekly 视觉升级**：
-  - **Ultra 专属 Gemini 4 Carbon Weekly**：新增 Google AI Gemini 幻彩极光流光渐变（`#4285F4` → `#9B72CF` → `#FF7597`）与 `✦ CARBON` 幻彩胶囊徽标，数据直连 Gemini Weekly 168h 周度基准线；
-  - **Pro 专属 Gemini 4 Argon Weekly**：标题与匀速节奏分析全量升级为 Weekly 周度周期，保留原温暖琥珀金质感；
-  - **Android 额度组块呼吸感重构**：纵向内边距提升至 9.5dp，行内间距增至 5dp，全面解决拥挤感，对齐 iOS 旗舰质感；
-  - **三端统一同步**：iOS、Android 原生端与 Web 控制台视觉规范全量对齐。
-- 🔒 **全链路性能与网络安全加固**：
-  - **网关安全加固**：延迟连接级 PROXY protocol 嗅探消除 `Accept` 队头阻塞；补齐 Cookie 同源写保护、`POST /api/v1/auth/logout` 凭证吊销、WebSocket 读帧上限与 RPC 多路复用心跳/并发流控，收紧敏感凭据目录黑名单与 XML 沙箱响应头；
-  - **四端性能优化**：上游切换 HTTP/2 复用与 TLS 会话恢复，消除空闲流状态轮询建连风暴；零分配 FNV-1a 增量帧哈希、轨迹快照一次性预解析与流式缩略图像素限额；修复 iOS WebSocket 路径保留与 RFC 9112 分块解码状态机，补齐 iOS/Android 令牌内存写穿缓存与幂等故障切换守卫；
-  - **多实例精准识别与 iOS 主题即时刷新**：Inspector 与 Cockpit 新增桌面 Antigravity (`agy`) 主实例优先级识别，自动区分并过滤 `--standalone` / 隔离 `--app_data_dir` 的无头后台进程（如 `groupchat-runtime`）；修复 iOS 浅色系统下设置面板从「深色」切回「跟随系统」时模态卡片未即时刷新的问题。
+### ✨ 核心新功能与重要更新
+
+- ⏰ **定时任务（Automations）移动端全链路打通与本地双保险（Go 网关 + iOS + Android）**：
+  - **官方 Language Server 协议精准对齐**：全面逆向并重构网关 `/gateway/automations` 与 `/gateway/automations/manage` 路由，精准适配 Antigravity Language Server `GetSidecars` 的层级结构，完整解析 Cron 表达式、Prompt 指令、DisplayName 与运行状态（RUNNING / STOPPED）；
+  - **纯本地磁盘双保险**：内置本地目录扫描机制，即使 Language Server 离线或休眠，网关直接扫描本地 `~/.gemini/config/sidecars/*/sidecar.json` 及 `config.json`，确保手机端随时随地秒级读取全部定时任务配置；
+  - **下次执行时间精准推算与上次记录**：从 `sidecar.log` 提取调度器排期的 UTC 时间并精准转换为本地时区时间（`NextRunAt`）；自动读取 `sidecar_data/<id>/events/*.json` 获取完整历史触发记录；
+  - **对话一键穿梭**：历史记录中携带每次定时触发生成的 `conversationId`，手机端点击记录即可直接在手机上打开当次生成的完整对话，查看执行产物与日志；
+  - **手机端「立即运行 (Run Now)」与启停控制**：网关对齐 `SIDECAR_ACTION_ENABLE`、`SIDECAR_ACTION_DISABLE`、`SIDECAR_ACTION_RESTART` 与官方原生的 `SIDECAR_ACTION_RUN_NOW`（立即执行一次）；iOS / Android 定时卡片新增「立即运行」按钮与「下次/上次」执行时间指示；设置页「MCP 工具与技能看板」副标题清晰标注涵盖「定时任务 / 后台」。
+- 🐝 **原生 `/swarm` 蜂群多智能体协同看板桌面级复刻（iOS & Android）**：
+  - 完整复刻 Antigravity 官方桌面端蜂群看板体验，像素风小蜜蜂头像（Pixel Bee Avatars）、@mention 消息流与协作板；
+  - 成员名单（Roster）与实时状态感知（waiting / working / stopped / killed）；
+  - 交互式蜂群拓扑图（Topology Graph），展现智能体之间的协作网络。
+- 🎨 **视觉细节与暗黑模式适配优化**：
+  - 优化 Android 暗黑模式下文本与错误卡片配色显示，对齐 Ultra Aurora 渐变徽标质感；
+  - 统一外观菜单选择器与状态指示，多账号无感切换后平滑刷新模型目录。

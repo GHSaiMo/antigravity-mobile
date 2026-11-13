@@ -1,4 +1,4 @@
-# Multigravity Windows 一键安装脚本
+﻿# Multigravity Windows 一键安装脚本
 $ErrorActionPreference = "Stop"
 
 # 1. 强制控制台与输出流使用 UTF-8 编码，防止 Windows PowerShell 默认 GBK 导致乱码
@@ -181,7 +181,7 @@ if ($downloadSuccess) {
         Set-Location (Join-Path $repoRoot "..")
     }
     $tagVer = (git describe --tags --abbrev=0 2>$null) -replace '^v',''
-    if (-not $tagVer) { $tagVer = "1.1.4" }
+    if (-not $tagVer) { $tagVer = "1.1.5" }
     & $goCmd build -ldflags="-s -w -X 'main.Version=$tagVer'" -o "$installDir\mgy.exe" ./cmd/gateway
 }
 
