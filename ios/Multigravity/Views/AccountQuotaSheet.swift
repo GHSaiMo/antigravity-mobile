@@ -18,14 +18,18 @@ public struct AccountQuotaSheet: View {
     
     /// 是否显示账号切换按钮。网关会先退出电脑上的 Antigravity 再注入新账号。
     public let enableSwitchButton: Bool
+    /// Live gateway link monitor; when set the sheet shows a connection detail card with a reconnect button.
+    public let linkMonitor: ConversationEventsClient?
     
     public init(
         quotaResponse: Binding<CockpitQuotaResponse?>,
         onSwitch: ((String) async throws -> Void)? = nil,
         onRefresh: (() async throws -> Void)? = nil,
         onAppearFetch: (() async -> Void)? = nil,
-        enableSwitchButton: Bool = true
+        enableSwitchButton: Bool = true,
+        linkMonitor: ConversationEventsClient? = nil
     ) {
+        self.linkMonitor = linkMonitor
         self._quotaResponse = quotaResponse
         self.onSwitch = onSwitch
         self.onRefresh = onRefresh
@@ -96,6 +100,9 @@ public struct AccountQuotaSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 18) {
+                    if let monitor = linkMonitor {
+                        LinkHealthDetailCard(monitor: monitor)
+                    }
                     if let current = currentAccount {
                         VStack(alignment: .leading, spacing: 10) {
                             HStack {

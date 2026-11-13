@@ -6780,3 +6780,52 @@ body.font-comfortable pre, body.font-comfortable code {
 }
 
 
+
+/* Gateway connection heartbeat dot (home quota bar) + detail card (quota sheet) */
+.link-health-dot {
+  position: relative;
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-left: 4px;
+  background: #8e8e93;
+}
+.link-health-dot.link-connected { background: #34c759; }
+.link-health-dot.link-attention { background: #ff9500; }
+.link-health-dot.link-disconnected { background: #ff3b30; }
+.link-health-dot.link-unknown { background: #8e8e93; }
+.link-health-dot::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0;
+  pointer-events: none;
+}
+.link-health-dot.link-connected { color: rgba(52, 199, 89, 0.45); }
+.link-health-dot.link-pulse::after { animation: link-health-pulse 0.8s ease-out; }
+@keyframes link-health-pulse {
+  from { opacity: 1; transform: scale(0.55); }
+  to { opacity: 0; transform: scale(1.5); }
+}
+.link-health-card {
+  background: var(--ios-secondary-system-grouped-background, rgba(120, 120, 128, 0.12));
+  border-radius: 14px;
+  padding: 14px;
+  margin-bottom: 14px;
+}
+.link-health-row { display: flex; align-items: center; gap: 8px; }
+.link-health-row .link-health-dot { margin-left: 0; width: 9px; height: 9px; }
+.link-health-title { flex: 1; font-size: 14px; font-weight: 600; }
+.link-health-reconnect {
+  border: 0.5px solid rgba(120, 120, 128, 0.4);
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  border-radius: 8px;
+  padding: 4px 10px;
+}
+.link-health-detail { margin-top: 8px; font-size: 12px; color: var(--ios-tertiary-label, #8e8e93); }

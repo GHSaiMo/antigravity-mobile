@@ -74,6 +74,7 @@ fun ConversationListScreen(
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val contentResults by viewModel.contentResults.collectAsStateWithLifecycle()
     val compat by com.antigravity.mobile.data.model.GatewayCompatStore.state.collectAsStateWithLifecycle()
+    val linkSnapshot by viewModel.linkSnapshot.collectAsStateWithLifecycle()
     val isSearchingContent by viewModel.isSearchingContent.collectAsStateWithLifecycle()
     val quotaData by viewModel.quotaData.collectAsStateWithLifecycle()
     val isRefreshingQuota by viewModel.isRefreshingQuota.collectAsStateWithLifecycle()
@@ -147,6 +148,8 @@ fun ConversationListScreen(
             when (event) {
                 androidx.lifecycle.Lifecycle.Event.ON_START, androidx.lifecycle.Lifecycle.Event.ON_RESUME -> {
                     viewModel.startAutoRefresh()
+                    // Don't trust an old green dot after the app was suspended.
+                    viewModel.reconnectEventsIfStale()
                 }
                 androidx.lifecycle.Lifecycle.Event.ON_STOP, androidx.lifecycle.Lifecycle.Event.ON_PAUSE -> {
                     viewModel.stopAutoRefresh()
@@ -291,6 +294,7 @@ fun ConversationListScreen(
                             conversations = state.conversations,
                             listState = listState,
                             quotaData = quotaData,
+                            linkSnapshot = linkSnapshot,
                             globalBackgroundTasks = globalBackgroundTasks,
                             compat = compat,
                             searchQuery = searchQuery,
@@ -532,7 +536,9 @@ fun ConversationListScreen(
             showWeeklyPaceCursor = showWeeklyPaceCursor,
             onRefresh = { viewModel.refreshQuotas() },
             onSwitchAccount = { viewModel.switchCockpitAccount(it) },
-            onDismiss = { showQuotaSheet = false }
+            onDismiss = { showQuotaSheet = false },
+            linkSnapshot = linkSnapshot,
+            onReconnect = { viewModel.reconnectEvents() }
         )
     }
 
@@ -776,6 +782,7 @@ private fun ConversationListContent(
     conversations: List<ConversationItem>,
     listState: LazyListState,
     quotaData: CockpitQuotaResponse?,
+    linkSnapshot: com.antigravity.mobile.data.service.LinkSnapshot?,
     globalBackgroundTasks: List<com.antigravity.mobile.data.model.GlobalBackgroundTaskItem>,
     compat: com.antigravity.mobile.data.model.GatewayCompat,
     searchQuery: String,
@@ -857,6 +864,7 @@ private fun ConversationListContent(
                         account = acc,
                         onTap = onQuotaTap,
                         showPaceCursor = showWeeklyPaceCursor,
+                        linkSnapshot = linkSnapshot,
                         modifier = Modifier.fillMaxWidth()
                     )
                 }

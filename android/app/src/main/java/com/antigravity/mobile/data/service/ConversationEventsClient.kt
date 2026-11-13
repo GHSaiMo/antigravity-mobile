@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
@@ -28,12 +29,23 @@ import kotlinx.serialization.json.longOrNull
 import java.util.concurrent.TimeUnit
 
 /** One frame of the gateway's `/gateway/events` channel. Frames carry a revision, never list data. */
-internal data class ConversationEventFrame(val type: String, val rev: Long)
+internal data class ConversationEventFrame(
+    val type: String,
+    val rev: Long,
+    val ts: Long? = null,
+    /** Desktop language_server state from the gateway: ok / down / unknown. */
+    val desktop: String? = null
+)
 
 internal fun parseConversationEventFrame(text: String): ConversationEventFrame? = try {
     val obj = Json.parseToJsonElement(text).jsonObject
     val type = obj["type"]?.jsonPrimitive?.content
-    if (type == null) null else ConversationEventFrame(type, obj["rev"]?.jsonPrimitive?.longOrNull ?: 0L)
+    if (type == null) null else ConversationEventFrame(
+        type,
+        obj["rev"]?.jsonPrimitive?.longOrNull ?: 0L,
+        obj["ts"]?.jsonPrimitive?.longOrNull,
+        obj["desktop"]?.jsonPrimitive?.content
+    )
 } catch (_: Exception) {
     null
 }
@@ -68,9 +80,29 @@ class ConversationEventsClient(
     private val _changes = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST)
     val changes: SharedFlow<Unit> = _changes.asSharedFlow()
 
+    private val _snapshot = MutableStateFlow(LinkSnapshot())
+    /** Heartbeat facts for the connection dot in the home quota bar. */
+    val snapshot: StateFlow<LinkSnapshot> = _snapshot.asStateFlow()
+
+    /** Drops the current socket (if any) and reconnects immediately. */
+    fun reconnect() {
+        if (!_snapshot.value.started) return
+        stop()
+        start()
+    }
+
+    /** Foreground check: reconnect right away when the heartbeat went stale instead of trusting an old green dot. */
+    fun reconnectIfStale(maxAgeMs: Long = LinkHealth.ATTENTION_AFTER_MS) {
+        val s = _snapshot.value
+        if (!s.started) return
+        val last = s.lastBeatAtMs
+        if (!s.connected || (s.supportsBeat && last != null && System.currentTimeMillis() - last > maxAgeMs)) reconnect()
+    }
+
     @Synchronized
     fun start() {
         if (runJob?.isActive == true) return
+        _snapshot.update { it.copy(started = true, startedAtMs = System.currentTimeMillis()) }
         runJob = scope.launch {
             var attempt = 0
             while (isActive) {
@@ -90,6 +122,7 @@ class ConversationEventsClient(
         try { webSocket?.close(1000, "stop") } catch (_: Exception) {}
         webSocket = null
         _connected.value = false
+        _snapshot.update { it.copy(started = false, connected = false) }
     }
 
     fun close() {
@@ -115,10 +148,21 @@ class ConversationEventsClient(
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 opened = true
                 _connected.value = true
+                _snapshot.update { it.copy(connected = true, hasEverConnected = true) }
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
                 val frame = parseConversationEventFrame(text) ?: return
+                if (frame.type == "hello" || frame.type == "beat" || frame.type == "changed") {
+                    _snapshot.update {
+                        it.copy(
+                            lastBeatAtMs = System.currentTimeMillis(),
+                            beatCount = it.beatCount + 1,
+                            supportsBeat = it.supportsBeat || frame.desktop != null,
+                            desktop = frame.desktop ?: it.desktop
+                        )
+                    }
+                }
                 if (frame.type == "hello" || frame.type == "changed") {
                     _changes.tryEmit(Unit)
                 }
@@ -142,6 +186,7 @@ class ConversationEventsClient(
             done.await()
         } finally {
             _connected.value = false
+            _snapshot.update { it.copy(connected = false) }
             synchronized(this) { if (webSocket === ws) webSocket = null }
         }
     }

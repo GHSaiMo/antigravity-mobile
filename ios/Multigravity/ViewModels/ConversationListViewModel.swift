@@ -25,6 +25,8 @@ public final class ConversationListViewModel {
     private var pollTask: Task<Void, Never>? = nil
     /// Gateway push hints for list changes; polling is the fallback and a slow safety net.
     private let eventsClient = ConversationEventsClient()
+    /// Heartbeat monitor backing the connection dot in the home quota bar.
+    public var linkMonitor: ConversationEventsClient { eventsClient }
     /// While the event socket is up, pushed hints drive refreshes and polling only runs this slowly.
     private static let eventsSafetyPollSeconds = 60
     private var lastCompatRefresh: Date = .distantPast
@@ -196,6 +198,8 @@ public final class ConversationListViewModel {
         guard now.timeIntervalSince(lastResumeTime) > 1.0 else { return }
         lastResumeTime = now
         
+        // Don't trust an old green dot after the app was suspended: reconnect when the heartbeat went stale.
+        eventsClient.reconnectIfStale()
         reloadFromCache()
         await fetchConversations(isBackgroundPoll: !conversations.isEmpty)
     }
