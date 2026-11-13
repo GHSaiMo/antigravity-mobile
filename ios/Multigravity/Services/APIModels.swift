@@ -114,6 +114,7 @@ public struct PaginatedMessagesResponse: Codable, Sendable {
     public let hasError: Bool?
     public let errorMessage: String?
     public let swarm: SwarmBrief?
+    public let contextMeter: ContextMeterItem?
     
     public struct GatewayMessageItem: Codable, Sendable {
         public let id: String
@@ -139,6 +140,8 @@ public struct PaginatedMessagesResponse: Codable, Sendable {
         public let slashCommands: [SlashCommandMention]?
         /// 客户端发送时生成的幂等标识（Antigravity 2.30+）。
         public let clientMessageId: String?
+        public let errorKind: String?
+        public let isOverflow: Bool?
     }
 }
 
@@ -164,4 +167,5 @@ public struct FetchMessagesResult: Sendable {
     public let hasError: Bool
     public let errorMessage: String?
     public let swarm: SwarmBrief?
+    public let contextMeter: ContextMeterItem?
 }

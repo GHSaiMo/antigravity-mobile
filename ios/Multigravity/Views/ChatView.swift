@@ -39,6 +39,7 @@ public struct ChatView: View {
     @State var showNavigatorSheet = false
     @State var showMcpSkillsSheet = false
     @State var showSwarmSheet = false
+    @State var showContextAuditSheet = false
     @State var currentVisibleTurnIndex: Int = 1
     @State var lockedTurnIndex: Int? = nil
     @State var lastVisibleMessageGeometries: [VisibleMessageGeometry] = []
@@ -169,36 +170,65 @@ public struct ChatView: View {
             
             ToolbarItem(placement: .principal) {
                 if viewModel.turns.count >= 2 {
-                    Button(action: {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        showNavigatorSheet = true
-                    }) {
-                        VStack(spacing: 2) {
+                    VStack(spacing: 2) {
+                        Button(action: {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            showNavigatorSheet = true
+                        }) {
                             Text(viewModel.currentTitle)
                                 .font(.system(size: 14.5, weight: .semibold))
                                 .foregroundColor(.primary)
                                 .lineLimit(1)
-                            
-                            HStack(spacing: 3) {
-                                Text("第 \(currentVisibleTurnIndex)/\(viewModel.turns.count) 轮")
-                                    .font(.system(size: 10, weight: .semibold))
-                                    .foregroundColor(.indigo)
-                                Image(systemName: "chevron.down")
-                                    .font(.system(size: 7.5, weight: .bold))
-                                    .foregroundColor(.indigo.opacity(0.8))
+                        }
+                        .buttonStyle(.plain)
+
+                        HStack(spacing: 6) {
+                            Button(action: {
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                showNavigatorSheet = true
+                            }) {
+                                HStack(spacing: 3) {
+                                    Text("第 \(currentVisibleTurnIndex)/\(viewModel.turns.count) 轮")
+                                        .font(.system(size: 10, weight: .semibold))
+                                        .foregroundColor(.indigo)
+                                    Image(systemName: "chevron.down")
+                                        .font(.system(size: 7.5, weight: .bold))
+                                        .foregroundColor(.indigo.opacity(0.8))
+                                }
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 1.5)
+                                .background(Color.indigo.opacity(0.09))
+                                .clipShape(Capsule())
                             }
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 1.5)
-                            .background(Color.indigo.opacity(0.09))
-                            .clipShape(Capsule())
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("当前第 \(currentVisibleTurnIndex) 轮，共 \(viewModel.turns.count) 轮，点击打开步骤大纲")
+
+                            if let meter = viewModel.contextMeter {
+                                ContextRingCapsuleView(
+                                    meter: meter,
+                                    isRunning: viewModel.isRunning || viewModel.isAwaitingResponse
+                                ) {
+                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                    showContextAuditSheet = true
+                                }
+                            }
                         }
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("当前第 \(currentVisibleTurnIndex) 轮，共 \(viewModel.turns.count) 轮，点击打开步骤大纲")
                 } else {
-                    Text(viewModel.currentTitle)
-                        .font(.system(size: 16, weight: .semibold))
-                        .lineLimit(1)
+                    VStack(spacing: 2) {
+                        Text(viewModel.currentTitle)
+                            .font(.system(size: 15.5, weight: .semibold))
+                            .lineLimit(1)
+                        if let meter = viewModel.contextMeter {
+                            ContextRingCapsuleView(
+                                meter: meter,
+                                isRunning: viewModel.isRunning || viewModel.isAwaitingResponse
+                            ) {
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                showContextAuditSheet = true
+                            }
+                        }
+                    }
                 }
             }
             
@@ -377,6 +407,25 @@ public struct ChatView: View {
             )
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showContextAuditSheet) {
+            if let meter = viewModel.contextMeter {
+                ContextAuditSheetView(
+                    meter: meter,
+                    canCompact: !viewModel.cascadeId.hasPrefix("local_draft_") && !viewModel.isSubagentSession,
+                    onCompact: {
+                        Task { _ = await viewModel.sendMessage(text: "/compact") }
+                    },
+                    onStartNewSession: {
+                        NotificationCenter.default.post(
+                            name: .startNewSessionForWorkspace,
+                            object: viewModel.workspaceName
+                        )
+                    }
+                )
+                .presentationDetents([.fraction(0.48), .medium])
+                .presentationDragIndicator(.visible)
+            }
         }
         .overlay {
             if viewModel.isDownloadingDocument {
@@ -659,6 +708,195 @@ extension View {
                 .frame(maxWidth: .infinity)
         } else {
             self
+        }
+    }
+}
+
+struct ContextRingCapsuleView: View {
+    let meter: ContextMeterItem
+    let isRunning: Bool
+    let onTap: () -> Void
+    @State private var isPulsing = false
+
+    private var clampedPct: Double {
+        min(max(meter.percentage, 0), 100)
+    }
+
+    private var ringColor: Color {
+        if meter.isOverflow == true || clampedPct >= 90 { return .red }
+        if clampedPct >= 70 { return .orange }
+        return .green
+    }
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 4) {
+                ZStack {
+                    Circle()
+                        .stroke(ringColor.opacity(0.22), lineWidth: 2)
+                    Circle()
+                        .trim(from: 0, to: clampedPct / 100.0)
+                        .stroke(ringColor, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                }
+                .frame(width: 12, height: 12)
+
+                Text("\(Int(clampedPct))%")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundColor(ringColor)
+
+                if let tps = meter.tokensPerSecond, tps > 0.1,
+                   (isRunning || (meter.streamingDurationSec ?? 0) > 0) {
+                    HStack(spacing: 1) {
+                        Image(systemName: "bolt.fill")
+                            .font(.system(size: 8.5))
+                            .foregroundColor(.orange)
+                        Text(String(format: "%.0f t/s", tps))
+                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1.5)
+            .background(ringColor.opacity(0.12))
+            .overlay(
+                Capsule().stroke(ringColor.opacity(0.35), lineWidth: 0.6)
+            )
+            .clipShape(Capsule())
+            .opacity(isRunning && (meter.isOverflow == true || clampedPct >= 90) && isPulsing ? 0.55 : 1.0)
+            .onAppear {
+                if isRunning && (meter.isOverflow == true || clampedPct >= 90) {
+                    withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) {
+                        isPulsing = true
+                    }
+                }
+            }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+struct ContextAuditSheetView: View {
+    @Environment(\.dismiss) private var dismiss
+    let meter: ContextMeterItem
+    let canCompact: Bool
+    let onCompact: () -> Void
+    let onStartNewSession: () -> Void
+
+    private var clampedPct: Double {
+        min(max(meter.percentage, 0), 100)
+    }
+
+    private var accentColor: Color {
+        if meter.isOverflow == true || clampedPct >= 90 { return .red }
+        if clampedPct >= 70 { return .orange }
+        return .green
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 16) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("实时上下文水位")
+                            .font(.system(size: 17, weight: .bold))
+                        Text("\(AccountQuotaSheet.formatTokensCompact(meter.usedTokens)) / \(AccountQuotaSheet.formatTokensCompact(meter.maxTokens)) Tokens")
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                    Text(String(format: "%.1f%%", clampedPct))
+                        .font(.system(size: 14, weight: .bold, design: .monospaced))
+                        .foregroundColor(accentColor)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(accentColor.opacity(0.14))
+                        .clipShape(Capsule())
+                }
+
+                ProgressView(value: clampedPct, total: 100)
+                    .tint(accentColor)
+
+                HStack(spacing: 8) {
+                    auditTile(title: "输出速度", value: (meter.tokensPerSecond ?? 0) > 0 ? String(format: "%.1f t/s", meter.tokensPerSecond ?? 0) : "--")
+                    auditTile(title: "首字延迟 (TTFT)", value: (meter.timeToFirstTokenSec ?? 0) > 0 ? String(format: "%.2fs", meter.timeToFirstTokenSec ?? 0) : "--")
+                    auditTile(title: "流式耗时", value: (meter.streamingDurationSec ?? 0) > 0 ? String(format: "%.1fs", meter.streamingDurationSec ?? 0) : "--")
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("最近一步 Token 构成")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.secondary)
+                    HStack {
+                        auditCell("Input", AccountQuotaSheet.formatTokensCompact(meter.inputTokens ?? 0))
+                        Spacer()
+                        auditCell("Cache Hit", AccountQuotaSheet.formatTokensCompact(meter.cacheReadTokens ?? 0))
+                        Spacer()
+                        auditCell("Output", AccountQuotaSheet.formatTokensCompact(meter.outputTokens ?? 0))
+                        Spacer()
+                        auditCell("Thinking", AccountQuotaSheet.formatTokensCompact(meter.thinkingTokens ?? 0))
+                    }
+                }
+                .padding(14)
+                .background(Color(uiColor: .secondarySystemGroupedBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+
+                HStack(spacing: 10) {
+                    if canCompact {
+                        Button(action: {
+                            dismiss()
+                            onCompact()
+                        }) {
+                            Label("一键压缩 /compact", systemImage: "arrow.down.right.and.arrow.up.left")
+                                .font(.system(size: 13, weight: .semibold))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 8)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.orange)
+                    }
+                    Button(action: {
+                        dismiss()
+                        onStartNewSession()
+                    }) {
+                        Label("开启新会话", systemImage: "plus.circle")
+                            .font(.system(size: 13, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                    }
+                    .buttonStyle(.bordered)
+                }
+
+                Spacer()
+            }
+            .padding(20)
+            .background(Color(uiColor: .systemGroupedBackground))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private func auditTile(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title).font(.system(size: 10)).foregroundColor(.secondary).lineLimit(1)
+            Text(value).font(.system(size: 14, weight: .bold, design: .monospaced)).lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func auditCell(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label).font(.system(size: 10)).foregroundColor(.secondary)
+            Text(value).font(.system(size: 13, weight: .semibold, design: .monospaced))
         }
     }
 }

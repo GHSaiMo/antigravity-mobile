@@ -74,6 +74,8 @@ data class GatewayMessageItem(
     val slashCommands: List<SlashCommandMention>? = null,
     /** 客户端发送时生成的幂等标识（Antigravity 2.30+）。 */
     val clientMessageId: String? = null,
+    val errorKind: String? = null,
+    val isOverflow: Boolean = false,
     @kotlinx.serialization.Transient val imageDataList: List<ByteArray> = emptyList()
 ) {
     val effectiveRole: String
@@ -247,7 +249,8 @@ data class StreamUpdatePayload(
     /** delta=1 增量帧：messages 仅含新增/变化项，messageIds 为当前窗口完整有序 ID（见 StreamDeltaReassembler）。 */
     val delta: Boolean = false,
     val messageIds: List<String>? = null,
-    val swarm: SwarmBrief? = null
+    val swarm: SwarmBrief? = null,
+    val contextMeter: ContextMeterItem? = null
 )
 
 @Serializable

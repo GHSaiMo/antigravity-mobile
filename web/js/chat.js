@@ -661,6 +661,10 @@ async function connectStreamWs(cascadeId) {
 
         const isRunning = data.status === "CASCADE_RUN_STATUS_RUNNING" || hasActiveRunningTasks(data.runningTasks);
 
+        if (data.contextMeter && typeof updateContextMeterUI === "function") {
+          updateContextMeterUI(data.contextMeter, isRunning);
+        }
+
         if (typeof data.canProceed === "boolean") {
           currentCanProceed = data.canProceed && !isRunning;
           currentProceedArtifactUri = data.proceedArtifactUri || null;
@@ -810,6 +814,9 @@ async function loadChat(cascadeId, isBackgroundPoll = false) {
               currentTrajectories[cascadeId].runningTasks = Array.isArray(info.runningTasks) ? info.runningTasks : [];
             }
             const liveRunning = isCascadeRunning(cascadeId);
+            if (info.contextMeter && typeof updateContextMeterUI === "function") {
+              updateContextMeterUI(info.contextMeter, liveRunning);
+            }
             currentCanProceed = !!info.canProceed && !liveRunning;
             currentProceedArtifactUri = info.proceedArtifactUri || null;
             updateProceedButton(currentCanProceed);
@@ -982,11 +989,21 @@ function groupSteps(steps) {
         || s.errorMessage?.message
         || s.error?.message
         || "执行遇到错误";
+      const errLower = errText.toLowerCase();
+      const isOverflow = errLower.includes("context length") ||
+        errLower.includes("maximum context") ||
+        errLower.includes("context window") ||
+        errLower.includes("prompt is too long") ||
+        errLower.includes("exceeded the context") ||
+        errLower.includes("token limit exceeded") ||
+        errLower.includes("payload size exceeds") ||
+        errLower.includes("context_overflow");
       items.push({
         type: "error",
         id: `item-error-${i}`,
         index: i,
         text: errText,
+        isOverflow: isOverflow,
         step: s
       });
     } else if (type.startsWith("CORTEX_STEP_TYPE_") && type !== "CORTEX_STEP_TYPE_SYSTEM_MESSAGE") {
@@ -1119,6 +1136,24 @@ function formatToolName(name) {
 
 function generateItemHtml(item, isRunning, isLastItem) {
   if (item.type === "error") {
+    if (item.isOverflow || item.errorKind === "context_overflow") {
+      return `
+        <div class="rescue-bubble">
+          <div class="rescue-bubble-header">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            <span>会话上下文超出模型上限</span>
+          </div>
+          <div class="rescue-bubble-desc">
+            当前会话历史累计已达模型物理窗口上限，无法继续接收新的上下文。建议立即压缩或新开对话。<br/>
+            <span style="opacity:0.75;font-size:11px;">${escapeHtml(item.text)}</span>
+          </div>
+          <div class="rescue-bubble-actions">
+            <button type="button" class="rescue-btn primary" onclick="sendCompactCommand()">一键压缩会话 (/compact)</button>
+            <button type="button" class="rescue-btn secondary" onclick="document.getElementById('btn-new')?.click()">开启新会话</button>
+          </div>
+        </div>
+      `;
+    }
     const attemptCount = item.attemptCount || 0;
     const maxAttempts = item.maxAttempts || 0;
     const badgeText = (attemptCount && maxAttempts)
@@ -2604,3 +2639,125 @@ const WebVoiceCallManager = {
     this.updateTimerUI();
   }
 };
+
+// ==========================================================================
+// Live Context Meter & Audit Sheet Module
+// ==========================================================================
+
+let currentContextMeter = null;
+
+function updateContextMeterUI(meter, isRunning = false) {
+  currentContextMeter = meter;
+  const ringBtn = document.getElementById("chat-context-ring-btn");
+  const ringCircle = document.getElementById("context-ring-circle");
+  const ringText = document.getElementById("context-ring-text");
+  const speedBadge = document.getElementById("context-speed-badge");
+
+  if (!ringBtn || !meter) {
+    if (ringBtn) ringBtn.classList.add("hidden");
+    return;
+  }
+
+  ringBtn.classList.remove("hidden");
+  const pct = Math.min(Math.max(meter.percentage || 0, 0), 100);
+  if (ringCircle) {
+    ringCircle.setAttribute("stroke-dasharray", `${pct.toFixed(1)}, 100`);
+    ringCircle.classList.remove("warn", "danger");
+    if (pct >= 90 || meter.isOverflow) {
+      ringCircle.classList.add("danger");
+    } else if (pct >= 70) {
+      ringCircle.classList.add("warn");
+    }
+  }
+  if (ringText) {
+    ringText.textContent = `${Math.round(pct)}%`;
+  }
+  if (speedBadge) {
+    if ((isRunning || meter.tokensPerSecond > 0) && meter.tokensPerSecond > 0) {
+      speedBadge.textContent = `⚡ ${meter.tokensPerSecond.toFixed(1)} t/s`;
+      speedBadge.classList.remove("hidden");
+    } else {
+      speedBadge.classList.add("hidden");
+    }
+  }
+
+  // If audit modal is open, keep it fresh
+  const sheet = document.getElementById("sheet-audit");
+  if (sheet && !sheet.classList.contains("hidden")) {
+    renderAuditSheetContent(meter);
+  }
+}
+
+function renderAuditSheetContent(meter) {
+  if (!meter) return;
+  const usedEl = document.getElementById("audit-used-tokens");
+  const maxEl = document.getElementById("audit-max-tokens");
+  const fillEl = document.getElementById("audit-progress-fill");
+  const ttftEl = document.getElementById("audit-ttft-val");
+  const tpsEl = document.getElementById("audit-tps-val");
+  const durEl = document.getElementById("audit-stream-duration");
+  const inpEl = document.getElementById("audit-input-tokens");
+  const capEl = document.getElementById("audit-cache-tokens");
+  const outEl = document.getElementById("audit-output-tokens");
+  const thinkEl = document.getElementById("audit-thinking-tokens");
+
+  const pct = Math.min(Math.max(meter.percentage || 0, 0), 100);
+  if (usedEl) usedEl.textContent = (meter.usedTokens || 0).toLocaleString();
+  if (maxEl) maxEl.textContent = meter.maxTokens >= 1000 ? `${Math.round(meter.maxTokens / 1000)}k` : String(meter.maxTokens || 200000);
+  if (fillEl) {
+    fillEl.style.width = `${pct}%`;
+    fillEl.style.background = pct >= 90 ? "var(--ios-red, #ff3b30)" : pct >= 70 ? "var(--ios-orange, #ff9500)" : "var(--ios-green, #34c759)";
+  }
+  if (ttftEl) ttftEl.textContent = meter.timeToFirstTokenSec > 0 ? meter.timeToFirstTokenSec.toFixed(2) : "--";
+  if (tpsEl) tpsEl.textContent = meter.tokensPerSecond > 0 ? meter.tokensPerSecond.toFixed(1) : "--";
+  if (durEl) durEl.textContent = meter.streamingDurationSec > 0 ? meter.streamingDurationSec.toFixed(2) : "--";
+
+  if (inpEl) inpEl.textContent = (meter.inputTokens || 0).toLocaleString();
+  if (capEl) capEl.textContent = (meter.cacheReadTokens || 0).toLocaleString();
+  if (outEl) outEl.textContent = (meter.outputTokens || 0).toLocaleString();
+  if (thinkEl) thinkEl.textContent = (meter.thinkingTokens || 0).toLocaleString();
+}
+
+function openAuditSheet() {
+  const sheet = document.getElementById("sheet-audit");
+  if (!sheet) return;
+  if (currentContextMeter) {
+    renderAuditSheetContent(currentContextMeter);
+  }
+  sheet.classList.remove("hidden");
+}
+
+function closeAuditSheet() {
+  const sheet = document.getElementById("sheet-audit");
+  if (sheet) sheet.classList.add("hidden");
+}
+
+function sendCompactCommand() {
+  closeAuditSheet();
+  const inputEl = document.getElementById("chat-input");
+  if (inputEl) {
+    inputEl.value = "/compact";
+    if (typeof sendMessage === "function") {
+      sendMessage();
+    }
+  }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  const ringBtn = document.getElementById("chat-context-ring-btn");
+  if (ringBtn) ringBtn.addEventListener("click", openAuditSheet);
+
+  const closeBtn = document.getElementById("btn-audit-close");
+  if (closeBtn) closeBtn.addEventListener("click", closeAuditSheet);
+
+  const compactBtn = document.getElementById("btn-audit-compact");
+  if (compactBtn) compactBtn.addEventListener("click", sendCompactCommand);
+
+  const sheet = document.getElementById("sheet-audit");
+  if (sheet) {
+    sheet.addEventListener("click", (e) => {
+      if (e.target === sheet) closeAuditSheet();
+    });
+  }
+});
+

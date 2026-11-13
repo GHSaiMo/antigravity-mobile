@@ -558,6 +558,8 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
     public let slashCommands: [SlashCommandMention]?
     /// 客户端发送时生成的幂等标识（Antigravity 2.30+ 原生字段或网关 tags 还原）
     public let clientMessageId: String?
+    public let errorKind: String?
+    public let isOverflow: Bool?
     
     public enum MessageSender: Hashable, Sendable, Codable {
         case user
@@ -632,7 +634,9 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
         workflow: WorkflowItem? = nil,
         timestamp: String? = nil,
         slashCommands: [SlashCommandMention]? = nil,
-        clientMessageId: String? = nil
+        clientMessageId: String? = nil,
+        errorKind: String? = nil,
+        isOverflow: Bool? = nil
     ) {
         self.model = model
         self.modelName = modelName
@@ -641,6 +645,8 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
         self.timestamp = timestamp
         self.slashCommands = slashCommands
         self.clientMessageId = clientMessageId
+        self.errorKind = errorKind
+        self.isOverflow = isOverflow
         self.id = id
         self.sender = sender
         self.content = content
@@ -685,6 +691,14 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
     public var isError: Bool {
         if case .error = sender { return true }
         return false
+    }
+
+    public var isContextOverflow: Bool {
+        if isOverflow == true || errorKind == "context_overflow" { return true }
+        let lower = content.lowercased()
+        return lower.contains("context window") ||
+            lower.contains("context length") ||
+            lower.contains("prompt is too long")
     }
 
     public var isSubagent: Bool {

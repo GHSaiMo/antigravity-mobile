@@ -75,6 +75,8 @@ fun MessageBubble(
     onUndoClick: ((GatewayMessageItem) -> Unit)? = null,
     onExportMarkdownClick: (() -> Unit)? = null,
     onSubagentClick: ((SubagentItem) -> Unit)? = null,
+    onCompactClick: (() -> Unit)? = null,
+    onStartNewSessionClick: (() -> Unit)? = null,
     shareContextProvider: ((GatewayMessageItem) -> ShareCardContext)? = null
 ) {
     val colors = AntigravityTheme.colors
@@ -131,6 +133,20 @@ fun MessageBubble(
     // Error card for execution errors
     if (message.isError) {
         val errText = message.effectiveText.ifBlank { "执行遇到错误" }
+        val isOverflowErr = message.isOverflow ||
+            message.errorKind == "context_overflow" ||
+            errText.contains("context window", ignoreCase = true) ||
+            errText.contains("context length", ignoreCase = true) ||
+            errText.contains("prompt is too long", ignoreCase = true)
+        if (isOverflowErr) {
+            RescueBubbleCard(
+                errorText = errText,
+                onCompactClick = onCompactClick,
+                onStartNewSessionClick = onStartNewSessionClick,
+                modifier = modifier
+            )
+            return
+        }
         val attemptInfo = remember(errText, message.attemptCount, message.maxAttempts) {
             val cur = message.attemptCount
             val max = message.maxAttempts

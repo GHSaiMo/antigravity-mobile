@@ -34,7 +34,7 @@ import (
 )
 
 // Version represents the Multigravity Gateway release version.
-var Version = "1.1.5"
+var Version = "1.1.6"
 
 // envDisabled reports whether an opt-out switch is explicitly turned off ("0", "false", "off", "no").
 func envDisabled(name string) bool {
@@ -797,6 +797,16 @@ func buildRouter(
 			return
 		}
 		writeJSON(w, http.StatusOK, quotas)
+	})
+	rootMux.HandleFunc("GET /api/v1/cockpit/tokens/history", func(w http.ResponseWriter, r *http.Request) {
+		force := r.URL.Query().Get("force") == "true"
+		history, err := cockpit.GetTokenHistory(force)
+		if err != nil {
+			slog.Warn("[Cockpit] GetTokenHistory failed", "err", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to load token history"})
+			return
+		}
+		writeJSON(w, http.StatusOK, history)
 	})
 	rootMux.HandleFunc("POST /api/v1/cockpit/refresh", func(w http.ResponseWriter, r *http.Request) {
 		slog.Info("[Cockpit] Triggering quota refresh...")

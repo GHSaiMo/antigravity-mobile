@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.antigravity.mobile.data.model.CockpitQuotaResponse
+import com.antigravity.mobile.data.model.TokenHistoryResponse
 import com.antigravity.mobile.data.model.ConversationItem
 import com.antigravity.mobile.data.model.ConversationSearchResult
 import com.antigravity.mobile.data.model.GatewayCompatStore
@@ -64,6 +65,12 @@ class ConversationListViewModel(
 
     private val _isRefreshingQuota = MutableStateFlow(false)
     val isRefreshingQuota: StateFlow<Boolean> = _isRefreshingQuota.asStateFlow()
+
+    private val _tokenHistory = MutableStateFlow<TokenHistoryResponse?>(null)
+    val tokenHistory: StateFlow<TokenHistoryResponse?> = _tokenHistory.asStateFlow()
+
+    private val _isLoadingTokenHistory = MutableStateFlow(false)
+    val isLoadingTokenHistory: StateFlow<Boolean> = _isLoadingTokenHistory.asStateFlow()
 
     private val _projects = MutableStateFlow<List<ProjectItem>>(loadInitialProjects())
     val projects: StateFlow<List<ProjectItem>> = _projects.asStateFlow()
@@ -422,6 +429,18 @@ class ConversationListViewModel(
                 _quotaData.value = it
             }
             _isRefreshingQuota.value = false
+        }
+    }
+
+    fun loadTokenHistory(force: Boolean = false) {
+        if (!prefs.isPaired()) return
+        if (!force && _tokenHistory.value != null && _isLoadingTokenHistory.value) return
+        _isLoadingTokenHistory.value = true
+        viewModelScope.launch {
+            apiClient.fetchTokenHistory(force = force).onSuccess {
+                _tokenHistory.value = it
+            }
+            _isLoadingTokenHistory.value = false
         }
     }
 

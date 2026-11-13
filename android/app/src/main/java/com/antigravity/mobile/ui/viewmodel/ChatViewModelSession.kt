@@ -427,7 +427,8 @@ internal fun ChatViewModel.initSession(
                         stepCount = payload.totalSteps,
                         totalTools = payload.totalTools,
                         duration = payload.duration ?: _uiState.value.duration,
-                        cascadeConfigRaw = payload.cascadeConfigRaw ?: _uiState.value.cascadeConfigRaw
+                        cascadeConfigRaw = payload.cascadeConfigRaw ?: _uiState.value.cascadeConfigRaw,
+                        contextMeter = payload.contextMeter ?: _uiState.value.contextMeter
                     )
 
                     if (isRunning) {
@@ -559,7 +560,8 @@ internal fun ChatViewModel.ensureWebSocketObserving() {
                     stepCount = if (payload.totalSteps > 0) payload.totalSteps else _uiState.value.stepCount,
                     totalTools = if (payload.totalTools > 0) payload.totalTools else _uiState.value.totalTools,
                     duration = payload.duration ?: _uiState.value.duration,
-                    cascadeConfigRaw = payload.cascadeConfigRaw ?: _uiState.value.cascadeConfigRaw
+                    cascadeConfigRaw = payload.cascadeConfigRaw ?: _uiState.value.cascadeConfigRaw,
+                    contextMeter = payload.contextMeter ?: _uiState.value.contextMeter
                 )
 
                 if (isRunning) {

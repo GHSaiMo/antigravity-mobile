@@ -290,6 +290,7 @@ public final class ChatViewModel {
     public var hasError: Bool = false
     public var trajectoryErrorMessage: String? = nil
     public var cascadeConfigRaw: String? = nil
+    public var contextMeter: ContextMeterItem? = nil
     public var isAwaitingResponse: Bool = false
     public var scrollToTurnStartTrigger: Int = 0
     public var scrollToBottomTrigger: Int = 0
@@ -828,6 +829,7 @@ public final class ChatViewModel {
             }
             if let name = result.activeModelName, !name.isEmpty { self.activeModelName = name }
             if let started = result.startedAt, !started.isEmpty { self.startedAt = started }
+            if let cm = result.contextMeter { self.contextMeter = cm }
             if let swarm = result.swarm {
                 self.swarmBrief = swarm
             } else if !isBackgroundPoll {

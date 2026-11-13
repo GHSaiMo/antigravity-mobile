@@ -116,4 +116,63 @@ extension MessageBubbleView {
         }
         return "执行遇到错误"
     }
+
+    var rescueOverflowCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(Color.orange.opacity(0.18))
+                    .frame(width: 28, height: 28)
+                    .overlay(
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.orange)
+                    )
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("上下文窗口已触及上限")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(.orange)
+                    Text("建议立即压缩历史对话或开启新会话继续工作")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            if !message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text(message.content)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .lineLimit(3)
+            }
+
+            HStack(spacing: 8) {
+                if let onCompact {
+                    Button(action: onCompact) {
+                        Text("一键压缩 /compact")
+                            .font(.system(size: 12, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 7)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.orange)
+                }
+                if let onStartNewSession {
+                    Button(action: onStartNewSession) {
+                        Text("开启新会话")
+                            .font(.system(size: 12, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 7)
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+        }
+        .padding(14)
+        .background(Color.orange.opacity(0.09))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color.orange.opacity(0.35), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
 }

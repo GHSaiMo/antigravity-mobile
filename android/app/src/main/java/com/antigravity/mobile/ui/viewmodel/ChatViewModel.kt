@@ -135,7 +135,8 @@ data class ChatUiState(
     /** Antigravity 2.30.0 GetChapterTitles 生成的章节标题缓存（key: "start:end" 或 "start:s"）。 */
     val chapterTitles: Map<String, String> = emptyMap(),
     val isLoadingChapterTitles: Boolean = false,
-    val focusInputTrigger: Int = 0
+    val focusInputTrigger: Int = 0,
+    val contextMeter: ContextMeterItem? = null
 )
 
 class ChatViewModel(
@@ -270,6 +271,10 @@ class ChatViewModel(
     /** 直接发送一条预设消息到当前会话（如语音连接失败后的一键排查提示词）。 */
     fun sendPresetMessage(text: String) {
         sendMessage(text)
+    }
+
+    fun sendCompactCommand() {
+        sendMessage("/compact")
     }
 
     fun sendCurrentMessage() {

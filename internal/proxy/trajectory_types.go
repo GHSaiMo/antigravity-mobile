@@ -49,6 +49,10 @@ type CascadeMessageItem struct {
 	Timestamp string `json:"timestamp,omitempty"`
 	// ClientMessageID is the client-supplied UUID (Antigravity 2.30+ native field or mgy-client tag) for user messages.
 	ClientMessageID string `json:"clientMessageId,omitempty"`
+	// ErrorKind indicates structured error type: "context_overflow", "rate_limited", etc.
+	ErrorKind string `json:"errorKind,omitempty"`
+	// IsOverflow is true when the message indicates context length overflow
+	IsOverflow bool `json:"isOverflow,omitempty"`
 }
 
 // QueuedMessageItem represents a pending follow-up user message queued for execution.
@@ -174,6 +178,22 @@ type PendingInteraction struct {
 	Questions          []InteractionQuestion   `json:"questions,omitempty"`
 }
 
+// ContextMeterItem represents the real-time context window usage and generation speed for the session.
+type ContextMeterItem struct {
+	UsedTokens        int64   `json:"usedTokens"`
+	MaxTokens         int64   `json:"maxTokens"`
+	Percentage        float64 `json:"percentage"`
+	InputTokens       int64   `json:"inputTokens"`
+	OutputTokens      int64   `json:"outputTokens"`
+	CacheReadTokens   int64   `json:"cacheReadTokens"`
+	ThinkingTokens    int64   `json:"thinkingTokens"`
+	TimeToFirstToken  float64 `json:"timeToFirstTokenSec,omitempty"`
+	StreamingDuration float64 `json:"streamingDurationSec,omitempty"`
+	TokensPerSecond   float64 `json:"tokensPerSecond,omitempty"`
+	IsOverflow        bool    `json:"isOverflow"`
+	ErrorKind         string  `json:"errorKind,omitempty"`
+}
+
 type CascadeMessagesResponse struct {
 	CascadeID          string               `json:"cascadeId"`
 	Title              string               `json:"title,omitempty"`
@@ -203,6 +223,7 @@ type CascadeMessagesResponse struct {
 	ProceedArtifactURI string               `json:"proceedArtifactUri,omitempty"`
 	PendingInteraction *PendingInteraction  `json:"pendingInteraction,omitempty"`
 	Swarm              *SwarmBrief          `json:"swarm,omitempty"`
+	ContextMeter       *ContextMeterItem    `json:"contextMeter,omitempty"`
 }
 
 type TrajectoryMediaItem struct {
@@ -583,4 +604,5 @@ type TrajectoryDetails struct {
 	CanProceed         bool                 `json:"canProceed"`
 	ProceedArtifactURI string               `json:"proceedArtifactUri,omitempty"`
 	PendingInteraction *PendingInteraction  `json:"pendingInteraction,omitempty"`
+	ContextMeter       *ContextMeterItem    `json:"contextMeter,omitempty"`
 }

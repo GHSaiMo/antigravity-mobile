@@ -380,6 +380,17 @@ extension ChatView {
                 onExportMarkdown: GatewayCompatStore.shared.isAvailable(GatewayFeature.export)
                     ? { viewModel.exportMarkdown() }
                     : nil,
+                onCompact: {
+                    Task {
+                        _ = await viewModel.sendMessage(text: "/compact")
+                    }
+                },
+                onStartNewSession: {
+                    NotificationCenter.default.post(
+                        name: .startNewSessionForWorkspace,
+                        object: viewModel.workspaceName
+                    )
+                },
                 shareContext: shareCtx
             )
         }

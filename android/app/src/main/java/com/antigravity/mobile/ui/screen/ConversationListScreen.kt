@@ -78,6 +78,8 @@ fun ConversationListScreen(
     val isSearchingContent by viewModel.isSearchingContent.collectAsStateWithLifecycle()
     val quotaData by viewModel.quotaData.collectAsStateWithLifecycle()
     val isRefreshingQuota by viewModel.isRefreshingQuota.collectAsStateWithLifecycle()
+    val tokenHistory by viewModel.tokenHistory.collectAsStateWithLifecycle()
+    val isLoadingTokenHistory by viewModel.isLoadingTokenHistory.collectAsStateWithLifecycle()
     val globalBackgroundTasks by viewModel.globalBackgroundTasks.collectAsStateWithLifecycle()
     val projects by viewModel.projects.collectAsStateWithLifecycle()
     val isLoadingProjects by viewModel.isLoadingProjects.collectAsStateWithLifecycle()
@@ -534,6 +536,9 @@ fun ConversationListScreen(
             quotaData = quotaData,
             isRefreshing = isRefreshingQuota,
             showWeeklyPaceCursor = showWeeklyPaceCursor,
+            tokenHistory = tokenHistory,
+            isLoadingTokenHistory = isLoadingTokenHistory,
+            onLoadTokenHistory = { force -> viewModel.loadTokenHistory(force) },
             onRefresh = { viewModel.refreshQuotas() },
             onSwitchAccount = { viewModel.switchCockpitAccount(it) },
             onDismiss = { showQuotaSheet = false }

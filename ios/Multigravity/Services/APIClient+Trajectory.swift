@@ -66,7 +66,9 @@ extension APIClient {
                         workflow: item.workflow,
                         timestamp: item.timestamp,
                         slashCommands: item.slashCommands,
-                        clientMessageId: item.clientMessageId
+                        clientMessageId: item.clientMessageId,
+                        errorKind: item.errorKind,
+                        isOverflow: item.isOverflow
                     )
                 }
                 
@@ -97,7 +99,8 @@ extension APIClient {
                     startedAt: decoded.startedAt,
                     hasError: isErr,
                     errorMessage: errMsg,
-                    swarm: decoded.swarm
+                    swarm: decoded.swarm,
+                    contextMeter: decoded.contextMeter
                 )
             }
         } catch {
@@ -126,7 +129,8 @@ extension APIClient {
             startedAt: nil,
             hasError: hasErr,
             errorMessage: errMsg,
-            swarm: nil
+            swarm: nil,
+            contextMeter: nil
         )
     }
     

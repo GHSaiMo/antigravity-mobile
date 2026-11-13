@@ -407,7 +407,8 @@ internal fun ChatViewModel.sendMessage(
                             nextOffset = payload.nextOffset,
                             stepCount = payload.totalSteps,
                             totalTools = payload.totalTools,
-                            duration = payload.duration ?: _uiState.value.duration
+                            duration = payload.duration ?: _uiState.value.duration,
+                            contextMeter = payload.contextMeter ?: _uiState.value.contextMeter
                         )
                         _scrollToBottomTrigger.value++
                         notifyConversationUpdated()

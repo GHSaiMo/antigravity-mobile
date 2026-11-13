@@ -181,7 +181,7 @@ if ($downloadSuccess) {
         Set-Location (Join-Path $repoRoot "..")
     }
     $tagVer = (git describe --tags --abbrev=0 2>$null) -replace '^v',''
-    if (-not $tagVer) { $tagVer = "1.1.5" }
+    if (-not $tagVer) { $tagVer = "1.1.6" }
     & $goCmd build -ldflags="-s -w -X 'main.Version=$tagVer'" -o "$installDir\mgy.exe" ./cmd/gateway
 }
 

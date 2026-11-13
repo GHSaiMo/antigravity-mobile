@@ -41,7 +41,17 @@
           <span class="nav-brand-title">Multigravity</span>
         </div>
         <div id="nav-inline-title" class="nav-inline-title hidden">
-          <span id="chat-title-text" class="title-text">会话详情</span>
+          <div class="chat-title-row">
+            <span id="chat-title-text" class="title-text">会话详情</span>
+            <div id="chat-context-ring-btn" class="context-ring-capsule hidden" title="查看上下文与生成速度">
+              <svg class="context-ring-svg" width="20" height="20" viewBox="0 0 36 36">
+                <path class="context-ring-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" stroke-width="3.5" opacity="0.25"/>
+                <path id="context-ring-circle" class="context-ring-val" stroke-dasharray="0, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" stroke-width="3.5"/>
+              </svg>
+              <span id="context-ring-text" class="context-ring-text">0%</span>
+              <span id="context-speed-badge" class="context-speed-badge hidden">⚡ 0 t/s</span>
+            </div>
+          </div>
           <span id="chat-workspace-text" class="subtitle-text"></span>
         </div>
       </div>
@@ -537,25 +547,151 @@
             </svg>
           </button>
           <div class="sheet-title-group">
-            <h2 class="sheet-title">账户与配额</h2>
+            <h2 class="sheet-title">账户与用量大盘</h2>
             <span id="quota-last-updated" class="sheet-subtitle"></span>
           </div>
           <button id="btn-quota-close" class="sheet-header-btn primary">完成</button>
         </div>
+        
+        <!-- Segmented Control for Quotas vs Token History -->
+        <div class="sheet-segmented-bar" id="quota-segmented-bar">
+          <button type="button" class="sheet-segment-btn active" data-tab="realtime">实时配额</button>
+          <button type="button" class="sheet-segment-btn" data-tab="history">Token 历史看板</button>
+        </div>
+
         <div class="sheet-body quota-sheet-body">
-          <!-- Pinned Current Account -->
-          <div class="quota-section-header">当前使用账号</div>
-          <div id="quota-current-card" class="quota-account-card current-account-card">
-            <!-- Populated dynamically via JS -->
+          <!-- Tab 1: Realtime Account Quotas -->
+          <div id="quota-tab-realtime" class="quota-tab-content active">
+            <!-- Pinned Current Account -->
+            <div class="quota-section-header">当前使用账号</div>
+            <div id="quota-current-card" class="quota-account-card current-account-card">
+              <!-- Populated dynamically via JS -->
+            </div>
+
+            <!-- Other Accounts List -->
+            <div id="quota-other-header" class="quota-section-header">备用账号</div>
+            <div id="quota-other-list" class="quota-accounts-list">
+              <!-- Populated dynamically via JS -->
+            </div>
+            <div id="quota-footer" class="quota-footer"></div>
           </div>
 
-          <!-- Other Accounts List -->
-          <div id="quota-other-header" class="quota-section-header">备用账号</div>
-          <div id="quota-other-list" class="quota-accounts-list">
-            <!-- Populated dynamically via JS -->
+          <!-- Tab 2: Token History & 52-Week Heatmap -->
+          <div id="quota-tab-history" class="quota-tab-content hidden">
+            <!-- Summary KPI Cards -->
+            <div class="token-kpi-grid">
+              <div class="token-kpi-card">
+                <span class="token-kpi-label">今日消耗</span>
+                <strong id="kpi-today-tokens" class="token-kpi-val">--</strong>
+              </div>
+              <div class="token-kpi-card">
+                <span class="token-kpi-label">近 7 日消耗</span>
+                <strong id="kpi-7d-tokens" class="token-kpi-val">--</strong>
+              </div>
+              <div class="token-kpi-card">
+                <span class="token-kpi-label">累计总 Token</span>
+                <strong id="kpi-total-tokens" class="token-kpi-val">--</strong>
+              </div>
+              <div class="token-kpi-card highlight">
+                <span class="token-kpi-label">API 参考折算</span>
+                <div class="token-kpi-cost">
+                  <span id="kpi-cost-usd" class="cost-usd">$0.00</span>
+                  <span id="kpi-cost-cny" class="cost-cny">≈ ¥0.00</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Terminal Source Split Pill -->
+            <div class="token-source-pill">
+              <span id="kpi-desktop-split">桌面端: --</span>
+              <span class="split-divider">·</span>
+              <span id="kpi-cli-split">CLI 端: --</span>
+            </div>
+
+            <!-- 52-Week GitHub Heatmap Section -->
+            <div class="heatmap-section-header">
+              <span>52 周活跃日历热力图</span>
+              <span class="heatmap-legend">
+                <span>少</span>
+                <i class="heat-dot level-0"></i>
+                <i class="heat-dot level-1"></i>
+                <i class="heat-dot level-2"></i>
+                <i class="heat-dot level-3"></i>
+                <i class="heat-dot level-4"></i>
+                <span>多</span>
+              </span>
+            </div>
+            <div class="heatmap-scroll-wrap" id="heatmap-scroll-wrap">
+              <div id="token-heatmap-grid" class="token-heatmap-grid">
+                <!-- Generated dynamically via JS -->
+              </div>
+            </div>
+
+            <!-- Inline Inspector Detail Card -->
+            <div id="token-inspector-card" class="token-inspector-card">
+              <div class="inspector-header">
+                <span id="inspector-date" class="inspector-date">请点击方格查看单日明细</span>
+                <span id="inspector-cost" class="inspector-cost"></span>
+              </div>
+              <div id="inspector-body" class="inspector-body">
+                <div class="inspector-row"><span>总用量:</span> <strong id="inspector-total">--</strong></div>
+                <div class="inspector-row"><span>输入 / 缓存 / 输出:</span> <span id="inspector-breakdown">--</span></div>
+                <div class="inspector-row"><span>活跃步数:</span> <span id="inspector-steps">--</span></div>
+                <div id="inspector-models" class="inspector-models"></div>
+              </div>
+            </div>
           </div>
-          <div id="quota-footer" class="quota-footer"></div>
         </div>
+      </div>
+    </div>
+
+    <!-- Audit Sheet: Context & Generation Speed Inspector -->
+    <div id="sheet-audit" class="ios-sheet-overlay hidden">
+      <div class="ios-sheet-card audit-sheet-card">
+        <div class="sheet-grabber"></div>
+        <div class="sheet-header">
+          <div class="sheet-title-group">
+            <h2 class="sheet-title">会话上下文与速度审计</h2>
+            <span id="audit-session-subtitle" class="sheet-subtitle">实时监控与物理窗口分析</span>
+          </div>
+          <button id="btn-audit-close" class="sheet-header-btn primary">完成</button>
+        </div>
+        <div class="sheet-body audit-sheet-body">
+          <div class="audit-kpi-grid">
+            <div class="audit-kpi-card">
+              <span class="audit-kpi-label">物理窗口水位</span>
+              <div class="audit-kpi-val"><span id="audit-used-tokens">0</span> <span class="audit-kpi-unit">/ <span id="audit-max-tokens">200k</span></span></div>
+              <div class="audit-progress-bar"><div id="audit-progress-fill" class="audit-progress-fill" style="width: 0%"></div></div>
+            </div>
+            <div class="audit-kpi-card">
+              <span class="audit-kpi-label">首字延迟 (TTFT)</span>
+              <div class="audit-kpi-val"><span id="audit-ttft-val">--</span> <span class="audit-kpi-unit">s</span></div>
+            </div>
+            <div class="audit-kpi-card">
+              <span class="audit-kpi-label">流式输出速度</span>
+              <div class="audit-kpi-val"><span id="audit-tps-val">--</span> <span class="audit-kpi-unit">t/s</span></div>
+            </div>
+            <div class="audit-kpi-card">
+              <span class="audit-kpi-label">持续生成时间</span>
+              <div class="audit-kpi-val"><span id="audit-stream-duration">--</span> <span class="audit-kpi-unit">s</span></div>
+            </div>
+          </div>
+          <div class="audit-section-title">Token 结构分布 (本轮)</div>
+          <div class="audit-breakdown-card">
+            <div class="audit-breakdown-row"><span>输入 Tokens (Prompt)</span><strong id="audit-input-tokens">0</strong></div>
+            <div class="audit-breakdown-row"><span>缓存命中 (Cache Read)</span><strong id="audit-cache-tokens">0</strong></div>
+            <div class="audit-breakdown-row"><span>模型输出 (Output)</span><strong id="audit-output-tokens">0</strong></div>
+            <div class="audit-breakdown-row"><span>深度思考 (Thinking)</span><strong id="audit-thinking-tokens">0</strong></div>
+          </div>
+          <div class="audit-actions-bar">
+            <button id="btn-audit-compact" class="audit-action-btn primary" type="button">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 14h6m-6-4h6m8 4h-6m6-4h-6M4 4h16v16H4z"/></svg>
+              一键压缩会话 (/compact)
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
       </div>
     </div>
 

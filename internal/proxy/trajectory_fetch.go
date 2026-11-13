@@ -598,3 +598,166 @@ func (p *Proxy) FetchRawCascadeSummaries() (map[string]map[string]interface{}, m
 
 	return summaries, runningSubagents, nil
 }
+
+type contextMeterCacheEntry struct {
+	item *ContextMeterItem
+	at   time.Time
+}
+
+var (
+	contextMeterCacheMu sync.Mutex
+	contextMeterCache   = make(map[string]contextMeterCacheEntry)
+)
+
+// fetchUpstreamGeneratorMetadata queries GetCascadeTrajectoryGeneratorMetadata from LanguageServer
+func (p *Proxy) fetchUpstreamGeneratorMetadata(cascadeID string, port int, token string) *ContextMeterItem {
+	if port <= 0 || cascadeID == "" {
+		return nil
+	}
+
+	contextMeterCacheMu.Lock()
+	if entry, ok := contextMeterCache[cascadeID]; ok && time.Since(entry.at) < 1200*time.Millisecond {
+		contextMeterCacheMu.Unlock()
+		return entry.item
+	}
+	contextMeterCacheMu.Unlock()
+
+	buf := GetSmallBuffer()
+	defer PutSmallBuffer(buf)
+	buf.WriteString(`{"cascadeId":`)
+	buf.WriteString(strconv.Quote(cascadeID))
+	buf.WriteString(`,"generatorMetadataOffset":0,"includeMessages":false}`)
+
+	url := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetCascadeTrajectoryGeneratorMetadata", port)
+	req, err := http.NewRequest(http.MethodPost, url, buf)
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Connect-Protocol-Version", "1")
+	if token != "" {
+		req.Header.Set("x-codeium-csrf-token", token)
+	}
+
+	resp, err := p.shortClient.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+
+	var metaResp struct {
+		GeneratorMetadata []struct {
+			ChatModel struct {
+				Model             string `json:"model"`
+				ModelDisplayName  string `json:"modelDisplayName"`
+				TimeToFirstToken  string `json:"timeToFirstToken"`
+				StreamingDuration string `json:"streamingDuration"`
+				ChatStartMetadata *struct {
+					ContextWindowMetadata *struct {
+						MaxContextTokens    int64 `json:"maxContextTokens"`
+						EstimatedTokensUsed int64 `json:"estimatedTokensUsed"`
+					} `json:"contextWindowMetadata"`
+				} `json:"chatStartMetadata"`
+				Usage *struct {
+					InputTokens          int64 `json:"inputTokens"`
+					OutputTokens         int64 `json:"outputTokens"`
+					CacheReadTokens      int64 `json:"cacheReadTokens"`
+					ThinkingOutputTokens int64 `json:"thinkingOutputTokens"`
+				} `json:"usage"`
+				RetryInfos []struct {
+					Error string `json:"error"`
+				} `json:"retryInfos"`
+			} `json:"chatModel"`
+		} `json:"generatorMetadata"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&metaResp); err != nil || len(metaResp.GeneratorMetadata) == 0 {
+		return nil
+	}
+
+	last := metaResp.GeneratorMetadata[len(metaResp.GeneratorMetadata)-1]
+	cm := last.ChatModel
+
+	var maxTokens, usedTokens int64
+	if cm.ChatStartMetadata != nil && cm.ChatStartMetadata.ContextWindowMetadata != nil {
+		maxTokens = cm.ChatStartMetadata.ContextWindowMetadata.MaxContextTokens
+		usedTokens = cm.ChatStartMetadata.ContextWindowMetadata.EstimatedTokensUsed
+	}
+
+	var inp, outp, capTokens, thinking int64
+	if cm.Usage != nil {
+		inp = cm.Usage.InputTokens
+		outp = cm.Usage.OutputTokens
+		capTokens = cm.Usage.CacheReadTokens
+		thinking = cm.Usage.ThinkingOutputTokens
+		if usedTokens == 0 {
+			usedTokens = inp + capTokens + outp
+		}
+	}
+
+	if maxTokens <= 0 {
+		maxTokens = 200000
+	}
+
+	percentage := 0.0
+	if maxTokens > 0 && usedTokens > 0 {
+		percentage = float64(usedTokens) / float64(maxTokens) * 100.0
+		if percentage > 100.0 {
+			percentage = 100.0
+		}
+	}
+
+	ttftSec := parseDurationToSec(cm.TimeToFirstToken)
+	streamSec := parseDurationToSec(cm.StreamingDuration)
+	var tps float64
+	if outp > 0 && streamSec > 0.05 {
+		tps = float64(outp) / streamSec
+	}
+
+	lastErr := ""
+	if len(cm.RetryInfos) > 0 {
+		lastErr = cm.RetryInfos[len(cm.RetryInfos)-1].Error
+	}
+	errKind := ClassifyErrorKind(lastErr)
+
+	item := &ContextMeterItem{
+		UsedTokens:        usedTokens,
+		MaxTokens:         maxTokens,
+		Percentage:        float64(int(percentage*10+0.5)) / 10,
+		InputTokens:       inp,
+		OutputTokens:      outp,
+		CacheReadTokens:   capTokens,
+		ThinkingTokens:    thinking,
+		TimeToFirstToken:  ttftSec,
+		StreamingDuration: streamSec,
+		TokensPerSecond:   float64(int(tps*10+0.5)) / 10,
+		IsOverflow:        errKind == "context_overflow",
+		ErrorKind:         errKind,
+	}
+
+	contextMeterCacheMu.Lock()
+	if len(contextMeterCache) > 200 {
+		contextMeterCache = make(map[string]contextMeterCacheEntry)
+	}
+	contextMeterCache[cascadeID] = contextMeterCacheEntry{item: item, at: time.Now()}
+	contextMeterCacheMu.Unlock()
+
+	return item
+}
+
+func parseDurationToSec(s string) float64 {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0
+	}
+	s = strings.TrimSuffix(s, "s")
+	if val, err := strconv.ParseFloat(s, 64); err == nil {
+		return val
+	}
+	return 0
+}
+
