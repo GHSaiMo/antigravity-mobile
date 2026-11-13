@@ -63,7 +63,8 @@ public enum ModelDefaultsLogic {
     ]
 
     public static let staticIDByEnum: [String: String] = Dictionary(
-        uniqueKeysWithValues: staticEnumByID.map { ($0.value, $0.key) }
+        staticEnumByID.map { ($0.value, $0.key) },
+        uniquingKeysWith: { current, _ in current }
     )
 
     /// 内置/预设模型 ID → 统一展示名映射，避免离线、未拉取目录或切号过渡期露出小写裸 ID。
