@@ -729,6 +729,17 @@ fun McpSkillsSheet(
                                         }
                                         managingAutomationNames.remove(sid)
                                     }
+                                },
+                                onRunNow = {
+                                    scope.launch {
+                                        managingAutomationNames.add(sid)
+                                        apiClient.manageAutomation("run_now", sid)
+                                        apiClient.fetchAutomationsData().onSuccess {
+                                            automations = it.automations
+                                            automationEvents = it.events
+                                        }
+                                        managingAutomationNames.remove(sid)
+                                    }
                                 }
                             )
                         }
@@ -1800,7 +1811,8 @@ private fun PluginCard(
 private fun AutomationCard(
     sidecar: AutomationSidecarItem,
     isManaging: Boolean,
-    onToggle: () -> Unit
+    onToggle: () -> Unit,
+    onRunNow: (() -> Unit)? = null
 ) {
     val colors = AntigravityTheme.colors
     val isRunning = sidecar.isRunning
@@ -1847,16 +1859,31 @@ private fun AutomationCard(
                 }
             }
 
-            OutlinedButton(
-                onClick = onToggle,
-                enabled = !isManaging,
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                modifier = Modifier.height(28.dp)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                if (isManaging) {
-                    CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 1.5.dp)
-                } else {
-                    Text(if (isRunning) "停止" else "启动", fontSize = 11.5.sp)
+                if (onRunNow != null) {
+                    OutlinedButton(
+                        onClick = onRunNow,
+                        enabled = !isManaging,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                        modifier = Modifier.height(28.dp)
+                    ) {
+                        Text("立即运行", fontSize = 11.5.sp)
+                    }
+                }
+                OutlinedButton(
+                    onClick = onToggle,
+                    enabled = !isManaging,
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                    modifier = Modifier.height(28.dp)
+                ) {
+                    if (isManaging) {
+                        CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 1.5.dp)
+                    } else {
+                        Text(if (isRunning) "停止" else "启动", fontSize = 11.5.sp)
+                    }
                 }
             }
         }
@@ -1876,6 +1903,29 @@ private fun AutomationCard(
                     fontSize = 11.sp,
                     fontFamily = FontFamily.Monospace
                 )
+            }
+        }
+
+        if (!sidecar.nextRunAt.isNullOrBlank() || !sidecar.lastRunAt.isNullOrBlank()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (!sidecar.nextRunAt.isNullOrBlank()) {
+                    Text(
+                        text = "下次: ${sidecar.nextRunAt}",
+                        color = colors.textSecondary,
+                        fontSize = 11.sp
+                    )
+                }
+                if (!sidecar.lastRunAt.isNullOrBlank()) {
+                    Text(
+                        text = "上次: ${sidecar.lastRunAt}",
+                        color = colors.textMuted,
+                        fontSize = 11.sp
+                    )
+                }
             }
         }
 

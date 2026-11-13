@@ -625,12 +625,19 @@ private fun MainSettingsContent(
                     .padding(horizontal = 16.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "MCP 工具与技能看板",
-                    color = colors.textPrimary,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Medium
-                )
+                Column {
+                    Text(
+                        text = "MCP 工具与技能看板",
+                        color = colors.textPrimary,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "MCP / 技能 / 插件 / 定时任务 / 后台",
+                        color = colors.textMuted,
+                        fontSize = 11.5.sp
+                    )
+                }
                 Spacer(modifier = Modifier.weight(1f))
                 Icon(
                     imageVector = Icons.Default.ChevronRight,

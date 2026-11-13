@@ -691,6 +691,15 @@ public struct McpSkillsSheet: View {
                                 Spacer()
 
                                 Button(action: {
+                                    runNowAutomation(sidecar)
+                                }) {
+                                    Text("立即运行")
+                                        .font(.system(size: 12, weight: .semibold))
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(managingAutomationNames.contains(sidecar.id))
+
+                                Button(action: {
                                     toggleAutomation(sidecar)
                                 }) {
                                     if managingAutomationNames.contains(sidecar.id) {
@@ -712,6 +721,21 @@ public struct McpSkillsSheet: View {
                                         .font(.system(size: 11, design: .monospaced))
                                 }
                                 .foregroundColor(.secondary)
+                            }
+
+                            if sidecar.nextRunAt?.isEmpty == false || sidecar.lastRunAt?.isEmpty == false {
+                                HStack(spacing: 8) {
+                                    if let next = sidecar.nextRunAt, !next.isEmpty {
+                                        Text("下次: \(next)")
+                                            .font(.system(size: 11))
+                                            .foregroundColor(.secondary)
+                                    }
+                                    if let last = sidecar.lastRunAt, !last.isEmpty {
+                                        Text("上次: \(last)")
+                                            .font(.system(size: 11))
+                                            .foregroundColor(.secondary.opacity(0.8))
+                                    }
+                                }
                             }
 
                             if let desc = sidecar.description ?? sidecar.prompt, !desc.isEmpty {
@@ -770,6 +794,20 @@ public struct McpSkillsSheet: View {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         Task {
             _ = try? await APIClient.shared.manageAutomation(action: action, sidecarId: sidecar.id, baseURL: url)
+            if let refreshed = try? await APIClient.shared.fetchAutomations(baseURL: url) {
+                self.automations = refreshed.automations
+                self.automationEvents = refreshed.events
+            }
+            managingAutomationNames.remove(sidecar.id)
+        }
+    }
+
+    private func runNowAutomation(_ sidecar: AutomationSidecarItem) {
+        guard let url = settings.serverURL else { return }
+        managingAutomationNames.insert(sidecar.id)
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        Task {
+            _ = try? await APIClient.shared.manageAutomation(action: "run_now", sidecarId: sidecar.id, baseURL: url)
             if let refreshed = try? await APIClient.shared.fetchAutomations(baseURL: url) {
                 self.automations = refreshed.automations
                 self.automationEvents = refreshed.events
