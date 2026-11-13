@@ -868,8 +868,8 @@ struct ContextAuditSheetView: View {
             }
         }
         .padding(.horizontal, 20)
-        .padding(.top, 28)
-        .padding(.bottom, 24)
+        .padding(.top, 52)
+        .padding(.bottom, 28)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Color(uiColor: .systemGroupedBackground))
     }
