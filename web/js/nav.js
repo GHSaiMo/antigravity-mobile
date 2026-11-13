@@ -232,6 +232,86 @@ let listEventsAttempts = 0;
 let listEventsHadConnection = false;
 let listEventsSeq = 0;
 
+// ---- Connection heartbeat (gateway "beat" frames every 5s) -> dot in the home quota bar ----
+// 2 missed beats = attention, 6 missed = disconnected; old gateways never send "beat" -> plain connected.
+const LINK_ATTENTION_MS = 12000;
+const LINK_DISCONNECTED_MS = 30000;
+const LINK_CONNECTING_GRACE_MS = 10000;
+const linkHealth = {
+  started: false, connected: false, hadConnection: false, supportsBeat: false,
+  lastBeatAt: 0, startedAt: 0, desktop: null,
+};
+
+function evaluateLinkHealth(now = Date.now()) {
+  const s = linkHealth;
+  if (!s.started) return "unknown";
+  if (!s.connected) {
+    if (now - s.startedAt < LINK_CONNECTING_GRACE_MS) return s.hadConnection ? "attention" : "unknown";
+    return "disconnected";
+  }
+  if (!s.supportsBeat) return "connected";
+  if (!s.lastBeatAt) return "attention";
+  const age = now - s.lastBeatAt;
+  if (age >= LINK_DISCONNECTED_MS) return "disconnected";
+  if (age >= LINK_ATTENTION_MS) return "attention";
+  if (s.desktop === "down") return "attention";
+  return "connected";
+}
+
+const LINK_LABELS = {
+  unknown: "正在连接电脑", connected: "已连接电脑", attention: "连接异常", disconnected: "已断开",
+};
+const LINK_TITLES = {
+  unknown: "连接中", connected: "已连接电脑", attention: "连接不稳或电脑端未就绪", disconnected: "未连接",
+};
+
+function renderLinkHealth() {
+  const state = evaluateLinkHealth();
+  const cls = `link-${state}`;
+  for (const id of ["link-health-dot", "link-health-card-dot"]) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    el.classList.remove("link-unknown", "link-connected", "link-attention", "link-disconnected");
+    el.classList.add(cls);
+    if (id === "link-health-dot") el.setAttribute("aria-label", LINK_LABELS[state]);
+  }
+  const title = document.getElementById("link-health-title");
+  if (title) title.textContent = LINK_TITLES[state];
+  const detail = document.getElementById("link-health-detail");
+  if (detail) {
+    const age = linkHealth.lastBeatAt ? Math.max(0, Math.floor((Date.now() - linkHealth.lastBeatAt) / 1000)) : null;
+    const beat = age === null ? "—" : age < 2 ? "刚刚" : `${age} 秒前`;
+    const desktop = linkHealth.desktop === "ok" ? "已就绪"
+      : linkHealth.desktop === "down" ? "未就绪(请确认电脑端 Antigravity 已打开)" : "未知";
+    detail.textContent = `最近心跳 ${beat} · 电脑端 ${desktop}`;
+  }
+}
+
+function pulseLinkDot() {
+  const el = document.getElementById("link-health-dot");
+  if (!el) return;
+  el.classList.remove("link-pulse");
+  void el.offsetWidth; // restart the animation
+  el.classList.add("link-pulse");
+}
+
+function reconnectListEvents() {
+  if (!listEventsWanted) return;
+  closeListEventsSocket();
+  linkHealth.connected = false;
+  linkHealth.startedAt = Date.now();
+  renderLinkHealth();
+  connectListEvents();
+}
+
+setInterval(renderLinkHealth, 1000);
+document.addEventListener("DOMContentLoaded", () => {
+  document.getElementById("btn-link-reconnect")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    reconnectListEvents();
+  });
+});
+
 function isConversationListActive() {
   return !activeCascadeId && !activeDraftSession;
 }
@@ -259,6 +339,9 @@ function closeListEventsSocket() {
 
 function stopListEvents() {
   listEventsWanted = false;
+  linkHealth.started = false;
+  linkHealth.connected = false;
+  renderLinkHealth();
   listEventsAttempts = 0;
   if (listEventsRefreshTimer) {
     clearTimeout(listEventsRefreshTimer);
@@ -269,6 +352,10 @@ function stopListEvents() {
 
 function startListEvents() {
   listEventsWanted = true;
+  if (!linkHealth.started) {
+    linkHealth.started = true;
+    linkHealth.startedAt = Date.now();
+  }
   connectListEvents();
 }
 
@@ -297,10 +384,22 @@ async function connectListEvents() {
     listEventsWs = ws;
     ws.onopen = () => {
       listEventsAttempts = 0;
+      linkHealth.connected = true;
+      linkHealth.hadConnection = true;
+      renderLinkHealth();
     };
     ws.onmessage = (event) => {
       let frame;
       try { frame = JSON.parse(event.data); } catch (_) { return; }
+      if (frame.type === "hello" || frame.type === "beat" || frame.type === "changed") {
+        linkHealth.lastBeatAt = Date.now();
+        if (typeof frame.desktop === "string") {
+          linkHealth.supportsBeat = true;
+          linkHealth.desktop = frame.desktop;
+        }
+        renderLinkHealth();
+        pulseLinkDot();
+      }
       if (frame.type === "changed") {
         scheduleListRefresh();
       } else if (frame.type === "hello") {
@@ -312,6 +411,8 @@ async function connectListEvents() {
     ws.onclose = () => {
       if (listEventsWs !== ws) return;
       listEventsWs = null;
+      linkHealth.connected = false;
+      renderLinkHealth();
       if (!listEventsWanted) return;
       const delay = Math.min(1000 * Math.pow(1.5, listEventsAttempts), 30000);
       listEventsAttempts++;
@@ -323,6 +424,10 @@ async function connectListEvents() {
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") {
     if (listEventsWanted) {
+      // Don't trust an old green dot after the tab was suspended: restart the connect window.
+      linkHealth.connected = false;
+      linkHealth.startedAt = Date.now();
+      renderLinkHealth();
       connectListEvents();
       if (isConversationListActive()) scheduleListRefresh();
     }

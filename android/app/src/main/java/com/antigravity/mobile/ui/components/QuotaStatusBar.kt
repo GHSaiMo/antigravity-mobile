@@ -32,6 +32,7 @@ fun QuotaStatusBar(
     account: CockpitAccountQuota?,
     onTap: () -> Unit,
     showPaceCursor: Boolean = true,
+    linkSnapshot: com.antigravity.mobile.data.service.LinkSnapshot? = null,
     modifier: Modifier = Modifier
 ) {
     val isFree = account?.subscriptionTier?.trim()?.equals("FREE", ignoreCase = true) == true ||
@@ -158,6 +159,10 @@ fun QuotaStatusBar(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+            }
+
+            if (linkSnapshot != null) {
+                LinkHealthDot(snapshot = linkSnapshot)
             }
         }
     }

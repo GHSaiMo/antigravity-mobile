@@ -21,6 +21,10 @@ import (
 //
 //	server -> client: {"type":"hello","rev":N}    on connect (client should fetch once)
 //	                  {"type":"changed","rev":N}  the list changed since the last frame
+//	                  {"type":"beat","rev":N,"ts":ms,"desktop":"ok|down|unknown"}  app-level heartbeat
+//
+// WebSocket Ping/Pong is invisible to client code, so "beat" (every eventsBeatInterval, and at once when
+// the desktop state flips) lets clients show a live "connected to the computer" indicator.
 //
 // Change detection runs only while at least one client is subscribed, so an idle gateway does no
 // extra work, and all subscribers share one detector.
@@ -29,6 +33,10 @@ var (
 	eventsPollInterval = 1500 * time.Millisecond
 	// eventsNudgeSpacing bounds how often mutating RPCs (the desktop UI fires bursts of them) can force a re-check.
 	eventsNudgeSpacing = 400 * time.Millisecond
+	// eventsBeatInterval is how often a heartbeat frame is sent; clients treat 2 missed beats as unstable.
+	eventsBeatInterval = 5 * time.Second
+	// eventsDesktopCheckInterval is how often the desktop state is sampled to push flips immediately.
+	eventsDesktopCheckInterval = 1 * time.Second
 )
 
 const (
@@ -38,8 +46,22 @@ const (
 )
 
 type eventsFrame struct {
-	Type string `json:"type"`
-	Rev  uint64 `json:"rev"`
+	Type    string `json:"type"`
+	Rev     uint64 `json:"rev"`
+	TS      int64  `json:"ts,omitempty"`      // server unix ms (beat/hello)
+	Desktop string `json:"desktop,omitempty"` // ok | down | unknown (beat/hello)
+}
+
+// desktopState reports whether the desktop language_server is reachable: "ok", "down" or "unknown"
+// (no inspector wired in).
+func (p *Proxy) desktopState() string {
+	if p.insp == nil {
+		return "unknown"
+	}
+	if cur := p.insp.Current(); cur != nil && cur.IsHealthy && cur.Port > 0 {
+		return "ok"
+	}
+	return "down"
 }
 
 type eventSub struct {
@@ -252,9 +274,17 @@ func (p *Proxy) HandleEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	if err := write(eventsFrame{Type: "hello", Rev: p.events.currentRev()}); err != nil {
+	desktop := p.desktopState()
+	beat := func(typ string) error {
+		return write(eventsFrame{Type: typ, Rev: p.events.currentRev(), TS: time.Now().UnixMilli(), Desktop: desktop})
+	}
+	if err := beat("hello"); err != nil {
 		return
 	}
+	beatTick := time.NewTicker(eventsBeatInterval)
+	defer beatTick.Stop()
+	desktopTick := time.NewTicker(eventsDesktopCheckInterval)
+	defer desktopTick.Stop()
 
 	ping := time.NewTicker(eventsPingInterval)
 	defer ping.Stop()
@@ -265,6 +295,18 @@ func (p *Proxy) HandleEvents(w http.ResponseWriter, r *http.Request) {
 		case <-sub.wake:
 			if err := write(eventsFrame{Type: "changed", Rev: p.events.currentRev()}); err != nil {
 				return
+			}
+		case <-beatTick.C:
+			desktop = p.desktopState()
+			if err := beat("beat"); err != nil {
+				return
+			}
+		case <-desktopTick.C:
+			if now := p.desktopState(); now != desktop {
+				desktop = now
+				if err := beat("beat"); err != nil {
+					return
+				}
 			}
 		case <-ping.C:
 			writeMu.Lock()

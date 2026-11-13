@@ -3,9 +3,12 @@ import SwiftUI
 public struct QuotaStatusBarView: View {
     public let account: CockpitAccountQuota?
     public let onTap: () -> Void
+    /// When set, a small connection-heartbeat dot is drawn at the far right of the bar.
+    public let linkMonitor: ConversationEventsClient?
     
-    public init(account: CockpitAccountQuota?, onTap: @escaping () -> Void) {
+    public init(account: CockpitAccountQuota?, linkMonitor: ConversationEventsClient? = nil, onTap: @escaping () -> Void) {
         self.account = account
+        self.linkMonitor = linkMonitor
         self.onTap = onTap
     }
     
@@ -146,6 +149,10 @@ public struct QuotaStatusBarView: View {
                             .lineLimit(1)
                             .minimumScaleFactor(0.85)
                             .layoutPriority(1)
+                    }
+                    
+                    if let monitor = linkMonitor {
+                        LinkHealthDot(monitor: monitor)
                     }
                 }
                 .frame(maxWidth: .infinity)

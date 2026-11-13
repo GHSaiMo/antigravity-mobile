@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+
+	"antigravity-mobile/internal/inspector"
 )
 
 func TestListSignature(t *testing.T) {
@@ -168,4 +170,71 @@ func TestHandleEventsEndToEnd(t *testing.T) {
 	if !ok || f.Type != "changed" || f.Rev != hello.Rev+1 {
 		t.Fatalf("changed: %+v ok=%v (hello rev %d)", f, ok, hello.Rev)
 	}
+}
+
+type fakeDiscoverer struct {
+	mu  sync.Mutex
+	cur *inspector.InstanceInfo
+}
+
+func (f *fakeDiscoverer) Current() *inspector.InstanceInfo {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.cur
+}
+func (f *fakeDiscoverer) set(c *inspector.InstanceInfo)            { f.mu.Lock(); f.cur = c; f.mu.Unlock() }
+func (f *fakeDiscoverer) Scan() *inspector.InstanceInfo            { return f.Current() }
+func (f *fakeDiscoverer) Start()                                   {}
+func (f *fakeDiscoverer) Stop()                                    {}
+func (f *fakeDiscoverer) OnUpdate(fn func(inspector.InstanceInfo)) {}
+
+// hello carries the desktop state, "beat" frames follow periodically, and a desktop flip is pushed at once.
+func TestHandleEventsBeat(t *testing.T) {
+	oldBeat, oldCheck := eventsBeatInterval, eventsDesktopCheckInterval
+	eventsBeatInterval, eventsDesktopCheckInterval = 80*time.Millisecond, 20*time.Millisecond
+	defer func() { eventsBeatInterval, eventsDesktopCheckInterval = oldBeat, oldCheck }()
+
+	fd := &fakeDiscoverer{}
+	fd.set(&inspector.InstanceInfo{IsHealthy: true, Port: 1})
+	p := &Proxy{insp: fd, wsConns: map[*websocket.Conn]struct{}{}}
+	gw := httptest.NewServer(http.HandlerFunc(p.HandleEvents))
+	defer gw.Close()
+	c, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(gw.URL, "http"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	frames := make(chan eventsFrame, 64)
+	go func() {
+		defer close(frames)
+		for {
+			var f eventsFrame
+			if err := c.ReadJSON(&f); err != nil {
+				return
+			}
+			frames <- f
+		}
+	}()
+	next := func() eventsFrame {
+		select {
+		case f := <-frames:
+			return f
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for frame")
+			return eventsFrame{}
+		}
+	}
+	if h := next(); h.Type != "hello" || h.Desktop != "ok" || h.TS == 0 {
+		t.Fatalf("hello: %+v", h)
+	}
+	if b := next(); b.Type != "beat" || b.Desktop != "ok" {
+		t.Fatalf("beat: %+v", b)
+	}
+	fd.set(&inspector.InstanceInfo{IsHealthy: false})
+	for i := 0; i < 20; i++ {
+		if f := next(); f.Type == "beat" && f.Desktop == "down" {
+			return
+		}
+	}
+	t.Fatal("desktop flip to down was never reported")
 }

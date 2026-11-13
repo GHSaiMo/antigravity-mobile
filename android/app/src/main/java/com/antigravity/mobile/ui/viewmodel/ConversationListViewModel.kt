@@ -91,6 +91,10 @@ class ConversationListViewModel(
 
     /** Gateway push hints for list changes; polling below is the fallback and a slow safety net. */
     private val eventsClient = ConversationEventsClient(prefs) { apiClient.currentBaseUrl }
+    /** Heartbeat facts backing the connection dot in the home quota bar. */
+    val linkSnapshot: kotlinx.coroutines.flow.StateFlow<com.antigravity.mobile.data.service.LinkSnapshot> = eventsClient.snapshot
+    fun reconnectEvents() = eventsClient.reconnect()
+    fun reconnectEventsIfStale() = eventsClient.reconnectIfStale()
 
     init {
         rawConversations = loadInitialConversations()

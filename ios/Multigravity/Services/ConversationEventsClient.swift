@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import Observation
 
 /// Listens for conversation-list change hints from the gateway so the list screen does not have to
 /// poll every few seconds. Every `hello` (connect/reconnect) and `changed` frame calls `onChange`;
@@ -13,9 +14,23 @@ import Network
 /// trust, device-token headers) because App Transport Security blocks the URLSession WebSocket path
 /// for cleartext LAN hosts. It is deliberately a copy rather than a refactor of the working stream
 /// client; folding the two together is a possible follow-up.
+@Observable
 @MainActor
 public final class ConversationEventsClient {
     public private(set) var isConnected = false
+    /// Local time of the last frame received from the gateway (any type).
+    public private(set) var lastBeatAt: Date?
+    /// Desktop language_server state from the last `hello`/`beat` (`ok` / `down` / `unknown`).
+    public private(set) var desktopState: String?
+    /// True once a `beat` (or `hello` carrying `desktop`) arrived, i.e. the gateway supports heartbeats.
+    public private(set) var supportsBeat = false
+    /// Bumped on every heartbeat so the indicator can pulse.
+    public private(set) var beatCount = 0
+    /// Round-trip hint: `now - server ts` is clock-skew-prone, so it is only shown as a rough latency when small.
+    public private(set) var lastServerTS: Int64?
+    public private(set) var hasEverConnected = false
+    public private(set) var startedAt: Date?
+    public private(set) var isStarted = false
     public var onChange: (() -> Void)?
 
     private var runTask: Task<Void, Never>?
@@ -29,8 +44,32 @@ public final class ConversationEventsClient {
 
     public init() {}
 
+    /// Drops the current socket (if any) and reconnects immediately, e.g. from the indicator's "reconnect" button.
+    public func reconnect() {
+        guard let provider = baseURLProvider else { return }
+        stop()
+        start(baseURL: provider)
+    }
+
+    /// Foreground check: reconnect right away when the heartbeat has gone stale instead of trusting an old green dot.
+    public func reconnectIfStale(maxAge: TimeInterval = 12) {
+        guard isStarted else { return }
+        if !isConnected { reconnect(); return }
+        if supportsBeat, let last = lastBeatAt, Date().timeIntervalSince(last) > maxAge { reconnect() }
+    }
+
+    /// The indicator state at `now` (see `LinkHealthState`).
+    public func linkState(at now: Date = Date()) -> LinkHealthState {
+        LinkHealthState.evaluate(
+            isStarted: isStarted, isConnected: isConnected, hasEverConnected: hasEverConnected,
+            supportsBeat: supportsBeat, lastBeatAt: lastBeatAt, startedAt: startedAt,
+            desktopState: desktopState, now: now)
+    }
+
     public func start(baseURL: @escaping () -> URL?) {
         guard runTask == nil else { return }
+        isStarted = true
+        startedAt = Date()
         baseURLProvider = baseURL
         generation += 1
         let gen = generation
@@ -53,6 +92,7 @@ public final class ConversationEventsClient {
         generation += 1 // invalidates callbacks of the connection being torn down
         runTask?.cancel()
         runTask = nil
+        isStarted = false
         attempt = 0
         tearDown()
         setConnected(false)
@@ -146,6 +186,7 @@ public final class ConversationEventsClient {
                     switch state {
                     case .ready:
                         opened = true
+                        self.hasEverConnected = true
                         self.connectionWatchdogTask?.cancel()
                         self.connectionWatchdogTask = nil
                         self.setConnected(true)
@@ -175,9 +216,9 @@ public final class ConversationEventsClient {
                     finish()
                     return
                 }
-                if let data = content, !data.isEmpty,
-                   let frame = ConversationEventFrame.parse(data), frame.requestsRefresh {
-                    self.onChange?()
+                if let data = content, !data.isEmpty, let frame = ConversationEventFrame.parse(data) {
+                    self.noteFrame(frame)
+                    if frame.requestsRefresh { self.onChange?() }
                 } else if content == nil && isComplete {
                     finish()
                     return
@@ -185,5 +226,16 @@ public final class ConversationEventsClient {
                 self.receive(on: conn, generation: gen, finish: finish)
             }
         }
+    }
+
+    private func noteFrame(_ frame: ConversationEventFrame) {
+        guard frame.isHeartbeat else { return }
+        lastBeatAt = Date()
+        beatCount &+= 1
+        if let desktop = frame.desktop {
+            supportsBeat = true
+            desktopState = desktop
+        }
+        if let ts = frame.ts { lastServerTS = ts }
     }
 }
