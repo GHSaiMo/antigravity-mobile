@@ -182,7 +182,7 @@ public struct ChatView: View {
                         }
                         .buttonStyle(.plain)
 
-                        HStack(spacing: 6) {
+                        HStack(spacing: 10) {
                             Button(action: {
                                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
                                 showNavigatorSheet = true
@@ -873,11 +873,6 @@ struct ContextAuditSheetView: View {
             .padding(20)
             .background(Color(uiColor: .systemGroupedBackground))
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }
-                }
-            }
         }
     }
 

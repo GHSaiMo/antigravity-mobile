@@ -649,6 +649,50 @@ func (p *Proxy) fetchUpstreamGeneratorMetadata(cascadeID string, port int, token
 		return nil
 	}
 
+	item := parseGeneratorMetadata(resp.Body)
+	if item == nil {
+		return nil
+	}
+
+	contextMeterCacheMu.Lock()
+	if len(contextMeterCache) > 200 {
+		contextMeterCache = make(map[string]contextMeterCacheEntry)
+	}
+	contextMeterCache[cascadeID] = contextMeterCacheEntry{item: item, at: time.Now()}
+	contextMeterCacheMu.Unlock()
+
+	return item
+}
+
+// flexInt64 decodes ProtoJSON int64 fields encoded as either JSON numbers or quoted strings.
+type flexInt64 int64
+
+func (f *flexInt64) UnmarshalJSON(data []byte) error {
+	s := strings.TrimSpace(string(data))
+	if s == "" || s == "null" || s == `""` {
+		*f = 0
+		return nil
+	}
+	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
+		unquoted, err := strconv.Unquote(s)
+		if err != nil {
+			return err
+		}
+		s = strings.TrimSpace(unquoted)
+		if s == "" {
+			*f = 0
+			return nil
+		}
+	}
+	v, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return err
+	}
+	*f = flexInt64(v)
+	return nil
+}
+
+func parseGeneratorMetadata(r io.Reader) *ContextMeterItem {
 	var metaResp struct {
 		GeneratorMetadata []struct {
 			ChatModel struct {
@@ -658,15 +702,15 @@ func (p *Proxy) fetchUpstreamGeneratorMetadata(cascadeID string, port int, token
 				StreamingDuration string `json:"streamingDuration"`
 				ChatStartMetadata *struct {
 					ContextWindowMetadata *struct {
-						MaxContextTokens    int64 `json:"maxContextTokens"`
-						EstimatedTokensUsed int64 `json:"estimatedTokensUsed"`
+						MaxContextTokens    flexInt64 `json:"maxContextTokens"`
+						EstimatedTokensUsed flexInt64 `json:"estimatedTokensUsed"`
 					} `json:"contextWindowMetadata"`
 				} `json:"chatStartMetadata"`
 				Usage *struct {
-					InputTokens          int64 `json:"inputTokens"`
-					OutputTokens         int64 `json:"outputTokens"`
-					CacheReadTokens      int64 `json:"cacheReadTokens"`
-					ThinkingOutputTokens int64 `json:"thinkingOutputTokens"`
+					InputTokens          flexInt64 `json:"inputTokens"`
+					OutputTokens         flexInt64 `json:"outputTokens"`
+					CacheReadTokens      flexInt64 `json:"cacheReadTokens"`
+					ThinkingOutputTokens flexInt64 `json:"thinkingOutputTokens"`
 				} `json:"usage"`
 				RetryInfos []struct {
 					Error string `json:"error"`
@@ -675,25 +719,32 @@ func (p *Proxy) fetchUpstreamGeneratorMetadata(cascadeID string, port int, token
 		} `json:"generatorMetadata"`
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&metaResp); err != nil || len(metaResp.GeneratorMetadata) == 0 {
+	if err := json.NewDecoder(r).Decode(&metaResp); err != nil || len(metaResp.GeneratorMetadata) == 0 {
 		return nil
 	}
 
-	last := metaResp.GeneratorMetadata[len(metaResp.GeneratorMetadata)-1]
-	cm := last.ChatModel
+	selected := metaResp.GeneratorMetadata[len(metaResp.GeneratorMetadata)-1]
+	for i := len(metaResp.GeneratorMetadata) - 1; i >= 0; i-- {
+		cm := metaResp.GeneratorMetadata[i].ChatModel
+		if cm.Usage != nil || cm.ChatStartMetadata != nil || cm.Model != "" {
+			selected = metaResp.GeneratorMetadata[i]
+			break
+		}
+	}
+	cm := selected.ChatModel
 
 	var maxTokens, usedTokens int64
 	if cm.ChatStartMetadata != nil && cm.ChatStartMetadata.ContextWindowMetadata != nil {
-		maxTokens = cm.ChatStartMetadata.ContextWindowMetadata.MaxContextTokens
-		usedTokens = cm.ChatStartMetadata.ContextWindowMetadata.EstimatedTokensUsed
+		maxTokens = int64(cm.ChatStartMetadata.ContextWindowMetadata.MaxContextTokens)
+		usedTokens = int64(cm.ChatStartMetadata.ContextWindowMetadata.EstimatedTokensUsed)
 	}
 
 	var inp, outp, capTokens, thinking int64
 	if cm.Usage != nil {
-		inp = cm.Usage.InputTokens
-		outp = cm.Usage.OutputTokens
-		capTokens = cm.Usage.CacheReadTokens
-		thinking = cm.Usage.ThinkingOutputTokens
+		inp = int64(cm.Usage.InputTokens)
+		outp = int64(cm.Usage.OutputTokens)
+		capTokens = int64(cm.Usage.CacheReadTokens)
+		thinking = int64(cm.Usage.ThinkingOutputTokens)
 		if usedTokens == 0 {
 			usedTokens = inp + capTokens + outp
 		}
@@ -724,7 +775,7 @@ func (p *Proxy) fetchUpstreamGeneratorMetadata(cascadeID string, port int, token
 	}
 	errKind := ClassifyErrorKind(lastErr)
 
-	item := &ContextMeterItem{
+	return &ContextMeterItem{
 		UsedTokens:        usedTokens,
 		MaxTokens:         maxTokens,
 		Percentage:        float64(int(percentage*10+0.5)) / 10,
@@ -738,15 +789,6 @@ func (p *Proxy) fetchUpstreamGeneratorMetadata(cascadeID string, port int, token
 		IsOverflow:        errKind == "context_overflow",
 		ErrorKind:         errKind,
 	}
-
-	contextMeterCacheMu.Lock()
-	if len(contextMeterCache) > 200 {
-		contextMeterCache = make(map[string]contextMeterCacheEntry)
-	}
-	contextMeterCache[cascadeID] = contextMeterCacheEntry{item: item, at: time.Now()}
-	contextMeterCacheMu.Unlock()
-
-	return item
 }
 
 func parseDurationToSec(s string) float64 {
