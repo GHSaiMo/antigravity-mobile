@@ -375,46 +375,65 @@ class MainActivity : ComponentActivity() {
         }
         // Only content:// is accepted; file:// could point into this app's own private storage.
         val safe = uris.filter { it.scheme == "content" }
+        val sharedText = if (intent.action == Intent.ACTION_SEND) {
+            intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()?.trim()?.takeIf { it.isNotEmpty() }
+        } else null
         // Handled: do not re-process this intent on configuration change.
         setIntent(Intent(this, MainActivity::class.java))
-        if (safe.isEmpty()) {
+        if (safe.isEmpty() && sharedText == null) {
             if (intent.action != Intent.ACTION_VIEW) {
-                Toast.makeText(this, "暂只支持接收文件", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "暂未识别到可接收的文件或文本", Toast.LENGTH_SHORT).show()
             }
             return
         }
         if (!prefs.isPaired()) {
-            Toast.makeText(this, "请先完成配对，再分享文件到 Multigravity", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "请先完成配对，再分享内容到 Multigravity", Toast.LENGTH_LONG).show()
             return
         }
-        lifecycleScope.launch(Dispatchers.IO) {
-            val staged = ShareInbox.stage(applicationContext, safe)
-            if (staged == 0) withContext(Dispatchers.Main) {
-                Toast.makeText(this@MainActivity, "无法读取分享的文件", Toast.LENGTH_SHORT).show()
+        if (sharedText != null) {
+            ShareInbox.stageText(sharedText)
+        }
+        if (safe.isNotEmpty()) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                val staged = ShareInbox.stage(applicationContext, safe)
+                if (staged == 0 && sharedText == null) withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MainActivity, "无法读取分享的文件", Toast.LENGTH_SHORT).show()
+                }
             }
         }
+    }
+
+    private fun deliverStagedTextToInput(text: String?) {
+        val trimmed = text?.trim().orEmpty()
+        if (trimmed.isEmpty()) return
+        val existing = chatViewModel.inputText.value.trim()
+        val combined = if (existing.isEmpty()) trimmed else "$existing\n$trimmed"
+        chatViewModel.onInputTextChanged(combined)
     }
 
     /** Destination sheet while files are staged; a small pill on the list when the sheet was dismissed. */
     @androidx.compose.runtime.Composable
     private fun ShareOverlay(navController: NavHostController) {
         val files by ShareInbox.files.collectAsState()
+        val sharedText by ShareInbox.sharedText.collectAsState()
         val sheetVisible by ShareInbox.sheetVisible.collectAsState()
         val projects by conversationListViewModel.projects.collectAsState()
         val chatState by chatViewModel.uiState.collectAsState()
         val backStack by navController.currentBackStackEntryAsState()
         val route = backStack?.destination?.route
-        if (files.isEmpty() || !prefs.isPaired()) return
+        if ((files.isEmpty() && sharedText.isNullOrBlank()) || !prefs.isPaired()) return
         val inChat = route?.startsWith("chat/") == true
 
         if (sheetVisible) {
             ShareTargetSheet(
                 files = files,
+                sharedText = sharedText,
                 projects = projects,
                 conversations = conversationListViewModel.allConversations(),
                 currentConversationId = if (inChat) chatState.cascadeId.takeIf { it.isNotBlank() } else null,
                 onRefreshProjects = { conversationListViewModel.loadProjects() },
                 onRemoveFile = { ShareInbox.remove(applicationContext, it) },
+                onRemoveText = { ShareInbox.clearText() },
                 onSelectProject = { project ->
                     val draft = conversationListViewModel.createLocalDraftSession(project)
                     val title = if (project.isPureChat) "新对话" else project.displayName
@@ -424,13 +443,22 @@ class MainActivity : ComponentActivity() {
                     openChatForShare(item.id, item.displayTitle, false, item.status, item.lastModifiedTime)
                 },
                 onSelectCurrent = {
-                    chatViewModel.addAttachmentsFromUris(this@MainActivity, ShareInbox.deliverableUris(this@MainActivity))
+                    val uris = ShareInbox.deliverableUris(this@MainActivity)
+                    if (uris.isNotEmpty()) {
+                        chatViewModel.addAttachmentsFromUris(this@MainActivity, uris)
+                    }
+                    deliverStagedTextToInput(sharedText)
                     ShareInbox.release()
                 },
                 onDiscard = { ShareInbox.clear(applicationContext) },
                 onDismiss = { ShareInbox.hideSheet() }
             )
         } else if (route == "conversations") {
+            val pillLabel = when {
+                files.isNotEmpty() && !sharedText.isNullOrBlank() -> "文本与 ${files.size} 个文件待投递 · 选择去向"
+                !sharedText.isNullOrBlank() -> "分享文本待投递 · 选择去向"
+                else -> "${files.size} 个文件待投递 · 选择去向"
+            }
             androidx.compose.foundation.layout.Box(
                 modifier = androidx.compose.ui.Modifier
                     .fillMaxSize()
@@ -445,7 +473,7 @@ class MainActivity : ComponentActivity() {
                     shadowElevation = 6.dp
                 ) {
                     androidx.compose.material3.Text(
-                        "${files.size} 个文件待投递 · 选择去向",
+                        pillLabel,
                         color = androidx.compose.material3.MaterialTheme.colorScheme.onPrimary,
                         modifier = androidx.compose.ui.Modifier.padding(horizontal = 18.dp, vertical = 10.dp)
                     )
@@ -464,7 +492,8 @@ class MainActivity : ComponentActivity() {
     ) {
         val navController = activeNavController ?: return
         val uris = ShareInbox.deliverableUris(this)
-        if (uris.isEmpty()) return
+        val pendingText = ShareInbox.sharedText.value
+        if (uris.isEmpty() && pendingText.isNullOrBlank()) return
         if (navController.currentDestination?.route?.startsWith("chat/") == true) {
             navController.popBackStack("conversations", false)
         }
@@ -487,7 +516,10 @@ class MainActivity : ComponentActivity() {
             Log.w("MainActivity", "Failed to open $cascadeId for shared files: ${e.message}")
             return
         }
-        chatViewModel.addAttachmentsFromUris(this, uris)
+        if (uris.isNotEmpty()) {
+            chatViewModel.addAttachmentsFromUris(this, uris)
+        }
+        deliverStagedTextToInput(pendingText)
         ShareInbox.release()
     }
 
@@ -589,6 +621,13 @@ class MainActivity : ComponentActivity() {
         // Session snapshots are written to disk in batches; persist the latest before the process may be killed.
         if (::cacheManager.isInitialized) {
             cacheManager.flushPendingSessionWrites()
+        }
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (::cacheManager.isInitialized) {
+            cacheManager.trimMemory(level)
         }
     }
 

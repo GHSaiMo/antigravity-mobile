@@ -63,6 +63,16 @@ class PairingViewModel(
         viewModelScope.launch {
             val result = apiClient.pair(info)
             result.onSuccess {
+                val cachedPushToken = prefs.fcmPushToken
+                if (!cachedPushToken.isNullOrBlank()) {
+                    launch {
+                        try {
+                            apiClient.registerPushToken(cachedPushToken)
+                        } catch (e: Exception) {
+                            Log.w("PairingViewModel", "Failed to register cached FCM token: ${e.message}")
+                        }
+                    }
+                }
                 _uiState.value = PairingUiState.Pairing("正在同步会话与工作区...")
                 try {
                     onPreheatData?.invoke()

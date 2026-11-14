@@ -24,33 +24,35 @@ enum class MarkdownAlertType(val title: String) {
 }
 
 sealed class MarkdownBlock {
-    data class Frontmatter(val id: String, val rawContent: String, val lineCount: Int) : MarkdownBlock()
-    data class Heading(val id: String, val level: Int, val text: String) : MarkdownBlock()
-    data class Divider(val id: String) : MarkdownBlock()
-    data class CodeBlock(val id: String, val lang: String, val code: String) : MarkdownBlock()
+    abstract val id: String
+
+    data class Frontmatter(override val id: String, val rawContent: String, val lineCount: Int) : MarkdownBlock()
+    data class Heading(override val id: String, val level: Int, val text: String) : MarkdownBlock()
+    data class Divider(override val id: String) : MarkdownBlock()
+    data class CodeBlock(override val id: String, val lang: String, val code: String) : MarkdownBlock()
     data class Table(
-        val id: String,
+        override val id: String,
         val headers: List<String>,
         val rows: List<List<String>>,
         val alignments: List<TableColumnAlignment>
     ) : MarkdownBlock()
-    data class BulletList(val id: String, val items: List<String>) : MarkdownBlock()
-    data class OrderedList(val id: String, val startIndex: Int, val items: List<String>) : MarkdownBlock()
+    data class BulletList(override val id: String, val items: List<String>) : MarkdownBlock()
+    data class OrderedList(override val id: String, val startIndex: Int, val items: List<String>) : MarkdownBlock()
     data class Alert(
-        val id: String,
+        override val id: String,
         val type: MarkdownAlertType,
         val content: String
     ) : MarkdownBlock()
     data class Blockquote(
-        val id: String,
+        override val id: String,
         val content: String
     ) : MarkdownBlock()
-    data class Paragraph(val id: String, val text: String) : MarkdownBlock()
-    data class Image(val id: String, val alt: String, val url: String) : MarkdownBlock()
-    data class AgentEmbed(val id: String, val src: String) : MarkdownBlock()
-    data class PluginCard(val id: String, val pluginId: String) : MarkdownBlock()
+    data class Paragraph(override val id: String, val text: String) : MarkdownBlock()
+    data class Image(override val id: String, val alt: String, val url: String) : MarkdownBlock()
+    data class AgentEmbed(override val id: String, val src: String) : MarkdownBlock()
+    data class PluginCard(override val id: String, val pluginId: String) : MarkdownBlock()
     data class Carousel(
-        val id: String,
+        override val id: String,
         val slides: List<MarkdownCarouselSlide>
     ) : MarkdownBlock()
 }

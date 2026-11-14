@@ -39,12 +39,34 @@ object ShareInbox {
     private val _files = MutableStateFlow<List<SharedFile>>(emptyList())
     val files: StateFlow<List<SharedFile>> = _files.asStateFlow()
 
+    private val _sharedText = MutableStateFlow<String?>(null)
+    val sharedText: StateFlow<String?> = _sharedText.asStateFlow()
+
     /** Whether the destination sheet is open (it can be dismissed while files stay staged). */
     private val _sheetVisible = MutableStateFlow(false)
     val sheetVisible: StateFlow<Boolean> = _sheetVisible.asStateFlow()
 
-    fun showSheet() { if (_files.value.isNotEmpty()) _sheetVisible.value = true }
+    fun showSheet() {
+        if (_files.value.isNotEmpty() || !_sharedText.value.isNullOrBlank()) {
+            _sheetVisible.value = true
+        }
+    }
     fun hideSheet() { _sheetVisible.value = false }
+
+    fun stageText(text: String): Boolean {
+        val trimmed = text.trim()
+        if (trimmed.isEmpty()) return false
+        _sharedText.value = trimmed
+        _sheetVisible.value = true
+        return true
+    }
+
+    fun clearText() {
+        _sharedText.value = null
+        if (_files.value.isEmpty()) {
+            _sheetVisible.value = false
+        }
+    }
 
     private fun root(context: Context) = File(context.cacheDir, DIR).apply { mkdirs() }
 
@@ -97,7 +119,7 @@ object ShareInbox {
     fun remove(context: Context, id: String) {
         _files.value.firstOrNull { it.id == id }?.let { File(it.path).parentFile?.deleteRecursively() }
         _files.update { list -> list.filterNot { it.id == id } }
-        if (_files.value.isEmpty()) _sheetVisible.value = false
+        if (_files.value.isEmpty() && _sharedText.value.isNullOrBlank()) _sheetVisible.value = false
     }
 
     /**
@@ -106,11 +128,13 @@ object ShareInbox {
      */
     fun release() {
         _files.value = emptyList()
+        _sharedText.value = null
         _sheetVisible.value = false
     }
 
     fun clear(context: Context) {
         _files.value = emptyList()
+        _sharedText.value = null
         _sheetVisible.value = false
         root(context).deleteRecursively()
     }

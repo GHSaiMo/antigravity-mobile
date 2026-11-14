@@ -12,11 +12,128 @@ internal val ALERT_REGEX = Regex("""^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\](?
  * 1:1 Markdown parser replicating iOS MarkdownContentView.swift AST generation.
  */
 object MarkdownParser {
+    private val blockCache = android.util.LruCache<String, List<MarkdownBlock>>(200)
+    private val prefixCache = android.util.LruCache<String, List<MarkdownBlock>>(32)
+
     fun parse(rawText: String): List<MarkdownBlock> {
+        if (rawText.isEmpty()) return emptyList()
+        val normalized = rawText.replace("\r\n", "\n").replace('\r', '\n')
+        blockCache.get(normalized)?.let { return it }
+
+        if (normalized.length >= 400) {
+            val splitOffset = findLastSafeBlankSplit(normalized)
+            if (splitOffset in 1 until normalized.length) {
+                val prefix = normalized.substring(0, splitOffset)
+                val prefixBlocks = prefixCache.get(prefix) ?: parseNormalized(prefix, startBlockIdx = 0).also {
+                    prefixCache.put(prefix, it)
+                }
+                val tail = normalized.substring(splitOffset)
+                val tailBlocks = parseNormalized(tail, startBlockIdx = prefixBlocks.size)
+                val combined = ArrayList<MarkdownBlock>(prefixBlocks.size + tailBlocks.size).apply {
+                    addAll(prefixBlocks)
+                    addAll(tailBlocks)
+                }
+                blockCache.put(normalized, combined)
+                return combined
+            }
+        }
+
+        val parsed = parseNormalized(normalized, startBlockIdx = 0)
+        blockCache.put(normalized, parsed)
+        return parsed
+    }
+
+    /**
+     * Finds the character offset immediately after the last top-level blank line (`\n`)
+     * that is NOT inside YAML frontmatter, an open code fence, or an open display math block.
+     */
+    private fun findLastSafeBlankSplit(normalized: String): Int {
+        var lastSafeSplit = -1
+        var openFence: String? = null
+        var openMathClose: String? = null
+        var inFrontmatter = false
+        var seenFirstNonBlank = false
+
+        // Pre-verify whether a leading `---` actually has a closing frontmatter delimiter;
+        // if unclosed during streaming, fall back to full parse so semantics never diverge.
+        var idx = 0
+        val len = normalized.length
+        while (idx < len) {
+            val nl = normalized.indexOf('\n', idx)
+            val lineEnd = if (nl == -1) len else nl
+            val trimmed = normalized.substring(idx, lineEnd).trim()
+            val afterLine = if (nl == -1) len else nl + 1
+
+            if (!seenFirstNonBlank) {
+                if (trimmed.isEmpty()) {
+                    idx = afterLine
+                    continue
+                }
+                seenFirstNonBlank = true
+                if (trimmed == "---") {
+                    inFrontmatter = true
+                    idx = afterLine
+                    continue
+                }
+            }
+
+            if (inFrontmatter) {
+                if (trimmed == "---" || trimmed == "...") {
+                    inFrontmatter = false
+                }
+                idx = afterLine
+                continue
+            }
+
+            if (openFence != null) {
+                if (trimmed.startsWith(openFence)) {
+                    openFence = null
+                }
+                idx = afterLine
+                continue
+            }
+
+            if (openMathClose != null) {
+                if (trimmed.contains(openMathClose)) {
+                    openMathClose = null
+                }
+                idx = afterLine
+                continue
+            }
+
+            if (trimmed.isEmpty()) {
+                if (afterLine < len) {
+                    lastSafeSplit = afterLine
+                }
+                idx = afterLine
+                continue
+            }
+
+            if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) {
+                val fc = trimmed[0]
+                var count = 0
+                while (count < trimmed.length && trimmed[count] == fc) count++
+                if (count >= 3) {
+                    openFence = fc.toString().repeat(count)
+                }
+            } else if (trimmed.startsWith("$$") && (trimmed == "$$" || !trimmed.drop(2).contains("$$"))) {
+                openMathClose = "$$"
+            } else if (trimmed.startsWith("\\[") && !trimmed.drop(2).contains("\\]")) {
+                openMathClose = "\\]"
+            }
+
+            idx = afterLine
+        }
+
+        if (inFrontmatter) return -1
+        return lastSafeSplit
+    }
+
+    private fun parseNormalized(normalized: String, startBlockIdx: Int): List<MarkdownBlock> {
         val blocks = mutableListOf<MarkdownBlock>()
-        val lines = rawText.replace("\r\n", "\n").replace('\r', '\n').lines()
+        val lines = normalized.lines()
         var i = 0
-        var blockIdx = 0
+        var blockIdx = startBlockIdx
 
         while (i < lines.size) {
             val line = lines[i]

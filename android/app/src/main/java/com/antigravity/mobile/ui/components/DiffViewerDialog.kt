@@ -161,7 +161,7 @@ fun DiffViewerDialog(
                             .horizontalScroll(horizontalScrollState)
                             .padding(vertical = 4.dp)
                     ) {
-                        itemsIndexed(processedLines) { _, item ->
+                        itemsIndexed(processedLines, key = { _, item -> item.id }) { _, item ->
                             DiffLineRow(item = item)
                         }
                     }
@@ -289,17 +289,18 @@ fun processDiffLines(lines: List<RevertDiffLine>): List<ProcessedDiffLine> {
 
             if (insCount > 0) {
                 val pairCount = minOf(delCount, insCount)
+                val pairedDiffs = Array(pairCount) { k ->
+                    computeTokenDiff(lines[i + k].text, lines[delEnd + k].text)
+                }
                 for (k in 0 until pairCount) {
-                    val (delSpans, _) = computeTokenDiff(lines[i + k].text, lines[delEnd + k].text)
-                    result.add(ProcessedDiffLine(i + k, lines[i + k], delSpans))
+                    result.add(ProcessedDiffLine(i + k, lines[i + k], pairedDiffs[k].first))
                 }
                 for (k in pairCount until delCount) {
                     val text = lines[i + k].text.ifEmpty { " " }
                     result.add(ProcessedDiffLine(i + k, lines[i + k], listOf(DiffSpan(text, false))))
                 }
                 for (k in 0 until pairCount) {
-                    val (_, insSpans) = computeTokenDiff(lines[i + k].text, lines[delEnd + k].text)
-                    result.add(ProcessedDiffLine(delEnd + k, lines[delEnd + k], insSpans))
+                    result.add(ProcessedDiffLine(delEnd + k, lines[delEnd + k], pairedDiffs[k].second))
                 }
                 for (k in pairCount until insCount) {
                     val text = lines[delEnd + k].text.ifEmpty { " " }
