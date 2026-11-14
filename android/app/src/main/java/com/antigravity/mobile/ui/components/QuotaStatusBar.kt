@@ -38,11 +38,18 @@ fun QuotaStatusBar(
     modifier: Modifier = Modifier
 ) {
     val resolved = account?.resolvedQuotaDisplay(selectedBucket) ?: return
+    val resolvedKind = resolved.first
+    val isWeekly = resolvedKind == QuotaBucketKind.GEMINI_WEEKLY || resolvedKind == QuotaBucketKind.CLAUDE_WEEKLY
     val bucket = resolved.second
-    val titleText = resolved.first.displayTitle
+    val titleText = when (resolvedKind) {
+        QuotaBucketKind.GEMINI_5H -> "Gemini · 5h"
+        QuotaBucketKind.CLAUDE_5H -> "Claude · 5h"
+        QuotaBucketKind.GEMINI_WEEKLY -> "Gemini"
+        QuotaBucketKind.CLAUDE_WEEKLY -> "Claude"
+    }
     val percent = bucket.remainingPercent.coerceIn(0.0, 100.0)
-    val paceInfo = androidx.compose.runtime.remember(bucket, titleText, account?.subscriptionTier) {
-        bucket.calculatePaceForTitle(titleText, account?.subscriptionTier)
+    val paceInfo = androidx.compose.runtime.remember(bucket, resolvedKind, account?.subscriptionTier) {
+        bucket.calculatePaceForTitle(resolvedKind.displayTitle, account?.subscriptionTier)
     }
     val hasCursor = showPaceCursor && paceInfo != null
     val colors = AntigravityTheme.colors
@@ -142,7 +149,13 @@ fun QuotaStatusBar(
                 maxLines = 1
             )
 
-            bucket.resetCountdownDisplay?.let { countdown ->
+            val countdownText = if (isWeekly) {
+                bucket.formattedResetClockTime
+                    ?: bucket.resetFriendly?.takeIf { it == "已就绪" || it == "未知" }
+            } else {
+                bucket.resetCountdownDisplay
+            }
+            countdownText?.let { countdown ->
                 Text(
                     text = countdown,
                     color = colors.textSecondary,

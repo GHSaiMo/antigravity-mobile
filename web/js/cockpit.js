@@ -173,7 +173,10 @@ function renderQuotaStatusBar(data) {
     return;
   }
   const metric = resolved.bucket;
-  const titleText = resolved.title;
+  const isWeekly = resolved.key === "gemini_weekly" || resolved.key === "claude_weekly";
+  const titleText = isWeekly
+    ? (resolved.key === "gemini_weekly" ? "Gemini" : "Claude")
+    : resolved.title;
   if (statusBar) statusBar.style.display = "";
 
   const nameEl = statusBar.querySelector(".quota-metric-name");
@@ -195,9 +198,11 @@ function renderQuotaStatusBar(data) {
   }
   if (descEl) {
     const resetTxt = metric.reset_friendly || "就绪";
+    const dateTime = formatResetDateTime(metric.reset_time);
     let displayText = resetTxt;
-    if (resetTxt !== "就绪" && resetTxt !== "已就绪" && resetTxt !== "未知") {
-      const dateTime = formatResetDateTime(metric.reset_time);
+    if (isWeekly) {
+      displayText = dateTime || (resetTxt === "就绪" || resetTxt === "已就绪" || resetTxt === "未知" ? resetTxt : "");
+    } else if (resetTxt !== "就绪" && resetTxt !== "已就绪" && resetTxt !== "未知") {
       if (dateTime) {
         displayText = `${resetTxt} ${dateTime}`;
       }
