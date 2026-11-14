@@ -32,6 +32,9 @@ import java.util.TimeZone
 /** While the gateway event socket is up, pushed hints drive refreshes and polling only runs this slowly. */
 private const val EVENTS_SAFETY_POLL_MS = 60_000L
 
+/** Cooldown window for background list reordering so concurrent running sessions don't swap rows rapidly. */
+private const val REORDER_COOLDOWN_MS = 8_000L
+
 sealed interface ConversationListUiState {
     data object Loading : ConversationListUiState
     data class Success(val conversations: List<ConversationItem>) : ConversationListUiState
@@ -95,6 +98,8 @@ class ConversationListViewModel(
     private var rawConversations = emptyList<ConversationItem>()
     private var pollJob: kotlinx.coroutines.Job? = null
     private var eventsJob: kotlinx.coroutines.Job? = null
+    private var lastReorderAtMs: Long = 0L
+    private var pendingReorderJob: kotlinx.coroutines.Job? = null
 
     /** Gateway push hints for list changes; polling below is the fallback and a slow safety net. */
     private val eventsClient = ConversationEventsClient(prefs) { apiClient.currentBaseUrl }
@@ -122,6 +127,62 @@ class ConversationListViewModel(
         )
     }
 
+    private fun markReorderedNow() {
+        lastReorderAtMs = android.os.SystemClock.elapsedRealtime()
+        pendingReorderJob?.cancel()
+        pendingReorderJob = null
+    }
+
+    private fun applyReorderBuffer(
+        sorted: List<ConversationItem>,
+        forceReorder: Boolean
+    ): List<ConversationItem> {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (forceReorder || rawConversations.isEmpty() || lastReorderAtMs == 0L || (now - lastReorderAtMs) >= REORDER_COOLDOWN_MS) {
+            markReorderedNow()
+            return sorted
+        }
+
+        val newById = sorted.associateBy { it.id }
+        val prevIds = rawConversations.map { it.id }
+        val prevIdSet = prevIds.toHashSet()
+        val preserved = prevIds.mapNotNull { newById[it] }
+        val added = sorted.filter { !prevIdSet.contains(it.id) }
+
+        val buffered = (added.filter { it.isPinned } + preserved.filter { it.isPinned }) +
+            (added.filter { !it.isPinned } + preserved.filter { !it.isPinned })
+
+        val orderChanged = buffered.size == sorted.size &&
+            buffered.indices.any { buffered[it].id != sorted[it].id }
+        if (orderChanged) {
+            if (pendingReorderJob?.isActive != true) {
+                val remainingMs = (REORDER_COOLDOWN_MS - (now - lastReorderAtMs)).coerceAtLeast(50L)
+                pendingReorderJob = viewModelScope.launch {
+                    kotlinx.coroutines.delay(remainingMs)
+                    flushPendingReorder()
+                }
+            }
+        } else {
+            pendingReorderJob?.cancel()
+            pendingReorderJob = null
+        }
+        return buffered
+    }
+
+    private fun flushPendingReorder() {
+        pendingReorderJob = null
+        if (rawConversations.isEmpty()) return
+        val sorted = sortConversations(rawConversations)
+        lastReorderAtMs = android.os.SystemClock.elapsedRealtime()
+        val orderChanged = sorted.size != rawConversations.size ||
+            sorted.indices.any { sorted[it].id != rawConversations[it].id }
+        if (orderChanged) {
+            rawConversations = sorted
+            persistConversationsToCache(rawConversations)
+            applyFilter()
+        }
+    }
+
     fun reloadFromCache() {
         prefs.purgeExpiredTombstones()
         val drafts = prefs.loadLocalDraftConversations()
@@ -144,6 +205,7 @@ class ConversationListViewModel(
         val all = drafts + serverNonDrafts
         if (all.isNotEmpty()) {
             rawConversations = sortConversations(all)
+            markReorderedNow()
             applyFilter()
             cacheManager?.prewarmSessions(rawConversations.take(15).map { it.id })
             liveActivityManager?.syncWithConversations(rawConversations)
@@ -177,7 +239,7 @@ class ConversationListViewModel(
 
     private suspend fun refreshConversationsFromServer() {
         apiClient.fetchConversations().onSuccess { list ->
-            rawConversations = mergeWithLocalConversations(list)
+            rawConversations = mergeWithLocalConversations(list, forceReorder = false)
             persistConversationsToCache(rawConversations)
             applyFilter()
             cacheManager?.prewarmSessions(rawConversations.take(15).map { it.id })
@@ -193,6 +255,8 @@ class ConversationListViewModel(
         pollJob = null
         eventsJob?.cancel()
         eventsJob = null
+        pendingReorderJob?.cancel()
+        pendingReorderJob = null
         eventsClient.stop()
     }
 
@@ -215,6 +279,7 @@ class ConversationListViewModel(
         val all = drafts + serverItems
         val sorted = sortConversations(all)
         if (sorted.isNotEmpty()) {
+            markReorderedNow()
             _uiState.value = ConversationListUiState.Success(sorted)
             cacheManager?.prewarmSessions(sorted.take(15).map { it.id })
             liveActivityManager?.syncWithConversations(sorted)
@@ -245,7 +310,10 @@ class ConversationListViewModel(
         return emptyList()
     }
 
-    private fun mergeWithLocalConversations(serverList: List<ConversationItem>): List<ConversationItem> {
+    private fun mergeWithLocalConversations(
+        serverList: List<ConversationItem>,
+        forceReorder: Boolean = true
+    ): List<ConversationItem> {
         prefs.purgeExpiredTombstones()
         val drafts = prefs.loadLocalDraftConversations()
         val serverFiltered = serverList.filter {
@@ -293,7 +361,8 @@ class ConversationListViewModel(
 
         // Server list is authoritative for server conversations.
         // Any conversation deleted on computer is immediately removed.
-        return sortConversations(drafts + enrichedServerItems)
+        val sorted = sortConversations(drafts + enrichedServerItems)
+        return applyReorderBuffer(sorted, forceReorder)
     }
 
     suspend fun loadInitialData(): Boolean {
@@ -565,6 +634,7 @@ class ConversationListViewModel(
             if (item.id == cascadeId) item.copy(isPinned = willPin) else item
         }
         rawConversations = sortConversations(rawConversations)
+        markReorderedNow()
         persistConversationsToCache(rawConversations)
         applyFilter()
 
@@ -725,6 +795,7 @@ class ConversationListViewModel(
         prefs.clear()
         _uiState.value = ConversationListUiState.Success(emptyList())
         rawConversations = emptyList()
+        lastReorderAtMs = 0L
         _projects.value = emptyList()
         _projectsError.value = null
         _quotaData.value = null

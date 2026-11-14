@@ -422,6 +422,67 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
+const REORDER_COOLDOWN_MS = 8000;
+let lastConvReorderAt = 0;
+let lastConvOrderIds = [];
+let pendingConvReorderTimer = null;
+
+function applyConversationReorderBuffer(sortedItems, forceReorder = false) {
+  const now = Date.now();
+  if (
+    forceReorder ||
+    lastConvOrderIds.length === 0 ||
+    lastConvReorderAt === 0 ||
+    now - lastConvReorderAt >= REORDER_COOLDOWN_MS
+  ) {
+    lastConvReorderAt = now;
+    lastConvOrderIds = sortedItems.map((item) => item.id);
+    if (pendingConvReorderTimer) {
+      clearTimeout(pendingConvReorderTimer);
+      pendingConvReorderTimer = null;
+    }
+    return sortedItems;
+  }
+
+  const newById = new Map(sortedItems.map((item) => [item.id, item]));
+  const prevIdSet = new Set(lastConvOrderIds);
+  const preserved = [];
+  for (const id of lastConvOrderIds) {
+    const item = newById.get(id);
+    if (item) preserved.push(item);
+  }
+  const added = sortedItems.filter((item) => !prevIdSet.has(item.id));
+  const isPinned = (item) => Boolean(item.annotations?.pinned);
+  const buffered = [
+    ...added.filter(isPinned),
+    ...preserved.filter(isPinned),
+    ...added.filter((item) => !isPinned(item)),
+    ...preserved.filter((item) => !isPinned(item)),
+  ];
+
+  lastConvOrderIds = buffered.map((item) => item.id);
+
+  const orderChanged =
+    buffered.length === sortedItems.length &&
+    buffered.some((item, idx) => item.id !== sortedItems[idx].id);
+  if (orderChanged) {
+    if (!pendingConvReorderTimer) {
+      const remaining = Math.max(50, REORDER_COOLDOWN_MS - (now - lastConvReorderAt));
+      pendingConvReorderTimer = setTimeout(() => {
+        pendingConvReorderTimer = null;
+        if (currentTrajectories && isConversationListActive()) {
+          renderConversationList(currentTrajectories, { forceReorder: true });
+        }
+      }, remaining);
+    }
+  } else if (pendingConvReorderTimer) {
+    clearTimeout(pendingConvReorderTimer);
+    pendingConvReorderTimer = null;
+  }
+
+  return buffered;
+}
+
 async function loadConversations(quiet = false) {
   const listEl = document.getElementById("conversations-list");
   refreshGatewayCompat();
@@ -430,7 +491,7 @@ async function loadConversations(quiet = false) {
     const summaries = data.trajectorySummaries || {};
     currentTrajectories = summaries;
 
-    renderConversationList(summaries);
+    renderConversationList(summaries, { forceReorder: !quiet });
   } catch (err) {
     if (quiet) {
       // Background refresh: keep showing the last good list instead of replacing it with an error.
@@ -521,7 +582,7 @@ async function markConversationAsRead(cascadeId) {
   } catch (e) {}
 }
 
-function renderConversationList(summaries) {
+function renderConversationList(summaries, { forceReorder = false } = {}) {
   const listEl = document.getElementById("conversations-list");
   const searchInput = document.getElementById("conv-search");
   const clearBtn = document.getElementById("btn-search-clear");
@@ -535,7 +596,7 @@ function renderConversationList(summaries) {
     }
   }
 
-  const items = Object.entries(summaries)
+  const sortedAll = Object.entries(summaries)
     .filter(([, info]) => !isSubagentSummary(info))
     .map(([id, info]) => ({ id, ...info }))
     .sort((a, b) => {
@@ -543,7 +604,9 @@ function renderConversationList(summaries) {
       const bPinned = Boolean(b.annotations?.pinned);
       if (aPinned !== bPinned) return aPinned ? -1 : 1;
       return new Date(b.lastModifiedTime || 0) - new Date(a.lastModifiedTime || 0);
-    })
+    });
+
+  const items = applyConversationReorderBuffer(sortedAll, forceReorder)
     .filter((item) => {
       if (!query) return true;
       const title = formatConversationTitle(item.annotations, item.summary, "").toLowerCase();
