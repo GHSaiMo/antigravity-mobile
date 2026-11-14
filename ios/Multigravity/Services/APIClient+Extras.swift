@@ -338,4 +338,80 @@ extension APIClient {
             failurePrefix: "操作定时任务失败"
         )
     }
+
+    // MARK: - Workflow 模板持久化同步接口
+
+    private func gatewayJSONRequest<Resp: Decodable>(
+        method: String,
+        path: String,
+        bodyData: Data? = nil,
+        baseURL: URL,
+        timeout: TimeInterval = 15,
+        failurePrefix: String
+    ) async throws -> Resp {
+        var request = URLRequest(url: baseURL.appendingPathComponent(path))
+        request.httpMethod = method
+        if let bodyData {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = bodyData
+        }
+        request.timeoutInterval = timeout
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await transport.send(request: request)
+        } catch {
+            throw APIError.networkError(error.localizedDescription)
+        }
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.networkError("Invalid response type")
+        }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 {
+                NotificationCenter.default.post(name: .deviceTokenRevoked, object: nil)
+            }
+            let msg = (try? JSONDecoder().decode(GatewayErrorBody.self, from: data))?.error
+                ?? String(data: data, encoding: .utf8)
+                ?? "HTTP \(http.statusCode)"
+            throw APIError.serverError(statusCode: http.statusCode, message: "\(failurePrefix): \(msg)")
+        }
+        do {
+            return try JSONDecoder().decode(Resp.self, from: data)
+        } catch {
+            throw APIError.decodingError(error.localizedDescription)
+        }
+    }
+
+    /// 获取有序 Workflow 模板列表（GET /gateway/workflow-templates）。
+    public func fetchWorkflowTemplates(baseURL: URL) async throws -> WorkflowTemplatesResponse {
+        try await gatewayJSONRequest(
+            method: "GET",
+            path: "gateway/workflow-templates",
+            baseURL: baseURL,
+            failurePrefix: "获取 Workflow 模板失败"
+        )
+    }
+
+    /// 保存有序 Workflow 模板列表（PUT /gateway/workflow-templates）。
+    public func saveWorkflowTemplates(_ templates: [WorkflowTemplateRecord], baseURL: URL) async throws -> WorkflowTemplatesResponse {
+        let body = try JSONEncoder().encode(WorkflowTemplatesUpdateRequest(templates: templates))
+        return try await gatewayJSONRequest(
+            method: "PUT",
+            path: "gateway/workflow-templates",
+            bodyData: body,
+            baseURL: baseURL,
+            failurePrefix: "保存 Workflow 模板失败"
+        )
+    }
+
+    /// 重置 Workflow 模板列表为系统默认（DELETE /gateway/workflow-templates）。
+    public func resetWorkflowTemplates(baseURL: URL) async throws -> WorkflowTemplatesResponse {
+        try await gatewayJSONRequest(
+            method: "DELETE",
+            path: "gateway/workflow-templates",
+            baseURL: baseURL,
+            failurePrefix: "重置 Workflow 模板失败"
+        )
+    }
 }

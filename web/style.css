@@ -7388,3 +7388,306 @@ body.font-comfortable pre, body.font-comfortable code {
   border: 1px solid var(--border-color);
 }
 
+
+/* Workflow Templates Sheet (web/js/workflows.js) */
+#workflows-body {
+  padding: 12px 16px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.wf-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 2px;
+}
+.wf-banner-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(88, 86, 214, 0.16);
+  color: var(--ios-indigo);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.wf-banner-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ios-label);
+}
+.wf-banner-sub {
+  font-size: 12px;
+  color: var(--ios-secondary-label);
+  margin-top: 2px;
+}
+.wf-error-banner {
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: rgba(255, 59, 48, 0.12);
+  border: 1px solid rgba(255, 59, 48, 0.3);
+  color: #ff3b30;
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+.wf-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.wf-card {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--ios-secondary-bg);
+  border: 0.5px solid var(--ios-separator);
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.12s ease, opacity 0.15s ease, border-color 0.15s ease;
+  color: var(--ios-label);
+}
+button.wf-card:active {
+  transform: scale(0.985);
+  opacity: 0.85;
+}
+.wf-card.editing {
+  cursor: default;
+}
+.wf-card.dragging {
+  opacity: 0.92;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+  border-color: var(--ios-indigo);
+  z-index: 5;
+  position: relative;
+}
+.wf-card.drop-above {
+  box-shadow: inset 0 2px 0 var(--ios-indigo);
+}
+.wf-card.drop-below {
+  box-shadow: inset 0 -2px 0 var(--ios-indigo);
+}
+.wf-drag-handle {
+  width: 28px;
+  height: 36px;
+  border: none;
+  background: transparent;
+  color: var(--ios-secondary-label);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  touch-action: none;
+  flex-shrink: 0;
+  padding: 0;
+}
+.wf-drag-handle:active {
+  cursor: grabbing;
+}
+.wf-card-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.wf-card-text {
+  flex: 1;
+  min-width: 0;
+}
+.wf-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ios-label);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wf-card-subtitle {
+  font-size: 11.5px;
+  color: var(--ios-secondary-label);
+  margin-top: 3px;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.wf-card-chevron {
+  color: var(--ios-tertiary-label, var(--ios-secondary-label));
+  flex-shrink: 0;
+}
+.wf-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.wf-icon-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 0.5px solid var(--ios-separator);
+  background: var(--ios-bg);
+  color: var(--ios-label);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+.wf-icon-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.wf-icon-btn.danger {
+  color: #ff3b30;
+  border-color: rgba(255, 59, 48, 0.3);
+}
+.wf-edit-footer {
+  display: flex;
+  justify-content: center;
+  padding-top: 6px;
+}
+.wf-reset-btn {
+  border: none;
+  background: transparent;
+  color: #ff3b30;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+.wf-reset-confirm {
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(255, 59, 48, 0.08);
+  border: 1px solid rgba(255, 59, 48, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--ios-label);
+}
+.wf-reset-confirm-btns {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.wf-action-pill {
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 0.5px solid var(--ios-separator);
+  background: var(--ios-secondary-bg);
+  color: var(--ios-label);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.wf-action-pill.primary {
+  background: var(--ios-indigo);
+  border-color: var(--ios-indigo);
+  color: #fff;
+}
+.wf-action-pill.danger {
+  background: #ff3b30;
+  border-color: #ff3b30;
+  color: #fff;
+}
+.wf-empty-state {
+  padding: 36px 16px;
+  text-align: center;
+  color: var(--ios-secondary-label);
+  font-size: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+.wf-empty-actions {
+  display: flex;
+  gap: 10px;
+}
+.wf-form-container {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.wf-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.wf-form-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ios-label);
+}
+.wf-required {
+  color: #ff3b30;
+}
+.wf-form-input,
+.wf-form-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border-radius: 10px;
+  border: 1px solid var(--ios-separator);
+  background: var(--ios-secondary-bg);
+  color: var(--ios-label);
+  font-size: 14px;
+  padding: 10px 12px;
+  font-family: inherit;
+  outline: none;
+}
+.wf-form-input:focus,
+.wf-form-textarea:focus {
+  border-color: var(--ios-indigo);
+}
+.wf-form-textarea {
+  resize: vertical;
+  min-height: 110px;
+  line-height: 1.45;
+}
+.wf-color-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+}
+.wf-color-dot {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.12s ease;
+}
+.wf-color-dot.active {
+  transform: scale(1.15);
+  box-shadow: 0 0 0 2px var(--ios-bg), 0 0 0 4px var(--ios-label);
+}
+.wf-icon-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+}
+.wf-icon-option {
+  height: 40px;
+  border-radius: 10px;
+  border: 1px solid var(--ios-separator);
+  background: var(--ios-secondary-bg);
+  color: var(--ios-secondary-label);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}

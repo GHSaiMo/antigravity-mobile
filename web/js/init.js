@@ -127,6 +127,7 @@ function initApp() {
   initContentSearch();
   initMessageActions();
   initSlashCommands();
+  if (typeof initWorkflowTemplates === "function") initWorkflowTemplates();
   initChangesSheet();
   initGitSheet();
   initModelSettings();

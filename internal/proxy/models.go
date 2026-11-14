@@ -33,7 +33,7 @@ const (
 type ModelOption struct {
 	ID             string `json:"id"`
 	Name           string `json:"name"`
-	Provider       string `json:"provider"` // "gemini" | "claude" | "other"
+	Provider       string `json:"provider"` // "gemini" | "claude" | "orchestrator" | "other"
 	Enum           string `json:"enum,omitempty"`
 	SupportsImages bool   `json:"supportsImages,omitempty"`
 	Thinking       bool   `json:"thinking,omitempty"`
@@ -51,8 +51,9 @@ type ModelsResponse struct {
 
 // 兜底默认值候选（按优先级排列）：实时列表里存在时才会被采用。
 var preferredDefaults = map[string][]string{
-	"gemini": {"gemini-3.8-flash-high", "gemini-4-carbon-high", "gemini-4-argon-high"},
-	"claude": {"claude-opus-4-6-thinking", "claude-opus-5-5-high"},
+	"gemini":       {"gemini-3.8-flash-high", "gemini-4-carbon-high", "gemini-4-argon-high"},
+	"claude":       {"claude-opus-4-6-thinking", "claude-opus-5-5-high"},
+	"orchestrator": {"gemini-pro-orchestrator", "gemini-pro-orchestrator-argon"},
 }
 
 // fallbackModels is used until the first successful query, or when language_server is unreachable.
@@ -113,6 +114,8 @@ var liveModels = &modelRegistry{}
 func providerOf(modelProvider, id string) string {
 	lower := strings.ToLower(modelProvider + " " + id)
 	switch {
+	case strings.Contains(lower, "orch"):
+		return "orchestrator"
 	case strings.Contains(lower, "anthropic") || strings.Contains(lower, "claude"):
 		return "claude"
 	case strings.Contains(lower, "google") || strings.Contains(lower, "gemini"):
@@ -154,7 +157,7 @@ func legacyRank(id string) int {
 
 var (
 	versionRe  = regexp.MustCompile(`\d+(?:\.\d+)*`)
-	effortRank = map[string]int{"high": 0, "medium": 1, "low": 2}
+	effortRank = map[string]int{"xhigh": 0, "extra": 0, "high": 1, "medium": 2, "low": 3}
 )
 
 // versionKey extracts the numeric version from a display name ("Gemini 3.8 Flash (High)" -> [3 8]).
@@ -259,8 +262,8 @@ func buildModelTables(raw map[string]upstreamModel, curatedIDs []string) (option
 			options = append(options, opt)
 		}
 		if len(options) > 0 {
-			// 厂商分组（gemini / claude / other），组内保持官方顺序
-			rank := map[string]int{"gemini": 0, "claude": 1, "other": 2}
+			// 厂商分组（gemini / claude / orchestrator / other），组内保持官方顺序
+			rank := map[string]int{"gemini": 0, "claude": 1, "orchestrator": 2, "other": 3}
 			sort.SliceStable(options, func(i, j int) bool { return rank[options[i].Provider] < rank[options[j].Provider] })
 			return options, byID, byEnum
 		}

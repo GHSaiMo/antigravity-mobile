@@ -3,7 +3,7 @@
 ### ✨ 核心新功能与重要更新
 
 - ⚡ **Antigravity 2.32+ 动态多智能体工作流全生命周期落地（Dynamic Workflows / `run_workflow` 原语架构 - Go 网关 + iOS + Android + Web PWA）**：
-  - **快捷发起与模板预设库**：输入栏快捷操作区新增固定于模型按钮右侧的 `Workflow` 按钮，联动 `/workflow` 斜杠指令，支持从底部拉起「Antigravity 动态工作流」模板抽屉（内置并发代码审查、并发单测与故障定位、多维度综合调研、自定义动态工作流四大高频模板），自动注入带占位符的结构化编排提示词；
+  - **快捷发起与自定义模板库**：输入栏快捷操作区新增固定于模型按钮右侧的 `Workflow` 按钮，联动 `/workflow` 斜杠指令，支持从底部拉起「Workflow 模板」抽屉（内置并发代码审查、并发单测与故障定位、多维度综合调研、自定义动态工作流四大高频模板）；现已全面支持 **iOS + Android + Web** 三端新增/编辑/删除自定义流程（支持任意 Prompt 或斜杠命令、自定义图标与主题色）、编辑态拖拽排序与恢复默认，并由 Go 网关 `/gateway/workflow-templates` 持久化同步与各端本地缓存兜底；
   - **专属安全审批卡（WorkflowApprovalCard）**：Go 网关智能拦截 `run_workflow` 调用并解析提取 Python 编排脚本、预估阶段、并发 Sub-Agents 拓扑；前端展示脚本概览、可折叠 Python 代码预览（含行数与快速复制）与四档安全决策（允许本次执行 / 本会话始终允许 / 拒绝 / 补充反馈打回）；
   - **阶段拓扑看板（WorkflowStageCard）**：阶段流转轴（Phase 1 ➔ 2 ➔ 3 Stepper 状态图标与单阶段耗时）、并发智能体网格（Sub-agents Matrix Grid）、实时日志流（代码高亮可折叠 Live Logs 控制台）与结果 Schema 产物展示；
   - **原位穿透与双层控制**：轻触任一子智能体即可弹出半屏详情抽屉（`SubagentDetailSheet`），原地翻阅 Prompt、状态及实时产物而不中断主会话；提供看板全局一键终止工作流与抽屉单点终止子智能体的双层熔断控制；

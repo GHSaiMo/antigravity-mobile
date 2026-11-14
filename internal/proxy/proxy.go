@@ -559,6 +559,10 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		p.HandleSlashCommands(w, r)
 		return
 	}
+	if r.URL.Path == "/gateway/workflow-templates" {
+		p.HandleWorkflowTemplates(w, r)
+		return
+	}
 	if r.URL.Path == "/gateway/models" {
 		p.HandleModels(w, r)
 		return
