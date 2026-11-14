@@ -652,25 +652,31 @@ private struct WorkflowTemplateEditorSheet: View {
 
                 Section("图标与主题色") {
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 14) {
+                        HStack(spacing: 12) {
                             ForEach(WorkflowTemplateStyle.colors) { c in
+                                let selected = color == c.key
                                 Button {
                                     color = c.key
                                 } label: {
-                                    Circle()
-                                        .fill(c.color)
-                                        .frame(width: 28, height: 28)
-                                        .overlay(
+                                    ZStack {
+                                        if selected {
                                             Circle()
-                                                .stroke(Color.primary, lineWidth: color == c.key ? 2.5 : 0)
-                                                .padding(-3)
-                                        )
+                                                .strokeBorder(Color.primary, lineWidth: 2.2)
+                                                .frame(width: 34, height: 34)
+                                        }
+                                        Circle()
+                                            .fill(c.color)
+                                            .frame(width: 26, height: 26)
+                                    }
+                                    .frame(width: 36, height: 36)
+                                    .contentShape(Circle())
                                 }
                                 .buttonStyle(.plain)
                                 .accessibilityLabel(c.label)
                             }
                         }
-                        .padding(.vertical, 6)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 4)
                     }
 
                     let selectedColor = WorkflowTemplateStyle.color(for: color)
@@ -689,7 +695,7 @@ private struct WorkflowTemplateEditorSheet: View {
                                     .cornerRadius(10)
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 10)
-                                            .stroke(active ? selectedColor : .clear, lineWidth: 1.5)
+                                            .strokeBorder(active ? selectedColor : .clear, lineWidth: 1.5)
                                     )
                             }
                             .buttonStyle(.plain)
